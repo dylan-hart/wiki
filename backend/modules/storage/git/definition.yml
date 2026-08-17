@@ -17,8 +17,9 @@ versioning:
   isSupported: true
   defaultEnabled: true
   isForceEnabled: true
-# Synchronization (direction and schedule) is not modelled yet — nothing reads a sync declaration, so
-# this module currently only holds configuration.
+supportedModes: [sync, push, pull]
+defaultMode: sync
+schedule: PT5M
 props:
   authType:
     type: String

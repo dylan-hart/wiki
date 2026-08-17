@@ -16,6 +16,9 @@ contentTypes:
 versioning:
   isSupported: false
   defaultEnabled: false
+supportedModes: [push]
+defaultMode: push
+schedule: false
 props:
   path:
     type: String

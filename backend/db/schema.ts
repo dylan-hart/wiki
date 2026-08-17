@@ -658,6 +658,10 @@ export const storage = pgTable(
     assetDelivery: jsonb().notNull().default({}),
     // -> `{ enabled: boolean }`
     versioning: jsonb().notNull().default({}),
+    // -> One of the module's declared `supportedModes`, e.g. `sync` / `push` / `pull`
+    syncMode: varchar({ length: 32 }).notNull().default('push'),
+    // -> ISO-8601 duration overriding the module's declared `schedule`, or null to trust it
+    scheduleOverride: varchar({ length: 32 }),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
     // -> Where the module stands, as opposed to how it is configured: `{ setup: 'notconfigured' |

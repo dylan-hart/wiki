@@ -15,6 +15,9 @@ export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large']
  */
 const DB_MODULE = 'db'
 
+/** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
+const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+
 /** An action a module knows how to run on demand, as declared by its `definition.yml`. */
 export interface StorageAction {
   /** Key of the handler on the module implementation, i.e. what gets called. */
@@ -51,6 +54,15 @@ export interface StorageDefinition {
     isForceEnabled: boolean
     defaultEnabled: boolean
   }
+  /** The sync modes this module knows how to run in, e.g. `['sync', 'push', 'pull']`. */
+  supportedModes: string[]
+  /** The mode a newly-created target for this module starts in. */
+  defaultMode: string
+  /**
+   * How often the module syncs on its own, as an ISO-8601 duration (e.g. `PT5M`), or `false` for a
+   * module that only ever acts on write — nothing to schedule.
+   */
+  schedule: string | false
   /** Declared by modules that cannot be configured by hand, e.g. an app installed on a provider. */
   setup?: {
     handler: string
@@ -94,6 +106,12 @@ export interface StorageTarget {
     isForceEnabled: boolean
     enabled: boolean
   }
+  sync: {
+    supportedModes: string[]
+    schedule: string | false
+    mode: string
+    scheduleOverride: string | null
+  }
   setup?: {
     handler: string
     state: string
@@ -118,6 +136,10 @@ export interface StorageTargetInput {
   }
   versioning?: {
     enabled?: boolean
+  }
+  sync?: {
+    mode?: string
+    scheduleOverride?: string | null
   }
   config?: Record<string, any>
 }
@@ -182,6 +204,10 @@ class Storage {
           defaultEnabled: false,
           ...parsed.versioning
         }
+        // -> A module that declares nothing about sync only ever acts on write, in one mode
+        parsed.supportedModes = parsed.supportedModes ?? ['push']
+        parsed.defaultMode = parsed.defaultMode ?? parsed.supportedModes[0]
+        parsed.schedule = parsed.schedule ?? false
         parsed.hasImplementation = await this.hasImplementation(dir)
         definitions.push(parsed as StorageDefinition)
       }
@@ -252,6 +278,7 @@ class Storage {
         versioning: {
           enabled: definition.versioning.isForceEnabled || definition.versioning.defaultEnabled
         },
+        syncMode: definition.defaultMode,
         config: this.buildConfig(definition.key),
         state: definition.setup ? { setup: 'notconfigured' } : {}
       })
@@ -338,6 +365,12 @@ class Storage {
           isSupported: definition.versioning.isSupported,
           isForceEnabled: definition.versioning.isForceEnabled,
           enabled: versioning.enabled ?? false
+        },
+        sync: {
+          supportedModes: definition.supportedModes,
+          schedule: definition.schedule,
+          mode: row.syncMode,
+          scheduleOverride: row.scheduleOverride
         },
         // -> Only offered for a module that can actually run its setup process
         ...(definition.setup &&
@@ -472,6 +505,23 @@ class Storage {
     if (largeThreshold !== undefined && !/^\d+(\.\d+)?\s?(B|KB|MB|GB|TB)$/i.test(largeThreshold)) {
       return `"${largeThreshold}" is not a valid size threshold. Use a size such as "5MB".`
     }
+    if (patch.sync?.mode !== undefined) {
+      // -> A module with only one supported mode offers no choice, so there is nothing to change
+      if (definition.supportedModes.length <= 1) {
+        return `${definition.title} does not support changing its sync mode.`
+      }
+      if (!definition.supportedModes.includes(patch.sync.mode)) {
+        return `"${patch.sync.mode}" is not a valid sync mode for ${definition.title}.`
+      }
+    }
+    if (patch.sync?.scheduleOverride !== undefined && patch.sync.scheduleOverride !== null) {
+      if (definition.schedule === false) {
+        return `${definition.title} does not sync on a schedule.`
+      }
+      if (!ISO_DURATION_PATTERN.test(patch.sync.scheduleOverride)) {
+        return `"${patch.sync.scheduleOverride}" is not a valid ISO-8601 duration.`
+      }
+    }
     return this.validateConfig(target.module, patch.config)
   }
 
@@ -519,6 +569,12 @@ class Storage {
           (definition.versioning.isSupported &&
             (patch.versioning.enabled ?? target.versioning.enabled))
       }
+    }
+    if (patch.sync?.mode !== undefined) {
+      values.syncMode = patch.sync.mode
+    }
+    if (patch.sync?.scheduleOverride !== undefined) {
+      values.scheduleOverride = patch.sync.scheduleOverride
     }
     if (patch.config !== undefined) {
       values.config = this.buildConfig(target.module, patch.config, target.config)
