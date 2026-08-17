@@ -1,5 +1,55 @@
 <template>
   <w-page class="py-4">
+    <!--
+      Notifications first, Watching second: this is the page the bell in `InboxLayout`'s sidebar
+      points at (task 535 reuses its `la:bell` icon rather than adding a second nav item), and what
+      that bell is FOR is unread notifications — the list of watched pages underneath is the source
+      those notifications come from, not the more urgent of the two.
+    -->
+    <div class="w-section-header">{{ t('inbox.notificationsTitle') }}</div>
+    <div class="p-4">
+      <div class="text-body2">{{ t('inbox.notificationsInfo') }}</div>
+      <w-banner
+        v-if="state.notifications.length < 1 && state.loadingNotifications < 1"
+        class="mt-6"
+        rounded
+        :class="dark.isActive ? `bg-dark-4 text-grey-4` : `bg-grey-2 text-grey-8`">
+        <div>{{ t('inbox.notificationsNone') }}</div>
+      </w-banner>
+      <w-list v-else class="mt-6" bordered separator>
+        <w-item
+          v-for="notification of state.notifications"
+          :key="notification.id"
+          clickable
+          @click="openNotification(notification)">
+          <w-item-section avatar>
+            <w-avatar color="primary" text-color="white" rounded>
+              <w-icon name="la:bell" />
+            </w-avatar>
+          </w-item-section>
+          <w-item-section>
+            <w-item-label>{{ notificationLine(notification) }}</w-item-label>
+            <w-item-label caption>/{{ notification.pagePath }}</w-item-label>
+            <w-item-label caption>{{ humanizeDate(notification.createdAt) }}</w-item-label>
+          </w-item-section>
+          <w-item-section side>
+            <!-- `@click.stop`, so marking read does not also follow the row to the page. -->
+            <w-btn
+              class="acrylic-btn"
+              flat
+              dense
+              icon="mdi:check"
+              color="grey"
+              :aria-label="t(`inbox.notificationsMarkRead`)"
+              :disable="state.markingRead === notification.id"
+              @click.stop="markRead(notification)">
+              <w-tooltip>{{ t('inbox.notificationsMarkRead') }}</w-tooltip>
+            </w-btn>
+          </w-item-section>
+        </w-item>
+      </w-list>
+    </div>
+
     <div class="w-section-header">{{ t('inbox.watching') }}</div>
     <div class="p-4">
       <div class="text-body2">{{ t('inbox.watchingInfo') }}</div>
@@ -103,12 +153,17 @@ const state = reactive({
   loading: 0,
   pages: [],
   /** The page whose Stop Watching is in flight, so its button cannot be pressed twice. */
-  unwatching: null
+  unwatching: null,
+  loadingNotifications: 0,
+  notifications: [],
+  /** The notification whose Mark Read is in flight, so its button cannot be pressed twice. */
+  markingRead: null
 })
 
 // MOUNTED
 
 onMounted(load)
+onMounted(loadNotifications)
 
 // METHODS
 
@@ -117,6 +172,12 @@ function humanizeDate(val) {
     dateStyle: 'medium',
     timeStyle: 'short'
   })
+}
+
+/** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */
+function notificationLine(notification) {
+  const key = `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`
+  return t(key, { actor: notification.actorName, title: notification.pageTitle })
 }
 
 async function load() {
@@ -133,8 +194,64 @@ async function load() {
   state.loading--
 }
 
+/**
+ * Load the caller's unread notifications (task 535).
+ *
+ * A separate request/loading flag from `load()` above rather than one combined fetch: the two lists
+ * come from different endpoints, and a slow watch list must not hold up notifications from showing
+ * (or the other way around).
+ */
+async function loadNotifications() {
+  state.loadingNotifications++
+  try {
+    state.notifications = (await API_CLIENT.get(`sites/${siteStore.id}/notifications`).json()) ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('inbox.notificationsLoadFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.loadingNotifications--
+}
+
 function openPage(page) {
   router.push(`/${page.path}`)
+}
+
+/**
+ * Mark a notification read from the list, then follow it to the page it is about — a click on the row
+ * is "take me there," and reading it along the way is the natural side effect, not a separate step.
+ *
+ * The row is dropped from the list on the server's confirmation, the same "known exactly, so don't
+ * refetch the whole list" reasoning `unwatch()` below already uses. `EVENT_BUS` tells the header badge
+ * (`HeaderNav.vue`) to re-check its count rather than this component trying to keep it in sync itself —
+ * the badge is reachable from layouts this page has no reference to.
+ */
+async function openNotification(notification) {
+  await markRead(notification, { silent: true })
+  router.push(`/${notification.pagePath}`)
+}
+
+async function markRead(notification, { silent = false } = {}) {
+  if (state.markingRead === notification.id) {
+    return
+  }
+  state.markingRead = notification.id
+  try {
+    await API_CLIENT.patch(`sites/${siteStore.id}/notifications/${notification.id}/read`)
+    state.notifications = state.notifications.filter((n) => n.id !== notification.id)
+    EVENT_BUS.emit('notificationsChanged')
+  } catch (err) {
+    if (!silent) {
+      notify({
+        type: 'negative',
+        message: t('inbox.notificationsMarkReadFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  }
+  state.markingRead = null
 }
 
 /**

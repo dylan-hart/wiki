@@ -576,6 +576,18 @@ export const pageWatching = pgTable(
  * that table is exactly what a delete's cascade removes (see above), so the digest job has no row
  * left to ask "was this one digest or immediate?" by the time it runs — the answer `listWatchers`
  * already resolved when this row was written is the only copy that survives.
+ *
+ * `readAt` (task 535) is deliberately a second, independent nullable timestamp rather than a repurposed
+ * `deliveredAt`: they answer different questions that can disagree in either direction. `deliveredAt`
+ * means "mail went out for this row" — set by `notify-page-watchers.ts` / `send-watch-digests.ts` and
+ * read by the digest job to decide what still needs sending — and is set on a row nobody has looked at
+ * in the app yet. `readAt` means "this user has seen it in the in-app inbox," which can happen before
+ * any mail goes out at all (an `immediate` send that is still in flight, or a `digest` row that will
+ * not mail for up to a day) or might never happen even after mail sends successfully. Collapsing the two
+ * would make the in-app inbox mark something delivered without ever sending it (`send-watch-digests.ts`
+ * would then skip a real email for a row a reader only glanced at) or leave the inbox unable to
+ * distinguish "not sent yet" from "sent but not read" — both of which are genuinely different states a
+ * future admin view might one day want to tell apart.
  */
 export const pageWatchEvents = pgTable(
   'pageWatchEvents',
@@ -590,6 +602,8 @@ export const pageWatchEvents = pgTable(
       .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp().notNull().defaultNow(),
     deliveredAt: timestamp(),
+    /** When the recipient saw this in the in-app inbox — null until then. See this table's own comment. */
+    readAt: timestamp(),
     pageId: uuid().notNull(),
     /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
     pageTitle: text().notNull(),
@@ -611,7 +625,12 @@ export const pageWatchEvents = pgTable(
     index('pageWatchEvents_pending_idx')
       .on(table.userId, table.notifyMode, table.createdAt)
       .where(sql`"deliveredAt" IS NULL`),
-    index('pageWatchEvents_pageId_idx').on(table.pageId)
+    index('pageWatchEvents_pageId_idx').on(table.pageId),
+    // -> "This user's unread in-app notifications, newest first" -- the in-app inbox's own query
+    //    (`pageWatchEvents.listForUser`), scoped to a site the same way `pageWatching_user_site_idx` is.
+    index('pageWatchEvents_unread_idx')
+      .on(table.userId, table.siteId, table.createdAt)
+      .where(sql`"readAt" IS NULL`)
   ]
 )
 

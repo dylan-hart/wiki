@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { pageWatchEvents as pageWatchEventsTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
@@ -40,6 +40,21 @@ export interface PendingDigestEvent {
   actorId: string | null
 }
 
+/** One unread notification, as the in-app inbox (task 535) lists it. */
+export interface InboxNotification {
+  id: string
+  pageId: string
+  pageTitle: string
+  pagePath: string
+  action: PageWatchNotifiableAction
+  changedFields: string[]
+  actorId: string | null
+  createdAt: Date
+}
+
+/** How many unread rows the in-app inbox lists before it stops — plenty for a badge/list, not a feed. */
+const INBOX_LIST_LIMIT = 50
+
 /**
  * Page watch events model
  *
@@ -50,6 +65,10 @@ export interface PendingDigestEvent {
  * eventually works through. (A pending `immediate` row also exists — a failed send is left pending
  * rather than thrown, see that task's own doc comment — but it is not this model's job to tell the
  * two apart at read time beyond what `listPendingForDigest` already filters on.)
+ *
+ * It is also, since task 535, the in-app notification inbox: `listForUser`/`markRead`/`unreadCount`
+ * read and write the separate `readAt` column (see `db/schema.ts#pageWatchEvents`'s own comment on why
+ * it is not `deliveredAt`), independent of whatever mail delivery has or hasn't done with a row.
  */
 class PageWatchEvents {
   /**
@@ -127,6 +146,86 @@ class PageWatchEvents {
       .update(pageWatchEventsTable)
       .set({ deliveredAt: sql`now()` })
       .where(inArray(pageWatchEventsTable.id, ids))
+  }
+
+  /**
+   * This user's unread notifications on this site, newest first — what the in-app inbox lists.
+   *
+   * Scoped to `siteId` for the same reason `pageWatching_user_site_idx` is: the inbox belongs to a
+   * site. Capped at `INBOX_LIST_LIMIT` rather than paginated — a genuinely unbounded backlog of unread
+   * notifications is not a case this first cut needs to handle gracefully, and the badge this feeds
+   * (`unreadCount`) is a separate, un-capped query anyway.
+   */
+  async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
+    return WIKI.db
+      .select({
+        id: pageWatchEventsTable.id,
+        pageId: pageWatchEventsTable.pageId,
+        pageTitle: pageWatchEventsTable.pageTitle,
+        pagePath: pageWatchEventsTable.pagePath,
+        action: pageWatchEventsTable.action,
+        changedFields: pageWatchEventsTable.changedFields,
+        actorId: pageWatchEventsTable.actorId,
+        createdAt: pageWatchEventsTable.createdAt
+      })
+      .from(pageWatchEventsTable)
+      .where(
+        and(
+          eq(pageWatchEventsTable.userId, userId),
+          eq(pageWatchEventsTable.siteId, siteId),
+          isNull(pageWatchEventsTable.readAt)
+        )
+      )
+      .orderBy(desc(pageWatchEventsTable.createdAt))
+      .limit(INBOX_LIST_LIMIT) as Promise<InboxNotification[]>
+  }
+
+  /**
+   * Mark one notification read, scoped to the caller so nobody can mark another user's row read by
+   * guessing its id. Returns whether the row exists and belongs to this user — the route's 404 vs 200.
+   *
+   * Idempotent like `watch`/`unwatch` elsewhere in this feature: marking an already-read row read again
+   * still answers `true`, because the outcome asked for (this notification is read) already holds. The
+   * `UPDATE ... WHERE readAt IS NULL` only touches the row on its first read, but the existence check
+   * that follows a no-op update is what makes a SECOND call also answer `true` instead of `false`.
+   */
+  async markRead(id: string, userId: string): Promise<boolean> {
+    const updated = await WIKI.db
+      .update(pageWatchEventsTable)
+      .set({ readAt: sql`now()` })
+      .where(
+        and(
+          eq(pageWatchEventsTable.id, id),
+          eq(pageWatchEventsTable.userId, userId),
+          isNull(pageWatchEventsTable.readAt)
+        )
+      )
+      .returning({ id: pageWatchEventsTable.id })
+    if (updated.length > 0) {
+      return true
+    }
+    const existing = await WIKI.db
+      .select({ id: pageWatchEventsTable.id })
+      .from(pageWatchEventsTable)
+      .where(and(eq(pageWatchEventsTable.id, id), eq(pageWatchEventsTable.userId, userId)))
+      .limit(1)
+    return existing.length > 0
+  }
+
+  /**
+   * How many unread notifications this user has on this site — the header badge's own query. A
+   * separate `SELECT count(*)` rather than `listForUser(...).length`, so the badge stays accurate past
+   * `INBOX_LIST_LIMIT` instead of capping out at the list's own page size.
+   */
+  async unreadCount(userId: string, siteId: string): Promise<number> {
+    return WIKI.db.$count(
+      pageWatchEventsTable,
+      and(
+        eq(pageWatchEventsTable.userId, userId),
+        eq(pageWatchEventsTable.siteId, siteId),
+        isNull(pageWatchEventsTable.readAt)
+      )
+    )
   }
 }
 
