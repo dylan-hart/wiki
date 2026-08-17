@@ -10,6 +10,26 @@ import type { ModuleProp } from '../helpers/common.ts'
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
 /**
+ * File extension a page's `contentType` is written under, for a target that stores pages as files
+ * (git, disk, ...) rather than DB rows. Keyed by the strings `EDITOR_CONTENT_TYPES` in
+ * `models/pages.ts` actually produces (`markdown`, `asciidoc`, `html`) — `redirect` and anything else
+ * has no natural file representation and falls through to `getFileExtension`'s `txt` fallback.
+ */
+export const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  markdown: 'md',
+  asciidoc: 'adoc',
+  html: 'html'
+}
+
+/**
+ * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
+ * Lives here, once, rather than as a switch re-implemented in every file-backed storage module.
+ */
+export function getFileExtension(contentType: string): string {
+  return CONTENT_TYPE_EXTENSIONS[contentType] ?? 'txt'
+}
+
+/**
  * The module every site stores its content in, and the only one that is guaranteed to work: assets
  * and pages live in the wiki database. It cannot be disabled, as that would leave content nowhere.
  */

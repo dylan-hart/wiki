@@ -8,9 +8,10 @@
  * config asks for — and returns a ready-to-use `simpleGit()` instance plus the resolved repo path
  * so a caller never has to re-derive either.
  *
- * Nothing here reads or writes page/asset content yet — that is the sync/dispatch work of later
- * tasks on this feature. This file is deliberately just the repo-lifecycle and auth plumbing they
- * will all share.
+ * The content-dispatch handlers (`created`/`updated`/`renamed`/`deleted`/`assetUploaded`/
+ * `assetRenamed`/`assetDeleted`) live in `content.ts` and are re-exported onto `gitStorageModule`
+ * below; `ensureRepo` is what every one of them calls first. Sync/import/purge action handlers
+ * declared in `definition.yml`'s `actions` block are still later work on this feature.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -22,6 +23,15 @@ import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import type { SimpleGit, SimpleGitOptions } from 'simple-git'
 import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
+import {
+  assetDeleted,
+  assetRenamed,
+  assetUploaded,
+  created,
+  deleted,
+  renamed,
+  updated
+} from './content.ts'
 
 /** Key of the `git` extension in `modules/extensions/`, used for the pre-flight detection check. */
 const GIT_EXTENSION_KEY = 'git'
@@ -204,6 +214,12 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
 
   await git.addConfig('http.sslVerify', config.verifySSL === false ? 'false' : 'true')
 
+  // -> A commit always needs a committer identity, regardless of the `--author` override the
+  //    write-path handlers pass per-commit (see `content.ts`) — git refuses to commit with neither
+  //    set, and this must never depend on whatever happens to be in the host's global git config.
+  await git.addConfig('user.name', config.defaultName || 'Wiki.js')
+  await git.addConfig('user.email', config.defaultEmail || 'noreply@example.com')
+
   if (config.authType === 'ssh') {
     const keyPath = await resolveSshKeyPath(repoPath, config)
     await git.addConfig('core.sshCommand', `ssh -i ${keyPath} -o StrictHostKeyChecking=no`)
@@ -216,7 +232,16 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
 }
 
 const gitStorageModule: StorageModule = {
-  ensureRepo
+  ensureRepo,
+  // -> Content-dispatch handlers (task 506) — see `content.ts` for the mapping and commit logic.
+  //    Called as `handler(target, data)` by the `dispatchStorage` worker task, per `StorageModule`.
+  created,
+  updated,
+  renamed,
+  deleted,
+  assetUploaded,
+  assetRenamed,
+  assetDeleted
 }
 
 export default gitStorageModule
