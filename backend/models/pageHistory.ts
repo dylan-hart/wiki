@@ -1,10 +1,12 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, lt, notExists, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
   users as usersTable
 } from '../db/schema.ts'
+import { CustomError } from '../helpers/common.ts'
+import type { Page, PageActor, PageInput } from './pages.ts'
 
 /**
  * The kinds of change a history row records.
@@ -104,6 +106,7 @@ export type PageHistoryEntry = {
   /** Empty when the site does not ask for a reason, or asked and was not answered. */
   reason: string
   versionDate: Date
+  locale: string
   path: string
   title: string
   author: PageHistoryAuthor
@@ -210,6 +213,7 @@ class PageHistory {
         changedFields: pageHistoryTable.changedFields,
         reason: pageHistoryTable.reason,
         versionDate: pageHistoryTable.versionDate,
+        locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
         authorId: usersTable.id,
@@ -227,6 +231,7 @@ class PageHistory {
       changedFields: row.changedFields ?? [],
       reason: row.reason ?? '',
       versionDate: row.versionDate,
+      locale: row.locale,
       path: row.path,
       title: row.title,
       author: {
@@ -255,6 +260,7 @@ class PageHistory {
         changedFields: pageHistoryTable.changedFields,
         reason: pageHistoryTable.reason,
         versionDate: pageHistoryTable.versionDate,
+        locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
         content: pageHistoryTable.content,
@@ -284,6 +290,7 @@ class PageHistory {
       changedFields: row.changedFields ?? [],
       reason: row.reason ?? '',
       versionDate: row.versionDate,
+      locale: row.locale,
       path: row.path,
       title: row.title,
       content: row.content ?? '',
@@ -294,6 +301,155 @@ class PageHistory {
         email: row.authorEmail ?? ''
       }
     }
+  }
+
+  /**
+   * Every deletion a site could still recover from — one row per path.
+   *
+   * A path can be deleted more than once (deleted, recreated, deleted again), so this is not simply
+   * "every `deleted` row": it is `DISTINCT ON (locale, path)`, newest `versionDate` first, which
+   * collapses that history down to the most recent deletion. And a path that was recovered, or reused
+   * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
+   * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
+   * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   */
+  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
+    const rows = await WIKI.db
+      .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
+        id: pageHistoryTable.id,
+        action: pageHistoryTable.action,
+        changedFields: pageHistoryTable.changedFields,
+        reason: pageHistoryTable.reason,
+        versionDate: pageHistoryTable.versionDate,
+        locale: pageHistoryTable.locale,
+        path: pageHistoryTable.path,
+        title: pageHistoryTable.title,
+        authorId: usersTable.id,
+        authorName: usersTable.name,
+        authorEmail: usersTable.email
+      })
+      .from(pageHistoryTable)
+      .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
+      .where(
+        and(
+          eq(pageHistoryTable.siteId, siteId),
+          eq(pageHistoryTable.action, 'deleted'),
+          notExists(
+            WIKI.db
+              .select({ exists: sql`1` })
+              .from(pagesTable)
+              .where(
+                and(
+                  eq(pagesTable.siteId, siteId),
+                  eq(pagesTable.locale, pageHistoryTable.locale),
+                  eq(pagesTable.path, pageHistoryTable.path)
+                )
+              )
+          )
+        )
+      )
+      .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
+
+    return rows.map((row: any) => ({
+      id: row.id,
+      action: row.action,
+      changedFields: row.changedFields ?? [],
+      reason: row.reason ?? '',
+      versionDate: row.versionDate,
+      locale: row.locale,
+      path: row.path,
+      title: row.title,
+      author: {
+        id: row.authorId ?? null,
+        name: row.authorName ?? '',
+        email: row.authorEmail ?? ''
+      }
+    }))
+  }
+
+  /**
+   * Bring a deleted page back, as a new page built from one specific deleted version.
+   *
+   * Looked up by `id` rather than "the latest deletion at this path", so a caller acting on a
+   * {@link listRecoverable} row recovers exactly the version it showed — not whatever happens to be
+   * newest by the time the request lands.
+   *
+   * The reconstructed input is driven through {@link WIKI.models.pages.createPage}, not written
+   * directly: duplicate-path, empty-title and empty-content checks all belong to `createPage` already,
+   * and re-deciding them here would be a second copy of the same rules to keep in sync. `overrides`
+   * exists for exactly the cases that check would reject unchanged — a path a newer page has since
+   * taken, or a locale the site no longer has — so a caller can steer the recreated page around the
+   * conflict instead of recovery being an all-or-nothing retry of the exact same input.
+   *
+   * @throws If no `deleted` version exists at this id for this site.
+   */
+  async recoverDeletedPage(
+    siteId: string,
+    versionId: string,
+    actor: PageActor,
+    overrides?: { path?: string; locale?: string }
+  ): Promise<Page> {
+    const rows = await WIKI.db
+      .select({
+        path: pageHistoryTable.path,
+        locale: pageHistoryTable.locale,
+        title: pageHistoryTable.title,
+        content: pageHistoryTable.content,
+        meta: pageHistoryTable.meta
+      })
+      .from(pageHistoryTable)
+      .where(
+        and(
+          eq(pageHistoryTable.siteId, siteId),
+          eq(pageHistoryTable.id, versionId),
+          eq(pageHistoryTable.action, 'deleted')
+        )
+      )
+      .limit(1)
+
+    const row: any = rows[0]
+    if (!row) {
+      throw new CustomError(
+        'pageHistoryVersionNotFound',
+        'No deleted version exists with this id.',
+        404
+      )
+    }
+
+    const meta = (row.meta ?? {}) as Record<string, any>
+    const config = (meta.config ?? {}) as Record<string, any>
+    const scripts = (meta.scripts ?? {}) as Record<string, any>
+
+    const input: PageInput = {
+      path: overrides?.path ?? row.path,
+      locale: overrides?.locale ?? row.locale,
+      title: row.title,
+      editor: meta.editor,
+      content: row.content ?? '',
+      description: meta.description,
+      icon: meta.icon,
+      alias: meta.alias,
+      publishState: meta.publishState,
+      publishStartDate: meta.publishStartDate ?? null,
+      publishEndDate: meta.publishEndDate ?? null,
+      isBrowsable: meta.isBrowsable,
+      isSearchable: meta.isSearchable,
+      password: meta.password ?? undefined,
+      relations: meta.relations ?? [],
+      tags: meta.tags ?? [],
+      allowComments: config.allowComments,
+      allowContributions: config.allowContributions,
+      allowRatings: config.allowRatings,
+      showSidebar: config.showSidebar,
+      showTags: config.showTags,
+      showToc: config.showToc,
+      tocDepth: config.tocDepth,
+      scriptJsLoad: scripts.jsLoad,
+      scriptJsUnload: scripts.jsUnload,
+      scriptCss: scripts.css
+    }
+
+    return WIKI.models.pages.createPage(siteId, input, actor)
   }
 
   /**
