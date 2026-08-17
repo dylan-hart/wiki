@@ -630,14 +630,8 @@ $card-gutter-max: 1199.98px;
     }
   }
 
-  .text-highlight {
-    font-style: italic;
-
-    > b {
-      background-color: rgba($yellow-7, 0.5);
-      border-radius: 3px;
-    }
-  }
+  // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
+  //    `@layer components`, shared with `HeaderSearch.vue`'s preview panel rather than duplicated here.
 
   .w-page {
     flex: 1 1;

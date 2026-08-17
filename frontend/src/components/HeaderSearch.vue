@@ -162,10 +162,15 @@
               <w-item-section avatar>
                 <w-icon :name="item.icon || defaultPageIcon" />
               </w-item-section>
+              <!--
+                `lines="1"` on all three -- a title, path or excerpt long enough to wrap would grow the
+                row past the panel's fixed width instead of the panel's own horizontal scrollbar it does
+                not have; ellipsising keeps every row exactly as tall as its neighbours.
+              -->
               <w-item-section>
-                <w-item-label>{{ item.title }}</w-item-label>
-                <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
-                <w-item-label class="text-highlight" v-if="item.highlight" caption>
+                <w-item-label lines="1">{{ item.title }}</w-item-label>
+                <w-item-label class="text-grey" caption lines="1">/{{ item.path }}</w-item-label>
+                <w-item-label class="text-highlight" v-if="item.highlight" caption lines="1">
                   <span v-html="item.highlight" />
                 </w-item-label>
               </w-item-section>
@@ -239,6 +244,24 @@ const PREVIEW_RESULTS_LIMIT = 5
 /** Long enough that a fast typist's keystrokes collapse into one request, short enough to still feel live. */
 const PREVIEW_DEBOUNCE_MS = 300
 
+/**
+ * The query with the operator/tag punctuation the panel's own tips describe stripped out: a leading
+ * `!`/`-`/`#` on a word (exclusion, tag reference), and `"`/`*`/`,`/`|` wherever they occur (phrase
+ * quoting, wildcard, OR). None of that is text to search FOR, so a query built entirely out of it --
+ * `-a`, `#a`, `!"`, a bare `*` -- can clear `PREVIEW_QUERY_MIN_LENGTH` in raw length while carrying
+ * under 2 real characters, which is exactly the query the floor exists to filter out.
+ *
+ * Used only to gate whether a preview fetch is worth firing; the raw, unstripped query is still what
+ * actually gets sent -- the operators are real syntax to the backend's `websearch_to_tsquery`, not
+ * noise to be cleaned up before it sees them.
+ */
+function realQueryLength(query) {
+  return query
+    .split(/\s+/)
+    .map((token) => token.replace(/^[!\-#]+/, '').replaceAll(/["*,|]/g, ''))
+    .join('').length
+}
+
 // PROPS
 
 const props = defineProps({
@@ -303,11 +326,12 @@ const defaultPageIcon = DEFAULT_PAGE_ICON
 
 /**
  * Whether the query is long enough for `state.previewResults` to actually mean something -- the same
- * floor the fetch watcher below is gated on. Below it, `resetPreview()` has left `previewResults` at
- * `[]`, which is indistinguishable from a real zero-hit search unless this is checked first.
+ * floor the fetch watcher below is gated on, by real (operator/tag-stripped) length rather than raw
+ * length. Below it, `resetPreview()` has left `previewResults` at `[]`, which is indistinguishable
+ * from a real zero-hit search unless this is checked first.
  */
 const searchPreviewIsActive = computed(() => {
-  return (siteStore.search ?? '').trim().length >= PREVIEW_QUERY_MIN_LENGTH
+  return realQueryLength(siteStore.search ?? '') >= PREVIEW_QUERY_MIN_LENGTH
 })
 
 /** Defensive cap to match the panel's "up to 5 rows" -- the API request already limits to this many. */
@@ -334,7 +358,7 @@ watch(
       return
     }
     const query = (newQuery ?? '').trim()
-    if (query.length < PREVIEW_QUERY_MIN_LENGTH) {
+    if (realQueryLength(query) < PREVIEW_QUERY_MIN_LENGTH) {
       resetPreview()
       return
     }
@@ -666,6 +690,11 @@ defineExpose({ focus, state })
     opacity: 0.85;
     text-align: left;
     cursor: pointer;
+    /* -> The suggested title is unbounded page content, same as a result row's -- ellipsis, not wrap/overflow */
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 
     &:hover {
       opacity: 1;
@@ -690,14 +719,7 @@ defineExpose({ focus, state })
     border-radius: 4px;
   }
 
-  /* -> Mirrors `.layout-search .text-highlight` on the full results screen this panel is a preview of */
-  .text-highlight {
-    font-style: italic;
-
-    > b {
-      background-color: rgba($yellow-7, 0.5);
-      border-radius: 3px;
-    }
-  }
+  // -> `.text-highlight` (the matched-term `<b>` treatment) lives in `css/tailwind.css`'s
+  //    `@layer components`, shared with `Search.vue`'s full results screen this panel previews.
 }
 </style>

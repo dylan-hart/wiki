@@ -461,6 +461,150 @@ describe('HeaderSearch did-you-mean suggestion', () => {
 })
 
 /**
+ * Task 569 edge cases: a query that is entirely the tips' own operator/tag syntax must not fire a
+ * preview fetch just because its raw length clears the floor; a fetch already in flight when the
+ * field is cleared by typing (not just the clear button) must not repopulate the panel once it
+ * settles; and long result text must be ellipsised rather than blowing out the panel's fixed width.
+ */
+describe('HeaderSearch preview edge cases', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it.each(['-a', '!a', '#a', '*', '""'])(
+    'does not fetch for %s, which trims to under 2 real characters once operators are stripped',
+    async (query) => {
+      const { wrapper } = await mountForPreview()
+
+      await wrapper.find('.header-search-input').setValue(query)
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(API_CLIENT.get).not.toHaveBeenCalled()
+      expect(wrapper.vm.state.previewResults).toEqual([])
+      expect(wrapper.vm.state.previewLoading).toBe(false)
+      // -> Tag/operator tips still shown -- not the "no results" message, which would be wrong here
+      expect(wrapper.text()).not.toContain('common.header.searchNoResult')
+    }
+  )
+
+  it.each(['-ab', '!ab', '#ab'])(
+    'still fetches for %s, which leaves 2 real characters once the operator is stripped',
+    async (query) => {
+      const { wrapper, siteStore } = await mountForPreview()
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve({ results: [], totalHits: 0 })
+      })
+
+      await wrapper.find('.header-search-input').setValue(query)
+      await vi.advanceTimersByTimeAsync(400)
+
+      // -> The raw query, operators included, is what actually reaches the backend
+      expect(API_CLIENT.get).toHaveBeenCalledWith(`sites/${siteStore.id}/pages/search`, {
+        searchParams: { query, limit: 5 }
+      })
+    }
+  )
+
+  it('does not flash stale results after the field is cleared by typing while a fetch is in flight', async () => {
+    const { wrapper } = await mountForPreview()
+    let resolveFetch
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+    expect(wrapper.vm.state.previewLoading).toBe(true)
+
+    // -> Cleared by backspacing to empty, not via the clear button -- exercises the watcher's own
+    //    below-the-floor branch, not `clearSearch()`
+    await wrapper.find('.header-search-input').setValue('')
+    expect(wrapper.vm.state.previewResults).toEqual([])
+    expect(wrapper.vm.state.previewLoading).toBe(false)
+
+    // -> The in-flight request for "ab" now settles, after the field was already emptied
+    resolveFetch({ results: [{ path: 'ab-page' }], totalHits: 1 })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(wrapper.vm.state.previewResults).toEqual([])
+    expect(wrapper.vm.state.previewLoading).toBe(false)
+    expect(wrapper.vm.state.previewTotal).toBe(0)
+  })
+
+  it('ellipsises long titles, paths and highlights instead of wrapping the row', async () => {
+    const { wrapper } = await mountForPreview()
+    const longTitle = 'A '.repeat(80).trim()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          results: [
+            {
+              path: 'very/long/'.repeat(20) + 'page',
+              title: longTitle,
+              highlight: 'x '.repeat(80).trim()
+            }
+          ],
+          totalHits: 1
+        })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const labels = wrapper.findAll('.searchpanel-results .w-item-label')
+    expect(labels.length).toBeGreaterThanOrEqual(3)
+    for (const label of labels) {
+      expect(label.classes()).toContain('truncate')
+    }
+  })
+
+  it('keeps results, popular tags and operator tips together in one scrollable panel', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site1'
+    siteStore.features.search = true
+    siteStore.tagsLoaded = true
+    siteStore.tags = [{ tag: 'foo', usageCount: 1 }]
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(HeaderSearch, { global: { plugins: [router, i18n] } })
+
+    await wrapper.find('.header-search-input').trigger('focus')
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          results: Array.from({ length: 5 }, (_, i) => ({ path: `p${i}`, title: `T${i}` })),
+          totalHits: 5
+        })
+    })
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const panels = wrapper.findAll('.searchpanel')
+    expect(panels).toHaveLength(1)
+    const panel = panels[0]
+    expect(panel.findAll('.searchpanel-results .w-item')).toHaveLength(5)
+    expect(panel.findAll('.w-chip').length).toBeGreaterThan(0)
+    expect(panel.findAll('.searchpanel-tip').length).toBeGreaterThan(0)
+  })
+})
+
+/**
  * "Copy Search Link": a small icon button next to the results-count line, visible only once
  * `siteStore.search` is non-empty, that builds the shareable `/_search?q=` URL `Search.vue`'s route
  * watcher already reads and copies it via the `copyToClipboard` helper -- mirroring

@@ -419,6 +419,26 @@
   }
 
   /*
+    A matched search term, wrapped in `<b>`. Used by both `Search.vue`'s full results screen and
+    `HeaderSearch.vue`'s live-preview panel -- the same `<span v-html="item.highlight">` markup the
+    backend's `ts_headline` excerpt produces in both places. Lives here rather than duplicated in each
+    component's own style block, for the same reason `.w-input-control` does: a scoped rule would only
+    ever match the component it was written in.
+
+    `#fdd835` is `$yellow-7` from `_palette.scss` -- written as a literal hex rather than the SCSS
+    variable because this file is plain CSS, not a `<style lang="scss">` SFC block, so the `additionalData`
+    `@use` injection in `vite.config.js` never reaches it.
+  */
+  .text-highlight {
+    font-style: italic;
+
+    > b {
+      background-color: rgba(253, 216, 53, 0.5);
+      border-radius: 3px;
+    }
+  }
+
+  /*
     Shared frame for the form controls (WInput, WSelect). Lives here rather than in a component's
     scoped style because both components use it, and a scoped rule would only match the one it was
     declared in. The ring itself is an inline box-shadow on each control; this supplies the resting
