@@ -504,10 +504,10 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
 import { v4 as uuid } from 'uuid'
-import { pick } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { flattenMenuItems, reconstructMenuItems } from '@/helpers/navigation'
 
 // STORES
 
@@ -676,6 +676,34 @@ function clearItems() {
   state.current = {}
 }
 
+/*
+  Manual-verification checklist — the two things left in this component that touch the DOM/vuedraggable
+  and so are out of reach of `helpers/navigation.js`'s unit tests (`helpers/navigation.test.js` covers
+  flatten/reconstruct/cleanMenuItem exhaustively; this is deliberately everything that test file does
+  NOT cover):
+
+  1. Drag-reorder (`updateItemPosition`, wired to `<sortable @end>` below):
+     - Drag a top-level item to a new position; it should land there and the sidebar preview should
+       reorder to match on save.
+     - Drag a nested (child) item out from under its parent link, to a position not immediately after
+       any link; save should then throw the "not under a parent link" error surfaced as a toast,
+       since `state.items` no longer satisfies `reconstructMenuItems()`'s invariant.
+     - Drag an item so it becomes the new immediate successor of a link with no existing children;
+       it does NOT automatically become nested (isNested is unchanged by a drag) — only the
+       "Nest under previous item" button (`state.current.isNested = true`) sets that flag. Confirm
+       dragging alone never silently nests or un-nests an item.
+
+  2. The expand-by-default checkbox's conditional visibility (`currentIsParent`, template lines
+     ~304-320 vs ~321-372):
+     - Select a top-level link with a nested child directly after it: the panel should show the
+       "Expand by default" toggle and hide Target/Open-in-new-window.
+     - Select that same link after removing/unnesting its only child: the panel should flip back to
+       showing Target/Open-in-new-window and hide the expand toggle — and the target it shows should
+       be the address the link had before it ever gained a child (hidden fields are preserved, not
+       cleared — see the template comment above `currentIsParent`'s usage).
+     - Select a nested child link itself: it should always show Target/Open-in-new-window (a nested
+       item is never a parent, regardless of what follows it in the list).
+*/
 function updateItemPosition(ev) {
   const item = state.items.splice(ev.oldIndex, 1)[0]
   state.items.splice(ev.newIndex, 0, item)
@@ -710,36 +738,7 @@ async function loadMenuItems() {
     const items = await API_CLIENT.get(`sites/${siteStore.id}/navigation/${navId.value}`, {
       searchParams: { full: true }
     }).json()
-    for (const item of items ?? []) {
-      state.items.push({
-        ...pick(item, [
-          'id',
-          'type',
-          'label',
-          'icon',
-          'target',
-          'openInNewWindow',
-          'expandByDefault',
-          'visibilityGroups'
-        ]),
-        visibilityLimited: item.visibilityGroups?.length > 0
-      })
-      for (const child of item?.children ?? []) {
-        state.items.push({
-          ...pick(child, [
-            'id',
-            'type',
-            'label',
-            'icon',
-            'target',
-            'openInNewWindow',
-            'visibilityGroups'
-          ]),
-          visibilityLimited: child.visibilityGroups?.length > 0,
-          isNested: true
-        })
-      }
-    }
+    state.items.push(...flattenMenuItems(items))
   } catch (err) {
     notify({
       type: 'negative',
@@ -751,47 +750,11 @@ async function loadMenuItems() {
   state.loading--
 }
 
-function cleanMenuItem(item, isNested = false) {
-  switch (item.type) {
-    case 'header': {
-      return {
-        ...pick(item, ['id', 'type', 'label']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
-      }
-    }
-    case 'link': {
-      return {
-        ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
-        // -> Only a top-level link can hold children, so only one of those can be a parent — a nested
-        //    item carrying an expand flag would be a setting nothing ever reads
-        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) })
-      }
-    }
-    case 'separator': {
-      return {
-        ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
-      }
-    }
-  }
-}
-
 async function save() {
   state.loading++
   loading.show()
   try {
-    const items = []
-    for (const item of state.items) {
-      if (item.isNested) {
-        if (items.length < 1 || items.at(-1)?.type !== 'link') {
-          throw new Error('One or more nested link items are not under a parent link!')
-        }
-        items[items.length - 1].children.push(cleanMenuItem(item, true))
-      } else {
-        items.push(cleanMenuItem(item))
-      }
-    }
+    const items = reconstructMenuItems(state.items)
 
     /*
       The mode goes with the items, because the mode is what decides which menu they belong to: with
