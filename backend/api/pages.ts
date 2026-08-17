@@ -62,15 +62,16 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
 }
 
 /**
- * Permissions that make a page's password irrelevant to the holder, GLOBALLY — not tied to any one
- * page.
+ * The page permissions that make a page's password irrelevant to the holder — asked of
+ * `WIKI.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
  *
  * Used only by search, which spans many pages that may each carry a different rule, so there is no
  * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
  * below: search either hides every protected excerpt from this searcher or none of them, rather than
- * deciding page by page.
+ * deciding page by page. (`manage:system` needs no entry here — `mayHoldPermissionSomewhere()` already
+ * short-circuits on it.)
  */
-const GLOBAL_PASSWORD_BYPASS = ['write:pages', 'manage:pages', 'manage:system']
+const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 
 /**
  * Every page permission a rule can grant, i.e. the whole set `manage:system` amounts to. Mirrors the
@@ -331,7 +332,15 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const actor = actorFrom(req)
-      const permissions = actor?.permissions ?? []
+      const accessActor = WIKI.models.groups.actorForRequest(req)
+      // -> "May write pages somewhere" and "may read a locked page's text anywhere" are the same
+      //    question here — both amount to holding `write:pages`/`manage:pages` via SOME rule, not the
+      //    (unrelated) group-wide permission list. See `mayHoldPermissionSomewhere()`'s own doc for why
+      //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
+      const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
+        accessActor,
+        PAGE_PASSWORD_BYPASS_ROLES
+      )
       return WIKI.models.search.searchPages({
         siteId: req.params.siteId,
         query: req.query.query,
@@ -346,16 +355,13 @@ async function routes(app: FastifyInstance) {
         limit: req.query.limit,
         publicOnly: !actor,
         // -> So that a page the caller could not open never shows up as a result
-        actor: WIKI.models.groups.actorForRequest(req),
+        actor: accessActor,
         // -> An unpublished page is only of interest to someone who could have written it
-        includeDrafts: ['write:pages', 'manage:pages', 'manage:system'].some((p) =>
-          permissions.includes(p)
-        ),
+        includeDrafts: maySeeEverything,
         // -> Same rule as the page view: a protected page's text is for whoever holds the password, and
         //    a search excerpt is that text. Its title and description are not covered, so the page is
-        //    still listed. Global rather than per page — see `GLOBAL_PASSWORD_BYPASS` — since a search
-        //    spans many pages at once.
-        hideProtectedContent: !GLOBAL_PASSWORD_BYPASS.some((p) => permissions.includes(p))
+        //    still listed. Global rather than per page — since a search spans many pages at once.
+        hideProtectedContent: !maySeeEverything
       })
     }
   )

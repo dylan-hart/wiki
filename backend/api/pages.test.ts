@@ -65,6 +65,8 @@ let updatePageCalls: any[]
 let participantInfoCalls: string[]
 let siteCollabEnabled: boolean
 let participantInfoResult: { count: number; names: string[] }
+let searchPagesCalls: any[]
+let ruleGrantedPermissions: string[]
 
 function currentPage() {
   return {
@@ -96,9 +98,15 @@ before(async () => {
         }
       },
       groups: {
-        actorForRequest: () => ({ permissions: ['write:pages'] }),
+        actorForRequest: () => ({ permissions: ['write:pages'], groupIds: [] }),
         checkAccess: () => true,
-        groupIdsForRequest: () => []
+        groupIdsForRequest: () => [],
+        // -> Regression stub for task 551's fix: the search route asks this rather than scanning
+        //    `actor.permissions` (the GLOBAL list) for `write:pages`/`manage:pages`, which are page-rule
+        //    permissions and never legitimately appear there. Driven per-test by
+        //    `ruleGrantedPermissions`, standing in for "some rule across this actor's groups grants it".
+        mayHoldPermissionSomewhere: (_actor: any, permissions: string[]) =>
+          permissions.some((p) => ruleGrantedPermissions.includes(p))
       },
       approvals: {
         pageViewerState: async () => ({
@@ -110,6 +118,12 @@ before(async () => {
       },
       pageWatching: {
         isWatching: async () => false
+      },
+      search: {
+        searchPages: async (params: any) => {
+          searchPagesCalls.push(params)
+          return { results: [], totalHits: 0 }
+        }
       }
     },
     collab: {
@@ -158,6 +172,8 @@ beforeEach(() => {
   participantInfoCalls = []
   siteCollabEnabled = true
   participantInfoResult = { count: 0, names: [] }
+  searchPagesCalls = []
+  ruleGrantedPermissions = []
 })
 
 test('a save with no expectedUpdatedAt writes through as before', async () => {
@@ -251,4 +267,40 @@ test('GET page answers activeEditors: { count: 0, names: [] } when nobody else h
   assert.equal(res.statusCode, 200)
   const body = res.json()
   assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+})
+
+/**
+ * Regression tests for task 551's audit-sweep fix: the search route (`GET
+ * /sites/:siteId/pages/search`) used to decide `includeDrafts`/`hideProtectedContent` by scanning
+ * `actor.permissions` — the GLOBAL, group-wide permission list — for `write:pages`/`manage:pages`,
+ * which are page-rule permissions a group's global `permissions` column never legitimately carries
+ * (the group editor doesn't offer them, and nothing seeds them there). The check was effectively dead
+ * for every real editor, contradicting the route's own documented behavior ("Drafts are included only
+ * for someone who may write pages"). It now asks `WIKI.models.groups.mayHoldPermissionSomewhere()`,
+ * which pools the actor's actual page rules instead — covered directly, against real rule rows, in
+ * `models/groups.test.ts`; what's worth covering here is that the route wires that answer through to
+ * both search options rather than the old `actor.permissions` scan.
+ */
+test('search includes drafts and bypasses password-protected excerpts for an actor whose page rules grant write:pages, even though write:pages is absent from their global permission list', async () => {
+  ruleGrantedPermissions = ['write:pages']
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(searchPagesCalls.length, 1)
+  assert.equal(searchPagesCalls[0].includeDrafts, true)
+  assert.equal(searchPagesCalls[0].hideProtectedContent, false)
+})
+
+test('search excludes drafts and hides password-protected excerpts for an actor with no write:pages/manage:pages rule anywhere', async () => {
+  ruleGrantedPermissions = ['read:pages']
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/search`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(searchPagesCalls.length, 1)
+  assert.equal(searchPagesCalls[0].includeDrafts, false)
+  assert.equal(searchPagesCalls[0].hideProtectedContent, true)
 })

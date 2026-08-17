@@ -208,6 +208,32 @@ class Groups {
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
     return rule ? rule.mode !== 'DENY' : false
   }
+
+  /**
+   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse, path- and
+   * site-blind, for a caller that spans many pages at once (search is the only one today) and so has
+   * no single page to ask `checkAccess()` about.
+   *
+   * Page permissions are granted by rules, not by the group-wide `permissions` list (same caveat as
+   * `checkAccess()` above) — so this pools every rule across the actor's groups and asks whether any
+   * non-DENY one grants the permission somewhere, rather than reading `actor.permissions` for a page
+   * permission's name, which it never legitimately holds.
+   *
+   * Ignoring DENY (rather than resolving each rule the way `checkAccess()` does) is deliberate: the
+   * question here is "is this actor generally the kind of person who holds `permission`", not "may
+   * they use it on a particular page" — a rule that denies it under one subtree does not change the
+   * answer for the rest of the site.
+   */
+  mayHoldPermissionSomewhere(actor: AccessActor, permissions: string[]): boolean {
+    if (actor.permissions.includes('manage:system')) {
+      return true
+    }
+    const rules = this.rulesForGroups(actor.groupIds)
+    return permissions.some((permission) =>
+      rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
+    )
+  }
+
   async init(ids: SystemIds): Promise<void> {
     WIKI.logger.info('Inserting default groups...')
 
