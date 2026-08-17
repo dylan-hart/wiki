@@ -47,6 +47,14 @@ jobs:
         working-directory: frontend
         run: npx oxlint
 
+      - name: Install Blocks Dependencies
+        working-directory: blocks
+        run: npm ci
+
+      - name: Blocks Lint
+        working-directory: blocks
+        run: npx oxlint
+
       # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
       # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
       # at run time -- exactly the floating-tag drift CLAUDE.md's Currency section rules out. The

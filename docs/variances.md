@@ -26,3 +26,15 @@ nothing else riding along.
 
 Resolution: land a follow-up task that runs `oxfmt` (write mode) once over the listed paths, diffs
 reviewed on their own, then deletes `.prettierignore` (or the entries it no longer needs).
+
+## blocks/ oxlint pinned to backend's version, not a literal shared pin (task 769, feature 423)
+
+Task 769 called for pinning `blocks/`'s new `oxlint` devDependency "at the same version pinned in
+backend/package.json and frontend/package.json", assuming the two already agreed. They don't:
+backend has `oxlint: 1.77.0`, frontend has `oxlint: 1.76.0` — a pre-existing one-patch drift between
+the two workspaces, not something introduced here. `blocks/package.json` was pinned to `1.77.0`,
+matching backend, consistent with the precedent already established for `oxfmt` in
+`.github/workflows/quality.yml` (backend's install treated as the canonical one for repo-wide
+tooling versions; see that file's "Format Check" step comment). Resolution: a follow-up task should
+reconcile `frontend/package.json`'s `oxlint` pin up to `1.77.0` so all three workspaces genuinely
+share one version, then this entry can be deleted.
