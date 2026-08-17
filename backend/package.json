@@ -74,6 +74,7 @@
     "qrcode": "1.5.4",
     "sanitize-html": "2.17.6",
     "semver": "7.8.5",
+    "tar": "7.5.22",
     "uuid": "14.0.1",
     "y-protocols": "1.0.7",
     "yjs": "13.6.32"

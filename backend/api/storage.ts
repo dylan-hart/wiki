@@ -163,7 +163,7 @@ async function routes(app: FastifyInstance) {
         if (!target) {
           return reply.notFound(`Storage target ${patch.id} does not exist.`)
         }
-        const invalid = WIKI.models.storage.validateTarget(target, patch)
+        const invalid = await WIKI.models.storage.validateTarget(target, patch)
         if (invalid) {
           return reply.badRequest(invalid)
         }

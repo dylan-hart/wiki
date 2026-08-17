@@ -215,6 +215,16 @@ export interface StorageTargetInput {
  * JSON-serializable rather than carrying content through the job table.
  */
 export interface StorageModule {
+  /**
+   * Extra, module-specific config validation beyond what `Storage.validateConfig()`'s generic
+   * type/enum check can do from the props declaration alone — e.g. the disk module confirming its
+   * `path` prop is an absolute, existing, writable directory rather than merely a non-empty string.
+   * Called by `validateTarget()`, with the config the patch being validated would result in — see
+   * that method's doc for exactly when.
+   *
+   * @returns The reason it is invalid, or null when it is fine
+   */
+  validateConfig?: (config: Record<string, any>, target: StorageTarget) => Promise<string | null>
   /** Advance a multi-step setup process, returning what the admin area should do next. */
   setup?: (target: StorageTarget, state: Record<string, any>) => Promise<Record<string, any>>
   /** Undo whatever `setup` configured, so that it can be started over. */
@@ -565,9 +575,15 @@ class Storage {
   /**
    * Check a target patch against what its module supports.
    *
+   * Async because of its last step: a module-specific deep check (see `StorageModule.validateConfig`)
+   * runs whenever the patch touches `config` or is turning the target on, which means loading the
+   * module (`ensureModule()`) and, for one like disk, hitting the filesystem. Skipped for any other
+   * patch — a sync-mode or schedule change re-validating an unrelated config on every save would be
+   * pure overhead.
+   *
    * @returns The reason it is invalid, or null when it is fine
    */
-  validateTarget(target: StorageTarget, patch: StorageTargetInput): string | null {
+  async validateTarget(target: StorageTarget, patch: StorageTargetInput): Promise<string | null> {
     const definition = this.getDefinition(target.module)!
     if (patch.isEnabled === false && target.module === DB_MODULE) {
       return 'The database storage target cannot be disabled, as content would have nowhere to live.'
@@ -608,7 +624,22 @@ class Storage {
         return `"${patch.sync.scheduleOverride}" is not a valid ISO-8601 duration.`
       }
     }
-    return this.validateConfig(target.module, patch.config)
+    const configInvalid = this.validateConfig(target.module, patch.config)
+    if (configInvalid) {
+      return configInvalid
+    }
+
+    if (patch.config !== undefined || patch.isEnabled === true) {
+      const mod = await this.ensureModule(target.module)
+      if (mod?.validateConfig) {
+        const effectiveConfig = this.buildConfig(target.module, patch.config ?? {}, target.config)
+        const deepInvalid = await mod.validateConfig(effectiveConfig, target)
+        if (deepInvalid) {
+          return deepInvalid
+        }
+      }
+    }
+    return null
   }
 
   /**

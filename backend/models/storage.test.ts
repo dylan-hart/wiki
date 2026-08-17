@@ -1,5 +1,7 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import type { StorageTarget } from './storage.ts'
@@ -58,6 +60,15 @@ test('the db module has a storage.ts implementation, so its purge action is offe
   )
 })
 
+test('the disk module has a storage.ts implementation, so its dump/backup/importAll actions are offered', () => {
+  const disk = storage.getDefinition('disk')!
+  assert.equal(disk.hasImplementation, true)
+  assert.deepEqual(
+    disk.actions.map((action) => action.handler),
+    ['dump', 'backup', 'importAll']
+  )
+})
+
 /** Builds a minimal target for the given module, as `getSiteTargets` would shape one. */
 function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
@@ -92,57 +103,126 @@ function makeTarget(moduleKey: string): StorageTarget {
   }
 }
 
-test("validateTarget rejects a sync mode outside the module's supportedModes", () => {
+test("validateTarget rejects a sync mode outside the module's supportedModes", async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'teleport' } })
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    sync: { mode: 'teleport' }
+  })
   assert.match(invalid ?? '', /not a valid sync mode/)
 })
 
-test('validateTarget accepts a sync mode change for a multi-mode module', () => {
+test('validateTarget accepts a sync mode change for a multi-mode module', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
+  const invalid = await storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
   assert.equal(invalid, null)
 })
 
-test('validateTarget rejects a sync mode change for a single-mode module', () => {
+test('validateTarget rejects a sync mode change for a single-mode module', async () => {
   const target = makeTarget('disk')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
+  const invalid = await storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
   assert.match(invalid ?? '', /does not support changing/)
 })
 
-test('validateTarget rejects a malformed scheduleOverride', () => {
+test('validateTarget rejects a malformed scheduleOverride', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'not-a-duration' }
   })
   assert.match(invalid ?? '', /not a valid ISO-8601 duration/)
 })
 
-test('validateTarget rejects a scheduleOverride on an event-only module', () => {
+test('validateTarget rejects a scheduleOverride on an event-only module', async () => {
   const target = makeTarget('disk')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'PT10M' }
   })
   assert.match(invalid ?? '', /does not sync on a schedule/)
 })
 
-test('validateTarget accepts a valid scheduleOverride on a scheduled module', () => {
+test('validateTarget accepts a valid scheduleOverride on a scheduled module', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'PT10M' }
   })
   assert.equal(invalid, null)
 })
 
-test('validateTarget accepts clearing a scheduleOverride', () => {
+test('validateTarget accepts clearing a scheduleOverride', async () => {
   const target = makeTarget('git')
   target.sync.scheduleOverride = 'PT10M'
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: null }
+  })
+  assert.equal(invalid, null)
+})
+
+// ---------------------------------------------------------------------------------------------
+// validateTarget() -- disk module's deep `validateConfig` hook (see `StorageModule.validateConfig`)
+// ---------------------------------------------------------------------------------------------
+
+test('validateTarget rejects enabling the disk target with a relative path', async () => {
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    isEnabled: true,
+    config: { path: 'relative/path' }
+  })
+  assert.match(invalid ?? '', /not an absolute path/)
+})
+
+test('validateTarget rejects enabling the disk target with a path that does not exist', async () => {
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    isEnabled: true,
+    config: { path: path.join(os.tmpdir(), `wiki-disk-validate-missing-${Date.now()}`) }
+  })
+  assert.match(invalid ?? '', /does not exist/)
+})
+
+test('validateTarget accepts enabling the disk target with an absolute, existing, writable path', async () => {
+  const target = makeTarget('disk')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-disk-validate-'))
+  try {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      isEnabled: true,
+      config: { path: dir }
+    })
+    assert.equal(invalid, null)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('validateTarget rejects saving disk config with a path that is a file, not a directory', async () => {
+  const target = makeTarget('disk')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-disk-validate-'))
+  const filePath = path.join(dir, 'not-a-dir')
+  await fs.writeFile(filePath, 'x')
+  try {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      config: { path: filePath }
+    })
+    assert.match(invalid ?? '', /not a directory/)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('validateTarget skips the deep disk path check when neither config nor isEnabled changes', async () => {
+  // -> `makeTarget`'s disk target has no `path` configured at all -- if the deep check ran here, it
+  //    would reject. It must not run for a patch that touches neither `config` nor `isEnabled`.
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    sync: { mode: undefined }
   })
   assert.equal(invalid, null)
 })
