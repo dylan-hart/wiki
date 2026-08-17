@@ -314,26 +314,87 @@ class Blocks {
   }
 
   /**
-   * Enable or disable blocks in bulk.
+   * Strip a config object down to the keys a block still declares.
    *
-   * @param states Block IDs with their desired state
+   * `blockKey` is looked up from the row rather than trusted from the request body, since the point
+   * of this pass is that the caller cannot assert its way past it: a block's `config` field list can
+   * change shape between deploys (a field renamed, or dropped entirely), and without this a key left
+   * over from a previous shape would sit in the row forever — nothing else ever removes it, and the
+   * admin form generated from the current `configFields` has no way to show or clear a key it no
+   * longer knows about.
+   *
+   * Deliberately loose beyond that: values are written as given, with no per-field type check against
+   * `BlockProp.type`. This mirrors how page-authored `props` are already trusted — `blockAllowances()`
+   * in `models/rendering.ts` allow-lists an embedded block's attributes by name only, taking whatever
+   * string value came with them — so `config` is held to the same standard as the sibling data an
+   * admin's site-level form and an author's page-level markup both ultimately feed into the same
+   * component. This is a deliberate choice for new code, not a preserved pre-existing gap: revisit it
+   * if a block ever needs a config value trusted for more than passing through to its own component
+   * (e.g. interpolated into a URL fetched server-side).
+   */
+  private sanitizeConfig(
+    blockKey: string | undefined,
+    config: Record<string, any>
+  ): Record<string, any> {
+    const definition = this.definitions.find((d) => d.block === blockKey)
+    const declared = new Set((definition?.config ?? []).map((field) => field.name))
+    return Object.fromEntries(Object.entries(config).filter(([key]) => declared.has(key)))
+  }
+
+  /**
+   * Enable or disable blocks in bulk, optionally updating each one's site-level `config`.
+   *
+   * A state with no `config` writes only `isEnabled`, leaving the row's existing config untouched —
+   * batched with `inArray` like before. A state that does carry `config` needs its own `UPDATE`, since
+   * a differing JSONB value per row cannot be expressed as one batched write; that config is sanitized
+   * first via `sanitizeConfig`, keyed by the row's own `block` (fetched up front, since the request
+   * only carries the row id).
+   *
+   * @param states Block IDs with their desired state, and optionally a new site-level config
    * @returns The number of block rows written — a block already in the requested state still counts
    */
   async setBlocksState(
     siteId: string,
-    states: { id: string; isEnabled: boolean }[]
+    states: { id: string; isEnabled: boolean; config?: Record<string, any> }[]
   ): Promise<number> {
     let changed = 0
+
+    const ids = states.map((s) => s.id)
+    const rows =
+      ids.length > 0
+        ? await WIKI.db
+            .select({ id: blocksTable.id, block: blocksTable.block })
+            .from(blocksTable)
+            .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, ids)))
+        : []
+    const blockKeyById = new Map(rows.map((row) => [row.id, row.block]))
+
     for (const isEnabled of [true, false]) {
-      const ids = states.filter((s) => s.isEnabled === isEnabled).map((s) => s.id)
-      if (ids.length < 1) {
+      const group = states.filter((s) => s.isEnabled === isEnabled)
+      if (group.length < 1) {
         continue
       }
-      const result = await WIKI.db
-        .update(blocksTable)
-        .set({ isEnabled })
-        .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, ids)))
-      changed += result.rowCount ?? 0
+
+      const withoutConfig = group.filter((s) => s.config === undefined).map((s) => s.id)
+      if (withoutConfig.length > 0) {
+        const result = await WIKI.db
+          .update(blocksTable)
+          .set({ isEnabled })
+          .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, withoutConfig)))
+        changed += result.rowCount ?? 0
+      }
+
+      for (const state of group) {
+        if (state.config === undefined) {
+          continue
+        }
+        const config = this.sanitizeConfig(blockKeyById.get(state.id), state.config)
+        const result = await WIKI.db
+          .update(blocksTable)
+          .set({ isEnabled, config })
+          .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, state.id)))
+        changed += result.rowCount ?? 0
+      }
     }
     return changed
   }

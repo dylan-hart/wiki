@@ -109,7 +109,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string }
-    Body: { states: { id: string; isEnabled: boolean }[] }
+    Body: { states: { id: string; isEnabled: boolean; config?: Record<string, any> }[] }
   }>(
     '/sites/:siteId/blocks',
     {
@@ -118,7 +118,8 @@ async function routes(app: FastifyInstance) {
       },
       schema: {
         summary: 'Enable or disable site blocks',
-        description: 'Only the blocks listed are affected; any others keep their current state.',
+        description:
+          "Only the blocks listed are affected; any others keep their current state. A state may also carry a `config` object of site-level values for that block — omitted, its row keeps whatever config it already has; given, it is sanitized against the block's declared `config` fields (stale keys stripped) and replaces the row wholesale.",
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -146,6 +147,12 @@ async function routes(app: FastifyInstance) {
                   },
                   isEnabled: {
                     type: 'boolean'
+                  },
+                  config: {
+                    type: 'object',
+                    additionalProperties: true,
+                    description:
+                      "Site-level config values for this block. Sanitized against the block's declared `config` fields on write — keys it doesn't declare are stripped. Omit to leave the row's existing config untouched."
                   }
                 }
               }
