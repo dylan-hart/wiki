@@ -537,3 +537,137 @@ describe(
     })
   }
 )
+
+/**
+ * A guest has no account, so `saveSubmission`'s one-open-suggestion-per-page dedup (the
+ * `onConflictDoUpdate` path, keyed on `(pageId, authorId)`) never applies to them -- the partial
+ * unique index behind it is scoped to `authorId IS NOT NULL` specifically because guests are all the
+ * same nobody and cannot be deduplicated against each other. Two different guests suggesting an edit
+ * to the same page must therefore both land as their own row, and `getReviewableSubmissions` must
+ * still hand a reviewer two distinguishable entries back -- even when both guests left the name and
+ * email blank, which is the case the frontend queue has to render without them collapsing into what
+ * looks like one submission shown twice (see `InboxReview.vue`'s `authorLabel`).
+ */
+describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'covers everything',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: [fixtures.groupId]
+    })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+  }
+
+  test('two different guests suggesting an edit to the same page both persist', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/guests/named',
+        title: 'Named Guests',
+        editor: 'markdown',
+        content: 'Original'
+      },
+      actor
+    )
+
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'First guest suggestion',
+      authorId: null,
+      guestName: 'Alice',
+      guestEmail: 'alice@example.com'
+    })
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Second guest suggestion',
+      authorId: null,
+      guestName: 'Bob',
+      guestEmail: 'bob@example.com'
+    })
+
+    // -> Neither replaced the other -- unlike two submissions from the same logged in author, which
+    //    `onConflictDoUpdate` collapses into one row
+    assert.equal(await approvalsModel.countSubmissions(page.id), 2)
+
+    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [fixtures.groupId]
+    })
+    const forPage = reviewable.filter((s) => s.page.id === page.id)
+    assert.equal(forPage.length, 2)
+    assert.deepEqual(forPage.map((s) => s.author.name).sort(), ['Alice', 'Bob'])
+    // -> Genuinely two different rows, not the same one read twice
+    assert.notEqual(forPage[0]!.id, forPage[1]!.id)
+  })
+
+  test('two guests who both left the name and email blank still persist and read back as two distinct entries', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/guests/blank',
+        title: 'Blank Guests',
+        editor: 'markdown',
+        content: 'Original'
+      },
+      actor
+    )
+
+    const first = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'First blank guest suggestion',
+      authorId: null
+    })
+    const second = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Second blank guest suggestion',
+      authorId: null
+    })
+
+    assert.equal(await approvalsModel.countSubmissions(page.id), 2)
+    // -> Not the same submission stored twice under one id -- two independent rows, each with its own
+    //    content, which is exactly what lets the frontend disambiguate them by id when their author
+    //    labels are otherwise identical
+    assert.notEqual(first.id, second.id)
+
+    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [fixtures.groupId]
+    })
+    const forPage = reviewable.filter((s) => s.page.id === page.id)
+    assert.equal(forPage.length, 2)
+    for (const submission of forPage) {
+      assert.equal(submission.author.isGuest, true)
+      assert.equal(submission.author.id, null)
+      // -> Blank, not a placeholder string -- the frontend is the layer responsible for turning this
+      //    into "Unknown" and disambiguating two of them, not the model
+      assert.equal(submission.author.name, '')
+    }
+    assert.deepEqual(forPage.map((s) => s.id).sort(), [first.id, second.id].sort())
+  })
+})

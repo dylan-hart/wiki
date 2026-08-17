@@ -38,7 +38,7 @@
               <w-item-label caption>
                 <i18n-t keypath="inbox.reviewSubmittedBy" scope="global">
                   <template #author>
-                    <strong>{{ submission.author.name || t('inbox.reviewUnknownAuthor') }}</strong>
+                    <strong>{{ authorLabel(submission) }}</strong>
                   </template>
                   <template #date>{{ humanizeDate(submission.createdAt) }}</template>
                 </i18n-t>
@@ -290,6 +290,38 @@ function openSubmission(submission) {
   router.push(`${REVIEW_PATH}/${submission.id}`)
 }
 
+/** A short, stable fragment of a submission's id -- the one thing guaranteed to differ between two. */
+function shortId(id) {
+  return String(id).replace(/-/g, '').slice(-6)
+}
+
+/**
+ * How a submission's author reads in the queue.
+ *
+ * A guest is only ever named by what they typed into the submission form, which can be blank, or
+ * land on the exact same words as another guest's -- there is no account to tell them apart by
+ * otherwise. Left alone, two such rows for the same page render byte-identical: same title, same
+ * path, same "Suggested by Unknown on <date>" down to the minute -- nothing but a click proves they
+ * are two different suggestions and not one rendered twice. Folding in a fragment of the submission's
+ * own id, which is guaranteed to differ, but only for the rows that actually collide keeps a page
+ * with a single guest submission -- or one where guests already read as distinct -- exactly as it did
+ * before.
+ */
+function authorLabel(submission) {
+  const name = submission.author.name || submission.author.email || t('inbox.reviewUnknownAuthor')
+  if (!submission.author.isGuest) {
+    return name
+  }
+  const collides = state.submissions.some(
+    (other) =>
+      other.id !== submission.id &&
+      other.page.id === submission.page.id &&
+      other.author.isGuest &&
+      (other.author.name || other.author.email || t('inbox.reviewUnknownAuthor')) === name
+  )
+  return collides ? `${name} #${shortId(submission.id)}` : name
+}
+
 /**
  * Where leaving a review goes back to.
  *
@@ -382,6 +414,18 @@ function renderReviewed(content) {
   return md.render(content, { pagePath: state.selected?.page?.path ?? '' })
 }
 
+/**
+ * `loadSubmission`'s own recovery, reused here: another reviewer resolved this submission first --
+ * approved or declined it -- between when this reviewer opened it and when they acted on it.
+ * Retrying the same action would just 404 again, so the dead selection is dropped and the queue
+ * behind it refreshed, rather than leaving a row here that can never succeed a second time.
+ */
+async function recoverFromGoneSubmission() {
+  state.selected = null
+  router.replace(REVIEW_PATH)
+  await load()
+}
+
 function approveSubmission() {
   confirm({
     title: t('inbox.reviewApprove'),
@@ -436,6 +480,10 @@ function approveSubmission() {
           message: t('inbox.reviewApproveFailed'),
           caption: apiErrorMessage(err)
         })
+        if (err.response?.status === 404) {
+          // -> Somebody else already resolved it; see `recoverFromGoneSubmission` above.
+          await recoverFromGoneSubmission()
+        }
       }
     }
     state.loading--
@@ -471,6 +519,10 @@ function rejectSubmission() {
         message: t('inbox.reviewDeclineFailed'),
         caption: apiErrorMessage(err)
       })
+      if (err.response?.status === 404) {
+        // -> Somebody else already resolved it; see `recoverFromGoneSubmission` above.
+        await recoverFromGoneSubmission()
+      }
     }
     state.loading--
   })
