@@ -128,6 +128,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255,
         description:
           "Why this save is being made, as the editor's reason-for-change prompt collected it. Not stored on the page: it is recorded on the history version this save produces."
+      },
+      expectedUpdatedAt: {
+        type: 'string',
+        format: 'date-time',
+        description:
+          "The page's `updatedAt` as the editor last saw it, for optimistic concurrency on update. When present and it no longer matches the stored value — somebody else saved in between — the write is refused with 409 instead of overwriting their change. Ignored on create, and ignored by an in-progress collab session, whose own saves keep this field current."
       }
     }
   })

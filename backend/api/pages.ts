@@ -649,7 +649,17 @@ async function routes(app: FastifyInstance) {
   /**
    * UPDATE PAGE
    */
-  app.patch<{ Params: { siteId: string; pageId: string }; Body: Partial<PageInput> }>(
+  app.patch<{
+    Params: { siteId: string; pageId: string }
+    Body: Partial<PageInput> & {
+      /**
+       * The page's `updatedAt` as the editor last saw it. Checked against the stored value below —
+       * see the optimistic-concurrency comment further down — rather than being passed into
+       * `updatePage()`, since it describes the save's precondition rather than a field of the page.
+       */
+      expectedUpdatedAt?: string
+    }
+  }>(
     '/sites/:siteId/pages/:pageId',
     {
       /*
@@ -673,6 +683,26 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' },
               page: { $ref: 'Page#' }
             }
+          },
+          409: {
+            description:
+              "The page changed since `expectedUpdatedAt` was read; the write was refused rather than overwriting somebody else's save.",
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              page: {
+                type: 'object',
+                description:
+                  'The page as it is stored right now, for a diff or an overwrite prompt.',
+                properties: {
+                  updatedAt: { type: 'string', format: 'date-time' },
+                  title: { type: 'string' },
+                  content: { type: 'string' },
+                  authorName: { type: 'string' }
+                }
+              }
+            }
           }
         }
       }
@@ -684,13 +714,41 @@ async function routes(app: FastifyInstance) {
       }
       const target = await WIKI.models.pages.getPage({
         siteId: req.params.siteId,
-        id: req.params.pageId
+        id: req.params.pageId,
+        withContent: true
       })
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
       if (!mayOnPage(req, 'write:pages', target)) {
         return reply.forbidden('You are not allowed to edit this page.')
+      }
+      /*
+        Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
+        A collab-connected editor's next save naturally carries the post-save timestamp its own
+        collaborators' saves already advanced it to (`applySave()` in `composables/collab.js`), so this
+        never false-positives against them — it only catches a save that began before somebody else's
+        landed. Millisecond precision, since that is what the API hands back and what a client round-
+        trips; comparing `Temporal.Instant` values directly with `<` throws, so this compares
+        `epochMilliseconds` instead.
+      */
+      if (
+        req.body.expectedUpdatedAt &&
+        Temporal.Instant.from(req.body.expectedUpdatedAt).epochMilliseconds !==
+          target.updatedAt.toTemporalInstant().epochMilliseconds
+      ) {
+        return reply.code(409).send({
+          ok: false,
+          message: 'This page was changed since you started editing it.',
+          page: {
+            updatedAt: target.updatedAt
+              .toTemporalInstant()
+              .toString({ smallestUnit: 'millisecond' }),
+            title: target.title,
+            content: target.content,
+            authorName: target.authorName
+          }
+        })
       }
       const page = await WIKI.models.pages.updatePage(
         req.params.siteId,
