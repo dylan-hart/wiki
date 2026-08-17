@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, before, beforeEach, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -43,12 +43,27 @@ async function getSiteByHostname({
 
 let app: FastifyInstance
 
+const createSiteCalls: Array<{ hostname: string; config: Record<string, any> }> = []
+let hostnamesTakenByUnique: Set<string>
+
+async function isHostnameUnique(hostname: string) {
+  return !hostnamesTakenByUnique.has(hostname)
+}
+
+async function createSite(hostname: string, config: Record<string, any>) {
+  createSiteCalls.push({ hostname, config })
+  return { id: 'new-site-id' }
+}
+
 before(async () => {
   ;(globalThis as any).WIKI = {
+    logger: { warn: () => {} },
     models: {
       sites: {
         getSiteByHostname,
-        getSiteById: async () => null
+        getSiteById: async () => null,
+        isHostnameUnique,
+        createSite
       }
     }
   }
@@ -101,4 +116,62 @@ test('strict=false falls back to the wildcard site', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().hostname, '*')
+})
+
+/**
+ * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated
+ * `req.body.hostname` against `/^(\*)|([a-z0-9\-.:]+)$/`, but the alternation is ungrouped and the
+ * first branch (`\*` — zero or more literal backslashes) matches the empty string, so the whole
+ * expression is always true regardless of what follows it — `''` and `'<script>'` both pass. The
+ * check never actually validated anything; it was redundant with (and looser than) the body schema's
+ * own `pattern: '^(\*|[a-z0-9.-]+)$'`, which Fastify's ajv already enforces before the handler runs.
+ * Fixed by deleting the dead hand-rolled check and relying solely on the schema.
+ */
+
+beforeEach(() => {
+  createSiteCalls.length = 0
+  hostnamesTakenByUnique = new Set()
+})
+
+test('a schema-valid hostname creates the site', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: 'wiki.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.deepEqual(createSiteCalls, [
+    { hostname: 'wiki.example.org', config: { title: 'My Wiki' } }
+  ])
+})
+
+test('a hostname the schema rejects never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: '<script>', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('an empty hostname never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: '', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('the catch-all wildcard hostname is still accepted', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: '*', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createSiteCalls[0]?.hostname, '*')
 })

@@ -202,13 +202,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       // -> Validate inputs
-      if (
-        !req.body.hostname ||
-        req.body.hostname.length < 1 ||
-        !/^(\\*)|([a-z0-9\-.:]+)$/.test(req.body.hostname)
-      ) {
-        throw new CustomError('siteCreateInvalidHostname', 'Invalid Site Hostname')
-      }
+      // -> hostname is already validated by the body schema's `pattern`; no hand-rolled check needed.
       if (!req.body.title || req.body.title.length < 1 || !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteCreateInvalidTitle', 'Invalid Site Title')
       }
