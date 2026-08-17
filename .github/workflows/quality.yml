@@ -43,6 +43,23 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      # Both check scripts diff the committed generated bundle (src/assets/icons.generated.js,
+      # src/assets/emoji.generated.js) against what the source + already-`npm ci`-installed data
+      # packages (@iconify-json/mdi, @iconify-json/la, unicode-emoji-json, markdown-it-emoji) produce
+      # right now -- read fs.readFileSync(node_modules/...) only, no fetch/http anywhere in either
+      # script. That's a build-time literal-reference scan, not the runtime `models/icons.ts`
+      # resolution chain CLAUDE.md's Icons section describes (memory -> disk cache -> db -> live
+      # Iconify API) for icons a *user* picks on a page -- this repo's own chrome icons are inlined at
+      # build time specifically so nothing here ever depends on that service. So both steps are safe
+      # to run on a cold CI runner with no prior icon cache: no network call, nothing to be flaky.
+      - name: Frontend Icons Check
+        working-directory: frontend
+        run: npm run icons:check
+
+      - name: Frontend Emoji Check
+        working-directory: frontend
+        run: npm run emoji:check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint
