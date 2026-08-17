@@ -63,8 +63,12 @@ export interface RulePageRef {
  */
 const MATCH_PRIORITY: GroupRuleMatch[] = ['TAG', 'TAGALL', 'START', 'END', 'REGEX', 'EXACT']
 
-/** Modes from weakest to strongest, used to break a tie between rules of the same kind. */
-const MODE_PRIORITY: GroupRuleMode[] = ['ALLOW', 'DENY', 'FORCEALLOW']
+/**
+ * Modes from weakest to strongest, used to break a tie between rules of the same kind. Exported so
+ * `helpers/siteRules.ts` can apply the identical ordering to site-admin rules, which have no
+ * specificity/match-type tier of their own to break a tie first.
+ */
+export const MODE_PRIORITY: GroupRuleMode[] = ['ALLOW', 'DENY', 'FORCEALLOW']
 
 /** Tags are written on a rule as a comma-separated list, in the field a path would otherwise use. */
 function ruleTags(rule: GroupRule): string[] {
