@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -511,5 +515,30 @@ describe('AdminSearch engine picker', () => {
       expect(API_CLIENT.patch).not.toHaveBeenCalled()
       expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
     })
+  })
+})
+
+/**
+ * Task #577 -- audit of `backend/locales/en.json`'s `admin.search.*` block against what
+ * `AdminSearch.vue` actually references, once the engine-picker redesign (#570-#574) landed. Every
+ * key in the block must be referenced by its literal `admin.search.<key>` string somewhere in the
+ * component source, and `saveSuccess` / `configSaveSuccess` -- near-duplicate save-success copy --
+ * must be resolved down to the one the page actually calls.
+ */
+describe('admin.search.* locale block', () => {
+  const thisDir = dirname(fileURLToPath(import.meta.url))
+  const localePath = join(thisDir, '../../../backend/locales/en.json')
+  const componentSource = readFileSync(join(thisDir, './AdminSearch.vue'), 'utf8')
+  const locale = JSON.parse(readFileSync(localePath, 'utf8'))
+  const searchKeys = Object.keys(locale).filter((key) => key.startsWith('admin.search.'))
+
+  it('has no orphaned admin.search.* key -- every one is referenced in AdminSearch.vue', () => {
+    const orphaned = searchKeys.filter((key) => !componentSource.includes(key))
+    expect(orphaned).toEqual([])
+  })
+
+  it('keeps only one canonical save-success string, not both saveSuccess and configSaveSuccess', () => {
+    expect(searchKeys).not.toContain('admin.search.saveSuccess')
+    expect(searchKeys).toContain('admin.search.configSaveSuccess')
   })
 })
