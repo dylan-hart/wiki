@@ -109,6 +109,23 @@
               <w-item-label>{{ lc.nativeName }}</w-item-label>
               <w-item-label caption>{{ lc.name }} ({{ lc.code }})</w-item-label>
             </w-item-section>
+            <w-item-section side>
+              <div
+                class="locale-completeness flex items-center gap-2"
+                :title="t('admin.locale.completeness', { percent: lc.completeness ?? 0 })">
+                <w-linear-progress
+                  class="w-20"
+                  size="sm"
+                  rounded
+                  :value="(lc.completeness ?? 0) / 100"
+                  :color="completenessColor(lc.completeness)" />
+                <span
+                  class="text-caption locale-completeness-label"
+                  :class="completenessLow(lc.completeness) ? 'text-grey' : ''">
+                  {{ lc.completeness ?? 0 }}%
+                </span>
+              </div>
+            </w-item-section>
             <w-item-section avatar>
               <w-toggle
                 :disable="lc.code === state.primary"
@@ -189,6 +206,26 @@ watch(
     }
   }
 )
+
+// COMPLETENESS
+
+/**
+ * Below this, a locale is under-translated enough to call out at a glance -- muted progress bar
+ * colour and greyed-out percentage label, matching how 2.5.x's admin language screen dimmed
+ * incomplete languages rather than presenting every language's number with equal visual weight.
+ */
+const COMPLETENESS_LOW_THRESHOLD = 50
+
+function completenessLow(value) {
+  return (value ?? 0) < COMPLETENESS_LOW_THRESHOLD
+}
+
+function completenessColor(value) {
+  if (completenessLow(value)) {
+    return 'grey'
+  }
+  return (value ?? 0) >= 90 ? 'positive' : 'primary'
+}
 
 // METHODS
 

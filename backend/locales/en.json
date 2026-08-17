@@ -499,6 +499,7 @@
   "admin.locale.base.label": "Site Locale",
   "admin.locale.base.labelWithNS": "Base Locale",
   "admin.locale.code": "Code",
+  "admin.locale.completeness": "{percent}% translated",
   "admin.locale.download": "Download",
   "admin.locale.downloadNew": "Install New Locale",
   "admin.locale.downloadTitle": "Download Locale",
