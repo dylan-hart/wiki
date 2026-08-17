@@ -592,6 +592,19 @@ async function handleLoginResponse(resp) {
       break
     }
     case 'redirect': {
+      /*
+        Task 468 (feature 362) checked this side of the same staleness question logout() had: every
+        code path that ends a successful sign-in -- the form (`login()`), TFA verification, and a
+        just-completed registration -- funnels through this one `nextAction: 'redirect'` case, and
+        every branch of it below calls `window.location.replace()`, a real browser navigation rather
+        than a router push. That tears down and rebuilds the whole SPA from `bootstrap`, so the nav
+        sidebar is never in a position to go stale here the way it could across logout -- there is no
+        surviving Pinia state for it to go stale IN. The other kind of strategy (`redirectStrategies`,
+        a provider button) never reaches this function at all: it leaves via a plain `<a>` to the
+        backend's `/authorize` endpoint, which itself lands the browser back on a real page URL after
+        the provider round trip -- also a full reload, never the SPA's router. Confirmed, not assumed:
+        no fix needed on this side.
+      */
       loading.show({
         message: t('auth.loginSuccess')
       })
