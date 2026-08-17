@@ -6,8 +6,16 @@ import type { FastifyInstance } from 'fastify'
  * Per-site, mirroring the shape of `api/storage.ts`'s target routes: search configuration
  * (`termHighlighting`/`dictOverrides`) and the rebuild action moved off the instance-wide
  * `/system/search` routes onto a site once `models/sites.ts` started seeding `config.search` per site
- * (task #563). `manage:sites` rather than `manage:system`: unlike a storage target's credentials, none
- * of this holds a secret, so it belongs with the rest of a site's editable settings.
+ * (task #563). `manage:sites` rather than `manage:system` there: unlike a storage target's
+ * credentials, none of that general search config holds a secret, so it belongs with the rest of a
+ * site's editable settings.
+ *
+ * The engine-picker routes below (task #570) are different: a non-default engine's config can hold
+ * credentials the same way a storage target's can (an API key, an index name pointing at private
+ * infrastructure, ...), so they require `manage:system`, exactly like `api/storage.ts`. `refresh` and
+ * `rebuild` require it too for consistency with the rest of this surface, even though neither reads a
+ * secret itself -- `rebuild` in particular can now run arbitrary engine code, the same reasoning
+ * `api/storage.ts`'s action route uses.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -179,7 +187,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/search/rebuild',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:system']
       },
       schema: {
         summary: 'Rebuild the search index of a site',
@@ -235,6 +243,175 @@ async function routes(app: FastifyInstance) {
         message: 'Search index rebuild queued successfully.',
         id: added.id
       }
+    }
+  )
+
+  /**
+   * LIST SITE SEARCH ENGINES
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/search/engines',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'List the search engines available to a site',
+        description:
+          "One entry per search engine module installed in `modules/search`, whether or not it is the one currently selected. Configuration values may include a module's credentials, hence the `manage:system` requirement.",
+        tags: ['Search'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: 'List of search engines',
+            type: 'array',
+            items: { $ref: 'SearchEngine#' }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      if (!site) {
+        return reply.notFound('Site does not exist.')
+      }
+      return WIKI.models.search.getSiteEngines(req.params.siteId)
+    }
+  )
+
+  /**
+   * SELECT SITE SEARCH ENGINE
+   */
+  app.put<{ Params: { siteId: string; key: string }; Body: { config?: Record<string, any> } }>(
+    '/sites/:siteId/search/engines/:key',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "Select a site's active search engine",
+        description:
+          "Makes the named engine the one queries and indexing dispatch to, and saves its config. Values are validated against what the engine's `definition.yml` declares; an unrecognized key or a value of the wrong type is refused, and nothing is written. Config for an engine that is not selected is kept, so switching back to it later starts from what was last saved rather than from its bare defaults.",
+        tags: ['Search'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            key: {
+              type: 'string',
+              maxLength: 255
+            }
+          },
+          required: ['siteId', 'key']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            config: {
+              type: 'object',
+              additionalProperties: true
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Search engine selected successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      if (!site) {
+        return reply.notFound('Site does not exist.')
+      }
+      const definition = WIKI.models.search.getDefinition(req.params.key)
+      if (!definition) {
+        return reply.notFound(`Search engine "${req.params.key}" does not exist.`)
+      }
+
+      const invalid = WIKI.models.search.validateEngineConfig(req.params.key, req.body.config)
+      if (invalid) {
+        return reply.badRequest(invalid)
+      }
+
+      const selected = await WIKI.models.search.selectEngine(
+        req.params.siteId,
+        req.params.key,
+        req.body.config
+      )
+      if (!selected) {
+        return reply.internalServerError('Failed to select the search engine.')
+      }
+
+      return {
+        ok: true,
+        message: `${definition.title} selected as the search engine successfully.`
+      }
+    }
+  )
+
+  /**
+   * REFRESH SEARCH ENGINE DEFINITIONS
+   */
+  app.post<{ Params: { siteId: string } }>(
+    '/sites/:siteId/search/refresh',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Re-read the search engine definitions from disk',
+        description:
+          'Re-scans `modules/search` for `definition.yml` files, picking up an engine added or removed since boot, then returns the refreshed list for this site -- same shape as `GET .../search/engines`.',
+        tags: ['Search'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: 'Refreshed list of search engines',
+            type: 'array',
+            items: { $ref: 'SearchEngine#' }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      if (!site) {
+        return reply.notFound('Site does not exist.')
+      }
+      await WIKI.models.search.refreshFromDisk()
+      return WIKI.models.search.getSiteEngines(req.params.siteId)
     }
   )
 }

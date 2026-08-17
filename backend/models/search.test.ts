@@ -13,6 +13,26 @@ import type {
   SearchPagesParams,
   SearchPagesResult
 } from './search.ts'
+import type { ModuleProp } from '../helpers/common.ts'
+
+/** A prop shaped the way `parseModuleProps` (helpers/common.ts) normalizes a `definition.yml` entry. */
+function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
+  return {
+    default: false,
+    type: 'boolean',
+    title: 'Term Highlighting',
+    hint: '',
+    enum: false,
+    enumDisplay: 'select',
+    multiline: false,
+    sensitive: false,
+    readOnly: false,
+    icon: 'text-box-search',
+    order: 100,
+    if: [],
+    ...overrides
+  }
+}
 
 const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -419,5 +439,247 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     await search.renamed('site-default', page, 'old/path')
 
     assert.deepEqual(calls, ['renamed:site-default:page-moved:old/path'])
+  })
+})
+
+/**
+ * `search.getSiteEngines()` / `.buildEngineConfig()` / `.validateEngineConfig()` / `.selectEngine()`,
+ * task #570: the site-scoped engine picker built on top of `refreshFromDisk()`'s definitions.
+ */
+describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineConfig/selectEngine)', () => {
+  let previousWiki: any
+  let previousDefinitions: SearchEngineDefinition[]
+
+  const dbDefinition: SearchEngineDefinition = {
+    key: 'db',
+    title: 'Database',
+    description: 'PostgreSQL full-text search.',
+    vendor: 'Wiki.js',
+    website: 'https://js.wiki',
+    props: {
+      termHighlighting: fakeProp()
+    }
+  }
+  const customDefinition: SearchEngineDefinition = {
+    key: 'custom-engine',
+    title: 'Custom Engine',
+    description: 'A fake external engine.',
+    vendor: 'Test',
+    website: 'https://example.com',
+    props: {
+      apiKey: fakeProp({
+        default: '',
+        type: 'string',
+        title: 'API Key',
+        sensitive: true,
+        icon: 'key'
+      }),
+      mode: fakeProp({
+        default: 'fast',
+        type: 'string',
+        title: 'Mode',
+        enum: ['fast|Fast', 'accurate|Accurate'],
+        icon: 'tune'
+      })
+    }
+  }
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+    previousDefinitions = search.definitions
+    search.definitions = [dbDefinition, customDefinition]
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+    search.definitions = previousDefinitions
+  })
+
+  describe('getSiteEngines()', () => {
+    test('lists every definition, marking the site’s configured engine as selected', async () => {
+      ;(globalThis as any).WIKI.sites['site-a'] = {
+        id: 'site-a',
+        config: { search: { engine: 'custom-engine', engines: {} } }
+      }
+
+      const engines = await search.getSiteEngines('site-a')
+
+      assert.deepEqual(
+        engines.map((e) => e.key),
+        ['db', 'custom-engine']
+      )
+      assert.equal(engines.find((e) => e.key === 'db')!.isSelected, false)
+      assert.equal(engines.find((e) => e.key === 'custom-engine')!.isSelected, true)
+    })
+
+    test('defaults to the db engine selected for a site with no engine configured', async () => {
+      ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+
+      const engines = await search.getSiteEngines('site-bare')
+
+      assert.equal(engines.find((e) => e.key === 'db')!.isSelected, true)
+    })
+
+    test('hasImplementation reflects whether a search.ts sits next to the definition', async () => {
+      ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+
+      const engines = await search.getSiteEngines('site-bare')
+
+      // -> Neither fixture definition has a sibling search.ts under the real modules/search tree
+      assert.equal(engines.find((e) => e.key === 'db')!.hasImplementation, false)
+      assert.equal(engines.find((e) => e.key === 'custom-engine')!.hasImplementation, false)
+    })
+
+    test('completes stored config with the engine defaults for a prop never saved', async () => {
+      ;(globalThis as any).WIKI.sites['site-c'] = {
+        id: 'site-c',
+        config: {
+          search: {
+            engine: 'custom-engine',
+            engines: { 'custom-engine': { apiKey: 'secret-key' } }
+          }
+        }
+      }
+
+      const engines = await search.getSiteEngines('site-c')
+      const custom = engines.find((e) => e.key === 'custom-engine')!
+
+      assert.deepEqual(custom.config, { apiKey: 'secret-key', mode: 'fast' })
+    })
+
+    test('keeps a non-selected engine’s stored config rather than dropping it', async () => {
+      ;(globalThis as any).WIKI.sites['site-d'] = {
+        id: 'site-d',
+        config: {
+          search: {
+            engine: 'db',
+            engines: { 'custom-engine': { apiKey: 'still-here', mode: 'accurate' } }
+          }
+        }
+      }
+
+      const engines = await search.getSiteEngines('site-d')
+      const custom = engines.find((e) => e.key === 'custom-engine')!
+
+      assert.equal(custom.isSelected, false)
+      assert.deepEqual(custom.config, { apiKey: 'still-here', mode: 'accurate' })
+    })
+  })
+
+  describe('buildEngineConfig()', () => {
+    test('fills every declared prop from incoming, falling back to existing, falling back to default', () => {
+      const config = search.buildEngineConfig(
+        'custom-engine',
+        { apiKey: 'new-key' },
+        { apiKey: 'old-key', mode: 'accurate' }
+      )
+      assert.deepEqual(config, { apiKey: 'new-key', mode: 'accurate' })
+    })
+
+    test('drops a key the engine does not declare', () => {
+      const config = search.buildEngineConfig('custom-engine', { nonsense: true })
+      assert.deepEqual(config, { apiKey: '', mode: 'fast' })
+    })
+
+    test('returns an empty object for an unknown engine key', () => {
+      assert.deepEqual(search.buildEngineConfig('nonexistent', { anything: 1 }), {})
+    })
+  })
+
+  describe('validateEngineConfig()', () => {
+    test('accepts a config with only declared keys of the right type', () => {
+      assert.equal(
+        search.validateEngineConfig('custom-engine', { apiKey: 'abc', mode: 'fast' }),
+        null
+      )
+    })
+
+    test('rejects an unrecognized prop, naming the engine', () => {
+      const message = search.validateEngineConfig('custom-engine', { bogus: 'x' })
+      assert.match(message!, /"bogus"/)
+      assert.match(message!, /Custom Engine/)
+    })
+
+    test('rejects a value not in the declared enum', () => {
+      const message = search.validateEngineConfig('custom-engine', { mode: 'ludicrous' })
+      assert.match(message!, /not a valid value for Mode/)
+    })
+
+    test('rejects a wrong-typed string prop', () => {
+      const message = search.validateEngineConfig('custom-engine', { apiKey: 42 })
+      assert.match(message!, /API Key must be a string/)
+    })
+
+    test('rejects a wrong-typed boolean prop', () => {
+      const message = search.validateEngineConfig('db', { termHighlighting: 'yes' })
+      assert.match(message!, /Term Highlighting must be true or false/)
+    })
+  })
+
+  describe('selectEngine()', () => {
+    test('writes engine + built config through WIKI.models.sites.updateSite', async () => {
+      const calls: any[] = []
+      ;(globalThis as any).WIKI.sites['site-e'] = {
+        id: 'site-e',
+        config: { search: { engine: 'db', engines: {} } }
+      }
+      ;(globalThis as any).WIKI.models = {
+        sites: {
+          updateSite: async (siteId: string, patch: any) => {
+            calls.push([siteId, patch])
+            return true
+          }
+        }
+      }
+
+      const result = await search.selectEngine('site-e', 'custom-engine', { apiKey: 'k' })
+
+      assert.equal(result, true)
+      assert.deepEqual(calls, [
+        [
+          'site-e',
+          {
+            config: {
+              search: {
+                engine: 'custom-engine',
+                engines: { 'custom-engine': { apiKey: 'k', mode: 'fast' } }
+              }
+            }
+          }
+        ]
+      ])
+    })
+
+    test('starts from the engine’s previously-stored config when incoming omits a prop', async () => {
+      ;(globalThis as any).WIKI.sites['site-f'] = {
+        id: 'site-f',
+        config: {
+          search: {
+            engine: 'db',
+            engines: { 'custom-engine': { apiKey: 'kept-key', mode: 'accurate' } }
+          }
+        }
+      }
+      let written: any
+      ;(globalThis as any).WIKI.models = {
+        sites: {
+          updateSite: async (_siteId: string, patch: any) => {
+            written = patch
+            return true
+          }
+        }
+      }
+
+      await search.selectEngine('site-f', 'custom-engine', { mode: 'fast' })
+
+      assert.deepEqual(written.config.search.engines['custom-engine'], {
+        apiKey: 'kept-key',
+        mode: 'fast'
+      })
+    })
   })
 })

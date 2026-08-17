@@ -77,6 +77,27 @@ export interface SearchPagesParams {
   hideProtectedContent?: boolean
 }
 
+/**
+ * A search engine, for a site's engine picker: the module definition plus how the site has it set up.
+ *
+ * Mirrors `StorageTarget` (`models/storage.ts`), with one structural difference: a site has exactly
+ * one *active* engine (`isSelected`) rather than several independently-enabled targets, so there is no
+ * `id`/`isEnabled` pair here — `key` plus `isSelected` is all a picker needs.
+ */
+export interface SearchEngine {
+  key: string
+  title: string
+  description: string
+  icon?: string
+  logo?: string
+  vendor: string
+  website: string
+  props: Record<string, ModuleProp>
+  hasImplementation: boolean
+  isSelected: boolean
+  config: Record<string, any>
+}
+
 /** A search engine module, as declared by its `definition.yml`. */
 export interface SearchEngineDefinition {
   key: string
@@ -240,6 +261,132 @@ class Search {
       WIKI.logger.warn(err)
       return null
     }
+  }
+
+  /**
+   * Every installed search engine, for a site's engine picker.
+   *
+   * Driven by `this.definitions` rather than by anything stored, the same way
+   * `Storage.getSiteTargets()` is driven by its own definitions: an engine dropped from disk without a
+   * restart is simply absent, rather than half-present with no metadata behind it.
+   */
+  async getSiteEngines(siteId: string): Promise<SearchEngine[]> {
+    const selected = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+    const stored = (WIKI.sites[siteId]?.config?.search?.engines ?? {}) as Record<
+      string,
+      Record<string, any>
+    >
+    const engines: SearchEngine[] = []
+    for (const definition of this.definitions) {
+      engines.push({
+        key: definition.key,
+        title: definition.title,
+        description: definition.description,
+        icon: definition.icon,
+        logo: definition.logo,
+        vendor: definition.vendor,
+        website: definition.website,
+        props: definition.props,
+        hasImplementation: await this.hasImplementation(definition.key),
+        isSelected: definition.key === selected,
+        config: this.buildEngineConfig(definition.key, {}, stored[definition.key] ?? {})
+      })
+    }
+    return engines
+  }
+
+  /**
+   * Merge incoming config values for one engine onto what is already stored for it, keeping only what
+   * the engine declares.
+   *
+   * Same shape as `Storage.buildConfig`, kept as its own method rather than shared: a search engine is
+   * a per-site *selection*, not a set of independently-enabled rows, so config for an engine that
+   * isn't currently active still needs somewhere to live -- under its own key in
+   * `site.config.search.engines` -- so that switching back to it does not lose what was entered.
+   */
+  buildEngineConfig(
+    key: string,
+    incoming: Record<string, any> = {},
+    existing: Record<string, any> = {}
+  ): Record<string, any> {
+    const props = this.getDefinition(key)?.props ?? {}
+    const config: Record<string, any> = {}
+    for (const [propKey, prop] of Object.entries(props)) {
+      const current = existing[propKey] !== undefined ? existing[propKey] : prop.default
+      config[propKey] =
+        prop.readOnly || incoming[propKey] === undefined ? current : incoming[propKey]
+    }
+    return config
+  }
+
+  /**
+   * Check incoming config values for one engine against what it declares.
+   *
+   * Unlike `Storage.validateConfig` -- which silently drops a key a module no longer declares, so that
+   * losing a prop can never make the admin area unable to save -- an unknown key here is refused: the
+   * engine picker only ever sends what the engine's own props currently list, so an unrecognized key
+   * means the request is stale or wrong, not that a prop was removed server-side.
+   *
+   * @returns The reason it is invalid, or null when it is fine
+   */
+  validateEngineConfig(key: string, incoming: Record<string, any> = {}): string | null {
+    const definition = this.getDefinition(key)
+    const props = definition?.props ?? {}
+    for (const [propKey, value] of Object.entries(incoming)) {
+      const prop = props[propKey]
+      if (!prop) {
+        return `"${propKey}" is not a config value ${definition?.title ?? key} accepts.`
+      }
+      if (prop.readOnly || value === undefined) {
+        continue
+      }
+      if (prop.enum) {
+        // -> Enum entries are declared as `value` or `value|label`
+        const allowed = prop.enum.map((entry) => entry.split('|')[0])
+        if (!allowed.includes(`${value}`)) {
+          return `"${value}" is not a valid value for ${prop.title}.`
+        }
+        continue
+      }
+      switch (prop.type) {
+        case 'boolean':
+          if (typeof value !== 'boolean') {
+            return `${prop.title} must be true or false.`
+          }
+          break
+        case 'number':
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return `${prop.title} must be a number.`
+          }
+          break
+        default:
+          if (typeof value !== 'string') {
+            return `${prop.title} must be a string.`
+          }
+      }
+    }
+    return null
+  }
+
+  /**
+   * Select a site's active search engine and save its config.
+   *
+   * Caller validates first (`validateEngineConfig`): only the declared props survive into what gets
+   * stored, keyed under the engine so a later switch back to it starts from what was last saved rather
+   * than from the engine's bare defaults.
+   *
+   * @returns Whether the site was written
+   */
+  async selectEngine(
+    siteId: string,
+    key: string,
+    incoming: Record<string, any> = {}
+  ): Promise<boolean> {
+    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    const config = this.buildEngineConfig(key, incoming, stored)
+    return WIKI.models.sites.updateSite(siteId, {
+      config: { search: { engine: key, engines: { [key]: config } } }
+    })
   }
 
   /**
