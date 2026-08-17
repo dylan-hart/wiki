@@ -1524,6 +1524,21 @@ onMounted(async () => {
 
   if (collabEnabled.value) {
     /*
+      "Someone else already has this open" -- said once, before the collab session below has even
+      asked to connect. `pageStore.activeEditors` came with the page itself (`viewer.activeEditors` on
+      `GET .../pages/:id`, task 546), read off whatever room `core/collab.ts` already has for it on
+      this instance -- so this can be shown immediately, without waiting on a socket.
+    */
+    if (pageStore.activeEditors.count > 0) {
+      notify({
+        type: 'info',
+        message: t('editor.collab.activeEditors', pageStore.activeEditors.count, {
+          count: pageStore.activeEditors.count
+        })
+      })
+    }
+
+    /*
       Read-only until the shared document has arrived, and only that first time.
 
       The binding below starts by making the editor say what the document says, so anything typed

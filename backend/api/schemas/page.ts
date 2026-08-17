@@ -246,6 +246,20 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'array',
             items: { $ref: 'PageEditSubmission#' },
             description: 'What is waiting on this page, oldest first. Empty unless `canReview`.'
+          },
+          activeEditors: {
+            type: 'object',
+            description:
+              'Who else has this page open in a live collaboration room on this instance, right now — a same-instance approximation, not a cluster-wide count (see `core/collab.ts#participantInfo`). Always zero on a site with collaborative editing off.',
+            properties: {
+              count: { type: 'integer' },
+              names: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Best-effort: only those participants whose awareness state carries a name.'
+              }
+            }
           }
         }
       }

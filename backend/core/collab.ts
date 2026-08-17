@@ -331,6 +331,32 @@ export default {
   },
 
   /**
+   * Who else has this page open, on this instance, right now.
+   *
+   * A cheap "someone else has this open" signal for before a collab session starts — read straight off
+   * whatever room already exists for the page, with no new tracking of its own and no query. It is
+   * deliberately a same-instance approximation rather than a cluster-wide headcount: two people on
+   * different instances would each see only their own, since rooms are never listed across the relay
+   * (only their edits and awareness are, once a room exists on both sides). That is an acceptable gap
+   * for a hint shown before anyone has joined a room at all — the collab session itself, once started,
+   * gets the real cross-instance participant list over the socket, from `awareness` directly.
+   *
+   * A page nobody has open on this instance, or with no room at all, answers empty rather than being
+   * asked to distinguish the two — there is nothing a caller would do differently either way.
+   */
+  participantInfo(pageId: string): { count: number; names: string[] } {
+    const room = this.rooms.get(pageId)
+    if (!room) {
+      return { count: 0, names: [] }
+    }
+    const states = room.awareness.getStates() as Map<number, { user?: { name?: string } }>
+    const names = [...states.values()]
+      .map((state) => state.user?.name)
+      .filter((name): name is string => Boolean(name))
+    return { count: states.size, names }
+  },
+
+  /**
    * Put a socket into a page's room, syncing it against whatever state that room holds.
    *
    * The caller is responsible for having decided that this user may edit this page — see

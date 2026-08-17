@@ -499,12 +499,23 @@ async function routes(app: FastifyInstance) {
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         WIKI.models.pageWatching.isWatching(page.id, actorId)
       ])
+      /*
+        Who else already has this page open, on this instance — a cheap "someone else has this open"
+        hint for before a collab session starts, drawn straight from whatever room `core/collab.ts`
+        already has for the page. No query: it is in memory or it is nothing. Left at zero on a site
+        without the feature, since a room can never exist there and the number would be misleading if
+        the feature were re-enabled and disabled again while a stale one lingered.
+      */
+      const activeEditors = WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+        ? WIKI.collab.participantInfo(page.id)
+        : { count: 0, names: [] }
       return {
         ...page,
         viewer: {
           permissions: pagePermissionsFor(req, page),
           ...approvalState,
-          isWatching
+          isWatching,
+          activeEditors
         }
       }
     }

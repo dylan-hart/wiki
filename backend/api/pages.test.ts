@@ -47,6 +47,13 @@ function installFakeTemporal(): void {
  * stands in for `@fastify/session` by writing an authenticated session directly onto the request —
  * keeping this a self-contained unit test of the route's conflict-detection wiring rather than
  * pulling in the db/schema/drizzle/session-store graph.
+ *
+ * Also covers `GET /sites/:siteId/pages/:pageIdOrHash`'s `viewer.activeEditors` (task 546): the route
+ * folds `WIKI.collab.participantInfo()` — itself covered directly, against the real `Awareness`
+ * library, in `core/collab.test.ts` — into the same per-page-view response as `approvalState` and
+ * `isWatching`. What is worth a route-level test here is the wiring around that call, not
+ * `participantInfo()` itself: that it is only ever asked for on a site with `collaborativeEditing` on,
+ * and that its answer reaches `viewer.activeEditors` unchanged.
  */
 
 const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -55,6 +62,9 @@ const STORED_UPDATED_AT = new Date('2026-08-17T10:00:00.000Z')
 
 let app: FastifyInstance
 let updatePageCalls: any[]
+let participantInfoCalls: string[]
+let siteCollabEnabled: boolean
+let participantInfoResult: { count: number; names: string[] }
 
 function currentPage() {
   return {
@@ -62,6 +72,7 @@ function currentPage() {
     path: 'some-page',
     locale: 'en',
     tags: [],
+    allowContributions: true,
     title: 'Stored Title',
     content: 'Stored content',
     authorName: 'Someone Else',
@@ -87,10 +98,30 @@ before(async () => {
       groups: {
         actorForRequest: () => ({ permissions: ['write:pages'] }),
         checkAccess: () => true
+      },
+      approvals: {
+        pageViewerState: async () => ({
+          canSuggestEdits: false,
+          hasOpenSuggestion: false,
+          canReview: false,
+          pendingSubmissions: []
+        })
+      },
+      pageWatching: {
+        isWatching: async () => false
       }
     },
     collab: {
-      pageSaved: () => {}
+      pageSaved: () => {},
+      participantInfo: (pageId: string) => {
+        participantInfoCalls.push(pageId)
+        return participantInfoResult
+      }
+    },
+    get sites() {
+      return {
+        [SITE_ID]: { config: { features: { collaborativeEditing: siteCollabEnabled } } }
+      }
     }
   }
 
@@ -123,6 +154,9 @@ after(async () => {
 
 beforeEach(() => {
   updatePageCalls = []
+  participantInfoCalls = []
+  siteCollabEnabled = true
+  participantInfoResult = { count: 0, names: [] }
 })
 
 test('a save with no expectedUpdatedAt writes through as before', async () => {
@@ -181,4 +215,39 @@ test('expectedUpdatedAt is compared at millisecond precision, not nanosecond', a
   })
   assert.equal(res.statusCode, 200)
   assert.equal(updatePageCalls.length, 1)
+})
+
+test('GET page carries collab.participantInfo() through as viewer.activeEditors, on a site with the feature on', async () => {
+  participantInfoResult = { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(participantInfoCalls, [PAGE_ID])
+  const body = res.json()
+  assert.deepEqual(body.viewer.activeEditors, { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] })
+})
+
+test('GET page never asks collab for participants, and answers zero, on a site with collaborativeEditing off', async () => {
+  siteCollabEnabled = false
+  participantInfoResult = { count: 5, names: ['Should Not Appear'] }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(participantInfoCalls, [])
+  const body = res.json()
+  assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+})
+
+test('GET page answers activeEditors: { count: 0, names: [] } when nobody else has the page open', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
 })

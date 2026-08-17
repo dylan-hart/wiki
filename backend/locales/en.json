@@ -1708,6 +1708,7 @@
   "editor.ckeditor.stats": "{chars} chars, {words} words",
   "editor.codeBlock.filter": "Filter languages...",
   "editor.codeBlock.noResults": "No language matches that.",
+  "editor.collab.activeEditors": "No one else has this page open | 1 other person has this page open | {count} other people have this page open",
   "editor.collab.disconnected": "Live collaboration is unavailable. Your changes are kept locally and can still be saved.",
   "editor.collab.editingWithYou": "{name} is editing this page with you.",
   "editor.collab.notAllowed": "You are no longer allowed to edit this page collaboratively.",

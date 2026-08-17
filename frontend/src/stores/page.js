@@ -93,7 +93,14 @@ export const usePageStore = defineStore('page', {
      * Whether this reader has asked to be told about changes to this page. Always false for a guest:
      * a watch belongs to an account, which is what a notification would eventually be sent to.
      */
-    isWatching: false
+    isWatching: false,
+    /**
+     * Who else already has this page open in a live collaboration room, on the instance that answered
+     * this request — a same-instance approximation, not a cluster-wide count. What lets the editor say
+     * "N other people have this page open" before a collab session of its own has even started; see
+     * `EditorMarkdown.vue`. Always `{ count: 0, names: [] }` on a site without collaborative editing.
+     */
+    activeEditors: { count: 0, names: [] }
   }),
   getters: {
     breadcrumbs: (state) => {
@@ -270,7 +277,8 @@ export const usePageStore = defineStore('page', {
         hasOpenSuggestion: viewer.hasOpenSuggestion === true,
         canReview: viewer.canReview === true,
         pendingSubmissions: viewer.pendingSubmissions ?? [],
-        isWatching: viewer.isWatching === true
+        isWatching: viewer.isWatching === true,
+        activeEditors: viewer.activeEditors ?? { count: 0, names: [] }
       })
     },
     /**
@@ -311,6 +319,7 @@ export const usePageStore = defineStore('page', {
         canReview: false,
         pendingSubmissions: [],
         isWatching: false,
+        activeEditors: { count: 0, names: [] },
         notFound: true
       })
     },

@@ -106,3 +106,50 @@ describe('page store: pageSave() concurrency', () => {
     expect(editorStore.saveConflict).toEqual(conflictSnapshot)
   })
 })
+
+describe('page store: viewer.activeEditors (task 546)', () => {
+  it('applyViewerState() carries activeEditors onto the store as-is', () => {
+    const pageStore = usePageStore()
+
+    pageStore.applyViewerState({
+      permissions: [],
+      isWatching: false,
+      activeEditors: { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] }
+    })
+
+    expect(pageStore.activeEditors).toEqual({ count: 2, names: ['Ada Lovelace', 'Grace Hopper'] })
+  })
+
+  it('applyViewerState() defaults to zero when the server omits activeEditors', () => {
+    const pageStore = usePageStore()
+    // -> Not a real response shape (the route always sends it), but the same defensive fallback
+    //    every other viewer field gets here
+    pageStore.applyViewerState({ permissions: [] })
+
+    expect(pageStore.activeEditors).toEqual({ count: 0, names: [] })
+  })
+
+  it('pageLoad() -- the editor entry point load, when there are no pending local edits -- reaches the store with what the GET page route answered', async () => {
+    const pageStore = usePageStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: '5',
+          relations: [],
+          tocDepth: {},
+          viewer: {
+            permissions: ['write:pages'],
+            isWatching: false,
+            activeEditors: { count: 1, names: ['Ada Lovelace'] }
+          }
+        })
+    })
+
+    await pageStore.pageLoad({ id: '5' })
+
+    expect(pageStore.activeEditors).toEqual({ count: 1, names: ['Ada Lovelace'] })
+  })
+})
