@@ -13,8 +13,12 @@ export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large']
 /**
  * The module every site stores its content in, and the only one that is guaranteed to work: assets
  * and pages live in the wiki database. It cannot be disabled, as that would leave content nowhere.
+ *
+ * Exported for `models/assets.ts`'s `readContent()`, which resolves this target specifically to read
+ * its `assetDelivery` settings — disk and db are the only implemented targets, and content still
+ * physically lives in the assets table either way, so the db target is what governs serving.
  */
-const DB_MODULE = 'db'
+export const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
@@ -243,6 +247,22 @@ export interface StorageModule {
   assetRenamed?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** An asset was deleted. */
   assetDeleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /**
+   * A direct URL to an asset's bytes on this target — e.g. a signed S3 URL — that lets a reader fetch
+   * the file straight from the target instead of proxying it through this instance.
+   *
+   * Checked by `models/assets.ts`'s `readContent()` before it falls into its own disk-cache/database
+   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on and the
+   * module's definition declares `assetDelivery.isDirectAccessSupported`. Neither `disk` nor `db`
+   * implements this — a local disk path and a database row are not URLs anything else can fetch — so
+   * the hook stays unexercised until a module that has a URL of its own (S3, a CDN) implements it.
+   *
+   * @returns The URL to redirect the request to, or null/undefined to fall through to the normal path
+   */
+  getDirectUrl?: (
+    asset: { id: string; updatedAt: Date; fileName: string },
+    target: StorageTarget
+  ) => Promise<string | null | undefined>
   /** Handlers named by the definition's actions. */
   [handler: string]: any
 }

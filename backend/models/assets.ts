@@ -5,8 +5,10 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail } from '../helpers/images.ts'
+import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
 import type { DeletedEntry } from './tree.ts'
+import type { StorageTarget } from './storage.ts'
 
 /** How large the file manager renders a preview. Generated once, at upload time. */
 const THUMBNAIL_SIZE = { width: 320, height: 200 }
@@ -635,25 +637,84 @@ class Assets {
   }
 
   /**
-   * An asset's bytes, ready to be sent — from the disk cache, or from the database and into it.
+   * The target that governs how this site's assets are served.
    *
-   * @returns A stream when the cache holds the file, the buffer when it had to be read, and null when
-   *   there is no such asset, i.e. when a cached path resolution has outlived the row behind it
+   * Disk and db are the only implemented targets, and content still physically lives in the assets
+   * table either way (the disk module only dumps/imports/backs up on request, it holds no live copy
+   * `readContent` could serve from) — so the db target's `assetDelivery` settings are what govern
+   * serving, whatever else a site also has configured.
+   *
+   * @returns Null when the site has no such target row at all, which `readContent` treats as the
+   *   documented defaults (streaming on, no direct access) rather than as a hard failure
    */
-  async readContent(asset: {
-    id: string
-    updatedAt: Date
-  }): Promise<{ body: Readable | Buffer; size: number } | null> {
-    const cached = await this.readContentCache(asset)
-    if (cached) {
-      return cached
+  async governingTarget(siteId: string): Promise<StorageTarget | null> {
+    const targets = await WIKI.models.storage.getSiteTargets(siteId)
+    return targets.find((t) => t.module === DB_MODULE && t.isEnabled) ?? null
+  }
+
+  /**
+   * A direct URL to serve an asset from instead of proxying it, if the governing target both allows
+   * one and has a module behind it that can produce one. See `StorageModule.getDirectUrl`.
+   */
+  async directUrlFor(
+    asset: { id: string; updatedAt: Date; fileName: string },
+    target: StorageTarget
+  ): Promise<string | null> {
+    if (!target.assetDelivery.directAccess || !target.assetDelivery.isDirectAccessSupported) {
+      return null
+    }
+    const mod = await WIKI.models.storage.ensureModule(target.module)
+    if (!mod?.getDirectUrl) {
+      return null
+    }
+    return (await mod.getDirectUrl(asset, target)) ?? null
+  }
+
+  /**
+   * An asset's bytes, ready to be sent — from the disk cache, or from the database and into it — or a
+   * URL to redirect the request to instead, per the site's governing storage target.
+   *
+   * `assetDelivery.streaming` (on by default) decides whether the disk cache is used at all: off means
+   * every request is a buffered read straight from the database, with nothing written to local disk —
+   * the point of turning it off is that asset bytes never touch this instance's disk. `directAccess`
+   * is checked first, since a target that can hand out its own URL should never have its bytes read at
+   * all, cache or no cache.
+   *
+   * @returns A stream when the disk cache holds the file, the buffer when it had to be read from the
+   *   database, a `redirectUrl` in place of either when the target supplied one, and null when there
+   *   is no such asset, i.e. when a cached path resolution has outlived the row behind it
+   */
+  async readContent(
+    asset: { id: string; updatedAt: Date; fileName: string },
+    siteId: string
+  ): Promise<{ body: Readable | Buffer; size: number } | { redirectUrl: string } | null> {
+    const target = await this.governingTarget(siteId)
+
+    if (target) {
+      const redirectUrl = await this.directUrlFor(asset, target)
+      if (redirectUrl) {
+        return { redirectUrl }
+      }
+    }
+
+    // -> Absent a target row (should not normally happen — every site gets one, see `syncSite`) the
+    //    documented default applies: streaming on, exactly today's pre-target-aware behavior
+    const streaming = target?.assetDelivery.streaming ?? true
+
+    if (streaming) {
+      const cached = await this.readContentCache(asset)
+      if (cached) {
+        return cached
+      }
     }
 
     const content = await this.getContent(asset.id)
     if (!content) {
       return null
     }
-    await this.writeContentCache(asset, content.data)
+    if (streaming) {
+      await this.writeContentCache(asset, content.data)
+    }
     return { body: content.data, size: content.data.length }
   }
 
