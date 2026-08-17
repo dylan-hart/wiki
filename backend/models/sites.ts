@@ -187,6 +187,9 @@ class Sites {
             },
             uploads: {
               conflictBehavior: 'overwrite'
+            },
+            analytics: {
+              providers: {}
             }
           },
           config
@@ -437,6 +440,9 @@ class Sites {
         },
         uploads: {
           conflictBehavior: 'overwrite'
+        },
+        analytics: {
+          providers: {}
         }
       }
     })

@@ -22,6 +22,7 @@ const SITE_CONFIG_KEYS = [
   'logoText',
   'sitemap',
   'discoverable',
+  'analytics',
   'auth',
   'authStrategies',
   'defaults',
@@ -262,6 +263,9 @@ async function routes(app: FastifyInstance) {
       logoText?: boolean
       sitemap?: boolean
       discoverable?: boolean
+      analytics?: {
+        providers?: Record<string, { isEnabled?: boolean; config?: Record<string, any> }>
+      }
       auth?: Record<string, any>
       authStrategies?: Array<{ id: string; order?: number; isVisible?: boolean }>
       defaults?: Record<string, any>
@@ -340,6 +344,9 @@ async function routes(app: FastifyInstance) {
             },
             discoverable: {
               type: 'boolean'
+            },
+            analytics: {
+              $ref: 'Site#/properties/analytics'
             },
             auth: {
               $ref: 'Site#/properties/auth'

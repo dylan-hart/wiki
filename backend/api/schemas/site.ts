@@ -308,6 +308,29 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'string'
           }
         }
+      },
+      analytics: {
+        type: 'object',
+        description:
+          'Which analytics providers this site has configured. Provider definitions themselves — what props each one takes — come from `GET /_api/analytics/modules`, discovered from `modules/analytics` the same way authentication modules are.',
+        properties: {
+          providers: {
+            type: 'object',
+            description: 'Keyed by provider key, e.g. `google`, `gtm`, `matomo`.',
+            additionalProperties: {
+              type: 'object',
+              properties: {
+                isEnabled: {
+                  type: 'boolean'
+                },
+                config: {
+                  type: 'object',
+                  additionalProperties: true
+                }
+              }
+            }
+          }
+        }
       }
     }
   })

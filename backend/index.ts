@@ -178,6 +178,10 @@ async function postBoot() {
 
   await WIKI.models.authentication.refreshStrategiesFromDisk()
 
+  // -> Analytics providers have no db table of their own (see `models/analytics.ts`), so this is
+  //    the only refresh they need — no per-site sync follows, unlike auth strategies and storage
+  await WIKI.models.analytics.refreshFromDisk()
+
   await WIKI.models.authentication.activateStrategies()
   await WIKI.models.locales.reloadCache()
   await WIKI.models.sites.reloadCache()
