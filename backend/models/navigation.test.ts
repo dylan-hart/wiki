@@ -434,3 +434,59 @@ describe(
     })
   }
 )
+
+/**
+ * `siteRoots` is what a "copy from" picker (Feature 359) lists to let an admin choose a source menu
+ * without knowing a raw navigation uuid: the site-wide default's own row id for each of the site's
+ * active locales, the same locale-scoped lookup `ensureSiteNav` provides one locale at a time.
+ */
+describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('returns one root per active locale, matching what ensureSiteNav resolves for each', async () => {
+    WIKI.sites[fixtures.siteId]!.config.locales.active = ['en', 'fr']
+
+    const roots = await navigationModel.siteRoots(fixtures.siteId)
+
+    assert.equal(roots.length, 2)
+    const enExpected = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    const frExpected = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+    assert.deepEqual(
+      roots.sort((a, b) => a.locale.localeCompare(b.locale)),
+      [
+        { locale: 'en', navigationId: enExpected },
+        { locale: 'fr', navigationId: frExpected }
+      ]
+    )
+  })
+
+  test('creates the row on demand for a locale that has never been edited', async () => {
+    WIKI.sites[fixtures.siteId]!.config.locales.active = ['pt']
+
+    const roots = await navigationModel.siteRoots(fixtures.siteId)
+
+    assert.equal(roots.length, 1)
+    assert.equal(roots[0]!.locale, 'pt')
+    assert.notEqual(roots[0]!.navigationId, fixtures.siteId)
+    const items = await navigationModel.getNav(roots[0]!.navigationId, { unfiltered: true })
+    assert.deepEqual(items, [])
+  })
+
+  test('returns an empty array when the site has no active locales configured', async () => {
+    WIKI.sites[fixtures.siteId]!.config.locales.active = undefined
+
+    const roots = await navigationModel.siteRoots(fixtures.siteId)
+
+    assert.deepEqual(roots, [])
+  })
+})

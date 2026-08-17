@@ -149,6 +149,28 @@ class Navigation {
   }
 
   /**
+   * Every site-wide default menu's own row id, one per active locale — what a "copy from" picker
+   * lists so an admin can pick a source without knowing a raw navigation uuid up front.
+   *
+   * Deliberately just the site-wide default, not every override: `listOverrides` already covers
+   * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
+   *
+   * Reads `siteId`'s active locales from the cached site config rather than taking them as a
+   * parameter, same as `defaultLocale` in `api/tree.ts` reaching into `WIKI.sites` directly — a site
+   * with none configured (or one this instance doesn't know about) resolves to an empty list rather
+   * than an error, since there is nothing to enumerate.
+   */
+  async siteRoots(siteId: string): Promise<{ locale: string; navigationId: string }[]> {
+    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? []
+    return Promise.all(
+      activeLocales.map(async (locale) => ({
+        locale,
+        navigationId: await this.ensureSiteNav(siteId, locale)
+      }))
+    )
+  }
+
+  /**
    * Drop the menus belonging to tree entries that no longer exist.
    *
    * A menu is keyed by the id of the entry that owns it, so deleting a page or a folder would

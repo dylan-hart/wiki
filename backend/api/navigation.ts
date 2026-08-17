@@ -203,6 +203,50 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * LIST THE SITE-WIDE DEFAULT MENU ROOTS, ONE PER ACTIVE LOCALE
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/navigation/roots',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "List a site's default menu roots, one per active locale",
+        description:
+          "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: "This site's default menu roots, one per active locale",
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                locale: { type: 'string' },
+                navigationId: { type: 'string', description: 'The row id, never the site id.' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.navigation.siteRoots(req.params.siteId)
+    }
+  )
+
+  /**
    * LIST NAVIGATION OVERRIDES
    */
   app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
