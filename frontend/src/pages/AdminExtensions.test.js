@@ -115,6 +115,38 @@ describe('AdminExtensions needsRestart badge', () => {
   })
 })
 
+/**
+ * Task 663: the per-row "Instructions" button used to hardcode
+ * `https://docs.js.wiki/admin/extensions/${ext.key}` -- the only doc link on this page (and in the
+ * whole admin area) that bypassed `siteStore.docsBase`, and a path with no real page behind it (no
+ * per-extension doc page exists, in either the live 3.0 docs or the 2.x docs it inherits its
+ * structure from -- verified against docs.requarks.io, whose "Modules" section is one page per
+ * topic, not one page per extension key). It must instead link into the anchor within the
+ * `/system/extensions` page that this page's own header "view docs" button already points at.
+ */
+describe('AdminExtensions per-row instructions link', () => {
+  it('builds the Instructions button href from siteStore.docsBase, anchored to the extension key', async () => {
+    const wrapper = await mountWithExtensions([
+      {
+        key: 'git',
+        title: 'Git',
+        description: 'Distributed version control system',
+        website: 'https://git-scm.com',
+        isInstalled: false,
+        isInstallable: false,
+        isCompatible: true,
+        incompatibleReason: null,
+        needsRestart: false
+      }
+    ])
+
+    const instructionsLink = wrapper.findAll('a').find((a) => a.text().includes('Instructions'))
+
+    expect(instructionsLink.exists()).toBe(true)
+    expect(instructionsLink.attributes('href')).toBe('https://docs.js.wiki/system/extensions#git')
+  })
+})
+
 describe('AdminExtensions incompatible button tooltip', () => {
   it('names the required architecture/platform versus what this server reports', async () => {
     const wrapper = await mountWithExtensions([

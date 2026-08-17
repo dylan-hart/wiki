@@ -119,7 +119,7 @@
                       icon="la:info-circle"
                       color="indigo"
                       outline
-                      :href="`https://docs.js.wiki/admin/extensions/` + ext.key"
+                      :href="siteStore.docsBase + `/system/extensions#` + ext.key"
                       target="_blank"
                       no-caps>
                       <w-tooltip anchor="center left" self="center right">{{
