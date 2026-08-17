@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `check-icons.mjs` fails the build if this drifts.
 
-  266 icons.
+  267 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-double-right": {"body":"<path fill=\"currentColor\" d=\"M9.094 4.781L7.688 6.22l9.78 9.78l-9.78 9.781l1.406 1.438L20.313 16zm7 0L14.687 6.22L24.47 16l-9.782 9.781l1.407 1.438L27.312 16z\"/>","width":32,"height":32},
@@ -57,6 +57,7 @@ export const BUNDLED_ICONS = {
   "la:external-link-alt": {"body":"<path fill=\"currentColor\" d=\"M18 5v2h5.563L11.28 19.281l1.438 1.438L25 8.437V14h2V5zM5 9v18h18V14l-2 2v9H7V11h9l2-2z\"/>","width":32,"height":32},
   "la:external-link-square-alt": {"body":"<path fill=\"currentColor\" d=\"M5 5v22h22V5zm2 2h18v18H7zm6 3v2h5.563L9.28 21.281l1.438 1.438L20 13.437V19h2v-9z\"/>","width":32,"height":32},
   "la:eye": {"body":"<path fill=\"currentColor\" d=\"M16 8C7.664 8 1.25 15.344 1.25 15.344L.656 16l.594.656s5.848 6.668 13.625 7.282c.371.046.742.062 1.125.062s.754-.016 1.125-.063c7.777-.613 13.625-7.28 13.625-7.28l.594-.657l-.594-.656S24.336 8 16 8m0 2c2.203 0 4.234.602 6 1.406A6.9 6.9 0 0 1 23 15a6.995 6.995 0 0 1-6.219 6.969c-.02.004-.043-.004-.062 0c-.239.011-.477.031-.719.031c-.266 0-.523-.016-.781-.031A6.995 6.995 0 0 1 9 15c0-1.305.352-2.52.969-3.563h-.031C11.717 10.617 13.773 10 16 10m0 2a3 3 0 1 0 .002 6.002A3 3 0 0 0 16 12m-8.75.938A9 9 0 0 0 7 15c0 1.754.5 3.395 1.375 4.781A23.2 23.2 0 0 1 3.531 16a24 24 0 0 1 3.719-3.063zm17.5 0A24 24 0 0 1 28.469 16a23.2 23.2 0 0 1-4.844 3.781A8.93 8.93 0 0 0 25 15c0-.715-.094-1.398-.25-2.063z\"/>","width":32,"height":32},
+  "la:file": {"body":"<path fill=\"currentColor\" d=\"M6 3v26h20V9.594l-.281-.313l-6-6L19.406 3zm2 2h10v6h6v16H8zm12 1.438L22.563 9H20z\"/>","width":32,"height":32},
   "la:file-alt": {"body":"<path fill=\"currentColor\" d=\"M6 3v26h20V9.594l-.281-.313l-6-6L19.406 3zm2 2h10v6h6v16H8zm12 1.438L22.563 9H20zM11 13v2h10v-2zm0 4v2h10v-2zm0 4v2h10v-2z\"/>","width":32,"height":32},
   "la:file-export": {"body":"<path fill=\"currentColor\" d=\"M6 4v24h20v-8l-2 2v4H8V6h16v4l2 2V4zm16.406 7L21 12.406L23.563 15h-9.657v2h9.656L21 19.594L22.406 21l4.313-4.281l.687-.719l-.687-.719z\"/>","width":32,"height":32},
   "la:file-image": {"body":"<path fill=\"currentColor\" d=\"M6 3v26h20V9.594l-.281-.313l-6-6L19.406 3zm2 2h10v6h6v16H8zm12 1.438L22.563 9H20zM21.094 14c-.551 0-1 .45-1 1s.449 1 1 1s1-.45 1-1s-.45-1-1-1M14 15.594l-.719.687l-4 4l1.438 1.438L14 18.437l2.281 2.282l.719.687l.719-.687L19 19.437l2.281 2.282l1.438-1.438l-3-3l-.719-.687l-.719.687L17 18.563l-2.281-2.282z\"/>","width":32,"height":32},
