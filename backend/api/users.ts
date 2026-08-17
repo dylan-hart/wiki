@@ -219,7 +219,28 @@ async function routes(app: FastifyInstance) {
         summary: 'Get currently logged in user info',
         description:
           'Includes the group-wide permissions of the session, which is what the interface hides its own controls by. Permissions ON A PAGE are a different question, answered by `pages/userPermissions`.\n\nThe app itself gets this from `bootstrap` on load, together with the site and the flags; this endpoint is what asks again once a login or a logout has changed the answer.',
-        tags: ['Users']
+        tags: ['Users'],
+        response: {
+          200: {
+            description:
+              '`{ authenticated: false }` for a guest. A logged in session also includes the profile fields carried on the session, plus the flattened permissions its groups grant.',
+            allOf: [
+              {
+                type: 'object',
+                properties: {
+                  authenticated: { type: 'boolean' },
+                  permissions: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description:
+                      'The same list the route permission hook checks against, from the groups this user belongs to.'
+                  }
+                }
+              },
+              { $ref: 'UserProfile#' }
+            ]
+          }
+        }
       }
     },
     async (req, reply) => {
