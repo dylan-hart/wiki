@@ -357,7 +357,20 @@ class Approvals {
    * Everything asking whether a page takes a suggestion asks this, which is why the check lives here
    * rather than at either route.
    *
-   * @returns The first matching rule, or null when the page takes no suggestions from them
+   * Unlike group page rules (`helpers/pageRules.ts`), approval rules carry no most-specific-wins
+   * precedence and no ALLOW/DENY/FORCEALLOW distinction — the model is purely additive, and
+   * `getRules`'s alphabetical order exists only to make the admin list legible, not to rank rules
+   * against each other (`canReviewPage`/`getReviewableSubmissions` OR every enabled matching rule
+   * together, and the create-rule API description says as much). This method's single-rule `.find()`
+   * is therefore a shortcut for a yes/no answer, not a pick among several candidates: WHICH rule it
+   * lands on among several that all match is an accident of `rulesCache`'s sort order, and every
+   * caller today only asks `Boolean(rule)` — none reads `.id`, `.name` or any other field off the
+   * result. If a future caller ever does read the returned rule's identity for something (which
+   * group it names, what its own name is, ...), that is the bug this comment exists to flag: nothing
+   * here promises the "first" match is the "right" one when more than one rule covers a page for the
+   * same groups.
+   *
+   * @returns A matching rule, or null when no enabled rule lets them suggest here
    */
   async findSubmitRule(
     siteId: string,

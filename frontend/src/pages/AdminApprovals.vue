@@ -2,7 +2,9 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-inspection-animated.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-inspection-animated.svg" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</div>
@@ -51,63 +53,73 @@
         :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
         {{ t('admin.approval.noRules') }}
       </w-banner>
-      <w-card v-else>
-        <w-list separator>
-          <w-item v-for="rule of state.rules" :key="rule.id">
-            <blueprint-icon icon="rules" />
-            <!--
-              A disabled rule keeps everything it says but covers nothing, so it is dimmed rather than
-              hidden or moved: it is still part of the configuration being read.
-            -->
-            <w-item-section :class="rule.isEnabled ? `` : `opacity-60`">
-              <w-item-label>
-                <strong>{{ rule.name }}</strong>
-              </w-item-label>
-              <w-item-label caption>
-                {{ matchLabel(rule.match) }}
-                <span class="font-mono">{{ patternLabel(rule) }}</span>
-              </w-item-label>
-              <w-item-label caption>
-                <span class="text-grey">{{ t('admin.approval.submitters') }}:</span>
-                {{ groupNames(rule.submitterGroups) }}
-              </w-item-label>
-              <w-item-label caption>
-                <span class="text-grey">{{ t('admin.approval.reviewers') }}:</span>
-                {{ groupNames(rule.reviewerGroups) }}
-              </w-item-label>
-            </w-item-section>
-            <w-item-section side>
-              <w-toggle
-                :model-value="rule.isEnabled"
-                :label="t(`admin.approval.enabled`)"
-                :aria-label="t(`admin.approval.enabled`)"
-                @update:model-value="
-                  (val) => {
-                    setEnabled(rule, val)
-                  }
-                " />
-            </w-item-section>
-            <w-separator class="ml-4" vertical />
-            <w-item-section side style="flex-direction: row; align-items: center">
-              <w-btn
-                class="acrylic-btn mr-2"
-                flat
-                @click="editRule(rule)"
-                icon="la:pen"
-                :color="dark.isActive ? `indigo-4` : `indigo`"
-                :label="t(`common.actions.edit`)"
-                no-caps />
-              <w-btn
-                class="acrylic-btn"
-                flat
-                icon="la:trash"
-                color="negative"
-                @click="deleteRule(rule)"
-                :aria-label="t(`common.actions.delete`)" />
-            </w-item-section>
-          </w-item>
-        </w-list>
-      </w-card>
+      <template v-else>
+        <!--
+          There is no drag-reorder and no precedence marker on the list below, which is deliberate:
+          rules do not have an order to reorder INTO. Said here rather than left to be guessed, since
+          a list that looks reorderable otherwise invites reading one in.
+        -->
+        <div class="text-caption text-grey mb-2">
+          {{ t('admin.approval.overlapHint') }}
+        </div>
+        <w-card>
+          <w-list separator>
+            <w-item v-for="rule of state.rules" :key="rule.id">
+              <blueprint-icon icon="rules" />
+              <!--
+                A disabled rule keeps everything it says but covers nothing, so it is dimmed rather
+                than hidden or moved: it is still part of the configuration being read.
+              -->
+              <w-item-section :class="rule.isEnabled ? `` : `opacity-60`">
+                <w-item-label>
+                  <strong>{{ rule.name }}</strong>
+                </w-item-label>
+                <w-item-label caption>
+                  {{ matchLabel(rule.match) }}
+                  <span class="font-mono">{{ patternLabel(rule) }}</span>
+                </w-item-label>
+                <w-item-label caption>
+                  <span class="text-grey">{{ t('admin.approval.submitters') }}:</span>
+                  {{ groupNames(rule.submitterGroups) }}
+                </w-item-label>
+                <w-item-label caption>
+                  <span class="text-grey">{{ t('admin.approval.reviewers') }}:</span>
+                  {{ groupNames(rule.reviewerGroups) }}
+                </w-item-label>
+              </w-item-section>
+              <w-item-section side>
+                <w-toggle
+                  :model-value="rule.isEnabled"
+                  :label="t(`admin.approval.enabled`)"
+                  :aria-label="t(`admin.approval.enabled`)"
+                  @update:model-value="
+                    (val) => {
+                      setEnabled(rule, val)
+                    }
+                  " />
+              </w-item-section>
+              <w-separator class="ml-4" vertical />
+              <w-item-section side style="flex-direction: row; align-items: center">
+                <w-btn
+                  class="acrylic-btn mr-2"
+                  flat
+                  @click="editRule(rule)"
+                  icon="la:pen"
+                  :color="dark.isActive ? `indigo-4` : `indigo`"
+                  :label="t(`common.actions.edit`)"
+                  no-caps />
+                <w-btn
+                  class="acrylic-btn"
+                  flat
+                  icon="la:trash"
+                  color="negative"
+                  @click="deleteRule(rule)"
+                  :aria-label="t(`common.actions.delete`)" />
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </w-card>
+      </template>
     </div>
     <w-inner-loading :showing="state.loading > 0" />
   </w-page>

@@ -436,3 +436,104 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     send.mock.restore()
   })
 })
+
+/**
+ * `findSubmitRule`'s additive contract: when several enabled rules all let the same groups suggest
+ * an edit to a page, the method still answers, but WHICH of them it returns is not something a
+ * caller may depend on -- see the doc comment on the method itself. What every caller in this repo
+ * actually relies on is truthiness, so that is what this pins down: a non-null result when any rule
+ * matches, `null` the moment none does, unaffected by how many others also matched.
+ */
+describe(
+  'approvals findSubmitRule additive semantics (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return { id: page.id, path: page.path, tags: [], allowContributions: true }
+    }
+
+    test('returns a rule when two enabled rules both match the same page for the same groups', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/overlap/page',
+          title: 'Overlap',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+
+      // -> Both cover this page for `fixtures.groupId`; nothing here says which one "wins" -- there is
+      //    nothing to win, only whether at least one of them matches
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'broad',
+        isEnabled: true,
+        match: 'START',
+        path: 'approvals/overlap',
+        submitterGroups: [fixtures.groupId],
+        reviewerGroups: []
+      })
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'narrow',
+        isEnabled: true,
+        match: 'EXACT',
+        path: 'approvals/overlap/page',
+        submitterGroups: [fixtures.groupId],
+        reviewerGroups: []
+      })
+
+      const rule = await approvalsModel.findSubmitRule(fixtures.siteId, pageRef(page), [
+        fixtures.groupId
+      ])
+
+      // -> The only contract: truthy when covered. Which rule's id came back is deliberately not
+      //    asserted -- that is the exact thing the doc comment says not to rely on.
+      assert.ok(rule)
+    })
+
+    test('returns null the moment no enabled rule matches, even with an unrelated rule for the same groups elsewhere', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/no-match/page',
+          title: 'No Match',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        actor
+      )
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'elsewhere',
+        isEnabled: true,
+        match: 'START',
+        path: 'approvals/somewhere-else',
+        submitterGroups: [fixtures.groupId],
+        reviewerGroups: []
+      })
+
+      const rule = await approvalsModel.findSubmitRule(fixtures.siteId, pageRef(page), [
+        fixtures.groupId
+      ])
+
+      assert.equal(rule, null)
+    })
+  }
+)

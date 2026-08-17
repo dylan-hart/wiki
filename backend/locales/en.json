@@ -99,6 +99,7 @@
   "admin.approval.nameRequired": "A rule name is required.",
   "admin.approval.newRule": "New Rule",
   "admin.approval.noRules": "No approval rules yet. Pages accept no edit suggestions from read-only users until a rule covers them.",
+  "admin.approval.overlapHint": "Rules are not ordered. When more than one rule covers the same page, they combine rather than override each other: a page takes suggestions if any enabled rule allows it, and every enabled rule's reviewers see it.",
   "admin.approval.path": "Path",
   "admin.approval.pathHint": "Without the leading slash, e.g. docs/getting-started",
   "admin.approval.pathHintStart": "Without the leading slash, e.g. docs/. Leave empty to cover the whole site.",
