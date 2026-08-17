@@ -135,6 +135,9 @@ export function remotePathForPage(
  *   `target.siteId` is which site's pages get exported.
  * @param options.localeInfo Defaults to resolving the real site from `WIKI.sites`; override in tests.
  * @param options.fetchBatch Defaults to a real `WIKI.db` query; override in tests.
+ * @param options.onProgress Called once per batch written (not per page) with the running total, so a
+ *   caller can log progress at a granularity useful for a large export. Never called for a no-op run
+ *   (content type inactive, or zero eligible pages).
  */
 export async function exportPages(
   client: Client,
@@ -144,6 +147,7 @@ export async function exportPages(
     fetchBatch?: PageBatchFetcher
     /** Overridable purely so a test can exercise multi-batch pagination without 200 fixture rows. */
     pageSize?: number
+    onProgress?: (exportedCount: number) => void
   } = {}
 ): Promise<void> {
   if (!target.contentTypes.activeTypes.includes('pages')) {
@@ -156,6 +160,7 @@ export async function exportPages(
   const basePath = String(target.config.basePath ?? '').replace(/\/+$/, '')
 
   let afterId: string | null = null
+  let exportedCount = 0
   for (;;) {
     const batch = await fetchBatch({ siteId: target.siteId, afterId, pageSize })
     if (batch.length === 0) {
@@ -171,6 +176,9 @@ export async function exportPages(
       const body = injectFrontMatter(page.content, page)
       await client.put(Buffer.from(body, 'utf8'), `${basePath}/${remotePath}`)
     }
+
+    exportedCount += batch.length
+    options.onProgress?.(exportedCount)
 
     afterId = batch[batch.length - 1].id
     if (batch.length < pageSize) {

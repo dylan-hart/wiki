@@ -174,6 +174,10 @@ const ASSET_CONTENT_TYPES = ['images', 'documents', 'others', 'large']
  * @param target The site's configured target; `target.config.basePath` is where files land, and
  *   `target.siteId` is which site's assets get exported.
  * @param options.fetchBatch Defaults to a real `WIKI.db` query; override in tests.
+ * @param options.onProgress Called once per batch fetched (not per asset) with the running total of
+ *   assets actually written (skipped rows — inactive bucket, no data — don't count), so a caller can
+ *   log progress at a granularity useful for a large export. Never called for a no-op run (no asset
+ *   content type active, or zero rows).
  */
 export async function exportAssets(
   client: Client,
@@ -182,6 +186,7 @@ export async function exportAssets(
     fetchBatch?: AssetBatchFetcher
     /** Overridable purely so a test can exercise multi-batch pagination without 50 fixture rows. */
     pageSize?: number
+    onProgress?: (exportedCount: number) => void
   } = {}
 ): Promise<void> {
   const activeTypes = target.contentTypes.activeTypes
@@ -195,6 +200,7 @@ export async function exportAssets(
   const largeThresholdBytes = parseSizeToBytes(target.contentTypes.largeThreshold)
 
   let afterId: string | null = null
+  let exportedCount = 0
   for (;;) {
     const batch = await fetchBatch({ siteId: target.siteId, afterId, pageSize })
     if (batch.length === 0) {
@@ -219,7 +225,10 @@ export async function exportAssets(
         await ensureDirectory(client, basePath, remoteDir)
       }
       await client.put(asset.data, `${basePath}/${remotePath}`)
+      exportedCount++
     }
+
+    options.onProgress?.(exportedCount)
 
     afterId = batch[batch.length - 1].id
     if (batch.length < pageSize) {
