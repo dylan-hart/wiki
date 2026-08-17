@@ -5,6 +5,18 @@ import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import { generatePathHash, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 
+/**
+ * A safe filename stem for a page export, from its path.
+ *
+ * A path is directories joined by `/`; a downloaded file only wants the page's own name, the way
+ * `docs/getting-started` becomes `getting-started.pdf` rather than a name with slashes in it. The home
+ * page's path is empty, so that falls back to `home`.
+ */
+function pdfFilenameStem(path: string): string {
+  const segment = path.split('/').filter(Boolean).pop() || 'home'
+  return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
+}
+
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
 function splitList(value?: string): string[] {
   return (
@@ -1011,6 +1023,57 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This version does not exist.')
       }
       return version
+    }
+  )
+
+  /**
+   * EXPORT PAGE AS PDF
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/export/pdf',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's RULES,
+        checked against this page below (through `loadReadablePage`) rather than the group-wide list.
+        A PDF is the rendered view a reader already sees, not the source, so `read:source` — checked
+        for `withContent=true` on the GET route above — does not apply here.
+      */
+      schema: {
+        summary: 'Export a page as a PDF',
+        description:
+          "The page's stored `render` HTML, printed to a PDF through a headless browser — a minimal print document built from just that HTML and a print stylesheet, not the live app: no nav, no editor rail, nothing `window.print()` on the SPA itself would carry along.\n\nNeeds `read:pages` ON THIS PAGE, exactly like reading it; a password-protected page answers 403 until the session has satisfied `POST …/unlock`. Answers 503 when the Puppeteer extension this needs is not installed.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: 'The page as a PDF file',
+            content: {
+              'application/pdf': {
+                schema: {
+                  type: 'string',
+                  format: 'binary'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+      const pdf = await WIKI.models.rendering.renderPdf(page.render, { title: page.title })
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="${pdfFilenameStem(page.path)}.pdf"`
+      )
+      reply.header('Content-Length', pdf.length)
+      return reply.type('application/pdf').send(pdf)
     }
   )
 
