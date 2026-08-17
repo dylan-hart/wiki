@@ -1,5 +1,5 @@
 import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
  * The contract this route file needs from `WIKI.models.comments`.
@@ -48,6 +48,19 @@ interface CommentsModel {
     replyTo: string | null
     content: string
   }): Promise<CommentRecord>
+  /**
+   * A single comment by id, flat (no `replies`), or `null` when it does not exist. Not present on
+   * #389's model as inspected read-only on `feature/comments-data-model` at the time this file was
+   * written — task 608 (update/delete) needs an existence + ownership lookup that `listForPage`
+   * doesn't cheaply give it, so it is added to the contract here. Flag for whoever integrates the two
+   * branches: either add `get()` to the real model, or have the route call `listForPage` and search
+   * the flattened tree instead.
+   */
+  get(id: string): Promise<CommentRecord | null>
+  /** Update a comment's content. Matches #389's `Comments.update` signature. */
+  update(id: string, input: { content: string }): Promise<CommentRecord>
+  /** Delete a comment (and, per #389's doc comment, its replies via cascade). */
+  delete(id: string): Promise<void>
 }
 
 function commentsModel(): CommentsModel {
@@ -107,11 +120,55 @@ const pageIdParam = {
   required: ['siteId', 'pageId']
 }
 
+const commentIdParam = {
+  type: 'object',
+  properties: {
+    siteId: { type: 'string', format: 'uuid' },
+    pageId: { type: 'string', format: 'uuid' },
+    commentId: { type: 'string', format: 'uuid' }
+  },
+  required: ['siteId', 'pageId', 'commentId']
+}
+
+/**
+ * Whether this requester may edit or delete `comment`.
+ *
+ * SELF-AUTHORSHIP POLICY (task 608): 2.5.x's `server/models/comments.js` requires `manage:comments`
+ * for every edit and delete, with no exception for the comment's own author — confirmed by reading
+ * that file directly. This fork deliberately diverges: a comment's own author
+ * (`comment.authorId === actor.id`) may edit or delete it without holding `manage:comments`. Fixing
+ * a typo or retracting your own remark is the overwhelmingly common case, and forcing every one of
+ * those through a moderator permission that most contributors will never hold is unfriendly friction
+ * upstream never actually needed the safety of — moderation is still fully enforced for everyone
+ * else's comments, which is the case that matters.
+ *
+ * `manage:comments` always overrides, regardless of authorship, in both directions: a moderator may
+ * act on their own comment or anyone else's. Moderation has to work even when the authorship check
+ * would otherwise say no, so it is checked first and short-circuits the rest.
+ *
+ * GUESTS (authorId null): a guest-authored comment can never be self-edited, under either policy.
+ * There is no account behind it to match `actor.id` against — `authorId === actor.id` is false for
+ * every actor when `authorId` is null, including, deliberately, the guest who originally posted it:
+ * nothing on a later, unauthenticated request can prove they are the same person, so the only way to
+ * touch a guest comment is `manage:comments`.
+ */
+function maySelfModerate(
+  req: FastifyRequest,
+  page: { path: string; locale?: string; tags?: string[] },
+  comment: CommentRecord,
+  actor: { id: string } | null
+): boolean {
+  if (mayOnPage(req, 'manage:comments', page)) {
+    return true
+  }
+  return Boolean(actor && comment.authorId !== null && comment.authorId === actor.id)
+}
+
 /**
  * Comments API Routes
  *
- * List and create endpoints, scoped to a single page — the reading-a-page use case. Site-wide
- * listing for admin moderation is a separate task (#611), and update/delete another (#608).
+ * List, create, update and delete, all scoped to a single page. Site-wide listing for admin
+ * moderation is a separate task (#611).
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -217,6 +274,116 @@ async function routes(app: FastifyInstance) {
         content: req.body.content
       })
       return toPublicComment(comment, { includeEmail: true })
+    }
+  )
+
+  /**
+   * UPDATE A COMMENT
+   */
+  app.patch<{
+    Params: { siteId: string; pageId: string; commentId: string }
+    Body: { content: string }
+  }>(
+    '/sites/:siteId/pages/:pageId/comments/:commentId',
+    {
+      // -> Same as the list route: `read:comments` is checked per page, below. The author/moderator
+      //    decision past that point is `maySelfModerate`'s policy, not a route-level permission.
+      schema: {
+        summary: 'Edit a comment',
+        description:
+          "Updates a comment's content. Allowed for the comment's own author, or for anyone holding " +
+          '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
+          'be edited via `manage:comments`.',
+        tags: ['Comments'],
+        params: commentIdParam,
+        body: { $ref: 'CommentInput#' },
+        response: {
+          200: {
+            description: 'The comment as stored, updated',
+            $ref: 'Comment#'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (!mayOnPage(req, 'read:comments', page)) {
+        return reply.forbidden('You are not allowed to read comments on this page.')
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+
+      // -> Existence is checked only after the page-level read gate above, so a comment's presence
+      //    is never revealed to a requester who could not even see the page's comments at all.
+      const comment = await commentsModel().get(req.params.commentId)
+      if (!comment || comment.pageId !== page.id) {
+        return reply.notFound('This comment does not exist.')
+      }
+
+      if (!maySelfModerate(req, page, comment, actor)) {
+        return reply.forbidden('You are not allowed to edit this comment.')
+      }
+
+      const updated = await commentsModel().update(comment.id, { content: req.body.content })
+      return toPublicComment(updated, { includeEmail: false })
+    }
+  )
+
+  /**
+   * DELETE A COMMENT
+   */
+  app.delete<{
+    Params: { siteId: string; pageId: string; commentId: string }
+  }>(
+    '/sites/:siteId/pages/:pageId/comments/:commentId',
+    {
+      // -> Same as PATCH: `read:comments` per page below, then `maySelfModerate`'s policy.
+      schema: {
+        summary: 'Delete a comment',
+        description:
+          "Deletes a comment. Allowed for the comment's own author, or for anyone holding " +
+          '`manage:comments` on this page. A guest-authored comment (no account behind it) can only ' +
+          'be deleted via `manage:comments`.',
+        tags: ['Comments'],
+        params: commentIdParam,
+        response: {
+          204: {
+            description: 'The comment was deleted',
+            type: 'null'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (!mayOnPage(req, 'read:comments', page)) {
+        return reply.forbidden('You are not allowed to read comments on this page.')
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+
+      // -> Same ordering as PATCH: existence is only checked past the page-level read gate.
+      const comment = await commentsModel().get(req.params.commentId)
+      if (!comment || comment.pageId !== page.id) {
+        return reply.notFound('This comment does not exist.')
+      }
+
+      if (!maySelfModerate(req, page, comment, actor)) {
+        return reply.forbidden('You are not allowed to delete this comment.')
+      }
+
+      await commentsModel().delete(comment.id)
+      return reply.code(204).send()
     }
   )
 }

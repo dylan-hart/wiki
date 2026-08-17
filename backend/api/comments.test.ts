@@ -28,6 +28,8 @@ const LOCKED_PAGE_ID = '33333333-3333-3333-3333-333333333333'
 const OTHER_PAGE_ID = '44444444-4444-4444-4444-444444444444'
 const EXISTING_COMMENT_ID = '55555555-5555-5555-5555-555555555555'
 const OTHER_PAGE_COMMENT_ID = '66666666-6666-6666-6666-666666666666'
+const GUEST_COMMENT_ID = '88888888-8888-8888-8888-888888888888'
+const NONEXISTENT_COMMENT_ID = '99999999-9999-9999-9999-999999999999'
 
 const pagesById: Record<string, any> = {
   [PAGE_ID]: { id: PAGE_ID, path: 'en/test-page', locale: 'en', tags: [], isLocked: false },
@@ -73,6 +75,71 @@ const threadsByPage: Record<string, any[]> = {
       replies: []
     }
   ]
+}
+
+function freshComments(): Record<string, any> {
+  return {
+    [EXISTING_COMMENT_ID]: {
+      id: EXISTING_COMMENT_ID,
+      siteId: SITE_ID,
+      pageId: PAGE_ID,
+      authorId: 'author-1',
+      authorName: 'Alice',
+      authorEmail: 'alice@example.com',
+      replyTo: null,
+      content: 'First comment',
+      render: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z')
+    },
+    [OTHER_PAGE_COMMENT_ID]: {
+      id: OTHER_PAGE_COMMENT_ID,
+      siteId: SITE_ID,
+      pageId: OTHER_PAGE_ID,
+      authorId: 'author-2',
+      authorName: 'Bob',
+      authorEmail: 'bob@example.com',
+      replyTo: null,
+      content: 'A comment on a different page',
+      render: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z')
+    },
+    [GUEST_COMMENT_ID]: {
+      id: GUEST_COMMENT_ID,
+      siteId: SITE_ID,
+      pageId: PAGE_ID,
+      authorId: null,
+      authorName: 'Some Guest',
+      authorEmail: 'guest@example.com',
+      replyTo: null,
+      content: 'A guest comment',
+      render: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z')
+    }
+  }
+}
+
+let commentsById: Record<string, any> = freshComments()
+const updatedIds: string[] = []
+const deletedIds: string[] = []
+
+async function getComment(id: string) {
+  return commentsById[id] ?? null
+}
+
+async function updateComment(id: string, { content }: { content: string }) {
+  const record = commentsById[id]
+  record.content = content
+  record.updatedAt = new Date('2026-01-03T00:00:00.000Z')
+  updatedIds.push(id)
+  return record
+}
+
+async function deleteComment(id: string) {
+  delete commentsById[id]
+  deletedIds.push(id)
 }
 
 const created: any[] = []
@@ -124,7 +191,13 @@ before(async () => {
     models: {
       pages: { getPage },
       groups: { actorForRequest, checkAccess },
-      comments: { listForPage, create }
+      comments: {
+        listForPage,
+        create,
+        get: getComment,
+        update: updateComment,
+        delete: deleteComment
+      }
     }
   }
 
@@ -155,6 +228,9 @@ after(async () => {
 
 beforeEach(() => {
   created.length = 0
+  commentsById = freshComments()
+  updatedIds.length = 0
+  deletedIds.length = 0
 })
 
 test('GET list: 404 when the page does not exist', async () => {
@@ -276,4 +352,144 @@ test('POST create: 200 creates a reply to an existing comment on the same page',
   const body = res.json()
   assert.equal(body.replyTo, EXISTING_COMMENT_ID)
   assert.equal(created.length, 1)
+})
+
+/**
+ * PATCH/DELETE (task 608): the self-authorship policy.
+ *
+ * This fork diverges from 2.5.x's `server/models/comments.js`, which requires `manage:comments` for
+ * every edit/delete with no exception. Here, a comment's own author may edit/delete it without
+ * `manage:comments` — see the policy comment at the permission check in `comments.ts`. Both routes
+ * are expected to apply the identical rule, so most of the cases below are run against both methods
+ * via the `method` table.
+ */
+for (const method of ['PATCH', 'DELETE'] as const) {
+  const send = (url: string, headers: Record<string, string>) =>
+    app.inject({
+      method,
+      url,
+      headers,
+      ...(method === 'PATCH' ? { payload: { content: 'Edited content' } } : {})
+    })
+
+  test(`${method}: 404 when the page does not exist`, async () => {
+    const res = await send(
+      `/sites/${SITE_ID}/pages/00000000-0000-0000-0000-000000000000/comments/${EXISTING_COMMENT_ID}`,
+      { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' }
+    )
+    assert.equal(res.statusCode, 404)
+  })
+
+  test(`${method}: 404 (not 403) when the caller may not read the page at all`, async () => {
+    const res = await send(
+      `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:comments' } // -> no read:pages
+    )
+    assert.equal(res.statusCode, 404)
+  })
+
+  test(`${method}: 403 when the page is readable but read:comments is not granted`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`, {
+      'x-test-user-id': 'author-1',
+      'x-test-permissions': 'read:pages'
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test(`${method}: 403 on a password-protected page`, async () => {
+    const res = await send(
+      `/sites/${SITE_ID}/pages/${LOCKED_PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+      { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' }
+    )
+    assert.equal(res.statusCode, 403)
+  })
+
+  test(`${method}: 404 when the comment does not exist on this page`, async () => {
+    const res = await send(
+      `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${NONEXISTENT_COMMENT_ID}`,
+      { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' }
+    )
+    assert.equal(res.statusCode, 404)
+  })
+
+  test(`${method}: 404 when the comment exists but on a different page`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${OTHER_PAGE_COMMENT_ID}`, {
+      'x-test-user-id': 'author-1',
+      'x-test-permissions': 'read:pages,read:comments'
+    })
+    assert.equal(res.statusCode, 404)
+  })
+
+  test(`${method}: 403 when a non-author without manage:comments tries to act on someone else's comment`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`, {
+      'x-test-user-id': 'someone-else',
+      'x-test-permissions': 'read:pages,read:comments'
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test(`${method}: 200/204 lets the comment's own author act without manage:comments`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`, {
+      'x-test-user-id': 'author-1',
+      'x-test-permissions': 'read:pages,read:comments'
+    })
+    assert.ok(res.statusCode === 200 || res.statusCode === 204)
+  })
+
+  test(`${method}: 200/204 lets manage:comments override, even for someone else's comment`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`, {
+      'x-test-user-id': 'a-moderator',
+      'x-test-permissions': 'read:pages,read:comments,manage:comments'
+    })
+    assert.ok(res.statusCode === 200 || res.statusCode === 204)
+  })
+
+  test(`${method}: 403 for a guest-authored comment, even for the requester who posted it anonymously`, async () => {
+    // -> A guest comment has authorId === null: there is no account to match `actor.id` against, so
+    //    self-authorship can never apply here regardless of who is asking or what they claim.
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${GUEST_COMMENT_ID}`, {
+      'x-test-user-id': 'anyone',
+      'x-test-permissions': 'read:pages,read:comments'
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test(`${method}: 403 for a guest-authored comment when unauthenticated`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${GUEST_COMMENT_ID}`, {
+      'x-test-permissions': 'read:pages,read:comments'
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test(`${method}: manage:comments still overrides on a guest-authored comment`, async () => {
+    const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${GUEST_COMMENT_ID}`, {
+      'x-test-user-id': 'a-moderator',
+      'x-test-permissions': 'read:pages,read:comments,manage:comments'
+    })
+    assert.ok(res.statusCode === 200 || res.statusCode === 204)
+  })
+}
+
+test('PATCH: 200 returns the updated comment with the new content', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+    headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' },
+    payload: { content: 'Updated content' }
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.id, EXISTING_COMMENT_ID)
+  assert.equal(body.content, 'Updated content')
+  assert.deepEqual(updatedIds, [EXISTING_COMMENT_ID])
+})
+
+test('DELETE: 204 and actually removes the comment', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${EXISTING_COMMENT_ID}`,
+    headers: { 'x-test-user-id': 'author-1', 'x-test-permissions': 'read:pages,read:comments' }
+  })
+  assert.equal(res.statusCode, 204)
+  assert.deepEqual(deletedIds, [EXISTING_COMMENT_ID])
 })
