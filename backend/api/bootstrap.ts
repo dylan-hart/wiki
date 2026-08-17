@@ -1,4 +1,5 @@
 import { whoAmI } from './users.ts'
+import { buildSitePayload } from './sites.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -62,12 +63,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('There is no wiki site at this hostname.')
       }
       return {
-        site: {
-          ...site.config,
-          id: site.id,
-          hostname: site.hostname,
-          isEnabled: site.isEnabled
-        },
+        site: await buildSitePayload(site),
         flags: WIKI.models.flags.getFlags(),
         user: whoAmI(req)
       }

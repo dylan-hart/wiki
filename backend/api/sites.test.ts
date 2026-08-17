@@ -43,12 +43,18 @@ async function getSiteByHostname({
 
 let app: FastifyInstance
 
+/** Toggled per-test to drive `WIKI.models.rendering.isAvailable()`'s stubbed answer. */
+let renderingAvailable = true
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     models: {
       sites: {
         getSiteByHostname,
         getSiteById: async () => null
+      },
+      rendering: {
+        isAvailable: async () => renderingAvailable
       }
     }
   }
@@ -101,4 +107,29 @@ test('strict=false falls back to the wildcard site', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().hostname, '*')
+})
+
+/**
+ * Task 500: `pdfExportAvailable` surfaces `WIKI.models.rendering.isAvailable()` (whether the
+ * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
+ * frontend can gate the PDF export option without a second round trip.
+ */
+test('pdfExportAvailable reflects the rendering model when the extension is installed', async () => {
+  renderingAvailable = true
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().pdfExportAvailable, true)
+})
+
+test('pdfExportAvailable reflects the rendering model when the extension is not installed', async () => {
+  renderingAvailable = false
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().pdfExportAvailable, false)
 })
