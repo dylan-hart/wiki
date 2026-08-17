@@ -128,6 +128,21 @@ import { useRouter, useRoute } from 'vue-router'
 import { useSiteStore } from '@/stores/site'
 
 import { orderBy } from 'es-toolkit/array'
+import { debounce } from 'es-toolkit/function'
+import { apiErrorMessage } from '@/helpers/apiError'
+
+/**
+ * Below this many characters, `searchHint`'s copy in the panel is the whole answer -- tags and
+ * operators, not results -- so a preview fetch would only be a request for `''`/`'a'` that the API
+ * would happily run and every keystroke below the floor would refire it for nothing.
+ */
+const PREVIEW_QUERY_MIN_LENGTH = 2
+
+/** A handful, not a page of them -- this is a live preview under the field, not the results screen. */
+const PREVIEW_RESULTS_LIMIT = 5
+
+/** Long enough that a fast typist's keystrokes collapse into one request, short enough to still feel live. */
+const PREVIEW_DEBOUNCE_MS = 300
 
 // PROPS
 
@@ -158,11 +173,21 @@ const { t } = useI18n()
 // DATA
 
 const state = reactive({
-  searchIsFocused: false
+  searchIsFocused: false,
+  previewResults: [],
+  previewLoading: false,
+  previewTotal: 0
 })
 
 const searchPanel = ref(null)
 const searchField = ref(null)
+
+/**
+ * Bumped on every fetch that is started or invalidated. A response is only applied if this still
+ * matches the token it was issued under -- otherwise a slower, earlier request landing after a
+ * faster, later one would clobber the fresher results with stale ones.
+ */
+let previewRequestToken = 0
 
 // COMPUTED
 
@@ -184,6 +209,27 @@ watch(searchPanelIsShown, (newValue) => {
     siteStore.fetchTags()
   }
 })
+
+/*
+  Live preview, debounced -- only while the field is actually focused, so a query changed programmatically
+  elsewhere (`addTag`, the `/_search` sync) does not start firing requests behind a panel nobody is
+  looking at. Below the 2-character floor the panel already has something to say (`searchHint`'s tags and
+  operators), so that range is left alone rather than asking the API to resolve `''` or a single letter.
+*/
+watch(
+  () => siteStore.search,
+  (newQuery) => {
+    if (!state.searchIsFocused) {
+      return
+    }
+    const query = (newQuery ?? '').trim()
+    if (query.length < PREVIEW_QUERY_MIN_LENGTH) {
+      resetPreview()
+      return
+    }
+    debouncedFetchPreview(query)
+  }
+)
 
 // METHODS
 
@@ -232,8 +278,55 @@ function focus() {
   searchField.value?.focus()
 }
 
+/**
+ * Clears the loading flag and the last-fetched preview, and invalidates any request still in flight --
+ * a response that lands after this runs is for a query the field no longer holds, and would otherwise
+ * overwrite the reset with stale results.
+ */
+function resetPreview() {
+  debouncedFetchPreview.cancel()
+  previewRequestToken++
+  state.previewResults = []
+  state.previewLoading = false
+  state.previewTotal = 0
+}
+
+/**
+ * Runs the actual request. Not called directly outside this file -- `debouncedFetchPreview` below is
+ * what the watcher drives, so a burst of keystrokes collapses into one call.
+ */
+async function fetchPreview(query) {
+  const token = ++previewRequestToken
+  state.previewLoading = true
+  try {
+    const resp = await API_CLIENT.get(`sites/${siteStore.id}/pages/search`, {
+      searchParams: { query, limit: PREVIEW_RESULTS_LIMIT }
+    }).json()
+    // -> A newer request started (or the field was cleared/unmounted) while this one was in flight
+    if (token !== previewRequestToken) {
+      return
+    }
+    state.previewResults = resp?.results ?? []
+    state.previewTotal = resp?.totalHits ?? 0
+  } catch (err) {
+    if (token !== previewRequestToken) {
+      return
+    }
+    state.previewResults = []
+    state.previewTotal = 0
+    console.warn(apiErrorMessage(err))
+  } finally {
+    if (token === previewRequestToken) {
+      state.previewLoading = false
+    }
+  }
+}
+
+const debouncedFetchPreview = debounce(fetchPreview, PREVIEW_DEBOUNCE_MS)
+
 function clearSearch() {
   siteStore.search = ''
+  resetPreview()
   searchField.value.focus()
 }
 
@@ -258,9 +351,10 @@ onBeforeUnmount(() => {
   if (!import.meta.env.SSR) {
     window.removeEventListener('keydown', handleKeyPress)
   }
+  resetPreview()
 })
 
-defineExpose({ focus })
+defineExpose({ focus, state })
 </script>
 
 <style lang="scss">
