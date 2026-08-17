@@ -23,17 +23,24 @@ const sites: Record<string, any> = {
   [SITE_ID]: { id: SITE_ID, config: {} }
 }
 
-const dbEngine = {
-  key: 'db',
-  title: 'Database',
-  description: 'PostgreSQL full-text search.',
-  vendor: 'Wiki.js',
-  website: 'https://js.wiki',
-  props: { termHighlighting: { type: 'boolean', title: 'Term Highlighting', default: false } },
-  hasImplementation: false,
-  isSelected: true,
-  config: { termHighlighting: false }
+function makeDbEngine() {
+  return {
+    key: 'db',
+    title: 'Database',
+    description: 'PostgreSQL full-text search.',
+    vendor: 'Wiki.js',
+    website: 'https://js.wiki',
+    props: { termHighlighting: { type: 'boolean', title: 'Term Highlighting', default: false } },
+    hasImplementation: false,
+    isSelected: true,
+    config: { termHighlighting: false }
+  }
 }
+
+// -> What `GET .../search/engines` and `POST .../refresh` are expected to end up with once
+//    `withDbSearchExtras` (task #574) attaches these onto the `db` entry
+const dictOverrides = { en: 'english' }
+const availableDictionaries = ['english', 'simple']
 
 let app: FastifyInstance
 let refreshCalls: number
@@ -51,8 +58,10 @@ before(async () => {
         getSiteById: async ({ id }: { id: string }) => sites[id] ?? null
       },
       search: {
-        getSiteEngines: async (siteId: string) => (sites[siteId] ? [dbEngine] : []),
-        getDefinition: (key: string) => (key === 'db' ? dbEngine : null),
+        // -> A fresh object per call: `withDbSearchExtras` mutates the `db` entry it's handed, and a
+        //    shared object here would let one test's mutation leak into the next test's assertions
+        getSiteEngines: async (siteId: string) => (sites[siteId] ? [makeDbEngine()] : []),
+        getDefinition: (key: string) => (key === 'db' ? makeDbEngine() : null),
         validateEngineConfig: (_key: string, _incoming: any) => validateResult,
         selectEngine: async (siteId: string, key: string, incoming: any) => {
           selectCalls.push([siteId, key, incoming])
@@ -60,7 +69,9 @@ before(async () => {
         },
         refreshFromDisk: async () => {
           refreshCalls++
-        }
+        },
+        getConfig: (_siteId: string) => ({ dictOverrides }),
+        getAvailableDictionaries: async () => availableDictionaries
       }
     }
   }
@@ -91,7 +102,14 @@ test('GET .../search/engines 404s for a site that does not exist', async () => {
 test('GET .../search/engines returns the model’s engine list for an existing site', async () => {
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/engines` })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), [dbEngine])
+  assert.deepEqual(res.json(), [{ ...makeDbEngine(), dictOverrides, availableDictionaries }])
+})
+
+test('GET .../search/engines attaches dictOverrides/availableDictionaries onto the db entry only', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_ID}/search/engines` })
+  const [db] = res.json()
+  assert.deepEqual(db.dictOverrides, dictOverrides)
+  assert.deepEqual(db.availableDictionaries, availableDictionaries)
 })
 
 test('PUT .../search/engines/:key 404s for a site that does not exist', async () => {
@@ -146,6 +164,6 @@ test('POST .../search/refresh 404s for a site that does not exist', async () => 
 test('POST .../search/refresh re-reads definitions from disk and returns the refreshed list', async () => {
   const res = await app.inject({ method: 'POST', url: `/sites/${SITE_ID}/search/refresh` })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(res.json(), [dbEngine])
+  assert.deepEqual(res.json(), [{ ...makeDbEngine(), dictOverrides, availableDictionaries }])
   assert.equal(refreshCalls, 1)
 })

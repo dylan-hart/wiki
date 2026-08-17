@@ -363,4 +363,153 @@ describe('AdminSearch engine picker', () => {
       expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
     })
   })
+
+  /**
+   * Task #574: the postgres-specific dictionary override editor, folded into the `db` engine's own
+   * panel. Ordinary saves of an unrelated prop must not touch this at all -- covered by every test
+   * above, none of which mocks `API_CLIENT.patch`, which would throw on the default unmocked
+   * `.json()` resolving to `undefined` were it ever called for them.
+   */
+  describe('dictionary override editor (task #574)', () => {
+    function applyBtnOf(wrapper) {
+      return wrapper.findAll('button').find((b) => b.find('[data-icon="mdi:check"]').exists())
+    }
+
+    it('renders the editor only when the db engine is selected', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            engine(),
+            engine({
+              key: 'algolia',
+              title: 'Algolia',
+              props: { apiKey: { type: 'string', title: 'API Key', default: '' } },
+              config: { apiKey: '' },
+              isSelected: false
+            })
+          ])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('admin.search.dictOverrides')
+
+      const algoliaItem = wrapper.findAll('.w-item').find((i) => i.text().includes('Algolia'))
+      await algoliaItem.trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('admin.search.dictOverrides')
+    })
+
+    it('notifies dictOverridesInvalidJSON and never calls PUT when the JSON does not parse', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve([engine({ dictOverrides: { en: 'english' } })])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      await wrapper.find('[aria-label="admin.search.dictOverrides"]').setValue('not json')
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+      expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    })
+
+    it('notifies dictOverridesNotAnObject for a JSON array', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve([engine({ dictOverrides: { en: 'english' } })])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      await wrapper.find('[aria-label="admin.search.dictOverrides"]').setValue('[1,2]')
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+      expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    })
+
+    it('notifies dictOverridesUnknown for a dictionary not in availableDictionaries', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            engine({ dictOverrides: {}, availableDictionaries: ['english', 'simple'] })
+          ])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      await wrapper.find('[aria-label="admin.search.dictOverrides"]').setValue('{"fr": "klingon"}')
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.put).not.toHaveBeenCalled()
+      expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    })
+
+    it('saves a changed mapping through PUT then PATCH .../search, and reloads', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            engine({ dictOverrides: {}, availableDictionaries: ['english', 'simple'] })
+          ])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      await wrapper.find('[aria-label="admin.search.dictOverrides"]').setValue('{"en": "english"}')
+
+      API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+      API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () =>
+          Promise.resolve([
+            engine({
+              dictOverrides: { en: 'english' },
+              availableDictionaries: ['english', 'simple']
+            })
+          ])
+      })
+
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/search/engines/db', {
+        json: { config: { termHighlighting: false } }
+      })
+      expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/search', {
+        json: { dictOverrides: { en: 'english' } }
+      })
+      expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+      expect(API_CLIENT.get).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not call PATCH .../search when the editor was left untouched', async () => {
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve([engine({ dictOverrides: { en: 'english' } })])
+      })
+
+      const wrapper = mountAdminSearch()
+      await flushPromises()
+
+      API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+      API_CLIENT.get.mockReturnValueOnce({
+        json: () => Promise.resolve([engine({ dictOverrides: { en: 'english' } })])
+      })
+
+      await applyBtnOf(wrapper).trigger('click')
+      await flushPromises()
+
+      expect(API_CLIENT.put).toHaveBeenCalled()
+      expect(API_CLIENT.patch).not.toHaveBeenCalled()
+      expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+    })
+  })
 })

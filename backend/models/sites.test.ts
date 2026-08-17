@@ -25,27 +25,27 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
     await teardownTestDb()
   })
 
-  test('createSite() seeds a default db search engine with term highlighting off and no overrides', async () => {
+  test('createSite() seeds a default db search engine with no dictionary overrides', async () => {
     const created = await sitesModel.createSite('sites-test-create.localhost')
 
     const site = await sitesModel.getSiteById({ id: created.id })
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { termHighlighting: false, dictOverrides: {} }
+      config: { dictOverrides: {} }
     })
   })
 
   test('createSite() config argument can override the seeded search default', async () => {
     const created = await sitesModel.createSite('sites-test-create-override.localhost', {
-      search: { engine: 'db', config: { termHighlighting: true, dictOverrides: {} } }
+      search: { engine: 'db', config: { dictOverrides: { en: 'english' } } }
     })
 
     const site = await sitesModel.getSiteById({ id: created.id })
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { termHighlighting: true, dictOverrides: {} }
+      config: { dictOverrides: { en: 'english' } }
     })
   })
 
@@ -65,7 +65,7 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     assert.deepEqual(site!.config.search, {
       engine: 'db',
-      config: { termHighlighting: false, dictOverrides: {} }
+      config: { dictOverrides: {} }
     })
   })
 })

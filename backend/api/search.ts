@@ -1,14 +1,46 @@
 import type { FastifyInstance } from 'fastify'
+import type { SearchEngine } from '../models/search.ts'
+
+/** The one engine whose panel needs a dictionary override editor, task #574. */
+const DB_ENGINE_KEY = 'db'
+
+/**
+ * Attach `dictOverrides` and `availableDictionaries` onto the `db` entry of an engine list.
+ *
+ * Both routes below that return the engine list (`GET .../engines`, `POST .../refresh`) need this, so
+ * it lives here rather than in `models/search.ts`: computing it for every engine on every call would
+ * load and query the `db` module even when nothing asked for its panel, and `getSiteEngines()`'s own
+ * test coverage already pins its output to exactly the `SearchEngine` fields it builds itself. See the
+ * `SearchEngine.dictOverrides` doc comment in `models/search.ts`.
+ */
+async function withDbSearchExtras(
+  engines: SearchEngine[],
+  siteId: string
+): Promise<SearchEngine[]> {
+  const db = engines.find((eng) => eng.key === DB_ENGINE_KEY)
+  if (db) {
+    db.dictOverrides = WIKI.models.search.getConfig(siteId).dictOverrides
+    db.availableDictionaries = await WIKI.models.search.getAvailableDictionaries()
+  }
+  return engines
+}
 
 /**
  * Search API Routes
  *
  * Per-site, mirroring the shape of `api/storage.ts`'s target routes: search configuration
- * (`termHighlighting`/`dictOverrides`) and the rebuild action moved off the instance-wide
- * `/system/search` routes onto a site once `models/sites.ts` started seeding `config.search` per site
- * (task #563). `manage:sites` rather than `manage:system` there: unlike a storage target's
- * credentials, none of that general search config holds a secret, so it belongs with the rest of a
- * site's editable settings.
+ * (`dictOverrides`) and the rebuild action moved off the instance-wide `/system/search` routes onto a
+ * site once `models/sites.ts` started seeding `config.search` per site (task #563). `manage:sites`
+ * rather than `manage:system` there: unlike a storage target's credentials, none of that general
+ * search config holds a secret, so it belongs with the rest of a site's editable settings.
+ *
+ * `termHighlighting` used to live on `/sites/:siteId/search` alongside `dictOverrides`, but task #574
+ * folded it into the `db` engine's own per-engine config: it is a plain boolean prop on `db`'s
+ * `definition.yml`, so it is read and written through the engine-picker routes below like any other
+ * engine's config, and this route no longer mentions it. `dictOverrides` could not follow — see
+ * `SearchEngine.dictOverrides` in `models/search.ts` — so it keeps this route, and the `db` entry of
+ * the engine-picker list below also carries its current value (plus `availableDictionaries`) so the
+ * admin area's `db`-specific panel needs no second round trip to render it.
  *
  * The engine-picker routes below (task #570) are different: a non-default engine's config can hold
  * credentials the same way a storage target's can (an API key, an index name pointing at private
@@ -47,9 +79,6 @@ async function routes(app: FastifyInstance) {
             description: 'Search configuration',
             type: 'object',
             properties: {
-              termHighlighting: {
-                type: 'boolean'
-              },
               dictOverrides: {
                 type: 'object',
                 description:
@@ -83,7 +112,7 @@ async function routes(app: FastifyInstance) {
    */
   app.patch<{
     Params: { siteId: string }
-    Body: { termHighlighting?: boolean; dictOverrides?: Record<string, string> }
+    Body: { dictOverrides?: Record<string, string> }
   }>(
     '/sites/:siteId/search',
     {
@@ -108,9 +137,6 @@ async function routes(app: FastifyInstance) {
         body: {
           type: 'object',
           properties: {
-            termHighlighting: {
-              type: 'boolean'
-            },
             dictOverrides: {
               type: 'object',
               description: 'Locale code to postgres dictionary. Replaces the stored mapping.',
@@ -140,31 +166,23 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Site does not exist.')
       }
 
-      if (req.body.termHighlighting === undefined && req.body.dictOverrides === undefined) {
+      if (req.body.dictOverrides === undefined) {
         return reply.badRequest('No search settings provided to update.')
       }
 
-      if (req.body.dictOverrides) {
-        const available = await WIKI.models.search.getAvailableDictionaries()
-        for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
-          if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
-            return reply.badRequest(`"${locale}" is not a valid locale code.`)
-          }
-          if (!available.includes(dictionary)) {
-            return reply.badRequest(
-              `"${dictionary}" is not a text search dictionary in this database.`
-            )
-          }
+      const available = await WIKI.models.search.getAvailableDictionaries()
+      for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
+        if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
+          return reply.badRequest(`"${locale}" is not a valid locale code.`)
+        }
+        if (!available.includes(dictionary)) {
+          return reply.badRequest(
+            `"${dictionary}" is not a text search dictionary in this database.`
+          )
         }
       }
 
-      const patch: Record<string, any> = {}
-      if (req.body.termHighlighting !== undefined) {
-        patch.termHighlighting = req.body.termHighlighting
-      }
-      if (req.body.dictOverrides !== undefined) {
-        patch.dictOverrides = req.body.dictOverrides
-      }
+      const patch: Record<string, any> = { dictOverrides: req.body.dictOverrides }
 
       const updated = await WIKI.models.sites.updateSite(req.params.siteId, {
         config: { search: { config: patch } }
@@ -284,7 +302,10 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
-      return WIKI.models.search.getSiteEngines(req.params.siteId)
+      return withDbSearchExtras(
+        await WIKI.models.search.getSiteEngines(req.params.siteId),
+        req.params.siteId
+      )
     }
   )
 
@@ -411,7 +432,10 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Site does not exist.')
       }
       await WIKI.models.search.refreshFromDisk()
-      return WIKI.models.search.getSiteEngines(req.params.siteId)
+      return withDbSearchExtras(
+        await WIKI.models.search.getSiteEngines(req.params.siteId),
+        req.params.siteId
+      )
     }
   )
 }

@@ -192,7 +192,6 @@ class Sites {
             search: {
               engine: 'db',
               config: {
-                termHighlighting: false,
                 dictOverrides: {}
               }
             }
@@ -453,7 +452,6 @@ class Sites {
         search: {
           engine: 'db',
           config: {
-            termHighlighting: false,
             dictOverrides: {}
           }
         }

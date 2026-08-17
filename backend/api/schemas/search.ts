@@ -49,6 +49,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         additionalProperties: true,
         description:
           'Values for the engine props, completed with the engine defaults for any prop that has none stored yet. Kept even for an engine that is not currently selected, so switching back to it does not lose what was entered.'
+      },
+      dictOverrides: {
+        type: 'object',
+        additionalProperties: { type: 'string' },
+        description:
+          'The `db` engine only: locale code to postgres text search dictionary, e.g. `{ "en": "english" }`. Not a declared prop -- it is a free-form map `parseModuleProps` cannot validate -- so it travels here rather than in `config`, and is absent on every other engine.'
+      },
+      availableDictionaries: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'The `db` engine only: dictionary names this postgres installation actually has, for validating `dictOverrides` before it is saved. Absent on every other engine.'
       }
     }
   })

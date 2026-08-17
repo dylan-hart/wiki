@@ -297,9 +297,11 @@ describe('search.ensureModule()', () => {
 })
 
 /**
- * `search.getConfig(siteId)`, task #563: `termHighlighting`/`dictOverrides` moved from the
- * instance-wide `WIKI.config.search` to the per-site `WIKI.sites[siteId].config.search.config`, a
- * sibling of `search.engine` seeded by `models/sites.ts`'s per-site defaults.
+ * `search.getConfig(siteId)`, task #563: `dictOverrides` moved from the instance-wide
+ * `WIKI.config.search` to the per-site `WIKI.sites[siteId].config.search.config`, a sibling of
+ * `search.engine` seeded by `models/sites.ts`'s per-site defaults. `termHighlighting` used to live
+ * here too, until task #574 moved it into the `db` engine's own per-engine config -- see
+ * `search.getEngineConfig()` below.
  */
 describe('search.getConfig()', () => {
   let previousWiki: any
@@ -316,43 +318,39 @@ describe('search.getConfig()', () => {
     ;(globalThis as any).WIKI = previousWiki
   })
 
-  test('reads termHighlighting/dictOverrides off the named site, not off any other site', () => {
+  test('reads dictOverrides off the named site, not off any other site', () => {
     ;(globalThis as any).WIKI.sites['site-a'] = {
       id: 'site-a',
       config: {
         search: {
           engine: 'db',
-          config: { termHighlighting: true, dictOverrides: { en: 'english' } }
+          config: { dictOverrides: { en: 'english' } }
         }
       }
     }
     ;(globalThis as any).WIKI.sites['site-b'] = {
       id: 'site-b',
-      config: { search: { engine: 'db', config: { termHighlighting: false, dictOverrides: {} } } }
+      config: { search: { engine: 'db', config: { dictOverrides: {} } } }
     }
 
     assert.deepEqual(search.getConfig('site-a'), {
-      termHighlighting: true,
       dictOverrides: { en: 'english' }
     })
     assert.deepEqual(search.getConfig('site-b'), {
-      termHighlighting: false,
       dictOverrides: {}
     })
   })
 
-  test('defaults to termHighlighting: false and an empty dictOverrides for a site with no search config', () => {
+  test('defaults to an empty dictOverrides for a site with no search config', () => {
     ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
 
     assert.deepEqual(search.getConfig('site-bare'), {
-      termHighlighting: false,
       dictOverrides: {}
     })
   })
 
   test('defaults the same way for a siteId nothing in WIKI.sites knows about', () => {
     assert.deepEqual(search.getConfig('site-nonexistent'), {
-      termHighlighting: false,
       dictOverrides: {}
     })
   })
@@ -567,6 +565,28 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
       assert.equal(custom.isSelected, false)
       assert.deepEqual(custom.config, { apiKey: 'still-here', mode: 'accurate' })
+    })
+  })
+
+  describe('getEngineConfig()', () => {
+    test('reads one engine’s stored config for a site, completed with defaults', () => {
+      ;(globalThis as any).WIKI.sites['site-f'] = {
+        id: 'site-f',
+        config: {
+          search: {
+            engine: 'db',
+            engines: { db: { termHighlighting: true } }
+          }
+        }
+      }
+
+      assert.deepEqual(search.getEngineConfig('site-f', 'db'), { termHighlighting: true })
+    })
+
+    test('falls back to the engine’s declared defaults for a site with nothing stored for it', () => {
+      ;(globalThis as any).WIKI.sites['site-g'] = { id: 'site-g', config: {} }
+
+      assert.deepEqual(search.getEngineConfig('site-g', 'db'), { termHighlighting: false })
     })
   })
 

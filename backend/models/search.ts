@@ -14,8 +14,15 @@ import type { pages as pagesTable } from '../db/schema.ts'
  */
 const DB_MODULE = 'db'
 
+/**
+ * `dictOverrides` only: `termHighlighting` used to live here too (task #563), but task #574 folded it
+ * into the `db` engine's own per-engine config (`site.config.search.engines.db.termHighlighting`,
+ * `getEngineConfig()` below) since it is already expressed as a normal boolean prop on `db`'s
+ * `definition.yml` and edited through the same generic engine-picker form as any other engine's props.
+ * `dictOverrides` cannot follow it there — it is a free-form locale -> dictionary map, not a scalar
+ * `parseModuleProps` can validate — so it keeps its own bucket and its own admin-area editor.
+ */
 export interface SearchConfig {
-  termHighlighting: boolean
   dictOverrides: Record<string, string>
 }
 
@@ -96,6 +103,17 @@ export interface SearchEngine {
   hasImplementation: boolean
   isSelected: boolean
   config: Record<string, any>
+  /**
+   * The `db` engine's dictionary override map and what postgres actually has installed, task #574.
+   *
+   * Not populated by `getSiteEngines()` itself — calling `getAvailableDictionaries()` for every
+   * engine on every listing would load and query the `db` module even when it is not selected, for a
+   * value only the `db` panel ever reads. `api/search.ts` attaches both onto the `db` entry after
+   * calling `getSiteEngines()`, which is also why they are optional here: every other engine's entry
+   * carries neither.
+   */
+  dictOverrides?: Record<string, string>
+  availableDictionaries?: string[]
 }
 
 /** A search engine module, as declared by its `definition.yml`. */
@@ -164,9 +182,12 @@ export interface SearchModule {
  * `WIKI.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
  * `created`, `updated`, `deleted` and `renamed` below all just resolve the engine and call through.
  *
- * `getConfig()` is the one exception: `termHighlighting`/`dictOverrides` are per-site settings the admin
- * area edits regardless of which engine that site has active (any engine's headline generation could
- * honour `termHighlighting`), so they stay read here rather than moving into a specific module.
+ * `getConfig()` is the one exception: `dictOverrides` is a per-site setting the admin area edits
+ * regardless of which engine that site has active, so it stays read here rather than moving into a
+ * specific module -- `dictOverrides` only makes sense for `db` today, but nothing stops a future
+ * engine's admin panel from reading it too. `termHighlighting` used to live alongside it here, but task
+ * #574 folded it into `db`'s own per-engine config (`getEngineConfig()` below) since, unlike
+ * `dictOverrides`, it is a plain boolean the generic props system already expresses and edits.
  */
 class Search {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -272,10 +293,6 @@ class Search {
    */
   async getSiteEngines(siteId: string): Promise<SearchEngine[]> {
     const selected = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
-    const stored = (WIKI.sites[siteId]?.config?.search?.engines ?? {}) as Record<
-      string,
-      Record<string, any>
-    >
     const engines: SearchEngine[] = []
     for (const definition of this.definitions) {
       engines.push({
@@ -289,10 +306,25 @@ class Search {
         props: definition.props,
         hasImplementation: await this.hasImplementation(definition.key),
         isSelected: definition.key === selected,
-        config: this.buildEngineConfig(definition.key, {}, stored[definition.key] ?? {})
+        config: this.getEngineConfig(siteId, definition.key)
       })
     }
     return engines
+  }
+
+  /**
+   * The stored config values for one engine on one site, completed with that engine's declared
+   * defaults -- the single-engine version of what `getSiteEngines()` builds for every entry.
+   *
+   * The `db` module calls this directly (rather than through `WIKI.models.search`, which it already
+   * bypasses by importing the `search` singleton) to read its own `termHighlighting`, so that the value
+   * a `PUT .../search/engines/db` save writes is the exact same one a query reads back -- see the
+   * `SearchEngine.dictOverrides`/`availableDictionaries` doc comment for why `dictOverrides` could not
+   * follow the same path.
+   */
+  getEngineConfig(siteId: string, key: string): Record<string, any> {
+    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    return this.buildEngineConfig(key, {}, stored)
   }
 
   /**
@@ -390,17 +422,16 @@ class Search {
   }
 
   /**
-   * A site's search configuration, with the shape the API and the admin area expect.
+   * A site's dictionary override map, with the shape the API and the admin area expect.
    *
    * Read off `WIKI.sites[siteId].config.search.config` -- a sibling of `search.engine`, seeded by
-   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: these settings apply to
+   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: this setting applies to
    * one site, not the instance, the same way `dictOverrides` (a locale mapping) only ever made sense
    * per site once more than one could each run their own engine.
    */
   getConfig(siteId: string): SearchConfig {
     const config = WIKI.sites[siteId]?.config?.search?.config as Partial<SearchConfig> | undefined
     return {
-      termHighlighting: config?.termHighlighting === true,
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>
     }
   }
