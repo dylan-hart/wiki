@@ -228,6 +228,73 @@ describe('resolvePageRule / rulesAllow', () => {
     }
   })
 
+  test('every pairwise comparison among the 6 match types respects the documented order', () => {
+    // -> Not just adjacent pairs: every one of the 15 combinations of two distinct match types,
+    //    in both array orders, confirming MATCH_PRIORITY's total order rather than just the chain
+    //    of neighbors.
+    const order: GroupRuleMatch[] = ['TAG', 'TAGALL', 'START', 'END', 'REGEX', 'EXACT']
+    const ruleFor = (id: string, match: GroupRuleMatch): GroupRule =>
+      makeRule({
+        id,
+        match,
+        path: match === 'TAG' || match === 'TAGALL' ? 'x' : '',
+        mode: 'ALLOW'
+      })
+    const target = page({ path: '', tags: ['x'] })
+
+    for (let i = 0; i < order.length; i++) {
+      for (let j = i + 1; j < order.length; j++) {
+        const weak = ruleFor('weak', order[i])
+        const strong = ruleFor('strong', order[j])
+        assert.equal(
+          resolvePageRule([weak, strong], 'read:pages', target)?.id,
+          'strong',
+          `expected ${order[j]} to outrank ${order[i]} (order: [weak, strong])`
+        )
+        assert.equal(
+          resolvePageRule([strong, weak], 'read:pages', target)?.id,
+          'strong',
+          `expected ${order[j]} to outrank ${order[i]} (order: [strong, weak])`
+        )
+      }
+    }
+  })
+
+  test('resolvePageRule is stable across array orderings when ranks are distinct', () => {
+    // -> Four rules with strictly different specificity, so the winner is unambiguous and array
+    //    order must never change it. Every permutation of the 4 rules is fed through.
+    const target = page({ path: 'geography/countries/france', tags: ['europe'] })
+    const rules = [
+      makeRule({
+        id: 'deepest',
+        match: 'EXACT',
+        path: 'geography/countries/france',
+        mode: 'ALLOW'
+      }),
+      makeRule({ id: 'deep', match: 'START', path: 'geography/countries', mode: 'ALLOW' }),
+      makeRule({ id: 'shallow', match: 'START', path: 'geography', mode: 'DENY' }),
+      makeRule({ id: 'tag', match: 'TAG', path: 'europe', mode: 'FORCEALLOW' })
+    ]
+
+    function permutations<T>(items: T[]): T[][] {
+      if (items.length <= 1) {
+        return [items]
+      }
+      return items.flatMap((item, index) => {
+        const rest = [...items.slice(0, index), ...items.slice(index + 1)]
+        return permutations(rest).map((perm) => [item, ...perm])
+      })
+    }
+
+    for (const perm of permutations(rules)) {
+      assert.equal(
+        resolvePageRule(perm, 'read:pages', target)?.id,
+        'deepest',
+        `expected 'deepest' to win regardless of order, got order [${perm.map((r) => r.id).join(', ')}]`
+      )
+    }
+  })
+
   test('mode breaks a tie at equal specificity and match type: FORCEALLOW beats DENY beats ALLOW', () => {
     const allow = makeRule({ id: 'allow', match: 'EXACT', path: 'x', mode: 'ALLOW' })
     const deny = makeRule({ id: 'deny', match: 'EXACT', path: 'x', mode: 'DENY' })
