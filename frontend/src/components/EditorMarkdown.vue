@@ -326,8 +326,14 @@ import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
+import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
 import { resolveEditorFontSize, resolveInitialPreviewShown } from '@/helpers/editorUserSettings'
-import { blockOpeningLine, blockValues, findBlocks } from '@/helpers/markdownBlocks'
+import {
+  blockOpeningLine,
+  blockValues,
+  findBlocks,
+  hasEditableParams
+} from '@/helpers/markdownBlocks'
 import { findEditableTables } from '@/helpers/markdownTable'
 
 import EditorCodeBlockMenu from '@/components/EditorCodeBlockMenu.vue'
@@ -1150,23 +1156,13 @@ function insertFilesAsAssets(files) {
   insertAtCursor({ content: markup.join('\n') })
 }
 
-/** Whether a paste or drop is carrying files, as opposed to text. */
-function hasFiles(transfer) {
-  return (transfer?.files?.length ?? 0) > 0
-}
-
 /*
-  Pasting a file inserts it; pasting anything else is left alone.
-
-  Text wins when both are on the clipboard. Copying from a spreadsheet or a design tool puts a bitmap
-  there ALONGSIDE the text, and an editor that answered those pastes with a screenshot would be
-  infuriating -- so the image is only taken when there is no text to prefer.
+  Pasting a file inserts it; pasting anything else is left alone. See `shouldClaimPaste` for the
+  text-wins-over-an-accompanying-image decision -- pulled out to `helpers/editorFileTransfer.js` so it
+  is unit-testable without a real clipboard event.
 */
 function onEditorPaste(event) {
-  if (!hasFiles(event.clipboardData)) {
-    return
-  }
-  if ((event.clipboardData.getData('text/plain') ?? '').trim().length > 0) {
+  if (!shouldClaimPaste(event.clipboardData)) {
     return
   }
   /*
@@ -1182,10 +1178,10 @@ function onEditorPaste(event) {
 /*
   A drop has to be claimed twice: `dragover` is what tells the browser this is a valid target -- without
   it there is no drop at all, just the browser navigating away to the file -- and `drop` is where it
-  arrives.
+  arrives. See `shouldAcceptDrag` for why this cannot just check `hasFiles`.
 */
 function onEditorDragOver(event) {
-  if (!hasFiles(event.dataTransfer) && !(event.dataTransfer?.types ?? []).includes('Files')) {
+  if (!shouldAcceptDrag(event.dataTransfer)) {
     return
   }
   event.preventDefault()
@@ -1337,7 +1333,7 @@ onMounted(async () => {
     provideCodeLenses(model) {
       return {
         lenses: findBlocks(model.getValue())
-          .filter((found) => blockDefinition(found.block)?.props?.length > 0)
+          .filter((found) => hasEditableParams(blockDefinition(found.block)))
           .map((found) => ({
             range: new Range(found.line, 1, found.line, 1),
             command: {

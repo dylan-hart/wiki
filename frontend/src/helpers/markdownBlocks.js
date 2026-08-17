@@ -92,6 +92,22 @@ export function findBlocks(text) {
 }
 
 /**
+ * Whether a block found in the source has anything worth an "Edit Block Parameters" lens.
+ *
+ * `definition` is undefined for a block this editor holds no definition for -- the API simply does
+ * not list it, e.g. a still-loading site or a block whose module was removed. A definition with an
+ * empty `props` list is a block that takes none, which includes a child block like `::block-tab`:
+ * it has no switch of its own to be listed against, so it is never offered here either. Either way
+ * there is nothing a form could fill in, so no lens.
+ *
+ * @param {{ props?: Array }|undefined} definition The block as the API describes it, or undefined.
+ * @returns {boolean}
+ */
+export function hasEditableParams(definition) {
+  return (definition?.props?.length ?? 0) > 0
+}
+
+/**
  * What the form should open on: the block's props, filled in from what the page gave them.
  *
  * A prop the source says nothing about starts at the block's own default, which is what the block
