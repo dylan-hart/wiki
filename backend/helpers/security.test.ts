@@ -1,5 +1,7 @@
 import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fastify from 'fastify'
+import fastifyCors from '@fastify/cors'
 import { corsOrigin, corsOptions } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
@@ -58,4 +60,51 @@ describe('corsOptions', () => {
     assert.equal(corsOptions({ corsMode: 'REFLECT' }).origin, true)
     assert.equal(corsOptions({ corsMode: 'OFF' }).origin, false)
   })
+})
+
+describe('corsOptions preflight (integration)', () => {
+  // -> The unit tests above assert on the `options` object `corsOptions()` returns; this spins up a
+  //    real `@fastify/cors`-registered Fastify instance (same pattern as `api/sites.test.ts`) and
+  //    drives it through `.inject()`, so it exercises the thing a browser actually does before a
+  //    cross-origin `PUT`/`DELETE` — a preflight `OPTIONS` carrying `Access-Control-Request-Method` —
+  //    rather than just the config object index.ts hands the plugin.
+  async function buildApp() {
+    const app = fastify()
+    await app.register(
+      fastifyCors,
+      corsOptions({ corsMode: 'HOSTNAMES', corsConfig: 'https://client.example' })
+    )
+    app.put('/_api/pages/1', async () => ({ ok: true }))
+    app.delete('/_api/pages/1', async () => ({ ok: true }))
+    await app.ready()
+    return app
+  }
+
+  for (const method of ['PUT', 'DELETE']) {
+    test(`an allowed origin's ${method} preflight reports ${method} in Access-Control-Allow-Methods`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'OPTIONS',
+          url: '/_api/pages/1',
+          headers: {
+            Origin: 'https://client.example',
+            'Access-Control-Request-Method': method
+          }
+        })
+        assert.equal(res.statusCode, 204)
+        assert.equal(res.headers['access-control-allow-origin'], 'https://client.example')
+        const allowed = String(res.headers['access-control-allow-methods'])
+        assert.ok(
+          allowed
+            .split(',')
+            .map((m) => m.trim())
+            .includes(method),
+          `expected Access-Control-Allow-Methods (${allowed}) to include ${method}`
+        )
+      } finally {
+        await app.close()
+      }
+    })
+  }
 })

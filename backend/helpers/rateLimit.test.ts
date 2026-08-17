@@ -143,6 +143,60 @@ describe('limitApiRequests', () => {
     assert.equal((reply.tooManyRequests as any).mock.calls.length, 1)
   })
 
+  test('two different API keys get independent counters', async () => {
+    // -> A stateful stand-in for `WIKI.models.rateLimits.consume`: a real per-key counter (not just a
+    //    fixed verdict), so this exercises what the task asks for directly — that two different
+    //    `req.apiKey.id` values never share a bucket — rather than just asserting the key strings
+    //    differ (which the "keys by ..." tests above already do).
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
+
+    const keyA = { id: 'key-a', permissions: [] }
+    const keyB = { id: 'key-b', permissions: [] }
+
+    // Exhaust key A's limit (2 allowed, 3rd refused).
+    await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
+    await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
+    const replyA3 = makeReply()
+    await limitApiRequests(makeReq({ apiKey: keyA }), replyA3)
+    assert.equal((replyA3.tooManyRequests as any).mock.calls.length, 1)
+
+    // Key B's first attempt is unaffected by A having just been refused.
+    const replyB1 = makeReply()
+    await limitApiRequests(makeReq({ apiKey: keyB }), replyB1)
+    assert.equal((replyB1.tooManyRequests as any).mock.calls.length, 0)
+  })
+
+  test('an API key and an anonymous IP get independent counters', async () => {
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
+
+    const apiKeyReq = () => makeReq({ apiKey: { id: 'key-a', permissions: [] } })
+    const anonReq = () => makeReq({ ip: '203.0.113.4' })
+
+    // Exhaust the API key's limit.
+    await limitApiRequests(apiKeyReq(), makeReply())
+    await limitApiRequests(apiKeyReq(), makeReply())
+    const replyKey3 = makeReply()
+    await limitApiRequests(apiKeyReq(), replyKey3)
+    assert.equal((replyKey3.tooManyRequests as any).mock.calls.length, 1)
+
+    // The same-looking anonymous caller (no API key) is on its own counter and unaffected.
+    const replyAnon1 = makeReply()
+    await limitApiRequests(anonReq(), replyAnon1)
+    assert.equal((replyAnon1.tooManyRequests as any).mock.calls.length, 0)
+  })
+
   test('does not build the same key as limitAuthAttempts, so the two never share a counter', async () => {
     // -> `limitAuthAttempts` consumes `auth:<ip>`; confirms this hook's IP-keyed bucket is namespaced
     //    differently, so applying both to an auth endpoint never double-counts one attempt against a
