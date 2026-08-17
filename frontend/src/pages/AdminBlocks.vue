@@ -88,6 +88,19 @@
               </w-item-section>
               <w-separator class="ml-6" vertical />
             </template>
+            <template v-if="block.configFields?.length > 0">
+              <w-item-section side>
+                <w-btn
+                  icon="la:cog"
+                  :label="t(`admin.blocks.configure`)"
+                  :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                  outline
+                  no-caps
+                  padding="xs md"
+                  @click="openConfig(block)" />
+              </w-item-section>
+              <w-separator class="ml-4" vertical />
+            </template>
             <w-item-section side>
               <w-toggle
                 class="pr-2"
@@ -99,6 +112,35 @@
         </w-list>
       </w-card>
     </div>
+    <w-dialog v-model="state.configDialog.open">
+      <w-card style="width: 500px; max-width: 90vw">
+        <w-card-section class="flex flex-wrap items-center pb-0">
+          <div class="text-h6">
+            {{
+              t('admin.blocks.configureTitle', { blockName: state.configDialog.block?.name ?? '' })
+            }}
+          </div>
+          <w-space />
+          <w-btn icon="la:times" flat round dense @click="closeConfig" />
+        </w-card-section>
+        <w-card-section>
+          <block-props-form
+            v-if="state.configDialog.block"
+            :fields="state.configDialog.block.configFields"
+            :values="state.configDialog.values" />
+        </w-card-section>
+        <w-separator />
+        <w-card-section class="flex justify-end">
+          <w-btn
+            class="mr-2"
+            flat
+            color="grey"
+            :label="t(`common.actions.cancel`)"
+            @click="closeConfig" />
+          <w-btn unelevated color="primary" :label="t(`common.actions.save`)" @click="saveConfig" />
+        </w-card-section>
+      </w-card>
+    </w-dialog>
   </w-page>
 </template>
 
@@ -118,6 +160,9 @@ import { useSiteStore } from '@/stores/site'
 
 import { pick } from 'es-toolkit/object'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { seedConfigValues } from '@/helpers/blocks'
+
+import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
 // COMPOSABLES
 
@@ -141,7 +186,14 @@ useMeta({
 
 const state = reactive({
   loading: 0,
-  blocks: []
+  blocks: [],
+  configDialog: {
+    open: false,
+    /** The block being configured -- the same object as in `state.blocks`, not a copy. */
+    block: null,
+    /** Local reactive copy of `block.config`, edited by `BlockPropsForm` and merged back on save. */
+    values: {}
+  }
 })
 
 // WATCHERS
@@ -176,7 +228,7 @@ async function save() {
   try {
     const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/blocks`, {
       json: {
-        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled']))
+        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled', 'config']))
       }
     }).json()
     if (!resp?.ok) {
@@ -239,6 +291,33 @@ function deleteBlock(id) {
     }
     state.loading--
   })
+}
+
+/**
+ * Opens the config dialog for a block, seeding its form from whatever the site has already saved,
+ * falling back to each field's own default where it never has (`seedConfigValues`).
+ *
+ * @param {object} block The block, from `state.blocks` -- kept by reference so `saveConfig` can
+ *   write straight back into it.
+ */
+function openConfig(block) {
+  state.configDialog.block = block
+  state.configDialog.values = seedConfigValues(block)
+  state.configDialog.open = true
+}
+
+function closeConfig() {
+  state.configDialog.open = false
+}
+
+/**
+ * Commits the dialog's local values back into the block's own `config`, so the next `save()` picks
+ * them up. Does not call the API itself -- the page's own Apply button is still what persists it,
+ * same as every other field in this list.
+ */
+function saveConfig() {
+  Object.assign(state.configDialog.block.config, state.configDialog.values)
+  state.configDialog.open = false
 }
 
 // MOUNTED

@@ -180,6 +180,8 @@
   "admin.blocks.add": "Add Block",
   "admin.blocks.addUnavailable": "Adding custom blocks is not implemented yet.",
   "admin.blocks.builtin": "Built-in",
+  "admin.blocks.configure": "Configure",
+  "admin.blocks.configureTitle": "Configure {blockName}",
   "admin.blocks.custom": "Custom",
   "admin.blocks.delete": "Delete Block",
   "admin.blocks.deleteConfirm": "Are you sure you want to delete the custom block {blockName}?",
