@@ -148,12 +148,46 @@ async function getPage({ id }: { id?: string }) {
   return id ? (pagesById[id] ?? null) : null
 }
 
+/**
+ * `groupIds` here is a test-only encoding, not a real group id: it carries the raw
+ * `x-test-rule-permissions` header value forward so the `rulesForGroups` stub below can turn it back
+ * into a fake page rule. Real code never reads meaning out of a group id string this way — this only
+ * exists so `mayManageCommentsAnywhere` (task 611), which pools `rulesForGroups(actor.groupIds)`
+ * directly rather than going through `checkAccess`, has something to pool in a bare test harness with
+ * no real `helpers/pageRules.ts` rule storage behind it.
+ */
 function actorForRequest(req: FastifyRequest) {
-  return { groupIds: [], permissions: req.session?.permissions ?? [] }
+  return {
+    groupIds: [(req.headers['x-test-rule-permissions'] as string | undefined) ?? ''],
+    permissions: req.session?.permissions ?? []
+  }
 }
 
 function checkAccess(actor: { permissions: string[] }, permission: string) {
   return actor.permissions.includes(permission)
+}
+
+/**
+ * Stands in for `helpers/pageRules.ts` resolution, same as `checkAccess` above: each comma-separated
+ * permission in a test's `x-test-rule-permissions` header becomes one ALLOW rule granting exactly
+ * that permission, on an arbitrary path — enough for `mayManageCommentsAnywhere`'s "holds it on SOME
+ * path" question, which is all task 611's site-wide route asks.
+ */
+function rulesForGroups(groupIds: string[]) {
+  return groupIds
+    .flatMap((raw) => raw.split(','))
+    .map((permission) => permission.trim())
+    .filter(Boolean)
+    .map((permission) => ({
+      id: permission,
+      name: permission,
+      roles: [permission],
+      match: 'START' as const,
+      mode: 'ALLOW' as const,
+      path: '',
+      locales: [],
+      sites: []
+    }))
 }
 
 async function listForPage(pageId: string) {
@@ -190,6 +224,47 @@ async function create(input: {
   return record
 }
 
+/**
+ * Backs the site-wide moderation list (task 611). Two fixed rows across two different pages, so
+ * tests can check the `page.path`/`page.title` linkback and that filters/pagination reach the model
+ * call unchanged; `listForSiteCalls` records every call's `input` for the filter/pagination
+ * assertions.
+ */
+const SITE_WIDE_COMMENT_1 = {
+  id: 'sw-1',
+  siteId: SITE_ID,
+  pageId: PAGE_ID,
+  authorId: 'author-1',
+  authorName: 'Alice',
+  authorEmail: 'alice@example.com',
+  replyTo: null,
+  content: 'First comment',
+  render: null,
+  createdAt: new Date('2026-01-05T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-05T00:00:00.000Z'),
+  page: { path: 'en/test-page', title: 'Test Page' }
+}
+const SITE_WIDE_COMMENT_2 = {
+  id: 'sw-2',
+  siteId: SITE_ID,
+  pageId: OTHER_PAGE_ID,
+  authorId: null,
+  authorName: 'Some Guest',
+  authorEmail: 'guest@example.com',
+  replyTo: null,
+  content: 'A guest comment',
+  render: null,
+  createdAt: new Date('2026-01-04T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-04T00:00:00.000Z'),
+  page: { path: 'en/other-page', title: 'Other Page' }
+}
+const listForSiteCalls: Record<string, any>[] = []
+
+async function listForSite(input: Record<string, any>) {
+  listForSiteCalls.push(input)
+  return { comments: [SITE_WIDE_COMMENT_1, SITE_WIDE_COMMENT_2], totalHits: 2 }
+}
+
 const emittedEvents: { event: string; data: Record<string, any> }[] = []
 
 async function emit(event: string, data: Record<string, any> = {}) {
@@ -203,13 +278,14 @@ before(async () => {
   ;(globalThis as any).WIKI = {
     models: {
       pages: { getPage },
-      groups: { actorForRequest, checkAccess },
+      groups: { actorForRequest, checkAccess, rulesForGroups },
       comments: {
         listForPage,
         create,
         get: getComment,
         update: updateComment,
-        delete: deleteComment
+        delete: deleteComment,
+        listForSite
       },
       hooks: { emit }
     }
@@ -246,6 +322,7 @@ beforeEach(() => {
   updatedIds.length = 0
   deletedIds.length = 0
   emittedEvents.length = 0
+  listForSiteCalls.length = 0
 })
 
 test('GET list: 404 when the page does not exist', async () => {
@@ -617,4 +694,108 @@ test('DELETE: 204 and actually removes the comment', async () => {
   assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)
   assert.equal(emittedEvents[0].data.pageId, PAGE_ID)
   assert.equal(emittedEvents[0].data.siteId, SITE_ID)
+})
+
+/**
+ * GET /sites/:siteId/comments (task 611): site-wide moderation listing.
+ *
+ * Gated on `manage:comments` held ANYWHERE, not on a specific page — simulated via the
+ * `x-test-rule-permissions` header (see `rulesForGroups` above), kept deliberately distinct from
+ * `x-test-permissions` (the group-WIDE list, a different permission system entirely) so a test can
+ * tell the two apart: a global `manage:comments` in `x-test-permissions` alone must NOT be enough,
+ * since page permissions are never granted through the global list.
+ */
+test('GET site-wide: 403 when the caller holds manage:comments nowhere', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(listForSiteCalls.length, 0)
+})
+
+test('GET site-wide: 403 when manage:comments is only in the global permission list, not a rule', async () => {
+  // -> `manage:comments` is a page-rule permission; holding it in the group-WIDE list (what
+  //    `x-test-permissions` simulates) is a different, wrong bucket and must not satisfy this gate.
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`,
+    headers: { 'x-test-permissions': 'manage:comments' }
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+test('GET site-wide: 200 when a rule grants manage:comments on some path', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`,
+    headers: { 'x-test-rule-permissions': 'manage:comments' }
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('GET site-wide: 200 when manage:system is held, bypassing the rule pool entirely', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`,
+    headers: { 'x-test-permissions': 'manage:system' }
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('GET site-wide: results include page context and unmasked authorEmail, no replies field', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`,
+    headers: { 'x-test-rule-permissions': 'manage:comments' }
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.totalHits, 2)
+  assert.equal(body.results.length, 2)
+  assert.equal(body.results[0].id, 'sw-1')
+  assert.equal(body.results[0].authorEmail, 'alice@example.com') // -> unmasked, unlike the per-page list
+  assert.deepEqual(body.results[0].page, { path: 'en/test-page', title: 'Test Page' })
+  assert.equal(body.results[1].authorId, null) // -> guest comment, still listed
+  assert.equal('replies' in body.results[0], false)
+})
+
+test('GET site-wide: default offset/limit reach the model unset by the caller', async () => {
+  await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments`,
+    headers: { 'x-test-rule-permissions': 'manage:comments' }
+  })
+  assert.equal(listForSiteCalls.length, 1)
+  assert.equal(listForSiteCalls[0].offset, 0)
+  assert.equal(listForSiteCalls[0].limit, 25)
+  assert.equal(listForSiteCalls[0].siteId, SITE_ID)
+})
+
+test('GET site-wide: filters and pagination pass through to the model unchanged', async () => {
+  await app.inject({
+    method: 'GET',
+    url:
+      `/sites/${SITE_ID}/comments?path=en%2Ftest&author=Alice` +
+      '&createdAfter=2026-01-01T00:00:00.000Z&createdBefore=2026-01-31T00:00:00.000Z' +
+      '&offset=10&limit=5',
+    headers: { 'x-test-rule-permissions': 'manage:comments' }
+  })
+  assert.equal(listForSiteCalls.length, 1)
+  const call = listForSiteCalls[0]
+  assert.equal(call.path, 'en/test')
+  assert.equal(call.authorName, 'Alice')
+  assert.equal(call.createdAfter.toISOString(), '2026-01-01T00:00:00.000Z')
+  assert.equal(call.createdBefore.toISOString(), '2026-01-31T00:00:00.000Z')
+  assert.equal(call.offset, 10)
+  assert.equal(call.limit, 5)
+})
+
+test('GET site-wide: 400 when limit exceeds the maximum', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/comments?limit=101`,
+    headers: { 'x-test-rule-permissions': 'manage:comments' }
+  })
+  assert.equal(res.statusCode, 400)
 })

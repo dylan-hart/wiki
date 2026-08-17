@@ -113,4 +113,74 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   })
+
+  /**
+   * COMMENT MODERATION ITEM - A comment as the site-wide moderation list (task 611) hands it back
+   *
+   * Flat rather than nested under `replies` — the moderation queue this serves reads rows across
+   * unrelated pages, not one page's thread, so there is no single parent to nest a reply under. Adds
+   * `page` (`path`/`title`) so a moderation UI can link back to the source page without a second
+   * request per row. `authorEmail` is populated, unlike the per-page list's `Comment#`: reaching this
+   * endpoint at all already requires `manage:comments`, so unlike a page-view reader (who may be
+   * anonymous), every caller here is already a moderator.
+   */
+  app.addSchema({
+    $id: 'CommentModerationItem',
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        format: 'uuid'
+      },
+      siteId: {
+        type: 'string',
+        format: 'uuid'
+      },
+      pageId: {
+        type: 'string',
+        format: 'uuid'
+      },
+      authorId: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true
+      },
+      authorName: {
+        type: 'string'
+      },
+      authorEmail: {
+        type: 'string',
+        nullable: true
+      },
+      replyTo: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true
+      },
+      content: {
+        type: 'string'
+      },
+      render: {
+        type: 'string',
+        nullable: true,
+        description: 'Rendered HTML. Null until the comments provider renders it.'
+      },
+      createdAt: {
+        type: 'string',
+        format: 'date-time'
+      },
+      updatedAt: {
+        type: 'string',
+        format: 'date-time'
+      },
+      page: {
+        type: 'object',
+        description: "Just enough of the comment's page to link back to it.",
+        properties: {
+          path: { type: 'string' },
+          title: { type: 'string' }
+        }
+      }
+    }
+  })
 }

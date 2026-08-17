@@ -36,6 +36,14 @@ interface ThreadedCommentRecord extends CommentRecord {
   replies: ThreadedCommentRecord[]
 }
 
+/**
+ * A {@link CommentRecord} plus just enough of its page — `path`, `title` — that a moderation row can
+ * link back to the source page without a second request per row, as returned by `listForSite`.
+ */
+interface CommentWithPageContext extends CommentRecord {
+  page: { path: string; title: string }
+}
+
 interface CommentsModel {
   /** Every comment on a page, threaded, oldest first. */
   listForPage(pageId: string): Promise<ThreadedCommentRecord[]>
@@ -71,6 +79,28 @@ interface CommentsModel {
   update(id: string, input: { content: string }): Promise<CommentRecord>
   /** Delete a comment (and, per #389's doc comment, its replies via cascade). */
   delete(id: string): Promise<void>
+  /**
+   * Every comment across a whole site, flat (never threaded — a moderation queue reads rows, not
+   * threads, and rows can span unrelated pages) and joined with just enough of each comment's page
+   * that a moderation UI can link back to it without a second request per row. Newest first.
+   *
+   * Not present on #389's model as inspected read-only on `feature/comments-data-model` at the time
+   * this file was written — only `listForPage`/`countForPage` exist there, both scoped to one page.
+   * Task 611 needs a genuinely different query (site-wide, filtered, paginated, joined with `pages`
+   * for `path`/`title`) that neither of those can serve, so it is added to the contract here, same
+   * as `get()` above. Flag for whoever integrates the two branches.
+   */
+  listForSite(input: {
+    siteId: string
+    /** Only comments on pages whose path starts with this. */
+    path?: string
+    /** Matched against `authorName` (which is itself `guestName` for a guest comment), case-insensitively. */
+    authorName?: string
+    createdAfter?: Date
+    createdBefore?: Date
+    offset: number
+    limit: number
+  }): Promise<{ comments: CommentWithPageContext[]; totalHits: number }>
 }
 
 function commentsModel(): CommentsModel {
@@ -151,6 +181,29 @@ function toPublicComment(
   }
 }
 
+/**
+ * A comment as the site-wide moderation list hands it back: flat (no `replies` — a moderation queue
+ * reads rows across unrelated pages, not one page's thread), with `authorEmail` left unmasked (see
+ * the doc comment on the route below for why that's safe here but not on `toPublicComment`), plus
+ * `page` for the row's linkback.
+ */
+function toModerationComment(comment: CommentWithPageContext): Record<string, unknown> {
+  return {
+    id: comment.id,
+    siteId: comment.siteId,
+    pageId: comment.pageId,
+    authorId: comment.authorId,
+    authorName: comment.authorName,
+    authorEmail: comment.authorEmail,
+    replyTo: comment.replyTo,
+    content: comment.content,
+    render: comment.render,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    page: comment.page
+  }
+}
+
 /** Every id in a threaded list, replies included — for validating a `replyTo` against. */
 function flattenIds(thread: ThreadedCommentRecord[]): Set<string> {
   const ids = new Set<string>()
@@ -162,6 +215,14 @@ function flattenIds(thread: ThreadedCommentRecord[]): Set<string> {
   }
   visit(thread)
   return ids
+}
+
+const siteIdParam = {
+  type: 'object',
+  properties: {
+    siteId: { type: 'string', format: 'uuid' }
+  },
+  required: ['siteId']
 }
 
 const pageIdParam = {
@@ -218,12 +279,161 @@ function maySelfModerate(
 }
 
 /**
+ * Whether this requester holds `manage:comments` ANYWHERE — i.e. some rule, pooled across their
+ * groups, grants it for some path — rather than on one specific page.
+ *
+ * The site-wide moderation listing (task 611) has no single page to evaluate `mayOnPage` against:
+ * that is the whole point of it, a view that spans every page on the site. `pagePermissionsFor` in
+ * `api/pages.ts` answers the adjacent question ("every permission held AT THIS page") by pooling the
+ * actor's groups and asking `checkAccess` per permission against one `page`; this asks the same
+ * underlying page-rule layer the identical question with the page dropped — does ANY rule anywhere
+ * in the pool grant this permission, on whatever path it names — rather than inventing a new access
+ * check. `manage:system` bypasses everything first, exactly as `checkAccess` does.
+ *
+ * A DENY rule elsewhere that narrows or fully overrides a broader ALLOW for a specific path is not
+ * accounted for here — that only matters once a concrete page is in play, which is `mayOnPage`'s job,
+ * not this one's. This answers "holds it somewhere", the same coarse question `pagePermissionsFor`
+ * answers per path; a wiki that wants `manage:comments` to gate this route more precisely can attach
+ * it to a group's global permission list instead of a page rule.
+ */
+function mayManageCommentsAnywhere(req: FastifyRequest): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  if (actor.permissions.includes('manage:system')) {
+    return true
+  }
+  return WIKI.models.groups
+    .rulesForGroups(actor.groupIds)
+    .some((rule) => rule.roles.includes('manage:comments') && rule.mode !== 'DENY')
+}
+
+/**
  * Comments API Routes
  *
- * List, create, update and delete, all scoped to a single page. Site-wide listing for admin
- * moderation is a separate task (#611).
+ * List, create, update and delete, all scoped to a single page, plus a site-wide list for admin
+ * moderation (task 611).
  */
 async function routes(app: FastifyInstance) {
+  /**
+   * LIST COMMENTS SITE-WIDE (moderation)
+   */
+  app.get<{
+    Params: { siteId: string }
+    Querystring: {
+      path?: string
+      author?: string
+      createdAfter?: string
+      createdBefore?: string
+      offset?: number
+      limit?: number
+    }
+  }>(
+    '/sites/:siteId/comments',
+    {
+      /*
+        No route-level `permissions`: `manage:comments` is a page-rule permission, granted by a
+        group's rules per path, not the group-wide list that hook checks. This route has no single
+        page to check it against — that's the whole point of a site-wide listing — so it asks a
+        different question than `mayOnPage` can: does this actor hold `manage:comments` on AT LEAST
+        ONE path, via `mayManageCommentsAnywhere` below. See that function's doc comment for how it
+        reuses the same page-rule pooling `pagePermissionsFor` (`api/pages.ts`) uses, rather than
+        inventing a new access check.
+      */
+      schema: {
+        summary: 'List comments across a site, for moderation',
+        description:
+          'Every comment on the site, flat and newest first, for an admin moderation queue rather ' +
+          "than a single page's thread — the per-page endpoint above serves that use case; this one " +
+          "serves #394's site-wide moderation UI. Requires `manage:comments` on at least one path " +
+          '(see `mayManageCommentsAnywhere`); a caller who only holds it on some paths still sees ' +
+          'every comment on the site, not only those under the paths they moderate — narrowing this ' +
+          "further is left to a future task, since nothing in #611's spec asked for it.\n\n" +
+          "`authorEmail` is included, unmasked, unlike the per-page list's: reaching this endpoint at " +
+          'all already requires `manage:comments`, so there is no anonymous-reader audience to guard ' +
+          'it from — the same address a moderator could look up per comment via the page-view ' +
+          "endpoint's own POST-response echo, just without the extra round trip.\n\n" +
+          'Each row carries `page.path`/`page.title` so a moderation UI can link back to the source ' +
+          'page without a second request per row.',
+        tags: ['Comments'],
+        params: siteIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              maxLength: 2048,
+              description: 'Only comments on pages whose path starts with this.'
+            },
+            author: {
+              type: 'string',
+              maxLength: 255,
+              description:
+                "Matched against the comment author's display name, case-insensitively. Matches a " +
+                "guest's name too, since `authorName` resolves to `guestName` for a guest comment."
+            },
+            createdAfter: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Only comments created at or after this instant.'
+            },
+            createdBefore: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Only comments created at or before this instant.'
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 25
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Matching comments, plus how many there are in total',
+            type: 'object',
+            properties: {
+              results: {
+                type: 'array',
+                items: { $ref: 'CommentModerationItem#' }
+              },
+              totalHits: {
+                type: 'integer',
+                description: 'How many comments match, ignoring `limit` and `offset`.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!mayManageCommentsAnywhere(req)) {
+        return reply.forbidden('You are not allowed to moderate comments on this site.')
+      }
+
+      const offset = req.query.offset ?? 0
+      const limit = req.query.limit ?? 25
+      const { comments, totalHits } = await commentsModel().listForSite({
+        siteId: req.params.siteId,
+        path: req.query.path,
+        authorName: req.query.author,
+        createdAfter: req.query.createdAfter ? new Date(req.query.createdAfter) : undefined,
+        createdBefore: req.query.createdBefore ? new Date(req.query.createdBefore) : undefined,
+        offset,
+        limit
+      })
+      return {
+        results: comments.map((comment) => toModerationComment(comment)),
+        totalHits
+      }
+    }
+  )
+
   /**
    * LIST COMMENTS FOR A PAGE
    */
