@@ -465,17 +465,106 @@
             <!-- ----------------------- -->
             <!-- Sync -->
             <!-- ----------------------- -->
+            <!--
+              Hidden entirely for a module with nothing to schedule (`sync.schedule === false`, e.g.
+              disk/s3/db): a push-only target already syncs on every write via the dispatch hook, so
+              there is no mode to pick and no interval to override.
+            -->
             <w-card
               class="pb-2 mt-4"
-              v-if="state.target.sync && Object.keys(state.target.sync).length > 0">
-              <w-card-header>{{ t('admin.storage.sync') }}</w-card-header>
-              <w-card-section>
-                <w-banner
-                  class="mt-4"
-                  :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
-                  >{{ t('admin.storage.noSyncModes') }}</w-banner
-                >
-              </w-card-section>
+              v-if="state.target.sync && state.target.sync.schedule !== false">
+              <w-card-header>
+                {{ t('admin.storage.sync') }}
+                <template #hint>{{ t('admin.storage.syncDirectionSubtitle') }}</template>
+              </w-card-header>
+              <w-item>
+                <w-item-section>
+                  <w-item-label class="text-grey">{{ t('admin.storage.status') }}</w-item-label>
+                  <w-item-label v-if="syncStatus === `error`" class="text-negative">
+                    {{ t('admin.storage.errorMsg') }}: {{ state.syncStatus.lastError }}
+                  </w-item-label>
+                  <w-item-label v-else-if="syncStatus === `never`" class="text-grey-7">
+                    {{ t('admin.storage.neverSynced') }}
+                  </w-item-label>
+                  <w-item-label v-else-if="syncStatus === `outOfDate`" class="text-deep-orange">
+                    {{ t('admin.storage.outOfDate') }}
+                  </w-item-label>
+                  <w-item-label v-else class="text-positive">
+                    {{
+                      t('admin.storage.lastSync', {
+                        time: relativeDate(state.syncStatus?.lastSyncedAt)
+                      })
+                    }}
+                  </w-item-label>
+                  <w-item-label
+                    caption
+                    v-if="syncStatus === `outOfDate` && state.syncStatus?.lastSyncedAt">
+                    {{
+                      t('admin.storage.lastSync', {
+                        time: relativeDate(state.syncStatus.lastSyncedAt)
+                      })
+                    }}
+                  </w-item-label>
+                  <w-item-label
+                    caption
+                    v-else-if="syncStatus === `error` && state.syncStatus?.lastAttemptAt">
+                    {{
+                      t('admin.storage.lastSyncAttempt', {
+                        time: relativeDate(state.syncStatus.lastAttemptAt)
+                      })
+                    }}
+                  </w-item-label>
+                </w-item-section>
+              </w-item>
+              <w-separator class="my-2" inset />
+              <w-item>
+                <w-item-section>
+                  <w-item-label>{{ t('admin.storage.syncDirection') }}</w-item-label>
+                  <w-item-label
+                    class="text-deep-orange"
+                    v-if="state.target.sync.supportedModes.length <= 1"
+                    caption
+                    >{{ t('admin.storage.syncModeNotSupported') }}</w-item-label
+                  >
+                  <w-item-label v-else caption>{{ syncModeHint }}</w-item-label>
+                </w-item-section>
+                <w-item-section side>
+                  <w-btn-toggle
+                    v-model="state.target.sync.mode"
+                    push
+                    no-caps
+                    toggle-color="primary"
+                    :options="syncModeOptions"
+                    :aria-label="t(`admin.storage.syncDirection`)"
+                    :disable="state.target.sync.supportedModes.length <= 1" />
+                </w-item-section>
+              </w-item>
+              <w-separator class="my-2" inset />
+              <w-item>
+                <w-item-section>
+                  <w-item-label>{{ t('admin.storage.syncSchedule') }}</w-item-label>
+                  <w-item-label caption>{{ t('admin.storage.syncScheduleHint') }}</w-item-label>
+                  <w-item-label caption v-if="state.target.sync.scheduleOverride">{{
+                    t('admin.storage.syncScheduleCurrent', {
+                      schedule: humanizeIsoDuration(state.target.sync.scheduleOverride)
+                    })
+                  }}</w-item-label>
+                  <w-item-label caption>{{
+                    t('admin.storage.syncScheduleDefault', {
+                      schedule: humanizeIsoDuration(state.target.sync.schedule)
+                    })
+                  }}</w-item-label>
+                </w-item-section>
+                <w-item-section side>
+                  <w-input
+                    outlined
+                    v-model="state.target.sync.scheduleOverride"
+                    :placeholder="state.target.sync.schedule || ``"
+                    style="min-width: 150px"
+                    dense
+                    :aria-label="t(`admin.storage.syncSchedule`)" />
+                </w-item-section>
+              </w-item>
             </w-card>
             <!-- ----------------------- -->
             <!-- Actions -->
@@ -758,6 +847,8 @@ import { useSiteStore } from '@/stores/site'
 import * as VNG from 'v-network-graph'
 import GithubSetupInstallDialog from '../components/GithubSetupInstallDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
+import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
 
 // COMPOSABLES
 
@@ -794,6 +885,9 @@ const state = reactive({
   desiredTarget: '',
   target: null,
   targets: [],
+  // -> Per-target, refetched on selection change -- see `loadSyncStatus()`. Null while loading or for
+  //    a target whose module has nothing to schedule (the Synchronization section is hidden then).
+  syncStatus: null,
   setupCfg: {
     action: '',
     manifest: '',
@@ -871,6 +965,36 @@ const isSetupNeeded = computed(() => {
   return state.target?.setup?.handler && state.target.setup.state !== 'configured'
 })
 
+// -> Same duplication note as `SYNC_SHAPED_ACTIONS` in helpers/storageSync.js: mirrors the three sync
+//    modes `backend/models/storage.ts` knows about, with no shared source to import them from.
+const SYNC_MODE_LABEL_KEYS = {
+  sync: 'admin.storage.syncDirBi',
+  push: 'admin.storage.syncDirPush',
+  pull: 'admin.storage.syncDirPull'
+}
+const SYNC_MODE_HINT_KEYS = {
+  sync: 'admin.storage.syncDirBiHint',
+  push: 'admin.storage.syncDirPushHint',
+  pull: 'admin.storage.syncDirPullHint'
+}
+
+/** Toggle options restricted to what this target's module actually supports. */
+const syncModeOptions = computed(() =>
+  (state.target?.sync?.supportedModes ?? []).map((mode) => ({
+    label: t(SYNC_MODE_LABEL_KEYS[mode] ?? mode),
+    value: mode
+  }))
+)
+
+/** What the currently selected mode does, shown as the picker's caption. */
+const syncModeHint = computed(() => {
+  const key = SYNC_MODE_HINT_KEYS[state.target?.sync?.mode]
+  return key ? t(key) : ''
+})
+
+/** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */
+const syncStatus = computed(() => syncStatusKind(state.syncStatus))
+
 // WATCHERS
 
 watch(
@@ -894,6 +1018,7 @@ watch(
   () => state.selectedTarget,
   (newValue) => {
     state.target = state.targets.find((tgt) => tgt.id === newValue) || null
+    loadSyncStatus()
   }
 )
 watch(
@@ -984,6 +1109,25 @@ async function load() {
   state.loading--
 }
 
+/**
+ * Sync status for the currently selected target -- skipped for a module with nothing to schedule
+ * (`sync.schedule === false`), since the Synchronization section that would show it is hidden then.
+ * Non-fatal on failure: the status card just stays empty rather than blocking the rest of the page.
+ */
+async function loadSyncStatus() {
+  state.syncStatus = null
+  if (!state.target || state.target.sync?.schedule === false) {
+    return
+  }
+  try {
+    state.syncStatus = await API_CLIENT.get(
+      `sites/${adminStore.currentSiteId}/storage/targets/${state.target.id}/sync-status`
+    ).json()
+  } catch {
+    state.syncStatus = null
+  }
+}
+
 function configIfCheck(ifs) {
   if (!ifs || ifs.length < 1) {
     return true
@@ -1003,6 +1147,7 @@ function payloadFor(tgt) {
     }
     config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
   }
+  const sync = syncPayloadFor(tgt)
   return {
     id: tgt.id,
     isEnabled: tgt.isEnabled,
@@ -1017,6 +1162,7 @@ function payloadFor(tgt) {
     versioning: {
       enabled: tgt.versioning.enabled
     },
+    ...(sync && { sync }),
     config
   }
 }
@@ -1100,9 +1246,14 @@ async function executeAction(act) {
       if (!resp?.ok) {
         throw new Error(resp?.message || 'An unexpected error occured.')
       }
+      // -> A sync-shaped action (sync / syncUntracked / importAll) is queued on the scheduler by
+      //    `api/storage.ts` rather than run inline -- this response confirms it was queued, not that
+      //    it finished, so the notification says so rather than claiming completion.
       notify({
         type: 'positive',
-        message: t('admin.storage.actionSuccess', { action: act.label })
+        message: isQueuedAction(act.handler)
+          ? t('admin.storage.actionQueued', { action: act.label })
+          : t('admin.storage.actionSuccess', { action: act.label })
       })
     } catch (err) {
       notify({

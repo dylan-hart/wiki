@@ -49,6 +49,51 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * GET STORAGE TARGET SYNC STATUS
+   */
+  app.get<{ Params: { siteId: string; targetId: string } }>(
+    '/sites/:siteId/storage/targets/:targetId/sync-status',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Get the sync status of a storage target',
+        description:
+          'Read from the content sync state table every dispatched sync eventually writes to. Empty for a target nothing has ever synced to yet, since no module ships an implementation.',
+        tags: ['Storage'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            targetId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId', 'targetId']
+        },
+        response: {
+          200: { $ref: 'StorageSyncStatus#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const target = await WIKI.models.storage.getSiteTargetById(
+        req.params.siteId,
+        req.params.targetId
+      )
+      if (!target) {
+        return reply.notFound('Storage target does not exist.')
+      }
+      return WIKI.models.contentSync.getTargetSummary(target.id, { siteId: req.params.siteId })
+    }
+  )
+
+  /**
    * UPDATE SITE STORAGE TARGETS
    */
   app.put<{ Params: { siteId: string }; Body: { targets: StorageTargetInput[] } }>(

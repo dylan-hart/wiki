@@ -14,7 +14,8 @@
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
     "emoji": "node scripts/generate-emoji.mjs",
-    "emoji:check": "node scripts/generate-emoji.mjs --check"
+    "emoji:check": "node scripts/generate-emoji.mjs --check",
+    "test": "vitest run"
   },
   "dependencies": {
     "@simplewebauthn/browser": "13.3.0",
@@ -79,7 +80,8 @@
     "sass": "1.102.0",
     "unicode-emoji-json": "0.9.0",
     "vite": "8.2.0",
-    "vite-plugin-vue-devtools": "8.2.1"
+    "vite-plugin-vue-devtools": "8.2.1",
+    "vitest": "4.1.10"
   },
   "overrides": {
     "markdown-it-mdc": {

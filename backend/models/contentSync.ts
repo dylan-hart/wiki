@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, isNotNull, isNull, or, sql } from 'drizzle-orm'
 import {
   assets as assetsTable,
   contentSyncState as contentSyncStateTable,
@@ -32,6 +32,23 @@ export interface OutOfDateContent {
   id: string
   siteId: string
   updatedAt: Date
+}
+
+/**
+ * A target's sync status at a glance, e.g. for the admin area's per-target status card. Deliberately
+ * not itself a verdict ("synced" / "never" / "out of date" / "error") -- the caller has locale strings
+ * and relative-time formatting the model has no business deciding, so this hands back the raw
+ * ingredients instead.
+ */
+export interface TargetSyncSummary {
+  /** The most recent successful sync to this target, across every content item, or null for none yet. */
+  lastSyncedAt: string | null
+  /** The error from the most recently updated row that has one, or null if nothing has ever failed. */
+  lastError: string | null
+  /** When that error happened, i.e. the same row's `updatedAt`. Null exactly when `lastError` is. */
+  lastAttemptAt: string | null
+  /** Pages plus assets with no successful sync to this target newer than their own last edit. */
+  outOfDateCount: number
 }
 
 /**
@@ -94,6 +111,50 @@ class ContentSync {
       .select()
       .from(contentSyncStateTable)
       .where(eq(contentSyncStateTable.targetId, targetId))) as ContentSyncStateRow[]
+  }
+
+  /**
+   * A target's sync status at a glance: when it last succeeded, its most recent error (if any), and
+   * how much content on the site is out of date on it. What the admin area's per-target status card
+   * reads -- see `TargetSyncSummary` for why this stops short of a single verdict.
+   *
+   * Two aggregate queries rather than `getStatesForTarget()` reduced in memory: a target can have one
+   * row per page and asset on the site, and a status card needs three numbers out of that, not every
+   * row transferred to compute them.
+   */
+  async getTargetSummary(
+    targetId: string,
+    { siteId }: { siteId?: string } = {}
+  ): Promise<TargetSyncSummary> {
+    const [[syncedRow], [errorRow], outOfDatePages, outOfDateAssets] = await Promise.all([
+      WIKI.db
+        .select({ lastSyncedAt: sql<string | null>`max(${contentSyncStateTable.lastSyncedAt})` })
+        .from(contentSyncStateTable)
+        .where(eq(contentSyncStateTable.targetId, targetId)),
+      WIKI.db
+        .select({
+          lastError: contentSyncStateTable.lastError,
+          updatedAt: contentSyncStateTable.updatedAt
+        })
+        .from(contentSyncStateTable)
+        .where(
+          and(
+            eq(contentSyncStateTable.targetId, targetId),
+            isNotNull(contentSyncStateTable.lastError)
+          )
+        )
+        .orderBy(desc(contentSyncStateTable.updatedAt))
+        .limit(1),
+      this.getOutOfDatePages(targetId, { siteId }),
+      this.getOutOfDateAssets(targetId, { siteId })
+    ])
+
+    return {
+      lastSyncedAt: syncedRow?.lastSyncedAt ?? null,
+      lastError: errorRow?.lastError ?? null,
+      lastAttemptAt: errorRow ? errorRow.updatedAt.toISOString() : null,
+      outOfDateCount: outOfDatePages.length + outOfDateAssets.length
+    }
   }
 
   /**

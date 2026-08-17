@@ -175,6 +175,33 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * STORAGE SYNC STATUS - A target's sync status at a glance
+   */
+  app.addSchema({
+    $id: 'StorageSyncStatus',
+    type: 'object',
+    properties: {
+      lastSyncedAt: {
+        type: ['string', 'null'],
+        description: 'The most recent successful sync to this target, across every content item.'
+      },
+      lastError: {
+        type: ['string', 'null'],
+        description: 'The error from the most recently attempted sync, if the last attempt failed.'
+      },
+      lastAttemptAt: {
+        type: ['string', 'null'],
+        description: 'When `lastError` happened. Null exactly when `lastError` is.'
+      },
+      outOfDateCount: {
+        type: 'integer',
+        description:
+          'Pages plus assets with no successful sync to this target newer than their own last edit.'
+      }
+    }
+  })
+
+  /**
    * STORAGE TARGET INPUT - A partial update of one target
    */
   app.addSchema({

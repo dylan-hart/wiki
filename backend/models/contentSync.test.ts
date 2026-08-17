@@ -254,6 +254,66 @@ test('getOutOfDatePages includes a page updated after its last sync', { skip }, 
   assert.ok(outOfDate.some((p) => p.id === pageId))
 })
 
+test('getTargetSummary reports nothing for a target with no state at all', { skip }, async () => {
+  const targets = await WIKI.db
+    .insert(storageTable)
+    .values({ siteId, module: 'test-summary-empty' })
+    .returning({ id: storageTable.id })
+  const summary = await contentSync.getTargetSummary(targets[0].id, { siteId })
+  assert.equal(summary.lastSyncedAt, null)
+  assert.equal(summary.lastError, null)
+  assert.equal(summary.lastAttemptAt, null)
+  // -> Not asserted as 0: other tests in this file share `siteId` and leave pages/assets behind that
+  //    have never synced to THIS brand-new target either, which legitimately counts as out of date.
+  assert.ok(summary.outOfDateCount >= 0)
+})
+
+test(
+  'getTargetSummary reports the most recent success and out-of-date count',
+  { skip },
+  async () => {
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: 'test-summary-synced' })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+    const syncedPageId = await makePage('summary-synced')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: syncedPageId,
+      targetId,
+      direction: 'push'
+    })
+    // -> Never synced to this target, so it counts as out of date even with no error involved.
+    await makePage('summary-out-of-date')
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId })
+    assert.ok(summary.lastSyncedAt)
+    assert.equal(summary.lastError, null)
+    assert.ok(summary.outOfDateCount >= 1)
+  }
+)
+
+test('getTargetSummary surfaces the most recent error', { skip }, async () => {
+  const targets = await WIKI.db
+    .insert(storageTable)
+    .values({ siteId, module: 'test-summary-error' })
+    .returning({ id: storageTable.id })
+  const targetId = targets[0].id
+  const pageId = await makePage('summary-error')
+  await contentSync.recordFailure({
+    contentType: 'page',
+    contentId: pageId,
+    targetId,
+    error: 'connection refused'
+  })
+
+  const summary = await contentSync.getTargetSummary(targetId, { siteId })
+  assert.equal(summary.lastError, 'connection refused')
+  assert.ok(summary.lastAttemptAt)
+  assert.equal(summary.lastSyncedAt, null)
+})
+
 test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }, async () => {
   const assetId = await makeAsset('never-synced.png')
   const outOfDate = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
