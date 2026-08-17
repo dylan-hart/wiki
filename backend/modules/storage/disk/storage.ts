@@ -1,6 +1,7 @@
 /**
  * Local disk storage module — writes pages and assets out to a directory on the file system the
- * server itself can reach, and can archive whatever currently sits there into a tar.gz.
+ * server itself can reach, can archive whatever currently sits there into a tar.gz, and can walk it
+ * back in the other direction with `importAll()`.
  *
  * Unlike the `db` module, this one owns a real external destination: content written through
  * `dump()` lives at `<path>/<locale>/<folderPath>/<fileName>` for an asset, or
@@ -8,12 +9,14 @@
  * of the app reads from. `validateConfig()` is what keeps that path from ever being something the
  * module cannot actually write to once a target is enabled.
  */
+import type { Dirent } from 'node:fs'
 import { constants as fsConstants } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { startCase } from 'es-toolkit/string'
 import { asc, and, eq, inArray } from 'drizzle-orm'
 import { create as createTarball } from 'tar'
-import { decodeTreePath } from '../../../helpers/common.ts'
+import { CustomError, decodeTreePath, normalizePagePath } from '../../../helpers/common.ts'
 import { tree as treeTable } from '../../../db/schema.ts'
 import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
 
@@ -188,6 +191,294 @@ export async function dump(target: StorageTarget): Promise<void> {
   }
 }
 
+/** One entry `importAll()` could not place, alongside a human-readable reason. */
+interface UnrecognizedEntry {
+  /** `<locale>/<folderPath>/<fileName>`-shaped, relative to `target.config.path`. */
+  path: string
+  reason: string
+}
+
+/** What `importAll()` did, returned for a direct caller (e.g. a test) and written to the log. */
+export interface ImportAllResult {
+  /** New pages created. Does not include pages skipped because one already existed at the path. */
+  pagesCreated: number
+  /** Markdown files whose path already had a page — left untouched, per the conservative default. */
+  pagesSkipped: number
+  /** Assets written — a new upload, or an existing one overwritten per the site's conflict setting. */
+  assetsWritten: number
+  /** Assets left untouched because the site's `uploads.conflictBehavior` is `reject`, or the name was
+   *  already taken by a page or a folder rather than another asset. */
+  assetsSkipped: number
+  /** Entries that are not something `dump()` would ever have produced, so nothing was imported for
+   *  them — a dotfile, a top-level entry outside a configured locale, a symlink, a name the tree
+   *  rejects, empty page content, and the like. Surfaced rather than silently dropped. */
+  unrecognized: UnrecognizedEntry[]
+}
+
+/** Who `importAll()` writes pages and assets as, since it runs with no session behind it (see
+ *  `Storage.executeAction()` / the `dispatchStorage` worker, neither of which carry an actor). The
+ *  wiki's own root admin, seeded at first run and guaranteed to exist — see `SystemIds.userAdminId`
+ *  in `models/types.ts`. `manage:system` is what lets it write pages that carry scripts or styles
+ *  without a real reviewer in the loop, the same bypass every other `manage:system` check gets. */
+function importActor(): { id: string; permissions: string[] } {
+  return { id: WIKI.data.systemIds.userAdminId, permissions: ['manage:system'] }
+}
+
+/**
+ * Import one markdown file as a page, at the path its position in the tree implies — the inverse of
+ * `dump()`'s `<path>/<locale>/<page.path>.md`.
+ *
+ * A path already holding a page (or anything else) is left alone: `pagesSkipped` is incremented
+ * rather than the existing page touched, which is what makes re-running `importAll` after a partial
+ * import safe — nothing already imported is ever revisited. Pages have no `conflictBehavior` setting
+ * the way asset uploads do (see `importAsset`), so this is the conservative default this module picked
+ * for them, documented here since there was nowhere else to put it.
+ *
+ * The render is left empty and queued for the same headless-browser re-render `queueRerender()` uses
+ * for a stored page whose HTML has gone stale — imported content is exactly that case: real markdown,
+ * no render yet. Queueing is best-effort: a wiki with no Puppeteer extension installed still gets the
+ * page, just not a render of it yet (`WIKI.logger.warn`, not a failure of the import).
+ */
+async function importPage(
+  filePath: string,
+  siteId: string,
+  locale: string,
+  pathSegments: string[],
+  result: ImportAllResult
+): Promise<void> {
+  const pagePath = normalizePagePath(pathSegments.join('/'))
+  const parts = pagePath.split('/')
+  const fileName = parts.at(-1)!
+  const parentPath = parts.slice(0, -1).join('/')
+
+  const occupant = await WIKI.models.tree.getEntryAt({ siteId, locale, parentPath, fileName })
+  if (occupant) {
+    result.pagesSkipped++
+    return
+  }
+
+  const content = await fs.readFile(filePath, 'utf8')
+  const actor = importActor()
+  const page = await WIKI.models.pages.createPage(
+    siteId,
+    { path: pagePath, title: startCase(fileName), editor: 'markdown', content, locale },
+    actor
+  )
+  result.pagesCreated++
+
+  try {
+    await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+  } catch (err: any) {
+    WIKI.logger.warn(
+      `Imported page "${locale}/${pagePath}" but could not queue a render: ${err.message}`
+    )
+  }
+}
+
+/**
+ * Import one non-markdown file as an asset, in the folder its position in the tree implies — the
+ * inverse of `dump()`'s `<path>/<locale>/<folderPath>/<fileName>`.
+ *
+ * Goes straight through `WIKI.models.assets.upload()` — the same extension → mimeType → `AssetKind`
+ * detection a real upload gets, and the same collision handling: what happens to a name already taken
+ * is the site's own `uploads.conflictBehavior` (`overwrite`, `reject` or `new` — see
+ * `Assets.conflictBehaviorFor()`), not a rule this module invents. That does mean a target on a site
+ * configured for `new` is not perfectly idempotent across reruns — a second `importAll` over a file
+ * already imported produces a `-1` copy rather than being recognized as "already have this," the same
+ * outcome uploading the same file twice through the UI would produce. `overwrite` (the default) and
+ * `reject` are both safely idempotent: a rerun either writes the same bytes over themselves or is
+ * turned away and counted in `assetsSkipped`, either way with nothing duplicated.
+ *
+ * A name already taken by a page or a folder, rather than another asset, is always turned away by
+ * `upload()` regardless of `conflictBehavior` — also counted in `assetsSkipped`.
+ */
+async function importAsset(
+  filePath: string,
+  siteId: string,
+  locale: string,
+  folderSegments: string[],
+  fileName: string,
+  folderIds: Map<string, string>,
+  result: ImportAllResult
+): Promise<void> {
+  const folderPath = folderSegments.join('/')
+  let folderId: string | undefined
+  if (folderPath) {
+    // -> Keyed by locale as well as path: two locales can each have their own "images" folder, and a
+    //    bare `folderPath` key would hand the second locale's upload the first locale's folder id.
+    const cacheKey = `${locale}/${folderPath}`
+    folderId = folderIds.get(cacheKey)
+    if (!folderId) {
+      const folder = await WIKI.models.tree.getFolder({
+        path: folderPath,
+        locale,
+        siteId,
+        createIfMissing: true
+      })
+      folderId = folder.id
+      folderIds.set(cacheKey, folderId)
+    }
+  }
+
+  const data = await fs.readFile(filePath)
+  const actor = importActor()
+  try {
+    await WIKI.models.assets.upload({
+      siteId,
+      locale,
+      folderId,
+      fileName,
+      data,
+      authorId: actor.id
+    })
+    result.assetsWritten++
+  } catch (err: any) {
+    if (
+      err instanceof CustomError &&
+      (err.name === 'assetAlreadyExists' || err.name === 'assetNameTakenByEntry')
+    ) {
+      result.assetsSkipped++
+      return
+    }
+    throw err
+  }
+}
+
+/**
+ * Walk one locale's folder recursively, importing every file it finds — a `.md` file as a page (see
+ * `importPage`), anything else as an asset (see `importAsset`). A dotfile (`.DS_Store` and the like —
+ * never something `dump()` writes, and `sanitizeFileName` would silently rename it into a real asset
+ * rather than refuse it) is reported in `unrecognized` instead of imported under a mangled name, and so
+ * is a symlink, a device file, or anything else that is neither a plain file nor a directory. A single
+ * file failing — an invalid page path, empty markdown, a folder name the tree rejects — is logged and
+ * reported the same way rather than aborting the rest of the walk.
+ */
+async function importLocaleDir(
+  dir: string,
+  siteId: string,
+  locale: string,
+  folderIds: Map<string, string>,
+  result: ImportAllResult,
+  segments: string[] = []
+): Promise<void> {
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (err: any) {
+    result.unrecognized.push({
+      path: [locale, ...segments].join('/'),
+      reason: `Could not read this folder: ${err.message}`
+    })
+    return
+  }
+
+  for (const entry of entries) {
+    const relPath = [locale, ...segments, entry.name].join('/')
+
+    if (entry.name.startsWith('.')) {
+      result.unrecognized.push({ path: relPath, reason: 'Hidden file or folder.' })
+      continue
+    }
+    if (entry.isDirectory()) {
+      await importLocaleDir(path.join(dir, entry.name), siteId, locale, folderIds, result, [
+        ...segments,
+        entry.name
+      ])
+      continue
+    }
+    if (!entry.isFile()) {
+      result.unrecognized.push({ path: relPath, reason: 'Not a regular file or folder.' })
+      continue
+    }
+
+    const filePath = path.join(dir, entry.name)
+    const ext = path.extname(entry.name).slice(1).toLowerCase()
+    try {
+      if (ext === 'md') {
+        await importPage(filePath, siteId, locale, [...segments, entry.name.slice(0, -3)], result)
+      } else {
+        await importAsset(filePath, siteId, locale, segments, entry.name, folderIds, result)
+      }
+    } catch (err: any) {
+      result.unrecognized.push({ path: relPath, reason: err.message })
+      WIKI.logger.warn(`Failed to import "${relPath}": ${err.message}`)
+    }
+  }
+}
+
+/**
+ * `importAll` ("Import Everything"): walk `target.config.path` and reconcile it against
+ * `target.siteId`'s tree, creating whatever `dump()` would have written but is not there yet — the
+ * inverse of `dump()`. A top-level entry is only ever descended into when it is a directory named
+ * after one of the site's active locales (`WIKI.sites[siteId].config.locales.active`); anything else
+ * — a stray file, a directory for a locale the site does not have configured — is reported in
+ * `unrecognized` rather than guessed at, since there is no locale to file it under. The module's own
+ * `_manual` and `_daily` backup folders are recognized and skipped without being reported: they are
+ * something this module wrote, just not content.
+ *
+ * See `importPage` and `importAsset` for what happens to a path that already has something at it, and
+ * `importLocaleDir` for how an unrecognized entry is decided within a locale.
+ *
+ * Nothing here is transactional across the whole run — each file is its own create-or-skip, so a run
+ * interrupted partway through (the process restarting, a single bad file) leaves everything already
+ * imported in place, and picks up the rest on the next run without redoing or duplicating what is
+ * already there. Queued through the scheduler rather than run inline — see `SYNC_SHAPED_ACTIONS`.
+ *
+ * @throws Only when `target.config.path` itself cannot be read at all (e.g. it was removed after the
+ *         target was enabled) — every failure *within* the tree is caught per-entry and reported in
+ *         the returned result instead.
+ */
+export async function importAll(target: StorageTarget): Promise<ImportAllResult> {
+  const basePath = String(target.config.path ?? '')
+  const result: ImportAllResult = {
+    pagesCreated: 0,
+    pagesSkipped: 0,
+    assetsWritten: 0,
+    assetsSkipped: 0,
+    unrecognized: []
+  }
+
+  let topEntries: Dirent[]
+  try {
+    topEntries = await fs.readdir(basePath, { withFileTypes: true })
+  } catch (err: any) {
+    throw new Error(`Failed to read "${basePath}" to import: ${err.message}`)
+  }
+
+  const activeLocales = new Set<string>(WIKI.sites[target.siteId]?.config?.locales?.active ?? [])
+  const folderIds = new Map<string, string>()
+
+  for (const entry of topEntries) {
+    if (EXCLUDED_BACKUP_ENTRIES.has(entry.name)) {
+      continue
+    }
+    if (!entry.isDirectory() || !activeLocales.has(entry.name)) {
+      result.unrecognized.push({
+        path: entry.name,
+        reason: entry.isDirectory()
+          ? `"${entry.name}" is not one of this site's active locales.`
+          : 'Not a locale folder.'
+      })
+      continue
+    }
+    await importLocaleDir(
+      path.join(basePath, entry.name),
+      target.siteId,
+      entry.name,
+      folderIds,
+      result
+    )
+  }
+
+  WIKI.logger.info(
+    `Import for storage target ${target.title}: ${result.pagesCreated} page(s) created, ` +
+      `${result.pagesSkipped} page(s) skipped, ${result.assetsWritten} asset(s) written, ` +
+      `${result.assetsSkipped} asset(s) skipped, ${result.unrecognized.length} entr` +
+      `${result.unrecognized.length === 1 ? 'y' : 'ies'} unrecognized.`
+  )
+  return result
+}
+
 /**
  * Shared by `backup()` and `dailyBackup()`: tar.gz everything currently under `basePath` (excluding
  * both backup subfolders — see `EXCLUDED_BACKUP_ENTRIES`) into `<basePath>/<subDir>/<timestamp>.tar.gz`,
@@ -307,6 +598,7 @@ export async function dailyBackup(target: StorageTarget): Promise<void> {
 const diskStorageModule: StorageModule = {
   validateConfig,
   dump,
+  importAll,
   backup,
   dailyBackup
 }

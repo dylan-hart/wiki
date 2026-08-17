@@ -4,9 +4,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
+import { CustomError } from '../../../helpers/common.ts'
 import diskStorageModule, {
   validateConfig,
   dump,
+  importAll,
   backup,
   dailyBackup,
   pruneDailyBackups
@@ -72,11 +74,12 @@ function fakeDumpDeps({
   } as unknown as WikiGlobal
 }
 
-test('diskStorageModule declares validateConfig, dump, backup and dailyBackup', () => {
+test('diskStorageModule declares validateConfig, dump, importAll, backup and dailyBackup', () => {
   assert.deepEqual(Object.keys(diskStorageModule).sort(), [
     'backup',
     'dailyBackup',
     'dump',
+    'importAll',
     'validateConfig'
   ])
 })
@@ -274,6 +277,381 @@ test('dump throws a clear error naming the entry when the path becomes unwritabl
     // -> The entry processed before the failure was still written -- dump neither rolls back nor
     //    buffers, it writes as it goes
     assert.equal(await fs.readFile(path.join(dir, 'en', 'first.md'), 'utf8'), 'ok')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------------
+// importAll()
+// ---------------------------------------------------------------------------------------------
+
+/** A target for `site-1` importing from `dir`. Active locales are set via `fakeImportDeps`. */
+function makeImportTarget(dir: string): StorageTarget {
+  return {
+    siteId: 'site-1',
+    title: 'Test Target',
+    config: { path: dir }
+  } as unknown as StorageTarget
+}
+
+/**
+ * Points `WIKI` at fakes answering exactly what `importAll()` calls: the site's active locales, the
+ * system actor id, and `tree`/`pages`/`assets` model methods. Each model method defaults to a stub
+ * that would fail loudly if actually invoked, and callers override only the ones their scenario
+ * exercises -- so a test that never expects e.g. `assets.upload` to run finds out immediately if it
+ * does.
+ */
+function fakeImportDeps({
+  locales = ['en'],
+  getEntryAt = async () => null,
+  getFolder = async ({ path: p }: { path: string }) => ({ id: `folder-${p}` }) as any,
+  createPage = async () => ({ id: 'new-page-id' }) as any,
+  queueRerender = async () => true,
+  upload = async () => ({}) as any
+}: {
+  locales?: string[]
+  getEntryAt?: (args: any) => Promise<any>
+  getFolder?: (args: any) => Promise<any>
+  createPage?: (siteId: string, input: any, actor: any) => Promise<any>
+  queueRerender?: (siteId: string, id: string, actor: any) => Promise<boolean>
+  upload?: (args: any) => Promise<any>
+} = {}) {
+  global.WIKI = {
+    sites: { 'site-1': { config: { locales: { active: locales } } } },
+    data: { systemIds: { userAdminId: 'admin-user-id' } },
+    logger: { info: () => {}, warn: () => {}, debug: () => {} },
+    models: {
+      tree: { getEntryAt, getFolder },
+      pages: { createPage, queueRerender },
+      assets: { upload }
+    }
+  } as unknown as WikiGlobal
+}
+
+async function writeFile(dir: string, ...segments: string[]): Promise<string> {
+  const filePath = path.join(dir, ...segments)
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  return filePath
+}
+
+test('importAll imports a markdown file as a new page', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'foo', 'home.md')
+  await fs.writeFile(filePath, '# Hello')
+
+  const createPageCalls: any[] = []
+  fakeImportDeps({
+    createPage: async (siteId, input, actor) => {
+      createPageCalls.push({ siteId, input, actor })
+      return { id: 'new-page-id' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.pagesSkipped, 0)
+    assert.equal(createPageCalls.length, 1)
+    assert.equal(createPageCalls[0].input.path, 'foo/home')
+    assert.equal(createPageCalls[0].input.locale, 'en')
+    assert.equal(createPageCalls[0].input.editor, 'markdown')
+    assert.equal(createPageCalls[0].input.content, '# Hello')
+    assert.equal(createPageCalls[0].input.title, 'Home')
+    assert.equal(createPageCalls[0].actor.id, 'admin-user-id')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll skips a markdown file whose page path already exists, and does not call createPage', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'home.md')
+  await fs.writeFile(filePath, '# Hello')
+
+  let createPageCalled = false
+  fakeImportDeps({
+    getEntryAt: async () => ({ id: 'existing-page-id', type: 'page' }),
+    createPage: async () => {
+      createPageCalled = true
+      return { id: 'x' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 0)
+    assert.equal(result.pagesSkipped, 1)
+    assert.equal(createPageCalled, false)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll imports a non-markdown file as an asset, resolving/creating its folder', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'images', 'logo.png')
+  await fs.writeFile(filePath, 'PNGDATA')
+
+  const uploadCalls: any[] = []
+  const getFolderCalls: any[] = []
+  fakeImportDeps({
+    getFolder: async (args) => {
+      getFolderCalls.push(args)
+      return { id: 'images-folder-id' } as any
+    },
+    upload: async (args) => {
+      uploadCalls.push(args)
+      return {} as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.assetsWritten, 1)
+    assert.equal(result.assetsSkipped, 0)
+    assert.equal(getFolderCalls.length, 1)
+    assert.equal(getFolderCalls[0].path, 'images')
+    assert.equal(getFolderCalls[0].createIfMissing, true)
+    assert.equal(uploadCalls.length, 1)
+    assert.equal(uploadCalls[0].folderId, 'images-folder-id')
+    assert.equal(uploadCalls[0].fileName, 'logo.png')
+    assert.equal(uploadCalls[0].data.toString(), 'PNGDATA')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll imports an asset at the locale root with no folder, without calling getFolder', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'note.txt')
+  await fs.writeFile(filePath, 'content')
+
+  let getFolderCalled = false
+  const uploadCalls: any[] = []
+  fakeImportDeps({
+    getFolder: async () => {
+      getFolderCalled = true
+      return { id: 'x' } as any
+    },
+    upload: async (args) => {
+      uploadCalls.push(args)
+      return {} as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.assetsWritten, 1)
+    assert.equal(getFolderCalled, false)
+    assert.equal(uploadCalls[0].folderId, undefined)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("importAll counts an asset rejected by the site's conflict behavior as skipped, not a crash", async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'existing.txt')
+  await fs.writeFile(filePath, 'content')
+
+  fakeImportDeps({
+    upload: async () => {
+      throw new CustomError('assetAlreadyExists', 'A file with this name already exists here.', 409)
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.assetsWritten, 0)
+    assert.equal(result.assetsSkipped, 1)
+    assert.equal(result.unrecognized.length, 0)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll counts an asset name taken by a page or folder as skipped', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'taken.txt')
+  await fs.writeFile(filePath, 'content')
+
+  fakeImportDeps({
+    upload: async () => {
+      throw new CustomError(
+        'assetNameTakenByEntry',
+        'A page with this name already exists here.',
+        409
+      )
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.assetsSkipped, 1)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll reports a dotfile as unrecognized rather than importing it as an asset', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', '.DS_Store')
+  await fs.writeFile(filePath, 'junk')
+
+  let uploadCalled = false
+  fakeImportDeps({
+    upload: async () => {
+      uploadCalled = true
+      return {} as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(uploadCalled, false)
+    assert.equal(result.assetsWritten, 0)
+    assert.equal(result.unrecognized.length, 1)
+    assert.equal(result.unrecognized[0].path, 'en/.DS_Store')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll reports a top-level entry that is not an active locale as unrecognized', async () => {
+  const dir = await makeTempDir()
+  await fs.mkdir(path.join(dir, 'fr'), { recursive: true })
+  await fs.writeFile(path.join(dir, 'stray.txt'), 'junk')
+
+  fakeImportDeps({ locales: ['en'] })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.unrecognized.length, 2)
+    const paths = result.unrecognized.map((e) => e.path).sort()
+    assert.deepEqual(paths, ['fr', 'stray.txt'])
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll silently excludes the _manual and _daily backup folders, not reporting them as unrecognized', async () => {
+  const dir = await makeTempDir()
+  await fs.mkdir(path.join(dir, '_manual'), { recursive: true })
+  await fs.mkdir(path.join(dir, '_daily'), { recursive: true })
+
+  fakeImportDeps()
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.deepEqual(result.unrecognized, [])
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll reports one failing entry without aborting the rest of the walk', async () => {
+  const dir = await makeTempDir()
+  await writeFile(dir, 'en', 'bad.md').then((p) => fs.writeFile(p, '# Bad'))
+  await writeFile(dir, 'en', 'good.md').then((p) => fs.writeFile(p, '# Good'))
+
+  fakeImportDeps({
+    createPage: async (siteId, input) => {
+      if (input.path === 'bad') {
+        throw new CustomError('pageInvalidPath', 'invalid path')
+      }
+      return { id: 'good-page-id' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.unrecognized.length, 1)
+    assert.equal(result.unrecognized[0].path, 'en/bad.md')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll: re-running after a prior run does not duplicate an already-imported page or asset', async () => {
+  const dir = await makeTempDir()
+  await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
+  await writeFile(dir, 'en', 'logo.png').then((p) => fs.writeFile(p, 'PNGDATA'))
+
+  // -> First run: nothing exists yet
+  let pageExists = false
+  let assetUploadCount = 0
+  fakeImportDeps({
+    getEntryAt: async () => (pageExists ? ({ id: 'p1', type: 'page' } as any) : null),
+    createPage: async () => {
+      pageExists = true
+      return { id: 'p1' } as any
+    },
+    upload: async () => {
+      assetUploadCount++
+      return {} as any
+    }
+  })
+
+  try {
+    const first = await importAll(makeImportTarget(dir))
+    assert.equal(first.pagesCreated, 1)
+    assert.equal(assetUploadCount, 1)
+
+    // -> Second run against the same fakes: the page now resolves as an existing occupant and is
+    //    skipped; the asset upload still runs (its idempotency is `upload()`'s own `overwrite`
+    //    default, exercised by the real model, not by this fake) but produces no new tree entry.
+    const second = await importAll(makeImportTarget(dir))
+    assert.equal(second.pagesCreated, 0)
+    assert.equal(second.pagesSkipped, 1)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("importAll resolves each locale's same-named folder separately, rather than sharing one cached id", async () => {
+  const dir = await makeTempDir()
+  await writeFile(dir, 'en', 'images', 'logo.png').then((p) => fs.writeFile(p, 'EN-LOGO'))
+  await writeFile(dir, 'fr', 'images', 'logo.png').then((p) => fs.writeFile(p, 'FR-LOGO'))
+
+  const uploadCalls: any[] = []
+  fakeImportDeps({
+    locales: ['en', 'fr'],
+    getFolder: async ({ locale }) => ({ id: `${locale}-images-folder-id` }) as any,
+    upload: async (args) => {
+      uploadCalls.push(args)
+      return {} as any
+    }
+  })
+
+  try {
+    await importAll(makeImportTarget(dir))
+    assert.equal(uploadCalls.length, 2)
+    const byLocale = Object.fromEntries(uploadCalls.map((c) => [c.locale, c.folderId]))
+    assert.equal(byLocale.en, 'en-images-folder-id')
+    assert.equal(byLocale.fr, 'fr-images-folder-id')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll queues a re-render for an imported page, and does not fail the import when queueing fails', async () => {
+  const dir = await makeTempDir()
+  await writeFile(dir, 'en', 'home.md').then((p) => fs.writeFile(p, '# Hello'))
+
+  let queueRerenderCalled = false
+  fakeImportDeps({
+    queueRerender: async () => {
+      queueRerenderCalled = true
+      throw new CustomError('renderPuppeteerMissing', 'Rendering needs Puppeteer.', 503)
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(queueRerenderCalled, true)
+    assert.equal(result.pagesCreated, 1)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
