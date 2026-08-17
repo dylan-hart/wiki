@@ -2,8 +2,10 @@
  * Wiki.js Native comment provider.
  *
  * This is a scaffold (Task 615, Feature 390): the module shape and its handler signatures are in
- * place; `checkRateLimit` is still stubbed to throw (it needs the comments table, which doesn't
- * exist yet). `render` (Task 623) and `checkSpam` (Task 628) are fully implemented.
+ * place. `render` (Task 623), `checkSpam` (Task 628) and `checkRateLimit` (Task 632) are fully
+ * implemented; none of them touch the database — `models/comments.ts` (Feature 389) is expected to
+ * look up whatever each handler needs (e.g. the author's last-comment timestamp for
+ * `checkRateLimit`) and pass it in.
  *
  * Feature 389 (the comments data model) owns `models/comments.ts` and, once it lands, the
  * `CommentProviderModule` interface below should move there and this file should import it — the
@@ -84,6 +86,28 @@ export interface SpamCheckResult {
 }
 
 /**
+ * The input `checkRateLimit` needs to decide whether the current poster may comment right now.
+ *
+ * **Input contract**: this module has no database access (per the architectural boundary described
+ * in Feature 390 — it enforces the window, it does not look anything up), so `lastCommentAt` is
+ * entirely the caller's responsibility to resolve, and it must already reflect **guest pooling**:
+ * 2.5.x's own hint text for this prop is "all guests are considered as a single account", so an
+ * unauthenticated poster is never its own bucket. The caller must look up a single, shared
+ * last-comment timestamp for every guest combined — e.g. keyed by the guests group's ID rather than
+ * by session or IP — before calling this, the same way it would look up one timestamp per real
+ * account for an authenticated poster. This module has no concept of "guest" at all; it only ever
+ * compares two instants it was handed.
+ */
+export interface CheckRateLimitParams {
+  /**
+   * The `Temporal.Instant` of the relevant account's most recent comment (the shared guest-bucket
+   * timestamp for an unauthenticated poster, per the contract above), or `undefined`/`null` if that
+   * account has never posted before — always allowed in that case.
+   */
+  lastCommentAt?: Temporal.Instant | null
+}
+
+/**
  * The contract every comment provider module implements, keyed by the module's own `definition.yml`
  * `props` (see `helpers/common.ts`'s `ModuleProp` for what a resolved prop looks like). Local copy
  * only, for now — see the file-level comment above.
@@ -105,9 +129,10 @@ export interface CommentProviderModule {
 
   /**
    * Whether the poster is within the module's configured minimum delay between comments (the
-   * `minDelay` prop). All guests are treated as a single account.
+   * `minDelay` prop). All guests are treated as a single account. See `CheckRateLimitParams` and
+   * the standalone `checkRateLimit` function below for the full contract.
    */
-  checkRateLimit(params: { userId: number }, conf: Record<string, any>): Promise<boolean>
+  checkRateLimit(params: CheckRateLimitParams, conf: Record<string, any>): Promise<boolean>
 }
 
 /*
@@ -328,6 +353,44 @@ async function checkSpam(
   }
 }
 
+/**
+ * Pure decision: given the module's configured `minDelay` (seconds) and the timestamp of the
+ * relevant account's most recent comment, is another comment allowed right now?
+ *
+ * Deliberately free of any I/O — no database, no session, no clock read beyond the instants it is
+ * handed (`now` defaults to the real clock but is overridable, purely so tests don't need to install
+ * a fake `Temporal`) — per the architectural boundary described in Feature 390: this module enforces
+ * the window, it never decides who counts as one account or looks anything up itself. See
+ * `CheckRateLimitParams` for the guest-pooling contract `lastCommentAt` must already satisfy.
+ *
+ * Follows CLAUDE.md's Temporal conventions exactly: instants are compared with
+ * `Temporal.Instant.compare()` (`<` throws on Temporal types), and the cutoff is built with
+ * `{ seconds: minDelay }` — an exact-time unit valid on `Instant.add`, unlike anything calendar-based.
+ *
+ * @param minDelay - Minimum seconds required between comments from the same account. `0` (or any
+ *   non-positive/non-finite value) disables rate limiting entirely, matching this prop's "leave
+ *   empty/zero to disable" pattern (`definition.yml`'s `minDelay` has no separate enable flag).
+ * @param lastCommentAt - The account's most recent comment instant, or `undefined`/`null` if it has
+ *   never posted before — always allowed in that case (there is nothing to be too soon after).
+ * @param now - The instant to check against. Defaults to `Temporal.Now.instant()`.
+ * @returns `true` if posting is currently allowed, `false` if the caller is still within the
+ *   configured delay.
+ */
+export function checkRateLimit(
+  minDelay: number,
+  lastCommentAt: Temporal.Instant | null | undefined,
+  now: Temporal.Instant = Temporal.Now.instant()
+): boolean {
+  if (!(minDelay > 0)) {
+    return true
+  }
+  if (!lastCommentAt) {
+    return true
+  }
+  const cutoff = lastCommentAt.add({ seconds: minDelay })
+  return Temporal.Instant.compare(now, cutoff) >= 0
+}
+
 const commentsDefaultModule: CommentProviderModule = {
   async render(content) {
     return renderComment(content)
@@ -335,8 +398,9 @@ const commentsDefaultModule: CommentProviderModule = {
   async checkSpam(params, conf) {
     return checkSpam(params, conf)
   },
-  async checkRateLimit(_params, _conf) {
-    throw new Error('Not implemented')
+  async checkRateLimit(params, conf) {
+    const minDelay = typeof conf?.minDelay === 'number' ? conf.minDelay : 0
+    return checkRateLimit(minDelay, params.lastCommentAt)
   }
 }
 

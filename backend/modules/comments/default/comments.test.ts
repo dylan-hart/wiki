@@ -6,7 +6,8 @@ import { load } from 'js-yaml'
 import { parseModuleProps } from '../../../helpers/common.ts'
 import commentsDefaultModule, {
   _resetAkismetClientCacheForTesting,
-  _setAkismetClientFactoryForTesting
+  _setAkismetClientFactoryForTesting,
+  checkRateLimit
 } from './comments.ts'
 import type { CheckSpamParams } from './comments.ts'
 
@@ -20,6 +21,31 @@ const warnLog: string[] = []
 ;(globalThis as any).WIKI = {
   config: { host: 'https://test.wiki' },
   logger: { warn: (msg: string) => warnLog.push(msg) }
+}
+
+/**
+ * Minimal stand-in for the subset of `Temporal` `checkRateLimit` and this file's own fixtures use
+ * (`Now.instant()`, `Instant.compare()`, `.add()`/`.subtract()`).
+ *
+ * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around,
+ * not a spec deviation. `Instant.compare` implements the real (a, b) => sign(a - b) semantics, so
+ * `checkRateLimit`'s actual comparison logic is exercised, not a re-implementation of it.
+ */
+if (typeof (globalThis as any).Temporal === 'undefined') {
+  const durationToMs = (d: { seconds?: number }) => (d.seconds ?? 0) * 1_000
+  const makeInstant = (epochMs: number): any => ({
+    epochMilliseconds: epochMs,
+    add: (d: any) => makeInstant(epochMs + durationToMs(d)),
+    subtract: (d: any) => makeInstant(epochMs - durationToMs(d)),
+    toString: () => new Date(epochMs).toISOString()
+  })
+  ;(globalThis as any).Temporal = {
+    Now: { instant: () => makeInstant(Date.now()) },
+    Instant: {
+      compare: (a: any, b: any) => Math.sign(a.epochMilliseconds - b.epochMilliseconds)
+    }
+  }
 }
 
 function baseSpamParams(overrides: Partial<CheckSpamParams> = {}): CheckSpamParams {
@@ -51,8 +77,75 @@ describe('modules/comments/default', () => {
       assert.equal(typeof commentsDefaultModule.checkRateLimit, 'function')
     })
 
-    it('has a stubbed checkRateLimit that rejects rather than silently no-opping', async () => {
-      await assert.rejects(commentsDefaultModule.checkRateLimit({ userId: 1 }, {}))
+    describe('checkRateLimit', () => {
+      const now = Temporal.Now.instant()
+
+      it('allows a first post: no prior comment at all', () => {
+        assert.equal(checkRateLimit(30, undefined, now), true)
+        assert.equal(checkRateLimit(30, null, now), true)
+      })
+
+      it('disables rate limiting entirely when minDelay is 0', () => {
+        const justNow = now.subtract({ seconds: 1 })
+        assert.equal(checkRateLimit(0, justNow, now), true)
+      })
+
+      it('disallows a post strictly inside the configured window', () => {
+        const fiveSecondsAgo = now.subtract({ seconds: 5 })
+        assert.equal(checkRateLimit(30, fiveSecondsAgo, now), false)
+      })
+
+      it('disallows a post exactly at the boundary minus one instant (still too soon)', () => {
+        const justUnderThirty = now.subtract({ seconds: 29 })
+        assert.equal(checkRateLimit(30, justUnderThirty, now), false)
+      })
+
+      it('allows a post exactly at the boundary (cutoff reached, not just passed)', () => {
+        const exactlyThirtyAgo = now.subtract({ seconds: 30 })
+        assert.equal(checkRateLimit(30, exactlyThirtyAgo, now), true)
+      })
+
+      it('allows a post once the window has fully elapsed', () => {
+        const anHourAgo = now.subtract({ seconds: 3600 })
+        assert.equal(checkRateLimit(30, anHourAgo, now), true)
+      })
+
+      it('is a pure function of its arguments: same inputs, same output, no side effects', () => {
+        const twentyAgo = now.subtract({ seconds: 20 })
+        assert.equal(checkRateLimit(30, twentyAgo, now), checkRateLimit(30, twentyAgo, now))
+      })
+
+      it('module.checkRateLimit reads minDelay off conf and delegates to the pure function', async () => {
+        const tenAgo = now.subtract({ seconds: 10 })
+        assert.equal(
+          await commentsDefaultModule.checkRateLimit({ lastCommentAt: tenAgo }, { minDelay: 30 }),
+          false
+        )
+        assert.equal(
+          await commentsDefaultModule.checkRateLimit({ lastCommentAt: tenAgo }, { minDelay: 5 }),
+          true
+        )
+      })
+
+      it('module.checkRateLimit treats a missing/non-numeric minDelay as disabled (0)', async () => {
+        const tenAgo = now.subtract({ seconds: 10 })
+        assert.equal(
+          await commentsDefaultModule.checkRateLimit({ lastCommentAt: tenAgo }, {}),
+          true
+        )
+      })
+
+      it("guest pooling is the caller's job: two different callers sharing one lastCommentAt are rate-limited together", () => {
+        // -> This module has no notion of "guest" — it only ever compares the instant it is handed.
+        //    Simulating guest pooling here means two logically-different posters (e.g. two different
+        //    IPs) resolving to the SAME shared bucket timestamp, which is exactly what the caller is
+        //    responsible for doing (see CheckRateLimitParams' JSDoc) before calling this function.
+        const sharedGuestBucketLastCommentAt = now.subtract({ seconds: 2 })
+        const guestPosterOneAllowed = checkRateLimit(30, sharedGuestBucketLastCommentAt, now)
+        const guestPosterTwoAllowed = checkRateLimit(30, sharedGuestBucketLastCommentAt, now)
+        assert.equal(guestPosterOneAllowed, false)
+        assert.equal(guestPosterTwoAllowed, false)
+      })
     })
 
     describe('checkSpam', () => {
