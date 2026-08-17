@@ -163,3 +163,33 @@ test('registers the block and returns the created SiteBlock on success', async (
   assert.equal(createCustomBlockCalls[0]!.definition.block, 'widget')
   assert.equal(createCustomBlockCalls[0]!.code.toString('utf8'), WELL_FORMED)
 })
+
+/**
+ * The upload size cap (task 660): `addContentTypeParser`'s `bodyLimit` is read from
+ * `WIKI.config.security.uploadMaxFileSize` once, at plugin-registration time, exactly like
+ * `assets.ts`'s own upload route reuses the same key. A separate app instance is registered here with
+ * a tiny configured limit so the test can prove the cap is actually wired up and enforced — rather
+ * than only asserting the source line reads the config key — without allocating a real multi-megabyte
+ * buffer.
+ */
+test('rejects a payload larger than the configured upload size cap with 413', async () => {
+  ;(globalThis as any).WIKI.config.security.uploadMaxFileSize = 16
+  const smallApp = fastify()
+  await smallApp.register(fastifySensible)
+  await registerBlockSchema(smallApp)
+  await smallApp.register(blocksRoutes)
+  await smallApp.ready()
+  try {
+    const res = await smallApp.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/blocks`,
+      payload: Buffer.from(WELL_FORMED), // well over the 16-byte cap configured above
+      headers: { 'content-type': 'text/javascript' }
+    })
+    assert.equal(res.statusCode, 413)
+    assert.equal(createCustomBlockCalls.length, 0)
+  } finally {
+    await smallApp.close()
+    ;(globalThis as any).WIKI.config.security.uploadMaxFileSize = 10485760
+  }
+})

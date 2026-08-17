@@ -123,6 +123,20 @@ async function routes(app: FastifyInstance) {
   app.post<{ Params: { siteId: string } }>(
     '/sites/:siteId/blocks',
     {
+      /*
+        Security posture (full review: docs/security/custom-block-upload.md): the AST validator below
+        only constrains the literal `static definition` metadata block — it cannot and does not
+        sandbox the rest of the uploaded source. Everything else in the file is full same-origin
+        JavaScript, imported straight into the app's module graph on every page view that uses the
+        block (`loadBlocks()` — no iframe, Worker or shadow-DOM script boundary). `manage:sites` is
+        therefore the entire security boundary for this route, not a formality alongside some other
+        containment layer — a knowing, not incidental, trust decision: anyone holding `manage:sites`
+        on a site can already inject markup into every page of it, and this route extends that to
+        arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
+        also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
+        Permissions section) and no new, narrower permission name may be invented for this route.
+        Applied identically on the PUT (enable/disable) and DELETE routes below.
+      */
       config: {
         permissions: ['manage:sites']
       },
