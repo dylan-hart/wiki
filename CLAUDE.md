@@ -441,6 +441,72 @@ separate transpile or worker config.
   [Utilities and dates](#utilities-and-dates); the `lodash-es` and `luxon` still present in older
   files are on their way out.
 
+### Testing (frontend)
+
+`frontend/`'s test runner is **Vitest** + **`@vue/test-utils`**, run via `npm run test` (→ `vitest
+run`). Config is `vitest.config.js`, deliberately separate from `vite.config.js` — that file also
+wires up the twemoji-assets plugin (does a real filesystem copy in `writeBundle` and throws unless
+the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devtools`, and reads
+`../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
+paying the cost of on every run.
+
+What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
+does in the real build, not because it was convenient to share:
+
+- the **`@` alias**, `vue()`'s `isCustomElement` rule for `<iconify-icon>`, and
+  `transformAssetUrls` — every component compiles the same way under test as it does in the app;
+- the **Tailwind plugin** — component markup is full of Tailwind utility classes;
+- the **SCSS `additionalData` injection** (`css.preprocessorOptions.scss`) — several SFCs' `<style
+  lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue` is the test
+  suite's proof case), which only resolves under test if the same `@use '@/css/_theme.scss' as *;
+  @use '@/css/_palette.scss' as *;` runs here. Miss this and such a component doesn't fail its
+  assertion — it fails to even *compile* with a Sass "undefined variable" error, which wastes time
+  chasing the wrong problem. `test.css: true` in the Vitest `test` block is required alongside it:
+  Vitest stubs out CSS processing by default (a `<style>` import resolves to `{}` and nothing is
+  actually run through Sass), which would silently skip the very thing being verified.
+- **`vue()`'s template `compilerOptions.comments: false`** — deliberately *not* mirrored from
+  `vite.config.js`, and load-bearing rather than optional. `@vitejs/plugin-vue` preserves
+  template-level comments in dev mode (matching vue-loader's old behaviour) but strips them for
+  `vite build`. Several SFCs — `WCheckbox.vue` among them — open with an explanatory HTML comment as
+  a template-level *sibling* of their root element, not a child of it: left in, the component
+  compiles to a two-node Fragment root instead of a single element. Vue itself handles that fine at
+  runtime, but `@vue/test-utils` resolves `wrapper.element` (and therefore `.attributes()`,
+  `.classes()`, `.find()` off the wrapper root, ...) from the component's single root node, and
+  falls back to the test's own mount container when there isn't one — silently, with no error — so
+  every one of those reads the wrong element. Forcing `comments: false` reproduces the single-root
+  shape these components actually ship with in production, which is what a test should be verifying
+  against.
+
+- **File convention: co-located `*.test.js`**, matching the backend's `*.test.ts` convention — a test
+  lives next to the file it covers (`components/shared/WBtn.vue` → `components/shared/WBtn.test.js`),
+  not in a mirrored `test/` tree. `test/` itself is reserved for the harness's own shared fixture code
+  (`test/setup.js`, `test/mocks.js`), matching what `backend/test/` reserves `test/` for.
+- **The two ambient globals, `API_CLIENT` and `EVENT_BUS`** (see [Frontend
+  patterns](#frontend-patterns)), exist nowhere outside `boot/*` — a component or store reading either
+  as a bare global would throw `ReferenceError` under test without a stand-in. `test/setup.js`
+  rebuilds both **before every test**: `EVENT_BUS` is a real `mitt()` instance (cheap, and a test can
+  subscribe to it directly to assert an emit), while `API_CLIENT` is `test/mocks.js`'s
+  `createApiClientStub()` — a `vi.fn()` per HTTP method shaped after `ky`'s chainable
+  `.get(url).json()` surface, so store code needs no test-only branch to call it. A test overrides a
+  call directly: `API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(payload) })`, or
+  `API_CLIENT.post.mockImplementationOnce(() => { throw new Error('network') })` for the rejection
+  path every store call is wrapped in a `try`/`catch` for. Rebuilding per-test rather than per-file
+  is deliberate: both would otherwise leak mock call history and event listeners into the next test
+  in the same file.
+- **The `w-*` shared library is registered globally in `test/setup.js`**, via
+  `config.global.components = { ...sharedComponents }` (`components/shared/index.js`'s own exported
+  map — the same one `boot/components.js` uses) — so a component under test that uses `<w-icon>` /
+  `<w-btn>` / ... resolves them exactly as the real app does, with no per-test import list to keep in
+  sync as components are added.
+- **`Temporal` polyfill**: loaded eagerly in `test/setup.js` when the global is absent, the same way
+  `boot/temporal.js` lazily polyfills it for pre-Temporal Safari — this sandbox's Node 25.9 lacks it
+  natively (engines requires >=26), same environment note as the backend's testing section.
+- Prefer mounting the real component over shallow-rendering or over-mocking — `WChip.test.js` /
+  `WBtn.test.js` / `WCheckbox.test.js` and `stores/user.test.js` (permission checks, guest/profile
+  state transitions, `logout()`'s `API_CLIENT`/`EVENT_BUS` round-trip, `Temporal`-backed date
+  formatting) are the reference examples of testing real behaviour end-to-end through the harness
+  rather than merely asserting Vitest boots.
+
 ### Icons
 
 Icons come from **Iconify** and are referenced the way Iconify references them — `<prefix>:<name>`,
