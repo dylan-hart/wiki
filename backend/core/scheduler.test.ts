@@ -144,3 +144,50 @@ test('adds no jobs and does not throw when the schedule has no due iterations le
 
   assert.equal(insertedJobs.length, 0)
 })
+
+test('a `*/5 * * * *` cron produces multiple distinct rows capped at 10, and a second call does not duplicate rows already in existingJobs', async () => {
+  // Task 573's explicit verification ask: a cron due more than once inside the ~24h05m window (every
+  // 5 minutes fires ~289 times) must yield several distinct `jobs` rows on a single `addScheduled()`
+  // call, capped at 10 -- and a follow-up call, once those rows are visible via `existingJobs`, must
+  // not re-insert any of them. This exercises the real dedup comparison
+  // (`j.waitUntil.getTime() === next.getTime()`) rather than just the loop's cap/termination logic
+  // covered by the tests above.
+  //
+  // Note the loop's cap counts *additions*, not iterations examined: once the next 10 due iterations
+  // are all already scheduled, it skips past every one of them (proving the dedup check works) and
+  // keeps going until it has added 10 genuinely new rows further out in the window -- it does not
+  // stop at zero. So the correct assertion for "does not duplicate" is that the two calls' rows never
+  // overlap, not that the second call adds nothing.
+  scheduleJobsMock = [{ task: 'fiveMinTask', cron: '*/5 * * * *', payload: {} }]
+  existingJobsMock = []
+
+  await scheduler.addScheduled()
+
+  assert.equal(insertedJobs.length, 10)
+  const firstCallTimes = insertedJobs.map((j) => j.waitUntil.getTime())
+  assert.equal(new Set(firstCallTimes).size, 10, 'all 10 rows from the first call must be distinct')
+
+  // Simulate the rows now being visible to the next lock-holder's `existingJobs` query.
+  existingJobsMock = insertedJobs.map((j) => ({ task: j.task, waitUntil: j.waitUntil }))
+  insertedJobs = []
+
+  await scheduler.addScheduled()
+
+  assert.equal(
+    insertedJobs.length,
+    10,
+    'the dedup skip must not stop the loop before its 10-addition cap'
+  )
+  const secondCallTimes = insertedJobs.map((j) => j.waitUntil.getTime())
+  assert.equal(
+    new Set(secondCallTimes).size,
+    10,
+    'all 10 rows from the second call must be distinct'
+  )
+  for (const t of secondCallTimes) {
+    assert.ok(
+      !firstCallTimes.includes(t),
+      'a second call must not duplicate a waitUntil already present in existingJobs'
+    )
+  }
+})
