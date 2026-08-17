@@ -12,6 +12,15 @@ export const NAVIGATION_MODES = [
 ] as const
 export type NavigationMode = (typeof NAVIGATION_MODES)[number]
 
+/**
+ * How `copyNav` merges cloned items into the target menu.
+ *
+ * `replace` overwrites the target's `items` outright; `append` pushes the cloned items onto whatever
+ * is already there, matching 2.5.x's "copy from locale" merge behavior.
+ */
+export const NAV_COPY_MODES = ['replace', 'append'] as const
+export type NavCopyMode = (typeof NAV_COPY_MODES)[number]
+
 export interface NavigationItem {
   id: string
   type: 'link' | 'header' | 'separator'
@@ -46,6 +55,24 @@ export interface NavigationOverride {
 function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
   const groups = item.visibilityGroups ?? []
   return groups.length < 1 || groups.some((g) => userGroups.includes(g))
+}
+
+/**
+ * Deep-clone a menu's items for `copyNav`, giving every item — top-level and nested child alike — a
+ * fresh id, since the sortable list frontend keys its drag-and-drop state on `id` and the source and
+ * target menus must not share one.
+ *
+ * `visibilityGroups` is left as-is on purpose: groups are instance-wide, so the reference copied over
+ * from the source item is still correct on the target, whatever site or locale it belongs to. `target`
+ * (the link itself) is copied unrewritten too — pointing it at the right page in the destination
+ * locale/site is a known best-effort limitation here, same as 2.5.x's own "copy from locale".
+ */
+function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    children: item.children?.length ? cloneItemsWithFreshIds(item.children) : item.children
+  }))
 }
 
 /**
@@ -208,6 +235,71 @@ class Navigation {
       .insert(navigationTable)
       .values({ id: navId, siteId, items })
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+  }
+
+  /**
+   * Copy one menu's items onto another, addressed by id exactly like `setNavItems` — the caller
+   * already knows both rows, whether that's a same-site "copy from locale" or a genuinely cross-site
+   * copy (`sourceSiteId` and `targetSiteId` differ).
+   *
+   * Reads the source's raw, unfiltered items (the same shape `getNav(..., { unfiltered: true })`
+   * returns — an editor copying a menu needs every item, not just what the requester's own groups can
+   * see), deep-clones them with a fresh id on every item so the sortable list frontend's `id`-keyed
+   * drag state never collides between source and target, and either overwrites the target's items
+   * (`replace`) or pushes the clones onto whatever the target already has (`append`, matching 2.5.x's
+   * "copy from locale" merge behavior).
+   *
+   * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
+   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten
+   * too: validating or repointing them against the destination locale/site is a known best-effort
+   * limitation, same as 2.5.x.
+   *
+   * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
+   *                      "copy from locale", different for a cross-site copy
+   * @param sourceId The source row's own id
+   * @param targetSiteId Site the target row belongs to — always the path's `:siteId` from the route
+   * @param targetId The target row's own id
+   */
+  async copyNav({
+    sourceSiteId,
+    sourceId,
+    targetSiteId,
+    targetId,
+    mode
+  }: {
+    sourceSiteId: string
+    sourceId: string
+    targetSiteId: string
+    targetId: string
+    mode: NavCopyMode
+  }): Promise<void> {
+    const sourceRows = await WIKI.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, sourceId), eq(navigationTable.siteId, sourceSiteId)))
+      .limit(1)
+    const sourceRow = sourceRows[0]
+    if (!sourceRow) {
+      throw new CustomError('navCopySourceNotFound', 'The source menu does not exist.', 404)
+    }
+
+    const targetRows = await WIKI.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, targetId), eq(navigationTable.siteId, targetSiteId)))
+      .limit(1)
+    const targetRow = targetRows[0]
+    if (!targetRow) {
+      throw new CustomError('navCopyTargetNotFound', 'The target menu does not exist.', 404)
+    }
+
+    const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    const items =
+      mode === 'append'
+        ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
+        : clonedItems
+
+    await WIKI.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
   }
 
   /** The tree entry a navigation change is addressed to. */

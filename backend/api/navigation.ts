@@ -1,5 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { NAVIGATION_MODES, type NavigationItem, type NavigationMode } from '../models/navigation.ts'
+import {
+  NAV_COPY_MODES,
+  NAVIGATION_MODES,
+  type NavCopyMode,
+  type NavigationItem,
+  type NavigationMode
+} from '../models/navigation.ts'
 
 const navigationItem = {
   type: 'object',
@@ -310,6 +316,76 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'Navigation updated successfully.'
+      }
+    }
+  )
+
+  /**
+   * COPY NAVIGATION
+   */
+  app.post<{
+    Params: { siteId: string; targetNavId: string }
+    Body: { sourceSiteId?: string; sourceNavId: string; mode: NavCopyMode }
+  }>(
+    '/sites/:siteId/navigation/:targetNavId/copy',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: 'Copy a menu onto another',
+        description:
+          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            targetNavId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'targetNavId']
+        },
+        body: {
+          type: 'object',
+          required: ['sourceNavId', 'mode'],
+          properties: {
+            sourceSiteId: {
+              type: 'string',
+              format: 'uuid',
+              description: "Site the source menu belongs to. Defaults to the path's siteId."
+            },
+            sourceNavId: { type: 'string', format: 'uuid' },
+            mode: {
+              type: 'string',
+              enum: NAV_COPY_MODES,
+              description:
+                'replace overwrites the target items; append pushes the clones onto the existing ones.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Navigation copied successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      await WIKI.models.navigation.copyNav({
+        sourceSiteId: req.body.sourceSiteId ?? req.params.siteId,
+        sourceId: req.body.sourceNavId,
+        targetSiteId: req.params.siteId,
+        targetId: req.params.targetNavId,
+        mode: req.body.mode
+      })
+      return {
+        ok: true,
+        message: 'Navigation copied successfully.'
       }
     }
   )

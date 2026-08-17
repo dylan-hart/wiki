@@ -207,6 +207,125 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
+ * `copyNav` is what a "copy from locale"/cross-site copy button saves against: unlike `setNavItems`,
+ * it reads a whole source menu and writes cloned items onto a target, rather than items the caller
+ * already assembled itself.
+ */
+describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('replace overwrites the target items with clones of the source, each with a fresh id', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+
+    const sourceItems = [
+      {
+        id: 'source-parent',
+        type: 'link' as const,
+        label: 'Parent',
+        target: '/parent',
+        visibilityGroups: [fixtures.groupId],
+        children: [{ id: 'source-child', type: 'link' as const, label: 'Child', target: '/child' }]
+      }
+    ]
+    await navigationModel.setNavItems(fixtures.siteId, sourceId, sourceItems)
+    await navigationModel.setNavItems(fixtures.siteId, targetId, [
+      { id: 'target-existing', type: 'header' as const, label: 'Existing' }
+    ])
+
+    await navigationModel.copyNav({
+      sourceSiteId: fixtures.siteId,
+      sourceId,
+      targetSiteId: fixtures.siteId,
+      targetId,
+      mode: 'replace'
+    })
+
+    const targetItems = await navigationModel.getNav(targetId, { unfiltered: true })
+    assert.equal(targetItems.length, 1)
+    const [copied] = targetItems
+    assert.notEqual(copied!.id, 'source-parent')
+    assert.equal(copied!.label, 'Parent')
+    assert.deepEqual(copied!.visibilityGroups, [fixtures.groupId])
+    assert.equal(copied!.children!.length, 1)
+    assert.notEqual(copied!.children![0]!.id, 'source-child')
+    assert.equal(copied!.children![0]!.label, 'Child')
+
+    // -> The source is left untouched
+    const sourceStillIntact = await navigationModel.getNav(sourceId, { unfiltered: true })
+    assert.equal(sourceStillIntact[0]!.id, 'source-parent')
+  })
+
+  test('append pushes clones onto the target existing items rather than replacing them', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'de')
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'es')
+
+    await navigationModel.setNavItems(fixtures.siteId, sourceId, [
+      { id: 'append-source', type: 'link' as const, label: 'From Source', target: '/x' }
+    ])
+    await navigationModel.setNavItems(fixtures.siteId, targetId, [
+      { id: 'append-target', type: 'link' as const, label: 'Already There', target: '/y' }
+    ])
+
+    await navigationModel.copyNav({
+      sourceSiteId: fixtures.siteId,
+      sourceId,
+      targetSiteId: fixtures.siteId,
+      targetId,
+      mode: 'append'
+    })
+
+    const targetItems = await navigationModel.getNav(targetId, { unfiltered: true })
+    assert.deepEqual(
+      targetItems.map((i) => i.label),
+      ['Already There', 'From Source']
+    )
+    assert.equal(targetItems[0]!.id, 'append-target')
+    assert.notEqual(targetItems[1]!.id, 'append-source')
+  })
+
+  test('rejects a sourceId that does not resolve to an existing menu row', async () => {
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'pt')
+    await assert.rejects(
+      () =>
+        navigationModel.copyNav({
+          sourceSiteId: fixtures.siteId,
+          sourceId: crypto.randomUUID(),
+          targetSiteId: fixtures.siteId,
+          targetId,
+          mode: 'replace'
+        }),
+      /source menu does not exist/
+    )
+  })
+
+  test('rejects a targetId that does not resolve to an existing menu row', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'it')
+    await assert.rejects(
+      () =>
+        navigationModel.copyNav({
+          sourceSiteId: fixtures.siteId,
+          sourceId,
+          targetSiteId: fixtures.siteId,
+          targetId: crypto.randomUUID(),
+          mode: 'replace'
+        }),
+      /target menu does not exist/
+    )
+  })
+})
+
+/**
  * The site-wide default menu is identified by `(siteId, locale)`, not by `id === siteId`: a site with
  * more than one active locale needs a menu per locale, and each one's row id is a real, independently
  * generated uuid rather than something a caller can derive from the site id.
