@@ -11,6 +11,30 @@ export interface MailMessage {
 }
 
 /**
+ * Classify a failed send by nodemailer's `err.code` so logs distinguish a network-level problem
+ * from bad credentials from a rejected message, instead of one generic "failed to send" line for
+ * all three. Codes come from `nodemailer/lib/smtp-connection`, the only transport this model uses.
+ */
+export function classifyMailError(err: any): 'connection' | 'auth' | 'send' | 'unknown' {
+  switch (err?.code) {
+    case 'ECONNECTION':
+    case 'ESOCKET':
+    case 'ETIMEDOUT':
+    case 'EDNS':
+    case 'ETLS':
+    case 'EPROTOCOL':
+      return 'connection'
+    case 'EAUTH':
+      return 'auth'
+    case 'EENVELOPE':
+    case 'EMESSAGE':
+      return 'send'
+    default:
+      return 'unknown'
+  }
+}
+
+/**
  * Mail model
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
@@ -19,8 +43,12 @@ export interface MailMessage {
  * inline HTML/text pairs — there is no admin-editable template system yet
  * (`MailTemplateEditorOverlay.vue` is unwired UI that belongs to Epic 8).
  *
- * The transporter is rebuilt whenever the relevant config changes (compared by a cheap JSON snapshot)
- * rather than on every send, since `WIKI.config.mail` can be edited at runtime through the admin area.
+ * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
+ * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
+ * cheap JSON snapshot. The net effect is the same as constructing a fresh transporter per send — a
+ * runtime config edit through the admin area takes effect on the very next email — without the
+ * connection-pool churn of literally discarding and recreating the nodemailer object when nothing
+ * changed.
  */
 class MailModel {
   private transporter: Mail<SMTPTransport.SentMessageInfo> | null = null
@@ -93,7 +121,10 @@ class MailModel {
    * Send a single email through the configured SMTP transport.
    *
    * @throws `ERR_MAIL_NOT_CONFIGURED` when there is no transport to send with. Any other failure
-   *   (auth rejected, connection refused, ...) is logged and rethrown as-is.
+   *   (auth rejected, connection refused, message rejected, ...) is logged with its
+   *   {@link classifyMailError} category — so a log search can tell "the SMTP host is unreachable"
+   *   apart from "the credentials are wrong" apart from "the message itself was rejected" — and
+   *   rethrown as-is.
    */
   async send({ to, subject, html, text }: MailMessage): Promise<void> {
     const transporter = this.getTransporter()
@@ -108,7 +139,8 @@ class MailModel {
         text
       })
     } catch (err: any) {
-      WIKI.logger.warn(`Failed to send mail to ${to}: ${err.message}`)
+      const kind = classifyMailError(err)
+      WIKI.logger.warn(`Failed to send mail to ${to} (${kind} failure): ${err.message}`)
       throw err
     }
   }
