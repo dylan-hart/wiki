@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -6,6 +6,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminComments from './AdminComments.vue'
 import { useAdminStore } from '@/stores/admin'
+import { openDialogs, closeDialog } from '@/composables/dialog'
 
 /**
  * Task 621 (Feature 394, "Admin comments management UI rebuild"): the provider selection &
@@ -29,12 +30,58 @@ const messages = {
         saveFailed: 'Failed to save the comment provider configuration.',
         saveSuccess: 'Comment provider configuration saved successfully.',
         enabledNoProviderHint: 'Comments are enabled in General, but no provider is active yet.',
-        goToGeneral: 'Go to General'
+        goToGeneral: 'Go to General',
+        moderation: 'Moderation',
+        moderationUnavailableHint:
+          'Comments are not active for this site, so there is nothing to moderate yet.',
+        configureProvider: 'Choose a Provider',
+        excerpt: 'Comment',
+        author: 'Author',
+        page: 'Page',
+        date: 'Date',
+        delete: 'Delete Comment',
+        deleteConfirmTitle: 'Delete Comment?',
+        deleteConfirmText: 'Are you sure you want to delete this comment by {author}?',
+        deleteSuccess: 'Comment deleted successfully.',
+        deleteFailed: 'Failed to delete the comment.',
+        loadCommentsFailed: 'Failed to load comments.',
+        searchByPage: 'Filter by page path...',
+        searchByAuthor: 'Filter by author...',
+        searchNoResults: 'No comments match your search.'
       }
     },
-    common: { actions: { apply: 'Apply', viewDocs: 'View docs' } }
+    common: {
+      actions: { apply: 'Apply', viewDocs: 'View docs', refresh: 'Refresh', delete: 'Delete' }
+    }
   }
 }
+
+const COMMENTS = [
+  {
+    id: 'c1',
+    siteId: 'site1',
+    pageId: 'p1',
+    pagePath: 'en/home',
+    authorId: 'u1',
+    authorName: 'Alice',
+    replyTo: null,
+    content: 'This is a great page, thanks for writing it!',
+    createdAt: '2026-08-01T12:00:00.000Z',
+    updatedAt: '2026-08-01T12:00:00.000Z'
+  },
+  {
+    id: 'c2',
+    siteId: 'site1',
+    pageId: 'p2',
+    pagePath: 'en/other',
+    authorId: null,
+    authorName: 'Guest Bob',
+    replyTo: null,
+    content: 'Spam spam spam',
+    createdAt: '2026-08-02T12:00:00.000Z',
+    updatedAt: '2026-08-02T12:00:00.000Z'
+  }
+]
 
 const PROVIDERS = [
   {
@@ -80,21 +127,37 @@ const PROVIDERS = [
   }
 ]
 
-function mountPage({ providers = PROVIDERS, putImpl, sites } = {}) {
+function mountPage({
+  providers = PROVIDERS,
+  putImpl,
+  sites,
+  comments = COMMENTS,
+  getComments,
+  deleteImpl
+} = {}) {
   setActivePinia(createPinia())
 
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site1'
   adminStore.sites = sites ?? [{ id: 'site1', features: { comments: true } }]
 
-  API_CLIENT.get.mockImplementation((url) => {
+  API_CLIENT.get.mockImplementation((url, opts) => {
     if (url === 'sites/site1/comments/providers') {
       return { json: () => Promise.resolve(providers) }
+    }
+    if (url === 'sites/site1/comments') {
+      if (getComments) {
+        return getComments(url, opts)
+      }
+      return { json: () => Promise.resolve({ results: comments, totalHits: comments.length }) }
     }
     return { json: () => Promise.resolve(undefined) }
   })
   if (putImpl) {
     API_CLIENT.put.mockImplementation(putImpl)
+  }
+  if (deleteImpl) {
+    API_CLIENT.delete.mockImplementation(deleteImpl)
   }
 
   const router = createRouter({
@@ -210,5 +273,142 @@ describe('AdminComments', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('No comment provider modules are installed.')
+  })
+})
+
+/**
+ * Task 627 (Feature 394): the moderation list view, a second tab on this same page. Modeled on
+ * `AdminUsers.vue`'s list -- search, refresh, `loading` composable, `w-table` + `w-pagination` --
+ * wired to `GET/DELETE sites/:siteId/comments` (Task 625). Delete goes through the `confirm()`
+ * composable, matching `AdminStorage.vue`'s `setupDestroy` confirm-before-destroy pattern.
+ */
+async function switchToModeration(wrapper) {
+  const tab = wrapper.findAll('[role="tab"]').find((t) => t.text() === 'Moderation')
+  await tab.trigger('click')
+  await flushPromises()
+}
+
+describe('AdminComments moderation panel', () => {
+  beforeEach(() => {
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  afterEach(() => {
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('fetches comments for the current site when the Moderation tab is opened', async () => {
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await switchToModeration(wrapper)
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site1/comments',
+      expect.objectContaining({ searchParams: expect.any(Object) })
+    )
+    expect(wrapper.text()).toContain('Alice')
+    expect(wrapper.text()).toContain('Guest Bob')
+    expect(wrapper.text()).toContain('en/home')
+    expect(wrapper.text()).toContain('This is a great page')
+  })
+
+  it('shows an unavailable banner instead of the table when the site has no active provider', async () => {
+    const noneEnabled = PROVIDERS.map((p) => ({ ...p, isEnabled: false }))
+    const { wrapper } = mountPage({ providers: noneEnabled })
+    await flushPromises()
+    await switchToModeration(wrapper)
+
+    expect(wrapper.text()).toContain(
+      'Comments are not active for this site, so there is nothing to moderate yet.'
+    )
+    expect(wrapper.text()).not.toContain('Alice')
+    expect(API_CLIENT.get).not.toHaveBeenCalledWith('sites/site1/comments', expect.anything())
+  })
+
+  it('shows the unavailable banner when features.comments is off site-wide, even with an active provider', async () => {
+    const { wrapper } = mountPage({
+      sites: [{ id: 'site1', features: { comments: false } }]
+    })
+    await flushPromises()
+    await switchToModeration(wrapper)
+
+    expect(wrapper.text()).toContain(
+      'Comments are not active for this site, so there is nothing to moderate yet.'
+    )
+  })
+
+  it('re-fetches with pagePath/author query params after searching, debounced', async () => {
+    const { wrapper } = mountPage()
+    await flushPromises()
+    await switchToModeration(wrapper)
+    API_CLIENT.get.mockClear()
+
+    const pathInput = wrapper.find('input[placeholder="Filter by page path..."]')
+    await pathInput.setValue('en/home')
+    const authorInput = wrapper.find('input[placeholder="Filter by author..."]')
+    await authorInput.setValue('Alice')
+
+    // -> debounced: nothing yet
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith(
+      'sites/site1/comments',
+      expect.objectContaining({
+        searchParams: expect.objectContaining({ pagePath: 'en/home', author: 'Alice' })
+      })
+    )
+  })
+
+  it('opens a confirm dialog before deleting a comment, and only deletes on confirm', async () => {
+    const del = vi.fn(() => ({ json: () => Promise.resolve(undefined) }))
+    const { wrapper } = mountPage({ deleteImpl: del })
+    await flushPromises()
+    await switchToModeration(wrapper)
+
+    const deleteBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'Delete Comment')
+    await deleteBtn.trigger('click')
+    await flushPromises()
+
+    // -> Nothing happens until the dialog is confirmed
+    expect(del).not.toHaveBeenCalled()
+    expect(openDialogs.length).toBe(1)
+    expect(openDialogs[0].props.title).toBe('Delete Comment?')
+
+    closeDialog(openDialogs[0].id, true)
+    await flushPromises()
+
+    expect(del).toHaveBeenCalledWith('sites/site1/comments/c1')
+  })
+
+  it('does not delete when the confirm dialog is cancelled', async () => {
+    const del = vi.fn(() => ({ json: () => Promise.resolve(undefined) }))
+    const { wrapper } = mountPage({ deleteImpl: del })
+    await flushPromises()
+    await switchToModeration(wrapper)
+
+    const deleteBtn = wrapper
+      .findAll('button')
+      .find((b) => b.attributes('aria-label') === 'Delete Comment')
+    await deleteBtn.trigger('click')
+    await flushPromises()
+
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('shows a no-results message when a search matches nothing', async () => {
+    const { wrapper } = mountPage({ comments: [] })
+    await flushPromises()
+    await switchToModeration(wrapper)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No comments match your search.')
   })
 })

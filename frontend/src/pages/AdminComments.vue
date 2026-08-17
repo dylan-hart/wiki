@@ -23,6 +23,18 @@
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
         <w-btn
+          class="mr-2 acrylic-btn"
+          v-if="state.mode === `moderation`"
+          icon="la:redo-alt"
+          flat
+          color="secondary"
+          :aria-label="t(`common.actions.refresh`)"
+          @click="loadComments()"
+          :loading="state.loading > 0">
+          <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
+        </w-btn>
+        <w-btn
+          v-if="state.mode === `provider`"
           unelevated
           icon="mdi:check"
           :label="t(`common.actions.apply`)"
@@ -33,7 +45,13 @@
       </div>
     </div>
     <w-separator inset />
-    <div class="flex flex-wrap p-4 gap-4">
+    <div class="px-4 pt-4">
+      <w-tabs v-model="state.mode" no-caps>
+        <w-tab name="provider" :label="t('admin.comments.provider')" />
+        <w-tab name="moderation" :label="t('admin.comments.moderation')" />
+      </w-tabs>
+    </div>
+    <div class="flex flex-wrap p-4 gap-4" v-if="state.mode === `provider`">
       <!-- ----------------------- -->
       <!-- Provider picker -->
       <!-- ----------------------- -->
@@ -173,20 +191,116 @@
         </w-card>
       </div>
     </div>
+    <!-- ----------------------- -->
+    <!-- Moderation -->
+    <!-- ----------------------- -->
+    <div class="p-4" v-if="state.mode === `moderation`">
+      <w-banner
+        v-if="moderationUnavailable"
+        inline-actions
+        :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">
+        {{ t('admin.comments.moderationUnavailableHint') }}
+        <template #action>
+          <w-btn
+            flat
+            no-caps
+            :label="t('admin.comments.goToGeneral')"
+            :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
+          <w-btn
+            flat
+            no-caps
+            :label="t('admin.comments.configureProvider')"
+            @click="state.mode = `provider`" />
+        </template>
+      </w-banner>
+      <template v-else>
+        <div class="flex flex-wrap gap-2 mb-4">
+          <w-input
+            class="denser"
+            outlined
+            v-model="state.searchPath"
+            dense
+            :placeholder="t('admin.comments.searchByPage')"
+            :aria-label="t('admin.comments.searchByPage')"
+            :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
+            <template #prepend><w-icon class="opacity-50" name="la:search" size="20px" /></template>
+          </w-input>
+          <w-input
+            class="denser"
+            outlined
+            v-model="state.searchAuthor"
+            dense
+            :placeholder="t('admin.comments.searchByAuthor')"
+            :aria-label="t('admin.comments.searchByAuthor')"
+            :class="dark.isActive ? `bg-dark text-white` : `bg-white`">
+            <template #prepend><w-icon class="opacity-50" name="la:user" size="20px" /></template>
+          </w-input>
+        </div>
+        <w-card>
+          <w-table
+            :rows="state.comments"
+            :columns="commentHeaders"
+            row-key="id"
+            flat
+            :loading="state.loading > 0">
+            <template #body-cell-author="props">
+              <w-td :props="props"
+                ><em>{{ props.value }}</em></w-td
+              >
+            </template>
+            <template #body-cell-page="props">
+              <w-td :props="props"
+                ><code>{{ props.value }}</code></w-td
+              >
+            </template>
+            <template #body-cell-date="props">
+              <w-td :props="props">{{ formattedDate(props.value) }}</w-td>
+            </template>
+            <template #body-cell-delete="props">
+              <w-td :props="props">
+                <w-btn
+                  class="acrylic-btn"
+                  flat
+                  icon="la:trash"
+                  color="negative"
+                  :aria-label="t('admin.comments.delete')"
+                  @click="confirmDelete(props.row)" />
+              </w-td>
+            </template>
+          </w-table>
+        </w-card>
+        <div
+          class="text-center text-grey mt-6"
+          v-if="state.comments.length < 1 && state.loading === 0">
+          {{ t('admin.comments.searchNoResults') }}
+        </div>
+        <div class="flex items-center justify-center mt-6" v-if="state.totalPages > 1">
+          <w-pagination
+            v-model="state.currentPage"
+            :max="state.totalPages"
+            :max-pages="9"
+            boundary-numbers
+            direction-links />
+        </div>
+      </template>
+    </div>
   </w-page>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, watch } from 'vue'
+import { debounce } from 'es-toolkit/function'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { confirm } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 
@@ -198,6 +312,7 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -214,8 +329,55 @@ useMeta({
 const state = reactive({
   loading: 0,
   selectedModule: '',
-  providers: []
+  providers: [],
+  // -> `provider` (selection/config, Task 621) or `moderation` (this task's listing)
+  mode: 'provider',
+  comments: [],
+  searchPath: '',
+  searchAuthor: '',
+  currentPage: 1,
+  pageSize: 20,
+  totalPages: 1
 })
+
+const commentHeaders = [
+  {
+    label: t('admin.comments.excerpt'),
+    align: 'left',
+    field: (row) => excerptOf(row.content),
+    name: 'excerpt',
+    sortable: false
+  },
+  {
+    label: t('admin.comments.author'),
+    align: 'left',
+    field: 'authorName',
+    name: 'author',
+    sortable: false
+  },
+  {
+    label: t('admin.comments.page'),
+    align: 'left',
+    field: 'pagePath',
+    name: 'page',
+    sortable: false
+  },
+  {
+    label: t('admin.comments.date'),
+    align: 'left',
+    field: 'createdAt',
+    name: 'date',
+    sortable: false
+  },
+  {
+    label: '',
+    align: 'right',
+    field: 'delete',
+    name: 'delete',
+    sortable: false,
+    style: 'width: 60px'
+  }
+]
 
 // COMPUTED
 
@@ -223,21 +385,72 @@ const selectedProvider = computed(
   () => state.providers.find((prov) => prov.module === state.selectedModule) ?? null
 )
 
+const activeSite = computed(() => adminStore.sites.find((s) => s.id === adminStore.currentSiteId))
+
 /**
  * Comments are on for this site (`AdminGeneral.vue`'s `features.comments` toggle) but nothing is
  * active yet -- the reader-facing side of the feature will render nothing until an administrator
  * picks a provider here.
  */
 const showEnabledNoProviderHint = computed(() => {
-  const site = adminStore.sites.find((s) => s.id === adminStore.currentSiteId)
-  return Boolean(site?.features?.comments) && !state.providers.some((prov) => prov.isEnabled)
+  return (
+    Boolean(activeSite.value?.features?.comments) && !state.providers.some((prov) => prov.isEnabled)
+  )
+})
+
+/**
+ * Whether the moderation tab has anything to show at all: either the feature is off for this site,
+ * or no provider has ever been activated -- in which case there is no comment surface for readers,
+ * so the list would only ever be empty. A banner pointing at `AdminGeneral.vue`'s toggle and this
+ * page's own provider tab explains why, rather than rendering a table with no rows and no context.
+ */
+const moderationUnavailable = computed(() => {
+  return !activeSite.value?.features?.comments || !state.providers.some((prov) => prov.isEnabled)
 })
 
 // WATCHERS
 
 watch(
   () => adminStore.currentSiteId,
-  () => load()
+  () => {
+    load()
+    state.comments = []
+    state.currentPage = 1
+    if (state.mode === 'moderation') {
+      loadComments({ page: 1 })
+    }
+  }
+)
+
+/** Lazy-loads the moderation list the first time its tab is opened, or once it becomes available. */
+watch(
+  () => [state.mode, moderationUnavailable.value],
+  ([mode, unavailable]) => {
+    if (mode === 'moderation' && !unavailable && state.comments.length < 1) {
+      loadComments({ page: 1 })
+    }
+  }
+)
+
+watch(
+  () => [state.searchPath, state.searchAuthor],
+  debounce(() => {
+    if (state.currentPage !== 1) {
+      // -> Reassigning triggers the currentPage watcher below, which reloads
+      state.currentPage = 1
+    } else {
+      loadComments({ page: 1 })
+    }
+  }, 400)
+)
+
+watch(
+  () => state.currentPage,
+  (newValue) => {
+    if (state.mode === 'moderation' && !moderationUnavailable.value) {
+      loadComments({ page: newValue })
+    }
+  }
 )
 
 // METHODS
@@ -278,6 +491,17 @@ function configIfCheck(ifs) {
     return true
   }
   return ifs.every((s) => selectedProvider.value.config[s.key]?.value === s.eq)
+}
+
+/** A single-line preview of a comment's content, collapsing whitespace and capping the length. */
+function excerptOf(content) {
+  const flat = (content ?? '').replace(/\s+/g, ' ').trim()
+  return flat.length > 140 ? `${flat.slice(0, 140)}…` : flat
+}
+
+/** Largest-first, matching `AdminUsers.vue`'s date column. */
+function formattedDate(val) {
+  return userStore.formatDateTime(t, val)
 }
 
 async function load() {
@@ -347,6 +571,74 @@ async function save() {
   }
   loading.hide()
   state.loading--
+}
+
+/**
+ * Fetches a page of the moderation listing (`GET sites/:siteId/comments`, Task 625), filtered by
+ * whatever's currently in the two search boxes. `page` is 1-based, converted to the `offset`/`limit`
+ * the endpoint actually takes.
+ */
+async function loadComments({ page } = {}) {
+  if (moderationUnavailable.value) {
+    return
+  }
+  const targetPage = page ?? state.currentPage ?? 1
+  state.loading++
+  loading.show()
+  try {
+    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/comments`, {
+      searchParams: {
+        ...(state.searchPath ? { pagePath: state.searchPath } : {}),
+        ...(state.searchAuthor ? { author: state.searchAuthor } : {}),
+        offset: (targetPage - 1) * state.pageSize,
+        limit: state.pageSize
+      }
+    }).json()
+    state.comments = resp?.results ?? []
+    state.totalPages = Math.max(1, Math.ceil((resp?.totalHits ?? 0) / state.pageSize))
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.comments.loadCommentsFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  loading.hide()
+  state.loading--
+}
+
+/**
+ * Delete-with-confirmation, matching `AdminStorage.vue`'s `setupDestroy` pattern: nothing is deleted
+ * until the `confirm()` dialog is explicitly accepted.
+ */
+function confirmDelete(comment) {
+  confirm({
+    title: t('admin.comments.deleteConfirmTitle'),
+    message: t('admin.comments.deleteConfirmText', { author: comment.authorName }),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
+  }).onOk(async () => {
+    state.loading++
+    loading.show()
+    try {
+      await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/comments/${comment.id}`)
+      notify({
+        type: 'positive',
+        message: t('admin.comments.deleteSuccess')
+      })
+      await loadComments({ page: state.currentPage })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.comments.deleteFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
+    state.loading--
+  })
 }
 
 // MOUNTED

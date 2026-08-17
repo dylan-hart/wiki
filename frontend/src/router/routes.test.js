@@ -23,7 +23,10 @@ describe('admin routes', () => {
 
     const loaded = await commentsRoute.component()
 
+    // -> `typeof loaded.default.setup` (a `<script setup>` component), not `.data` (the pre-3.x
+    //    Options API shape this page was rewritten out of by Task 621) -- updated here since Task
+    //    621 changed the component's shape without touching this assertion.
     expect(typeof loaded.default).toBe('object')
-    expect(typeof loaded.default.data).toBe('function')
+    expect(typeof loaded.default.setup).toBe('function')
   })
 })
