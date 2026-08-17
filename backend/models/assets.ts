@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import mime from 'mime'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail } from '../helpers/images.ts'
@@ -552,6 +552,68 @@ class Assets {
       .limit(1)
     const row = results[0]
     return row?.data ? { data: row.data, mimeType: row.mimeType, fileName: row.fileName } : null
+  }
+
+  /**
+   * Every asset of a site, bytes included — for a caller that has to write out everything it holds,
+   * which today is only a blob storage target's `exportAll` (see `modules/storage/s3/storage.ts`).
+   *
+   * Paged by primary key rather than pulled in one query: a site's assets can run into the gigabytes
+   * once bytes are included, so this keeps memory bounded to one batch rather than materializing the
+   * whole site at once. `id`'s own btree index is what keeps `id > cursor` cheap to keep paging
+   * against, unlike an `OFFSET` that re-scans everything before it on every page.
+   */
+  async *streamAll(
+    siteId: string,
+    batchSize = 100
+  ): AsyncGenerator<{
+    id: string
+    fileName: string
+    folderPath: string
+    kind: AssetKind
+    fileSize: number
+    mimeType: string
+    data: Buffer
+  }> {
+    let cursor: string | null = null
+    for (;;) {
+      const rows = await WIKI.db
+        .select({
+          id: assetsTable.id,
+          fileName: assetsTable.fileName,
+          kind: assetsTable.kind,
+          fileSize: assetsTable.fileSize,
+          mimeType: assetsTable.mimeType,
+          data: assetsTable.data,
+          folderPath: treeTable.folderPath
+        })
+        .from(assetsTable)
+        .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
+        .where(and(eq(assetsTable.siteId, siteId), cursor ? gt(assetsTable.id, cursor) : undefined))
+        .orderBy(assetsTable.id)
+        .limit(batchSize)
+
+      for (const row of rows) {
+        // -> An asset row can exist with no bytes yet (e.g. mid-upload); nothing to export for it
+        if (!row.data) {
+          continue
+        }
+        yield {
+          id: row.id,
+          fileName: row.fileName,
+          folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
+          kind: row.kind,
+          fileSize: row.fileSize ?? 0,
+          mimeType: row.mimeType,
+          data: row.data
+        }
+      }
+
+      if (rows.length < batchSize) {
+        return
+      }
+      cursor = rows[rows.length - 1]!.id
+    }
   }
 
   /**

@@ -71,6 +71,13 @@ export interface StorageDefinition {
 /** A configured target: the module definition, plus how this site has it set up. */
 export interface StorageTarget {
   id: string
+  /**
+   * The site this target belongs to. Not projected onto the API response (the JSON schema in
+   * `api/schemas/storage.ts` doesn't list it, and every route it's needed on is already scoped to a
+   * site of its own), but a module implementation needs it: `executeAction()` hands a module only the
+   * target, never the site, and an action such as `exportAll` has to know whose assets to read.
+   */
+  siteId: string
   module: string
   isEnabled: boolean
   title: string
@@ -316,6 +323,7 @@ class Storage {
       const versioning = (row.versioning ?? {}) as Record<string, any>
       targets.push({
         id: row.id,
+        siteId: row.siteId,
         module: definition.key,
         isEnabled: row.isEnabled,
         title: definition.title,
