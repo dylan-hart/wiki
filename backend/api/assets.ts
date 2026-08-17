@@ -28,14 +28,16 @@ const assetIdParam = {
  * covers the files in it as well as the pages, which is why the asset permissions are offered
  * alongside the page ones in the group editor.
  */
-function mayOnAsset(
+export function mayOnAsset(
   req: FastifyRequest,
   permission: string,
+  siteId: string,
   asset: { folderPath?: string | null; fileName: string }
 ): boolean {
   const folder = asset.folderPath ?? ''
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path: folder ? `${folder}/${asset.fileName}` : asset.fileName
+    path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
+    siteId
   })
 }
 
@@ -138,7 +140,10 @@ async function routes(app: FastifyInstance) {
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
       const destination = folder ? [folderPath, folder.fileName].filter(Boolean).join('/') : ''
       if (
-        !mayOnAsset(req, 'write:assets', { folderPath: destination, fileName: req.query.fileName })
+        !mayOnAsset(req, 'write:assets', req.params.siteId, {
+          folderPath: destination,
+          fileName: req.query.fileName
+        })
       ) {
         return reply.forbidden('You are not allowed to upload a file here.')
       }
@@ -186,7 +191,7 @@ async function routes(app: FastifyInstance) {
       }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
       // -> Not readable is answered as not there, so the endpoint cannot be used to probe for files
-      if (!asset || !mayOnAsset(req, 'read:assets', asset)) {
+      if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
         return reply.notFound('This asset does not exist.')
       }
       return asset
@@ -229,7 +234,7 @@ async function routes(app: FastifyInstance) {
         return
       }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
-      if (!asset || !mayOnAsset(req, 'read:assets', asset)) {
+      if (!asset || !mayOnAsset(req, 'read:assets', req.params.siteId, asset)) {
         return reply.notFound('This asset does not exist.')
       }
       // -> Through the same local disk cache `/_files/` serves from, since this is the download
@@ -305,7 +310,7 @@ async function routes(app: FastifyInstance) {
       if (!existing) {
         return reply.notFound('This asset does not exist.')
       }
-      if (!mayOnAsset(req, 'manage:assets', existing)) {
+      if (!mayOnAsset(req, 'manage:assets', req.params.siteId, existing)) {
         return reply.forbidden('You are not allowed to rename this file.')
       }
       const asset = await WIKI.models.assets.renameAsset(
@@ -350,7 +355,7 @@ async function routes(app: FastifyInstance) {
       if (!doomed) {
         return reply.notFound('This asset does not exist.')
       }
-      if (!mayOnAsset(req, 'manage:assets', doomed)) {
+      if (!mayOnAsset(req, 'manage:assets', req.params.siteId, doomed)) {
         return reply.forbidden('You are not allowed to delete this file.')
       }
       if (!(await WIKI.models.assets.deleteAsset(req.params.siteId, req.params.assetId))) {
