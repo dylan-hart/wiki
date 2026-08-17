@@ -4,7 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
-import pagesRoutes from './pages.ts'
+import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
 import { registerSchemas as registerPageSchema } from './schemas/page.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 
@@ -125,4 +125,115 @@ test('INCLUDE: an enabled site reaches getPage as before', async () => {
   // -> 404 because getPage is stubbed to return null, but the guard let the request get there
   assert.equal(res.statusCode, 404)
   assert.equal(getPageCalls, 1)
+})
+
+/**
+ * Regression tests for task 673: `mayOnPage` and `pagePermissionsFor` take an explicit `siteId` and
+ * thread it into the `RulePageRef` given to `checkAccess`, so a page rule scoped to one site (task
+ * 671) is actually enforced from these two call sites rather than silently matching every site's
+ * rules. Exercised directly rather than through a route, since both are plain functions exported for
+ * exactly this reason.
+ */
+
+test('mayOnPage: threads siteId into the RulePageRef passed to checkAccess', () => {
+  const calls: any[] = []
+  const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => {
+    calls.push(page)
+    return true
+  }
+  try {
+    const result = mayOnPage({} as any, 'read:pages', ENABLED_SITE_ID, { path: 'foo/bar' })
+    assert.equal(result, true)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+    assert.equal(calls[0].path, 'foo/bar')
+  } finally {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+test('pagePermissionsFor: threads siteId into every RulePageRef it checks', () => {
+  const calls: any[] = []
+  const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => {
+    calls.push(page)
+    return false
+  }
+  try {
+    pagePermissionsFor({} as any, ENABLED_SITE_ID, { path: 'foo/bar' })
+    assert.ok(calls.length > 0)
+    for (const page of calls) {
+      assert.equal(page.siteId, ENABLED_SITE_ID)
+      assert.equal(page.path, 'foo/bar')
+    }
+  } finally {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+test('PAGE USER PERMISSIONS route: passes the route siteId through to pagePermissionsFor', async () => {
+  const calls: any[] = []
+  const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => {
+    calls.push(page)
+    return false
+  }
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${ENABLED_SITE_ID}/pages/userPermissions`,
+      payload: { path: 'foo/bar' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.ok(calls.length > 0)
+    for (const page of calls) {
+      assert.equal(page.siteId, ENABLED_SITE_ID)
+    }
+  } finally {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+  }
+})
+
+test('RESOLVE ALIAS route: passes the route siteId through an inline page ref to mayOnPage', async () => {
+  const calls: any[] = []
+  const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+  const originalGetPathFromAlias = (globalThis as any).WIKI.models.pages.getPathFromAlias
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    _permission: string,
+    page: any
+  ) => {
+    calls.push(page)
+    return true
+  }
+  ;(globalThis as any).WIKI.models.pages.getPathFromAlias = async () => ({
+    id: 'p1',
+    path: 'some/path'
+  })
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${ENABLED_SITE_ID}/pages/alias/foo`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+    assert.equal(calls[0].path, 'some/path')
+  } finally {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+    ;(globalThis as any).WIKI.models.pages.getPathFromAlias = originalGetPathFromAlias
+  }
 })

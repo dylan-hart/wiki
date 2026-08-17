@@ -58,7 +58,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return socket.close(4404, 'This page does not exist')
       }
-      if (!mayOnPage(req, 'write:pages', page)) {
+      if (!mayOnPage(req, 'write:pages', siteId, page)) {
         return socket.close(4403, 'You are not allowed to edit this page')
       }
 

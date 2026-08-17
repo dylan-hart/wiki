@@ -112,13 +112,21 @@ export function unlockedFor(req: FastifyRequest, pageId: string): boolean {
  * Page permissions are granted by a group's rules, not by the group-wide permission list, so this is
  * a different question from the one the route-level `config.permissions` hook answers — and the only
  * correct one for anything page-scoped. `helpers/pageRules.ts` sets out how a rule is chosen.
+ *
+ * `siteId` is a separate parameter rather than a field the caller sets on `page`, so that a rule
+ * scoped to one site (see `RulePageRef` in `helpers/pageRules.ts`) is enforced even from a call site
+ * that builds its page ref inline instead of passing along an already-fetched page.
  */
 export function mayOnPage(
   req: FastifyRequest,
   permission: string,
+  siteId: string,
   page: { path: string; locale?: string; tags?: string[] }
 ): boolean {
-  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, page)
+  return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
+    ...page,
+    siteId
+  })
 }
 
 /**
@@ -131,9 +139,13 @@ export function mayOnPage(
  * Anonymous included: the guests group has rules of its own, and what the public may do is exactly
  * what they say. Answering an empty list for a reader without a session would hide controls a wiki had
  * deliberately opened to everyone.
+ *
+ * `siteId` is a separate parameter for the same reason as in `mayOnPage`: not every caller has a
+ * fetched page with a `siteId` field on hand.
  */
 export function pagePermissionsFor(
   req: FastifyRequest,
+  siteId: string,
   page: { path: string; locale?: string; tags?: string[] }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
@@ -146,7 +158,7 @@ export function pagePermissionsFor(
     return PAGE_PERMISSIONS
   }
   return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, page)
+    WIKI.models.groups.checkAccess(actor, permission, { ...page, siteId })
   )
 }
 
@@ -166,7 +178,7 @@ async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: str
     unlocked: (id: string) => unlockedFor(req, id)
   })
   // -> Not readable is indistinguishable from not there, for anything hanging off the page
-  if (!page || !mayOnPage(req, 'read:pages', page)) {
+  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
     return null
   }
   return page
@@ -409,7 +421,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:pages', page)) {
+      if (!mayOnPage(req, 'read:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read this page.')
       }
       return {
@@ -486,7 +498,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:pages', page)) {
+      if (!mayOnPage(req, 'read:pages', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read this page.')
       }
       /*
@@ -511,7 +523,7 @@ async function routes(app: FastifyInstance) {
       return {
         ...page,
         viewer: {
-          permissions: pagePermissionsFor(req, page),
+          permissions: pagePermissionsFor(req, req.params.siteId, page),
           ...approvalState,
           isWatching
         }
@@ -643,7 +655,12 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
       // -> Against where the page is going: there is no page to ask about yet
-      if (!mayOnPage(req, 'write:pages', { path: req.body.path, locale: req.body.locale })) {
+      if (
+        !mayOnPage(req, 'write:pages', req.params.siteId, {
+          path: req.body.path,
+          locale: req.body.locale
+        })
+      ) {
         return reply.forbidden('You are not allowed to create a page here.')
       }
       const page = await WIKI.models.pages.createPage(req.params.siteId, req.body, actor)
@@ -698,7 +715,7 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'write:pages', target)) {
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
       }
       const page = await WIKI.models.pages.updatePage(
@@ -789,7 +806,7 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'manage:pages', target)) {
+      if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to move this page.')
       }
       const page = await WIKI.models.pages.movePage(
@@ -853,7 +870,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This page does not exist.')
       }
       // -> Rewrites what the page shows, so it is an edit and takes the same permission as one
-      if (!mayOnPage(req, 'write:pages', target)) {
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
       }
       const queued = await WIKI.models.pages.queueRerender(
@@ -905,7 +922,7 @@ async function routes(app: FastifyInstance) {
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'delete:pages', target)) {
+      if (!mayOnPage(req, 'delete:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to delete this page.')
       }
       if (!(await WIKI.models.pages.deletePage(req.params.siteId, req.params.pageId, actor))) {
@@ -945,7 +962,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:history', page)) {
+      if (!mayOnPage(req, 'read:history', req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's history.")
       }
       if (page.isLocked) {
@@ -995,7 +1012,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:history', page)) {
+      if (!mayOnPage(req, 'read:history', req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's history.")
       }
       if (page.isLocked) {
@@ -1061,7 +1078,7 @@ async function routes(app: FastifyInstance) {
       }
       // -> Resolving an alias tells the caller a page exists and where it is, which is only theirs
       //    to know if they may read it
-      if (!mayOnPage(req, 'read:pages', { path: target.path })) {
+      if (!mayOnPage(req, 'read:pages', req.params.siteId, { path: target.path })) {
         return reply.notFound('No page uses this alias.')
       }
       return target
@@ -1106,7 +1123,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return pagePermissionsFor(req, { path: req.body.path.replace(/^\/+/, '') })
+      return pagePermissionsFor(req, req.params.siteId, { path: req.body.path.replace(/^\/+/, '') })
     }
   )
 }

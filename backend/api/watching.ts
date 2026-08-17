@@ -15,7 +15,7 @@ async function loadWatchablePage(req: FastifyRequest, siteId: string, pageId: st
     id: pageId,
     unlocked: (id: string) => unlockedFor(req, id)
   })
-  if (!page || !mayOnPage(req, 'read:pages', page)) {
+  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
     return null
   }
   return page
