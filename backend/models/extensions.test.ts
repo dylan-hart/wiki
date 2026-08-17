@@ -132,3 +132,38 @@ describe('sharp and puppeteer definition.yml architecture/platform constraints (
     assert.deepEqual(definition.platforms, ['linux', 'darwin', 'win32'])
   })
 })
+
+/**
+ * Task 665: `pandoc/definition.yml` used to describe Pandoc as "Required to import content from
+ * other wikis and formats such as MediaWiki, AsciiDoc, Textile or DocBook" — present tense, as if an
+ * importer already existed. It doesn't: there is no reference to Pandoc anywhere under `backend/api`
+ * or `frontend/src` beyond the generic "comes from the operating system" install-instructions copy
+ * shared with Git. This guards the fix — description no longer claims current functionality, and
+ * stays traceable to the epic that would actually build a Pandoc-backed importer — rather than
+ * letting the misleading wording quietly come back.
+ */
+describe('pandoc definition.yml description accuracy (Task 665)', () => {
+  test('does not claim Pandoc-backed import already works in this fork', async () => {
+    const raw = await readFile(
+      path.join(import.meta.dirname, '..', 'modules', 'extensions', 'pandoc', 'definition.yml'),
+      'utf8'
+    )
+    const definition = load(raw) as ExtensionDefinition
+
+    assert.doesNotMatch(definition.description, /required to import/i)
+    assert.doesNotMatch(definition.description, /\bimports\b/i)
+  })
+
+  test('names it as unimplemented and cross-links the epic that would own a Pandoc-backed importer', async () => {
+    const raw = await readFile(
+      path.join(import.meta.dirname, '..', 'modules', 'extensions', 'pandoc', 'definition.yml'),
+      'utf8'
+    )
+    const definition = load(raw) as ExtensionDefinition
+
+    assert.match(definition.description, /not.*(wired|used|hooked)/i)
+    assert.match(definition.description, /migration.*upgrade path/i)
+    // -> The forward-looking formats stay named, so the traceability has something concrete to point at
+    assert.match(definition.description, /mediawiki/i)
+  })
+})
