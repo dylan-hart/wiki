@@ -10,9 +10,10 @@ import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
  *
  * A path is directories joined by `/`; a downloaded file only wants the page's own name, the way
  * `docs/getting-started` becomes `getting-started.pdf` rather than a name with slashes in it. The home
- * page's path is empty, so that falls back to `home`.
+ * page's path is empty, so that falls back to `home`. Shared by every `.../export*` route — PDF,
+ * Markdown and HTML alike all name their download off the same rule.
  */
-function pdfFilenameStem(path: string): string {
+function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
 }
@@ -168,12 +169,23 @@ export function pagePermissionsFor(
  * The gate for anything that hangs off a page but is not the page itself. An anonymous requester only
  * ever reaches a published page, and a password-protected one comes back with `isLocked` set until the
  * session has satisfied the unlock, which the caller is expected to refuse on.
+ *
+ * `withContent` asks the model to also load raw `content` — off by default, since most callers only
+ * need `render` (already loaded either way). Loading it does not by itself grant anything: a caller
+ * that turns it on is still responsible for checking `read:source` before handing `content` back, the
+ * same way the GET route above does.
  */
-async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: string) {
+async function loadReadablePage(
+  req: FastifyRequest,
+  siteId: string,
+  pageId: string,
+  { withContent = false }: { withContent?: boolean } = {}
+) {
   const actor = actorFrom(req)
   const page = await WIKI.models.pages.getPage({
     siteId,
     id: pageId,
+    withContent,
     publicOnly: !actor,
     unlocked: (id: string) => unlockedFor(req, id)
   })
@@ -1070,10 +1082,80 @@ async function routes(app: FastifyInstance) {
       const pdf = await WIKI.models.rendering.renderPdf(page.render, { title: page.title })
       reply.header(
         'Content-Disposition',
-        `attachment; filename="${pdfFilenameStem(page.path)}.pdf"`
+        `attachment; filename="${exportFilenameStem(page.path)}.pdf"`
       )
       reply.header('Content-Length', pdf.length)
       return reply.type('application/pdf').send(pdf)
+    }
+  )
+
+  /**
+   * EXPORT PAGE AS MARKDOWN OR HTML
+   */
+  app.get<{
+    Params: { siteId: string; pageId: string }
+    Querystring: { format: 'markdown' | 'html' }
+  }>(
+    '/sites/:siteId/pages/:pageId/export',
+    {
+      /*
+        No route-level `permissions`: `read:pages` is a page permission granted by a group's RULES,
+        checked against this page below (through `loadReadablePage`). `format=markdown` sends back the
+        raw stored `content` — the same thing `withContent=true` on the GET route above returns — so it
+        needs `read:source` ON TOP of `read:pages`, checked the same way. `format=html` sends back the
+        already-rendered, already-sanitized `render` a reader sees anyway, so it needs only `read:pages`,
+        exactly matching the PDF export above.
+      */
+      schema: {
+        summary: 'Export a page as Markdown or HTML',
+        description:
+          'The page as a file download rather than JSON, so a plain link to this URL is all a client needs — no client-side Blob assembly.\n\n`format=markdown` is the raw stored source and needs `read:source` on top of `read:pages`. `format=html` is the stored `render` HTML and needs only `read:pages`, on the same terms as the PDF export. Either way a password-protected page answers 403 until the session has satisfied `POST …/unlock`.',
+        tags: ['Pages'],
+        params: pageIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            format: {
+              type: 'string',
+              enum: ['markdown', 'html'],
+              description: 'Which representation of the page to download.'
+            }
+          },
+          required: ['format']
+        },
+        response: {
+          200: {
+            description: 'The page content in the requested format',
+            content: {
+              'text/markdown': { schema: { type: 'string' } },
+              'text/html': { schema: { type: 'string' } }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const wantsMarkdown = req.query.format === 'markdown'
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId, {
+        withContent: wantsMarkdown
+      })
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      // -> A separate permission from `read:pages`, exactly as it is on the GET route above
+      if (wantsMarkdown && !mayOnPage(req, 'read:source', page)) {
+        return reply.forbidden("You are not allowed to read this page's source.")
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+      const stem = exportFilenameStem(page.path)
+      if (wantsMarkdown) {
+        reply.header('Content-Disposition', `attachment; filename="${stem}.md"`)
+        return reply.type('text/markdown; charset=utf-8').send(page.content ?? '')
+      }
+      reply.header('Content-Disposition', `attachment; filename="${stem}.html"`)
+      return reply.type('text/html; charset=utf-8').send(page.render ?? '')
     }
   )
 

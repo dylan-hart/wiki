@@ -98,6 +98,14 @@ const contentTypes = {
 
 // METHODS
 
+/*
+  Left as a client-side Blob rather than switched to `GET .../export?format=…` (added alongside
+  `.../export/pdf` for task 498): this overlay already has to fetch `content` in full to show it in
+  the `<pre>` above, so by the time `download` runs the bytes are already in memory — pointing the
+  button at the export endpoint would only add a second network round trip for data already in hand.
+  A page action that wants a download WITHOUT first opening this viewer (e.g. a plain link/button
+  elsewhere in the UI) should hit the export endpoint directly instead of loading this overlay.
+*/
 function download() {
   const fileType = contentTypes[state.contentType] ?? { ext: 'txt', mime: 'text/plain' }
   // -> No `;charset=` on the type: the save picker uses it as an `accept` key and rejects a type
@@ -134,8 +142,7 @@ async function load() {
     //    contentType was stored
     state.contentType = pageData.contentType || pageData.editor || ''
   } catch (err) {
-    const message =
-      err.response?.status === 404 ? t('pageSource.notFound') : apiErrorMessage(err)
+    const message = err.response?.status === 404 ? t('pageSource.notFound') : apiErrorMessage(err)
     state.notice = message
     notify({
       type: 'negative',

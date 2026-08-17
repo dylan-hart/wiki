@@ -10,7 +10,9 @@ import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts
 import { CustomError } from '../helpers/common.ts'
 
 /**
- * Route-wiring test for `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496).
+ * Route-wiring tests for the page export routes:
+ *   - `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496)
+ *   - `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498)
  *
  * `WIKI.models.rendering.renderPdf` is stubbed rather than exercised for real: Puppeteer is an
  * optional extension not installed in this environment (see `models/rendering.test.ts` for the
@@ -19,11 +21,16 @@ import { CustomError } from '../helpers/common.ts'
  * `renderPuppeteerMissing` `CustomError` reaches the client as the standard `{ok,error,statusCode,
  * message}` shape (via the same `setErrorHandler` `index.ts` registers), and that a successful render
  * is streamed back with the right headers — not whether a real PDF comes out of Chromium.
+ *
+ * The Markdown/HTML export route needs no such stub — it just serves `content`/`render` off the page
+ * already loaded — so its tests focus on the permission split the task calls for: `format=markdown`
+ * needs `read:source` on top of `read:pages`, `format=html` needs only `read:pages`.
  */
 
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const RENDER_HTML = '<p>Hello, PDF.</p>'
+const RAW_MARKDOWN = '# Hello, Export\n\nSome **raw** source.'
 const PDF_BYTES = Buffer.from('%PDF-1.7 fake pdf bytes')
 
 let pageFixture: {
@@ -31,13 +38,25 @@ let pageFixture: {
   path: string
   title: string
   render: string
+  content: string
   isLocked: boolean
 } | null
 
 let renderPdfBehavior: 'success' | 'unavailable'
 
-async function getPage() {
-  return pageFixture
+/**
+ * Mirrors the real model just enough to catch a wiring bug: `content` is only present on the
+ * returned page when `withContent` was actually asked for, the same way `models/pages.ts` withholds
+ * it — so a test asserting on `page.content` here is genuinely exercising the route's `withContent`
+ * option, not just trusting it was passed.
+ */
+async function getPage(opts?: { withContent?: boolean }) {
+  if (!pageFixture) return null
+  if (opts?.withContent) {
+    return pageFixture
+  }
+  const { content: _content, ...withoutContent } = pageFixture
+  return withoutContent
 }
 
 async function renderPdf(html: string, options: { title: string }) {
@@ -136,6 +155,7 @@ beforeEach(() => {
     path: 'docs/getting-started',
     title: 'Getting Started',
     render: RENDER_HTML,
+    content: RAW_MARKDOWN,
     isLocked: false
   }
   renderPdfBehavior = 'success'
@@ -209,4 +229,90 @@ test('answers 503 with the standard error shape when Puppeteer is not installed'
     statusCode: 503,
     message: 'Exporting a page to PDF needs the Puppeteer extension, which is not installed.'
   })
+})
+
+/**
+ * `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498)
+ */
+
+test('format=markdown streams the raw content when read:source and read:pages are both granted', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=markdown`,
+    headers: sessionHeader(['read:pages', 'read:source'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.headers['content-type'], 'text/markdown; charset=utf-8')
+  assert.equal(res.headers['content-disposition'], 'attachment; filename="getting-started.md"')
+  assert.equal(res.body, RAW_MARKDOWN)
+})
+
+test('format=markdown answers 403 when only read:pages is granted (read:source missing)', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=markdown`,
+    headers: sessionHeader(['read:pages'])
+  })
+  assert.equal(res.statusCode, 403)
+  assert.match(res.json().message, /source/)
+})
+
+test('format=html streams the stored render when only read:pages is granted', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=html`,
+    headers: sessionHeader(['read:pages'])
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.headers['content-type'], 'text/html; charset=utf-8')
+  assert.equal(res.headers['content-disposition'], 'attachment; filename="getting-started.html"')
+  assert.equal(res.body, RENDER_HTML)
+})
+
+test('format=html does not require read:source', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=html`,
+    headers: sessionHeader(['read:pages'])
+  })
+  assert.equal(res.statusCode, 200)
+})
+
+test('export answers 404 when the page does not exist, for either format', async () => {
+  pageFixture = null
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=markdown`,
+    headers: sessionHeader(['read:pages', 'read:source'])
+  })
+  assert.equal(res.statusCode, 404)
+})
+
+test('export answers 404 when the requester lacks read:pages (folded into not-found)', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=html`,
+    headers: sessionHeader([])
+  })
+  assert.equal(res.statusCode, 404)
+})
+
+test('export answers 403 when the page is locked and this session has not unlocked it', async () => {
+  pageFixture!.isLocked = true
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=html`,
+    headers: sessionHeader(['read:pages'])
+  })
+  assert.equal(res.statusCode, 403)
+  assert.match(res.json().message, /password protected/)
+})
+
+test('export answers 400 for an unrecognized format', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export?format=pdf`,
+    headers: sessionHeader(['read:pages', 'read:source'])
+  })
+  assert.equal(res.statusCode, 400)
 })
