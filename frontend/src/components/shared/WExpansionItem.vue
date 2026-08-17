@@ -18,7 +18,9 @@
       -->
       <slot name="header">
         <w-item-section v-if="icon" side><w-icon :name="icon" /></w-item-section>
-        <w-item-section><w-item-label>{{ label }}</w-item-label></w-item-section>
+        <w-item-section
+          ><w-item-label>{{ label }}</w-item-label></w-item-section
+        >
       </slot>
       <w-item-section side>
         <w-icon

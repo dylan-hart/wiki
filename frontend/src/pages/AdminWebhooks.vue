@@ -83,11 +83,7 @@
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `error`">
-                  <w-icon
-                    class="mr-2"
-                    color="negative"
-                    size="xs"
-                    name="la:exclamation-triangle" />
+                  <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
                   <div class="text-caption text-negative">{{ t('admin.webhooks.stateError') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.stateErrorHint')

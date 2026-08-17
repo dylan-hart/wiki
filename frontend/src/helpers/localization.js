@@ -4,7 +4,7 @@
  * @param {String} val Value to parse
  * @param {Function} t vue-i18n translation method
  */
-export function localizeError (val, t) {
+export function localizeError(val, t) {
   if (val?.startsWith('ERR_')) {
     return t(`error.${val}`)
   } else {

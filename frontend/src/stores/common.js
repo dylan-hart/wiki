@@ -11,7 +11,7 @@ export const useCommonStore = defineStore('common', {
   }),
   getters: {},
   actions: {
-    async fetchLocaleStrings (locale) {
+    async fetchLocaleStrings(locale) {
       try {
         return API_CLIENT.get(`locales/${locale}/strings`).json()
       } catch (err) {
@@ -19,14 +19,14 @@ export const useCommonStore = defineStore('common', {
         throw err
       }
     },
-    setLocale (locale) {
+    setLocale(locale) {
       this.$patch({
         locale,
         desiredLocale: locale
       })
       localStorage.setItem('locale', locale)
     },
-    async loadBlocks (blocks = []) {
+    async loadBlocks(blocks = []) {
       const toLoad = difference(blocks, this.blocksLoaded)
       for (const block of toLoad) {
         try {

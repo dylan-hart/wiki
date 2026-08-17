@@ -4,7 +4,7 @@
  *
  * Must run before anything that touches `Temporal` — it is awaited first in `main.js`.
  */
-export async function initializeTemporal () {
+export async function initializeTemporal() {
   if (typeof globalThis.Temporal !== 'undefined') {
     return
   }

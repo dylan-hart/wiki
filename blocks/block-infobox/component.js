@@ -471,37 +471,41 @@ Website: https://montreal.ca
     return html`
       <aside class="infobox">
         <div class="name">${this.name}</div>
-        ${this.image
-          ? html`
-              <figure>
-                <img src="${this.image}" alt="${this.imageCaption || this.name}" />
-                ${this.imageCaption ? html`<figcaption>${this.imageCaption}</figcaption>` : null}
-              </figure>
-            `
-          : null}
+        ${
+          this.image
+            ? html`
+                <figure>
+                  <img src="${this.image}" alt="${this.imageCaption || this.name}" />
+                  ${this.imageCaption ? html`<figcaption>${this.imageCaption}</figcaption>` : null}
+                </figure>
+              `
+            : null
+        }
         ${this._error ? html`<div class="error">${this._error}</div>` : null}
-        ${this._entries.length > 0
-          ? html`
-              <dl>
-                ${this._entries.map(([label, value]) => {
-                  const rows = rowsOf(value)
-                  const isGroup = rows.length > 1 || rows[0].label !== undefined
-                  return html`
-                    ${isGroup ? html`<div class="group">${label}</div>` : null}
-                    ${rows.map((row, index) => {
-                      // -> The pair that closes a group carries the rule that separates it from
-                      //    whatever is listed after it
-                      const groupEnd = isGroup && index === rows.length - 1 ? 'is-group-end' : ''
-                      return html`
-                        <dt class="${groupEnd}">${isGroup ? row.label : label}</dt>
-                        <dd class="${groupEnd}">${valueOf(row.value)}</dd>
-                      `
-                    })}
-                  `
-                })}
-              </dl>
-            `
-          : null}
+        ${
+          this._entries.length > 0
+            ? html`
+                <dl>
+                  ${this._entries.map(([label, value]) => {
+                    const rows = rowsOf(value)
+                    const isGroup = rows.length > 1 || rows[0].label !== undefined
+                    return html`
+                      ${isGroup ? html`<div class="group">${label}</div>` : null}
+                      ${rows.map((row, index) => {
+                        // -> The pair that closes a group carries the rule that separates it from
+                        //    whatever is listed after it
+                        const groupEnd = isGroup && index === rows.length - 1 ? 'is-group-end' : ''
+                        return html`
+                          <dt class="${groupEnd}">${isGroup ? row.label : label}</dt>
+                          <dd class="${groupEnd}">${valueOf(row.value)}</dd>
+                        `
+                      })}
+                    `
+                  })}
+                </dl>
+              `
+            : null
+        }
       </aside>
     `
   }

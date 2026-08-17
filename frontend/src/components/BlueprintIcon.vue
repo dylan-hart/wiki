@@ -8,13 +8,13 @@
       rounded
       :style="props.hueRotate !== 0 ? `filter: hue-rotate(` + props.hueRotate + `deg)` : ``">
       <w-badge v-if="indicatorDot" rounded :color="indicatorDot" floating>
-        <w-tooltip v-if="props.indicatorText">{{props.indicatorText}}</w-tooltip>
+        <w-tooltip v-if="props.indicatorText">{{ props.indicatorText }}</w-tooltip>
       </w-badge>
       <w-icon
         v-if="!textMode"
         :name="`img:/_assets/icons/ultraviolet-` + icon + `.svg`"
         size="sm" />
-      <span class="uppercase" v-else>{{props.text}}</span>
+      <span class="uppercase" v-else>{{ props.text }}</span>
     </w-avatar>
   </w-item-section>
 </template>

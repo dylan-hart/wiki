@@ -172,11 +172,11 @@ export class BlockIndexElement extends LitElement {
 
       li {
         background-color: #fafafa;
-        background-image: linear-gradient(to bottom,#fff,#fafafa);
-        border-right: 1px solid rgba(0,0,0,.05);
-        border-bottom: 1px solid rgba(0,0,0,.05);
-        border-left: 5px solid rgba(0,0,0,.1);
-        box-shadow: 0 3px 8px 0 rgba(116,129,141,.1);
+        background-image: linear-gradient(to bottom, #fff, #fafafa);
+        border-right: 1px solid rgba(0, 0, 0, 0.05);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        border-left: 5px solid rgba(0, 0, 0, 0.1);
+        box-shadow: 0 3px 8px 0 rgba(116, 129, 141, 0.1);
         padding: 0;
         border-radius: 5px;
         font-weight: 500;
@@ -186,20 +186,20 @@ export class BlockIndexElement extends LitElement {
       }
       :host([dark]) li {
         background-color: #222;
-        background-image: linear-gradient(to bottom,#161b22, #0d1117);
-        border-right: 1px solid rgba(0,0,0,.5);
-        border-bottom: 1px solid rgba(0,0,0,.5);
-        border-left: 5px solid rgba(255,255,255,.2);
-        box-shadow: 0 3px 8px 0 rgba(0,0,0,.25);
+        background-image: linear-gradient(to bottom, #161b22, #0d1117);
+        border-right: 1px solid rgba(0, 0, 0, 0.5);
+        border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+        border-left: 5px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 3px 8px 0 rgba(0, 0, 0, 0.25);
       }
       li:hover {
         background-color: var(--q-primary);
-        background-image: linear-gradient(to bottom,#fff,rgba(255,255,255,.95));
+        background-image: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0.95));
         border-left-color: var(--q-primary);
         cursor: pointer;
       }
       :host([dark]) li:hover {
-        background-image: linear-gradient(to bottom,#1e232a, #161b22);
+        background-image: linear-gradient(to bottom, #1e232a, #161b22);
         border-left-color: var(--q-primary);
       }
       /*
@@ -231,7 +231,7 @@ export class BlockIndexElement extends LitElement {
       .text span {
         display: block;
         color: #666;
-        font-size: .8em;
+        font-size: 0.8em;
         font-weight: normal;
         pointer-events: none;
       }
@@ -263,12 +263,13 @@ export class BlockIndexElement extends LitElement {
         pointer-events: none;
       }
       li a > svg path {
-        fill: rgba(0,0,0,.2);
+        fill: rgba(0, 0, 0, 0.2);
       }
       :host([dark]) li a > svg path {
-        fill: rgba(255,255,255,.2);
+        fill: rgba(255, 255, 255, 0.2);
       }
-      li:hover a > svg path, :host([dark]) li:hover a > svg path {
+      li:hover a > svg path,
+      :host([dark]) li:hover a > svg path {
         fill: color-mix(in srgb, currentColor 50%, transparent);
       }
 

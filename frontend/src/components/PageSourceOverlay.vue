@@ -134,8 +134,7 @@ async function load() {
     //    contentType was stored
     state.contentType = pageData.contentType || pageData.editor || ''
   } catch (err) {
-    const message =
-      err.response?.status === 404 ? t('pageSource.notFound') : apiErrorMessage(err)
+    const message = err.response?.status === 404 ? t('pageSource.notFound') : apiErrorMessage(err)
     state.notice = message
     notify({
       type: 'negative',

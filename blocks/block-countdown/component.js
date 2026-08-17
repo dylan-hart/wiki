@@ -273,16 +273,18 @@ export class BlockCountdownElement extends LitElement {
     return html`
       <div class="countdown">
         ${this.label ? html`<div class="label">${this.label}</div>` : null}
-        ${this._remaining
-          ? html`
-              <div class="segments">
-                ${this._remaining.days > 0 ? this._segment(this._remaining.days, 'Day') : null}
-                ${this._segment(this._remaining.hours, 'Hour')}
-                ${this._segment(this._remaining.minutes, 'Minute')}
-                ${this._segment(this._remaining.seconds, 'Second')}
-              </div>
-            `
-          : html`<div class="ended">${this.expiredMsg}</div>`}
+        ${
+          this._remaining
+            ? html`
+                <div class="segments">
+                  ${this._remaining.days > 0 ? this._segment(this._remaining.days, 'Day') : null}
+                  ${this._segment(this._remaining.hours, 'Hour')}
+                  ${this._segment(this._remaining.minutes, 'Minute')}
+                  ${this._segment(this._remaining.seconds, 'Second')}
+                </div>
+              `
+            : html`<div class="ended">${this.expiredMsg}</div>`
+        }
         <div class="target">${at}</div>
       </div>
     `

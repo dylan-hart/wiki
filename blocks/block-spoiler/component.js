@@ -166,21 +166,23 @@ export class BlockSpoilerElement extends LitElement {
     return html`
       <div class="spoiler ${this._covered ? 'is-covered' : ''}">
         <div class="content"><slot></slot></div>
-        ${this._covered
-          ? html`
-              <button
-                type="button"
-                class="cover"
-                aria-expanded="false"
-                @click="${() => {
-                  this._covered = false
-                }}">
-                ${EYE_OFF_SVG}
-                <span class="label">${this.label}</span>
-                <span class="hint">${this.hint}</span>
-              </button>
-            `
-          : null}
+        ${
+          this._covered
+            ? html`
+                <button
+                  type="button"
+                  class="cover"
+                  aria-expanded="false"
+                  @click="${() => {
+                    this._covered = false
+                  }}">
+                  ${EYE_OFF_SVG}
+                  <span class="label">${this.label}</span>
+                  <span class="hint">${this.hint}</span>
+                </button>
+              `
+            : null
+        }
       </div>
     `
   }

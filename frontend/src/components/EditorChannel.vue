@@ -12,8 +12,10 @@
             clickable>
             <w-item-section side><w-icon name="la:grip-lines" /></w-item-section>
             <w-item-section>
-              <w-item-label><span>#&nbsp;</span><strong>{{ch.name}}</strong></w-item-label>
-              <w-item-label caption>{{ch.description}}</w-item-label>
+              <w-item-label
+                ><span>#&nbsp;</span><strong>{{ ch.name }}</strong></w-item-label
+              >
+              <w-item-label caption>{{ ch.description }}</w-item-label>
             </w-item-section>
             <!-- q-item-section(side) -->
             <!-- q-badge(color='accent', label='0') -->

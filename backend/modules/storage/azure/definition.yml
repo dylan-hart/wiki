@@ -47,8 +47,8 @@ props:
     order: 4
     default: cool
     enum:
-        - hot|Hot
-        - cool|Cool
+      - hot|Hot
+      - cool|Cool
 actions:
   exportAll:
     label: Export All DB Assets to Azure

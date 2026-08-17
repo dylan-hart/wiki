@@ -9,7 +9,7 @@
           flat
           :icon="menuItem.icon"
           padding="xs"
-          :class='{ "is-active": menuItem.isActive && menuItem.isActive() }'
+          :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           :aria-label="menuItem.title"
           split
@@ -29,7 +29,9 @@
                   <w-item-section side>
                     <w-icon :name="child.icon" :color="child.color" />
                   </w-item-section>
-                  <w-item-section><w-item-label>{{child.title}}</w-item-label></w-item-section>
+                  <w-item-section
+                    ><w-item-label>{{ child.title }}</w-item-label></w-item-section
+                  >
                 </w-item>
               </template>
             </w-list>
@@ -42,7 +44,7 @@
             flat
             :icon="child.icon"
             padding="xs"
-            :class='{ "is-active": child.isActive && child.isActive() }'
+            :class="{ 'is-active': child.isActive && child.isActive() }"
             :color="child.isActive && child.isActive() ? `primary` : `grey-10`"
             @click="child.action"
             :aria-label="child.title"
@@ -54,7 +56,7 @@
           flat
           :icon="menuItem.icon"
           padding="xs"
-          :class='{ "is-active": menuItem.isActive && menuItem.isActive() }'
+          :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           @click="menuItem.action"
           :aria-label="menuItem.title"
@@ -107,7 +109,6 @@ import Typography from '@tiptap/extension-typography'
 import { common, createLowlight } from 'lowlight'
 
 const lowlight = createLowlight(common)
-
 
 // STORES
 
@@ -686,6 +687,7 @@ function init() {
       Image,
       Mention.configure({
         // TODO: suggestions
+
       }),
       Placeholder.configure({
         placeholder: 'Enter some content here...'

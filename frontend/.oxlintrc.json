@@ -12,11 +12,7 @@
     "EVENT_BUS": "readonly",
     "Temporal": "readonly"
   },
-  "ignorePatterns": [
-    "dist/**",
-    "node_modules/**",
-    ".harness/**"
-  ],
+  "ignorePatterns": ["dist/**", "node_modules/**", ".harness/**"],
   "categories": {
     "correctness": "error"
   },

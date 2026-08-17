@@ -52,8 +52,8 @@ props:
     order: 11
     default: inline
     enum:
-        - path|File Path
-        - inline|Inline Contents
+      - path|File Path
+      - inline|Inline Contents
     enumDisplay: buttons
     if:
       - { key: 'authType', eq: 'ssh' }
