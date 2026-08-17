@@ -10,6 +10,7 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/asset.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/authentication.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/block.ts').then((m) => m.registerSchemas(app))
+  await import('./schemas/comment.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/commentProvider.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/extension.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/flags.ts').then((m) => m.registerSchemas(app))

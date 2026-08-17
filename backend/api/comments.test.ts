@@ -4,6 +4,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import commentsRoutes from './comments.ts'
+import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
 
 /**
@@ -68,6 +69,7 @@ before(async () => {
 
   app = fastify()
   await app.register(fastifySensible)
+  await registerCommentSchema(app)
   await registerCommentProviderSchema(app)
   await app.register(commentsRoutes)
   await app.ready()
