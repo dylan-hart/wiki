@@ -1,4 +1,11 @@
 <template>
+  <!--
+    Descoped: this overlay is UI for a DB-backed, admin-editable mail-template system that was never
+    built — there is no template-storage table in db/schema.ts, and this component does not persist
+    anything. Left as unwired scaffolding behind the `flagStore.experimental` gate in AdminMail.vue.
+    The templates actually sent (test-email, verify-email, forgot-password, password-reset-confirmed)
+    are plain inline-HTML/text pairs in backend/models/mail.ts.
+  -->
   <w-layout view="hHh lpR fFf" container>
     <w-header class="card-header px-4 py-2">
       <w-icon name="img:/_assets/icons/fluent-template.svg" left size="md" />

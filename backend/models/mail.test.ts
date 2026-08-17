@@ -317,4 +317,49 @@ describe('mail template senders', () => {
     assert.match(msg.subject, /password/i)
     assert.match(msg.text, /Ada/)
   })
+
+  test('sendForgotPassword includes an expiry notice matching the token TTL', async () => {
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    // -> Matches the 24-hour validUntil set by models/users.ts#generateToken for kind: 'resetPwd'.
+    assert.match(msg.text, /24 hours/i)
+    assert.match(msg.html, /24 hours/i)
+  })
+
+  test('sendForgotPassword signs with the sender name when one is set', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      senderName: 'My Wiki',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /My Wiki/)
+    assert.match(msg.html, /My Wiki/)
+  })
+
+  test('sendForgotPassword omits a signature when no sender name is set', async () => {
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    assert.doesNotMatch(msg.text, /—\s*$/)
+  })
+
+  test('sendTestEmail confirms SMTP works and includes the instance defaultBaseURL', async () => {
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.subject, /test/i)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com/)
+    assert.match(msg.html, /https:\/\/wiki\.example\.com/)
+  })
+
+  test('sendTestEmail still sends when defaultBaseURL is unset', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+  })
 })

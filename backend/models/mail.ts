@@ -38,10 +38,14 @@ export function classifyMailError(err: any): 'connection' | 'auth' | 'send' | 'u
  * Mail model
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
- * and exposes a generic `send()` plus the three transactional templates the local-account lifecycle
- * feature needs: verify-email, forgot-password, and password-reset-confirmed. Templates are plain
- * inline HTML/text pairs — there is no admin-editable template system yet
- * (`MailTemplateEditorOverlay.vue` is unwired UI that belongs to Epic 8).
+ * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
+ * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
+ * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
+ * and test-email (the admin "Send Test Email" action). Templates are plain inline HTML/text pairs —
+ * building a DB-backed, admin-editable template system is explicitly out of scope here.
+ * `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area section are unwired UI
+ * for that unbuilt system, gated behind `flagStore.experimental` on the frontend; there is no
+ * `db/schema.ts` table to back them, and none is added by this change.
  *
  * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
@@ -179,7 +183,13 @@ class MailModel {
 
   /**
    * Password reset link, sent by a forgot-password request. Links at `/login/reset-password/:token`,
-   * the frontend screen that collects a new password and submits it against the reset token.
+   * the frontend screen that collects a new password and submits it against the reset token. This is
+   * the request-side email — distinct from {@link sendPasswordResetConfirmed}, which is the
+   * after-the-fact notice sent once the reset actually completes.
+   *
+   * The "24 hours" in the copy below must be kept in sync with the token TTL set by
+   * `models/users.ts#generateToken` — there is no shared constant, since that TTL is a single flat
+   * value applied to every token kind, not something specific to `resetPwd` alone.
    */
   async sendForgotPassword({
     to,
@@ -191,11 +201,14 @@ class MailModel {
     token: string
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
+    const cfg = WIKI.config.mail ?? {}
+    const signatureText = cfg.senderName ? `\n\n— ${cfg.senderName}` : ''
+    const signatureHtml = cfg.senderName ? `<p>— ${cfg.senderName}</p>` : ''
     await this.send({
       to,
       subject: 'Reset your password',
-      text: `Hi ${name},\n\nA password reset was requested for your account. Use the link below to choose a new password:\n${link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.`,
-      html: `<p>Hi ${name},</p><p>A password reset was requested for your account. Use the link below to choose a new password:</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>`
+      text: `Hi ${name},\n\nA password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.\n${link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.${signatureText}`,
+      html: `<p>Hi ${name},</p><p>A password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>${signatureHtml}`
     })
   }
 
@@ -210,6 +223,28 @@ class MailModel {
       subject: 'Your password has been changed',
       text: `Hi ${name},\n\nThis is a confirmation that the password for your account was just changed.\n\nIf you did not make this change, contact your wiki administrator immediately.\n\n${link}`,
       html: `<p>Hi ${name},</p><p>This is a confirmation that the password for your account was just changed.</p><p>If you did not make this change, contact your wiki administrator immediately.</p><p><a href="${link}">${link}</a></p>`
+    })
+  }
+
+  /**
+   * Sent by the admin area's "Send Test Email" action to confirm the current `WIKI.config.mail`
+   * settings can actually reach an inbox. Includes the instance's `defaultBaseURL` so the recipient
+   * can also confirm that setting is correct — the same value {@link buildLink} stitches onto every
+   * other template's links — rather than just proving SMTP connectivity in isolation.
+   */
+  async sendTestEmail({ to }: { to: string }): Promise<void> {
+    const baseURL = WIKI.config.mail?.defaultBaseURL
+    const baseURLText = baseURL
+      ? `It is currently configured with the base URL: ${baseURL}`
+      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+    const baseURLHtml = baseURL
+      ? `It is currently configured with the base URL: <a href="${baseURL}">${baseURL}</a>`
+      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+    await this.send({
+      to,
+      subject: 'Wiki.js Test Email',
+      text: `This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.\n\n${baseURLText}`,
+      html: `<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p><p>${baseURLHtml}</p>`
     })
   }
 }

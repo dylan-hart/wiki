@@ -187,12 +187,7 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        await WIKI.models.mail.send({
-          to: req.body.recipientEmail,
-          subject: 'Wiki.js Test Email',
-          text: 'This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.',
-          html: '<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p>'
-        })
+        await WIKI.models.mail.sendTestEmail({ to: req.body.recipientEmail })
       } catch (err: any) {
         if (err.message === 'ERR_MAIL_NOT_CONFIGURED') {
           return reply.badRequest(
