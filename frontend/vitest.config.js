@@ -21,6 +21,10 @@ import { fileURLToPath } from 'node:url'
  *     same injection runs here. Without it such a component fails to even mount — a Sass "undefined
  *     variable" error — which looks nothing like the assertion actually being tested and wastes time
  *     chasing the wrong failure.
+ *   - the `markdown-it/lib/token.mjs` alias — `markdown-it-mdc` still imports that dropped markdown-it
+ *     15 subpath (see `vite.config.js`'s own comment on it), and `renderers/markdown.js` pulls the
+ *     plugin in unconditionally in its constructor, so without this alias `MarkdownRenderer` cannot be
+ *     imported under test at all, in any spec — not a component-specific failure to work around later.
  */
 export default defineConfig({
   plugins: [
@@ -50,7 +54,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'markdown-it/lib/token.mjs': fileURLToPath(
+        new URL('./src/renderers/modules/markdown-it-token.js', import.meta.url)
+      )
     }
   },
   css: {
@@ -64,6 +71,13 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
     include: ['src/**/*.test.js'],
-    css: true
+    css: true,
+    server: {
+      deps: {
+        // -> Otherwise Vitest externalises it straight to Node's own resolver, which never sees the
+        //    `resolve.alias` above -- and `markdown-it-mdc` needs that alias to load at all.
+        inline: ['markdown-it-mdc']
+      }
+    }
   }
 })

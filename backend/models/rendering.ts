@@ -252,10 +252,21 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   th: ['colspan', 'rowspan', 'align', 'scope'],
   track: ['src', 'kind', 'srclang', 'label', 'default'],
   video: ['controls', 'loop', 'muted', 'poster', 'preload', 'src', 'width', 'height'],
-  // -> MathML carries its meaning in attributes, and none of them are executable
+  // -> MathML carries its meaning in attributes, and none of them are executable. `mover`,
+  //    `munder` and `mi` were unreached until inline `$…$`/`$$…$$` TeX authoring
+  //    (`renderers/markdown.js`) started landing literal KaTeX MathML in stored pages -- KaTeX's own
+  //    `\vec`, `\overline`, `\underline`, `\binom` and Greek/variable-style commands all write one of
+  //    these, and without the entries below the sanitiser silently dropped them, leaving the
+  //    (visually hidden, screen-reader-only) MathML copy of the formula missing the marking that says
+  //    an accent or a variant applies.
   math: ['xmlns', 'display'],
   annotation: ['encoding'],
+  mi: ['mathvariant'],
+  mfrac: ['linethickness'],
   mo: ['stretchy', 'fence', 'separator', 'lspace', 'rspace', 'minsize', 'maxsize'],
+  mover: ['accent'],
+  munder: ['accentunder'],
+  munderover: ['accent', 'accentunder'],
   mspace: ['width', 'height', 'depth'],
   mstyle: ['scriptlevel', 'displaystyle', 'mathcolor', 'mathvariant'],
   mpadded: ['width', 'height', 'depth', 'lspace', 'voffset'],
