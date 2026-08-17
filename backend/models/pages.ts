@@ -31,6 +31,17 @@ const REDIRECT_EDITOR = 'redirect'
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
 
+/**
+ * What `getPage`'s `unlocked`/`withPassword` callbacks are handed: enough of the row to ask
+ * `mayOnPage()` whether a page rule applies, without exposing the whole raw row.
+ */
+export interface UnlockPageRef {
+  id: string
+  path: string
+  locale: string
+  tags: string[]
+}
+
 /** Fields kept in the `config` blob rather than as columns, and flattened again on the way out. */
 const CONFIG_FIELDS = [
   'allowComments',
@@ -317,11 +328,14 @@ class Pages {
    * are exactly two: the `GET` route, and `unlockPage` below.
    *
    * @param unlocked Whether the password has been satisfied for this requester. Route-level concern:
-   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the page's id once
-   *                 the row is in hand, which is what lets a caller answer per page even though it
-   *                 asked for the page by path hash.
-   * @param withPassword Whether to include the password value. For whoever may edit the page — not for
-   *                     a reader who just entered it, who needs it no more after that.
+   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the row's path,
+   *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
+   *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
+   *                 the only place that has them when the caller only knew a path hash going in.
+   * @param withPassword Whether to include the password value, for whoever may edit the page — not for
+   *                     a reader who just entered it, who needs it no more after that. Also a function
+   *                     for the same reason as `unlocked`: which page it is, and therefore whether this
+   *                     requester may edit it, is only known once the row is in hand.
    */
   async getPage({
     siteId,
@@ -340,8 +354,8 @@ class Pages {
     withContent?: boolean
     /** Restrict to what a reader with no session may see: published pages. */
     publicOnly?: boolean
-    unlocked?: boolean | ((pageId: string) => boolean)
-    withPassword?: boolean
+    unlocked?: boolean | ((page: UnlockPageRef) => boolean)
+    withPassword?: boolean | ((page: UnlockPageRef) => boolean)
   }): Promise<Page | null> {
     const conditions = [eq(pagesTable.siteId, siteId)]
     if (publicOnly) {
@@ -377,7 +391,15 @@ class Pages {
     if (!row) {
       return null
     }
-    const isUnlocked = typeof unlocked === 'function' ? unlocked(row.page.id) : unlocked
+    const unlockRef: UnlockPageRef = {
+      id: row.page.id,
+      path: row.page.path,
+      locale: row.page.locale,
+      tags: row.page.tags
+    }
+    const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
+    const includePassword =
+      typeof withPassword === 'function' ? withPassword(unlockRef) : withPassword
     return this.toPage(
       {
         ...row.page,
@@ -385,7 +407,11 @@ class Pages {
         navigationId: row.navigationId,
         navigationMode: row.navigationMode
       },
-      { withContent, withPassword, locked: Boolean(row.page.password) && !isUnlocked }
+      {
+        withContent,
+        withPassword: includePassword,
+        locked: Boolean(row.page.password) && !isUnlocked
+      }
     )
   }
 

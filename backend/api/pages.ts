@@ -58,16 +58,15 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
 }
 
 /**
- * Permissions that make a page's password irrelevant to the holder.
+ * Permissions that make a page's password irrelevant to the holder, GLOBALLY — not tied to any one
+ * page.
  *
- * Whoever may edit a page can read its source in the editor and can take the password off it
- * altogether, so asking them for it protects nothing. Everybody else — including a logged in reader —
- * has to enter it.
- *
- * Site-wide rather than per page, because per-path rules are not implemented. See the FIXME on the
- * page-permissions route below.
+ * Used only by search, which spans many pages that may each carry a different rule, so there is no
+ * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
+ * below: search either hides every protected excerpt from this searcher or none of them, rather than
+ * deciding page by page.
  */
-const PASSWORD_BYPASS = ['write:pages', 'manage:pages', 'manage:system']
+const GLOBAL_PASSWORD_BYPASS = ['write:pages', 'manage:pages', 'manage:system']
 
 /**
  * Every page permission a rule can grant, i.e. the whole set `manage:system` amounts to. Mirrors the
@@ -91,9 +90,11 @@ const PAGE_PERMISSIONS = [
   'manage:comments'
 ]
 
-export function mayBypassPassword(req: FastifyRequest): boolean {
-  const permissions = req.apiKey?.permissions ?? req.session?.permissions ?? []
-  return PASSWORD_BYPASS.some((permission) => permissions.includes(permission))
+export function mayBypassPassword(
+  req: FastifyRequest,
+  page: { path: string; locale?: string; tags?: string[] }
+): boolean {
+  return mayOnPage(req, 'write:pages', page) || mayOnPage(req, 'manage:pages', page)
 }
 
 /**
@@ -102,8 +103,11 @@ export function mayBypassPassword(req: FastifyRequest): boolean {
  * The unlock is recorded on the session — server side, by page id — so that reading a page the reader
  * unlocked a moment ago does not ask again, and so that nothing the browser can set decides this.
  */
-export function unlockedFor(req: FastifyRequest, pageId: string): boolean {
-  return mayBypassPassword(req) || Boolean(req.session?.unlockedPages?.includes(pageId))
+export function unlockedFor(
+  req: FastifyRequest,
+  page: { id: string; path: string; locale?: string; tags?: string[] }
+): boolean {
+  return mayBypassPassword(req, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
 }
 
 /**
@@ -163,7 +167,7 @@ async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: str
     siteId,
     id: pageId,
     publicOnly: !actor,
-    unlocked: (id: string) => unlockedFor(req, id)
+    unlocked: (page) => unlockedFor(req, page)
   })
   // -> Not readable is indistinguishable from not there, for anything hanging off the page
   if (!page || !mayOnPage(req, 'read:pages', page)) {
@@ -345,8 +349,9 @@ async function routes(app: FastifyInstance) {
         ),
         // -> Same rule as the page view: a protected page's text is for whoever holds the password, and
         //    a search excerpt is that text. Its title and description are not covered, so the page is
-        //    still listed — see `hideProtectedContent`.
-        hideProtectedContent: !mayBypassPassword(req)
+        //    still listed. Global rather than per page — see `GLOBAL_PASSWORD_BYPASS` — since a search
+        //    spans many pages at once.
+        hideProtectedContent: !GLOBAL_PASSWORD_BYPASS.some((p) => permissions.includes(p))
       })
     }
   )
@@ -394,7 +399,9 @@ async function routes(app: FastifyInstance) {
         hash: generatePathHash(path || 'home'),
         locale: req.query.locale,
         publicOnly: !actor,
-        unlocked: (pageId) => unlockedFor(req, pageId),
+        // -> Only ever needs the body's presence/absence, which `isLocked` already answers below, so
+        //    the password value itself is never read back here.
+        unlocked: (page) => unlockedFor(req, page),
         withPassword: false
       })
       if (!page) {
@@ -425,7 +432,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Per-page access rules are not implemented yet.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester may edit the page, for whom the password is not a barrier.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page can differ path by path.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.",
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -470,9 +477,10 @@ async function routes(app: FastifyInstance) {
         // -> The source is what an editor loads, and editing is not something an anonymous reader does
         withContent: Boolean(req.query.withContent) && Boolean(actor),
         publicOnly: !actor,
-        // -> Answered once the page is known, since a hash does not say which page it is yet
-        unlocked: (pageId) => unlockedFor(req, pageId),
-        withPassword: mayBypassPassword(req)
+        // -> Both answered once the page is known, since a hash does not say which page it is yet, and
+        //    the bypass is decided per page (`mayOnPage()`), not from a group-wide permission list.
+        unlocked: (page) => unlockedFor(req, page),
+        withPassword: (page) => mayBypassPassword(req, page)
       })
       if (!page) {
         return reply.notFound('This page does not exist.')
