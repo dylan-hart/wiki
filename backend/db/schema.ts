@@ -374,7 +374,11 @@ export const pages = pgTable(
     index('pages_siteId_idx').on(table.siteId),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
-    index('pages_isSearchableComputed_idx').on(table.isSearchableComputed)
+    index('pages_isSearchableComputed_idx').on(table.isSearchableComputed),
+    // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback, which runs
+    //    only when full-text search found nothing — `pg_trgm` is already a required extension (see
+    //    `core/db.ts`), this is the first index that actually uses it.
+    index('pages_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops'))
   ]
 )
 

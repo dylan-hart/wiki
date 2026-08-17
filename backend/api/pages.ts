@@ -315,6 +315,11 @@ async function routes(app: FastifyInstance) {
               totalHits: {
                 type: 'integer',
                 description: 'How many pages match, ignoring `limit` and `offset`.'
+              },
+              suggestion: {
+                type: ['string', 'null'],
+                description:
+                  'The closest page title to `query`, for a "did you mean" prompt. Only ever set when `totalHits` is 0 and a `query` was given, and only when one title is close enough to be worth suggesting.'
               }
             }
           }

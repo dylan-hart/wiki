@@ -129,6 +129,22 @@
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length < 1">
           <div class="searchpanel-header">{{ t('common.header.searchNoResult') }}</div>
+          <!--
+            Only ever present alongside a genuine zero-hit result: the backend computes `suggestion`
+            solely when `totalHits === 0` and a query was given (see `search.suggestTitle()`), so no
+            separate "active" gate is needed here beyond the field itself being set.
+
+            `mousedown.prevent` for the same reason as the result rows and copy-link button above --
+            without it the field blurs before the click fires, closing the panel first.
+          -->
+          <button
+            v-if="state.previewSuggestion"
+            type="button"
+            class="searchpanel-suggestion-link"
+            @mousedown.prevent
+            @click="applySuggestion">
+            {{ t('common.header.searchDidYouMean') }} <strong>{{ state.previewSuggestion }}</strong>
+          </button>
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
           <w-list dense dark class="searchpanel-results">
@@ -255,7 +271,9 @@ const state = reactive({
   searchIsFocused: false,
   previewResults: [],
   previewLoading: false,
-  previewTotal: 0
+  previewTotal: 0,
+  /** The backend's "did you mean" title, only ever set alongside a real, zero-hit query. */
+  previewSuggestion: null
 })
 
 const searchPanel = ref(null)
@@ -382,6 +400,7 @@ function resetPreview() {
   state.previewResults = []
   state.previewLoading = false
   state.previewTotal = 0
+  state.previewSuggestion = null
 }
 
 /**
@@ -401,12 +420,14 @@ async function fetchPreview(query) {
     }
     state.previewResults = resp?.results ?? []
     state.previewTotal = resp?.totalHits ?? 0
+    state.previewSuggestion = resp?.suggestion ?? null
   } catch (err) {
     if (token !== previewRequestToken) {
       return
     }
     state.previewResults = []
     state.previewTotal = 0
+    state.previewSuggestion = null
     console.warn(apiErrorMessage(err))
   } finally {
     if (token === previewRequestToken) {
@@ -436,6 +457,21 @@ async function copySearchLink() {
   } catch (err) {
     notify({ type: 'negative', message: t('common.clipboard.failure'), caption: err.message })
   }
+}
+
+/**
+ * Replaces the query with the "did you mean" suggestion and re-runs the search.
+ *
+ * Just an assignment: `siteStore.search` is what the live-preview watcher above already tracks, and
+ * the field stays focused (the suggestion link's `@mousedown.prevent` kept it that way), so the
+ * watcher's own gate on `state.searchIsFocused` fires it exactly the way typing would.
+ */
+function applySuggestion() {
+  if (!state.previewSuggestion) {
+    return
+  }
+  siteStore.search = state.previewSuggestion
+  searchField.value?.focus()
 }
 
 function addTag(tag) {
@@ -620,6 +656,25 @@ defineExpose({ focus, state })
 
   &-results {
     margin-bottom: 0.5rem;
+  }
+
+  /* Plain `<button>`, not `w-btn` -- it reads as a line of text within the empty-preview state, not a UI control */
+  &-suggestion-link {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: inherit;
+    opacity: 0.85;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+
+    strong {
+      font-weight: 600;
+    }
   }
 
   &-tip {
