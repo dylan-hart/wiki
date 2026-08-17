@@ -9,6 +9,12 @@ detect:
   type: module
   value: sharp
 # Prebuilt binaries are published for these architectures only
+# Verified against the sharp@0.35.3 npm registry metadata's optionalDependencies: x64/arm64 native
+# builds are published for glibc Linux, musl Linux (relevant to dev/build/Dockerfile, though that image
+# is glibc-based, not Alpine), darwin and win32 alike, so no separate `platforms` restriction is needed
+# below. (Glibc Linux also gets arm/ppc64/s390x/riscv64 builds, and win32 an ia32 one, but those are
+# left off here since they're not architectures this project otherwise builds or supports.) Verified
+# 2026-08-17, re-check on a Sharp bump.
 architectures:
   - x64
   - arm64

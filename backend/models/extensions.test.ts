@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import os from 'node:os'
 import path from 'node:path'
-import { after, afterEach, before, test } from 'node:test'
+import { after, afterEach, before, describe, test } from 'node:test'
+import { load } from 'js-yaml'
 import type { ExtensionDefinition } from './extensions.ts'
 
 /**
@@ -92,4 +93,42 @@ test('getExtensions() names the required platform and what this server reports w
   assert.equal(state.isCompatible, false)
   assert.match(state.incompatibleReason ?? '', /some-fictional-platform/)
   assert.match(state.incompatibleReason ?? '', new RegExp(process.platform))
+})
+
+/**
+ * Task 664: guards the `architectures`/`platforms` restrictions actually written into the Sharp and
+ * Puppeteer definitions against what those packages publish, so a version bump that silently drops one
+ * of these lines fails a test instead of quietly letting an incompatible host through. See the
+ * verification comments in each `definition.yml` for the registry/vendor source and date.
+ */
+describe('sharp and puppeteer definition.yml architecture/platform constraints (Task 664)', () => {
+  const loadDefinition = async (key: string): Promise<ExtensionDefinition> => {
+    const raw = await readFile(
+      path.join(import.meta.dirname, '..', 'modules', 'extensions', key, 'definition.yml'),
+      'utf8'
+    )
+    return load(raw) as ExtensionDefinition
+  }
+
+  test('sharp restricts architectures to x64/arm64 — its published binaries for glibc AND musl Linux, only cover these two', async () => {
+    const definition = await loadDefinition('sharp')
+    assert.deepEqual(definition.architectures, ['x64', 'arm64'])
+  })
+
+  test('sharp declares no platforms restriction — it publishes native builds for linux/darwin/win32 plus a wasm fallback for others', async () => {
+    const definition = await loadDefinition('sharp')
+    assert.equal(definition.platforms, undefined)
+  })
+
+  test('puppeteer restricts architectures to x64/arm64 — Chrome for Testing has no ia32 or loong64 build to download', async () => {
+    const definition = await loadDefinition('puppeteer')
+    assert.deepEqual(definition.architectures, ['x64', 'arm64'])
+    assert.ok(!definition.architectures?.includes('ia32'))
+    assert.ok(!definition.architectures?.includes('loong64'))
+  })
+
+  test('puppeteer restricts platforms to linux/darwin/win32 — @puppeteer/browsers cannot resolve a Chrome for Testing download on any other platform, and its postinstall throws rather than skipping', async () => {
+    const definition = await loadDefinition('puppeteer')
+    assert.deepEqual(definition.platforms, ['linux', 'darwin', 'win32'])
+  })
 })
