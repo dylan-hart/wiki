@@ -6,6 +6,7 @@ import {
   normalizePagePath,
   timingSafeCompare
 } from '../helpers/common.ts'
+import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 
@@ -559,6 +560,9 @@ class Pages {
       authorId: actor.id,
       reason: input.reasonForChange
     })
+    // -> No `notifyWatchers` call here: nobody can be watching a page before it exists, so there is
+    //    nothing to resolve. See that method's own comment for the one case (restore) that would
+    //    change this, and why it doesn't apply yet.
 
     await WIKI.models.search.indexPage(page.id, locale)
     await WIKI.models.hooks.emit('page:create', {
@@ -695,6 +699,7 @@ class Pages {
       changedFields,
       reason: patch.reasonForChange
     })
+    await this.notifyWatchers(siteId, id, 'updated', actor.id)
 
     if (treeTitle !== null || patch.tags !== undefined) {
       await WIKI.db
@@ -797,6 +802,7 @@ class Pages {
         ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
       ]
     })
+    await this.notifyWatchers(siteId, id, 'moved', actor.id)
 
     await WIKI.models.hooks.emit('page:rename', {
       id,
@@ -826,6 +832,9 @@ class Pages {
       action: 'deleted',
       authorId: actor.id
     })
+    // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
+    //    has to be read while it still exists
+    await this.notifyWatchers(siteId, id, 'deleted', actor.id)
 
     await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
     await WIKI.models.tree.deleteEntry(id)
@@ -866,6 +875,8 @@ class Pages {
         action: 'deleted',
         authorId: actor.id
       })
+      // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below
+      await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id)
     }
     await WIKI.db.delete(pagesTable).where(
       inArray(
@@ -1044,6 +1055,50 @@ class Pages {
         ? (input.scriptJsUnload ?? existing.jsUnload ?? '')
         : (existing.jsUnload ?? ''),
       css: mayStyle ? (input.scriptCss ?? existing.css ?? '') : (existing.css ?? '')
+    }
+  }
+
+  /**
+   * Queue pending watch notifications for a page change.
+   *
+   * Never called for `created`: nobody could have been watching a page before it existed, so a
+   * freshly created page has no watchers to notify by construction (there is no page restore/undelete
+   * feature yet that would make this untrue — see `deleteOrphaned` and `pageHistory` for why a
+   * deletion is recoverable in principle even though nothing currently offers it back). `moved`
+   * qualifies by default, same as `updated`: there is no per-watcher preference to consult yet, so
+   * every watcher hears about every change to a page they watch, moves included — a future task can
+   * narrow that down once such a preference exists.
+   *
+   * The watcher list is resolved here, synchronously, rather than inside the job this queues: a
+   * delete removes the page in the very same request, and `pageWatching.pageId` cascades away with
+   * it, so a job that only got around to resolving watchers later would find none left for a
+   * `deleted` event. That resolution is one indexed `SELECT` — it does not scale with how many people
+   * watch the page, so awaiting it here costs the save a fixed, small amount regardless of audience
+   * size. What DOES scale with the audience — writing one `pageWatchEvents` row per watcher, and later
+   * rendering and sending the mail for it — is exactly the part pushed into the queued job, which is
+   * why this awaits nothing past resolving the (possibly empty) watcher list and asking the scheduler
+   * to queue one job for it.
+   *
+   * A failure to queue is logged and swallowed rather than thrown: a watcher not being told about a
+   * change is a real loss, but it must never be the reason the change itself fails to save.
+   */
+  private async notifyWatchers(
+    siteId: string,
+    pageId: string,
+    action: PageWatchNotifiableAction,
+    actorId: string
+  ): Promise<void> {
+    try {
+      const watcherIds = await WIKI.models.pageWatching.listWatcherIds(pageId, actorId)
+      if (watcherIds.length < 1) {
+        return
+      }
+      await WIKI.scheduler.addJob({
+        task: 'notifyPageWatchers',
+        payload: { siteId, pageId, action, watcherIds }
+      })
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to queue watch notifications for page ${pageId}: ${err.message}`)
     }
   }
 

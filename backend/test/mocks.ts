@@ -41,3 +41,14 @@ export function createEventsStub(): any {
   })
   return { inbound: bus(), outbound: bus() }
 }
+
+/**
+ * A `WIKI.scheduler`-shaped stub: just `addJob`, recording every call rather than touching the real
+ * job queue or worker pool. Enough for model-layer code that queues work (`pages.ts#notifyWatchers`,
+ * for one) without a model test having to stand up the scheduler's thread pool and pubsub connection.
+ */
+export function createSchedulerStub(): any {
+  return {
+    addJob: mock.fn(async () => ({ id: 'test-job' }))
+  }
+}

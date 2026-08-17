@@ -1,7 +1,10 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { pageWatchEvents as pageWatchEventsTable, users as usersTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
 
 /**
  * `models/pages.ts`'s create/update/move/delete are almost entirely SQL — inserts, duplicate-path
@@ -199,5 +202,164 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(deleted, false)
+  })
+})
+
+/**
+ * The change-event trigger `updatePage`/`movePage`/`deletePage`/`deleteOrphaned` queue after
+ * `pageHistory.record()` (`models/pages.ts#notifyWatchers`). `WIKI.scheduler` is a stub here (see
+ * `test/db.ts`) that records `addJob` calls instead of actually running a worker pool, so each test
+ * drives the queued `notifyPageWatchers` task itself against the payload the trigger produced — which
+ * exercises the real pipeline end to end without needing a live scheduler.
+ */
+describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let actor: PageActor
+  let watcherId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    const [watcher] = await fixtures.db
+      .insert(usersTable)
+      .values({ email: 'watcher@example.com', name: 'Watcher', isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    watcherId = watcher!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageInput(overrides: Partial<PageInput> = {}): PageInput {
+    return {
+      path: 'watched-page',
+      title: 'Watched Page',
+      editor: 'markdown',
+      content: '# Hello',
+      ...overrides
+    }
+  }
+
+  /** Runs every `notifyPageWatchers` job the stub scheduler was handed since the last call. */
+  async function drainQueuedNotifications(): Promise<void> {
+    const addJob = WIKI.scheduler.addJob as unknown as {
+      mock: {
+        calls: { arguments: [{ task: string; payload: any }]; result: any }[]
+        resetCalls: () => void
+      }
+    }
+    const calls = addJob.mock.calls.filter(
+      (call) => call.arguments[0].task === 'notifyPageWatchers'
+    )
+    for (const call of calls) {
+      await notifyPageWatchers(call.arguments[0].payload)
+    }
+    addJob.mock.resetCalls()
+  }
+
+  async function pendingEventsFor(
+    pageId: string
+  ): Promise<(typeof pageWatchEventsTable.$inferSelect)[]> {
+    return fixtures.db
+      .select()
+      .from(pageWatchEventsTable)
+      .where(eq(pageWatchEventsTable.pageId, pageId))
+  }
+
+  test('createPage queues nothing: nobody can be watching a page before it exists', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/create-me' }),
+      actor
+    )
+    const events = await pendingEventsFor(page.id)
+    assert.deepEqual(events, [])
+  })
+
+  test('updatePage queues a pending notification for a watcher, excluding the actor themselves', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/update-me' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+    // -> The actor also watches their own page -- they must not be notified about their own edit
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: actor.id
+    })
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated' }, actor)
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.userId, watcherId)
+    assert.equal(events[0]!.action, 'updated')
+    assert.equal(events[0]!.deliveredAt, null)
+  })
+
+  test('updatePage queues nothing when the page has no watchers', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/no-watchers' }),
+      actor
+    )
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Still unwatched' }, actor)
+    await drainQueuedNotifications()
+
+    assert.deepEqual(await pendingEventsFor(page.id), [])
+  })
+
+  test('movePage queues a "moved" notification for a watcher', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/move-me' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.movePage(fixtures.siteId, page.id, { path: 'watch/moved-to' }, actor)
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.action, 'moved')
+  })
+
+  test('deletePage queues a "deleted" notification, surviving the cascade that removes the watch itself', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/delete-me' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.userId, watcherId)
+    assert.equal(events[0]!.action, 'deleted')
+
+    // -> The watch row itself is gone with the page (FK cascade) -- only the pending event survives it
+    assert.equal(await WIKI.models.pageWatching.isWatching(page.id, watcherId), false)
   })
 })

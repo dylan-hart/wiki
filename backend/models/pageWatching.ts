@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, ne } from 'drizzle-orm'
 import { pageWatching as watchingTable, pages as pagesTable } from '../db/schema.ts'
 
 /** A watched page, as the inbox lists it. */
@@ -96,6 +96,24 @@ class PageWatching {
       .where(and(eq(watchingTable.userId, userId), eq(watchingTable.siteId, siteId)))
       .orderBy(desc(watchingTable.createdAt))
     return rows as WatchedPage[]
+  }
+
+  /**
+   * Who is watching this page right now, minus one person — the actor whose own change this is, since
+   * nobody needs telling about their own edit.
+   *
+   * Called synchronously from `models/pages.ts#notifyWatchers` rather than from the job it queues: a
+   * delete removes the page in the same request, which cascades this table away with it, so the watch
+   * list has to be read before that happens rather than whenever the queued job gets around to it. A
+   * single indexed lookup either way — this is the part of notifying watchers that does NOT scale with
+   * how many of them there are; writing a row per watcher is what the job is for.
+   */
+  async listWatcherIds(pageId: string, excludeUserId: string): Promise<string[]> {
+    const rows = await WIKI.db
+      .select({ userId: watchingTable.userId })
+      .from(watchingTable)
+      .where(and(eq(watchingTable.pageId, pageId), ne(watchingTable.userId, excludeUserId)))
+    return rows.map((row) => row.userId)
   }
 }
 

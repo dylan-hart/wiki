@@ -531,6 +531,47 @@ export const pageWatching = pgTable(
   ]
 )
 
+// PAGE WATCH EVENTS -------------------
+/**
+ * A notification owed to one watcher about one change, waiting to be delivered.
+ *
+ * Written by the background job `notifyPageWatchers` queues after a page save, move or delete (see
+ * `models/pages.ts#notifyWatchers`) — never inline in the request, so a page with many watchers costs
+ * the save nothing beyond the one job it queues. `deliveredAt` is null until whatever eventually sends
+ * the notification (mail, in the first instance) marks it done; a row is the unit of "pending" rather
+ * than a boolean column, so a wiki that never delivers a batch simply accumulates rows instead of
+ * losing track of which watcher was owed what.
+ *
+ * `pageId` is not a foreign key, for the same reason `pageHistory.pageId` isn't: the job that writes
+ * this row runs after the request that queued it, and for a delete that request has by then already
+ * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
+ * row was resolved from. The row has to be able to outlive both.
+ */
+export const pageWatchEvents = pgTable(
+  'pageWatchEvents',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /** `created` never appears here — see `notifyWatchers`: nobody can watch a page before it exists. */
+    action: varchar({ length: 16 }).notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+    deliveredAt: timestamp(),
+    pageId: uuid().notNull(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    // -> "This user's undelivered notifications, oldest first" -- the query whatever sends them runs
+    index('pageWatchEvents_pending_idx')
+      .on(table.userId, table.createdAt)
+      .where(sql`"deliveredAt" IS NULL`),
+    index('pageWatchEvents_pageId_idx').on(table.pageId)
+  ]
+)
+
 // PAGE RENDER QUEUE -------------------
 /**
  * A page waiting for the server to render it, one row per page.

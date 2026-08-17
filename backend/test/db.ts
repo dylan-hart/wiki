@@ -16,7 +16,7 @@
  * accounts, no settings rows) that these tests have no use for.
  *
  * Installs a minimal `WIKI` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
- * plus the `cache`/`events` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
+ * plus the `cache`/`events`/`scheduler` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
  * isolates each matched file into its own process by default, so this global does not leak into any
  * other file's run.
  */
@@ -29,7 +29,7 @@ import { randomBytes } from 'node:crypto'
 import { relations } from '../db/relations.ts'
 import { groups as groupsTable, sites as sitesTable, users as usersTable } from '../db/schema.ts'
 import type { WikiDb } from '../core/db.ts'
-import { createCacheStub, createEventsStub } from './mocks.ts'
+import { createCacheStub, createEventsStub, createSchedulerStub } from './mocks.ts'
 
 /** Same list `core/db.ts` installs before migrating — the schema depends on both. */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm']
@@ -193,6 +193,7 @@ function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts')
     logger: createSilentLogger(),
     cache: createCacheStub(),
     events: createEventsStub(),
+    scheduler: createSchedulerStub(),
     sites: {},
     sitesMappings: {},
     models
