@@ -1,7 +1,7 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 
@@ -206,5 +206,233 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       actor
     })
     assert.deepEqual(approveSecond, { ok: false, reason: 'stale' })
+  })
+})
+
+/**
+ * `saveSubmission`'s reviewer-notification trigger: who gets told, and when.
+ *
+ * Reviewer resolution is exercised through `resolveReviewers` directly (SQL orchestration across
+ * `userGroups`/`users`, same reasoning as the rest of this file), and the trigger point itself --
+ * notify on a new submission, stay silent on a resubmission that lands on `onConflictDoUpdate` -- is
+ * exercised by spying on `sendSubmissionNotification`, the stubbed delivery call, so these tests do
+ * not depend on Feature 375's transport ever landing.
+ */
+describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let groupsModel: typeof import('./groups.ts').groups
+  let actor: PageActor
+  let reviewerAId: string
+  let reviewerBId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+
+    const [reviewerA] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'reviewer-a@example.com',
+        name: 'Reviewer A',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    reviewerAId = reviewerA!.id
+
+    const [reviewerB] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'reviewer-b@example.com',
+        name: 'Reviewer B',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    reviewerBId = reviewerB!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+  }
+
+  /**
+   * Inserted directly rather than through `groups.assignUserToGroup`: that method also enforces the
+   * guests-group membership rule, which reads `WIKI.data.systemIds.guestsGroupId` -- a full-boot value
+   * this fixture's minimal `WIKI` deliberately does not set (see `test/db.ts`). Membership itself is
+   * nothing more than a row in `userGroups`.
+   */
+  async function assignToGroup(groupId: string, userId: string) {
+    await fixtures.db.insert(userGroupsTable).values({ groupId, userId })
+  }
+
+  test('resolveReviewers unions reviewerGroups across every enabled rule that matches the page, deduplicated', async () => {
+    const groupOne = await groupsModel.createGroup('Reviewers One')
+    const groupTwo = await groupsModel.createGroup('Reviewers Two')
+    await assignToGroup(groupOne, reviewerAId)
+    // -> Reviewer B is in both groups: the union must still list them once
+    await assignToGroup(groupOne, reviewerBId)
+    await assignToGroup(groupTwo, reviewerBId)
+
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'rule one',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/dedup',
+      submitterGroups: [],
+      reviewerGroups: [groupOne]
+    })
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'rule two',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/dedup',
+      submitterGroups: [],
+      reviewerGroups: [groupTwo]
+    })
+    // -> Disabled, and would also match: neither its reviewer group nor anyone in it should show up
+    const disabledGroup = await groupsModel.createGroup('Disabled Rule Reviewers')
+    await assignToGroup(disabledGroup, reviewerAId)
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'disabled rule',
+      isEnabled: false,
+      match: 'START',
+      path: 'notify/dedup',
+      submitterGroups: [],
+      reviewerGroups: [disabledGroup]
+    })
+
+    const reviewerIds = await approvalsModel.resolveReviewers(fixtures.siteId, {
+      path: 'notify/dedup/page',
+      tags: []
+    })
+
+    assert.deepEqual([...reviewerIds].sort(), [reviewerAId, reviewerBId].sort())
+  })
+
+  test('resolveReviewers returns nothing when no enabled rule matches the page', async () => {
+    const group = await groupsModel.createGroup('Unmatched Rule Reviewers')
+    await assignToGroup(group, reviewerAId)
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'elsewhere',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/nowhere-near',
+      submitterGroups: [],
+      reviewerGroups: [group]
+    })
+
+    const reviewerIds = await approvalsModel.resolveReviewers(fixtures.siteId, {
+      path: 'notify/unrelated-page',
+      tags: []
+    })
+
+    assert.deepEqual(reviewerIds, [])
+  })
+
+  test('notifies reviewers once for a new submission, and does not re-notify when the same author resubmits', async () => {
+    const group = await groupsModel.createGroup('Trigger Point Reviewers')
+    await assignToGroup(group, reviewerAId)
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'trigger point rule',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/trigger',
+      submitterGroups: [],
+      reviewerGroups: [group]
+    })
+
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'notify/trigger/page', title: 'Trigger', editor: 'markdown', content: 'Original' },
+      actor
+    )
+
+    const send = mock.method(approvalsModel as any, 'sendSubmissionNotification', async () => {})
+
+    const first = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'First suggestion',
+      authorId: fixtures.userId
+    })
+    assert.equal(send.mock.callCount(), 1)
+    const [firstCallSiteId, firstCallPage, firstCallSubmissionId, firstCallReviewerIds] =
+      send.mock.calls[0]!.arguments
+    assert.equal(firstCallSiteId, fixtures.siteId)
+    assert.equal(firstCallPage.path, page.path)
+    assert.equal(firstCallSubmissionId, first.id)
+    assert.deepEqual(firstCallReviewerIds, [reviewerAId])
+
+    // -> Same author, same page: this lands on `onConflictDoUpdate`, replacing the still-open
+    //    suggestion rather than creating a new one -- and must not notify a second time.
+    const resubmitted = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Revised suggestion',
+      authorId: fixtures.userId
+    })
+    assert.equal(
+      resubmitted.id,
+      first.id,
+      'the update replaced the same row rather than adding one'
+    )
+    assert.equal(
+      send.mock.callCount(),
+      1,
+      'resubmitting a still-open suggestion must not re-notify'
+    )
+
+    send.mock.restore()
+  })
+
+  test('a guest submission always notifies, since a guest has no open suggestion to replace', async () => {
+    const group = await groupsModel.createGroup('Guest Trigger Reviewers')
+    await assignToGroup(group, reviewerAId)
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'guest trigger rule',
+      isEnabled: true,
+      match: 'START',
+      path: 'notify/guest-trigger',
+      submitterGroups: [],
+      reviewerGroups: [group]
+    })
+
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'notify/guest-trigger/page',
+        title: 'Guest Trigger',
+        editor: 'markdown',
+        content: 'Original'
+      },
+      actor
+    )
+
+    const send = mock.method(approvalsModel as any, 'sendSubmissionNotification', async () => {})
+
+    await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original',
+      content: 'Guest suggestion',
+      authorId: null,
+      guestName: 'A Guest',
+      guestEmail: 'guest@example.com'
+    })
+
+    assert.equal(send.mock.callCount(), 1)
+    send.mock.restore()
   })
 })
