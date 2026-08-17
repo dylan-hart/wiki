@@ -230,6 +230,21 @@ export interface AfterLoginResult {
 }
 
 /**
+ * What `register()` returns: an `AfterLoginResult` when `emailValidation` is off and registration
+ * signs the user straight in, or a bare `{ nextAction: 'verify' }` when a confirmation email was sent
+ * instead and nothing about the session has changed. `redirect` is the one field `AfterLoginResult`
+ * always carries that a pending verification has none of, so it is optional here rather than repeating
+ * the whole shape as a union.
+ */
+export interface RegisterResult {
+  authenticated?: boolean
+  nextAction: string
+  continuationToken?: string
+  tfaQRImage?: string
+  redirect?: string
+}
+
+/**
  * Users model
  */
 class Users {
@@ -1257,6 +1272,119 @@ class Users {
       just proved who they are somewhere else — where whatever second factor that provider enforces has
       already been satisfied.
     */
+    return this.afterLoginChecks(
+      user,
+      strategy.id,
+      { ip, siteId },
+      { skipTFA: true, skipChangePwd: true },
+      req
+    )
+  }
+
+  /**
+   * Self-registration through a form-based strategy, mirroring `loginWithProvider()`'s checks for
+   * whether the strategy accepts new users and who by.
+   *
+   * When the strategy's `emailValidation` config is on (the local strategy's default), the account is
+   * created unverified and a `verify`-kind token is emailed instead of logging the user in --
+   * `GET /auth/verify/:token` is what turns `isVerified` on. With `emailValidation` off, this ends in
+   * exactly the `afterLoginChecks()` call `loginWithProvider()` makes, so registration signs the user
+   * straight in like every other successful auth path.
+   *
+   * An address stuck unverified -- its verification email lost, or never arrived -- is not a dead
+   * end: registering again with the same address resends the link rather than refusing with
+   * `ERR_EMAIL_ALREADY_EXISTS`, since nobody else could have claimed that address in the meantime (an
+   * unverified account cannot log in). The submitted `name` and `password` are ignored on that path --
+   * only the address that already exists is trusted -- so registering an address that is not yours but
+   * still pending cannot be used to overwrite whatever password it was originally set up with. A
+   * verified account, or one on a strategy with `emailValidation` off, always refuses as a duplicate.
+   *
+   * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
+   *         `ERR_EMAIL_NOT_ALLOWED`
+   */
+  async register(
+    {
+      siteId,
+      strategyId,
+      name,
+      email,
+      password,
+      ip
+    }: {
+      siteId: string
+      strategyId: string
+      name: string
+      email: string
+      password: string
+      ip?: string
+    },
+    req: any
+  ): Promise<RegisterResult> {
+    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    if (!strategy || !strategy.isEnabled) {
+      WIKI.models.flags.authDebug(`Registration attempt against unknown strategy ${strategyId}`)
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    if (!strategy.registration) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} does not accept new users`
+      )
+      throw new Error('ERR_REGISTRATION_DISABLED')
+    }
+
+    const normalizedEmail = email.toLowerCase().trim()
+    const requiresVerification = Boolean(strategy.config?.emailValidation)
+    const existing = await this.getByEmail(normalizedEmail)
+
+    if (existing) {
+      if (existing.isVerified || !requiresVerification) {
+        throw new Error('ERR_EMAIL_ALREADY_EXISTS')
+      }
+      WIKI.models.flags.authDebug(
+        `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
+      )
+      const token = await this.generateToken({ kind: 'verify', userId: existing.id })
+      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      return { nextAction: 'verify' }
+    }
+
+    if (strategy.allowedEmailRegex) {
+      let allowed = false
+      try {
+        allowed = new RegExp(strategy.allowedEmailRegex).test(normalizedEmail)
+      } catch (err: any) {
+        // -> A pattern that will not compile allows nobody, rather than everybody
+        WIKI.logger.warn(
+          `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
+        )
+      }
+      if (!allowed) {
+        throw new Error('ERR_EMAIL_NOT_ALLOWED')
+      }
+    }
+
+    const userId = await this.createUser({
+      name,
+      email: normalizedEmail,
+      password,
+      groups: strategy.autoEnrollGroups ?? [],
+      isVerified: !requiresVerification
+    })
+    WIKI.models.flags.authDebug(
+      `Registered user ${userId} <${normalizedEmail}> via ${strategy.module} strategy ${strategy.id}, verification ${requiresVerification ? 'required' : 'not required'}`
+    )
+
+    if (requiresVerification) {
+      const token = await this.generateToken({ kind: 'verify', userId })
+      await WIKI.models.mail.sendVerifyEmail({ to: normalizedEmail, name, token })
+      return { nextAction: 'verify' }
+    }
+
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_REGISTRATION_FAILED')
+    }
     return this.afterLoginChecks(
       user,
       strategy.id,

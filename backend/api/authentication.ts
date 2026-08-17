@@ -271,6 +271,95 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * SELF-REGISTER
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { strategyId: string; name: string; email: string; password: string }
+  }>(
+    '/sites/:siteId/auth/register',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Same reasoning as login: a form anyone can submit is what this endpoint is attacked with
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Register a new account',
+        description:
+          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt.",
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'name', 'email', 'password'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            name: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              maxLength: 255
+            },
+            password: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthLoginResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const result = await WIKI.models.users.register(
+          {
+            siteId: req.params.siteId,
+            strategyId: req.body.strategyId,
+            name: req.body.name,
+            email: req.body.email,
+            password: req.body.password,
+            ip: req.ip
+          },
+          req
+        )
+        return {
+          ok: true,
+          ...result
+        }
+      } catch (err: any) {
+        if (err.message.startsWith('ERR_')) {
+          return reply.badRequest(err.message)
+        } else {
+          // -> An unexpected failure, reported to the client as a generic one, matching the login route
+          WIKI.logger.debug(err)
+          WIKI.models.flags.authDebug(`Registration failed unexpectedly: ${err.message}`)
+          return reply.badRequest('ERR_REGISTRATION_FAILED')
+        }
+      }
+    }
+  )
+
+  /**
    * CHANGE PASSWORD
    */
   app.put<{
@@ -763,6 +852,53 @@ async function routes(app: FastifyInstance) {
           `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
         )
         return reply.redirect(loginErrorUrl(redirect, err.message))
+      }
+    }
+  )
+
+  /**
+   * VERIFY EMAIL ADDRESS
+   */
+  app.get<{ Params: { token: string } }>(
+    '/auth/verify/:token',
+    {
+      config: {
+        publicAccess: true
+      },
+      schema: {
+        summary: 'Verify an email address from a self-registration link',
+        description:
+          'Where the link mailed by `POST /sites/:siteId/auth/register` points. Marks the account verified and redirects to the login screen — carrying `verified=true` on success, or an error code the same way a provider login redirect does, on an invalid or expired token.',
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            token: {
+              type: 'string'
+            }
+          },
+          required: ['token']
+        },
+        response: {
+          302: { description: 'Redirect to the login screen', type: 'null' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const { user } = await WIKI.models.users.validateToken({
+          kind: 'verify',
+          token: req.params.token
+        })
+        if (!user) {
+          return reply.redirect(loginErrorUrl('/', 'ERR_INVALID_VALIDATION_TOKEN'))
+        }
+        await WIKI.models.users.updateUser(user.id, { isVerified: true })
+        WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> verified their email address`)
+        return reply.redirect('/login?verified=true')
+      } catch (err: any) {
+        WIKI.models.flags.authDebug(`Email verification failed: ${err.message}`)
+        return reply.redirect(loginErrorUrl('/', err.message))
       }
     }
   )
