@@ -47,7 +47,17 @@ function mountAuthLoginPanel() {
           registerCheckEmail: 'Check your emails to activate your account.',
           verifySuccess: 'Your email address has been verified. You can now log in.',
           switchToRegister: { link: 'Create an Account' },
+          switchToLogin: { link: 'Back to Login' },
           changePwd: { instructions: 'You must choose a new password:' },
+          forgotPasswordLink: 'Forgot Password',
+          forgotPasswordSubtitle: 'Enter your email address:',
+          forgotPasswordSuccess: 'Check your emails for password reset instructions!',
+          resetPassword: {
+            subtitle: 'Choose a new password for your account:',
+            success: 'Your password has been changed.'
+          },
+          tfa: { subtitle: 'Security code required:' },
+          fields: { email: 'Email Address' },
           errors: { register: 'One or more fields are invalid.' }
         }
       }
@@ -160,5 +170,103 @@ describe('AuthLoginPanel verified landing', () => {
     await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
 
     expect(notifyQueue.length).toBe(0)
+  })
+})
+
+/**
+ * `forgotPassword()` used to be a stub (`// TODO: Implement forgot password`). The route it now calls
+ * (`POST sites/:siteId/auth/forgotPassword`) always answers the same generic 200 whatever it did behind
+ * the scenes -- see the route's own doc comment in `backend/api/authentication.ts` -- so this only
+ * checks the request shape and that the UI shows the fixed success message, never that it branches on
+ * the response.
+ */
+describe('AuthLoginPanel forgot password', () => {
+  it('posts strategyId/email and always shows the generic success message', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'whatever the backend feels like saying' })
+    })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+    await wrapper.vm.$nextTick()
+
+    const forgotBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Forgot Password'))
+    await forgotBtn.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('input[autocomplete="email"]').setValue('ada@example.com')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/auth/forgotPassword', {
+      json: {
+        strategyId: 'strategy-1',
+        email: 'ada@example.com'
+      }
+    })
+
+    await vi.waitFor(() => expect(notifyQueue.length).toBeGreaterThan(0))
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+    expect(notifyQueue.find((n) => n.type === 'positive')?.message).toBe(
+      'Check your emails for password reset instructions!'
+    )
+  })
+})
+
+/**
+ * The reset screen this task adds: reached only by landing on `/login/reset-password/:token` (where
+ * `mail.ts`'s forgot-password email points), never by clicking through the panel. `resetPassword()` on
+ * the backend always finishes via `afterLoginChecks()` -- `nextAction: 'provideTfa'` here proves the
+ * response is handed to the same `handleLoginResponse()` every other login path uses, exercised the
+ * same way the register tests above exercise it with `changePassword`.
+ */
+describe('AuthLoginPanel reset password', () => {
+  it('detects the token in the URL, shows the reset screen, and submits strategyId/token/newPassword', async () => {
+    window.history.replaceState(null, '', '/login/reset-password/tok-abc')
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ ok: true, nextAction: 'provideTfa', continuationToken: 'cont-1' })
+    })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('Choose a new password for your account:')
+    )
+
+    const pwdInputs = wrapper.findAll('input[autocomplete="new-password"]')
+    await pwdInputs[0].setValue('supersecret1')
+    await pwdInputs[1].setValue('supersecret1')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(API_CLIENT.put).toHaveBeenCalled())
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/auth/resetPassword', {
+      json: {
+        strategyId: 'strategy-1',
+        token: 'tok-abc',
+        newPassword: 'supersecret1'
+      },
+      throwHttpErrors: expect.any(Function)
+    })
+
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Security code required:'))
+    expect(
+      notifyQueue.some(
+        (n) => n.type === 'positive' && n.message === 'Your password has been changed.'
+      )
+    ).toBe(true)
+  })
+
+  it('does nothing when there is no reset token in the URL', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('Choose a new password for your account:')
   })
 })
