@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `check-icons.mjs` fails the build if this drifts.
 
-  266 icons.
+  267 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-double-right": {"body":"<path fill=\"currentColor\" d=\"M9.094 4.781L7.688 6.22l9.78 9.78l-9.78 9.781l1.406 1.438L20.313 16zm7 0L14.687 6.22L24.47 16l-9.782 9.781l1.407 1.438L27.312 16z\"/>","width":32,"height":32},
@@ -53,6 +53,7 @@ export const BUNDLED_ICONS = {
   "la:ellipsis-h": {"body":"<path fill=\"currentColor\" d=\"M6 14a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4m10 0a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4m10 0a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4\"/>","width":32,"height":32},
   "la:ellipsis-v": {"body":"<path fill=\"currentColor\" d=\"M16 6a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4m0 8a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4m0 8a1.999 1.999 0 1 0 0 4a1.999 1.999 0 1 0 0-4\"/>","width":32,"height":32},
   "la:envelope": {"body":"<path fill=\"currentColor\" d=\"M3 8v18h26V8zm4.313 2h17.375L16 15.781zM5 10.875l10.438 6.969l.562.343l.563-.343L27 10.875V24H5z\"/>","width":32,"height":32},
+  "la:envelope-open-text": {"body":"<path fill=\"currentColor\" d=\"M10 5v1.9l-5.992 3.903V27h23.984V10.803L22 6.898V5zm2 2h8v7.682l-4 2.591l-4-2.591zm1 2v2h6V9zm-3 .285v4.102l-3.156-2.045zm12 0l3.156 2.057L22 13.387zM13 12v2h6v-2zm-6.992 1.184L16 19.656l9.992-6.472V25H6.008z\"/>","width":32,"height":32},
   "la:exclamation-triangle": {"body":"<path fill=\"currentColor\" d=\"m16 3.219l-.875 1.5l-12 20.781l-.844 1.5H29.72l-.844-1.5l-12-20.781zm0 4L26.25 25H5.75zM15 14v6h2v-6zm0 7v2h2v-2z\"/>","width":32,"height":32},
   "la:external-link-alt": {"body":"<path fill=\"currentColor\" d=\"M18 5v2h5.563L11.28 19.281l1.438 1.438L25 8.437V14h2V5zM5 9v18h18V14l-2 2v9H7V11h9l2-2z\"/>","width":32,"height":32},
   "la:external-link-square-alt": {"body":"<path fill=\"currentColor\" d=\"M5 5v22h22V5zm2 2h18v18H7zm6 3v2h5.563L9.28 21.281l1.438 1.438L20 13.437V19h2v-9z\"/>","width":32,"height":32},

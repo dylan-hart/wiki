@@ -240,6 +240,24 @@
         @click="switchTo(`login`)" />
     </template>
     <!-- ----------------------------------------------------- -->
+    <!-- REGISTER CHECK EMAIL SCREEN -->
+    <!-- ----------------------------------------------------- -->
+    <template v-else-if="state.screen === `registerCheckEmail`">
+      <div class="flex flex-col items-center text-center">
+        <w-icon name="la:envelope-open-text" size="48px" color="primary" class="mb-4" />
+        <p>{{ t('auth.registerCheckEmail') }}</p>
+      </div>
+      <w-separator class="my-4" />
+      <w-btn
+        class="acrylic-btn w-full"
+        flat
+        color="primary"
+        :label="t(`auth.switchToLogin.link`)"
+        no-caps
+        icon="la:arrow-circle-left"
+        @click="switchTo(`login`)" />
+    </template>
+    <!-- ----------------------------------------------------- -->
     <!-- CHANGE PASSWORD SCREEN -->
     <!-- ----------------------------------------------------- -->
     <template v-else-if="state.screen === `changePwd`">
@@ -721,55 +739,49 @@ async function forgotPassword() {
 
 /**
  * REGISTER
+ *
+ * `nextAction: 'verify'` means the strategy requires email validation: the account was created
+ * unverified and a link was mailed to it, so this shows a "check your email" screen instead of
+ * calling `handleLoginResponse()` -- there is no session to establish yet. Any other `nextAction`
+ * (validation off) is a login exactly like every other successful auth attempt, so it's handed to
+ * the same response handler the rest of this panel uses.
  */
 async function register() {
+  loading.show({
+    message: t('auth.registering')
+  })
   try {
     const isFormValid = await registerForm.value.validate(true)
     if (!isFormValid) {
       throw new Error(t('auth.errors.register'))
     }
-    const resp = await APOLLO_CLIENT.mutate({
-      mutation: `
-        mutation(
-          $email: String!
-          $password: String!
-          $name: String!
-          ) {
-          register(
-            email: $email
-            password: $password
-            name: $name
-            ) {
-            operation {
-              succeeded
-              message
-            }
-            jwt
-            nextAction
-            continuationToken
-            redirect
-            tfaQRImage
-          }
-        }
-      `,
-      variables: {
+    const resp = await API_CLIENT.post(`sites/${siteStore.id}/auth/register`, {
+      json: {
+        strategyId: state.selectedStrategyId,
+        name: state.newName,
         email: state.newEmail,
-        password: state.newPassword,
-        name: state.newName
-      }
-    })
-    if (resp.data?.register?.operation?.succeeded) {
+        password: state.newPassword
+      },
+      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+    }).json()
+    if (resp.ok) {
       state.password = ''
       state.newPassword = ''
       state.newPasswordVerify = ''
-      await handleLoginResponse(resp.data.register)
+      if (resp.nextAction === 'verify') {
+        state.screen = 'registerCheckEmail'
+        loading.hide()
+      } else {
+        await handleLoginResponse(resp)
+      }
     } else {
-      throw new Error(resp.data?.register?.operation?.message || t('auth.errors.registerError'))
+      throw new Error(resp.message || 'ERR_REGISTRATION_FAILED')
     }
   } catch (err) {
+    loading.hide()
     notify({
       type: 'negative',
-      message: err.message
+      message: localizeError(apiErrorMessage(err), t)
     })
   }
 }
@@ -893,6 +905,7 @@ async function finishSetupTFA() {
 onMounted(async () => {
   await fetchStrategies()
   reportRedirectLoginError()
+  reportVerifiedSuccess()
 })
 
 /**
@@ -914,6 +927,30 @@ function reportRedirectLoginError() {
     caption: localizeError(code, t)
   })
   params.delete('error')
+  const query = params.toString()
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${window.location.pathname}${query ? `?${query}` : ''}`
+  )
+}
+
+/**
+ * Say a mailed verification link succeeded.
+ *
+ * `GET /auth/verify/:token` redirects here with `?verified=true` on success -- taken out of the
+ * address bar afterwards for the same reason as `error` above: a reload should not repeat the toast.
+ */
+function reportVerifiedSuccess() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('verified') !== 'true') {
+    return
+  }
+  notify({
+    type: 'positive',
+    message: t('auth.verifySuccess')
+  })
+  params.delete('verified')
   const query = params.toString()
   window.history.replaceState(
     window.history.state,
