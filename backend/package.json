@@ -87,6 +87,7 @@
     "@types/qrcode": "1.5.6",
     "@types/sanitize-html": "2.16.1",
     "@types/semver": "7.8.0",
+    "@types/ssh2": "1.15.5",
     "@types/ssh2-sftp-client": "9.0.6",
     "@types/ws": "8.18.1",
     "drizzle-kit": "1.0.0-rc.4",
@@ -94,6 +95,7 @@
     "npm-check-updates": "23.0.2",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
+    "ssh2": "1.17.0",
     "typescript": "7.0.2"
   },
   "optionalDependencies": {

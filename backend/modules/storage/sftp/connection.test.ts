@@ -34,6 +34,83 @@ function makeStubClient(overrides: Record<string, any> = {}): any {
   }
 }
 
+describe('connectSftp — auth config validation', () => {
+  test('throws before ever connecting when authMode=password and password is empty', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({ authMode: 'password', password: '' })
+
+    await assert.rejects(
+      connectSftp(config, () => client as unknown as Client),
+      /uses password authentication, but no password is configured/
+    )
+    assert.equal(client.connect.mock.calls.length, 0)
+  })
+
+  test('throws before ever connecting when authMode=password and password is undefined', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({ authMode: 'password', password: undefined })
+
+    await assert.rejects(
+      connectSftp(config, () => client as unknown as Client),
+      /uses password authentication, but no password is configured/
+    )
+    assert.equal(client.connect.mock.calls.length, 0)
+  })
+
+  test('throws before ever connecting when authMode=password and password is only whitespace', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({ authMode: 'password', password: '   ' })
+
+    await assert.rejects(
+      connectSftp(config, () => client as unknown as Client),
+      /uses password authentication, but no password is configured/
+    )
+    assert.equal(client.connect.mock.calls.length, 0)
+  })
+
+  test('throws before ever connecting when authMode=privateKey and privateKey is empty', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({
+      authMode: 'privateKey',
+      password: undefined,
+      privateKey: ''
+    })
+
+    await assert.rejects(
+      connectSftp(config, () => client as unknown as Client),
+      /uses private-key authentication, but no private key is configured/
+    )
+    assert.equal(client.connect.mock.calls.length, 0)
+  })
+
+  test('throws before ever connecting when authMode=privateKey and privateKey is undefined', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({
+      authMode: 'privateKey',
+      password: undefined,
+      privateKey: undefined
+    })
+
+    await assert.rejects(
+      connectSftp(config, () => client as unknown as Client),
+      /uses private-key authentication, but no private key is configured/
+    )
+    assert.equal(client.connect.mock.calls.length, 0)
+  })
+
+  test('does not require a passphrase for privateKey auth (it is optional)', async () => {
+    const client = makeStubClient()
+    const config = makeConfig({
+      authMode: 'privateKey',
+      password: undefined,
+      privateKey: '-----BEGIN KEY-----',
+      passphrase: undefined
+    })
+
+    await assert.doesNotReject(connectSftp(config, () => client as unknown as Client))
+  })
+})
+
 describe('connectSftp', () => {
   test('connects with password auth and returns the connected client', async () => {
     const client = makeStubClient()
