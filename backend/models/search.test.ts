@@ -275,3 +275,87 @@ describe('search.ensureModule()', () => {
     assert.equal(await search.ensureModule(throwingKey), null)
   })
 })
+
+/**
+ * `search.query()` / `.rebuild()` / `.created()` / `.updated()` / `.deleted()` / `.renamed()`, task
+ * #561: the dispatcher resolves `WIKI.sites[siteId]?.config?.search?.engine` (falling back to `db`)
+ * and delegates to whatever `SearchModule` that key loads.
+ *
+ * Modules are injected straight into `search.modules` rather than through real fixture directories:
+ * `ensureModule()` already checks that cache before touching disk (see the `describe` above), so
+ * seeding it here exercises exactly the dispatcher's resolution logic — reading `WIKI.sites`, falling
+ * back to `db`, forwarding every argument — without needing a `db/search.ts` capable of running real
+ * SQL against a `WIKI.db` this suite has none of.
+ */
+describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('a site with no configured engine dispatches to the db module', async () => {
+    const { calls, module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    ;(globalThis as any).WIKI.sites['site-default'] = { id: 'site-default', config: {} }
+
+    const result = await search.query({ siteId: 'site-default', query: 'wiki' })
+
+    assert.deepEqual(calls, ['query:site-default:wiki'])
+    assert.deepEqual(result, { results: [], totalHits: 0 })
+  })
+
+  test('a site with a configured engine dispatches to that engine instead of db', async () => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const { calls: customCalls, module: customModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    search.modules['custom-engine'] = customModule
+    ;(globalThis as any).WIKI.sites['site-custom'] = {
+      id: 'site-custom',
+      config: { search: { engine: 'custom-engine' } }
+    }
+
+    await search.rebuild('site-custom')
+
+    assert.deepEqual(customCalls, ['rebuild:site-custom'])
+    assert.deepEqual(dbCalls, [])
+  })
+
+  test('created()/updated() resolve the engine from the page’s own siteId', async () => {
+    const { calls, module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    const page = fakePage({ id: 'page-9', siteId: 'site-default' })
+
+    await search.created(page)
+    await search.updated(page)
+
+    assert.deepEqual(calls, ['created:page-9', 'updated:page-9'])
+  })
+
+  test('deleted() forwards siteId and pageId to the resolved engine', async () => {
+    const { calls, module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+
+    await search.deleted('site-default', 'page-gone')
+
+    assert.deepEqual(calls, ['deleted:site-default:page-gone'])
+  })
+
+  test('renamed() forwards siteId, the page and the previous path to the resolved engine', async () => {
+    const { calls, module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    const page = fakePage({ id: 'page-moved', siteId: 'site-default' })
+
+    await search.renamed('site-default', page, 'old/path')
+
+    assert.deepEqual(calls, ['renamed:site-default:page-moved:old/path'])
+  })
+})

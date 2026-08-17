@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
-import { sql } from 'drizzle-orm'
 import { parseModuleProps } from '../helpers/common.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/common.ts'
@@ -10,51 +9,10 @@ import type { pages as pagesTable } from '../db/schema.ts'
 /**
  * The engine every site starts with, and the only one guaranteed to work: postgres full-text search
  * against the wiki's own database. Sorted first among definitions, same as storage's `db` module —
- * it's the safe default an operator sees before any others.
+ * it's the safe default an operator sees before any others, and the fallback `query`/`rebuild`/
+ * `created`/`updated`/`deleted`/`renamed` resolve to when a site's config names no engine.
  */
 const DB_MODULE = 'db'
-
-/**
- * Locale to PostgreSQL text search dictionary, for the languages postgres ships a snowball stemmer
- * for. Anything not listed here falls back to `simple`, which indexes words without stemming — still
- * searchable, just without matching plurals and conjugations.
- *
- * An operator can override or extend this from the admin area, which is what `dictOverrides` is for.
- */
-export const DEFAULT_DICTIONARIES: Record<string, string> = {
-  ar: 'arabic',
-  ca: 'catalan',
-  da: 'danish',
-  de: 'german',
-  el: 'greek',
-  en: 'english',
-  es: 'spanish',
-  et: 'estonian',
-  eu: 'basque',
-  fi: 'finnish',
-  fr: 'french',
-  ga: 'irish',
-  hi: 'hindi',
-  hu: 'hungarian',
-  hy: 'armenian',
-  id: 'indonesian',
-  it: 'italian',
-  lt: 'lithuanian',
-  ne: 'nepali',
-  nl: 'dutch',
-  no: 'norwegian',
-  pt: 'portuguese',
-  ro: 'romanian',
-  ru: 'russian',
-  sr: 'serbian',
-  sv: 'swedish',
-  ta: 'tamil',
-  tr: 'turkish',
-  yi: 'yiddish'
-}
-
-/** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
-export const FALLBACK_DICTIONARY = 'simple'
 
 export interface SearchConfig {
   termHighlighting: boolean
@@ -178,35 +136,16 @@ export interface SearchModule {
 }
 
 /**
- * Markers `ts_headline` wraps a matched term in.
- *
- * Control characters, because the excerpt is page text that may itself contain anything: it is HTML
- * escaped before these are turned into tags, so a page whose text reads `<script>` cannot come back as
- * markup. Anything that could occur in real text would defeat that.
- */
-const HL_START = '\u0002'
-const HL_STOP = '\u0003'
-
-/** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
-function escapeLikePrefix(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-/**
  * Search model
  *
- * Search is postgres full-text: every page carries a `ts` tsvector, indexed with GIN. Which
- * dictionary builds that vector depends on the page's locale, which is why the mapping is
- * configurable — using the wrong stemmer for a language quietly degrades results rather than
- * failing.
+ * A thin dispatcher: it holds no indexing logic of its own. Every real implementation — starting with
+ * postgres full-text search, `modules/search/db/search.ts` — is a `SearchModule`, resolved per site by
+ * `WIKI.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
+ * `created`, `updated`, `deleted` and `renamed` below all just resolve the engine and call through.
+ *
+ * `getConfig()` is the one exception: `termHighlighting`/`dictOverrides` are instance-wide settings the
+ * admin area edits regardless of which engine is active (any engine's headline generation could honour
+ * `termHighlighting`), so they stay read here rather than moving into a specific module.
  */
 class Search {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -314,310 +253,82 @@ class Search {
   }
 
   /**
-   * The text search configurations this postgres actually has, e.g. `english`, `simple`.
+   * The text search configurations this postgres installation actually has, e.g. `english`, `simple`.
    *
-   * Used to validate what an operator maps a locale to: a name postgres does not know would make
-   * every `to_tsvector` call fail at rebuild time, long after the setting was saved.
+   * Not site-scoped — postgres itself is one installation shared by every site — so this always asks
+   * the `db` module specifically rather than going through `engineFor`. Used by the admin area to
+   * validate a `dictOverrides` mapping before it's saved, and by `db`'s own indexing, regardless of
+   * whether `db` is any given site's active engine: an operator can still configure its dictionaries
+   * from the search settings screen even while another engine serves queries.
    */
   async getAvailableDictionaries(): Promise<string[]> {
-    const rows = await WIKI.db.execute(sql`SELECT cfgname FROM pg_ts_config ORDER BY cfgname`)
-    return (rows.rows ?? rows).map((r: any) => r.cfgname as string)
+    const engine = await this.ensureModule(DB_MODULE)
+    if (!engine) {
+      return []
+    }
+    // -> `getAvailableDictionaries` is a `db`-specific capability, not part of `SearchModule` — every
+    //    other engine has nothing resembling a postgres text search dictionary to report
+    return (
+      engine as unknown as { getAvailableDictionaries(): Promise<string[]> }
+    ).getAvailableDictionaries()
   }
 
   /**
-   * The dictionary to index a locale with, preferring the operator's override
+   * The search engine configured for a site, loaded and ready to receive calls.
    *
-   * @param available Dictionary names postgres knows; an unknown mapping degrades to the fallback
+   * A site that names no engine — every site, until per-site engine selection ships — gets `db`, the
+   * one guaranteed to have an implementation. A site that names an engine whose implementation is
+   * missing or failed to load also falls back to `db`, rather than search breaking outright for it.
    */
-  dictionaryForLocale(locale: string, available: string[]): string {
-    const { dictOverrides } = this.getConfig()
-    // -> Locales can be regional (`en-US`), while dictionaries are per language
-    const language = locale.split(/[-_]/)[0] ?? locale
-    const wanted =
-      dictOverrides[locale] ?? dictOverrides[language] ?? DEFAULT_DICTIONARIES[language]
-    if (wanted && available.includes(wanted)) {
-      return wanted
-    }
-    if (wanted) {
-      WIKI.logger.warn(
-        `Text search dictionary "${wanted}" for locale ${locale} is not installed — falling back to ${FALLBACK_DICTIONARY}.`
+  private async engineFor(siteId: string): Promise<SearchModule> {
+    const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+    const module = (await this.ensureModule(key)) ?? (await this.ensureModule(DB_MODULE))
+    if (!module) {
+      throw new Error(
+        `No search engine implementation is available (tried "${key}" and "${DB_MODULE}").`
       )
     }
-    return FALLBACK_DICTIONARY
+    return module
   }
 
   /**
-   * A SQL expression giving the text search dictionary to use for each row.
-   *
-   * The vector on a page was built with its own locale's dictionary, so the query has to be parsed
-   * with the same one — an English query stemmed as French matches nothing. Postgres accepts a
-   * `regconfig` expression, so the mapping travels with the row rather than being fixed per query.
-   *
-   * @param locales Locales the search covers, which is what the CASE needs arms for
-   * @param available Dictionary names postgres knows
+   * Full-text search over the pages of a site. Delegates to the site's configured engine.
    */
-  private dictionaryExpression(locales: string[], available: string[]) {
-    const arms = locales.map((locale) => {
-      const dictionary = this.dictionaryForLocale(locale, available)
-      // -> Both sides are checked values: the locale is compared as a parameter, and the dictionary
-      //    name is one postgres itself reported
-      return sql`WHEN ${locale} THEN ${sql.raw(`'${dictionary}'`)}`
-    })
-    if (arms.length < 1) {
-      return sql`${sql.raw(`'${FALLBACK_DICTIONARY}'`)}::regconfig`
-    }
-    return sql`(CASE p.locale ${sql.join(arms, sql` `)} ELSE ${sql.raw(`'${FALLBACK_DICTIONARY}'`)} END)::regconfig`
+  async query(params: SearchPagesParams): Promise<SearchPagesResult> {
+    const engine = await this.engineFor(params.siteId)
+    return engine.query(params)
   }
 
   /**
-   * Full-text search over the pages of a site.
-   *
-   * The text query is optional: with only tags or filters this is a browse rather than a search, which
-   * is what a query of nothing but `#tags` amounts to. Ranking needs matched terms, so ordering by
-   * relevancy without a query falls back to the most recently updated.
-   *
-   * `isSearchable` is honoured for everyone — a page excluded from search was excluded on purpose.
+   * Recompute the whole search index of a site. Delegates to the site's configured engine.
    */
-  async searchPages({
-    siteId,
-    query = '',
-    path = '',
-    locales = [],
-    tags = [],
-    editor = '',
-    publishState = '',
-    orderBy = 'relevancy',
-    orderByDirection = 'desc',
-    offset = 0,
-    limit = 25,
-    publicOnly = false,
-    includeDrafts = false,
-    hideProtectedContent = true,
-    actor
-  }: SearchPagesParams): Promise<SearchPagesResult> {
-    const terms = query.trim()
-    const hasQuery = terms.length > 0
-
-    // -> Only the locales in play need an arm in the dictionary CASE
-    const siteLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? ['en']
-    const searchedLocales = locales.length > 0 ? locales : siteLocales
-    /*
-      No terms means no query to parse, and therefore no dictionary to parse it with.
-
-      Both arguments are withheld together on purpose. Passing the locales while claiming nothing is
-      installed -- which is what an empty `available` says -- made every locale resolve to the
-      fallback and warn that its dictionary was missing, on a code path that never uses the answer.
-      That warning was the one in the logs: `english` is installed, nobody had looked.
-    */
-    const dict = hasQuery
-      ? this.dictionaryExpression(searchedLocales, await this.getAvailableDictionaries())
-      : this.dictionaryExpression([], [])
-    const tsQuery = sql`websearch_to_tsquery(${dict}, ${terms})`
-
-    const conditions = [sql`p."siteId" = ${siteId}`, sql`p."isSearchable" = true`]
-    if (hasQuery) {
-      conditions.push(sql`p.ts @@ ${tsQuery}`)
-    }
-    if (publicOnly) {
-      // -> Matches what a page view shows an anonymous reader, so that search cannot surface a page
-      //    that could not then be opened
-      conditions.push(sql`p."publishState" = 'published'`)
-    } else if (!includeDrafts) {
-      conditions.push(sql`p."publishState" <> 'draft'`)
-    }
-    if (hideProtectedContent && hasQuery) {
-      /*
-        A protected page is findable by name, not by what it says.
-
-        `indexPage` stores the three parts of a page under distinct weights — title `A`, description
-        `B`, body `C` — so `ts_filter` can drop the body and ask whether the query still matches. A
-        protected page therefore surfaces when the terms are in its title or description, both of which
-        it shows to everyone anyway, and stays out when they are only in the text behind the password.
-        Otherwise a search for a distinctive phrase would confirm the phrase is in there, which is the
-        thing the password is for.
-
-        Written with the cheap test first: for a page with no password the OR short-circuits and
-        `ts_filter` never runs.
-      */
-      conditions.push(sql`(p.password IS NULL OR ts_filter(p.ts, '{a,b}') @@ ${tsQuery})`)
-    }
-    if (publishState) {
-      conditions.push(sql`p."publishState" = ${publishState}`)
-    }
-    if (path) {
-      conditions.push(sql`p.path LIKE ${`${escapeLikePrefix(path)}%`}`)
-    }
-    if (locales.length > 0) {
-      // -> `sql.param`, because a bare array is expanded into a list of placeholders rather than
-      //    bound as one array value
-      conditions.push(sql`p.locale = ANY(${sql.param(locales)}::text[])`)
-    }
-    if (tags.length > 0) {
-      conditions.push(sql`p.tags @> ${sql.param(tags)}::text[]`)
-    }
-    if (editor) {
-      conditions.push(sql`p.editor = ${editor}`)
-    }
-
-    const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
-    // -> Every page ranks 0 without a query, which would leave the order down to the planner
-    const effectiveOrderBy = orderBy === 'relevancy' && !hasQuery ? 'updatedAt' : orderBy
-    const ordering = {
-      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC`,
-      title: sql`p.title ${direction}`,
-      updatedAt: sql`p."updatedAt" ${direction}`
-    }[effectiveOrderBy]
-
-    const { termHighlighting } = this.getConfig()
-    const headline = sql`ts_headline(${dict}, coalesce(p."searchContent", ''), ${tsQuery},
-      ${`StartSel=${HL_START},StopSel=${HL_STOP},MaxWords=25,MinWords=10,MaxFragments=1`})`
-    /*
-      The excerpt is cut from the page's own text, so a protected page has none to give a searcher who
-      would be shown a lock screen on the page itself. `CASE` rather than a filter on the rows: the page
-      still belongs in the results, it just arrives without the part the password covers.
-    */
-    const highlight =
-      !hasQuery || !termHighlighting
-        ? sql`NULL`
-        : hideProtectedContent
-          ? sql`CASE WHEN p.password IS NULL THEN ${headline} ELSE NULL END`
-          : headline
-
-    const rows = await WIKI.db.execute(sql`
-      SELECT
-        p.id,
-        p.path,
-        p.locale,
-        p.title,
-        p.description,
-        p.icon,
-        p.tags,
-        to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
-        ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
-        ${highlight} AS highlight,
-        COUNT(*) OVER() AS "totalHits"
-      FROM pages p
-      WHERE ${sql.join(conditions, sql` AND `)}
-      ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
-    `)
-
-    /*
-      Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
-      the deciding rule is only knowable per row. Search must not be a way around page permissions —
-      a title and an excerpt are content too.
-    */
-    const visible = actor
-      ? ((rows.rows ?? rows) as any[]).filter((row) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', {
-            path: row.path as string,
-            locale: row.locale as string,
-            tags: (row.tags ?? []) as string[]
-          })
-        )
-      : ((rows.rows ?? rows) as any[])
-
-    const result = visible.map((row) => ({
-      id: row.id as string,
-      path: row.path as string,
-      locale: row.locale as string,
-      title: row.title as string,
-      description: row.description ?? null,
-      icon: row.icon ?? null,
-      tags: (row.tags ?? []) as string[],
-      updatedAt: row.updatedAt as string,
-      relevancy: Number(row.relevancy ?? 0),
-      // -> Escaped first, so the only markup that survives is the emphasis postgres marked
-      highlight: row.highlight
-        ? escapeHtml(row.highlight as string)
-            .replaceAll(HL_START, '<b>')
-            .replaceAll(HL_STOP, '</b>')
-        : null
-    }))
-
-    return {
-      results: result,
-      /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
-      */
-      totalHits: Math.max(
-        0,
-        Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-          ((rows.rows ?? rows) as any[]).length +
-          visible.length
-      )
-    }
+  async rebuild(siteId: string): Promise<RebuildResult> {
+    const engine = await this.engineFor(siteId)
+    return engine.rebuild(siteId)
   }
 
-  /**
-   * Recompute the search vector of every page.
-   *
-   * Grouped by locale, since the dictionary is chosen per locale. Title and description are weighted
-   * above the body so that a page whose title matches outranks one that merely mentions the term.
-   *
-   * Runs over every page rather than only searchable ones: whether a page shows up in results is
-   * decided at query time by `isSearchableComputed`, and keeping the vector current means flipping a
-   * page back to searchable needs no reindex.
-   */
-  async rebuildIndex(): Promise<RebuildResult> {
-    const available = await this.getAvailableDictionaries()
-    const localeRows = await WIKI.db.execute(sql`SELECT DISTINCT locale FROM pages ORDER BY locale`)
-    const locales = ((localeRows.rows ?? localeRows) as any[]).map((r) => r.locale as string)
-
-    WIKI.logger.info(`Rebuilding the search index for ${locales.length} locale(s)...`)
-    const result: RebuildResult = { pages: 0, locales: [] }
-
-    for (const locale of locales) {
-      const dictionary = this.dictionaryForLocale(locale, available)
-      // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
-      //    names postgres itself reported, so it cannot carry anything unexpected
-      const updated = await WIKI.db.execute(sql`
-        UPDATE pages SET ts =
-          setweight(to_tsvector(${sql.raw(`'${dictionary}'`)}, coalesce(title, '')), 'A') ||
-          setweight(to_tsvector(${sql.raw(`'${dictionary}'`)}, coalesce(description, '')), 'B') ||
-          setweight(to_tsvector(${sql.raw(`'${dictionary}'`)}, coalesce("searchContent", '')), 'C')
-        WHERE locale = ${locale}
-      `)
-      const pages = updated.rowCount ?? 0
-      result.pages += pages
-      result.locales.push({ locale, dictionary, pages })
-      WIKI.logger.info(
-        `Reindexed ${pages} page(s) in ${locale} using the ${dictionary} dictionary.`
-      )
-    }
-
-    WIKI.logger.info(`Search index rebuild completed: ${result.pages} page(s) [ OK ]`)
-    return result
+  /** A page was created. Delegates to the page's site's configured engine. */
+  async created(page: SearchIndexablePage): Promise<void> {
+    const engine = await this.engineFor(page.siteId)
+    await engine.created(page)
   }
 
-  /**
-   * Recompute one page's search vector, after it was created or edited.
-   *
-   * Same weighting as a full rebuild — title above description above body — so that a page saved
-   * today ranks against pages last indexed by a rebuild rather than alongside them.
-   *
-   * Never throws: a page that saved correctly must not report failure because its index entry could
-   * not be written, and the next rebuild puts it right.
-   */
-  async indexPage(id: string, locale: string): Promise<void> {
-    try {
-      const dictionary = this.dictionaryForLocale(locale, await this.getAvailableDictionaries())
-      // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
-      //    names postgres itself reported, so it cannot carry anything unexpected
-      const dict = sql.raw(`'${dictionary}'`)
-      await WIKI.db.execute(sql`
-        UPDATE pages SET ts =
-          setweight(to_tsvector(${dict}, coalesce(title, '')), 'A') ||
-          setweight(to_tsvector(${dict}, coalesce(description, '')), 'B') ||
-          setweight(to_tsvector(${dict}, coalesce("searchContent", '')), 'C')
-        WHERE id = ${id}
-      `)
-    } catch (err: any) {
-      WIKI.logger.warn(`Failed to update the search index for page ${id}: ${err.message}`)
-    }
+  /** A page's content or metadata changed. Delegates to the page's site's configured engine. */
+  async updated(page: SearchIndexablePage): Promise<void> {
+    const engine = await this.engineFor(page.siteId)
+    await engine.updated(page)
+  }
+
+  /** A page was deleted. Delegates to the site's configured engine. */
+  async deleted(siteId: string, pageId: string): Promise<void> {
+    const engine = await this.engineFor(siteId)
+    await engine.deleted(siteId, pageId)
+  }
+
+  /** A page moved. Delegates to the page's site's configured engine. */
+  async renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void> {
+    const engine = await this.engineFor(siteId)
+    await engine.renamed(siteId, page, previousPath)
   }
 }
 

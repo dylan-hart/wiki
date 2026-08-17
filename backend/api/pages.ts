@@ -324,7 +324,7 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const actor = actorFrom(req)
       const permissions = actor?.permissions ?? []
-      return WIKI.models.search.searchPages({
+      return WIKI.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
         path: req.query.path,
