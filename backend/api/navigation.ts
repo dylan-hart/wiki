@@ -19,6 +19,12 @@ const navigationItem = {
       type: 'array',
       items: { type: 'string' },
       description: 'Groups the item is limited to. Visible to everyone when empty.'
+    },
+    pinned: {
+      type: 'string',
+      enum: ['before', 'after'],
+      description:
+        "`mixed` menus only: whether a stored top-level item is placed before or after the tree-generated items it is merged with. Meaningless on `static`/`auto` menus and on nested items. Anything other than 'before' (including absent) is treated as 'after'."
     }
   }
 }
@@ -51,7 +57,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a navigation menu',
         description:
-          "The items of one menu, addressed by the id a page's `navigationId` points at.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead, and needs `manage:navigation`.",
+          'The resolved items of one menu, addressed by the id a page\'s `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item\'s `pinned` placement — so this is not always "a column read verbatim" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead (still including generation, so it is the preview an editor needs for `auto`/`mixed`, not just raw stored items), and needs `manage:navigation`.',
         tags: ['Navigation'],
         params: {
           type: 'object',

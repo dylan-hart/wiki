@@ -407,3 +407,159 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     )
   })
 })
+
+/**
+ * `getNav`'s mode branch: this is what wires `generateFromTree` in, so it runs against a real,
+ * migrated database like the rest of this file's SQL-orchestration-heavy suites, rather than mocking
+ * the query builder.
+ */
+describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+  let pagesModel: typeof import('./pages.ts').pages
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function setMode(navId: string, mode: 'static' | 'auto' | 'mixed') {
+    await WIKI.db.update(navigationTable).set({ mode }).where(eq(navigationTable.id, navId))
+  }
+
+  test('static mode returns the stored items unchanged, unaffected by mode wiring', async () => {
+    const items: NavigationItem[] = [{ id: 'a', type: 'link', label: 'Hand-authored', target: '/' }]
+    await navigationModel.setNavItems(fixtures.siteId, fixtures.siteId, items)
+    await setMode(fixtures.siteId, 'static')
+
+    const result = await navigationModel.getNav(fixtures.siteId)
+    assert.deepEqual(result, items)
+  })
+
+  test('auto mode ignores stored items and returns the tree walk from the site root', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'auto-mode-page',
+        title: 'Auto Mode Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+    await navigationModel.setNavItems(fixtures.siteId, fixtures.siteId, [
+      { id: 'stale', type: 'link', label: 'Should not appear', target: '/' }
+    ])
+    await setMode(fixtures.siteId, 'auto')
+
+    const result = await navigationModel.getNav(fixtures.siteId)
+    assert.equal(
+      result.some((item) => item.label === 'Should not appear'),
+      false
+    )
+    const generated = result.find((item) => item.label === 'Auto Mode Page')
+    assert.ok(generated)
+    assert.equal(generated!.target, '/en/auto-mode-page')
+  })
+
+  test('auto mode still applies visibility-group filtering on top of generated items', async () => {
+    await pagesModel
+      .createPage(
+        fixtures.siteId,
+        {
+          path: 'auto-mode-page',
+          title: 'Auto Mode Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        { id: fixtures.userId, permissions: ['manage:system'] }
+      )
+      .catch(() => {}) // -> May already exist from the previous test in this describe; irrelevant here
+    await setMode(fixtures.siteId, 'auto')
+
+    // -> Generated items never carry `visibilityGroups`, so they are always visible -- this just
+    //    confirms the filtering pass runs at all (it would throw/behave differently on `unfiltered`
+    //    input shaped unexpectedly) and that `unfiltered` still returns the same generated set
+    const filtered = await navigationModel.getNav(fixtures.siteId, { userGroups: [] })
+    const full = await navigationModel.getNav(fixtures.siteId, { unfiltered: true })
+    assert.deepEqual(
+      filtered.map((i) => i.id),
+      full.map((i) => i.id)
+    )
+  })
+
+  test('mixed mode merges generated items with pinned stored items, defaulting unpinned ones to after', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'mixed-mode-page',
+        title: 'Mixed Mode Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+    await navigationModel.setNavItems(fixtures.siteId, fixtures.siteId, [
+      { id: 'pinned-before', type: 'link', label: 'Pinned Before', target: '/', pinned: 'before' },
+      { id: 'unpinned', type: 'link', label: 'Unpinned', target: '/' },
+      { id: 'pinned-after', type: 'link', label: 'Pinned After', target: '/', pinned: 'after' }
+    ])
+    await setMode(fixtures.siteId, 'mixed')
+
+    const result = await navigationModel.getNav(fixtures.siteId)
+    const ids = result.map((i) => i.id)
+    const generatedIndex = result.findIndex((i) => i.label === 'Mixed Mode Page')
+
+    assert.equal(ids[0], 'pinned-before')
+    assert.ok(generatedIndex > 0, 'generated item comes after the pinned-before item')
+    // -> Unpinned and explicitly-'after' stored items both land after every generated item
+    assert.ok(ids.indexOf('unpinned') > generatedIndex)
+    assert.equal(ids[ids.length - 1], 'pinned-after')
+    assert.equal(ids[ids.length - 2], 'unpinned')
+  })
+
+  test("a tree-entry-owned auto menu generates from that entry's own folderPath (its siblings), not its own subtree", async () => {
+    const overriddenPage = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'sibling-scope/override-target',
+        title: 'Override Target',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'sibling-scope/sibling-page',
+        title: 'Sibling Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: overriddenPage.id,
+      mode: 'override',
+      items: []
+    })
+    await setMode(overriddenPage.id, 'auto')
+
+    const result = await navigationModel.getNav(overriddenPage.id)
+    const labels = result.map((i) => i.label)
+    assert.ok(labels.includes('Override Target'))
+    assert.ok(labels.includes('Sibling Page'))
+  })
+
+  test('a nonexistent menu id returns an empty list rather than throwing', async () => {
+    const result = await navigationModel.getNav(crypto.randomUUID())
+    assert.deepEqual(result, [])
+  })
+})
