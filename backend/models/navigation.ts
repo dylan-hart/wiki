@@ -1,6 +1,7 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import type { TreeItemType } from './tree.ts'
 
 export const NAVIGATION_MODES = [
   'inherit',
@@ -25,6 +26,18 @@ export interface NavigationItem {
 }
 
 export interface UpdateNavigationResult {
+  navigationMode: NavigationMode
+  navigationId: string | null
+}
+
+/** One tree entry whose navigation mode overrides what it would otherwise inherit. */
+export interface NavigationOverride {
+  id: string
+  type: TreeItemType
+  folderPath: string
+  fileName: string
+  title: string
+  locale: string
   navigationMode: NavigationMode
   navigationId: string | null
 }
@@ -106,6 +119,46 @@ class Navigation {
       return
     }
     await WIKI.db.delete(navigationTable).where(inArray(navigationTable.id, ids))
+  }
+
+  /**
+   * Every tree entry in a site whose navigation mode overrides what it would otherwise inherit.
+   *
+   * A flat scan against `tree`, not a walk of the hierarchy: `navigationMode` and `folderPath` are
+   * both indexed, so filtering on the former and ordering by the latter is a cheap indexed scan
+   * rather than something that needs `ancestorNavId`'s ltree-ancestry logic, which answers a
+   * different question (the single nearest override above one entry, not every entry that overrides).
+   *
+   * @param locale Restrict to entries in this locale. Every locale when omitted.
+   */
+  async listOverrides(
+    siteId: string,
+    { locale }: { locale?: string } = {}
+  ): Promise<NavigationOverride[]> {
+    const conditions = [eq(treeTable.siteId, siteId), ne(treeTable.navigationMode, 'inherit')]
+    if (locale) {
+      conditions.push(eq(treeTable.locale, locale))
+    }
+
+    const rows = await WIKI.db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        title: treeTable.title,
+        locale: treeTable.locale,
+        navigationMode: treeTable.navigationMode,
+        navigationId: treeTable.navigationId
+      })
+      .from(treeTable)
+      .where(and(...conditions))
+      .orderBy(asc(treeTable.folderPath), asc(treeTable.fileName))
+
+    return rows.map((row) => ({
+      ...row,
+      folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
+    }))
   }
 
   /** The tree entry a navigation change is addressed to. */

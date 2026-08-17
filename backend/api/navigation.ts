@@ -146,6 +146,62 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * LIST NAVIGATION OVERRIDES
+   */
+  app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
+    '/sites/:siteId/navigation/overrides',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: 'List navigation overrides',
+        description:
+          'Every tree entry in the site whose navigation mode is not `inherit` — the pages and folders that override or hide the sidebar, rather than falling back to whatever an ancestor decides. A flat list across the whole site, not scoped to one subtree, which is what an admin screen managing overrides needs to show them all at once.\n\n`locale` restricts it to one locale; every locale comes back when omitted.',
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            locale: { type: 'string', description: 'Restrict the list to this locale.' }
+          }
+        },
+        response: {
+          200: {
+            description:
+              'Tree entries overriding navigation, ordered by folder path then file name',
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                type: { type: 'string', enum: ['folder', 'page', 'asset'] },
+                folderPath: { type: 'string' },
+                fileName: { type: 'string' },
+                title: { type: 'string' },
+                locale: { type: 'string' },
+                navigationMode: { type: 'string', enum: NAVIGATION_MODES },
+                navigationId: { type: ['string', 'null'] }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.navigation.listOverrides(req.params.siteId, {
+        locale: req.query.locale
+      })
+    }
+  )
+
+  /**
    * UPDATE NAVIGATION
    */
   app.put<{
