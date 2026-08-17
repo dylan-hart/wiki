@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import PageComments from './PageComments.vue'
+import { closeDialog, openDialogs } from '@/composables/dialog'
 import { queue as notifyQueue } from '@/composables/notify'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -27,10 +28,17 @@ const MESSAGES = {
         contentMissingError: 'Comment is empty or too short!',
         postComment: 'Post Comment',
         postSuccess: 'New comment posted successfully.',
-        postingAs: 'Posting as {name}'
+        postingAs: 'Posting as {name}',
+        updateComment: 'Update Comment',
+        updateSuccess: 'Comment was updated successfully.',
+        deleteConfirmTitle: 'Confirm Delete',
+        deleteWarn: 'Are you sure you want to permanently delete this comment?',
+        deletePermanentWarn: 'This action cannot be undone!',
+        deleteSuccess: 'Comment was deleted successfully.'
       },
       actions: {
-        cancel: 'Cancel'
+        cancel: 'Cancel',
+        delete: 'Delete'
       },
       error: {
         generic: {
@@ -80,6 +88,7 @@ async function mountComments({
   pageId = 'p1',
   commentsCount = 0,
   canWrite = false,
+  canModerate = false,
   authenticated = true
 } = {}) {
   setActivePinia(createPinia())
@@ -92,9 +101,14 @@ async function mountComments({
   siteStore.id = 's1'
 
   const userStore = useUserStore()
+  const pagePermissions = []
   if (canWrite) {
-    userStore.pagePermissions = ['write:comments']
+    pagePermissions.push('write:comments')
   }
+  if (canModerate) {
+    pagePermissions.push('manage:comments')
+  }
+  userStore.pagePermissions = pagePermissions
   userStore.authenticated = authenticated
   userStore.name = 'Jane Doe'
 
@@ -331,5 +345,142 @@ describe('PageComments', () => {
     expect(wrapper.text()).toContain('Reply Author')
     expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(false)
     expect(pageStore.commentsCount).toBe(2)
+  })
+
+  /*
+    Feature 391's shipped route (`feature/comments-rest-api`, read read-only for this task) does not
+    put `canEdit` / `canDelete` on the wire -- `toPublicComment()` there sends `authorId` only, never
+    a resolved boolean -- so per task 630's explicit fallback, edit/delete gate on `manage:comments`
+    alone rather than on a per-comment flag that does not exist yet. See the doc comment on
+    `canModerate` in `PageComments.vue`.
+  */
+  it('shows edit/delete controls only for a viewer who holds manage:comments', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper: withModerate } = await mountComments({ canModerate: true })
+    expect(withModerate.find('.page-comments-edit-toggle').exists()).toBe(true)
+    expect(withModerate.find('.page-comments-delete-toggle').exists()).toBe(true)
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper: withoutModerate } = await mountComments({ canModerate: false })
+    expect(withoutModerate.find('.page-comments-edit-toggle').exists()).toBe(false)
+    expect(withoutModerate.find('.page-comments-delete-toggle').exists()).toBe(false)
+  })
+
+  it('edits a comment: swaps the body for a textarea pre-filled with raw content, saves via PATCH, and shows success', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ content: 'raw markdown, never rendered' })])
+    })
+    const { wrapper } = await mountComments({ canModerate: true })
+
+    await wrapper.find('.page-comments-edit-toggle').trigger('click')
+
+    // -> Pre-filled with the raw markdown, not the rendered HTML
+    const textarea = wrapper.find('textarea')
+    expect(textarea.exists()).toBe(true)
+    expect(textarea.element.value).toBe('raw markdown, never rendered')
+    expect(wrapper.text()).not.toContain('Hello there')
+
+    const updated = comment({
+      content: 'edited content',
+      render: '<p>edited content</p>',
+      updatedAt: '2026-08-03T00:00:00.000Z'
+    })
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve(updated) })
+
+    await textarea.setValue('edited content')
+    await findButton(wrapper, 'Update Comment').trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/s1/pages/p1/comments/c1', {
+      json: { content: 'edited content' }
+    })
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.html()).toContain('<p>edited content</p>')
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Comment was updated successfully.'
+    })
+  })
+
+  it('cancels an edit without saving', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper } = await mountComments({ canModerate: true })
+
+    await wrapper.find('.page-comments-edit-toggle').trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(true)
+
+    await findButton(wrapper, 'Cancel').trigger('click')
+    expect(wrapper.find('textarea').exists()).toBe(false)
+    expect(wrapper.html()).toContain('<p>Hello there</p>')
+    expect(API_CLIENT.patch).not.toHaveBeenCalled()
+  })
+
+  it('deletes a comment via confirm(), removes it, decrements commentsCount, and shows success', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
+    })
+    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+
+    notifyQueue.splice(0, notifyQueue.length)
+    await wrapper.find('.page-comments-delete-toggle').trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Confirm Delete',
+      message: 'Are you sure you want to permanently delete this comment?',
+      caption: 'This action cannot be undone!',
+      cancel: true
+    })
+
+    API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/s1/pages/p1/comments/root')
+    expect(wrapper.text()).not.toContain('Root Author')
+    expect(pageStore.commentsCount).toBe(0)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'Comment was deleted successfully.'
+    })
+  })
+
+  it('deleting a comment with replies removes the replies too and decrements commentsCount by the whole subtree', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve([
+          comment({
+            id: 'root',
+            authorName: 'Root Author',
+            replies: [
+              comment({ id: 'reply1', replyTo: 'root', authorName: 'Reply Author' }),
+              comment({ id: 'reply2', replyTo: 'root', authorName: 'Second Reply' })
+            ]
+          })
+        ])
+    })
+    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 3 })
+    expect(wrapper.findAll('.page-comments-item')).toHaveLength(3)
+
+    await wrapper.find('.page-comments-delete-toggle').trigger('click')
+    API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(wrapper.findAll('.page-comments-item')).toHaveLength(0)
+    expect(pageStore.commentsCount).toBe(0)
+  })
+
+  it('does not delete when the confirm dialog is cancelled', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper, pageStore } = await mountComments({ canModerate: true, commentsCount: 1 })
+
+    await wrapper.find('.page-comments-delete-toggle').trigger('click')
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(API_CLIENT.delete).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.page-comments-item')).toHaveLength(1)
+    expect(pageStore.commentsCount).toBe(1)
   })
 })
