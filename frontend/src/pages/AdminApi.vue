@@ -104,6 +104,16 @@
                 <w-item-label caption>{{
                   t('admin.api.permissionsFrom', { groups: groupNames(key) })
                 }}</w-item-label>
+                <!--
+                  A key's actual reach: `null` means unscoped, the same as every key before scoping
+                  existed, so that state gets the reassuring "Full Access" wording rather than reading
+                  as an empty, broken list.
+                -->
+                <w-item-label caption>{{
+                  key.scope === null
+                    ? t('admin.api.newKeyFullAccess')
+                    : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
+                }}</w-item-label>
                 <w-item-label caption>{{
                   t('admin.api.createdOn', { date: humanizeDate(key.createdAt) })
                 }}</w-item-label>

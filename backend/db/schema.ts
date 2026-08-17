@@ -45,6 +45,12 @@ export const apiKeys = pgTable('apiKeys', {
   // -> IDs of the groups whose permissions the key carries. Resolved on every request, so editing a
   //    group immediately affects the keys pointing at it.
   groups: jsonb().notNull().default([]),
+  // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing at all
+  //    (the key carries the full union of its groups' permissions). Never widens:
+  //    `resolvePermissions()` intersects this against what the groups actually grant, so editing a
+  //    group can only take permissions away from a scoped key, never hand it one its scope doesn't
+  //    list.
+  scope: jsonb().$type<string[] | null>().default(null),
   expiration: timestamp().notNull().defaultNow(),
   isRevoked: boolean().notNull().default(false),
   createdAt: timestamp().notNull().defaultNow(),

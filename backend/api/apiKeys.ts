@@ -37,7 +37,7 @@ async function routes(app: FastifyInstance) {
    * CREATE API KEY
    */
   app.post<{
-    Body: { name: string; expiration: KeyExpiration; groups: string[] }
+    Body: { name: string; expiration: KeyExpiration; groups: string[]; scope?: string[] | null }
   }>(
     '/',
     {
@@ -47,7 +47,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a new API key',
         description:
-          'The response carries the token, which is the only time it can be read: only its last characters are stored. The key holds the combined permissions of the groups given.',
+          'The response carries the token, which is the only time it can be read: only its last characters are stored. The key holds the combined permissions of the groups given, narrowed to `scope` when one is given.',
         tags: ['API Keys'],
         body: {
           type: 'object',
@@ -69,6 +69,13 @@ async function routes(app: FastifyInstance) {
                 type: 'string',
                 format: 'uuid'
               }
+            },
+            scope: {
+              type: ['array', 'null'],
+              default: null,
+              description:
+                'An explicit permission allow-list to narrow the key to. Omit or pass null for no narrowing — the key then carries the full union of the groups given. Can only narrow: a permission here that none of the groups grant still grants nothing.',
+              items: { $ref: 'ApiKeyScopePermission#' }
             }
           }
         },
@@ -118,7 +125,8 @@ async function routes(app: FastifyInstance) {
       const { id, key } = await WIKI.models.apiKeys.createKey({
         name: req.body.name,
         expiration: req.body.expiration,
-        groups: req.body.groups
+        groups: req.body.groups,
+        scope: req.body.scope ?? null
       })
 
       return {
