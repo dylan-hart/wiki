@@ -2,6 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ruleMatchesPage, resolvePageRule, rulesAllow, type RulePageRef } from './pageRules.ts'
 import type { GroupRule, GroupRuleMatch } from '../models/groups.ts'
+import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
 /** A rule with sane defaults, overridden per test. Mirrors the shape stored on a group row. */
 function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
@@ -333,5 +334,23 @@ describe('resolvePageRule / rulesAllow', () => {
     const forceRules = [makeRule({ match: 'START', path: '', mode: 'FORCEALLOW' })]
     assert.equal(rulesAllow(allowRules, 'read:pages', page()), true)
     assert.equal(rulesAllow(forceRules, 'read:pages', page()), true)
+  })
+
+  /**
+   * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario, shared with
+   * `models/groups.test.ts`'s DB-backed run of the identical rule set through `checkAccess` — see
+   * `test/permissionScenario.ts`. Proving both agree is what makes this a full-stack check rather
+   * than two hand-written scenarios that happen to look alike.
+   */
+  describe('realistic ALLOW/DENY/FORCEALLOW scenario (shared with models/groups.test.ts)', () => {
+    for (const { path, expected, note } of GUEST_SCENARIO_CASES) {
+      test(`${path}: ${note}`, () => {
+        assert.equal(
+          rulesAllow(GUEST_SCENARIO_RULES, 'read:pages', page({ path })),
+          expected,
+          `expected read:pages on '${path}' to be ${expected} (${note})`
+        )
+      })
+    }
   })
 })

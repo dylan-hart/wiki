@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import type { GroupRule } from './groups.ts'
+import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
 /**
  * `groups.checkAccess` is the one place a page permission is decided (see the "Permissions" section
@@ -132,5 +133,27 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'read:pages', { path: 'anything', locale: 'en', tags: [] }),
       false
     )
+  })
+
+  /**
+   * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
+   * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
+   * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory
+   * cache (`reloadCache()`), and decided by the real `checkAccess`, rather than calling
+   * `resolvePageRule` directly the way `helpers/pageRules.test.ts`'s identical scenario does. Both
+   * files asserting the same four cases against the same rule set is what proves the pure-function
+   * engine and the DB-backed model built on top of it agree.
+   */
+  test('a broad ALLOW, a narrower DENY subtree, and a FORCEALLOW hole in it — full stack', async () => {
+    await setGroupRules(GUEST_SCENARIO_RULES)
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    for (const { path, expected, note } of GUEST_SCENARIO_CASES) {
+      assert.equal(
+        groupsModel.checkAccess(actor, 'read:pages', { path, locale: 'en', tags: [] }),
+        expected,
+        `expected read:pages on '${path}' to be ${expected} (${note})`
+      )
+    }
   })
 })
