@@ -414,6 +414,24 @@ class Rendering {
    *
    * Child blocks are exempt, having no switch of their own: a tab is part of the tabs it sits in,
    * and is gated by `unwrapOrphanedChildBlocks` once the parent's fate is known.
+   *
+   * Task 631 verified this generically for `block-katex`/`block-mathjax` specifically, since Feature
+   * 366 ("Math Rendering Parity & Engine Selection") originally framed per-site engine choice as
+   * "switching" one on and the other off. Confirmed both halves end to end
+   * (`rendering-block-toggle.test.ts`): disabling `katex` for a site strips `<block-katex>` from a
+   * page's stored render the next time it goes through `postProcess` (a save, or `storeRender` off
+   * the back of `drainQueue`) exactly like any other disabled block — unwrapped, not deleted, so the
+   * fenced TeX source is left behind as visible text rather than vanishing or lingering as an
+   * unstyled custom element. But "switching engines" only ever means the site's enabled-block set;
+   * nothing here rewrites markup. A page already authored with `::block-katex` is unaffected by
+   * enabling `mathjax` alongside disabling `katex` — it still degrades to inert code, it does not
+   * become `::block-mathjax`. That is accepted as expected behaviour, not a gap: this function's job
+   * is "what may a stored page carry", not "keep pages current with an admin's block configuration",
+   * and rewriting one block's markup into another's is content authorship, not sanitisation — the
+   * same reason `postProcess` never rewrites `::block-diagram` into `::block-plantuml` either. A
+   * migration path (find pages containing `<block-katex>` for a site, offer to rewrite them to
+   * `<block-mathjax>` with equivalent props) is a real feature but a distinct, opt-in one; scope it as
+   * its own task if automatic migration is ever actually wanted; nothing here blocks building it.
    */
   private blockAllowances(enabledBlocks: Set<string>): {
     tags: string[]
