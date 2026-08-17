@@ -37,10 +37,6 @@ const overlays = {
     loader: () => import('./PageHistoryOverlay.vue'),
     loadingComponent: LoadingGeneric
   }),
-  PageSource: defineAsyncComponent({
-    loader: () => import('./PageSourceOverlay.vue'),
-    loadingComponent: LoadingGeneric
-  }),
   TableEditor: defineAsyncComponent({
     loader: () => import('./TableEditorOverlay.vue'),
     loadingComponent: LoadingGeneric

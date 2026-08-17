@@ -116,14 +116,43 @@
         @click="viewPageHistory">
         <w-tooltip anchor="center left" self="center right">Page History</w-tooltip>
       </w-btn>
+      <!--
+        Markdown/HTML download instantly (fetch-then-`fileSave`, same as the old Page Source overlay
+        used); PDF drives a headless Chromium render that genuinely takes a few real seconds, so the
+        button itself carries `loading` while it's in flight -- `w-btn`'s own spinner-over-icon, which
+        also disables the button so a second click can't stack a second render underneath the first.
+      -->
       <w-btn
         class="h-12"
         flat
-        icon="la:code"
+        icon="la:file-export"
+        :loading="exportingPdf"
         :color="editorStore.isActive ? `white` : `grey`"
-        aria-label="Page Source"
-        @click="viewPageSource">
-        <w-tooltip anchor="center left" self="center right">Page Source</w-tooltip>
+        aria-label="Export Page">
+        <w-tooltip anchor="center left" self="center right">Export Page</w-tooltip>
+        <w-menu anchor="top left" self="top right" auto-close :offset="[10, 0]">
+          <w-list padding style="min-width: 180px">
+            <w-item clickable @click="exportPage(`markdown`)">
+              <w-item-section class="items-center" avatar>
+                <w-icon class="text-deep-orange-9" name="la:markdown" size="sm" />
+              </w-item-section>
+              <w-item-section><w-item-label>Markdown</w-item-label></w-item-section>
+            </w-item>
+            <w-item clickable @click="exportPage(`html`)">
+              <w-item-section class="items-center" avatar>
+                <w-icon class="text-deep-orange-9" name="mdi:language-html5" size="sm" />
+              </w-item-section>
+              <w-item-section><w-item-label>HTML</w-item-label></w-item-section>
+            </w-item>
+            <!-- -> Gated on the availability signal task 500 added: no button that just 503s -->
+            <w-item clickable v-if="siteStore.pdfExportAvailable" @click="exportPage(`pdf`)">
+              <w-item-section class="items-center" avatar>
+                <w-icon class="text-deep-orange-9" name="la:file-pdf" size="sm" />
+              </w-item-section>
+              <w-item-section><w-item-label>PDF</w-item-label></w-item-section>
+            </w-item>
+          </w-list>
+        </w-menu>
       </w-btn>
     </template>
     <!-- -> `hasPageActions` takes the rule with it: a separator over a button that opens nothing is a
@@ -228,9 +257,11 @@
 import { computed, defineAsyncComponent, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { fileSave } from 'browser-fs-access'
 
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -260,6 +291,20 @@ const { t } = useI18n()
 const menuPendingAssets = ref(null)
 
 // DATA
+
+/** Set only while a PDF export is in flight -- the one format that can't just hand back a Blob. */
+const exportingPdf = ref(false)
+
+/**
+ * File extension + MIME for the two formats fetched as text. Kept bare of a `;charset=` parameter:
+ * the save picker uses this as an `accept` key and rejects a type carrying one, and a Blob built from
+ * a JS string is UTF-8 regardless -- the same fetch-then-`fileSave` pattern the now-retired
+ * `PageSourceOverlay.vue` (the old "Page Source" rail button's viewer) had already proven.
+ */
+const EXPORT_TEXT_TYPES = {
+  markdown: { ext: 'md', mime: 'text/markdown' },
+  html: { ext: 'html', mime: 'text/html' }
+}
 
 // COMPUTED
 
@@ -304,8 +349,54 @@ function viewPageHistory() {
   siteStore.$patch({ overlay: 'PageHistory', overlayOpts: {} })
 }
 
-function viewPageSource() {
-  siteStore.$patch({ overlay: 'PageSource', overlayOpts: {} })
+/** The page's own name, off its path -- the home page's path is empty, so that falls back to `home`. */
+function exportFileStem() {
+  return pageStore.path.split('/').filter(Boolean).pop() || 'home'
+}
+
+function exportPage(format) {
+  return format === 'pdf' ? exportPagePdf() : exportPageText(format)
+}
+
+async function exportPageText(format) {
+  const type = EXPORT_TEXT_TYPES[format]
+  try {
+    const text = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export`, {
+      searchParams: { format }
+    }).text()
+    await fileSave(new Blob([text], { type: type.mime }), {
+      fileName: `${exportFileStem()}.${type.ext}`,
+      extensions: [`.${type.ext}`]
+    })
+  } catch (err) {
+    // -> Dismissing the file picker is not a failure
+    if (err.name !== 'AbortError') {
+      notify({ type: 'negative', message: 'Failed to export page.', caption: apiErrorMessage(err) })
+    }
+  }
+}
+
+async function exportPagePdf() {
+  exportingPdf.value = true
+  try {
+    const blob = await API_CLIENT.get(
+      `sites/${siteStore.id}/pages/${pageStore.id}/export/pdf`
+    ).blob()
+    await fileSave(blob, {
+      fileName: `${exportFileStem()}.pdf`,
+      extensions: ['.pdf']
+    })
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      notify({
+        type: 'negative',
+        message: 'Failed to export page as PDF.',
+        caption: apiErrorMessage(err)
+      })
+    }
+  } finally {
+    exportingPdf.value = false
+  }
 }
 
 function rerenderPage() {
