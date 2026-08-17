@@ -34,14 +34,28 @@ import { getEditorForContentType } from '../../../models/pages.ts'
 import { ensureRepo } from './storage.ts'
 import { covers, fileExists } from './content.ts'
 
-/** Who a DB write coming from the remote side of a sync is attributed to. */
-interface ImportActor {
+/**
+ * Who a DB write coming from the remote side of a sync is attributed to.
+ *
+ * Exported for `actions.ts`: `resolveImportActor`/`processDiffEntry` are shared with `importAll`,
+ * which attributes its bulk upsert to the same identity.
+ */
+export interface ImportActor {
   id: string
   permissions: string[]
 }
 
-/** One file the diff between the previous and new HEAD reports as changed. */
-interface DiffEntry {
+/**
+ * One file the diff between the previous and new HEAD reports as changed.
+ *
+ * Exported for `actions.ts`: `importAll` reuses `processDiffEntry` below to upsert every file it finds
+ * in the working tree, built from a synthetic entry (`exists: true`, `oldPath === relPath`, no
+ * insertions/deletions) rather than a real `diffSummary` line — that shape is exactly what makes
+ * `processPageEntry`/`processAssetEntry`'s rename/delete branches (which all key off `relPath !==
+ * oldPath` or `!exists`) fall straight through to the same "does it exist in the DB yet" upsert every
+ * other caller of this file reaches too.
+ */
+export interface DiffEntry {
   /** Path (relative to the repo root) the file has now — after whatever rename, if any. */
   relPath: string
   /** Path it had before — equal to `relPath` when this file was not renamed. */
@@ -143,7 +157,7 @@ function guessAssetBucket(relPath: string): string {
  * a resolvable user, there is nobody to attribute the write to, and DB import for this sync is
  * skipped entirely (the pull and push above still happened) rather than fabricated.
  */
-async function resolveImportActor(target: StorageTarget): Promise<ImportActor | null> {
+export async function resolveImportActor(target: StorageTarget): Promise<ImportActor | null> {
   const email = target.config?.defaultEmail
   if (!email) return null
   const user = await WIKI.models.users.getByEmail(email)
@@ -297,7 +311,8 @@ async function processAssetEntry(
   })
 }
 
-async function processDiffEntry(
+/** Exported for `actions.ts` — see the header comment on `DiffEntry` for why `importAll` reuses this. */
+export async function processDiffEntry(
   target: StorageTarget,
   actor: ImportActor,
   entry: DiffEntry

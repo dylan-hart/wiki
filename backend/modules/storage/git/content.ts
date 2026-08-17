@@ -37,8 +37,13 @@ export function covers(target: StorageTarget, bucket: string): boolean {
   return target.contentTypes.activeTypes.includes(bucket)
 }
 
-/** The `contentTypes.activeTypes` bucket an asset's `kind` classifies into. */
-function assetBucket(kind: string | undefined): string {
+/**
+ * The `contentTypes.activeTypes` bucket an asset's `kind` classifies into.
+ *
+ * Exported for `actions.ts`: `syncUntracked`'s walk over every asset of the site needs the same
+ * bucket gate a write-path event is checked against.
+ */
+export function assetBucket(kind: string | undefined): string {
   if (kind === 'image') return 'images'
   if (kind === 'document') return 'documents'
   return 'others'
@@ -54,8 +59,12 @@ function localeNamespace(siteId: string, locale: string): string {
   return primary && locale !== primary ? `${locale}/` : ''
 }
 
-/** Where a page's content lives in the repo: `[locale/]path.ext`, the extension coming from `contentType`. */
-function pageRelPath(
+/**
+ * Where a page's content lives in the repo: `[locale/]path.ext`, the extension coming from
+ * `contentType`. Exported for `actions.ts`, which maps every page of a site the same way a single
+ * write-path event does.
+ */
+export function pageRelPath(
   siteId: string,
   locale: string,
   pagePath: string,
@@ -64,8 +73,11 @@ function pageRelPath(
   return `${localeNamespace(siteId, locale)}${pagePath}.${getFileExtension(contentType)}`
 }
 
-/** Where an asset's bytes live in the repo: its folder plus its stored `fileName`, which already carries its extension. */
-function assetRelPath(folderPath: string, fileName: string): string {
+/**
+ * Where an asset's bytes live in the repo: its folder plus its stored `fileName`, which already
+ * carries its extension. Exported for `actions.ts`, same reasoning as `pageRelPath`.
+ */
+export function assetRelPath(folderPath: string, fileName: string): string {
   return folderPath ? `${folderPath}/${fileName}` : fileName
 }
 
@@ -103,7 +115,7 @@ async function findPageFile(repoPath: string, baseRelPath: string): Promise<stri
  * the dispatch payload carries no `authorId` at all (an asset rename or delete never does, see
  * `models/storage.ts`), or because the id no longer resolves to a user.
  */
-async function resolveAuthor(
+export async function resolveAuthor(
   target: StorageTarget,
   authorId: string | undefined
 ): Promise<{ name: string; email: string }> {
@@ -119,7 +131,8 @@ async function resolveAuthor(
   return user?.email ? { name: user.name || fallback.name, email: user.email } : fallback
 }
 
-function authorOption(author: { name: string; email: string }): Record<string, string> {
+/** Exported for `actions.ts`, same reasoning as `resolveAuthor`. */
+export function authorOption(author: { name: string; email: string }): Record<string, string> {
   return { '--author': `${author.name} <${author.email}>` }
 }
 

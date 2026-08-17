@@ -405,6 +405,30 @@ class Pages {
   }
 
   /**
+   * Every page of a site, metadata only — no content, no pagination, no publish-state filtering.
+   *
+   * For a full walk of a site's pages (a file-backed storage target reconciling its repo against the
+   * DB, chiefly), not for anything reader-facing: `listPages` on the tree model is that one, and it is
+   * unsuitable here precisely because it paginates and hides what a reader may not see. A caller that
+   * needs a page's content fetches it per page via `getPage({ withContent: true })`, the same way every
+   * write-path handler in `modules/storage/git/content.ts` already does — this only answers "what pages
+   * exist", not "what do they contain".
+   */
+  async listAllForSite(
+    siteId: string
+  ): Promise<{ id: string; path: string; locale: string; contentType: string }[]> {
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        contentType: pagesTable.contentType
+      })
+      .from(pagesTable)
+      .where(eq(pagesTable.siteId, siteId))
+  }
+
+  /**
    * Check a page's password, and hand the page over if it matches.
    *
    * Deliberately the only way past the lock: a reader gets the body from here or from a `getPage` the

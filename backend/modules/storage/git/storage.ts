@@ -9,9 +9,9 @@
  * so a caller never has to re-derive either.
  *
  * The content-dispatch handlers (`created`/`updated`/`renamed`/`deleted`/`assetUploaded`/
- * `assetRenamed`/`assetDeleted`) live in `content.ts` and are re-exported onto `gitStorageModule`
- * below; `ensureRepo` is what every one of them calls first. Sync/import/purge action handlers
- * declared in `definition.yml`'s `actions` block are still later work on this feature.
+ * `assetRenamed`/`assetDeleted`) live in `content.ts`; the `sync` action lives in `sync.ts`; the
+ * remaining `syncUntracked`/`importAll`/`purge` actions live in `actions.ts`. All are re-exported onto
+ * `gitStorageModule` below, and `ensureRepo` is what every one of them calls first.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -33,6 +33,7 @@ import {
   updated
 } from './content.ts'
 import { sync } from './sync.ts'
+import { importAll, purge, syncUntracked } from './actions.ts'
 
 /** Key of the `git` extension in `modules/extensions/`, used for the pre-flight detection check. */
 const GIT_EXTENSION_KEY = 'git'
@@ -245,7 +246,12 @@ const gitStorageModule: StorageModule = {
   assetDeleted,
   // -> The `sync` action declared in `definition.yml` (task 507) — see `sync.ts`. Called as
   //    `handler(target)` by `Storage.executeAction()`, per `StorageModule`.
-  sync
+  sync,
+  // -> The remaining `definition.yml` actions (task 508) — see `actions.ts`. Same `handler(target)`
+  //    calling convention as `sync`.
+  syncUntracked,
+  importAll,
+  purge
 }
 
 export default gitStorageModule

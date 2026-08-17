@@ -474,6 +474,32 @@ class Assets {
   }
 
   /**
+   * Every asset of a site, metadata only — no bytes, no pagination.
+   *
+   * For a full walk of a site's assets (a file-backed storage target reconciling its repo against the
+   * DB, chiefly). A caller that needs an asset's bytes fetches them per asset via `getContent()`, the
+   * same way `modules/storage/git/content.ts`'s write-path handlers already do.
+   */
+  async listAllForSite(
+    siteId: string
+  ): Promise<{ id: string; kind: AssetKind; folderPath: string; fileName: string }[]> {
+    const rows = await WIKI.db
+      .select({
+        id: assetsTable.id,
+        kind: assetsTable.kind,
+        folderPath: treeTable.folderPath,
+        fileName: assetsTable.fileName
+      })
+      .from(assetsTable)
+      .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
+      .where(eq(assetsTable.siteId, siteId))
+    return rows.map((row) => ({
+      ...row,
+      folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
+    }))
+  }
+
+  /**
    * An asset's metadata, addressed the way a page's content addresses it: by its path within the
    * site. Null if there is nothing there.
    *
