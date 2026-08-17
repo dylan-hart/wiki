@@ -49,6 +49,15 @@ test('refreshFromDisk reads sync-mode config from each definition.yml', () => {
   assert.equal(disk.schedule, false)
 })
 
+test('the db module has a storage.ts implementation, so its purge action is offered', () => {
+  const db = storage.getDefinition('db')!
+  assert.equal(db.hasImplementation, true)
+  assert.deepEqual(
+    db.actions.map((action) => action.handler),
+    ['purge']
+  )
+})
+
 /** Builds a minimal target for the given module, as `getSiteTargets` would shape one. */
 function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
