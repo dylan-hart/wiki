@@ -1282,8 +1282,6 @@
   "admin.utilities.scanPageProblemsScannedAt": "Scanned {date}",
   "admin.utilities.scanPageProblemsTreeDivergence": "Tree / page divergence",
   "admin.utilities.subtitle": "Maintenance and miscellaneous tools",
-  "admin.utilities.telemetrySubtitle": "Enable/Disable telemetry or reset the client ID",
-  "admin.utilities.telemetryTitle": "Telemetry",
   "admin.utilities.title": "Utilities",
   "admin.utilities.tools": "Tools",
   "admin.utitilies.purgeHistoryMonth": "1 Month | {count} Months",
