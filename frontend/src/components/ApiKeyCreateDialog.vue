@@ -52,6 +52,30 @@
           </w-item-section>
         </w-item>
         <w-item>
+          <blueprint-icon icon="home" />
+          <w-item-section>
+            <!--
+              Single-select, same reasoning as expiration above: a key is pinned to one site or none.
+              `null` (the "All Sites" entry prepended below) is instance-wide -- today's only
+              behavior, and what a key created before site-pinning existed still has.
+            -->
+            <w-select
+              v-model="state.keySiteId"
+              outlined
+              :options="siteOptions"
+              map-options
+              option-value="id"
+              option-label="title"
+              emit-value
+              options-dense
+              dense
+              hide-bottom-space
+              :label="t(`admin.api.newKeySite`)"
+              :hint="t(`admin.api.newKeySiteHint`)"
+              :loading="state.loadingSites" />
+          </w-item-section>
+        </w-item>
+        <w-item>
           <blueprint-icon icon="access" />
           <w-item-section>
             <w-select
@@ -172,8 +196,13 @@ const state = reactive({
   //    as a key created before scoping existed. Anything picked here narrows it -- see the field's
   //    own comment in the template.
   keyScope: [],
+  // -> null is the "All Sites" entry -- instance-wide, same as a key created before site-pinning
+  //    existed.
+  keySiteId: null,
   groups: [],
   loadingGroups: false,
+  sites: [],
+  loadingSites: false,
   loading: 0
 })
 
@@ -234,6 +263,11 @@ const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.keyGroups[0])[0]?.name
 })
 
+/** The site select's own "All Sites" entry (`id: null`) is prepended -- see the field's template comment. */
+const siteOptions = computed(() => {
+  return [{ id: null, title: t('admin.api.newKeySiteAllSites') }, ...state.sites]
+})
+
 // VALIDATION RULES
 
 const keyNameValidation = [
@@ -262,6 +296,23 @@ async function loadGroups() {
   state.loading--
 }
 
+async function loadSites() {
+  state.loading++
+  state.loadingSites = true
+  try {
+    const resp = await API_CLIENT.get('sites').json()
+    state.sites = resp ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.api.loadFailed'),
+      caption: err.message
+    })
+  }
+  state.loadingSites = false
+  state.loading--
+}
+
 async function create() {
   state.loading++
   try {
@@ -274,7 +325,8 @@ async function create() {
         name: state.keyName,
         expiration: state.keyExpiration,
         groups: state.keyGroups,
-        scope: state.keyScope.length > 0 ? state.keyScope : null
+        scope: state.keyScope.length > 0 ? state.keyScope : null,
+        siteId: state.keySiteId
       }
     }).json()
     if (!resp?.ok || !resp?.key) {
@@ -304,5 +356,8 @@ async function create() {
 
 // MOUNTED
 
-onMounted(loadGroups)
+onMounted(() => {
+  loadGroups()
+  loadSites()
+})
 </script>

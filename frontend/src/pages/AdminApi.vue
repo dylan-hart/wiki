@@ -114,6 +114,14 @@
                     ? t('admin.api.newKeyFullAccess')
                     : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
                 }}</w-item-label>
+                <!--
+                  Which site the key is pinned to: `null` is instance-wide, the same as every key
+                  before site-pinning existed, so it gets the same "All Sites" wording the picker
+                  itself uses rather than reading as a missing value.
+                -->
+                <w-item-label caption>{{
+                  t('admin.api.keySite', { site: siteName(key) })
+                }}</w-item-label>
                 <w-item-label caption>{{
                   t('admin.api.createdOn', { date: humanizeDate(key.createdAt) })
                 }}</w-item-label>
@@ -208,6 +216,7 @@ const state = reactive({
   isToggleLoading: false,
   keys: [],
   groups: [],
+  sites: [],
   /** When the signing keypair was generated — what an invalidated key is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -275,20 +284,34 @@ function groupNames(key) {
     .join(', ')
 }
 
+/**
+ * The site a key is pinned to, by title -- `null` is instance-wide ("All Sites"), and a site that
+ * has since been deleted falls back to its ID the same way `groupNames` does above.
+ */
+function siteName(key) {
+  if (key.siteId === null) {
+    return t('admin.api.newKeySiteAllSites')
+  }
+  return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
+}
+
 async function load() {
   state.loading++
   loading.show()
   try {
-    // -> Groups are fetched alongside the keys so the list can name the permissions each key carries,
-    //    and the certificate date so an invalidated key can say what invalidated it
-    const [keys, apiState, groups, certs] = await Promise.all([
+    // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
+    //    the site each key carries, and the certificate date so an invalidated key can say what
+    //    invalidated it
+    const [keys, apiState, groups, sites, certs] = await Promise.all([
       API_CLIENT.get('api-keys').json(),
       API_CLIENT.get('system/api').json(),
       API_CLIENT.get('groups').json(),
+      API_CLIENT.get('sites').json(),
       API_CLIENT.get('system/certificates').json()
     ])
     state.keys = keys ?? []
     state.groups = groups ?? []
+    state.sites = sites ?? []
     state.enabled = apiState?.isEnabled === true
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
     // -> Keeps the status light in the admin sidebar in step without another round trip
