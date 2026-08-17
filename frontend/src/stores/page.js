@@ -691,7 +691,13 @@ export const usePageStore = defineStore('page', {
         } else {
           const resp = unwrap(
             await API_CLIENT.patch(`sites/${siteStore.id}/pages/${this.id}`, {
-              json: body
+              /*
+                Not a page field either, and not sent on create: there is nothing yet to conflict
+                with. The server compares this against what it actually has stored and refuses the
+                write on a mismatch -- see the 409 branch below -- which is what stops one editor's
+                save from silently overwriting another's.
+              */
+              json: { ...body, expectedUpdatedAt: this.updatedAt }
             }).json()
           )
           pageData = resp?.page
@@ -728,6 +734,18 @@ export const usePageStore = defineStore('page', {
           reasonForChange: ''
         })
       } catch (err) {
+        /*
+          Somebody else saved this page first. The server's reply carries the page as it now stands
+          -- see the `expectedUpdatedAt` mismatch handling in `PATCH /sites/:siteId/pages/:pageId`
+          -- which is handed to the editor store rather than reported as an ordinary failure: there is
+          a page to react to here, not just an error to show. `EditorMarkdown.vue` watches it to put
+          up the resolution dialog.
+        */
+        if (err.response?.status === 409) {
+          const conflictBody = await err.response.json().catch(() => null)
+          editorStore.saveConflict = conflictBody?.page ?? null
+          throw new Error('ERR_SAVE_CONFLICT')
+        }
         console.warn(err)
         throw err
       }

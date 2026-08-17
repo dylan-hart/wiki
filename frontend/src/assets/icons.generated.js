@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `check-icons.mjs` fails the build if this drifts.
 
-  266 icons.
+  267 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-double-right": {"body":"<path fill=\"currentColor\" d=\"M9.094 4.781L7.688 6.22l9.78 9.78l-9.78 9.781l1.406 1.438L20.313 16zm7 0L14.687 6.22L24.47 16l-9.782 9.781l1.407 1.438L27.312 16z\"/>","width":32,"height":32},
@@ -250,6 +250,7 @@ export const BUNDLED_ICONS = {
   "mdi:playlist-edit": {"body":"<path fill=\"currentColor\" d=\"M3 6v2h11V6zm0 4v2h11v-2zm17 .1c-.1 0-.3.1-.4.2l-1 1l2.1 2.1l1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8l-6.1 6V20h2.1l6.1-6.1zM3 14v2h7v-2z\"/>","width":24,"height":24},
   "mdi:redo-variant": {"body":"<path fill=\"currentColor\" d=\"M10.5 7A6.5 6.5 0 0 0 4 13.5a6.5 6.5 0 0 0 6.5 6.5H14v-2h-3.5C8 18 6 16 6 13.5S8 9 10.5 9h5.67l-3.08 3.09l1.41 1.41L20 8l-5.5-5.5l-1.42 1.41L16.17 7zM18 18h-2v2h2z\"/>","width":24,"height":24},
   "mdi:seed-plus-outline": {"body":"<path fill=\"currentColor\" d=\"M17.2 5c.6 0 1.2 0 1.7.1c.14 1.6.18 4.32-.72 6.9c.71 0 1.38.17 2 .41c1.46-4.51.52-9.11.52-9.11S19.3 3 17.2 3c-5.5 0-15.6 2.1-14 17.8c1.1.1 2.2.2 3.2.2c2.35 0 4.34-.31 6-.84c-.24-.62-.4-1.29-.4-1.99c-1.59.55-3.47.83-5.6.83H5.1c-.2-4.6.7-8.2 2.8-10.5C10.4 5.6 14.4 5 17.2 5M17 7C7 7 7 17 7 17C11 9 17 7 17 7m0 10h-3v2h3v3h2v-3h3v-2h-3v-3h-2z\"/>","width":24,"height":24},
+  "mdi:source-branch-sync": {"body":"<path fill=\"currentColor\" d=\"M13 14c-3.36 0-4.46 1.35-4.82 2.24A3.002 3.002 0 0 1 7 22c-1.66 0-3-1.34-3-3c0-1.31.83-2.42 2-2.83V7.83A2.99 2.99 0 0 1 4 5c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.31-.83 2.42-2 2.83v5.29c.88-.65 2.16-1.12 4-1.12c2.67 0 3.56-1.34 3.85-2.23A3.01 3.01 0 0 1 14 7c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.34-.88 2.5-2.09 2.86C17.65 11.29 16.68 14 13 14m-6 4c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1M7 4c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1m10 2c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1m1 7v1.5c2.21 0 4 1.79 4 4c0 .82-.25 1.58-.67 2.21l-1.09-1.09c.17-.34.26-.72.26-1.12A2.5 2.5 0 0 0 18 16v1.5l-2.25-2.25l-.03-.03c.06-.05.13-.09 2.28-2.22m0 11v-1.5c-2.21 0-4-1.79-4-4c0-.82.25-1.58.67-2.21l1.09 1.09c-.17.34-.26.72-.26 1.12A2.5 2.5 0 0 0 18 21v-1.5l2.25 2.25l.03.03c-.06.05-.13.09-2.28 2.22\"/>","width":24,"height":24},
   "mdi:star": {"body":"<path fill=\"currentColor\" d=\"M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.62L12 2L9.19 8.62L2 9.24l5.45 4.73L5.82 21z\"/>","width":24,"height":24},
   "mdi:tab-plus": {"body":"<path fill=\"currentColor\" d=\"M3 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 2h10v4h8v10H3zm7 5v3H7v2h3v3h2v-3h3v-2h-3v-3z\"/>","width":24,"height":24},
   "mdi:table": {"body":"<path fill=\"currentColor\" d=\"M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2m0 4v4h6V8zm8 0v4h6V8zm-8 6v4h6v-4zm8 0v4h6v-4z\"/>","width":24,"height":24},
