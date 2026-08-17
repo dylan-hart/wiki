@@ -214,6 +214,45 @@ describe('AuthLoginPanel forgot password', () => {
       'Check your emails for password reset instructions!'
     )
   })
+
+  /**
+   * The route always answers 200 for a normal request (see above), but `limitAuthAttempts`
+   * (`backend/helpers/rateLimit.ts`) can still refuse it with a 429 carrying a specific, actionable
+   * `{ message }` -- `reply.tooManyRequests('Too many attempts. Try again in N minute(s).')`, shaped
+   * by the global error handler into `{ ok, error, statusCode, message }` per CLAUDE.md. Every other
+   * catch block in this file reports a failure via `localizeError(apiErrorMessage(err), t)`, which
+   * reads that `err.data.message` first (see `helpers/apiError.js`'s doc comment on why: ky's own
+   * `err.message` for a non-2xx is a content-free "Request failed with status code 429"). This one
+   * used raw `err.message` instead, so a rate-limited user saw ky's generic text rather than the
+   * backend's retry-after guidance every sibling flow (login, register, changePwd, resetPassword)
+   * already surfaces correctly.
+   */
+  it('shows the backend message on failure instead of a generic ky error', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+    const rateLimitError = Object.assign(new Error('Request failed with status code 429'), {
+      data: { message: 'Too many attempts. Try again in 5 minute(s).' }
+    })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.reject(rateLimitError) })
+
+    const { wrapper } = mountAuthLoginPanel()
+    await vi.waitFor(() => expect(API_CLIENT.get).toHaveBeenCalled())
+    await wrapper.vm.$nextTick()
+
+    const forgotBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('Forgot Password'))
+    await forgotBtn.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    await wrapper.find('input[autocomplete="email"]').setValue('ada@example.com')
+    await wrapper.find('form').trigger('submit')
+    await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
+
+    await vi.waitFor(() => expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true))
+    expect(notifyQueue.find((n) => n.type === 'negative')?.message).toBe(
+      'Too many attempts. Try again in 5 minute(s).'
+    )
+  })
 })
 
 /**
