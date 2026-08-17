@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { classifyMailError } from '../models/mail.ts'
 
 /**
  * Placeholder sent to the client in place of the stored SMTP password. Sending it back unchanged
@@ -162,6 +163,7 @@ async function routes(app: FastifyInstance) {
           properties: {
             recipientEmail: {
               type: 'string',
+              format: 'email',
               minLength: 1,
               maxLength: 255
             }
@@ -198,9 +200,24 @@ async function routes(app: FastifyInstance) {
           )
         }
         WIKI.logger.warn(`Failed to send test email: ${err.message}`)
-        return reply.internalServerError(
-          'Failed to send the test email. Check the server logs for details.'
-        )
+        switch (classifyMailError(err)) {
+          case 'auth':
+            return reply.badRequest(
+              'SMTP authentication failed. Check the username and password under Mail Configuration.'
+            )
+          case 'connection':
+            return reply.badGateway(
+              'Could not connect to the SMTP server. Check the host and port under Mail Configuration.'
+            )
+          case 'send':
+            return reply.unprocessableEntity(
+              'The mail server rejected the message, often because the recipient address is invalid. Check the address and try again.'
+            )
+          default:
+            return reply.internalServerError(
+              'Failed to send the test email. Check the server logs for details.'
+            )
+        }
       }
 
       return {

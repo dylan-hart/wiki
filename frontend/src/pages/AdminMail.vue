@@ -360,6 +360,7 @@ import { onMounted, reactive } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -506,7 +507,7 @@ async function sendTest() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.testLoading = false
