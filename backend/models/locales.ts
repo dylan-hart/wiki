@@ -22,6 +22,33 @@ export function localeCode(lang: Pick<LocalazyLanguage, 'language' | 'region' | 
 }
 
 /**
+ * Completeness of `targetStrings` against `baseStrings` (the `en` locale), as a 0-100 integer
+ * percentage: `Math.round(100 * matchingNonEmptyKeys / totalBaseKeys)`. A base key counts as present
+ * only if `targetStrings` has it too *and* the value is a non-empty string — a key present but blank
+ * (a real shape translation tooling can produce) does not count as translated. `en.json` is flat (no
+ * nesting), so this is a single top-level key comparison, not a deep walk. Exported so
+ * `locales.test.ts` can assert the percentage directly without going through `refreshFromDisk`'s
+ * disk/DB machinery.
+ */
+export function computeCompleteness(
+  baseStrings: Record<string, unknown>,
+  targetStrings: Record<string, unknown>
+): number {
+  const baseKeys = Object.keys(baseStrings)
+  if (baseKeys.length === 0) {
+    return 100
+  }
+  let matching = 0
+  for (const key of baseKeys) {
+    const value = targetStrings[key]
+    if (typeof value === 'string' && value.length > 0) {
+      matching++
+    }
+  }
+  return Math.round((100 * matching) / baseKeys.length)
+}
+
+/**
  * Locales model
  */
 class Locales {
@@ -29,6 +56,12 @@ class Locales {
     try {
       const localesMeta = (await import('../locales/metadata.js')).default
       WIKI.logger.info(`Found ${localesMeta.languages.length} locales [ OK ]`)
+
+      // -> Base locale for completeness comparisons, read once per call (not per language) and
+      //    reused across the whole loop below.
+      const baseStrings = JSON.parse(
+        await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+      )
 
       const dbLocales = await WIKI.db
         .select({
@@ -60,6 +93,11 @@ class Locales {
           ) {
             WIKI.logger.info(`Loading locale ${langFilename} into DB...`)
             const flStrings = JSON.parse(await readFile(flPath, 'utf8'))
+            // -> The base locale trivially covers itself; comparing it against itself would also
+            //    read 100 here (en.json has no empty values), but this is explicit rather than
+            //    incidental.
+            const completeness =
+              langFilename === 'en' ? 100 : computeCompleteness(baseStrings, flStrings)
             await WIKI.db
               .insert(localesTable)
               .values({
@@ -70,11 +108,12 @@ class Locales {
                 region: lang.region,
                 script: lang.script,
                 isRTL: lang.isRtl,
-                strings: flStrings
+                strings: flStrings,
+                completeness
               })
               .onConflictDoUpdate({
                 target: localesTable.code,
-                set: { strings: flStrings, updatedAt: sql`now()` }
+                set: { strings: flStrings, completeness, updatedAt: sql`now()` }
               })
             WIKI.logger.info(`Locale ${langFilename} loaded successfully. [ OK ]`)
           } else {
