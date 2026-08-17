@@ -139,6 +139,76 @@ async function routes(app: FastifyInstance) {
       }
     }
   )
+
+  /**
+   * SEND TEST EMAIL
+   */
+  app.post<{
+    Body: {
+      recipientEmail: string
+    }
+  }>(
+    '/test',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Send a test email',
+        tags: ['Mail'],
+        body: {
+          type: 'object',
+          required: ['recipientEmail'],
+          properties: {
+            recipientEmail: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Test email sent successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        await WIKI.models.mail.send({
+          to: req.body.recipientEmail,
+          subject: 'Wiki.js Test Email',
+          text: 'This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.',
+          html: '<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p>'
+        })
+      } catch (err: any) {
+        if (err.message === 'ERR_MAIL_NOT_CONFIGURED') {
+          return reply.badRequest(
+            'Mail is not configured. Set an SMTP host under Mail Configuration before sending a test email.'
+          )
+        }
+        WIKI.logger.warn(`Failed to send test email: ${err.message}`)
+        return reply.internalServerError(
+          'Failed to send the test email. Check the server logs for details.'
+        )
+      }
+
+      return {
+        ok: true,
+        message: 'Test email sent successfully.'
+      }
+    }
+  )
 }
 
 export default routes

@@ -1,0 +1,106 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
+
+import AdminMail from './AdminMail.vue'
+import { queue as notifyQueue } from '@/composables/notify'
+
+/**
+ * `sendTest()` used to be a stub that always showed a warning notification (the backend had no SMTP
+ * transport yet). It now calls `POST /_api/mail/test` for real and reflects whatever the backend
+ * answers -- this covers both branches, driven through the actual DOM (the recipient field + the
+ * "Send Email" button), not by reaching into component internals.
+ */
+
+async function mountAdminMail() {
+  setActivePinia(createPinia())
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }]
+  })
+  router.push('/')
+  await router.isReady()
+
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        admin: {
+          mail: {
+            testRecipient: 'Recipient Email Address',
+            testSend: 'Send Email',
+            sendTestSuccess: 'A test email was sent successfully.'
+          }
+        }
+      }
+    }
+  })
+
+  // -> The unrelated `GET mail/config` call `onMounted` fires resolves to `undefined` by default
+  //    (`createApiClientStub()`), which `load()` already handles as a failure -- nothing under test
+  //    here reads `state.config`, so it is left alone rather than stubbed.
+  const wrapper = mount(AdminMail, {
+    global: {
+      plugins: [router, i18n],
+      // -> Registered globally by `boot/components.js`, not by the `sharedComponents` map
+      //    `test/setup.js` installs -- stubbed here rather than widening the shared harness for a
+      //    component this test never asserts against.
+      stubs: { BlueprintIcon: true }
+    }
+  })
+  await wrapper.vm.$nextTick()
+
+  // -> The unrelated `GET mail/config` call from `onMounted` fails against the default API_CLIENT
+  //    stub and queues its own negative toast -- drained here so a test only sees notifications its
+  //    own action produced.
+  notifyQueue.splice(0, notifyQueue.length)
+
+  const recipientField = wrapper.get('[aria-label="Recipient Email Address"] input')
+  const sendButton = wrapper.findAll('button').find((btn) => btn.text().includes('Send Email'))
+
+  return { wrapper, recipientField, sendButton }
+}
+
+beforeEach(() => {
+  notifyQueue.splice(0, notifyQueue.length)
+})
+
+describe('AdminMail sendTest', () => {
+  it('posts the recipient to /mail/test and shows a success toast', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, message: 'Test email sent successfully.' })
+    })
+
+    const { recipientField, sendButton } = await mountAdminMail()
+    await recipientField.setValue('ada@example.com')
+    await sendButton.trigger('click')
+    await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('mail/test', {
+      json: { recipientEmail: 'ada@example.com' }
+    })
+    expect(notifyQueue.some((n) => n.type === 'positive')).toBe(true)
+  })
+
+  it('shows the backend error message when mail is not configured', async () => {
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: false,
+          message: 'Mail is not configured. Set an SMTP host before sending a test email.'
+        })
+    })
+
+    const { recipientField, sendButton } = await mountAdminMail()
+    await recipientField.setValue('ada@example.com')
+    await sendButton.trigger('click')
+    await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
+
+    const negative = notifyQueue.find((n) => n.type === 'negative')
+    expect(negative?.message).toMatch(/not configured/i)
+  })
+})

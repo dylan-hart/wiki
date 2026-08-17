@@ -565,7 +565,6 @@
   "admin.mail.dkimUseHint": "Should DKIM be used when sending emails.",
   "admin.mail.saveSuccess": "Configuration saved successfully.",
   "admin.mail.sendTestSuccess": "A test email was sent successfully.",
-  "admin.mail.sendTestUnavailable": "Sending emails is not implemented yet, so no test email can be sent.",
   "admin.mail.sender": "Sender",
   "admin.mail.senderEmail": "Sender Email",
   "admin.mail.senderName": "Sender Name",
