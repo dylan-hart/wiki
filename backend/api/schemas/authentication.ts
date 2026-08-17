@@ -38,6 +38,23 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * AUTH FORGOT PASSWORD RESULT - Always the same generic success, whatever `forgotPassword()` did or
+   * didn't do behind it. See `POST /sites/:siteId/auth/forgotPassword`'s description for why.
+   */
+  app.addSchema({
+    $id: 'AuthForgotPasswordResult',
+    type: 'object',
+    properties: {
+      ok: {
+        type: 'boolean'
+      },
+      message: {
+        type: 'string'
+      }
+    }
+  })
+
+  /**
    * AUTH MODULE - An authentication module as found on disk
    */
   app.addSchema({

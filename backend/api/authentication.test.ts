@@ -18,6 +18,8 @@ let app: FastifyInstance
 let registerMock: ReturnType<typeof mock.fn>
 let validateTokenMock: ReturnType<typeof mock.fn>
 let updateUserMock: ReturnType<typeof mock.fn>
+let forgotPasswordMock: ReturnType<typeof mock.fn>
+let resetPasswordMock: ReturnType<typeof mock.fn>
 
 before(async () => {
   ;(globalThis as any).WIKI = {
@@ -25,7 +27,9 @@ before(async () => {
       users: {
         register: (...args: any[]) => registerMock(...args),
         validateToken: (...args: any[]) => validateTokenMock(...args),
-        updateUser: (...args: any[]) => updateUserMock(...args)
+        updateUser: (...args: any[]) => updateUserMock(...args),
+        forgotPassword: (...args: any[]) => forgotPasswordMock(...args),
+        resetPassword: (...args: any[]) => resetPasswordMock(...args)
       },
       flags: {
         authDebug: () => {}
@@ -48,6 +52,13 @@ before(async () => {
 
   app = fastify()
   await app.register(fastifySensible)
+  // -> Stand-in for `@fastify/session` (registered app-wide in `index.ts`, not here): the
+  //    resetPassword route writes `req.session.authenticated` on success the same way
+  //    `changePassword` does, so `req.session` needs to be a real mutable object per request.
+  app.decorateRequest('session', null as any)
+  app.addHook('onRequest', async (req) => {
+    req.session = {} as any
+  })
   await registerAuthenticationSchema(app)
   await app.register(authenticationRoutes)
   await app.ready()
@@ -62,6 +73,12 @@ beforeEach(() => {
   registerMock = mock.fn(async () => ({ nextAction: 'verify' }))
   validateTokenMock = mock.fn(async () => ({ user: { id: 'user-1', email: 'ada@example.com' } }))
   updateUserMock = mock.fn(async () => true)
+  forgotPasswordMock = mock.fn(async () => {})
+  resetPasswordMock = mock.fn(async () => ({
+    authenticated: true,
+    nextAction: 'redirect',
+    redirect: '/'
+  }))
 })
 
 function registerPayload(overrides: Record<string, any> = {}) {
@@ -200,4 +217,171 @@ test('GET verify: an expired token redirects to the login screen with an error c
   assert.equal(res.statusCode, 302)
   assert.equal(res.headers.location, '/login?error=ERR_EXPIRED_VALIDATION_TOKEN')
   assert.equal(updateUserMock.mock.calls.length, 0)
+})
+
+/**
+ * `POST /sites/:siteId/auth/forgotPassword` -- the one thing to prove at the route layer is that the
+ * generic success response is truly unconditional: it must come back identical whether the model sent
+ * an email or silently did nothing, and even when the model throws outright. Which of those happened
+ * is `models/users.test.ts`'s `forgotPassword()` coverage; this file only owns the request/response
+ * wiring, per this file's own header comment.
+ */
+test('POST forgotPassword: passes the body through and reports the generic success', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/forgotPassword',
+    payload: { strategyId: '11111111-1111-1111-1111-111111111111', email: 'ada@example.com' }
+  })
+
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.ok, true)
+  assert.equal(typeof body.message, 'string')
+  assert.equal(forgotPasswordMock.mock.calls.length, 1)
+  assert.deepEqual(forgotPasswordMock.mock.calls[0].arguments[0], {
+    strategyId: '11111111-1111-1111-1111-111111111111',
+    email: 'ada@example.com'
+  })
+})
+
+test('POST forgotPassword: an address the model silently ignores gets the exact same response', async () => {
+  const resSent = await app.inject({
+    method: 'POST',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/forgotPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      email: 'has-account@example.com'
+    }
+  })
+
+  forgotPasswordMock = mock.fn(async () => {})
+  const resNotSent = await app.inject({
+    method: 'POST',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/forgotPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      email: 'no-such-account@example.com'
+    }
+  })
+
+  assert.equal(resSent.statusCode, resNotSent.statusCode)
+  assert.deepEqual(resSent.json(), resNotSent.json())
+})
+
+test('POST forgotPassword: even an unexpected model failure still gets the generic success, not an error', async () => {
+  forgotPasswordMock = mock.fn(async () => {
+    throw new Error('connection refused')
+  })
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/forgotPassword',
+    payload: { strategyId: '11111111-1111-1111-1111-111111111111', email: 'ada@example.com' }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+})
+
+test('PUT resetPassword: passes the body through and logs the account straight in on success', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/resetPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      token: 'reset-token',
+      newPassword: 'brandnewpwd1'
+    }
+  })
+
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), {
+    ok: true,
+    authenticated: true,
+    nextAction: 'redirect',
+    redirect: '/'
+  })
+  assert.equal(resetPasswordMock.mock.calls.length, 1)
+  const arg = resetPasswordMock.mock.calls[0].arguments[0] as any
+  assert.equal(arg.siteId, '22222222-2222-2222-2222-222222222222')
+  assert.equal(arg.strategyId, '11111111-1111-1111-1111-111111111111')
+  assert.equal(arg.token, 'reset-token')
+  assert.equal(arg.newPassword, 'brandnewpwd1')
+})
+
+test('PUT resetPassword: an account with 2FA active answers provideTfa rather than logging in', async () => {
+  resetPasswordMock = mock.fn(async () => ({
+    nextAction: 'provideTfa',
+    continuationToken: 'tfa-token',
+    redirect: '/'
+  }))
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/resetPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      token: 'reset-token',
+      newPassword: 'brandnewpwd1'
+    }
+  })
+
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.nextAction, 'provideTfa')
+  assert.equal(body.continuationToken, 'tfa-token')
+  assert.equal(body.authenticated, undefined)
+})
+
+test('PUT resetPassword: rejects a short password before calling the model', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/resetPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      token: 'reset-token',
+      newPassword: 'short'
+    }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(resetPasswordMock.mock.calls.length, 0)
+})
+
+test('PUT resetPassword: an ERR_ failure from the model becomes a 400 with that code', async () => {
+  resetPasswordMock = mock.fn(async () => {
+    throw new Error('ERR_INVALID_VALIDATION_TOKEN')
+  })
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/resetPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      token: 'bad-token',
+      newPassword: 'brandnewpwd1'
+    }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_INVALID_VALIDATION_TOKEN')
+})
+
+test('PUT resetPassword: an unexpected failure becomes a generic 400, logged rather than leaked', async () => {
+  resetPasswordMock = mock.fn(async () => {
+    throw new Error('connection refused')
+  })
+
+  const res = await app.inject({
+    method: 'PUT',
+    url: '/sites/22222222-2222-2222-2222-222222222222/auth/resetPassword',
+    payload: {
+      strategyId: '11111111-1111-1111-1111-111111111111',
+      token: 'reset-token',
+      newPassword: 'brandnewpwd1'
+    }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_RESET_PASSWORD_FAILED')
 })

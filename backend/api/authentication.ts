@@ -446,6 +446,174 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * REQUEST A PASSWORD RESET
+   *
+   * Always answers the same generic success, whatever `forgotPassword()` did behind it -- an unknown
+   * strategy, one with password resets turned off, an address matching no account, and an address that
+   * does match are all indistinguishable from the outside. Anything but that fixed shape would make
+   * this endpoint an oracle for which addresses have accounts, which is the one thing a "forgot
+   * password" form must never leak.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { strategyId: string; email: string }
+  }>(
+    '/sites/:siteId/auth/forgotPassword',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Guessing addresses is what this endpoint is attacked with; see `helpers/rateLimit.ts`
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Request a password reset email',
+        description:
+          "Always answers the same generic success, regardless of whether `email` matches an account or the strategy allows resets at all -- so this can never be used to test whether an address has an account. When it does match, and the strategy's `allowForgotPassword` setting is on, a link is mailed to it pointing at `PUT /sites/:siteId/auth/resetPassword`.",
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'email'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthForgotPasswordResult#' }
+        }
+      }
+    },
+    async (req) => {
+      try {
+        await WIKI.models.users.forgotPassword({
+          strategyId: req.body.strategyId,
+          email: req.body.email
+        })
+      } catch (err: any) {
+        // -> Swallowed rather than reported: even an unexpected failure here must not produce a
+        //    response distinguishable from the success case, or it becomes the oracle this route
+        //    exists to avoid being.
+        WIKI.logger.debug(err)
+        WIKI.models.flags.authDebug(`Forgot-password request failed unexpectedly: ${err.message}`)
+      }
+      return {
+        ok: true,
+        message: 'If that address matches an account, a password reset link has been sent to it.'
+      }
+    }
+  )
+
+  /**
+   * RESET PASSWORD
+   *
+   * Where the link mailed by `forgotPassword` above points. Unlike that request step, failures here
+   * are reported normally -- a bad or expired token, or too short a password -- since none of them
+   * reveal whether any particular address has an account.
+   */
+  app.put<{
+    Params: { siteId: string }
+    Body: { strategyId: string; token: string; newPassword: string }
+  }>(
+    '/sites/:siteId/auth/resetPassword',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Finish a password reset from the forgot-password email',
+        description:
+          'Sets the new password and, on success, logs the account straight in -- like every other token-continuation flow in this file -- except that 2FA is still required first when the account has it active, since a mailed reset token alone never proves a second factor was checked.',
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'token', 'newPassword'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            token: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255
+            },
+            newPassword: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthLoginResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const result = await WIKI.models.users.resetPassword(
+          {
+            siteId: req.params.siteId,
+            strategyId: req.body.strategyId,
+            token: req.body.token,
+            newPassword: req.body.newPassword,
+            ip: req.ip
+          },
+          req
+        )
+        if (!result) {
+          throw new Error('Unexpected empty reset password response.')
+        }
+        if (result?.authenticated) {
+          req.session.authenticated = true
+        }
+        return {
+          ok: true,
+          ...result
+        }
+      } catch (err: any) {
+        if (err.message.startsWith('ERR_')) {
+          WIKI.models.flags.authDebug(`Password reset rejected: ${err.message}`)
+          return reply.badRequest(err.message)
+        } else {
+          WIKI.logger.debug(err)
+          WIKI.models.flags.authDebug(`Password reset failed unexpectedly: ${err.message}`)
+          return reply.badRequest('ERR_RESET_PASSWORD_FAILED')
+        }
+      }
+    }
+  )
+
+  /**
    * SUBMIT A 2FA CODE
    *
    * The other half of a login that answered `provideTfa` or `setupTfa`: the continuation token stands

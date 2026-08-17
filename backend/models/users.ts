@@ -1781,6 +1781,114 @@ class Users {
     }
   }
 
+  /**
+   * Request a password reset link by email.
+   *
+   * Never throws and never reports which of its checks failed: an unknown/disabled strategy, one
+   * with `allowForgotPassword` off, an email matching no account, and an account that has no password
+   * under this strategy (e.g. provider-only) are all silently a no-op. `api/authentication.ts`'s route
+   * answers the same generic success either way, which is what actually closes the
+   * email-enumeration hole -- this method just makes sure there is nothing here (a thrown `ERR_`, a
+   * different return shape) for that route to leak by accident.
+   */
+  async forgotPassword({
+    strategyId,
+    email
+  }: {
+    strategyId: string
+    email: string
+  }): Promise<void> {
+    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
+      WIKI.models.flags.authDebug(
+        `Forgot-password request against strategy ${strategyId}, which does not allow resets`
+      )
+      return
+    }
+
+    const user = await this.getByEmail(email.toLowerCase().trim())
+    const auth = (user?.auth ?? {}) as Record<string, any>
+    if (!user || !auth[strategyId]?.password) {
+      WIKI.models.flags.authDebug(
+        `Forgot-password request for an address with no matching local account under strategy ${strategyId}`
+      )
+      return
+    }
+
+    const token = await this.generateToken({
+      kind: 'resetPwd',
+      userId: user.id,
+      meta: { strategyId }
+    })
+    await WIKI.models.mail.sendForgotPassword({ to: user.email, name: user.name, token })
+    WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
+  }
+
+  /**
+   * Finish a password reset from the `forgotPassword()` email link.
+   *
+   * Signs the user straight in on success, exactly like every other token-continuation flow in this
+   * file (`loginChangePassword()`, `loginTFA()`, `register()` with `emailValidation` off) -- there is
+   * no separate "now log in again" step, since possessing a working reset token already proves control
+   * of the account's email address.
+   *
+   * Deliberately NOT `skipTFA`, though: unlike `loginChangePassword()`'s continuation token (only
+   * reachable after a login attempt has already cleared 2FA earlier in the same flow), a reset token
+   * is minted straight from an email address with no password or 2FA code involved at all. Skipping TFA
+   * here would let anyone with access to the mailbox alone sign all the way in on an account that has
+   * 2FA active; `afterLoginChecks()` still asks for a code first when it does.
+   *
+   * @throws `ERR_PASSWORD_TOO_SHORT`, `ERR_INVALID_STRATEGY`, `ERR_INVALID_USER`, plus whatever
+   *         `validateToken()` raises for a token that is unknown or expired
+   */
+  async resetPassword(
+    {
+      strategyId,
+      siteId,
+      token,
+      newPassword,
+      ip
+    }: {
+      strategyId: string
+      siteId: string
+      token: string
+      newPassword: string
+      ip?: string
+    },
+    req: any
+  ): Promise<AfterLoginResult> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('ERR_PASSWORD_TOO_SHORT')
+    }
+    const { user, strategyId: expectedStrategyId } = await this.validateToken({
+      kind: 'resetPwd',
+      token
+    })
+
+    if (strategyId !== expectedStrategyId) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    if (!user || !user.auth?.[strategyId]) {
+      throw new Error('ERR_INVALID_USER')
+    }
+
+    user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
+    user.auth[strategyId].mustChangePwd = false
+    await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+
+    try {
+      await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })
+    } catch (err: any) {
+      // -> The password change already succeeded; a failed notice email must not turn this into a
+      //    failed reset
+      WIKI.logger.warn(
+        `Failed to send the password-reset-confirmed notice to ${user.email}: ${err.message}`
+      )
+    }
+
+    return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)
+  }
+
   updateSession(user: any, req: any): void {
     req.session.authenticated = true
     req.session.user = {
