@@ -103,6 +103,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'string',
             enum: ['notconfigured', 'pendinginstall', 'configured']
           },
+          // Deliberately loose: `handler`-specific starting values for a setup wizard implemented
+          // per storage module (e.g. the GitHub OAuth flow).
           values: {
             type: 'object',
             additionalProperties: true,
@@ -110,12 +112,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
+      // Deliberately loose: keys and value types come from each storage module's own
+      // `definition.yml` on disk, so the shape genuinely differs per module (db, git, s3, …).
       props: {
         type: 'object',
         additionalProperties: true,
         description:
           'The module configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to.'
       },
+      // Deliberately loose: values for whatever `props` the module (above) declares.
       config: {
         type: 'object',
         additionalProperties: true,
@@ -206,6 +211,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
+      // Deliberately loose: same reason as `StorageTarget.config` above.
       config: {
         type: 'object',
         additionalProperties: true,

@@ -217,6 +217,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
               isActive: {
                 type: 'boolean'
               },
+              // Deliberately loose: `editors.config` above is documented as free-form per editor
+              // implementation; this is that same blob for one specific editor.
               config: {
                 type: 'object',
                 additionalProperties: true
@@ -229,6 +231,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
               isActive: {
                 type: 'boolean'
               },
+              // Deliberately loose: `editors.config` above is documented as free-form per editor
+              // implementation; this is that same blob for one specific editor.
               config: {
                 type: 'object',
                 additionalProperties: true
@@ -241,6 +245,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
               isActive: {
                 type: 'boolean'
               },
+              // Deliberately loose: `editors.config` above is documented as free-form per editor
+              // implementation; this is that same blob for one specific editor.
               config: {
                 type: 'object',
                 additionalProperties: true

@@ -18,6 +18,69 @@ const optionalDateTime = {
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
+   * PAGE RELATION - One "related page" button, as `PageRelationDialog.vue` writes it and `Index.vue`
+   * renders it. The only producer is that dialog (see `create()`/`persist()`), so unlike the other
+   * `additionalProperties: true` blobs in this file, this shape is fixed and worth stating exactly.
+   */
+  app.addSchema({
+    $id: 'PageRelation',
+    type: 'object',
+    required: ['id', 'position', 'label', 'icon', 'target'],
+    properties: {
+      id: {
+        type: 'string',
+        description: 'Client-generated, so this relation can be found again to edit or remove it.'
+      },
+      position: {
+        type: 'string',
+        enum: ['left', 'center', 'right']
+      },
+      label: {
+        type: 'string'
+      },
+      caption: {
+        type: 'string',
+        description: 'Only ever set for a `left` or `right` relation; a `center` one has none.'
+      },
+      icon: {
+        type: 'string',
+        description: 'An Iconify reference, e.g. `la:arrow-left`.'
+      },
+      target: {
+        type: 'string',
+        description: 'A rooted path within this wiki, or a complete URL.'
+      }
+    }
+  })
+
+  /**
+   * PAGE TOC NODE - One heading in the table of contents, as `rendering.ts`'s `anchorHeadings` /
+   * `nestHeadings` build it.
+   */
+  app.addSchema({
+    $id: 'PageTocNode',
+    type: 'object',
+    required: ['key', 'label', 'level', 'children'],
+    properties: {
+      key: {
+        type: 'string'
+      },
+      label: {
+        type: 'string'
+      },
+      level: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 6
+      },
+      children: {
+        type: 'array',
+        items: { $ref: 'PageTocNode#' }
+      }
+    }
+  })
+
+  /**
    * PAGE INPUT - The writable fields, used for both create and update
    */
   app.addSchema({
@@ -87,10 +150,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       relations: {
         type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: true
-        }
+        items: { $ref: 'PageRelation#' }
       },
       tags: {
         type: 'array',
@@ -169,14 +229,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       relations: {
         type: 'array',
-        items: { type: 'object', additionalProperties: true }
+        items: { $ref: 'PageRelation#' }
       },
       tags: { type: 'array', items: { type: 'string' } },
       toc: {
         type: 'array',
         description:
           'Nested headings, derived from the stored render. Each carries its own `level` — the heading tag it came from — as well as its place in the tree, since which headings a contents list shows is a question about the tag rather than about the nesting.',
-        items: { type: 'object', additionalProperties: true }
+        items: { $ref: 'PageTocNode#' }
       },
       render: { type: 'string' },
       content: {
@@ -377,6 +437,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             description: 'The page source as of this version.'
           },
           meta: {
+            // Deliberately loose: `pageHistory.ts`'s `record()` builds this by reflecting over every
+            // column of the pages row not in `EXCLUDED_FROM_META`, so its keys track the pages table
+            // schema rather than a fixed contract — pinning it here would drift out of sync the next
+            // time a page column is added or removed.
             type: 'object',
             additionalProperties: true,
             description:

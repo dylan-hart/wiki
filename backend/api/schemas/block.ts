@@ -33,6 +33,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description: 'False for blocks registered from the compiled block manifest.'
       },
+      // Deliberately loose: keyed by whatever attributes the block's own component declares (see
+      // `props` below) — a different shape per block type, including custom blocks with no manifest.
       config: {
         type: 'object',
         additionalProperties: true
