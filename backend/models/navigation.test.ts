@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
 import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
+import type { NavigationItem } from './navigation.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -257,5 +258,152 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
       .where(eq(navigationTable.id, fixtures.siteId))
       .limit(1)
     assert.equal(rows[0]?.mode, 'mixed')
+  })
+})
+
+/**
+ * `generateFromTree` is SQL orchestration in the same shape as `tree.browse()` -- a join, an `EXISTS`
+ * subquery and a comparator a mock of the query builder would mostly just be re-describing -- so this
+ * runs the real method against a migrated, per-run-fresh database, same approach as the rest of this
+ * file. Private on the class (it is not wired into `getNav` yet -- a later task in this feature does
+ * that), so tests reach it through an `any` cast rather than TypeScript's own privacy, which is a
+ * compile-time-only concept the test runtime does not enforce anyway.
+ */
+describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: any
+  let pagesModel: typeof import('./pages.ts').pages
+  let treeModel: typeof import('./tree.ts').tree
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ tree: treeModel } = await import('./tree.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageInput(overrides: Partial<PageInput> = {}): PageInput {
+    return {
+      path: 'getting-started',
+      title: 'Getting Started',
+      editor: 'markdown',
+      content: '# Hello\n\nSome content.',
+      ...overrides
+    }
+  }
+
+  function generate(rootFolderPath = '', locale = 'en'): Promise<NavigationItem[]> {
+    return navigationModel.generateFromTree(fixtures.siteId, rootFolderPath, locale)
+  }
+
+  test('an empty subtree produces no items', async () => {
+    const items = await generate('empty-subtree-root')
+    assert.deepEqual(items, [])
+  })
+
+  test('a folder holding only unpublished/non-browsable pages is dropped, not just emptied', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'unpublished-only/draft-page',
+        title: 'Draft Page',
+        publishState: 'draft'
+      }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'unpublished-only/unbrowsable-page',
+        title: 'Unbrowsable Page',
+        isBrowsable: false
+      }),
+      actor
+    )
+
+    const items = await generate()
+    assert.equal(
+      items.some((item) => item.label === 'unpublished-only'),
+      false
+    )
+  })
+
+  test('a nested override boundary is included as a leaf but not recursed into', async () => {
+    const boundaryFolder = await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'boundary-section',
+      title: 'Boundary Section',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'boundary-section/inside-boundary', title: 'Inside Boundary' }),
+      actor
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: boundaryFolder.id,
+      mode: 'override'
+    })
+
+    // -> A sibling, non-boundary folder recurses normally, so the boundary's lack of children is
+    //    contrasted against a case that walks all the way down
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'plain-section',
+      title: 'Plain Section',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'plain-section/inside-plain', title: 'Inside Plain' }),
+      actor
+    )
+
+    const items = await generate()
+
+    const boundaryItem = items.find((item) => item.label === 'Boundary Section')
+    assert.ok(boundaryItem)
+    assert.equal(boundaryItem!.children, undefined)
+
+    const plainItem = items.find((item) => item.label === 'Plain Section')
+    assert.ok(plainItem)
+    assert.equal(plainItem!.children?.length, 1)
+    assert.equal(plainItem!.children![0].label, 'Inside Plain')
+    assert.equal(plainItem!.children![0].target, '/en/plain-section/inside-plain')
+  })
+
+  test('a hide boundary drops the entry and everything below it', async () => {
+    const hiddenFolder = await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'hidden-section',
+      title: 'Hidden Section',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'hidden-section/inside-hidden', title: 'Inside Hidden' }),
+      actor
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: hiddenFolder.id,
+      mode: 'hide'
+    })
+
+    const items = await generate()
+    assert.equal(
+      items.some((item) => item.label === 'Hidden Section'),
+      false
+    )
   })
 })

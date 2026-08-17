@@ -1,6 +1,12 @@
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
-import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
+import { and, asc, eq, exists, inArray, ne, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import {
+  navigation as navigationTable,
+  pages as pagesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
 export const NAVIGATION_MODES = [
@@ -177,6 +183,130 @@ class Navigation {
       ...row,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
     }))
+  }
+
+  /**
+   * Build a menu by walking the tree instead of reading a hand-authored `items` row — the `auto` /
+   * `mixed` navigation source modes this feature adds. Not wired into `getNav` yet; a later task in
+   * this feature is what calls this from the resolution path.
+   *
+   * Queries `tree`/`pages` under `rootFolderPath` the same way `tree.browse()` lists a folder: joined
+   * on `pages` for `isBrowsable`/`publishState`/`icon`, a folder with no visible descendant page
+   * dropped via the same `EXISTS` pattern (`holdsVisiblePages`), `asset` entries never considered, and
+   * ordered by the same folders-then-title comparator `browse()` uses (`compareFoldersFirst`, factored
+   * out of `tree.ts` for exactly this reuse).
+   *
+   * Sub-boundary rule, per the feature brief: an entry whose own `navigationMode` is `hide` or
+   * `hideExact` is dropped from the walk outright — for the recursive `hide` that silently drops
+   * everything below it too, since nothing below a row that was never added is ever walked. An entry on
+   * `override` or `overrideExact` is still included, as a leaf: its own subtree is a menu of its own
+   * (edited separately through the normal override/manual-items path), so the walk does not recurse
+   * into it.
+   *
+   * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
+   *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
+   * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
+   *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
+   */
+  private async generateFromTree(
+    siteId: string,
+    rootFolderPath: string,
+    locale: string,
+    depth = 0
+  ): Promise<NavigationItem[]> {
+    if (depth > MAX_DEPTH) {
+      return []
+    }
+
+    const descendant = alias(treeTable, 'navGenDescendantTree')
+    const descendantPage = alias(pagesTable, 'navGenDescendantPage')
+    // -> Text rather than an ltree operator, so the child path can be built from a bound prefix and the
+    //    row's own name -- the same trick `tree.browse()`'s `holdsVisiblePages` uses
+    const childPathPrefix = rootFolderPath ? `${rootFolderPath}.` : ''
+
+    const holdsVisiblePages = exists(
+      WIKI.db
+        .select({ one: sql`1` })
+        .from(descendant)
+        .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+        .where(
+          and(
+            eq(descendant.siteId, treeTable.siteId),
+            eq(descendant.locale, treeTable.locale),
+            eq(descendant.type, 'page'),
+            sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
+            ...pageIsVisible(descendantPage, true)
+          )
+        )
+    )
+
+    const rows = await WIKI.db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        fileName: treeTable.fileName,
+        title: treeTable.title,
+        icon: pagesTable.icon,
+        navigationMode: treeTable.navigationMode,
+        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          eq(treeTable.folderPath, rootFolderPath),
+          ne(treeTable.type, 'asset'),
+          or(
+            eq(treeTable.type, 'folder'),
+            and(eq(treeTable.type, 'page'), ...pageIsVisible(pagesTable, true))
+          )
+        )
+      )
+
+    const parentPath = decodeTreePath(rootFolderPath) ?? ''
+
+    const candidates = rows
+      // -> An empty folder is a dead end -- same as `browse()` drops it
+      .filter((row) => row.type !== 'folder' || row.holdsVisiblePages)
+      // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
+      //    since nothing below a row that was never added is ever walked
+      .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
+      .sort((a, b) =>
+        compareFoldersFirst(
+          { isFolder: a.type === 'folder', title: a.title },
+          { isFolder: b.type === 'folder', title: b.title }
+        )
+      )
+
+    return Promise.all(
+      candidates.map(async (row): Promise<NavigationItem> => {
+        // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
+        //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
+        const isBoundary =
+          row.type === 'folder' &&
+          (['override', 'overrideExact'] as NavigationMode[]).includes(row.navigationMode)
+        const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
+        const children =
+          row.type === 'folder' && !isBoundary
+            ? await this.generateFromTree(siteId, childFolderPath, locale, depth + 1)
+            : []
+
+        return {
+          id: row.id,
+          type: 'link',
+          label: row.title,
+          ...(row.icon && { icon: row.icon }),
+          // -> Matches how `NavItemEditor.vue`'s manual page-picker builds a link target, so a
+          //    generated item and a hand-picked one render identically on the frontend
+          ...(row.type === 'page' && {
+            target: `/${locale}/${parentPath ? `${parentPath}/${row.fileName}` : row.fileName}`
+          }),
+          ...(children.length > 0 && { children })
+        }
+      })
+    )
   }
 
   /**
