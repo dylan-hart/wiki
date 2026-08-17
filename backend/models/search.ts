@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { AccessActor } from './groups.ts'
+import type { ModuleProp } from '../helpers/common.ts'
+import type { pages as pagesTable } from '../db/schema.ts'
 
 /**
  * Locale to PostgreSQL text search dictionary, for the languages postgres ships a snowball stemmer
@@ -104,6 +106,64 @@ export interface SearchPagesParams {
    * the password covers — but it can only be matched on those, and comes back with no excerpt.
    */
   hideProtectedContent?: boolean
+}
+
+/** A search engine module, as declared by its `definition.yml`. */
+export interface SearchEngineDefinition {
+  key: string
+  title: string
+  description: string
+  icon?: string
+  logo?: string
+  vendor: string
+  website: string
+  /**
+   * Engine-specific config fields, e.g. an API key or an index name.
+   *
+   * `dictOverrides` (a locale -> text search dictionary map) is deliberately not declared here:
+   * `parseModuleProps` (`helpers/common.ts`) only knows how to validate boolean/number/string/enum
+   * scalars, and an override map is a free-form object with no fixed set of keys. It stays a JSON
+   * config field a provider reads directly off its stored config — same as `AdminSearch.vue`'s
+   * `util-code-editor` already edits it today — rather than being forced through prop validation that
+   * cannot express it. A provider that wants it need only read `config.dictOverrides` itself.
+   */
+  props: Record<string, ModuleProp>
+}
+
+/**
+ * A page row, as handed to a search module's `created`/`updated`/`renamed` hooks.
+ *
+ * The full row rather than a narrowed shape: which fields a given engine actually indexes (title vs.
+ * body vs. tags) is that module's decision, not this interface's, and an external engine needs enough
+ * to build its own document without querying the database back.
+ */
+export type SearchIndexablePage = typeof pagesTable.$inferSelect
+
+/**
+ * What a search engine module implementation is expected to export as its default.
+ *
+ * Mirrors `StorageModule` (`models/storage.ts`) and the per-strategy classes `models/authentication.ts`
+ * dynamically imports: one file per engine, resolved by its `definition.yml` key. Unlike storage —
+ * where most of the interface is still unimplemented — every hook here is mandatory from the start:
+ * a search index has to stay in step with every page mutation from the moment an engine exists, since a
+ * stale or missing entry in an external index (Elasticsearch, Algolia, ...) is a silently wrong result
+ * rather than a visibly broken feature.
+ */
+export interface SearchModule {
+  /** Called when the engine is (re)configured for a site — connect, verify the index exists, etc. */
+  init(siteId: string, config: Record<string, any>): Promise<void>
+  /** A page was created. */
+  created(page: SearchIndexablePage): Promise<void>
+  /** A page's content or metadata changed. */
+  updated(page: SearchIndexablePage): Promise<void>
+  /** A page was deleted. Only the ID travels — there is no row left to read anything else from. */
+  deleted(siteId: string, pageId: string): Promise<void>
+  /** A page moved. `previousPath` is what the module indexed it under before. */
+  renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void>
+  /** Serve a search request. */
+  query(params: SearchPagesParams): Promise<SearchPagesResult>
+  /** Recompute the whole index of a site from scratch. */
+  rebuild(siteId: string): Promise<RebuildResult>
 }
 
 /**

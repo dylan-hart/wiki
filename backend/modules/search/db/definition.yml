@@ -1,0 +1,20 @@
+key: db
+title: 'Database'
+icon: '/_assets/icons/ultraviolet-database.svg'
+description: 'PostgreSQL full-text search. Every site starts with it, and it is the only search engine guaranteed to work: it cannot be disabled, so a site can always be searched even with no external engine configured.'
+vendor: 'Wiki.js'
+website: 'https://js.wiki'
+props:
+  termHighlighting:
+    type: Boolean
+    title: Term Highlighting
+    hint: Show a highlighted excerpt with matched terms alongside each search result.
+    icon: text-box-search
+    default: false
+# dictOverrides (a locale -> PostgreSQL text search dictionary map, e.g. { "en": "english" }) has no
+# entry above on purpose: it is not a scalar the props system (parseModuleProps in
+# backend/helpers/common.ts) can validate, since that system only understands boolean/number/string/enum
+# values, not an object with an arbitrary set of locale keys. It stays a free-form JSON config field this
+# module reads directly off its stored config (config.dictOverrides) instead — the same way
+# frontend/src/pages/AdminSearch.vue already edits it today, through a util-code-editor rather than a
+# generated form field.
