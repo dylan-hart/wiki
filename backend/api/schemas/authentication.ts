@@ -30,6 +30,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'For `setupTfa` only: the `otpauth://` URI as an SVG QR code, to be rendered as-is.'
       },
+      recoveryCodes: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Present only when this login just activated 2FA: the fresh recovery codes in plaintext. Shown once — only hashes are kept afterwards.'
+      },
       redirect: {
         type: 'string',
         description: 'Where to send the user once logged in. A path within this wiki, or a URL.'

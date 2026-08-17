@@ -14,6 +14,11 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
+import {
+  generateRecoveryCodes,
+  isRecoveryCodeShape,
+  normalizeRecoveryCode
+} from '../helpers/recoveryCodes.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
 
@@ -77,7 +82,20 @@ export interface UserProfileAuthMethod {
     isPasswordLoginEnabled: boolean
     /** Whether the account has another way in, and may therefore turn password login off. */
     canDisablePasswordLogin: boolean
+    /** How many of the 2FA recovery codes issued for this provider are still unused. 0 when 2FA is off. */
+    recoveryCodesRemaining: number
   }
+}
+
+/**
+ * One issued 2FA recovery code, as stored on `auth[strategyId].recoveryCodes`. Only the hash is ever
+ * kept — the plaintext is returned to the caller once, at the moment it is generated, and never
+ * again. `usedAt` is set the first (and only) time the code is redeemed; a code with a value here is
+ * dead and is skipped by every check from then on.
+ */
+export interface RecoveryCodeEntry {
+  hash: string
+  usedAt: string | null
 }
 
 /** The subset of user fields that may be modified. `isSystem` is deliberately absent. */
@@ -182,6 +200,55 @@ async function countTfaFailure(token: string): Promise<void> {
  */
 const maxTfaAttempts = 5
 
+/** Cost factor `bcrypt` hashes recovery codes at — the same one `models/users.ts` hashes passwords with. */
+const recoveryCodeBcryptRounds = 12
+
+/**
+ * A fresh set of recovery codes, in both forms `enableTfa()`/`regenerateRecoveryCodes()` need: the
+ * plaintext to hand back to the caller exactly once, and the hashed entries to store.
+ */
+async function issueRecoveryCodes(): Promise<{
+  plaintext: string[]
+  entries: RecoveryCodeEntry[]
+}> {
+  const plaintext = generateRecoveryCodes()
+  const entries: RecoveryCodeEntry[] = await Promise.all(
+    plaintext.map(async (code) => ({
+      hash: await bcrypt.hash(normalizeRecoveryCode(code), recoveryCodeBcryptRounds),
+      usedAt: null
+    }))
+  )
+  return { plaintext, entries }
+}
+
+/**
+ * Which stored recovery code entry (if any) a normalized code matches. Every unconsumed entry is
+ * checked, not just until the first hit — mirroring the constant-time discipline `verifyTotpCode`
+ * uses for its drift window, so how long this takes does not depend on which one (if any) matched.
+ * An already-consumed entry is skipped without comparison: it can never match again regardless of
+ * what was typed, so there is nothing to hide by skipping it.
+ *
+ * Exported for direct unit testing — this is the one piece of recovery-code verification that has no
+ * database or `WIKI` global in it.
+ *
+ * @returns The index of the matching entry, or -1
+ */
+export async function matchRecoveryCode(
+  entries: RecoveryCodeEntry[],
+  normalizedCode: string
+): Promise<number> {
+  let matchedIndex = -1
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i]!.usedAt) {
+      continue
+    }
+    if (await bcrypt.compare(normalizedCode, entries[i]!.hash)) {
+      matchedIndex = i
+    }
+  }
+  return matchedIndex
+}
+
 /**
  * How many ways into the account remain if the given provider stops working: the other providers
  * linked to it, plus every registered passkey.
@@ -226,6 +293,12 @@ export interface AfterLoginResult {
   nextAction: string
   continuationToken?: string
   tfaQRImage?: string
+  /**
+   * Present only when this login just activated 2FA (a required `setupTfa` completed with a correct
+   * code): the fresh recovery codes in plaintext, for the client to show and let the user save. Never
+   * present, and never reconstructable, afterwards — only hashes are kept.
+   */
+  recoveryCodes?: string[]
   redirect: string
 }
 
@@ -352,7 +425,8 @@ class Users {
     )) {
       const strategy = strategies.find((s: any) => s.id === strategyId)
       const definition = WIKI.data.authentication?.find((d: any) => d.key === strategy?.module)
-      const { password, tfaSecret, tfaIsActive, tfaRequired, ...config } = rawConfig ?? {}
+      const { password, tfaSecret, tfaIsActive, tfaRequired, recoveryCodes, ...config } =
+        rawConfig ?? {}
       auth.push({
         authId: strategyId,
         authName: strategy?.displayName || definition?.title || strategy?.module || 'Unknown',
@@ -365,7 +439,10 @@ class Users {
           //    things across the API. Whether 2FA is set up is `tfaIsActive` and a stored secret both:
           //    a secret that was generated but never confirmed is not 2FA being on.
           isTfaSetup: Boolean(tfaIsActive && tfaSecret),
-          isTfaRequired: Boolean(tfaRequired)
+          isTfaRequired: Boolean(tfaRequired),
+          recoveryCodesRemaining: tfaIsActive
+            ? ((recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt).length
+            : 0
         }
       })
     }
@@ -817,7 +894,11 @@ class Users {
             config.tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa
           ),
           isPasswordLoginEnabled: !config.restrictLogin,
-          canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0
+          canDisablePasswordLogin: countAlternativeLogins(user, strategyId) > 0,
+          recoveryCodesRemaining: config.tfaIsActive
+            ? ((config.recoveryCodes ?? []) as RecoveryCodeEntry[]).filter((entry) => !entry.usedAt)
+                .length
+            : 0
         }
       })
     }
@@ -975,16 +1056,28 @@ class Users {
   }
 
   /**
-   * Mark a user's stored 2FA secret as active, i.e. required from now on. Called once the user has
-   * proven it produces the codes this server expects.
+   * Mark a user's stored 2FA secret as active, i.e. required from now on, and issue a fresh set of
+   * recovery codes alongside it. Called once the user has proven the secret produces the codes this
+   * server expects — from a login that owed a required setup (`loginTFA`) or from the profile page
+   * (`confirmTfaSetup`), which is why the codes are generated here rather than in either caller: both
+   * routes to becoming active go through this one place.
+   *
+   * @returns The recovery codes in plaintext. Only their hashes are stored, so this is the one and
+   *          only time the caller can get at them — display or offer them for download immediately.
    */
-  async enableTfa(user: any, strategyId: string): Promise<void> {
-    user.auth[strategyId] = { ...user.auth[strategyId], tfaIsActive: true }
+  async enableTfa(user: any, strategyId: string): Promise<string[]> {
+    const { plaintext, entries } = await issueRecoveryCodes()
+    user.auth[strategyId] = {
+      ...user.auth[strategyId],
+      tfaIsActive: true,
+      recoveryCodes: entries
+    }
     await WIKI.db
       .update(usersTable)
       .set({ auth: user.auth, updatedAt: sql`now()` })
       .where(eq(usersTable.id, user.id))
     WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
+    return plaintext
   }
 
   /**
@@ -1012,7 +1105,7 @@ class Users {
       throw new Error('ERR_TFA_ENFORCED')
     }
 
-    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '' }
+    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
     await WIKI.db
       .update(usersTable)
       .set({ auth, updatedAt: sql`now()` })
@@ -1026,6 +1119,110 @@ class Users {
   verifyTfaCode(user: any, strategyId: string, securityCode: string): boolean {
     const secret = ((user.auth ?? {}) as Record<string, any>)[strategyId]?.tfaSecret
     return Boolean(secret) && verifyTotpCode(secret, securityCode)
+  }
+
+  /**
+   * Whether a recovery code matches one of the unconsumed codes stored for a user's 2FA. On a match,
+   * marks that entry consumed so it cannot be redeemed a second time.
+   *
+   * @param user The user row, whose `auth` blob is updated in place as well as saved
+   * @returns Whether the code matched an unconsumed entry
+   */
+  async verifyAndConsumeRecoveryCode(
+    user: any,
+    strategyId: string,
+    code: string
+  ): Promise<boolean> {
+    const auth = (user.auth ?? {}) as Record<string, any>
+    const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+    const matchedIndex = await matchRecoveryCode(entries, normalizeRecoveryCode(code))
+    if (matchedIndex < 0) {
+      return false
+    }
+
+    const updatedEntries = entries.map((entry, i) =>
+      i === matchedIndex
+        ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
+        : entry
+    )
+    user.auth[strategyId] = { ...auth[strategyId], recoveryCodes: updatedEntries }
+    await WIKI.db
+      .update(usersTable)
+      .set({ auth: user.auth, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, user.id))
+    WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
+    return true
+  }
+
+  /**
+   * How many of a user's 2FA recovery codes are still unused, without ever re-displaying one.
+   *
+   * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
+   */
+  async getRecoveryCodesStatus(
+    userId: string,
+    strategyId: string
+  ): Promise<{ total: number; remaining: number }> {
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_INVALID_USER')
+    }
+    const auth = (user.auth ?? {}) as Record<string, any>
+    if (!auth[strategyId]) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    // -> No 2FA, no codes: rather than answering `{ total: 0, remaining: 0 }` for an account that
+    //    was never set up for recovery codes in the first place, this is treated the same as any
+    //    other 2FA-inactive request.
+    if (!auth[strategyId].tfaIsActive) {
+      throw new Error('ERR_TFA_NOT_ACTIVE')
+    }
+    const entries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
+    return {
+      total: entries.length,
+      remaining: entries.filter((entry) => !entry.usedAt).length
+    }
+  }
+
+  /**
+   * Invalidate every recovery code currently stored for a user's 2FA and issue a fresh set in its
+   * place — a partially-consumed set is not topped back up to a full one, the whole thing is thrown
+   * away and replaced, used and unused codes alike.
+   *
+   * @returns The new codes in plaintext, and whether the set being replaced still had unused codes in
+   *          it — the caller's cue to warn the user that codes they saved are being thrown away, not
+   *          just supplemented
+   * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
+   */
+  async regenerateRecoveryCodes(
+    userId: string,
+    strategyId: string
+  ): Promise<{ recoveryCodes: string[]; hadUnusedCodes: boolean }> {
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_INVALID_USER')
+    }
+    const auth = (user.auth ?? {}) as Record<string, any>
+    if (!auth[strategyId]) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    if (!auth[strategyId].tfaIsActive) {
+      throw new Error('ERR_TFA_NOT_ACTIVE')
+    }
+
+    const previousEntries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
+    const hadUnusedCodes = previousEntries.some((entry) => !entry.usedAt)
+
+    const { plaintext, entries } = await issueRecoveryCodes()
+    auth[strategyId] = { ...auth[strategyId], recoveryCodes: entries }
+    await WIKI.db
+      .update(usersTable)
+      .set({ auth, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, userId))
+    WIKI.models.flags.authDebug(
+      `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
+    )
+    return { recoveryCodes: plaintext, hadUnusedCodes }
   }
 
   /**
@@ -1431,10 +1628,12 @@ class Users {
    * as soon as one is correct, and by `countTfaFailure()` once too many have not been.
    *
    * @param setup True when the token came from a required setup, in which case a correct code also
-   *              activates the secret that was generated for it
-   * @throws `ERR_TFA_INVALID_REQUEST`, `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or
-   *         `ERR_TFA_INCORRECT_TOKEN`, plus whatever `validateToken()` raises for a token that is
-   *         unknown or expired
+   *              activates the secret that was generated for it. A recovery code cannot complete a
+   *              setup — none exist yet for a secret that has never been activated — so `securityCode`
+   *              must be the 6-digit TOTP code here.
+   * @throws `ERR_TFA_INVALID_REQUEST`, `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`,
+   *         `ERR_TFA_RECOVERY_CODES_EXHAUSTED` or `ERR_TFA_INCORRECT_TOKEN`, plus whatever
+   *         `validateToken()` raises for a token that is unknown or expired
    */
   async loginTFA(
     {
@@ -1454,7 +1653,11 @@ class Users {
     },
     req: any
   ): Promise<AfterLoginResult> {
-    if (!continuationToken || !/^[0-9]{6}$/.test(securityCode)) {
+    const isTotpShape = /^[0-9]{6}$/.test(securityCode)
+    // -> Recovery codes only exist once 2FA is active, so they cannot answer a `setupTfa` login —
+    //    that flow only ever proves a freshly-generated TOTP secret works.
+    const isRecoveryShape = !setup && isRecoveryCodeShape(securityCode)
+    if (!continuationToken || (!isTotpShape && !isRecoveryShape)) {
       throw new Error('ERR_TFA_INVALID_REQUEST')
     }
 
@@ -1469,19 +1672,41 @@ class Users {
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
-    if (!this.verifyTfaCode(user, strategyId, securityCode)) {
+
+    let verified: boolean
+    if (isTotpShape) {
+      verified = this.verifyTfaCode(user, strategyId, securityCode)
+    } else {
+      const auth = (user.auth ?? {}) as Record<string, any>
+      const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+      // -> Distinguished from a plain wrong code: the client's response to "you mistyped it" and
+      //    "you have nothing left to try" should not be the same generic rejection.
+      if (entries.every((entry) => entry.usedAt)) {
+        throw new Error('ERR_TFA_RECOVERY_CODES_EXHAUSTED')
+      }
+      verified = await this.verifyAndConsumeRecoveryCode(user, strategyId, securityCode)
+    }
+    if (!verified) {
       await countTfaFailure(continuationToken)
       WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> submitted an incorrect 2FA code`)
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
 
     await this.destroyToken({ token: continuationToken })
+    let recoveryCodes: string[] | undefined
     if (setup) {
-      await this.enableTfa(user, strategyId)
+      recoveryCodes = await this.enableTfa(user, strategyId)
     }
 
     // -> The remaining checks still apply: a user who owed a password change before 2FA still owes it
-    return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipTFA: true }, req)
+    const result = await this.afterLoginChecks(
+      user,
+      strategyId,
+      { ip, siteId },
+      { skipTFA: true },
+      req
+    )
+    return recoveryCodes ? { ...result, recoveryCodes } : result
   }
 
   /**
@@ -1530,6 +1755,8 @@ class Users {
    * Deliberately not `loginTFA()` with `setup`: the user is already logged in, and running the login
    * checks again would rebuild the session and emit a second login event for one visit.
    *
+   * @returns The fresh recovery codes in plaintext, for the profile page to display and let the user
+   *          save — the only time they are ever available again
    * @throws `ERR_TFA_INVALID_REQUEST`, `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or
    *         `ERR_TFA_INCORRECT_TOKEN`
    */
@@ -1543,7 +1770,7 @@ class Users {
     strategyId: string
     continuationToken: string
     securityCode: string
-  }): Promise<void> {
+  }): Promise<{ recoveryCodes: string[] }> {
     if (!continuationToken || !/^[0-9]{6}$/.test(securityCode)) {
       throw new Error('ERR_TFA_INVALID_REQUEST')
     }
@@ -1566,7 +1793,8 @@ class Users {
     }
 
     await this.destroyToken({ token: continuationToken })
-    await this.enableTfa(user, strategyId)
+    const recoveryCodes = await this.enableTfa(user, strategyId)
+    return { recoveryCodes }
   }
 
   /**

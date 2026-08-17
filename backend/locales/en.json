@@ -1982,6 +1982,7 @@
   "error.ERR_TFA_INCORRECT_TOKEN": "This security code is incorrect.",
   "error.ERR_TFA_INVALID_REQUEST": "Missing or incomplete security code.",
   "error.ERR_TFA_NOT_ACTIVE": "2FA is not enabled on this account.",
+  "error.ERR_TFA_RECOVERY_CODES_EXHAUSTED": "Every recovery code for this account has already been used. Sign in with your authenticator app, or contact an administrator.",
   "error.ERR_TOKEN_EXCHANGE_FAILED": "The provider refused to complete the sign-in.",
   "error.ERR_USER_NOT_VERIFIED": "This account has not been verified yet.",
   "fileman.7zFileType": "7zip Archive",
