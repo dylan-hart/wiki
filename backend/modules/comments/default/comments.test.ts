@@ -1,22 +1,227 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { describe, it } from 'node:test'
+import { afterEach, describe, it, mock } from 'node:test'
 import { load } from 'js-yaml'
 import { parseModuleProps } from '../../../helpers/common.ts'
-import commentsDefaultModule from './comments.ts'
+import commentsDefaultModule, {
+  _resetAkismetClientCacheForTesting,
+  _setAkismetClientFactoryForTesting
+} from './comments.ts'
+import type { CheckSpamParams } from './comments.ts'
+
+/**
+ * `checkSpam` reads `WIKI.config.host` (the Akismet "blog" identity, matching 2.5.x) and
+ * `WIKI.logger.warn` (fail-open logging) — a minimal stub of just those two, not the full
+ * `test/db.ts` fixture, since nothing here touches the database. `warnLog` collects every warning so
+ * tests can assert on the fail-open message without asserting on real log formatting.
+ */
+const warnLog: string[] = []
+;(globalThis as any).WIKI = {
+  config: { host: 'https://test.wiki' },
+  logger: { warn: (msg: string) => warnLog.push(msg) }
+}
+
+function baseSpamParams(overrides: Partial<CheckSpamParams> = {}): CheckSpamParams {
+  return {
+    ip: '203.0.113.5',
+    userAgent: 'Mozilla/5.0 (Test)',
+    content: 'Nice post!',
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    permalink: 'https://test.wiki/en/some-page',
+    permalinkDate: '2026-08-16T00:00:00.000Z',
+    type: 'comment',
+    role: 'user',
+    ...overrides
+  }
+}
 
 describe('modules/comments/default', () => {
   describe('comments.ts', () => {
+    afterEach(() => {
+      warnLog.length = 0
+      _resetAkismetClientCacheForTesting()
+      _setAkismetClientFactoryForTesting(null)
+    })
+
     it('is importable and exposes the CommentProviderModule contract', () => {
       assert.equal(typeof commentsDefaultModule.render, 'function')
       assert.equal(typeof commentsDefaultModule.checkSpam, 'function')
       assert.equal(typeof commentsDefaultModule.checkRateLimit, 'function')
     })
 
-    it('has stubbed handlers (checkSpam, checkRateLimit) that reject rather than silently no-op', async () => {
-      await assert.rejects(commentsDefaultModule.checkSpam({ content: 'hi', author: 'x' }, {}))
+    it('has a stubbed checkRateLimit that rejects rather than silently no-opping', async () => {
       await assert.rejects(commentsDefaultModule.checkRateLimit({ userId: 1 }, {}))
+    })
+
+    describe('checkSpam', () => {
+      it('is a no-op (not spam, no client, no warning) when conf.akismet is empty', async () => {
+        const factory = mock.fn(() => {
+          throw new Error('should never be called when the key is empty')
+        })
+        _setAkismetClientFactoryForTesting(factory)
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: '' })
+
+        assert.deepEqual(result, { isSpam: false })
+        assert.equal(factory.mock.callCount(), 0)
+        assert.deepEqual(warnLog, [])
+      })
+
+      it('is a no-op when the akismet prop is left unset entirely', async () => {
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {})
+        assert.deepEqual(result, { isSpam: false })
+      })
+
+      it('returns isSpam: true when Akismet reports the comment as spam', async () => {
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => true,
+          checkSpam: async () => true
+        }))
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {
+          akismet: 'valid-key'
+        })
+
+        assert.deepEqual(result, { isSpam: true })
+      })
+
+      it('returns isSpam: false when Akismet reports the comment as ham', async () => {
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => true,
+          checkSpam: async () => false
+        }))
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {
+          akismet: 'valid-key'
+        })
+
+        assert.deepEqual(result, { isSpam: false })
+      })
+
+      it('passes the full field set (mapped to akismet-api names) through to the client', async () => {
+        let received: any = null
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => true,
+          checkSpam: async (comment) => {
+            received = comment
+            return false
+          }
+        }))
+
+        await commentsDefaultModule.checkSpam(
+          baseSpamParams({ type: 'reply', role: 'administrator' }),
+          { akismet: 'valid-key' }
+        )
+
+        assert.deepEqual(received, {
+          ip: '203.0.113.5',
+          useragent: 'Mozilla/5.0 (Test)',
+          content: 'Nice post!',
+          name: 'Ada Lovelace',
+          email: 'ada@example.com',
+          permalink: 'https://test.wiki/en/some-page',
+          permalinkDate: '2026-08-16T00:00:00.000Z',
+          type: 'reply',
+          role: 'administrator'
+        })
+      })
+
+      it('constructs the client with the akismet key and WIKI.config.host as the blog', async () => {
+        let receivedOpts: any = null
+        _setAkismetClientFactoryForTesting((opts) => {
+          receivedOpts = opts
+          return { verifyKey: async () => true, checkSpam: async () => false }
+        })
+
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'my-key' })
+
+        assert.deepEqual(receivedOpts, { key: 'my-key', blog: 'https://test.wiki' })
+      })
+
+      it('fails open (not spam) and logs a warning, without throwing, when the key is invalid', async () => {
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => false,
+          checkSpam: async () => {
+            throw new Error('should never be called for an invalid key')
+          }
+        }))
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {
+          akismet: 'bad-key'
+        })
+
+        assert.equal(result.isSpam, false)
+        assert.ok(result.reason)
+        assert.equal(warnLog.length, 1)
+        assert.match(warnLog[0]!, /invalid/i)
+      })
+
+      it('fails open and logs a warning, without throwing, when verifyKey rejects (Akismet unreachable)', async () => {
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => {
+            throw new Error('ENOTFOUND rest.akismet.com')
+          },
+          checkSpam: async () => {
+            throw new Error('should never be called')
+          }
+        }))
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {
+          akismet: 'some-key'
+        })
+
+        assert.equal(result.isSpam, false)
+        assert.ok(result.reason)
+        assert.equal(warnLog.length, 1)
+        assert.match(warnLog[0]!, /ENOTFOUND/)
+      })
+
+      it('fails open and logs a warning when checkSpam itself rejects, after a valid key', async () => {
+        _setAkismetClientFactoryForTesting(() => ({
+          verifyKey: async () => true,
+          checkSpam: async () => {
+            throw new Error('502 Bad Gateway')
+          }
+        }))
+
+        const result = await commentsDefaultModule.checkSpam(baseSpamParams(), {
+          akismet: 'valid-key'
+        })
+
+        assert.equal(result.isSpam, false)
+        assert.ok(result.reason)
+        assert.equal(warnLog.length, 1)
+        assert.match(warnLog[0]!, /502 Bad Gateway/)
+      })
+
+      it('validates a given key only once (memoized), reusing the client across calls', async () => {
+        const factory = mock.fn(() => ({
+          verifyKey: mock.fn(async () => true),
+          checkSpam: async () => false
+        }))
+        _setAkismetClientFactoryForTesting(factory)
+
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'same-key' })
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'same-key' })
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'same-key' })
+
+        assert.equal(factory.mock.callCount(), 1)
+      })
+
+      it('re-validates independently when the key value changes', async () => {
+        const factory = mock.fn(() => ({
+          verifyKey: async () => true,
+          checkSpam: async () => false
+        }))
+        _setAkismetClientFactoryForTesting(factory)
+
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'key-one' })
+        await commentsDefaultModule.checkSpam(baseSpamParams(), { akismet: 'key-two' })
+
+        assert.equal(factory.mock.callCount(), 2)
+      })
     })
 
     it('renders plain text as a paragraph and returns both content and render', async () => {

@@ -2,18 +2,21 @@
  * Wiki.js Native comment provider.
  *
  * This is a scaffold (Task 615, Feature 390): the module shape and its handler signatures are in
- * place; `checkSpam` and `checkRateLimit` are still stubbed to throw (they need the Akismet client
- * and, respectively, the comments table, neither of which exists yet). `render` (Task 623) is fully
- * implemented — it needs nothing beyond a markdown string.
+ * place; `checkRateLimit` is still stubbed to throw (it needs the comments table, which doesn't
+ * exist yet). `render` (Task 623) and `checkSpam` (Task 628) are fully implemented.
  *
  * Feature 389 (the comments data model) owns `models/comments.ts` and, once it lands, the
  * `CommentProviderModule` interface below should move there and this file should import it — the
  * same way `models/storage.ts` and `models/authentication.ts` already own the contracts for their
  * own module kinds.
  *
- * Pure module: no database access, no Fastify route, no Drizzle import. `models/comments.ts` is
- * expected to dynamically import this file's default export the same way `models/storage.ts` loads
- * `modules/storage/<key>/storage.ts`.
+ * No database access, no Fastify route, no Drizzle import — `models/comments.ts` is expected to
+ * dynamically import this file's default export the same way `models/storage.ts` loads
+ * `modules/storage/<key>/storage.ts`. `checkSpam` does read the ambient `WIKI` global
+ * (`WIKI.config.host`, `WIKI.logger`), same as `modules/authentication/local/authentication.ts`
+ * reads it for `WIKI.models` — that global is available everywhere in the backend without importing
+ * (see CLAUDE.md's "Backend patterns"); it's just never the database/Fastify/Drizzle layer this
+ * module otherwise stays out of.
  */
 
 import MarkdownIt from 'markdown-it'
@@ -21,6 +24,7 @@ import { full as markdownItEmoji } from 'markdown-it-emoji'
 import hljs from 'highlight.js'
 import sanitizeHtml from 'sanitize-html'
 import { escape } from 'es-toolkit/string'
+import { AkismetClient } from 'akismet-api'
 
 /**
  * What a comment renders to: the raw markdown as submitted, and the sanitized HTML derived from it.
@@ -35,6 +39,51 @@ export interface CommentRenderResult {
 }
 
 /**
+ * The fields a spam check runs against, matching exactly what 2.5.x's
+ * `server/modules/comments/default/comment.js#create()` passed to Akismet's `checkSpam()`.
+ *
+ * **Input contract**: this module has no request context, no session, and no access to `models/*`,
+ * so every field here is the caller's responsibility to supply — nothing is inferred or looked up:
+ *   - `ip` / `userAgent` come from the HTTP request that posted the comment.
+ *   - `permalink` / `permalinkDate` come from the page the comment was posted to.
+ *   - `role` must be computed by the *caller* from the poster's group memberships
+ *     (`'administrator'` if they hold the admin group, `'guest'` if unauthenticated, `'user'`
+ *     otherwise — see 2.5.x's own `create()` for the exact mapping). This module never sees a
+ *     user's groups, so it cannot derive this itself.
+ */
+export interface CheckSpamParams {
+  /** The commenter's IP address. Required by Akismet. */
+  ip: string
+  /** The commenter's user agent string. */
+  userAgent: string
+  /** The comment's raw (markdown) content. */
+  content: string
+  /** The commenter's display name. */
+  name?: string
+  /** The commenter's email address. */
+  email?: string
+  /** A permalink to the page the comment was posted on. */
+  permalink?: string
+  /** ISO 8601 timestamp of when that page was last modified. */
+  permalinkDate?: string
+  /** Akismet's `comment_type`. Always `'comment'` until this provider supports threaded replies. */
+  type: 'comment' | 'reply'
+  /** See the input-contract note above — this is the one field this module cannot compute itself. */
+  role: 'administrator' | 'guest' | 'user'
+}
+
+/**
+ * A spam verdict. `isSpam` is always present and is the only field a caller strictly needs to branch
+ * on; `reason` is set whenever the verdict is a fail-open default (empty/invalid key, Akismet
+ * unreachable) rather than an actual Akismet response, so the caller can log *why* spam-checking was
+ * skipped without this module throwing over it.
+ */
+export interface SpamCheckResult {
+  isSpam: boolean
+  reason?: string
+}
+
+/**
  * The contract every comment provider module implements, keyed by the module's own `definition.yml`
  * `props` (see `helpers/common.ts`'s `ModuleProp` for what a resolved prop looks like). Local copy
  * only, for now — see the file-level comment above.
@@ -46,13 +95,13 @@ export interface CommentProviderModule {
   render(content: string): Promise<CommentRenderResult>
 
   /**
-   * Whether a comment looks like spam, given the module's own configuration (e.g. an Akismet API
-   * key set via the `akismet` prop).
+   * Whether a comment looks like spam, checked against Akismet using the module's own configuration
+   * (the `akismet` prop from `definition.yml`, read off `conf.akismet`). See `CheckSpamParams` for
+   * the input contract. Never throws on a spam verdict, or on a misconfigured/unreachable Akismet —
+   * "this is spam" is a normal outcome to branch on, and a bad key must degrade spam-checking, not
+   * block comment submission.
    */
-  checkSpam(
-    params: { content: string; author: string; email?: string; ip?: string; userAgent?: string },
-    conf: Record<string, any>
-  ): Promise<boolean>
+  checkSpam(params: CheckSpamParams, conf: Record<string, any>): Promise<SpamCheckResult>
 
   /**
    * Whether the poster is within the module's configured minimum delay between comments (the
@@ -161,12 +210,130 @@ function renderComment(content: string): CommentRenderResult {
   return { content, render: clean }
 }
 
+/**
+ * Minimal surface of `akismet-api`'s `AkismetClient` this module actually calls. Exists purely as a
+ * test seam: `akismet-api` builds its own `superagent` request inside the client with no way to
+ * inject a transport, so `comments.test.ts` substitutes a fake implementing this shape (via
+ * `_setAkismetClientFactoryForTesting`) instead of making a real network call to Akismet.
+ */
+interface AkismetClientLike {
+  verifyKey(): Promise<boolean>
+  checkSpam(comment: Record<string, string | boolean | undefined>): Promise<boolean>
+}
+
+type AkismetClientFactory = (opts: { key: string; blog: string }) => AkismetClientLike
+
+let createAkismetClient: AkismetClientFactory = (opts) => new AkismetClient(opts)
+
+/**
+ * Test-only seam — substitutes the factory used to construct the Akismet client so
+ * `comments.test.ts` can exercise the validate/warn/fail-open paths without hitting the real Akismet
+ * service. Not part of the `CommentProviderModule` contract. Pass `null` to restore the real client.
+ */
+export function _setAkismetClientFactoryForTesting(factory: AkismetClientFactory | null): void {
+  createAkismetClient = factory ?? ((opts) => new AkismetClient(opts))
+}
+
+/**
+ * One entry per distinct (key, blog) pair this process has seen, resolving to the validated client
+ * or `null` if the key was rejected or couldn't be verified. Memoized for the process lifetime rather
+ * than re-verified on every comment — this is the "on module load, validate the configured key" part
+ * of the contract, adapted to a per-call `conf` (this module has no separate init lifecycle hook, and
+ * `conf` can differ per site): the first `checkSpam` call for a given key pays the verification cost,
+ * every later call for that same key is a map lookup. Storing the pending promise (not just the
+ * resolved value) also means two concurrent `checkSpam` calls for a brand-new key share one
+ * `verifyKey()` request instead of firing two.
+ */
+const akismetClients = new Map<string, Promise<AkismetClientLike | null>>()
+
+/** Clears the memoized-client cache. Test-only — a real process never needs to forget a validated key. */
+export function _resetAkismetClientCacheForTesting(): void {
+  akismetClients.clear()
+}
+
+/**
+ * Resolve the validated Akismet client for `key`/`blog`, constructing and verifying it on first use.
+ * Never rejects: a validation failure (an invalid key, or Akismet being unreachable) is logged as a
+ * warning and cached as `null`, matching 2.5.x's `comment.js#init()` — "logged as warnings but don't
+ * block submission" — so a mistyped or expired key disables the spam check, not comment posting.
+ */
+function getAkismetClient(key: string, blog: string): Promise<AkismetClientLike | null> {
+  const cacheKey = `${key} ${blog}`
+  let pending = akismetClients.get(cacheKey)
+  if (!pending) {
+    pending = (async () => {
+      const client = createAkismetClient({ key, blog })
+      try {
+        const isValid = await client.verifyKey()
+        if (!isValid) {
+          WIKI.logger.warn('(COMMENTS/DEFAULT) Akismet key is invalid. Spam checking disabled.')
+          return null
+        }
+        return client
+      } catch (err: any) {
+        WIKI.logger.warn(`(COMMENTS/DEFAULT) Unable to verify Akismet key: ${err.message}`)
+        return null
+      }
+    })()
+    akismetClients.set(cacheKey, pending)
+  }
+  return pending
+}
+
+/**
+ * Runs a `CheckSpamParams` comment through Akismet using the given module `conf`. See
+ * `CommentProviderModule.checkSpam` and `CheckSpamParams` for the full contract.
+ */
+async function checkSpam(
+  params: CheckSpamParams,
+  conf: Record<string, any>
+): Promise<SpamCheckResult> {
+  const key = typeof conf?.akismet === 'string' ? conf.akismet.trim() : ''
+  // -> Empty key: the configured no-op, per `definition.yml`'s "Leave empty to disable" hint. No
+  //    client is constructed and no `WIKI.logger.warn` is emitted — this is not a failure, it is the
+  //    documented way to turn spam checking off.
+  if (!key) {
+    return { isSpam: false }
+  }
+
+  const blog = WIKI.config?.host
+  if (!blog) {
+    WIKI.logger.warn(
+      '(COMMENTS/DEFAULT) No site host configured — cannot verify Akismet key. Spam checking disabled.'
+    )
+    return { isSpam: false, reason: 'Akismet is not configured (missing site host).' }
+  }
+
+  const client = await getAkismetClient(key, blog)
+  if (!client) {
+    return { isSpam: false, reason: 'Akismet key is not valid, or could not be verified.' }
+  }
+
+  try {
+    const isSpam = await client.checkSpam({
+      ip: params.ip,
+      useragent: params.userAgent,
+      content: params.content,
+      name: params.name,
+      email: params.email,
+      permalink: params.permalink,
+      permalinkDate: params.permalinkDate,
+      type: params.type,
+      role: params.role
+    })
+    return { isSpam }
+  } catch (err: any) {
+    WIKI.logger.warn(`(COMMENTS/DEFAULT) Akismet spam check failed: ${err.message}`)
+    return { isSpam: false, reason: `Akismet check failed: ${err.message}` }
+  }
+}
+
 const commentsDefaultModule: CommentProviderModule = {
   async render(content) {
     return renderComment(content)
   },
-  async checkSpam(_params, _conf) {
-    throw new Error('Not implemented')
+  async checkSpam(params, conf) {
+    return checkSpam(params, conf)
   },
   async checkRateLimit(_params, _conf) {
     throw new Error('Not implemented')
