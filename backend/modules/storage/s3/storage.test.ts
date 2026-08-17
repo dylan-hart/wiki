@@ -194,14 +194,12 @@ describe('s3 storage / ensureBucket (activation)', () => {
   })
 
   test('a missing bucket (404) is created', async () => {
-    s3Mock
-      .on(HeadBucketCommand)
-      .rejects(
-        Object.assign(new Error('NotFound'), {
-          name: 'NotFound',
-          $metadata: { httpStatusCode: 404 }
-        })
-      )
+    s3Mock.on(HeadBucketCommand).rejects(
+      Object.assign(new Error('NotFound'), {
+        name: 'NotFound',
+        $metadata: { httpStatusCode: 404 }
+      })
+    )
     s3Mock.on(CreateBucketCommand).resolves({})
     const client = new S3Client({
       region: 'us-east-1',
@@ -212,14 +210,12 @@ describe('s3 storage / ensureBucket (activation)', () => {
   })
 
   test('creating a non-us-east-1 aws bucket sets LocationConstraint', async () => {
-    s3Mock
-      .on(HeadBucketCommand)
-      .rejects(
-        Object.assign(new Error('NotFound'), {
-          name: 'NotFound',
-          $metadata: { httpStatusCode: 404 }
-        })
-      )
+    s3Mock.on(HeadBucketCommand).rejects(
+      Object.assign(new Error('NotFound'), {
+        name: 'NotFound',
+        $metadata: { httpStatusCode: 404 }
+      })
+    )
     s3Mock.on(CreateBucketCommand).resolves({})
     const client = new S3Client({
       region: 'eu-west-1',
@@ -233,14 +229,12 @@ describe('s3 storage / ensureBucket (activation)', () => {
   })
 
   test('do mode never sets a LocationConstraint on create', async () => {
-    s3Mock
-      .on(HeadBucketCommand)
-      .rejects(
-        Object.assign(new Error('NotFound'), {
-          name: 'NotFound',
-          $metadata: { httpStatusCode: 404 }
-        })
-      )
+    s3Mock.on(HeadBucketCommand).rejects(
+      Object.assign(new Error('NotFound'), {
+        name: 'NotFound',
+        $metadata: { httpStatusCode: 404 }
+      })
+    )
     s3Mock.on(CreateBucketCommand).resolves({})
     const client = new S3Client({
       region: 'nyc3',
@@ -252,14 +246,12 @@ describe('s3 storage / ensureBucket (activation)', () => {
   })
 
   test('a non-404 head failure throws a readable Error, and never attempts to create', async () => {
-    s3Mock
-      .on(HeadBucketCommand)
-      .rejects(
-        Object.assign(new Error('Access Denied'), {
-          name: 'AccessDenied',
-          $metadata: { httpStatusCode: 403 }
-        })
-      )
+    s3Mock.on(HeadBucketCommand).rejects(
+      Object.assign(new Error('Access Denied'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 }
+      })
+    )
     const client = new S3Client({
       region: 'us-east-1',
       credentials: { accessKeyId: 'a', secretAccessKey: 'b' }
@@ -432,14 +424,12 @@ describe('s3 storage / exportAll', () => {
   })
 
   test('an activation failure (bad bucket) surfaces as a thrown Error rather than an unhandled SDK exception', async () => {
-    s3Mock
-      .on(HeadBucketCommand)
-      .rejects(
-        Object.assign(new Error('Forbidden'), {
-          name: 'AccessDenied',
-          $metadata: { httpStatusCode: 403 }
-        })
-      )
+    s3Mock.on(HeadBucketCommand).rejects(
+      Object.assign(new Error('Forbidden'), {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 }
+      })
+    )
     const target = makeTarget({ bucket: 'forbidden-bucket' })
     WIKI.models.assets.streamAll = async function* () {} as any
 
