@@ -71,6 +71,8 @@ export interface StorageDefinition {
 /** A configured target: the module definition, plus how this site has it set up. */
 export interface StorageTarget {
   id: string
+  /** The site this target belongs to — an action handler needs it to know what to act on. */
+  siteId: string
   module: string
   isEnabled: boolean
   title: string
@@ -316,6 +318,7 @@ class Storage {
       const versioning = (row.versioning ?? {}) as Record<string, any>
       targets.push({
         id: row.id,
+        siteId: row.siteId,
         module: definition.key,
         isEnabled: row.isEnabled,
         title: definition.title,
