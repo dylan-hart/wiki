@@ -629,7 +629,11 @@ function branchFrom(version) {
         json: {
           path: target.path,
           title: target.title,
-          locale: pageStore.locale,
+          // -> The version's own locale, not the page's current one. `movePage` never changes locale
+          //    today, so the two happen to always agree — but a version is a record of what the page
+          //    was, and reading its own field is what stays correct if that invariant ever stops
+          //    holding rather than relying on it silently.
+          locale: full.locale || pageStore.locale,
           editor: full.meta?.editor || pageStore.editor,
           content,
           render: await renderOf(full, content),
