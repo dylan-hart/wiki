@@ -34,7 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { stripPageExtension } from './helpers/common.ts'
-import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
+import { corsOptions, parseCspDirectives } from './helpers/security.ts'
 import { limitApiRequests } from './helpers/rateLimit.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
@@ -331,10 +331,10 @@ async function initHTTPServer() {
       : { policy: 'no-referrer' }
   })
 
-  app.register(fastifyCors, {
-    origin: corsOrigin(security),
-    methods: ['GET', 'HEAD', 'POST', 'OPTIONS']
-  })
+  // -> One global registration rather than a separate policy for `/_api`: see the doc comment on
+  //    `corsOptions()` for why the method list has to cover the full API CRUD surface even though
+  //    this same registration also fronts asset-serving routes like `/_render` and `/_thumb`.
+  app.register(fastifyCors, corsOptions(security))
 
   // ----------------------------------------
   // Public Assets

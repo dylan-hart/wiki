@@ -101,11 +101,6 @@ defaults:
       timeFormat: '12h'
     # System defaults
     channel: NEXT
-    cors:
-      credentials: true
-      maxAge: 600
-      methods: 'GET,POST'
-      origin: true
     maintainerEmail: security@requarks.io
 tsDictMappings:
   ar: arabic
