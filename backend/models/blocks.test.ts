@@ -153,6 +153,85 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(codeRow, undefined, 'code row should be gone, not left as an orphan')
   })
 
+  test('isTagTaken is true for a tag in the in-memory built-in manifest', async () => {
+    blocksModel.definitions = [
+      { block: 'manifest-widget', name: 'Manifest Widget', description: '', icon: 'mdi:cube' }
+    ]
+    try {
+      assert.equal(await blocksModel.isTagTaken(fixtures.siteId, 'manifest-widget'), true)
+    } finally {
+      blocksModel.definitions = []
+    }
+  })
+
+  test('isTagTaken is true for a tag already used by another custom block on the site', async () => {
+    await insertCustomBlock({ block: 'taken-widget' })
+    assert.equal(await blocksModel.isTagTaken(fixtures.siteId, 'taken-widget'), true)
+  })
+
+  test('isTagTaken is false for a tag nothing on the site uses', async () => {
+    assert.equal(await blocksModel.isTagTaken(fixtures.siteId, 'never-used-widget'), false)
+  })
+
+  test('isTagTaken does not see a custom tag registered on a different site', async () => {
+    await insertCustomBlock({ block: 'other-site-widget' })
+
+    const [otherSite] = await fixtures.db
+      .insert((await import('../db/schema.ts')).sites)
+      .values({ hostname: 'istagtaken.localhost', isEnabled: true, config: {} })
+      .returning({ id: (await import('../db/schema.ts')).sites.id })
+
+    assert.equal(await blocksModel.isTagTaken(otherSite!.id, 'other-site-widget'), false)
+  })
+
+  test('createCustomBlock writes the blocks row and its code together, enabled by default', async () => {
+    const created = await blocksModel.createCustomBlock(
+      fixtures.siteId,
+      {
+        block: 'fresh-widget',
+        name: 'Fresh Widget',
+        description: 'Just uploaded',
+        icon: 'mdi:new-box',
+        props: [{ name: 'title', type: 'string' }],
+        template: 'Starter body'
+      },
+      Buffer.from('export class FreshWidget {}')
+    )
+
+    assert.equal(created.block, 'fresh-widget')
+    assert.equal(created.isCustom, true)
+    assert.equal(created.isEnabled, true)
+    assert.equal(created.template, 'Starter body')
+    assert.deepEqual(created.props, [{ name: 'title', type: 'string' }])
+    // -> No override extracted for this upload, so it falls back the same way `getSiteBlocks()` does
+    assert.equal(created.elementTag, 'block-fresh-widget')
+
+    const code = await blocksModel.getCustomBlockCode(fixtures.siteId, created.id)
+    assert.equal(Buffer.from(code!).toString('utf8'), 'export class FreshWidget {}')
+
+    const listed = await blocksModel.getSiteBlocks(fixtures.siteId)
+    assert.ok(
+      listed.find((b) => b.id === created.id),
+      'row is immediately visible to getSiteBlocks'
+    )
+  })
+
+  test('createCustomBlock defaults props/template to empty when the definition omits them', async () => {
+    const created = await blocksModel.createCustomBlock(
+      fixtures.siteId,
+      {
+        block: 'bare-widget',
+        name: 'Bare Widget',
+        description: 'No props or template',
+        icon: 'mdi:cube-outline'
+      },
+      Buffer.from('export class BareWidget {}')
+    )
+
+    assert.deepEqual(created.props, [])
+    assert.equal(created.template, '')
+  })
+
   test('deleteCustomBlock returns false and leaves everything alone for a built-in block', async () => {
     const [builtinRow] = await fixtures.db
       .insert(blocksTable)

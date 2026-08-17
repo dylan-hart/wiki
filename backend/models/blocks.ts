@@ -379,6 +379,86 @@ class Blocks {
   }
 
   /**
+   * Whether a tag is already spoken for on a site, by a built-in block or by another custom one.
+   *
+   * A block's tag becomes `<block-{tag}>` in a rendered page, so two blocks answering to the same one
+   * would silently shadow one with the other rather than fail loudly — this is what the upload route
+   * checks before registering a custom block, so that collision is rejected instead.
+   *
+   * The built-in half is answered from the in-memory manifest (`this.definitions`) rather than a
+   * query: a site's built-in rows are always exactly what `syncSite()` last wrote from it, so it is
+   * the manifest that is authoritative, not the copy in `blocks`. Only the custom half needs the
+   * database, since that is the one kind of row with no on-disk source of truth.
+   */
+  async isTagTaken(siteId: string, tag: string): Promise<boolean> {
+    if (this.definitions.some((d) => d.block === tag)) {
+      return true
+    }
+    const [row] = await WIKI.db
+      .select({ id: blocksTable.id })
+      .from(blocksTable)
+      .where(
+        and(
+          eq(blocksTable.siteId, siteId),
+          eq(blocksTable.isCustom, true),
+          eq(blocksTable.block, tag)
+        )
+      )
+    return Boolean(row)
+  }
+
+  /**
+   * Register a newly-uploaded custom block: a `blocks` row plus its compiled code, written together
+   * so a failure partway through never leaves one without the other.
+   *
+   * `isEnabled` defaults to `true`, the same as a built-in gets on first sync (`syncSite()` above) — a
+   * block an administrator just uploaded is one they meant to make available, not one to leave hidden
+   * behind a second step.
+   *
+   * Callers are expected to have already resolved the tag collision with `isTagTaken()`: this method
+   * does not check again, so it is not itself safe to call twice concurrently for the same tag.
+   *
+   * @param definition The block's own static definition, as `helpers/blockDefinition.ts` extracted it.
+   * @param code The uploaded `component.js` source, stored verbatim for `getCustomBlockCode()` to serve back.
+   */
+  async createCustomBlock(
+    siteId: string,
+    definition: BlockDefinition,
+    code: Buffer
+  ): Promise<SiteBlock> {
+    return WIKI.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(blocksTable)
+        .values({
+          siteId,
+          block: definition.block,
+          name: definition.name,
+          description: definition.description,
+          icon: definition.icon,
+          isEnabled: true,
+          isCustom: true,
+          props: definition.props ?? [],
+          template: definition.template ?? ''
+        })
+        .returning()
+      await tx.insert(blockCodeTable).values({ blockId: row!.id, code })
+      return {
+        id: row!.id,
+        block: row!.block,
+        name: row!.name,
+        description: row!.description,
+        icon: row!.icon,
+        isEnabled: row!.isEnabled,
+        isCustom: row!.isCustom,
+        config: row!.config as Record<string, any>,
+        props: (row!.props as BlockProp[]) ?? [],
+        template: row!.template,
+        elementTag: row!.elementTag || `block-${row!.block}`
+      }
+    })
+  }
+
+  /**
    * Delete a custom block. Built-in blocks are rejected, since the next sync would recreate them.
    *
    * Removes its stored code along with the row itself — `blockCode` is a separate table (see
