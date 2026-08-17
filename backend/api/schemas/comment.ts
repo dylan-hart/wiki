@@ -4,9 +4,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
    * COMMENT INPUT - The writable fields when posting a comment
    *
-   * Guest fields (name/email for an unauthenticated poster) are not part of this yet — that is
-   * Feature 391's guest-posting task. Until then, posting a comment requires a logged in user, whose
-   * identity comes from the session rather than the body.
+   * `guestName`/`guestEmail` are only for an unauthenticated poster (task 609, "guest posting"), and
+   * their presence requirement flips depending on the requester: required when `actorFrom(req)` is
+   * null, forbidden (400, not silently dropped) when it isn't. That split depends on the session, which
+   * a JSON Schema has no visibility into, so only the shape each field must have when present — a
+   * non-empty name, an RFC-5322-shaped email — is enforced here; whether either is required or
+   * forbidden at all is `comments.ts`'s job, in the route handler, once it knows which branch applies.
    */
   app.addSchema({
     $id: 'CommentInput',
@@ -23,6 +26,22 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         nullable: true,
         description:
           'The comment being replied to, on the same page. Omit or null for a top-level comment.'
+      },
+      guestName: {
+        type: 'string',
+        minLength: 1,
+        maxLength: 255,
+        description:
+          'Display name for an unauthenticated poster. Required when posting without a session; ' +
+          'rejected with 400 when posting with one, where the account name is used instead.'
+      },
+      guestEmail: {
+        type: 'string',
+        format: 'email',
+        maxLength: 255,
+        description:
+          'Contact email for an unauthenticated poster, for abuse follow-up — never shown to other ' +
+          'readers. Required when posting without a session; rejected with 400 when posting with one.'
       }
     },
     required: ['content']

@@ -39,14 +39,24 @@ interface ThreadedCommentRecord extends CommentRecord {
 interface CommentsModel {
   /** Every comment on a page, threaded, oldest first. */
   listForPage(pageId: string): Promise<ThreadedCommentRecord[]>
-  /** Store a new top-level comment or reply. `authorId` is always set — guest posting is #391's
-   *  own task 609, not yet wired here. */
+  /**
+   * Store a new top-level comment or reply.
+   *
+   * Exactly one of `authorId` or `guestName`/`guestEmail` is set, matching #389's model: an
+   * authenticated post carries `authorId` and leaves the guest fields null, an anonymous one carries
+   * `guestName`/`guestEmail`/`guestIp` and leaves `authorId` null. `comments.ts` enforces that split
+   * before calling this — this contract just needs to accept either shape.
+   */
   create(input: {
     siteId: string
     pageId: string
-    authorId: string
+    authorId: string | null
     replyTo: string | null
     content: string
+    guestName?: string | null
+    guestEmail?: string | null
+    /** The poster's IP, for abuse tracking. Only ever set for a guest post. */
+    guestIp?: string | null
   }): Promise<CommentRecord>
   /**
    * A single comment by id, flat (no `replies`), or `null` when it does not exist. Not present on
@@ -219,15 +229,35 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Params: { siteId: string; pageId: string }
-    Body: { content: string; replyTo?: string | null }
+    Body: {
+      content: string
+      replyTo?: string | null
+      guestName?: string | null
+      guestEmail?: string | null
+    }
   }>(
     '/sites/:siteId/pages/:pageId/comments',
     {
-      // -> Same as the list route: `write:comments` is checked per page, below
+      /*
+        No route-level `permissions`: same as the list route, `write:comments` is a page-rule
+        permission decided per page below — and, per task 609, THIS route is the anonymous-safe one
+        of the two, mirroring 2.5.x's guest commenting. An anonymous actor reaches `mayOnPage` the
+        same way an authenticated one does (`WIKI.models.groups.actorForRequest` resolves it to the
+        Guests group), so a wiki that grants that group `write:comments` gets guest posting simply by
+        the rule existing — nothing here special-cases "no session" as a blanket refusal.
+      */
       schema: {
         summary: 'Post a comment on a page',
         description:
-          'Creates a top-level comment, or a reply when `replyTo` names an existing comment on the same page. Requires a logged in user — guest posting (a name/email supplied in the body instead of a session) is not wired yet.',
+          'Creates a top-level comment, or a reply when `replyTo` names an existing comment on the ' +
+          'same page.\n\n' +
+          '**Authenticated** (a session is present): identity comes from the session only. ' +
+          '`guestName`/`guestEmail` in the body are rejected with 400 rather than silently ignored — ' +
+          "an authenticated comment cannot claim a different name than the poster's account.\n\n" +
+          '**Anonymous** (no session): allowed only when the Guests group (or another rule matching ' +
+          'this requester) grants `write:comments` on this page. `guestName` and `guestEmail` are then ' +
+          'required in the body — there is no account to draw a name/address from — and the poster’s ' +
+          'IP is recorded for abuse tracking. `guestEmail` is validated as an email at the schema level.',
         tags: ['Comments'],
         params: pageIdParam,
         body: { $ref: 'CommentInput#' },
@@ -241,9 +271,6 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const actor = actorFrom(req)
-      if (!actor) {
-        return reply.unauthorized('Posting a comment requires a logged in user.')
-      }
       const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
       if (!page) {
         return reply.notFound('This page does not exist.')
@@ -253,6 +280,23 @@ async function routes(app: FastifyInstance) {
       }
       if (page.isLocked) {
         return reply.forbidden('This page is password protected.')
+      }
+
+      // -> The guest-vs-authenticated split (task 609): an authenticated poster's identity comes
+      //    from the session only, so guest fields on the body are rejected outright rather than
+      //    silently dropped — a caller sending them almost certainly expected them to take effect. An
+      //    anonymous poster has no session to draw an identity from, so the same fields are required
+      //    instead.
+      if (actor) {
+        if (req.body.guestName != null || req.body.guestEmail != null) {
+          return reply.badRequest(
+            'guestName/guestEmail may not be set on an authenticated request; your account identity is used instead.'
+          )
+        }
+      } else if (!req.body.guestName || !req.body.guestEmail) {
+        return reply.badRequest(
+          'guestName and guestEmail are required to comment without an account.'
+        )
       }
 
       const replyTo = req.body.replyTo ?? null
@@ -269,9 +313,17 @@ async function routes(app: FastifyInstance) {
       const comment = await commentsModel().create({
         siteId: req.params.siteId,
         pageId: page.id,
-        authorId: actor.id,
+        authorId: actor ? actor.id : null,
         replyTo,
-        content: req.body.content
+        content: req.body.content,
+        // -> Guest fields only ever travel together: an authenticated post has none of them, an
+        //    anonymous one has all three (the validation above guarantees guestName/guestEmail are
+        //    present by this point). `req.ip` is Fastify's resolved client address (honors
+        //    `trustProxy`, same as the rest of this codebase), captured here for abuse tracking —
+        //    Akismet/rate-limit policy itself is #390's job, not this route's.
+        guestName: actor ? null : req.body.guestName,
+        guestEmail: actor ? null : req.body.guestEmail,
+        guestIp: actor ? null : req.ip
       })
       return toPublicComment(comment, { includeEmail: true })
     }

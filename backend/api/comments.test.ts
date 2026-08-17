@@ -163,17 +163,23 @@ async function listForPage(pageId: string) {
 async function create(input: {
   siteId: string
   pageId: string
-  authorId: string
+  authorId: string | null
   replyTo: string | null
   content: string
+  guestName?: string | null
+  guestEmail?: string | null
+  guestIp?: string | null
 }) {
   const record = {
     id: `created-${created.length + 1}`,
     siteId: input.siteId,
     pageId: input.pageId,
     authorId: input.authorId,
-    authorName: 'Test Author',
-    authorEmail: 'author@example.com',
+    authorName: input.authorId ? 'Test Author' : (input.guestName ?? 'Guest'),
+    authorEmail: input.authorId ? 'author@example.com' : (input.guestEmail ?? null),
+    guestName: input.guestName ?? null,
+    guestEmail: input.guestEmail ?? null,
+    guestIp: input.guestIp ?? null,
     replyTo: input.replyTo,
     content: input.content,
     render: null,
@@ -283,14 +289,84 @@ test('GET list: anonymous-safe, and masks authorEmail', async () => {
   assert.equal(body[0].authorEmail, null)
 })
 
-test('POST create: 401 when not authenticated', async () => {
+/**
+ * Guest posting (task 609): anonymous is now allowed through, provided `mayOnPage` grants
+ * `write:comments` to the anonymous actor (a Guests group rule) — mirroring 2.5.x's anonymous
+ * comment support. `x-test-permissions` with no `x-test-user-id` simulates exactly that rule.
+ */
+
+test('POST create: 403 when anonymous and write:comments is not granted', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-permissions': 'read:pages' }, // -> no write:comments, no session
+    payload: { content: 'Hello', guestName: 'Casey', guestEmail: 'casey@example.com' }
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+test('POST create: 400 when anonymous, write:comments is granted, but guestName/guestEmail are missing', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-permissions': 'read:pages,write:comments' }, // -> no session
+    payload: { content: 'Hello' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(created.length, 0)
+})
+
+test('POST create: 400 when anonymous and only guestEmail is missing', async () => {
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
     headers: { 'x-test-permissions': 'read:pages,write:comments' },
-    payload: { content: 'Hello' }
+    payload: { content: 'Hello', guestName: 'Casey' }
   })
-  assert.equal(res.statusCode, 401)
+  assert.equal(res.statusCode, 400)
+  assert.equal(created.length, 0)
+})
+
+test('POST create: 400 when guestEmail is not a valid email (schema-level format check)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-permissions': 'read:pages,write:comments' },
+    payload: { content: 'Hello', guestName: 'Casey', guestEmail: 'not-an-email' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(created.length, 0)
+})
+
+test('POST create: 200 creates a guest comment, captures req.ip, and includes the guest email', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-permissions': 'read:pages,write:comments' },
+    remoteAddress: '203.0.113.7',
+    payload: { content: 'Hello from a guest', guestName: 'Casey', guestEmail: 'casey@example.com' }
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.authorId, null)
+  assert.equal(body.authorName, 'Casey')
+  assert.equal(body.authorEmail, 'casey@example.com')
+  assert.equal(created.length, 1)
+  assert.equal(created[0].authorId, null)
+  assert.equal(created[0].guestName, 'Casey')
+  assert.equal(created[0].guestEmail, 'casey@example.com')
+  assert.equal(created[0].guestIp, '203.0.113.7')
+})
+
+test('POST create: 400 when an authenticated request includes guestName/guestEmail', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+    payload: { content: 'Hello', guestName: 'Casey', guestEmail: 'casey@example.com' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(created.length, 0)
 })
 
 test('POST create: 403 when write:comments is not granted', async () => {
