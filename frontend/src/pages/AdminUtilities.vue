@@ -89,7 +89,7 @@
                 flat
                 icon="la:arrow-circle-right"
                 color="primary"
-                disabled
+                @click="pickImportFile"
                 :label="t(`common.actions.proceed`)" />
             </w-item-section>
           </w-item>
@@ -192,11 +192,17 @@
         </w-list>
       </w-card>
     </div>
+    <input
+      type="file"
+      ref="importFileIpt"
+      accept=".gz,.tgz,application/gzip"
+      @change="importFileSelected"
+      style="display: none" />
   </w-page>
 </template>
 
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
@@ -226,6 +232,8 @@ useMeta({
 const state = reactive({
   purgeHistoryTimeframe: '1y'
 })
+
+const importFileIpt = ref(null)
 
 // COMPUTED
 
@@ -434,6 +442,69 @@ function purgeRevokedKeys() {
     }
     loading.hide()
   })
+}
+
+/**
+ * Open the file picker for a content archive to import. The actual upload happens in
+ * {@link importFileSelected} once a file has been chosen, so this only ever triggers the native
+ * dialog.
+ */
+function pickImportFile() {
+  importFileIpt.value.click()
+}
+
+/**
+ * Confirm, then upload the picked archive and queue its restore into the current site.
+ *
+ * Confirmed and coloured as a destruction, matching `purgeHistory`/`invalidApiCertificates`: unlike
+ * those, this one names the site by hostname, since what it is about to overwrite is not obvious from
+ * the button alone. The body is the raw file (not a multipart form), same pattern `FileManager.vue`
+ * uses to upload an asset.
+ */
+function importFileSelected() {
+  const file = importFileIpt.value.files?.[0]
+  if (!file) {
+    return
+  }
+
+  confirm({
+    title: t('admin.utilities.import'),
+    message: t('admin.utilities.importConfirm', { site: siteStore.hostname }),
+    caption: t('admin.utilities.importConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  })
+    .onOk(async () => {
+      loading.show()
+      try {
+        const resp = await API_CLIENT.post('system/import', {
+          searchParams: { targetSiteId: siteStore.id },
+          headers: {
+            'content-type': file.type || 'application/gzip'
+          },
+          body: file
+        }).json()
+        if (!resp?.ok) {
+          throw new Error(resp?.message || 'An unexpected error occured.')
+        }
+        notify({
+          type: 'positive',
+          message: t('admin.utilities.importSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('admin.utilities.importFailed'),
+          caption: apiErrorMessage(err)
+        })
+      }
+      loading.hide()
+    })
+    .onDismiss(() => {
+      importFileIpt.value.value = null
+    })
 }
 
 /**

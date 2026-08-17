@@ -15,6 +15,14 @@ import {
 /** How long a finished export sits on disk before `purgeExpired` sweeps it, in seconds. */
 const EXPORT_TTL_SECONDS = 24 * 60 * 60
 
+/**
+ * The archive format `exportSite` writes and `importModel.importSite` reads back — the shape of
+ * `manifest.json` plus what each of the other entries means, not the running `wikiVersion`. Bumped
+ * only when that shape changes; an import whose manifest names a different version is refused
+ * outright rather than restored best-effort (see `models/import.ts`).
+ */
+export const EXPORT_FORMAT_VERSION = 1
+
 export interface ExportResult {
   filePath: string
   fileSize: number
@@ -94,6 +102,7 @@ class ExportModel {
       archive.append(
         JSON.stringify(
           {
+            formatVersion: EXPORT_FORMAT_VERSION,
             wikiVersion: WIKI.version,
             exportedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
             siteId

@@ -57,6 +57,11 @@ class Jobs {
         type: 'system'
       },
       {
+        task: 'purgeImports',
+        cron: '20 0 * * *',
+        type: 'system'
+      },
+      {
         task: 'updateLocales',
         cron: '0 0 * * *',
         type: 'system'
