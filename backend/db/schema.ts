@@ -101,7 +101,6 @@ export const assets = pgTable(
     updatedAt: timestamp().notNull().defaultNow(),
     data: bytea(),
     preview: bytea(),
-    storageInfo: jsonb(),
     authorId: uuid()
       .notNull()
       .references(() => users.id),
@@ -123,6 +122,55 @@ export const authentication = pgTable('authentication', {
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
   autoEnrollGroups: uuid().array().default([])
 })
+
+// CONTENT SYNC STATE -------------------
+export const syncContentTypeEnum = pgEnum('syncContentType', ['page', 'asset'])
+export const syncDirectionEnum = pgEnum('syncDirection', ['push', 'pull'])
+/**
+ * One row per (content item, storage target): where a sync run last left that pairing.
+ *
+ * A page or asset can have several enabled targets at once, so this cannot be a jsonb column on
+ * `pages`/`assets` keyed by target -- that would need hand-rolled merge logic on every write to avoid
+ * clobbering the other targets' entries. `contentId` is deliberately not a foreign key: it points at
+ * `pages.id` or `assets.id` depending on `contentType`, and no single column can reference two tables.
+ */
+export const contentSyncState = pgTable(
+  'contentSyncState',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    contentType: syncContentTypeEnum().notNull(),
+    contentId: uuid().notNull(),
+    targetId: uuid()
+      .notNull()
+      .references(() => storage.id, { onDelete: 'cascade' }),
+    // -> Direction of the most recent *successful* sync. Null until one has ever succeeded.
+    lastDirection: syncDirectionEnum(),
+    // -> Opaque to this table: a git commit hash, an S3 object key/etag, whatever the target module
+    //    that owns `targetId` needs to recognize what it last wrote. jsonb so a module can store a
+    //    structured ref (e.g. `{ commit, branch }`) without a schema change.
+    targetRef: jsonb(),
+    // -> Completion time of the most recent successful sync. Null until one has ever succeeded; read
+    //    back with `.toTemporalInstant()`, per this repo's Temporal convention.
+    lastSyncedAt: timestamp(),
+    // -> Message from the most recent attempt, cleared to null the moment an attempt succeeds. A
+    //    non-null value here alongside a non-null `lastSyncedAt` means the item synced successfully at
+    //    some point but the *latest* attempt since then failed.
+    lastError: text(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> Enforces one row per content item per target, and covers "every state for this target" --
+    //    the out-of-date query's access pattern -- being the leading column.
+    uniqueIndex('contentSyncState_target_content_idx').on(
+      table.targetId,
+      table.contentType,
+      table.contentId
+    ),
+    // -> Covers "every target's state for this content item"
+    index('contentSyncState_content_idx').on(table.contentType, table.contentId)
+  ]
+)
 
 // BLOCKS ------------------------------
 export const blocks = pgTable(

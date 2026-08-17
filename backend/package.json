@@ -79,6 +79,7 @@
     "yjs": "13.6.32"
   },
   "devDependencies": {
+    "@js-temporal/polyfill": "0.5.1",
     "@types/fs-extra": "11.0.4",
     "@types/js-yaml": "4.0.9",
     "@types/node": "26.2.0",
