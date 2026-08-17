@@ -67,6 +67,24 @@ import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 import NavItemEditor from '@/components/NavItemEditor.vue'
 
+/**
+ * The per-page half of navigation editing, opened FROM a page (via `NavEditMenu.vue`'s mode picker,
+ * itself opened from the page action menu) to edit THAT page's own `navigationMode` and menu — with
+ * the ancestor menu it currently inherits (if any) resolved for it as `siteStore.overlayOpts.navId`.
+ * See `navId` and `isEditingInherited` below for how that resolution plays out, and `save()` for why
+ * the mode has to travel with the items rather than being fixed by which menu is on screen.
+ *
+ * The site-wide counterpart is `AdminNavigation.vue`, which answers "where, across the whole site,
+ * has someone already deviated from the default menu" and edits the site-wide default menu directly
+ * — see its own header comment for the full split. Since Task 433 both surfaces host the same
+ * `NavItemEditor.vue` for the actual item list/detail-panel editing, parameterized here by `navId`
+ * (resolved below) rather than by page context, so a capability added to the item model itself needs
+ * no duplicate work. What each host still owns separately is how the menu is addressed and how the
+ * save is framed (mode-aware here vs. mode-agnostic in the admin dialog) — see `AdminNavigation.vue`
+ * for why that half does NOT come for free between the two, and needs the equivalent decision made on
+ * both sides whenever it changes.
+ */
+
 // STORES
 
 const pageStore = usePageStore()

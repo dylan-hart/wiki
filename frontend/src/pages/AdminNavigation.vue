@@ -139,6 +139,34 @@ import fileTypes from '@/helpers/fileTypes'
 import { apiErrorMessage } from '@/helpers/apiError'
 import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
 
+/**
+ * The site-wide half of navigation editing. This screen answers "where, across the whole site, has
+ * someone already deviated from the default menu" — it lists every tree entry whose
+ * `navigationMode` is not `inherit` (via `GET sites/:siteId/navigation/overrides`, one flat,
+ * searchable, locale-filterable table) and gives a launch point for the site-wide default menu
+ * itself ("Edit Default Menu", `navId === siteId`) plus each override row's own menu.
+ *
+ * It does not resolve or apply navigation for a single page in context, and it does not walk a page
+ * tree — that is `NavEditMenu.vue` (the mode picker) and `NavEditOverlay.vue` (the item editor),
+ * opened FROM a page, editing that page's own `navigationMode` and menu, with the ancestor it
+ * inherits from resolved for it. See `NavEditOverlay.vue`'s own header comment for that half of the
+ * split.
+ *
+ * Both halves ultimately edit the same shape of thing — a menu's ordered list of header/link/
+ * separator items — and since Task 433 they share the actual editing UI: this screen's launched
+ * dialog (`AdminNavEditDialog.vue`) and `NavEditOverlay.vue` both host `NavItemEditor.vue`, giving it
+ * only a `siteId` + `navId` and letting each host resolve what those mean and how to save. A
+ * capability added to the item model — a new item type, a new visibility rule, anything
+ * `NavItemEditor.vue` itself needs to know how to render or persist — therefore lands once and is
+ * available from both surfaces automatically. What does NOT come for free is anything about WHICH
+ * menu is being edited or how the save is framed: this screen's per-entry save is mode-agnostic
+ * (`PUT sites/:siteId/navigation/:navId`, via `Navigation.setNavItems` — it just replaces a menu's
+ * items) where the per-page save is mode-aware (`PUT sites/:siteId/navigation/pages/:pageId`, which
+ * also decides whose menu the items belong to based on `navigationMode`). A change to that framing on
+ * one side — e.g. a new mode value, a new way of addressing "which menu" — needs the equivalent
+ * decision made deliberately on the other side too, not assumed to follow along.
+ */
+
 // COMPOSABLES
 
 const dark = useDark()
