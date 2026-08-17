@@ -89,6 +89,33 @@
           freshly reset to `[]` by `resetPreview()` -- reads as "nothing typed yet", not as "searched
           and found nothing".
         -->
+        <!--
+          Independent of the loading/empty/found states below -- a shareable link is meaningful the
+          moment there is a query at all, including below the 2-character preview floor where none of
+          those three has anything to say yet. `mousedown.prevent` for the same reason as the clear
+          button and result rows below: without it the field blurs before the click fires, closing the
+          panel out from under it.
+        -->
+        <div class="searchpanel-header searchpanel-copylink-row" v-if="siteStore.search">
+          <span
+            v-if="
+              searchPreviewIsActive && !state.previewLoading && state.previewResults.length > 0
+            ">
+            {{ t('common.header.searchResultsCount', { total: state.previewTotal }) }}
+          </span>
+          <w-space />
+          <w-btn
+            class="header-search-copy-link acrylic-btn"
+            flat
+            round
+            size="xs"
+            icon="la:link"
+            :aria-label="t('common.header.searchCopyLink')"
+            :title="t('common.header.searchCopyLink')"
+            @mousedown.prevent
+            @click="copySearchLink" />
+        </div>
+
         <template v-if="state.previewLoading">
           <div class="searchpanel-header searchpanel-status">
             <w-circular-progress
@@ -104,9 +131,6 @@
           <div class="searchpanel-header">{{ t('common.header.searchNoResult') }}</div>
         </template>
         <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
-          <div class="searchpanel-header">
-            {{ t('common.header.searchResultsCount', { total: state.previewTotal }) }}
-          </div>
           <w-list dense dark class="searchpanel-results">
             <!--
               `mousedown.prevent` for the same reason as the clear button above: without it, pressing
@@ -183,6 +207,8 @@ import { DEFAULT_PAGE_ICON } from '@/stores/page'
 import { orderBy } from 'es-toolkit/array'
 import { debounce } from 'es-toolkit/function'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { copyToClipboard } from '@/helpers/clipboard'
+import { notify } from '@/composables/notify'
 
 /**
  * Below this many characters, `searchHint`'s copy in the panel is the whole answer -- tags and
@@ -395,6 +421,21 @@ function clearSearch() {
   siteStore.search = ''
   resetPreview()
   searchField.value.focus()
+}
+
+/**
+ * Copies a shareable link to the current search -- the same `q` query param `Search.vue`'s route
+ * watcher already reads (`route.query.q`) -- to the clipboard. Mirrors `ApiKeyCopyDialog.vue`'s
+ * `copyKey()`: try the copy, notify either way.
+ */
+async function copySearchLink() {
+  const url = `${window.location.origin}/_search?q=${encodeURIComponent(siteStore.search)}`
+  try {
+    await copyToClipboard(url)
+    notify({ type: 'positive', message: t('common.clipboard.success') })
+  } catch (err) {
+    notify({ type: 'negative', message: t('common.clipboard.failure'), caption: err.message })
+  }
 }
 
 function addTag(tag) {

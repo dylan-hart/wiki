@@ -6,6 +6,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import HeaderSearch from './HeaderSearch.vue'
 import { useSiteStore } from '@/stores/site'
+import { copyToClipboard } from '@/helpers/clipboard'
+import { queue as notifyQueue } from '@/composables/notify'
+
+vi.mock('@/helpers/clipboard', () => ({
+  copyToClipboard: vi.fn()
+}))
 
 /**
  * Regression test for the `popularTags` computed (not part of the backend `FIXME:` list this branch's
@@ -365,5 +371,86 @@ describe('HeaderSearch preview results panel', () => {
     await vi.advanceTimersByTimeAsync(400)
 
     expect(wrapper.findAll('.searchpanel-results .w-item')).toHaveLength(1)
+  })
+})
+
+/**
+ * "Copy Search Link": a small icon button next to the results-count line, visible only once
+ * `siteStore.search` is non-empty, that builds the shareable `/_search?q=` URL `Search.vue`'s route
+ * watcher already reads and copies it via the `copyToClipboard` helper -- mirroring
+ * `ApiKeyCopyDialog.vue`'s `copyKey()` try/catch + `notify()` pattern.
+ */
+describe('HeaderSearch copy search link', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    notifyQueue.splice(0, notifyQueue.length)
+    copyToClipboard.mockReset()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('does not render the copy-link button while the field is empty', async () => {
+    const { wrapper } = await mountForPreview()
+
+    expect(wrapper.find('.header-search-copy-link').exists()).toBe(false)
+  })
+
+  it('renders the copy-link button, aria-labeled, below the 2-character preview floor', async () => {
+    // -> Below `PREVIEW_QUERY_MIN_LENGTH`, none of the loading/empty/found states have anything to
+    //    show -- proving the button's visibility is gated on `siteStore.search` alone, not on those.
+    const { wrapper } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('a')
+
+    const button = wrapper.find('.header-search-copy-link')
+    expect(button.exists()).toBe(true)
+    expect(button.attributes('aria-label')).toBe('common.header.searchCopyLink')
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+
+  it('copies the shareable search URL and shows a success notification on click', async () => {
+    copyToClipboard.mockResolvedValueOnce()
+    const { wrapper, siteStore } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await wrapper.find('.header-search-copy-link').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(copyToClipboard).toHaveBeenCalledWith(
+      `${window.location.origin}/_search?q=${encodeURIComponent(siteStore.search)}`
+    )
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'positive',
+      message: 'common.clipboard.success'
+    })
+  })
+
+  it('shows a failure notification when the copy rejects', async () => {
+    copyToClipboard.mockRejectedValueOnce(new Error('denied'))
+    const { wrapper } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await wrapper.find('.header-search-copy-link').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: 'common.clipboard.failure',
+      caption: 'denied'
+    })
+  })
+
+  it('prevents the mousedown default so the click survives the field blur', async () => {
+    const { wrapper } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('ab')
+
+    const button = wrapper.find('.header-search-copy-link')
+    const event = new Event('mousedown', { bubbles: true, cancelable: true })
+    button.element.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
   })
 })
