@@ -35,7 +35,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       config: {
         type: 'object',
-        additionalProperties: true
+        additionalProperties: true,
+        description:
+          "This site's saved values for the block's `configFields`, keyed by field name — the data half, where `configFields` is the schema half (what fields exist, their types and defaults). Set by an admin via `PUT /sites/:siteId/blocks`, which sanitizes it against `configFields` on write. Empty for a block with no `configFields` to fill in, custom blocks included."
       },
       template: {
         type: 'string',

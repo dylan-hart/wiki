@@ -88,6 +88,11 @@
               </w-item-section>
               <w-separator class="ml-6" vertical />
             </template>
+            <!--
+              Configure never renders for a custom block: a custom block has no manifest entry, so
+              `getSiteBlocks()` (backend/models/blocks.ts) reports `configFields: []` for it, and this
+              guard hides the button rather than opening a form with nothing in it.
+            -->
             <template v-if="block.configFields?.length > 0">
               <w-item-section side>
                 <w-btn
