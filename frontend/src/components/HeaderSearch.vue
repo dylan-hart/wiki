@@ -81,6 +81,58 @@
       </div>
 
       <div class="searchpanel" ref="searchPanel" v-if="searchPanelIsShown">
+        <!--
+          The live-preview results, above the tag/operator content: they are what a query in progress
+          is actually for, where the tips below are only ever relevant once the field is empty or the
+          reader is stuck. Gated on `searchPreviewIsActive` (the same 2-character floor the fetch
+          itself is gated on in the watcher below) so an empty or 1-character query -- `previewResults`
+          freshly reset to `[]` by `resetPreview()` -- reads as "nothing typed yet", not as "searched
+          and found nothing".
+        -->
+        <template v-if="state.previewLoading">
+          <div class="searchpanel-header searchpanel-status">
+            <w-circular-progress
+              instant-feedback
+              indeterminate
+              rounded
+              color="primary"
+              size="16px" />
+            <span>{{ t('common.header.searchLoading') }}</span>
+          </div>
+        </template>
+        <template v-else-if="searchPreviewIsActive && state.previewResults.length < 1">
+          <div class="searchpanel-header">{{ t('common.header.searchNoResult') }}</div>
+        </template>
+        <template v-else-if="searchPreviewIsActive && state.previewResults.length > 0">
+          <div class="searchpanel-header">
+            {{ t('common.header.searchResultsCount', { total: state.previewTotal }) }}
+          </div>
+          <w-list dense dark class="searchpanel-results">
+            <!--
+              `mousedown.prevent` for the same reason as the clear button above: without it, pressing
+              a row blurs the input first, which closes the panel (`searchPanelIsShown` goes false)
+              before the click that would follow the mousedown ever fires.
+            -->
+            <w-item
+              v-for="item of previewResultRows"
+              :key="item.path"
+              clickable
+              :to="`/` + item.path"
+              @mousedown.prevent>
+              <w-item-section avatar>
+                <w-icon :name="item.icon || defaultPageIcon" />
+              </w-item-section>
+              <w-item-section>
+                <w-item-label>{{ item.title }}</w-item-label>
+                <w-item-label class="text-grey" caption>/{{ item.path }}</w-item-label>
+                <w-item-label class="text-highlight" v-if="item.highlight" caption>
+                  <span v-html="item.highlight" />
+                </w-item-label>
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </template>
+
         <template v-if="siteStore.tagsLoaded && siteStore.tags.length > 0">
           <div class="searchpanel-header">
             <span>Popular Tags</span>
@@ -126,6 +178,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useSiteStore } from '@/stores/site'
+import { DEFAULT_PAGE_ICON } from '@/stores/page'
 
 import { orderBy } from 'es-toolkit/array'
 import { debounce } from 'es-toolkit/function'
@@ -201,6 +254,20 @@ const searchPanelIsShown = computed(() => {
 const popularTags = computed(() => {
   return orderBy(siteStore.tags, ['usageCount'], ['desc']).map((t) => t.tag)
 })
+
+const defaultPageIcon = DEFAULT_PAGE_ICON
+
+/**
+ * Whether the query is long enough for `state.previewResults` to actually mean something -- the same
+ * floor the fetch watcher below is gated on. Below it, `resetPreview()` has left `previewResults` at
+ * `[]`, which is indistinguishable from a real zero-hit search unless this is checked first.
+ */
+const searchPreviewIsActive = computed(() => {
+  return (siteStore.search ?? '').trim().length >= PREVIEW_QUERY_MIN_LENGTH
+})
+
+/** Defensive cap to match the panel's "up to 5 rows" -- the API request already limits to this many. */
+const previewResultRows = computed(() => state.previewResults.slice(0, PREVIEW_RESULTS_LIMIT))
 
 // WATCHERS
 
@@ -486,6 +553,15 @@ defineExpose({ focus, state })
     0 1px 3px rgba(0, 0, 0, 0.2),
     0 1px 1px rgba(0, 0, 0, 0.14),
     0 2px 1px -1px rgba(0, 0, 0, 0.12);
+  /*
+    A short viewport (a phone in `row` form, or any window a reader has made shorter than its width)
+    otherwise lets the panel grow past the bottom of the screen once results are added on top of the
+    tag/operator content -- there was no cap on it before because that content alone never got tall
+    enough to matter. 80px leaves room for the toolbar above it (52px in `row` form, 64px inline) plus
+    a margin, so the panel never quite touches the edge of the viewport it is measured against.
+  */
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
 
   &-header {
     font-weight: 500;
@@ -494,6 +570,15 @@ defineExpose({ focus, state })
     margin-bottom: 0.5rem;
     display: flex;
     align-items: center;
+  }
+
+  /* -> The loading header's spinner sits beside its copy rather than above it */
+  &-status {
+    gap: 8px;
+  }
+
+  &-results {
+    margin-bottom: 0.5rem;
   }
 
   &-tip {
@@ -507,6 +592,16 @@ defineExpose({ focus, state })
     padding: 2px 8px;
     font-weight: 700;
     border-radius: 4px;
+  }
+
+  /* -> Mirrors `.layout-search .text-highlight` on the full results screen this panel is a preview of */
+  .text-highlight {
+    font-style: italic;
+
+    > b {
+      background-color: rgba($yellow-7, 0.5);
+      border-radius: 3px;
+    }
   }
 }
 </style>

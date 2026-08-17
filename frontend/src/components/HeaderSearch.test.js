@@ -209,3 +209,161 @@ describe('HeaderSearch live-preview fetch', () => {
     expect(wrapper.vm.state.previewTotal).toBe(0)
   })
 })
+
+/**
+ * The panel's results section itself: it must reflect `state.previewLoading` /
+ * `state.previewResults` / `state.previewTotal` with the three states the task describes -- loading,
+ * empty, and populated -- and each populated row must be a navigable link that survives the mousedown
+ * that would otherwise blur the field and close the panel before the click registers.
+ */
+describe('HeaderSearch preview results panel', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows a loading message with a spinner while the preview fetch is in flight', async () => {
+    const { wrapper } = await mountForPreview()
+    let resolveFetch
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(wrapper.vm.state.previewLoading).toBe(true)
+    expect(wrapper.text()).toContain('common.header.searchLoading')
+    expect(wrapper.find('.searchpanel .w-circular-progress').exists()).toBe(true)
+
+    resolveFetch({ results: [], totalHits: 0 })
+    await vi.advanceTimersByTimeAsync(0)
+  })
+
+  it('shows a no-results message once a real query comes back with zero hits', async () => {
+    const { wrapper } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [], totalHits: 0 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('zz')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(wrapper.text()).toContain('common.header.searchNoResult')
+  })
+
+  it('does not show the no-results message below the 2-character floor', async () => {
+    const { wrapper } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('z')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(wrapper.text()).not.toContain('common.header.searchNoResult')
+  })
+
+  it('renders result rows (icon, title, path, highlight) plus a results-count line', async () => {
+    const { wrapper } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          results: [
+            { path: 'foo/bar', title: 'Foo Bar', icon: 'mdi:file', highlight: 'a <b>match</b>' }
+          ],
+          totalHits: 12
+        })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const rows = wrapper.findAll('.searchpanel-results .w-item')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('Foo Bar')
+    expect(rows[0].text()).toContain('foo/bar')
+    expect(rows[0].find('.text-highlight').html()).toContain('match')
+    expect(wrapper.text()).toContain('common.header.searchResultsCount')
+  })
+
+  it('falls back to the default page icon when a result has none', async () => {
+    const { wrapper } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'foo', title: 'Foo' }], totalHits: 1 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(wrapper.find('.searchpanel-results .w-item [data-icon]').attributes('data-icon')).toBe(
+      'mdi:file-document-outline'
+    )
+  })
+
+  it('caps rendered rows at 5 even if more results are present in state', async () => {
+    const { wrapper } = await mountForPreview()
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    wrapper.vm.state.previewResults = Array.from({ length: 7 }, (_, i) => ({
+      path: `p${i}`,
+      title: `T${i}`
+    }))
+    wrapper.vm.state.previewTotal = 7
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAll('.searchpanel-results .w-item')).toHaveLength(5)
+  })
+
+  it('prevents the mousedown default on a result row so the click survives the field blur', async () => {
+    const { wrapper } = await mountForPreview()
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'foo', title: 'Foo' }], totalHits: 1 })
+    })
+
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    const row = wrapper.find('.searchpanel-results .w-item')
+    const event = new Event('mousedown', { bubbles: true, cancelable: true })
+    row.element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+  })
+
+  it('still renders the results panel in row (phone) form factor', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site1'
+    siteStore.features.search = true
+    siteStore.tagsLoaded = true
+    siteStore.tags = []
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(HeaderSearch, {
+      props: { row: true },
+      global: { plugins: [router, i18n] }
+    })
+
+    await wrapper.find('.header-search-input').trigger('focus')
+    expect(wrapper.find('.header-search-field--row').exists()).toBe(true)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ results: [{ path: 'foo', title: 'Foo' }], totalHits: 1 })
+    })
+    await wrapper.find('.header-search-input').setValue('ab')
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(wrapper.findAll('.searchpanel-results .w-item')).toHaveLength(1)
+  })
+})
