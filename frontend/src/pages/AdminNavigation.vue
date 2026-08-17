@@ -39,6 +39,13 @@
           :aria-label="t(`admin.navigation.localeFilterLabel`)" />
         <w-btn
           class="acrylic-btn mr-2"
+          icon="mdi:playlist-edit"
+          flat
+          color="deep-orange-9"
+          :label="t(`admin.navigation.editDefaultMenu`)"
+          @click="openDefaultMenu" />
+        <w-btn
+          class="acrylic-btn mr-2"
           icon="la:question-circle"
           flat
           color="grey"
@@ -120,6 +127,7 @@ import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, watch } from 'vue'
 
 import { useDark } from '@/composables/dark'
+import { dialog } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
@@ -129,6 +137,7 @@ import { useSiteStore } from '@/stores/site'
 
 import fileTypes from '@/helpers/fileTypes'
 import { apiErrorMessage } from '@/helpers/apiError'
+import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
 
 // COMPOSABLES
 
@@ -193,17 +202,40 @@ function modeLabel(mode) {
 }
 
 /**
- * Opens the entry's own page in a new tab, where its "Edit Nav" button reaches the existing
- * `NavEditMenu` / `NavEditOverlay` editor.
- *
- * Not a direct in-place editor: Feature 358 splits that out into a reusable component (Task 433,
- * "Extract a reusable menu-item editor and wire up site-default editing"), which is not built on
- * this branch yet -- there is currently no supported way to reach a page's menu editor except by
- * being on that page (see the Feature description). This is the interim wiring, and is meant to be
- * replaced by a direct call into that component once it lands, per this task's own instruction not
- * to reimplement item editing here. Assets have no page to open, so they are inert.
+ * Opens the shared menu-item editor (`NavItemEditor`, via `AdminNavEditDialog`) against a resolved
+ * `navId`, refreshing the list once the dialog confirms -- items can't change a row's mode or path,
+ * but re-fetching keeps this honest about what the server actually holds rather than assuming the
+ * save succeeded exactly as sent.
+ */
+function openNavEditor(navId, title) {
+  dialog({
+    component: AdminNavEditDialog,
+    componentProps: {
+      siteId: adminStore.currentSiteId,
+      navId,
+      title
+    }
+  }).onOk(load)
+}
+
+/** Edits the site-wide default menu -- the one the home page's `override` mode points at, and every
+ * other page inherits by default -- directly, without navigating to the live home page first. */
+function openDefaultMenu() {
+  openNavEditor(adminStore.currentSiteId, t('admin.navigation.defaultMenuTitle'))
+}
+
+/**
+ * Opens the row's own menu items in the shared editor when it has one (`override` / `overrideExact`
+ * modes, whose `navigationId` names the row holding them). A `hide` mode has no items to edit -- its
+ * `navigationId` is null -- so those, and assets (which have no page at all), fall back to opening
+ * the entry's own page in a new tab instead, where the existing `NavEditMenu` / `NavEditOverlay` path
+ * still reaches it.
  */
 function openEntry(row) {
+  if (row.navigationId) {
+    openNavEditor(row.navigationId, `/${entryPath(row)}`)
+    return
+  }
   if (row.type === 'asset') {
     return
   }

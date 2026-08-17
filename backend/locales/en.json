@@ -616,6 +616,8 @@
   "admin.navigation.columnLocale": "Locale",
   "admin.navigation.columnMode": "Mode",
   "admin.navigation.columnPath": "Path",
+  "admin.navigation.defaultMenuTitle": "Site Default Menu",
+  "admin.navigation.editDefaultMenu": "Edit Default Menu",
   "admin.navigation.emptyText": "No pages or folders override the default navigation menu yet.",
   "admin.navigation.loadFailed": "Failed to load navigation overrides.",
   "admin.navigation.localeFilterLabel": "Locale",

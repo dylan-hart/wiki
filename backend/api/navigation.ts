@@ -202,6 +202,68 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * SET NAVIGATION ITEMS
+   */
+  app.put<{
+    Params: { siteId: string; navId: string }
+    Body: { items: NavigationItem[] }
+  }>(
+    '/sites/:siteId/navigation/:navId',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "Set a menu's items directly",
+        description:
+          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — the site-wide default (`navId` is the site id, always present once `ensureSiteNav` has run) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` is neither the site id nor a tree entry belonging to this site.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            navId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'navId']
+        },
+        body: {
+          type: 'object',
+          required: ['items'],
+          properties: {
+            items: {
+              type: 'array',
+              items: {
+                ...navigationItem,
+                properties: {
+                  ...navigationItem.properties,
+                  children: { type: 'array', items: navigationItem }
+                }
+              }
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Navigation updated successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
+      return {
+        ok: true,
+        message: 'Navigation updated successfully.'
+      }
+    }
+  )
+
+  /**
    * UPDATE NAVIGATION
    */
   app.put<{

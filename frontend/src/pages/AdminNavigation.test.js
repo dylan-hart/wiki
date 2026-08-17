@@ -6,6 +6,12 @@ import { createI18n } from 'vue-i18n'
 import AdminNavigation from './AdminNavigation.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { dialog } from '@/composables/dialog'
+
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
 
 const MESSAGES = {
   'admin.navigation.title': 'Navigation',
@@ -16,6 +22,8 @@ const MESSAGES = {
   'admin.navigation.searchPlaceholder': 'Search path...',
   'admin.navigation.localeFilterLabel': 'Locale',
   'admin.navigation.allLocales': 'All Locales',
+  'admin.navigation.editDefaultMenu': 'Edit Default Menu',
+  'admin.navigation.defaultMenuTitle': 'Site Default Menu',
   'admin.navigation.emptyText': 'No pages or folders override the default navigation yet.',
   'admin.navigation.noMatchesText': 'No overrides match your search.',
   'admin.navigation.loadFailed': 'Failed to load navigation overrides.',
@@ -120,5 +128,70 @@ describe('AdminNavigation', () => {
     expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-1/navigation/overrides', {
       searchParams: { locale: 'fr' }
     })
+  })
+
+  it('opens the site-wide default menu directly, without a page to navigate to first', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
+    dialog.mockClear()
+
+    const { wrapper } = mountPage()
+    await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
+
+    // -> `w-btn` renders its label as text rather than `aria-label` when one is given -- find it by
+    //    its visible text instead of assuming which attribute landed on the DOM button
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('Edit Default Menu'))
+    await btn.trigger('click')
+
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: expect.objectContaining({
+          siteId: 'site-1',
+          navId: 'site-1',
+          title: 'Site Default Menu'
+        })
+      })
+    )
+  })
+
+  it('opens the shared editor for an override row that has its own menu items', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
+    dialog.mockClear()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    const { wrapper } = mountPage()
+    await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
+
+    // -> The first row (overrideExact) has a navigationId -- its own menu -- so it opens the editor
+    //    rather than the page itself
+    await wrapper.findAll('.w-table__row')[0].find('td').trigger('click')
+
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: expect.objectContaining({
+          siteId: 'site-1',
+          navId: 'nav-1',
+          title: '/docs/getting-started'
+        })
+      })
+    )
+    expect(openSpy).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('still opens the page itself for a hide-mode row, which has no menu items to edit', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
+    dialog.mockClear()
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    const { wrapper } = mountPage()
+    await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
+
+    // -> The second row (hide) has no navigationId -- nothing to edit -- so it falls back to opening
+    //    the page, as before this task
+    await wrapper.findAll('.w-table__row')[1].find('td').trigger('click')
+
+    expect(openSpy).toHaveBeenCalledWith('/private', '_blank', 'noopener')
+    expect(dialog).not.toHaveBeenCalled()
+    openSpy.mockRestore()
   })
 })

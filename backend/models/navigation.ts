@@ -161,6 +161,34 @@ class Navigation {
     }))
   }
 
+  /**
+   * Write a menu's items directly, addressed by the id of the row that already holds it.
+   *
+   * No page or mode resolution, unlike `updateNavigation` — the caller already knows which row it
+   * means, because it read the id off the thing it is editing: the site-wide default (its own id is
+   * the site id, see `ensureSiteNav`) or an override's `navigationId` from `listOverrides`. That is
+   * what the admin-launched menu editor (Task 433) saves against, as opposed to the page-context
+   * editor, which still goes through `updateNavigation` so that saving from an inheriting page can
+   * repoint at the ancestor it inherits from.
+   *
+   * @param navId The row to write to — the site id, or a tree entry id belonging to this site
+   */
+  async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
+    if (navId === siteId) {
+      // -> Falls back to the site menu, and a site created before that row existed does not have one yet
+      await this.ensureSiteNav(siteId)
+    } else {
+      // -> Refuse a navId that names neither the site nor one of its own tree entries, rather than
+      //    silently creating a floating navigation row nothing else ever reaches
+      await this.getEntry(siteId, navId)
+    }
+
+    await WIKI.db
+      .insert(navigationTable)
+      .values({ id: navId, siteId, items })
+      .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+  }
+
   /** The tree entry a navigation change is addressed to. */
   private async getEntry(siteId: string, pageId: string) {
     const entries = await WIKI.db
