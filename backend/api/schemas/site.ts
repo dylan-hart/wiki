@@ -19,6 +19,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
+      blocksConfig: {
+        type: 'object',
+        description:
+          "This site's per-block config, keyed by block tag, for a block that is enabled AND declares at least one config field. Never includes a disabled block or one with nothing configurable — see `blocksConfigFor` in api/sites.ts. Lets a reader's browser resolve a block's site-wide config (e.g. block-map's tile server URL) without the manage:sites-gated GET /sites/:siteId/blocks route.",
+        additionalProperties: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
       title: {
         type: 'string'
       },

@@ -41,6 +41,16 @@ async function getSiteByHostname({
   return siteId ? sites[siteId] : null
 }
 
+/**
+ * What `getSiteBlocks` returns for the next request, set per-test. Only the fields
+ * `blocksConfigFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
+ * `configFields`, `config` — the rest of the real `SiteBlock` shape is irrelevant to this route.
+ */
+let siteBlocksResult: any[] = []
+async function getSiteBlocks(_siteId: string) {
+  return siteBlocksResult
+}
+
 let app: FastifyInstance
 
 before(async () => {
@@ -49,6 +59,9 @@ before(async () => {
       sites: {
         getSiteByHostname,
         getSiteById: async () => null
+      },
+      blocks: {
+        getSiteBlocks
       }
     }
   }
@@ -101,4 +114,46 @@ test('strict=false falls back to the wildcard site', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().hostname, '*')
+})
+
+/**
+ * `blocksConfig` on the public site-info response, so a reader's browser (block-map, via
+ * `blocks/shared/config.js`) can resolve a site's block config without the manage:sites-gated
+ * `GET /sites/:siteId/blocks` route. See `blocksConfigFor` in api/sites.ts.
+ */
+test('blocksConfig includes an enabled block that declares config fields, keyed by tag', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: true,
+      configFields: [{ name: 'tileServerUrl', type: 'string' }],
+      config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksConfig, {
+    map: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+  })
+})
+
+test('blocksConfig omits a disabled block even if it declares config fields', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: false,
+      configFields: [{ name: 'tileServerUrl', type: 'string' }],
+      config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksConfig, {})
+})
+
+test('blocksConfig omits an enabled block that declares no config fields', async () => {
+  siteBlocksResult = [{ block: 'index', isEnabled: true, configFields: [], config: {} }]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksConfig, {})
 })
