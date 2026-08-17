@@ -1114,6 +1114,43 @@ class Users {
   }
 
   /**
+   * Turn 2FA off for a user on an administrator's say-so, bypassing the `tfaRequired` /
+   * `enforceTfa` enforcement that `disableTfa()` deliberately refuses to override.
+   *
+   * A genuinely separate method rather than a parameter on `disableTfa()`: that method's whole point
+   * is to refuse this exact override for a user acting on their own account, so folding the bypass in
+   * as a flag would make the refusal something every caller has to remember to ask for, instead of
+   * something only an admin-scoped route can reach at all. Overriding enforcement is the entire
+   * reason this control exists — typically to recover a user locked out by a lost authenticator or
+   * device, where waiting for them to satisfy the requirement they are asking to be freed from isn't
+   * an option.
+   *
+   * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
+   */
+  async adminInvalidateTfa(userId: string, strategyId: string): Promise<void> {
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_INVALID_USER')
+    }
+    const auth = (user.auth ?? {}) as Record<string, any>
+    if (!auth[strategyId]) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    if (!auth[strategyId].tfaIsActive) {
+      throw new Error('ERR_TFA_NOT_ACTIVE')
+    }
+
+    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
+    await WIKI.db
+      .update(usersTable)
+      .set({ auth, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, userId))
+    WIKI.models.flags.authDebug(
+      `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
+    )
+  }
+
+  /**
    * Whether a security code matches the 2FA secret stored for a user under one strategy.
    */
   verifyTfaCode(user: any, strategyId: string, securityCode: string): boolean {

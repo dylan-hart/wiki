@@ -1,8 +1,10 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
+import { eq } from 'drizzle-orm'
 import { matchRecoveryCode, users } from './users.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { users as usersTable } from '../db/schema.ts'
 import type { RecoveryCodeEntry } from './users.ts'
 
 /**
@@ -555,5 +557,53 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     const user = await usersModel.getById(fixtures.userId)
     assert.equal(await usersModel.verifyAndConsumeRecoveryCode(user, strategyId, oldCode!), false)
+  })
+
+  test('adminInvalidateTfa clears the secret, deactivates 2FA, and drops recovery codes even when tfaRequired is set', async () => {
+    const strategyId = freshStrategyId()
+    const owner = await usersModel.getById(fixtures.userId)
+    await usersModel.enableTfa(owner, strategyId)
+    // -> tfaRequired is exactly what disableTfa() refuses to override; an admin doing this on
+    //    purpose is the entire point of adminInvalidateTfa. setUserAuthFlags() only ever touches the
+    //    local strategy, so the flag is set directly on this (fixture, non-local) strategy's entry.
+    const flagged = (await usersModel.getById(fixtures.userId)) as any
+    await fixtures.db
+      .update(usersTable)
+      .set({
+        auth: { ...flagged.auth, [strategyId]: { ...flagged.auth[strategyId], tfaRequired: true } }
+      })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    await usersModel.adminInvalidateTfa(fixtures.userId, strategyId)
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    assert.equal(reloaded.auth[strategyId].tfaIsActive, false)
+    assert.equal(reloaded.auth[strategyId].tfaSecret, '')
+    assert.deepEqual(reloaded.auth[strategyId].recoveryCodes, [])
+  })
+
+  test('adminInvalidateTfa throws ERR_INVALID_STRATEGY for a strategy the user has no entry for', async () => {
+    await assert.rejects(
+      usersModel.adminInvalidateTfa(fixtures.userId, freshStrategyId()),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('adminInvalidateTfa throws ERR_TFA_NOT_ACTIVE for a secret that was generated but never activated', async () => {
+    const strategyId = freshStrategyId()
+    const user = await usersModel.getById(fixtures.userId)
+    await usersModel.startTfaSetup(user, strategyId, fixtures.siteId)
+
+    await assert.rejects(
+      usersModel.adminInvalidateTfa(fixtures.userId, strategyId),
+      /ERR_TFA_NOT_ACTIVE/
+    )
+  })
+
+  test('adminInvalidateTfa throws ERR_INVALID_USER for a user that does not exist', async () => {
+    await assert.rejects(
+      usersModel.adminInvalidateTfa('00000000-0000-0000-0000-000000000000', freshStrategyId()),
+      /ERR_INVALID_USER/
+    )
   })
 })

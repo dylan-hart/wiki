@@ -1788,6 +1788,183 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  /**
+   * LIST A USER'S PASSKEYS (ADMIN)
+   */
+  app.get<{ Params: { userId: string } }>(
+    '/:userId/passkeys',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "List a user's passkeys",
+        description: 'Never returns key material — the same shape the profile page itself lists.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        response: {
+          200: {
+            description: "The user's passkeys",
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              passkeys: {
+                type: 'array',
+                items: { $ref: 'Passkey#' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+      const passkeys = await WIKI.models.passkeys.list(req.params.userId)
+      return {
+        ok: true,
+        passkeys
+      }
+    }
+  )
+
+  /**
+   * REVOKE A USER'S PASSKEY (ADMIN)
+   */
+  app.delete<{ Params: { userId: string; passkeyId: string } }>(
+    '/:userId/passkeys/:passkeyId',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "Revoke one of a user's passkeys",
+        description:
+          'Only this instance forgets it — the credential itself lives on the user’s device and has to be deleted there too.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            passkeyId: {
+              type: 'string',
+              description: 'The credential ID, as listed by `GET /users/:userId/passkeys`.'
+            }
+          },
+          required: ['userId', 'passkeyId']
+        },
+        response: {
+          204: {
+            description: 'Passkey revoked successfully'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      if (!(await WIKI.models.passkeys.remove(req.params.userId, req.params.passkeyId))) {
+        return reply.notFound('This user has no passkey with this ID.')
+      }
+      return reply.code(204).send()
+    }
+  )
+
+  /**
+   * INVALIDATE A USER'S 2FA (ADMIN)
+   */
+  app.post<{ Params: { userId: string }; Body: { strategyId: string } }>(
+    '/:userId/tfa/invalidate',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "Turn off a user's 2FA on an administrator's authority",
+        description:
+          'Unlike `DELETE /users/profile/tfa/:strategyId`, this bypasses the `tfaRequired` / `enforceTfa` enforcement that route refuses to override — the exact override an administrator needs to recover a user locked out of a lost authenticator or device. Clears the stored secret, deactivates 2FA, and discards every recovery code; the user has to set 2FA up again from scratch.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId'],
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            description: '2FA invalidated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      try {
+        await WIKI.models.users.adminInvalidateTfa(req.params.userId, req.body.strategyId)
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+
+      return {
+        ok: true,
+        message: '2FA invalidated successfully.'
+      }
+    }
+  )
+
   app.delete<{ Params: { userId: string } }>(
     '/:userId',
     {
