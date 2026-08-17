@@ -1,4 +1,5 @@
 import { whoAmI } from './users.ts'
+import { guardSiteEnabled } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -60,6 +61,12 @@ async function routes(app: FastifyInstance) {
       })
       if (!site) {
         return reply.notFound('There is no wiki site at this hostname.')
+      }
+      // -> This is what App.vue's loadBootstrap boots the whole SPA against: the highest-value place
+      //    to stop a disabled site's content from ever reaching a browser, since every other entry
+      //    point is reached through a page the shell itself decides whether to render.
+      if (guardSiteEnabled(site, reply)) {
+        return
       }
       return {
         site: {

@@ -1,5 +1,5 @@
 import { validate as uuidValidate } from 'uuid'
-import { replyWithFile } from '../helpers/common.ts'
+import { guardSiteEnabled, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -49,6 +49,13 @@ async function routes(app: FastifyInstance) {
       }
       if (!site) {
         return reply.notFound('Site not found')
+      }
+      // -> A disabled site's logo/favicon/login background is still identifying content: this is a
+      //    logged-out request, so nothing downstream of here decides who may see it, only the hook
+      //    that resolved the page around the `<img>` tag -- which is exactly the check this route
+      //    never runs through, since it resolves its own siteId independently
+      if (guardSiteEnabled(site, reply)) {
+        return
       }
 
       const kind = req.params.resource as SiteAssetKind

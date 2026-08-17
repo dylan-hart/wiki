@@ -2,7 +2,7 @@ import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { PageActor, PageInput } from '../models/pages.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
-import { generatePathHash, normalizePagePath } from '../helpers/common.ts'
+import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -201,7 +201,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async () => {
+    async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
       return []
     }
   )
@@ -321,7 +324,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
       const actor = actorFrom(req)
       const permissions = actor?.permissions ?? []
       return WIKI.models.search.searchPages({
@@ -385,6 +391,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
       const actor = actorFrom(req)
       // -> The stored form of whatever the including page wrote, since that is what it is looked up
       //    by. The site root is the `home` page.

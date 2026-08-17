@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-import { decodeTreePath } from '../helpers/common.ts'
+import { decodeTreePath, guardSiteEnabled } from '../helpers/common.ts'
 import { INLINE_EXTS } from '../models/assets.ts'
 
 const assetIdParam = {
@@ -181,6 +181,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
       // -> Not readable is answered as not there, so the endpoint cannot be used to probe for files
       if (!asset || !mayOnAsset(req, 'read:assets', asset)) {
@@ -222,6 +225,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
+        return
+      }
       const asset = await WIKI.models.assets.getAsset(req.params.siteId, req.params.assetId)
       if (!asset || !mayOnAsset(req, 'read:assets', asset)) {
         return reply.notFound('This asset does not exist.')

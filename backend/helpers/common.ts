@@ -176,6 +176,43 @@ export function resolveRequestSite({
   return { outcome: 'ok', site }
 }
 
+/** The message every disabled-site `403` answers with — see `guardSiteEnabled`. */
+export const SITE_DISABLED_MESSAGE = 'This wiki site is currently disabled.'
+
+/**
+ * Response contract for a site resolved OUTSIDE the page/shell hook in `index.ts` — an API route or
+ * static controller that already has a siteId or hostname of its own (a JSON endpoint, an image, a
+ * downloaded file) rather than one arriving through `resolveRequestSite` above. Those requests are
+ * not navigations a browser can be bounced away from, so where the hook redirects to a distinct
+ * `/_error/*` page per outcome, these tell the same two outcomes apart by status code instead:
+ *
+ * - No site at all behind the id/hostname is indistinguishable from any other missing resource, so
+ *   the caller keeps answering its own `reply.notFound(...)` with whatever message fits what it was
+ *   looking up — this function has nothing to add there.
+ * - A site that exists but has `isEnabled === false` answers `403` here — "exists, access refused",
+ *   the same shape a page-rule denial already answers with elsewhere in these routes — rather than
+ *   `404`, so a client can tell "wrong id" apart from "right id, wait for it to come back".
+ *
+ * A caller that already resolved a site row (`bootstrap.ts`, `controllers/site.ts`,
+ * `controllers/files.ts`) passes it directly. A caller scoped only to a bare `siteId` (the
+ * `/sites/:siteId/...` API routes) passes `WIKI.sites[siteId]` — `undefined` for an id that does not
+ * exist, which this deliberately treats as "nothing to guard here" rather than a second 404: those
+ * routes already answer "no such thing" through their own lookup once this guard lets the request
+ * through.
+ *
+ * Returns `true` once a reply has been sent, so the caller can `return` immediately after.
+ */
+export function guardSiteEnabled(
+  site: { isEnabled?: boolean } | null | undefined,
+  reply: FastifyReply
+): boolean {
+  if (site?.isEnabled === false) {
+    reply.forbidden(SITE_DISABLED_MESSAGE)
+    return true
+  }
+  return false
+}
+
 /**
  * Generate SHA-1 Hash of a string
  *
