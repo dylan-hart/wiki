@@ -5,6 +5,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { parseModuleProps } from '../helpers/common.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
+import type { HookEvent } from './hooks.ts'
 
 /** The kinds of content a target can be asked to hold. */
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
@@ -17,6 +18,46 @@ const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
+
+/**
+ * The storage-module handler each write-path event dispatches to, named to mirror 2.5.x's storage
+ * module contract (`created` / `updated` / `deleted` / `renamed` / `assetUploaded` / `assetDeleted` /
+ * `assetRenamed` — see `StorageModule`). Only the events listed here are ever dispatched; anything
+ * else `hooks.ts` carries (comments, user login/logout) has no storage-side meaning.
+ *
+ * `asset:edit` reuses `assetUploaded` rather than getting its own `assetUpdated`: to a storage module,
+ * writing new bytes for a file that already exists is the same operation as writing them for a new
+ * one — a git commit or an S3 `PUT` does not care whether the key existed before — which is exactly
+ * why 2.5.x never had a separate "asset updated" handler.
+ */
+const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
+  'page:create': 'created',
+  'page:edit': 'updated',
+  'page:rename': 'renamed',
+  'page:delete': 'deleted',
+  'asset:upload': 'assetUploaded',
+  'asset:edit': 'assetUploaded',
+  'asset:rename': 'assetRenamed',
+  'asset:delete': 'assetDeleted'
+}
+
+/** Byte multiplier per unit of a `contentTypes.largeThreshold` string, e.g. `"5MB"`. */
+const SIZE_MULTIPLIERS: Record<string, number> = {
+  B: 1,
+  KB: 1024,
+  MB: 1024 ** 2,
+  GB: 1024 ** 3,
+  TB: 1024 ** 4
+}
+
+/** Parses a `largeThreshold`-shaped size string to bytes. Unparsable input never counts as "large". */
+function parseSizeToBytes(size: string): number {
+  const match = /^(\d+(?:\.\d+)?)\s?(B|KB|MB|GB|TB)$/i.exec(size)
+  if (!match) {
+    return Number.POSITIVE_INFINITY
+  }
+  return Number.parseFloat(match[1]) * SIZE_MULTIPLIERS[match[2].toUpperCase()]
+}
 
 /** An action a module knows how to run on demand, as declared by its `definition.yml`. */
 export interface StorageAction {
@@ -144,12 +185,37 @@ export interface StorageTargetInput {
   config?: Record<string, any>
 }
 
-/** What a module implementation is expected to export, once any of them do. */
+/**
+ * What a module implementation is expected to export, once any of them do.
+ *
+ * The content-dispatch handlers below are called by the `dispatchStorage` task — never directly —
+ * one per write-path event this target's `contentTypes.activeTypes` covers; see `Storage.dispatch()`
+ * and `STORAGE_HANDLERS` for how an event picks its handler. Named to mirror 2.5.x's storage module
+ * contract: pages get the bare verb, assets are prefixed because `renamed` would otherwise collide
+ * between the two content types. `data` is the same object the write-path call passed to `dispatch()`
+ * (id, path/fileName, siteId, ...) — a handler that needs the actual page render or asset bytes fetches
+ * them itself via `WIKI.models.pages` / `WIKI.models.assets`, so the queued job stays small and
+ * JSON-serializable rather than carrying content through the job table.
+ */
 export interface StorageModule {
   /** Advance a multi-step setup process, returning what the admin area should do next. */
   setup?: (targetId: string, state: Record<string, any>) => Promise<Record<string, any>>
   /** Undo whatever `setup` configured, so that it can be started over. */
   setupDestroy?: (targetId: string) => Promise<void>
+  /** A page was created. */
+  created?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** A page's content, title or metadata changed. */
+  updated?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** A page moved to a new path. */
+  renamed?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** A page was deleted. */
+  deleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** An asset was created, or an existing one had its bytes replaced. */
+  assetUploaded?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** An asset moved to a new name or folder. */
+  assetRenamed?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /** An asset was deleted. */
+  assetDeleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** Handlers named by the definition's actions. */
   [handler: string]: any
 }
@@ -162,9 +228,11 @@ export interface StorageModule {
  * what it needs configured. Every site gets a row per module (see `syncSite`), so a target always
  * has a stable ID whether or not it has ever been enabled.
  *
- * Nothing dispatches content to targets yet: pages and assets are read and written straight from the
- * database, and no module ships an implementation. What this model handles is the configuration those
- * modules will read once they exist.
+ * `dispatch()` queues a sync job on every write-path change, but no module ships an implementation yet
+ * — pages and assets are still read and written straight from the database, and `ensureModule()`
+ * returns null for every one of them, so every queued job resolves to a no-op logged by the
+ * `dispatchStorage` task. What this model handles beyond that is the configuration those modules will
+ * read once they exist.
  */
 class Storage {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -588,6 +656,94 @@ class Storage {
       .set(values)
       .where(and(eq(storageTable.siteId, siteId), eq(storageTable.id, target.id)))
     return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Whether a target's `contentTypes.activeTypes` covers the content behind one dispatch event.
+   *
+   * A page is always the `pages` bucket. An asset is classified by `data.kind` (`image` / `document`
+   * / `other`, mirroring `models/assets.ts`'s `AssetKind`) into `images` / `documents` / `others` —
+   * unless `data.fileSize` is given and clears *this target's own* `largeThreshold`, in which case the
+   * target is asked about `large` instead of its kind-based bucket. The threshold lives on the target,
+   * not the module, so the same file can be "large" for one target and not another.
+   */
+  targetCoversEvent(target: StorageTarget, event: HookEvent, data: Record<string, any>): boolean {
+    if (event.startsWith('page:')) {
+      return target.contentTypes.activeTypes.includes('pages')
+    }
+    if (!event.startsWith('asset:')) {
+      return false
+    }
+    const base =
+      data.kind === 'image'
+        ? 'images'
+        : data.kind === 'document'
+          ? 'documents'
+          : data.kind === 'other'
+            ? 'others'
+            : null
+    if (!base) {
+      // -> No kind on the payload: this event cannot be classified, so no target can claim it
+      return false
+    }
+    if (
+      typeof data.fileSize === 'number' &&
+      data.fileSize > parseSizeToBytes(target.contentTypes.largeThreshold)
+    ) {
+      return target.contentTypes.activeTypes.includes('large')
+    }
+    return target.contentTypes.activeTypes.includes(base)
+  }
+
+  /**
+   * Queue a sync job on every enabled target that syncs this event's content in `push` or `sync` mode
+   * — never a `pull`-only target, which never writes out.
+   *
+   * Mirrors `hooks.emit()`: safe to call from anywhere, including request handlers, because it only
+   * writes scheduler jobs and never throws — a broken or unconfigured target must not fail the write
+   * that triggered it. Delivery itself happens in the `dispatchStorage` task, never inline here.
+   *
+   * @param data Must include `siteId` and the content's own `id`. Asset events should also carry
+   *             `kind` and, when known, `fileSize` — see `targetCoversEvent`.
+   * @returns How many syncs were queued
+   */
+  async dispatch(event: HookEvent, data: Record<string, any> = {}): Promise<number> {
+    const handler = STORAGE_HANDLERS[event]
+    if (!handler || !data.siteId || !data.id) {
+      return 0
+    }
+    try {
+      const targets = await this.getSiteTargets(data.siteId)
+      const contentType: 'page' | 'asset' = event.startsWith('page:') ? 'page' : 'asset'
+
+      let queued = 0
+      for (const target of targets) {
+        if (!target.isEnabled || target.sync.mode === 'pull') {
+          continue
+        }
+        if (!this.targetCoversEvent(target, event, data)) {
+          continue
+        }
+        const added = await WIKI.scheduler.addJob({
+          task: 'dispatchStorage',
+          payload: {
+            targetId: target.id,
+            siteId: data.siteId,
+            contentType,
+            contentId: data.id,
+            handler,
+            data
+          }
+        })
+        if (added?.id) {
+          queued++
+        }
+      }
+      return queued
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to queue storage dispatch for ${event}: ${err.message}`)
+      return 0
+    }
   }
 
   /**
