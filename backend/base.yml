@@ -95,6 +95,10 @@ defaults:
       timezone: 'America/New_York'
       dateFormat: 'YYYY-MM-DD'
       timeFormat: '12h'
+    update:
+      # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
+      # requarks/wiki-locales. Set to false to disable automatic locale syncing.
+      locales: true
     # System defaults
     channel: NEXT
     cors:
