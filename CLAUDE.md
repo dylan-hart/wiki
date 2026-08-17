@@ -378,21 +378,52 @@ separate transpile or worker config.
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
-  oxlint and oxfmt cover them the same way.
-- **Prefer pure unit tests with no `WIKI` global and no database.** Most of `helpers/` and plenty of
-  `models/` logic is testable as plain functions — `helpers/pageRules.test.ts` is the reference
-  example. Reach for a real Postgres instance only when the thing under test *is* SQL correctness (a
-  join, an upsert conflict target) that a mock of the query builder wouldn't actually verify. Point
-  such a test at `DATABASE_URL` and skip cleanly when it's unset — nothing here spins up its own
-  database, and CI/local runs without one still pass. A throwaway instance for that kind of test:
-  `docker run --rm -d --name wiki-test-db -p 56001:5432 -e POSTGRES_PASSWORD=postgres -e
-  POSTGRES_DB=postgres postgres:17`, migrations applied, then
-  `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`.
+  oxlint and oxfmt cover them the same way. `test/` itself is the one exception, reserved for shared
+  fixture code that is not itself a `*.test.ts` — see below.
+- **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
+  logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
+  `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
+  database) are the reference examples. Reach for a real Postgres instance when the thing under test
+  *is* SQL orchestration that a mock of the query builder would mostly just be re-describing rather
+  than verifying — a `models/` write path that inserts, checks a constraint, and coordinates a couple
+  of tables (`models/pages.test.ts`'s create/update/move/delete is the example: path-collision checks,
+  a locale-scoped uniqueness constraint, the page/tree/history tables staying in step) is squarely
+  this case, not the rare exception the join/upsert framing might suggest.
+- **DB-backed fixture: `test/db.ts`.** `hasTestDatabase()` gates a suite on `DATABASE_URL` being set —
+  wrap the whole `describe` in `{ skip: !hasTestDatabase() }` rather than asserting inside each test,
+  so an unset `DATABASE_URL` reports as skipped and CI/local runs without one still pass with nothing
+  DB-backed even attempted. `setupTestDb()` (call from `before()`) connects, creates a fresh,
+  randomly-named schema, runs the real migrations from `db/migrations/` into it, installs a minimal
+  `WIKI` global scoped to just what a model needs (`db`, a silent `logger`, `sites`, `config`,
+  `models`, plus the `cache`/`events` stubs below), and seeds one site/user/group — returned as
+  `{ db, siteId, userId, groupId }`. `teardownTestDb()` (call from `after()`) drops that schema and
+  closes the pool.
+  - **A schema per call, not `public`.** `node --test` runs matched files concurrently by default, and
+    every DB-backed suite points at the same `DATABASE_URL` — sharing one schema means two suites'
+    setup racing each other. A fresh schema per `setupTestDb()` call is what makes "no leaking state
+    between runs" hold even when another suite is running against the same physical database at the
+    same time, and dropping it in `teardownTestDb()` is what keeps a long-lived shared instance (the
+    `.devcontainer` postgres, or a container reused across several local invocations) from
+    accumulating one abandoned schema per run.
+  - A throwaway instance to point `DATABASE_URL` at: `docker run --rm -d --name wiki-test-db -p
+    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17`, then
+    `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
+    `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
+    `.devcontainer`'s, is always the caller's choice to make.
+- **Mocking convention: `test/mocks.ts`.** `WIKI.cache` and `WIKI.events` exist for cross-request and
+  cross-instance concerns that almost no model-layer test is actually exercising — `createCacheStub()`
+  / `createEventsStub()` build the smallest object satisfying the methods a code path under test
+  actually calls (`node:test`'s `mock.fn()`, so a test that DOES care can assert
+  `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
+  the app boots with. `setupTestDb()` installs both onto its `WIKI` unconditionally, since building
+  them costs nothing and a model gaining a `WIKI.cache`/`WIKI.events` touch later should not need this
+  fixture rewritten to cope. Follow the same pattern for any other `WIKI` member a future model test
+  needs present but does not care about.
 - **Use `node:assert/strict`**, not a third-party assertion library. `describe`/`test` (or `it`) both
   come from `node:test` itself.
-- Keep the suite fast: it's meant to run on every change, not just in CI. A DB-backed test is the
-  exception precisely because it can't be fast or dependency-free — keep those rare and gate them as
-  above rather than letting the default `npm run test` require Postgres to pass at all.
+- Keep the pure-unit majority of the suite fast: it's meant to run on every change, not just in CI. A
+  DB-backed test is slower by nature — gate it behind `DATABASE_URL` as above rather than letting the
+  default `npm run test` require Postgres to pass at all.
 
 ### Frontend patterns
 
