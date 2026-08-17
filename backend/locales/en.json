@@ -1922,6 +1922,7 @@
   "editor.settings.markdownFontSizeHint": "The font size to use in the editor.",
   "editor.settings.markdownPreviewShown": "Display Render Preview",
   "editor.settings.markdownPreviewShownHint": "Whether to display a preview of the rendered content.",
+  "editor.settings.saveSuccess": "Editor settings saved successfully.",
   "editor.tableEditor.addColumn": "Add Column",
   "editor.tableEditor.addRow": "Add Row",
   "editor.tableEditor.align": "Alignment",

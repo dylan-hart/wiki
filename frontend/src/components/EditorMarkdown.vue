@@ -326,6 +326,7 @@ import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
+import { resolveEditorFontSize, resolveInitialPreviewShown } from '@/helpers/editorUserSettings'
 import { blockOpeningLine, blockValues, findBlocks } from '@/helpers/markdownBlocks'
 import { findEditableTables } from '@/helpers/markdownTable'
 
@@ -452,8 +453,11 @@ const isAtLeastMd = useMinWidth(1024)
 
 const state = reactive({
   /*
-    Read once, as a DEFAULT rather than a binding: past this first value the pane is the author's to open
-    and close, and a bound one would slam it shut the moment a window was dragged narrower mid-edit.
+    A width-based placeholder until `onMounted` has this user's saved preference (or the lack of one)
+    back from `fetchUserSettings` and resolves the real starting value through
+    `resolveInitialPreviewShown`. Either way it is read once, as a DEFAULT rather than a binding: past
+    that first value the pane is the author's to open and close, and a bound one would slam it shut the
+    moment a window was dragged narrower mid-edit.
   */
   previewShown: isAtLeastMd.value,
   previewScrollSync: true
@@ -1236,6 +1240,20 @@ onMounted(async () => {
   // -> Awaited here so it is settled well before the first preview render at the end of this hook
   await loadSiteBlocks()
 
+  /*
+    This user's saved Markdown editor preferences -- font size and whether the preview pane opens --
+    read before Monaco is created so both apply from the first paint. A user who has never saved any
+    (or a request that fails) gets an empty object back, which `resolveEditorFontSize` /
+    `resolveInitialPreviewShown` treat as "no preference", not as an error to surface.
+  */
+  let userSettings = {}
+  try {
+    userSettings = (await editorStore.fetchUserSettings('markdown')) ?? {}
+  } catch (err) {
+    console.warn(`Could not read Markdown editor settings: ${err.message}`)
+  }
+  state.previewShown = resolveInitialPreviewShown(userSettings, isAtLeastMd.value)
+
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
   // -> Define Monaco Theme
@@ -1263,7 +1281,7 @@ onMounted(async () => {
     automaticLayout: true,
     cursorBlinking: 'blink',
     // cursorSmoothCaretAnimation: true,
-    fontSize: 16,
+    fontSize: resolveEditorFontSize(userSettings),
     formatOnType: true,
     language: 'markdown',
     lineNumbersMinChars: 4,
