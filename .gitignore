@@ -39,6 +39,7 @@ npm-debug.log*
 
 # Test results
 test-results/
+playwright-report/
 .scannerwork
 
 # Localization Resources

@@ -1,0 +1,73 @@
+name: E2E Smoke Suite
+
+on:
+  push:
+    branches:
+      - scarlett
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: Playwright smoke suite
+    runs-on: ubuntu-latest
+
+    services:
+      # A fresh service container per run is what makes "seeded test database" true every time --
+      # the backend's own first-run path (core/config.ts's initDbValues()) does the actual seeding
+      # the moment it finds no settings row, so nothing here pre-loads data of its own.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.x
+
+      # -> The e2e suite boots the built, production-shaped stack -- backend on :3000 serving
+      #    frontend/'s `vite build` output from `assets/` -- not the dev-mode Vite proxy.
+      - name: Build frontend assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e smoke suite
+        working-directory: e2e
+        run: npm test
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 14
