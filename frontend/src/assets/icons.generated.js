@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `check-icons.mjs` fails the build if this drifts.
 
-  266 icons.
+  269 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-double-right": {"body":"<path fill=\"currentColor\" d=\"M9.094 4.781L7.688 6.22l9.78 9.78l-9.78 9.781l1.406 1.438L20.313 16zm7 0L14.687 6.22L24.47 16l-9.782 9.781l1.407 1.438L27.312 16z\"/>","width":32,"height":32},
@@ -163,7 +163,9 @@ export const BUNDLED_ICONS = {
   "mdi:car": {"body":"<path fill=\"currentColor\" d=\"m5 11l1.5-4.5h11L19 11m-1.5 5a1.5 1.5 0 0 1-1.5-1.5a1.5 1.5 0 0 1 1.5-1.5a1.5 1.5 0 0 1 1.5 1.5a1.5 1.5 0 0 1-1.5 1.5m-11 0A1.5 1.5 0 0 1 5 14.5A1.5 1.5 0 0 1 6.5 13A1.5 1.5 0 0 1 8 14.5A1.5 1.5 0 0 1 6.5 16M18.92 6c-.2-.58-.76-1-1.42-1h-11c-.66 0-1.22.42-1.42 1L3 12v8a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h12v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-8z\"/>","width":24,"height":24},
   "mdi:check": {"body":"<path fill=\"currentColor\" d=\"M21 7L9 19l-5.5-5.5l1.41-1.41L9 16.17L19.59 5.59z\"/>","width":24,"height":24},
   "mdi:check-circle": {"body":"<path fill=\"currentColor\" d=\"M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10s10-4.5 10-10S17.5 2 12 2m-2 15l-5-5l1.41-1.41L10 14.17l7.59-7.59L19 8z\"/>","width":24,"height":24},
+  "mdi:checkbox-blank-circle-outline": {"body":"<path fill=\"currentColor\" d=\"M12 20a8 8 0 0 1-8-8a8 8 0 0 1 8-8a8 8 0 0 1 8 8a8 8 0 0 1-8 8m0-18A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2\"/>","width":24,"height":24},
   "mdi:checkbox-blank-outline": {"body":"<path fill=\"currentColor\" d=\"M19 3H5c-1.11 0-2 .89-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m0 2v14H5V5z\"/>","width":24,"height":24},
+  "mdi:checkbox-marked-circle-outline": {"body":"<path fill=\"currentColor\" d=\"M20 12a8 8 0 0 1-8 8a8 8 0 0 1-8-8a8 8 0 0 1 8-8c.76 0 1.5.11 2.2.31l1.57-1.57A9.8 9.8 0 0 0 12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10M7.91 10.08L6.5 11.5L11 16L21 6l-1.41-1.42L11 13.17z\"/>","width":24,"height":24},
   "mdi:checkbox-outline": {"body":"<path fill=\"currentColor\" d=\"M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m0 2v14H5V5zm-9 12l-4-4l1.41-1.42L10 14.17l6.59-6.59L18 9\"/>","width":24,"height":24},
   "mdi:chevron-down": {"body":"<path fill=\"currentColor\" d=\"M7.41 8.58L12 13.17l4.59-4.59L18 10l-6 6l-6-6z\"/>","width":24,"height":24},
   "mdi:chevron-left": {"body":"<path fill=\"currentColor\" d=\"M15.41 16.58L10.83 12l4.58-4.59L14 6l-6 6l6 6z\"/>","width":24,"height":24},
@@ -243,6 +245,7 @@ export const BUNDLED_ICONS = {
   "mdi:menu-down": {"body":"<path fill=\"currentColor\" d=\"m7 10l5 5l5-5z\"/>","width":24,"height":24},
   "mdi:message-alert": {"body":"<path fill=\"currentColor\" d=\"M13 11h-2V5h2m0 10h-2v-2h2m7-11H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2\"/>","width":24,"height":24},
   "mdi:minus": {"body":"<path fill=\"currentColor\" d=\"M19 13H5v-2h14z\"/>","width":24,"height":24},
+  "mdi:minus-box-outline": {"body":"<path fill=\"currentColor\" d=\"M19 19V5H5v14zm0-16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm-2 8v2H7v-2z\"/>","width":24,"height":24},
   "mdi:near-me": {"body":"<path fill=\"currentColor\" d=\"M21 3L3 10.53v.97l6.84 2.66L12.5 21h.96z\"/>","width":24,"height":24},
   "mdi:palette": {"body":"<path fill=\"currentColor\" d=\"M17.5 12a1.5 1.5 0 0 1-1.5-1.5A1.5 1.5 0 0 1 17.5 9a1.5 1.5 0 0 1 1.5 1.5a1.5 1.5 0 0 1-1.5 1.5m-3-4A1.5 1.5 0 0 1 13 6.5A1.5 1.5 0 0 1 14.5 5A1.5 1.5 0 0 1 16 6.5A1.5 1.5 0 0 1 14.5 8m-5 0A1.5 1.5 0 0 1 8 6.5A1.5 1.5 0 0 1 9.5 5A1.5 1.5 0 0 1 11 6.5A1.5 1.5 0 0 1 9.5 8m-3 4A1.5 1.5 0 0 1 5 10.5A1.5 1.5 0 0 1 6.5 9A1.5 1.5 0 0 1 8 10.5A1.5 1.5 0 0 1 6.5 12M12 3a9 9 0 0 0-9 9a9 9 0 0 0 9 9a1.5 1.5 0 0 0 1.5-1.5c0-.39-.15-.74-.39-1c-.23-.27-.38-.62-.38-1a1.5 1.5 0 0 1 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8\"/>","width":24,"height":24},
   "mdi:percent-outline": {"body":"<path fill=\"currentColor\" d=\"m18.5 3.5l2 2l-15 15l-2-2zM7 4c1.66 0 3 1.34 3 3s-1.34 3-3 3s-3-1.34-3-3s1.34-3 3-3m10 10c1.66 0 3 1.34 3 3s-1.34 3-3 3s-3-1.34-3-3s1.34-3 3-3M7 6c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1m10 10c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1\"/>","width":24,"height":24},
