@@ -754,6 +754,7 @@ import { confirm, dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import * as VNG from 'v-network-graph'
 import GithubSetupInstallDialog from '../components/GithubSetupInstallDialog.vue'
@@ -767,11 +768,32 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // ROUTER
 
 const router = useRouter()
 const route = useRoute()
+
+// ACCESS
+
+/*
+  Task #684: storage credentials are deliberately NOT delegable (see
+  `docs/decisions/delegated-per-site-administration.md` §4) -- `api/storage.ts` has always required
+  `manage:system` alone, not `manage:sites`, so this matches the backend exactly rather than the
+  looser `manage:sites` the sidebar link used to gate on. `userStore.permissions` is already loaded
+  by the time this mounts (same reasoning as `AdminLayout.vue`'s own `access:admin` watcher), so
+  there is no fetch to await here.
+*/
+watch(
+  () => route.path,
+  () => {
+    if (!userStore.can('manage:system')) {
+      router.replace('/_error/unauthorized')
+    }
+  },
+  { immediate: true }
+)
 
 // I18N
 

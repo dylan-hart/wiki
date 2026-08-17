@@ -327,6 +327,7 @@ import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, watch, nextTick } from 'vue'
 
 import { useMeta } from '@/composables/meta'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -334,6 +335,11 @@ import { useSiteStore } from '@/stores/site'
 import { intersectionBy, pull, unionBy } from 'es-toolkit/array'
 import { v4 as uuid } from 'uuid'
 import draggable from 'vuedraggable'
+
+// ACCESS
+// -> Task #684: gates this page behind `site:navigation` (or `manage:navigation`), redirecting away
+//    from a site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:navigation')
 
 // STORES
 

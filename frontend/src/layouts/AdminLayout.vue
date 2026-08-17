@@ -124,7 +124,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/general`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="maySeeGeneral">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-web.svg" />
               </w-item-section>
@@ -132,7 +133,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/approvals`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="maySeeApprovals">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-inspection.svg" />
               </w-item-section>
@@ -161,7 +163,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/blocks`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeBlocks">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-plugin.svg" />
               </w-item-section>
@@ -170,7 +172,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/editors`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeEditors">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-cashbook.svg" />
               </w-item-section>
@@ -179,7 +181,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/locale`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeLocale">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-language.svg" />
               </w-item-section>
@@ -188,7 +190,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/login`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeLogin">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bunch-of-keys.svg" />
               </w-item-section>
@@ -198,10 +200,7 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/navigation`"
               active-class="bg-primary text-white"
               disabled
-              v-if="
-                flagsStore.experimental &&
-                (userStore.can(`manage:sites`) || userStore.can(`manage:navigation`))
-              ">
+              v-if="flagsStore.experimental && maySeeNavigation">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-tree-structure.svg" />
               </w-item-section>
@@ -210,7 +209,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/storage`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="maySeeStorage">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-ssd.svg" />
               </w-item-section>
@@ -233,7 +232,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`) || userStore.can(`manage:theme`)">
+              v-if="maySeeTheme">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-paint-roller.svg" />
               </w-item-section>
@@ -472,6 +471,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { useMinWidth } from '@/composables/screen'
+import { maySeeSiteSurface } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useCommonStore } from '@/stores/common'
@@ -568,11 +568,55 @@ const leftDrawerOpen = computed({
 */
 const showSidebarBtn = computed(() => !isWideViewport.value && !narrowSidebarOpen.value)
 
+/*
+  Task #684: each site-scoped surface's own gate, mirroring the exact permission combo its
+  `Admin*.vue` page and backend route require (see `composables/siteAdminAccess.js`'s
+  `GLOBAL_FALLBACKS` for why these differ from one blanket `manage:sites` check). Storage stays
+  `manage:system`-only, matching `api/storage.ts` -- see
+  `docs/decisions/delegated-per-site-administration.md` §4 for why it is not delegable.
+*/
+const maySeeGeneral = computed(() =>
+  maySeeSiteSurface(userStore, 'site:general', adminStore.currentSiteId)
+)
+const maySeeApprovals = computed(() =>
+  maySeeSiteSurface(userStore, 'site:approvals', adminStore.currentSiteId)
+)
+const maySeeBlocks = computed(() =>
+  maySeeSiteSurface(userStore, 'site:blocks', adminStore.currentSiteId)
+)
+const maySeeEditors = computed(() =>
+  maySeeSiteSurface(userStore, 'site:editors', adminStore.currentSiteId)
+)
+const maySeeLocale = computed(() =>
+  maySeeSiteSurface(userStore, 'site:locale', adminStore.currentSiteId)
+)
+const maySeeLogin = computed(() =>
+  maySeeSiteSurface(userStore, 'site:login', adminStore.currentSiteId)
+)
+const maySeeNavigation = computed(() =>
+  maySeeSiteSurface(userStore, 'site:navigation', adminStore.currentSiteId)
+)
+const maySeeStorage = computed(() => userStore.can('manage:system'))
+const maySeeTheme = computed(() =>
+  maySeeSiteSurface(userStore, 'site:theme', adminStore.currentSiteId)
+)
+
+/*
+  Shown once ANY site-scoped surface is reachable, global or delegated -- a delegated administrator
+  holding only `site:general` on the current site has none of the three group-wide permissions this
+  used to check alone, and would otherwise never see the site picker at all.
+*/
 const siteSectionShown = computed(() => {
   return (
-    userStore.can('manage:sites') ||
-    userStore.can('manage:navigation') ||
-    userStore.can('manage:theme')
+    maySeeGeneral.value ||
+    maySeeApprovals.value ||
+    maySeeBlocks.value ||
+    maySeeEditors.value ||
+    maySeeLocale.value ||
+    maySeeLogin.value ||
+    maySeeNavigation.value ||
+    maySeeStorage.value ||
+    maySeeTheme.value
   )
 })
 /*
@@ -641,6 +685,20 @@ watch(
       router.push({ params: { siteid: newValue } })
     }
   }
+)
+/*
+  Task #684: the sidebar's `maySee*` computeds (`site:general`, `site:theme`, ...) read
+  `userStore.sitePermissions`, which is only ever valid for the site it was fetched for -- so it has
+  to be refreshed here too, not only by `useSiteAdminAccess()` on whichever specific page happens to
+  be mounted. `immediate: true` covers the very first site the sidebar renders for, same as the
+  `access:admin` watcher above covers the first route.
+*/
+watch(
+  () => adminStore.currentSiteId,
+  (newValue) => {
+    userStore.fetchSitePermissions(newValue)
+  },
+  { immediate: true }
 )
 
 // MOUNTED

@@ -1,6 +1,7 @@
 import { validate as uuidValidate } from 'uuid'
 import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
+import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -86,6 +87,30 @@ function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKi
   return (
     actor.permissions.includes('manage:sites') ||
     WIKI.models.groups.checkSiteAccess(actor, SITE_IMAGE_KIND_PERMISSIONS[kind], siteId)
+  )
+}
+
+/**
+ * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
+ *
+ * The site-scoped counterpart to `pagePermissionsFor` in `api/pages.ts`: what the interface hides
+ * `AdminGeneral.vue`, `AdminTheme.vue` and the rest of the nine site-scoped admin pages by, asked the
+ * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
+ *
+ * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
+ * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
+ * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayReadApprovalRules` in
+ * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
+ * a specific route would still refuse. The frontend already has all three of those in
+ * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
+ */
+function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  if (actor.permissions.includes('manage:system')) {
+    return SITE_PERMISSIONS
+  }
+  return SITE_PERMISSIONS.filter((permission) =>
+    WIKI.models.groups.checkSiteAccess(actor, permission, siteId)
   )
 }
 
@@ -198,6 +223,46 @@ async function routes(app: FastifyInstance) {
       } else {
         return reply.notFound('Site does not exist.')
       }
+    }
+  )
+
+  /**
+   * SITE USER PERMISSIONS
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/:siteId/userPermissions',
+    {
+      /*
+        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages.ts` --
+        this answers what the caller may do, which for an anonymous or under-permissioned caller is
+        an empty array rather than a 403.
+      */
+      schema: {
+        summary: 'Get site-admin user permissions',
+        description:
+          "Which `site:*` permissions (see `helpers/siteRules.ts`) the caller holds on this site. This is what the interface hides the nine site-scoped admin pages by. Deliberately does not fold in `manage:sites` / `manage:theme` / `manage:navigation` -- see `sitePermissionsFor`'s own comment for why.",
+        tags: ['Sites'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: 'Site-admin permissions the current user holds for this site',
+            type: 'array',
+            items: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return sitePermissionsFor(req, req.params.siteId)
     }
   )
 

@@ -95,6 +95,7 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -103,6 +104,9 @@ import { useSiteStore } from '@/stores/site'
 // COMPOSABLES
 
 const dark = useDark()
+// -> Task #684: gates this page behind `site:editors` (or `manage:sites`), redirecting away from a
+//    site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:editors')
 
 // STORES
 

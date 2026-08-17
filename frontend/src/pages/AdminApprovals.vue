@@ -2,7 +2,9 @@
   <w-page>
     <div class="flex flex-wrap items-center p-4">
       <div class="flex-none">
-        <img class="admin-icon animated fadeInLeft" src="/_assets/icons/fluent-inspection-animated.svg" />
+        <img
+          class="admin-icon animated fadeInLeft"
+          src="/_assets/icons/fluent-inspection-animated.svg" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
         <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.approval.title') }}</div>
@@ -121,6 +123,7 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -131,6 +134,9 @@ import { apiErrorMessage } from '@/helpers/apiError'
 // COMPOSABLES
 
 const dark = useDark()
+// -> Task #684: gates this page behind `site:approvals` (or `manage:sites` / `read:sites`),
+//    redirecting away from a site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:approvals')
 
 // STORES
 

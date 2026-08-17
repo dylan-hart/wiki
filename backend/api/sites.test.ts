@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import sitesRoutes from './sites.ts'
 import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
+import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -496,4 +497,78 @@ test('site:general on this site may NOT clear a loginBg', async () => {
   })
   assert.equal(res.statusCode, 403)
   assert.equal(clearAssetCalls.length, 0)
+})
+
+/**
+ * Task #684: `GET /:siteId/userPermissions` is what `frontend/src/composables/siteAdminAccess.js`
+ * asks to decide whether to show the sidebar link / render the page / redirect to
+ * `/_error/unauthorized`, for each of the nine site-scoped `Admin*.vue` pages. Mirrors
+ * `pages/userPermissions` in `api/pages.ts`, but for `site:*` instead of page permissions.
+ */
+
+const OTHER_SITE_ID = '9f2c9a3e-3b8e-4a4c-9a3b-3c9a3e3b8e4a'
+
+test('userPermissions returns exactly the site: permissions granted for THIS site', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${PUT_SITE_ID}/userPermissions`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID},site:theme@${PUT_SITE_ID}`
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(new Set(res.json()), new Set(['site:general', 'site:theme']))
+})
+
+test('userPermissions does not leak a permission granted on a DIFFERENT site', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${PUT_SITE_ID}/userPermissions`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:theme@${OTHER_SITE_ID}`
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [])
+})
+
+test('userPermissions returns every site: permission for manage:system', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${PUT_SITE_ID}/userPermissions`,
+    headers: {
+      'x-test-permissions': 'manage:system'
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(new Set(res.json()), new Set(SITE_PERMISSIONS))
+})
+
+/**
+ * `manage:sites` deliberately is NOT folded into this list -- `sitePermissionsFor`'s own comment
+ * explains why (it would tell the caller they hold `site:navigation`, which `manage:sites` alone
+ * does not grant against the real `canManageNavigation` check in `api/navigation.ts`). The frontend
+ * combines this list with `manage:sites` / `manage:theme` / `manage:navigation` itself, per surface.
+ */
+test('userPermissions does NOT fold in manage:sites', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${PUT_SITE_ID}/userPermissions`,
+    headers: {
+      'x-test-permissions': 'manage:sites'
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [])
+})
+
+test('userPermissions returns an empty array for an anonymous caller', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/${PUT_SITE_ID}/userPermissions`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json(), [])
 })

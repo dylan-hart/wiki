@@ -534,6 +534,7 @@ import { onMounted, reactive, watch } from 'vue'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -551,6 +552,11 @@ import { toMerged } from 'es-toolkit/object'
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
+
+// ACCESS
+// -> Task #684: gates this page behind `site:general` (or `manage:sites`), redirecting away from a
+//    site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:general')
 
 // I18N
 
