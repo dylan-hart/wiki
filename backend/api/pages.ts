@@ -422,10 +422,15 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/pages/:pageIdOrHash',
     {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES. `read:pages` is checked against this page below, and — only when
+        `withContent` actually asked for the source — `read:source` on top of it.
+      */
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Per-page access rules are not implemented yet.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester may edit the page, for whom the password is not a barrier.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. `withContent` needs `read:source` ON THIS PAGE on top of `read:pages`, granted by a group rule.",
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -463,12 +468,13 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       const isId = uuidValidate(req.params.pageIdOrHash)
       const actor = actorFrom(req)
+      // -> The source is what an editor loads, and editing is not something an anonymous reader does
+      const wantsContent = Boolean(req.query.withContent) && Boolean(actor)
       const page = await WIKI.models.pages.getPage({
         siteId: req.params.siteId,
         ...(isId ? { id: req.params.pageIdOrHash } : { hash: req.params.pageIdOrHash }),
         locale: req.query.locale,
-        // -> The source is what an editor loads, and editing is not something an anonymous reader does
-        withContent: Boolean(req.query.withContent) && Boolean(actor),
+        withContent: wantsContent,
         publicOnly: !actor,
         // -> Answered once the page is known, since a hash does not say which page it is yet
         unlocked: (pageId) => unlockedFor(req, pageId),
@@ -479,6 +485,10 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'read:pages', page)) {
         return reply.forbidden('You are not allowed to read this page.')
+      }
+      // -> A separate permission from `read:pages`: reading the rendered page is not reading its source
+      if (wantsContent && !mayOnPage(req, 'read:source', page)) {
+        return reply.forbidden("You are not allowed to read this page's source.")
       }
       /*
         The reader's own standing on this page, carried back with it.
