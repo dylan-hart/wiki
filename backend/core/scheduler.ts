@@ -521,38 +521,27 @@ export default {
               })
               // -> Add a maximum of 10 future iterations for a single task
               let addedFutureJobs = 0
-              while (true) {
+              while (plannedIterations.hasNext()) {
                 try {
-                  // FIXME: pre-existing bug — cron-parser v5's `next()` returns a `CronDate`, not an
-                  // ES iterator result, so `next.value` and `next.done` below are both `undefined`.
-                  // `next.value.getTime()` therefore throws (swallowed by the `catch { break }`)
-                  // whenever `existingJobs` is non-empty, and `next.done` is never true so the loop
-                  // only ever stops at the 10-iteration cap. Cast to `any` to keep the migration
-                  // behavior-neutral; the fix is `next.getTime()` + `plannedIterations.hasNext()`.
-                  const next = plannedIterations.next() as any
+                  const next = plannedIterations.next()
                   // -> Ensure this iteration isn't already scheduled
                   if (
                     !existingJobs.some(
-                      (j: any) =>
-                        j.task === job.task && j.waitUntil.getTime() === next.value.getTime()
+                      (j: any) => j.task === job.task && j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
-                    // FIXME: `useWorker` is not an `addJob` option (it is derived inside `addJob`)
-                    // and `waitUntil` is handed an ISO string rather than a Date. Cast preserves
-                    // the existing call verbatim.
                     this.addJob({
                       task: job.task,
-                      useWorker: !(typeof this.tasks![job.task] === 'function'),
                       payload: job.payload,
                       isScheduled: true,
-                      waitUntil: next.toISOString(),
+                      waitUntil: new Date(next.getTime()),
                       notify: false
-                    } as any)
+                    })
                     addedFutureJobs++
                     totalAdded++
                   }
                   // -> No more iterations for this period or max iterations count reached
-                  if (next.done || addedFutureJobs >= 10) {
+                  if (!plannedIterations.hasNext() || addedFutureJobs >= 10) {
                     break
                   }
                 } catch {
