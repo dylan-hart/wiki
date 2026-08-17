@@ -13,7 +13,9 @@
  * exactly the fixture `models/pages.ts`/`groups.ts`/`users.ts` tests need to exist before anything
  * else runs: one site, one user, one group — matching how a fresh Wiki.js installation seeds itself
  * (`core/config.ts#initDbValues`), just without the rest of that sequence (no default admin/guest
- * accounts, no settings rows) that these tests have no use for.
+ * accounts, no settings rows) that these tests have no use for. `seedTreeEntry()` seeds additional
+ * `tree` rows (pages/folders/assets) on top of that base fixture, for suites — `models/navigation.ts`
+ * is the first — that need entries in the tree beyond what `setupTestDb()` provides.
  *
  * Installs a minimal `WIKI` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
  * plus the `cache`/`events` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
@@ -27,8 +29,15 @@ import { sql } from 'drizzle-orm'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { relations } from '../db/relations.ts'
-import { groups as groupsTable, sites as sitesTable, users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  sites as sitesTable,
+  tree as treeTable,
+  users as usersTable
+} from '../db/schema.ts'
+import { encodeTreePath } from '../helpers/common.ts'
 import type { WikiDb } from '../core/db.ts'
+import type { NavigationMode } from '../models/navigation.ts'
 import { createCacheStub, createEventsStub } from './mocks.ts'
 
 /** Same list `core/db.ts` installs before migrating — the schema depends on both. */
@@ -149,6 +158,59 @@ async function createExtensionsSerialized(): Promise<void> {
   } finally {
     client.release()
   }
+}
+
+export interface SeedTreeEntryInput {
+  siteId: string
+  /**
+   * Full path, e.g. `'docs/child'` — split into `folderPath`/`fileName` the same way
+   * `models/tree.ts` encodes one: lowercased, `/` become `.` (`helpers/common.ts#encodeTreePath`).
+   * Ignored when `folderPath`/`fileName` are given directly, which is the escape hatch for a path
+   * `encodeTreePath` can't express.
+   */
+  path?: string
+  folderPath?: string
+  fileName?: string
+  type?: 'folder' | 'page' | 'asset'
+  locale?: string
+  title?: string
+  hash?: string
+  navigationMode?: NavigationMode
+  navigationId?: string | null
+  tags?: string[]
+  meta?: Record<string, unknown>
+}
+
+/**
+ * Seed one `tree` row directly — a page, folder, or asset entry — for tests exercising
+ * `models/navigation.ts` or anything else keyed off the tree, without going through
+ * `models/pages.ts#createPage`'s full write path (which also touches `pages`/`pageHistory` this
+ * fixture has no use for).
+ */
+export async function seedTreeEntry(db: WikiDb, input: SeedTreeEntryInput) {
+  const encoded = input.path !== undefined ? encodeTreePath(input.path) : undefined
+  const parts = encoded ? encoded.split('.') : []
+  const folderPath = input.folderPath ?? (parts.length > 1 ? parts.slice(0, -1).join('.') : '')
+  const fileName = input.fileName ?? parts.at(-1) ?? ''
+
+  const [entry] = await db
+    .insert(treeTable)
+    .values({
+      siteId: input.siteId,
+      folderPath,
+      fileName,
+      hash: input.hash ?? `test-hash-${fileName}`,
+      type: input.type ?? 'page',
+      locale: input.locale ?? 'en',
+      title: input.title ?? fileName,
+      navigationMode: input.navigationMode ?? 'inherit',
+      navigationId: input.navigationId ?? null,
+      tags: input.tags ?? [],
+      meta: input.meta ?? {}
+    })
+    .returning()
+
+  return entry!
 }
 
 /**
