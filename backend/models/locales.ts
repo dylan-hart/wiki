@@ -2,6 +2,24 @@ import { stat, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { locales as localesTable } from '../db/schema.ts'
 import { eq, sql } from 'drizzle-orm'
+import type { LocalazyLanguage } from '../locales/metadata.d.ts'
+
+/**
+ * Builds the on-disk / DB `code` for a metadata.js language entry: `language[-region][-script]`,
+ * e.g. `{ language: 'pt', region: 'BR' }` -> `pt-BR`, `{ language: 'zh', script: 'Hans' }` ->
+ * `zh-Hans`. Exported so `locales.test.ts` can assert every declared language has a matching
+ * `backend/locales/<code>.json` file on disk without duplicating this logic.
+ */
+export function localeCode(lang: Pick<LocalazyLanguage, 'language' | 'region' | 'script'>): string {
+  const parts = [lang.language]
+  if (lang.region) {
+    parts.push(lang.region)
+  }
+  if (lang.script) {
+    parts.push(lang.script)
+  }
+  return parts.join('-')
+}
 
 /**
  * Locales model
@@ -23,14 +41,7 @@ class Locales {
       let localFilesSkipped = 0
       for (const lang of localesMeta.languages) {
         // -> Build filename
-        const langFilenameParts = [lang.language]
-        if (lang.region) {
-          langFilenameParts.push(lang.region)
-        }
-        if (lang.script) {
-          langFilenameParts.push(lang.script)
-        }
-        const langFilename = langFilenameParts.join('-')
+        const langFilename = localeCode(lang)
 
         // -> Get DB version
         const dbLang = dbLocales.find((l: any) => l.code === langFilename)
