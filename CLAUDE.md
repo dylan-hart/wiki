@@ -146,6 +146,7 @@ npm run dev              # nodemon, restarts on any backend file change
 npm run start            # plain node
 npm run typecheck        # tsc — type check only, never emits
 npm run typecheck:watch
+npm run test             # node --test — see Testing (backend) below
 npm run db-generate      # drizzle-kit generate — after editing db/schema.ts
 npm run db-up            # drizzle-kit up
 
@@ -365,6 +366,33 @@ Consequences worth knowing:
   - Converting: `date.toTemporalInstant()` from a `Date` (what drizzle returns for `timestamp`
     columns), `Temporal.Instant.from(str)` for postgres-format strings (what raw `db.execute()`
     returns), and `new Date(instant.epochMilliseconds)` going back the other way.
+
+### Testing (backend)
+
+`backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
+'**/*.test.ts'`). No extra framework — this follows the same no-build-step, native-TS-stripping
+approach as everything else in `backend/`: `node --test` type-strips `.ts` test files exactly like
+`node backend` does, so a test file is written and run the same way as the code it tests, with no
+separate transpile or worker config.
+
+- **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
+  `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
+  already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
+  oxlint and oxfmt cover them the same way.
+- **Prefer pure unit tests with no `WIKI` global and no database.** Most of `helpers/` and plenty of
+  `models/` logic is testable as plain functions — `helpers/pageRules.test.ts` is the reference
+  example. Reach for a real Postgres instance only when the thing under test *is* SQL correctness (a
+  join, an upsert conflict target) that a mock of the query builder wouldn't actually verify. Point
+  such a test at `DATABASE_URL` and skip cleanly when it's unset — nothing here spins up its own
+  database, and CI/local runs without one still pass. A throwaway instance for that kind of test:
+  `docker run --rm -d --name wiki-test-db -p 56001:5432 -e POSTGRES_PASSWORD=postgres -e
+  POSTGRES_DB=postgres postgres:17`, migrations applied, then
+  `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`.
+- **Use `node:assert/strict`**, not a third-party assertion library. `describe`/`test` (or `it`) both
+  come from `node:test` itself.
+- Keep the suite fast: it's meant to run on every change, not just in CI. A DB-backed test is the
+  exception precisely because it can't be fast or dependency-free — keep those rare and gate them as
+  above rather than letting the default `npm run test` require Postgres to pass at all.
 
 ### Frontend patterns
 
