@@ -12,6 +12,7 @@ import { defineAsyncComponent, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
+import { bootstrapFailureRedirectFor } from '@/helpers/bootstrap'
 import { setCssVar } from '@/helpers/cssVars'
 import { stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
@@ -193,8 +194,14 @@ if (typeof siteConfig !== 'undefined') {
  * own — the admin area saves flags, a login changes who is asking. This is the load, where all three
  * are wanted at once and none of them is known yet.
  *
- * A failure leaves the stores at their defaults and says so in the console, which is what the three
- * calls did before: there is no interface yet to put an error in front of.
+ * A failure leaves the stores at their safe, *loaded* defaults (guest user, flags off, no site)
+ * rather than whatever partial state a half-finished patch might leave, and hands the error back to
+ * the caller (the route guard below) — which turns it into a redirect to the matching `/_error/*`
+ * screen via `bootstrapFailureRedirectFor`, distinguishing "no site at this hostname" from "site
+ * disabled" the same way `bootstrap.ts` does. Nothing downstream (nav, theme application) should have
+ * to handle a null site while that screen is showing, which the safe defaults below are for.
+ *
+ * @returns What was caught, or `null` on success.
  */
 async function loadBootstrap() {
   try {
@@ -205,8 +212,12 @@ async function loadBootstrap() {
     siteStore.applySiteInfo(data.site)
     flagsStore.apply(data.flags)
     userStore.applyProfile(data.user)
+    return null
   } catch (err) {
     console.warn(`Could not load the site configuration: ${err.message}`)
+    flagsStore.apply({})
+    userStore.applyProfile()
+    return err
   }
 }
 
@@ -222,7 +233,12 @@ router.beforeEach(async (to, from) => {
     answer like any other, so this does not run again on the way to the next page.
   */
   if (!siteStore.id || !flagsStore.loaded || !userStore.profileLoaded) {
-    await loadBootstrap()
+    const bootstrapError = await loadBootstrap()
+    const bootstrapFailureRoute =
+      bootstrapError && bootstrapFailureRedirectFor(to.path, bootstrapError)
+    if (bootstrapFailureRoute) {
+      return bootstrapFailureRoute
+    }
   }
 
   /*
