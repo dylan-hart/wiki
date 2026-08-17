@@ -1,5 +1,68 @@
 import { and, desc, eq, ne } from 'drizzle-orm'
 import { pageWatching as watchingTable, pages as pagesTable } from '../db/schema.ts'
+import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+
+/** `immediate` sends a mail per change; `digest` batches them for a later send. */
+export type WatchNotifyMode = 'immediate' | 'digest'
+
+/**
+ * The delivery preference on one watch. Every field optional/nullable throughout: a caller (or a
+ * stored row) that leaves one out means "no opinion, use the default" for that field specifically —
+ * setting a `notifyMode` does not force the caller to also restate which change types matter.
+ */
+export interface WatchNotifyPreference {
+  notifyMode?: WatchNotifyMode | null
+  notifyOnEdited?: boolean | null
+  notifyOnMoved?: boolean | null
+  notifyOnDeleted?: boolean | null
+}
+
+/** The resolved preference, every field settled — what `resolvePreference` always returns. */
+export interface ResolvedWatchNotifyPreference {
+  notifyMode: WatchNotifyMode
+  notifyOnEdited: boolean
+  notifyOnMoved: boolean
+  notifyOnDeleted: boolean
+}
+
+/**
+ * What a watcher gets when they never touch their preference at all.
+ *
+ * `digest` rather than `immediate`: this is the one knob that is safe to get wrong in either
+ * direction EXCEPT this one. An instance can go live, and watches can start accumulating, before
+ * anybody has configured outbound mail (`WIKI.config.mail`) — see `models/mail.ts`. Defaulting to
+ * `immediate` means the very first save on a watched page attempts a send against a transporter that
+ * may not exist yet; defaulting to `digest` means it queues instead, harmlessly, until either mail
+ * gets configured or the digest job (a later task) ships. Every change type notifies by default,
+ * matching the behavior `models/pages.ts#notifyWatchers` already has today (see task 528): nothing
+ * about adding a preference should silently narrow what an existing watcher gets told about.
+ */
+const DEFAULT_PREFERENCE: ResolvedWatchNotifyPreference = {
+  notifyMode: 'digest',
+  notifyOnEdited: true,
+  notifyOnMoved: true,
+  notifyOnDeleted: true
+}
+
+/** Fills in `DEFAULT_PREFERENCE` for whichever fields a stored row left null. */
+export function resolvePreference(stored: WatchNotifyPreference): ResolvedWatchNotifyPreference {
+  return {
+    notifyMode: stored.notifyMode ?? DEFAULT_PREFERENCE.notifyMode,
+    notifyOnEdited: stored.notifyOnEdited ?? DEFAULT_PREFERENCE.notifyOnEdited,
+    notifyOnMoved: stored.notifyOnMoved ?? DEFAULT_PREFERENCE.notifyOnMoved,
+    notifyOnDeleted: stored.notifyOnDeleted ?? DEFAULT_PREFERENCE.notifyOnDeleted
+  }
+}
+
+/** Whether a resolved preference wants to hear about this kind of change at all. */
+export function wantsAction(
+  preference: ResolvedWatchNotifyPreference,
+  action: PageWatchNotifiableAction
+): boolean {
+  if (action === 'updated') return preference.notifyOnEdited
+  if (action === 'moved') return preference.notifyOnMoved
+  return preference.notifyOnDeleted
+}
 
 /** A watched page, as the inbox lists it. */
 export interface WatchedPage {
@@ -13,6 +76,8 @@ export interface WatchedPage {
   updatedAt: Date
   /** When this person started watching, i.e. how long they have been asking to be told. */
   watchedAt: Date
+  /** This watch's delivery preference, resolved with `DEFAULT_PREFERENCE` — never a raw null. */
+  preference: ResolvedWatchNotifyPreference
 }
 
 /**
@@ -42,24 +107,86 @@ class PageWatching {
   }
 
   /**
-   * Start watching a page.
+   * Start watching a page, optionally setting its delivery preference at the same time.
    *
    * Idempotent: watching a page one is already watching is what the reader asked for, and the unique
-   * index turns the second row into nothing rather than into an error.
+   * index turns the second row into nothing rather than into an error — which means a preference
+   * passed here only ever takes effect on the FIRST watch. Changing the preference on a watch that
+   * already exists goes through `setPreference()` instead; folding that into an upsert here would
+   * make re-pressing the watch button (a no-op today) silently overwrite whatever the watcher had
+   * chosen, the first time it happened to run with different defaults in the request.
    */
   async watch({
     siteId,
     pageId,
-    userId
+    userId,
+    ...preference
   }: {
     siteId: string
     pageId: string
     userId: string
-  }): Promise<void> {
+  } & WatchNotifyPreference): Promise<void> {
     await WIKI.db
       .insert(watchingTable)
-      .values({ siteId, pageId, userId })
+      .values({ siteId, pageId, userId, ...preference })
       .onConflictDoNothing({ target: [watchingTable.pageId, watchingTable.userId] })
+  }
+
+  /**
+   * Change the delivery preference on an existing watch.
+   *
+   * Only the fields passed are touched — omitting `notifyMode` leaves it exactly as stored, it does
+   * not reset it to null — so a caller adjusting one knob in a preferences panel never has to first
+   * read the other three back just to echo them unchanged. Returns whether a watch existed to update:
+   * there is nothing to set a preference ON if the caller is not watching the page, and the route
+   * uses this to tell the two cases apart rather than silently succeeding at nothing.
+   */
+  async setPreference({
+    pageId,
+    userId,
+    ...preference
+  }: {
+    pageId: string
+    userId: string
+  } & WatchNotifyPreference): Promise<boolean> {
+    if (Object.keys(preference).length < 1) {
+      return this.isWatching(pageId, userId)
+    }
+    const rows = await WIKI.db
+      .update(watchingTable)
+      .set(preference)
+      .where(and(eq(watchingTable.pageId, pageId), eq(watchingTable.userId, userId)))
+      .returning({ id: watchingTable.id })
+    return rows.length > 0
+  }
+
+  /**
+   * The resolved delivery preference for one watch, or null if there is no such watch.
+   *
+   * Used to answer both `watch` and `setPreference` back to the caller with what is actually stored
+   * now, rather than echoing back whatever the request happened to send — `watch()` silently ignores
+   * a preference passed to an already-existing watch (see its own comment), so echoing the request
+   * body there would show the caller a preference that was never applied.
+   */
+  async getPreference(
+    pageId: string,
+    userId: string
+  ): Promise<ResolvedWatchNotifyPreference | null> {
+    const rows = await WIKI.db
+      .select({
+        notifyMode: watchingTable.notifyMode,
+        notifyOnEdited: watchingTable.notifyOnEdited,
+        notifyOnMoved: watchingTable.notifyOnMoved,
+        notifyOnDeleted: watchingTable.notifyOnDeleted
+      })
+      .from(watchingTable)
+      .where(and(eq(watchingTable.pageId, pageId), eq(watchingTable.userId, userId)))
+      .limit(1)
+    const [row] = rows
+    if (!row) {
+      return null
+    }
+    return resolvePreference({ ...row, notifyMode: row.notifyMode as WatchNotifyMode | null })
   }
 
   /**
@@ -89,13 +216,25 @@ class PageWatching {
         description: pagesTable.description,
         icon: pagesTable.icon,
         updatedAt: pagesTable.updatedAt,
-        watchedAt: watchingTable.createdAt
+        watchedAt: watchingTable.createdAt,
+        notifyMode: watchingTable.notifyMode,
+        notifyOnEdited: watchingTable.notifyOnEdited,
+        notifyOnMoved: watchingTable.notifyOnMoved,
+        notifyOnDeleted: watchingTable.notifyOnDeleted
       })
       .from(watchingTable)
       .innerJoin(pagesTable, eq(pagesTable.id, watchingTable.pageId))
       .where(and(eq(watchingTable.userId, userId), eq(watchingTable.siteId, siteId)))
       .orderBy(desc(watchingTable.createdAt))
-    return rows as WatchedPage[]
+    return rows.map(({ notifyMode, notifyOnEdited, notifyOnMoved, notifyOnDeleted, ...page }) => ({
+      ...page,
+      preference: resolvePreference({
+        notifyMode: notifyMode as WatchNotifyMode | null,
+        notifyOnEdited,
+        notifyOnMoved,
+        notifyOnDeleted
+      })
+    })) as WatchedPage[]
   }
 
   /**

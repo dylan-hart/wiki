@@ -507,6 +507,16 @@ export const pageEditSubmissions = pgTable(
  *
  * `siteId` is carried alongside `pageId` rather than reached through the page, since every query here
  * is scoped to one site: the watch list belongs to an inbox, and an inbox belongs to a site.
+ *
+ * The four `notify*` columns are the delivery preference for THIS watch, and every one of them is
+ * nullable with no default: null means "this watcher never set it," not "off." That distinction
+ * matters because the effective default lives in code (`models/pageWatching.ts#DEFAULT_PREFERENCE`),
+ * documented once in `api/watching.ts`'s schema, rather than duplicated as a column default here —
+ * a column default can only be revisited with a migration, a code default can be revisited by
+ * changing an instance's mind about which delivery mode is safe before mail is even configured.
+ * Per-watch rather than a single per-user row: nothing about wanting an immediate ping on the page
+ * one's job depends on says anything about wanting the same for a page glanced at once, so the
+ * preference travels with the watch, not the person.
  */
 export const pageWatching = pgTable(
   'pageWatching',
@@ -521,7 +531,12 @@ export const pageWatching = pgTable(
       .references(() => sites.id),
     userId: uuid()
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' })
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `immediate` | `digest`, or null for "use the instance default." */
+    notifyMode: varchar({ length: 16 }),
+    notifyOnEdited: boolean(),
+    notifyOnMoved: boolean(),
+    notifyOnDeleted: boolean()
   },
   (table) => [
     // -> Covers the site scoping too, being the leading column: this is the inbox's own query
