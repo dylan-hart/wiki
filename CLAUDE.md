@@ -507,6 +507,53 @@ does in the real build, not because it was convenient to share:
   formatting) are the reference examples of testing real behaviour end-to-end through the harness
   rather than merely asserting Vitest boots.
 
+### Testing (blocks)
+
+`blocks/`'s test runner is **Vitest**, run via `npm run test` (→ `vitest run`). Config is
+`blocks/vitest.config.js` — deliberately minimal, no plugin stack to mirror the way frontend's does:
+a block has no build-time template compilation (`rollup.config.mjs` bundles plain ESM, it doesn't
+transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
+would.
+
+- **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
+  *is* its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
+  `querySelector`, Lit's `adoptedStyleSheets`-or-injected-`<style>` fallback — and jsdom's coverage of
+  that is the more complete of the two emulators. Verified directly rather than assumed: a
+  `MutationObserver`-driven dark-mode toggle (see below) round-trips correctly under jsdom with no
+  workarounds. If a future block's test needs something jsdom doesn't emulate, the task spec's
+  documented fallback is `@web/test-runner` (runs in a real browser, no DOM emulation at all) — not a
+  different DOM emulator.
+- **File convention: co-located `component.test.js`**, matching the `*.test.ts` / `*.test.js`
+  convention in `backend/` and `frontend/` — `block-gallery/component.js` →
+  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `*/component.test.js`
+  accordingly.
+- **Mounting pattern** — a block reads its content from the *light* DOM (the markdown body becomes its
+  children before Lit ever renders), so a test builds that shape directly rather than passing props:
+  ```js
+  const el = document.createElement('block-gallery')
+  el.textContent = '/photos/one.jpg\n/photos/two.jpg'
+  document.body.appendChild(el)
+  await el.updateComplete
+  el.shadowRoot.querySelector('.tile') // → assert against the shadow tree
+  ```
+  Reactive `@property`-declared fields (`thumbnailSize`, `fit`, `unlockAspectRatio`, ...) can be set
+  directly as JS properties (`el.thumbnailSize = 240`) rather than through attribute strings — simpler
+  than reconstructing Lit's attribute-name-casing and converter rules, and exercises the same
+  reactive-update path `render()` runs against either way.
+- **Dark mode**, since every block depends on it (`blocks/shared/theme.js`'s `DarkMode` controller —
+  see the file header comment there): toggle `document.body.classList` between `body--dark` and
+  nothing, and assert the host's `dark` attribute follows. The controller reacts through a
+  `MutationObserver` callback, which runs as a microtask in jsdom same as a real browser — awaiting
+  one `queueMicrotask` tick plus the block's own `updateComplete` is enough to observe the change; no
+  fake timers or polling needed. `block-gallery/component.test.js`'s `describe('dark mode', ...)`
+  block is the reference case — a template worth copying verbatim into the next block's suite, since
+  the controller's behavior (not any one block's use of it) is what's actually being locked down.
+- **Not (yet) linted**: unlike `backend/` and `frontend/`, `blocks/` carries no `oxlint` devDependency
+  or `.oxlintrc.json` of its own — out of scope for this task, which is about test infrastructure, not
+  introducing linting to a workspace that has never had it. `npx oxlint` was run once here anyway (ad
+  hoc, no persistent config) purely to confirm the new test file itself is clean; it downloaded a
+  fresh `oxlint` binary and reported zero findings against the default ruleset.
+
 ### Icons
 
 Icons come from **Iconify** and are referenced the way Iconify references them — `<prefix>:<name>`,
