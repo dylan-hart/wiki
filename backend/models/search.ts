@@ -1,7 +1,18 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import { load } from 'js-yaml'
 import { sql } from 'drizzle-orm'
+import { parseModuleProps } from '../helpers/common.ts'
 import type { AccessActor } from './groups.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { pages as pagesTable } from '../db/schema.ts'
+
+/**
+ * The engine every site starts with, and the only one guaranteed to work: postgres full-text search
+ * against the wiki's own database. Sorted first among definitions, same as storage's `db` module —
+ * it's the safe default an operator sees before any others.
+ */
+const DB_MODULE = 'db'
 
 /**
  * Locale to PostgreSQL text search dictionary, for the languages postgres ships a snowball stemmer
@@ -198,6 +209,100 @@ function escapeHtml(value: string): string {
  * failing.
  */
 class Search {
+  /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
+  definitions: SearchEngineDefinition[] = []
+
+  /**
+   * Implementations loaded by `ensureModule()`, keyed by module key rather than by `(siteId, key)`.
+   *
+   * A site has exactly one active search engine (`site.config.search.engine`), unlike storage's many
+   * concurrently-enabled targets — but that doesn't make a *module* single-site. Every `SearchModule`
+   * hook (`init`, `created`, `deleted`, `renamed`, `query`, `rebuild`) already takes `siteId` as an
+   * explicit argument on every call (see `SearchModule` above), which is what lets one loaded module —
+   * say, an Elasticsearch provider — serve several sites' distinct clusters/indices out of state it
+   * keeps internally (e.g. a `Map<siteId, Client>` built up as `init()` is called once per site),
+   * exactly the way a stateless module needs no such map at all. Caching per-siteId here would only
+   * duplicate that bookkeeping one layer up for no benefit, so this stays singleton-per-key, same as
+   * storage's `modules`.
+   */
+  modules: Record<string, SearchModule> = {}
+
+  /**
+   * Load the search engine definitions from disk.
+   */
+  async refreshFromDisk(): Promise<void> {
+    const searchPath = path.join(WIKI.SERVERPATH, 'modules/search')
+    const definitions: SearchEngineDefinition[] = []
+    try {
+      for (const dir of await fs.readdir(searchPath)) {
+        const raw = await fs.readFile(path.join(searchPath, dir, 'definition.yml'), 'utf8')
+        const parsed = load(raw) as Record<string, any>
+        // -> The directory name is the key, as it is for every other module type
+        parsed.key = dir
+        // -> Props carry a display `order`, applied once here so that every consumer — the admin
+        //    area included — reads them in the order the module meant them to be shown in
+        parsed.props = Object.fromEntries(
+          Object.entries(parseModuleProps(parsed.props ?? {})).sort(
+            ([, a], [, b]) => a.order - b.order
+          )
+        )
+        definitions.push(parsed as SearchEngineDefinition)
+      }
+      // -> The database engine first, then alphabetically: it is the one every site starts with
+      this.definitions = definitions.sort((a, b) =>
+        a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
+      )
+      WIKI.logger.info(`Found ${this.definitions.length} search modules [ OK ]`)
+    } catch (err: any) {
+      this.definitions = []
+      WIKI.logger.error(`Could not read the search module definitions at ${searchPath} [ FAILED ]`)
+      WIKI.logger.error(err.message)
+    }
+  }
+
+  /**
+   * Whether the module has any code to run, as opposed to only a definition
+   */
+  async hasImplementation(key: string): Promise<boolean> {
+    try {
+      await fs.access(path.join(WIKI.SERVERPATH, 'modules/search', key, 'search.ts'))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * A single definition, or null when nothing on disk declares that key
+   */
+  getDefinition(key: string): SearchEngineDefinition | null {
+    return this.definitions.find((d) => d.key === key) ?? null
+  }
+
+  /**
+   * Ensure a module's implementation is loaded
+   *
+   * @returns The implementation, or null when the module has none or it failed to load
+   */
+  async ensureModule(key: string): Promise<SearchModule | null> {
+    if (this.modules[key]) {
+      return this.modules[key]
+    }
+    if (!(await this.hasImplementation(key))) {
+      return null
+    }
+    try {
+      // -> Extension-sensitive dynamic import, invisible to the type checker
+      this.modules[key] = (await import(`../modules/search/${key}/search.ts`)).default
+      WIKI.logger.debug(`Activated search module ${key} [ OK ]`)
+      return this.modules[key]
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to load search module ${key} [ FAILED ]`)
+      WIKI.logger.warn(err)
+      return null
+    }
+  }
+
   /**
    * The search configuration, with the shape the API and the admin area expect
    */

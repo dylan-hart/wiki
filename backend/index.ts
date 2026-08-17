@@ -194,6 +194,11 @@ async function postBoot() {
   await WIKI.models.storage.refreshFromDisk()
   await WIKI.models.storage.syncAllSites()
 
+  // -> Definitions only: a site names its one active engine directly in config
+  //    (`site.config.search.engine`) rather than keeping a row per installed module, so there is no
+  //    per-site sync step to run here the way there is for storage/blocks
+  await WIKI.models.search.refreshFromDisk()
+
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it
   await WIKI.models.extensions.refreshFromDisk()

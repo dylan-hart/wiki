@@ -1,5 +1,10 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { search } from './search.ts'
 import type {
   RebuildResult,
   SearchEngineDefinition,
@@ -8,6 +13,8 @@ import type {
   SearchPagesParams,
   SearchPagesResult
 } from './search.ts'
+
+const backendDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
  * A fixture page, cast through `unknown` rather than filled field-for-field: the point of this suite
@@ -120,5 +127,151 @@ describe('SearchEngineDefinition', () => {
     // -> dictOverrides is a locale -> dictionary map, not representable by ModuleProp, so it is
     //    deliberately absent from props (see the comment on SearchEngineDefinition in search.ts).
     assert.equal((definition.props as Record<string, unknown>).dictOverrides, undefined)
+  })
+})
+
+/**
+ * `search.refreshFromDisk()` / `hasImplementation()` / `getDefinition()`, task #558.
+ *
+ * Reads the same way `Storage.refreshFromDisk()` does (`models/storage.ts`): `WIKI.SERVERPATH` points
+ * at a throwaway fixture directory rather than the real repo, so this covers the scanning/sorting/prop
+ * -normalization logic without depending on what actually ships under `modules/search/*` today.
+ */
+describe('search.refreshFromDisk() / hasImplementation() / getDefinition()', () => {
+  let dir: string
+  let previousWiki: any
+
+  before(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'wikijs-search-model-test-'))
+
+    await mkdir(path.join(dir, 'modules/search/db'), { recursive: true })
+    await writeFile(
+      path.join(dir, 'modules/search/db/definition.yml'),
+      [
+        'title: Database',
+        'description: PostgreSQL full-text search.',
+        'vendor: Wiki.js',
+        'website: https://js.wiki',
+        'props:',
+        '  termHighlighting:',
+        '    type: Boolean',
+        '    title: Term Highlighting',
+        '    order: 100'
+      ].join('\n')
+    )
+
+    // -> Sorted after `db` alphabetically by title, and the only one of the two with an implementation
+    await mkdir(path.join(dir, 'modules/search/zzz-engine'), { recursive: true })
+    await writeFile(
+      path.join(dir, 'modules/search/zzz-engine/definition.yml'),
+      [
+        'title: ZZZ Engine',
+        'description: A fake engine, sorted after db.',
+        'vendor: Test',
+        'website: https://example.com',
+        'props: {}'
+      ].join('\n')
+    )
+    await writeFile(path.join(dir, 'modules/search/zzz-engine/search.ts'), 'export default {}\n')
+
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      SERVERPATH: dir,
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(async () => {
+    ;(globalThis as any).WIKI = previousWiki
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  test('reads every modules/search/*/definition.yml, keying each by its directory name', async () => {
+    await search.refreshFromDisk()
+    assert.deepEqual(
+      search.definitions.map((d) => d.key),
+      ['db', 'zzz-engine']
+    )
+  })
+
+  test('sorts the db module first regardless of title, ahead of alphabetical order', async () => {
+    await search.refreshFromDisk()
+    assert.equal(search.definitions[0]!.key, 'db')
+  })
+
+  test('normalizes props through parseModuleProps', async () => {
+    await search.refreshFromDisk()
+    const db = search.getDefinition('db')!
+    assert.equal(db.props.termHighlighting!.type, 'boolean')
+    assert.equal(db.props.termHighlighting!.default, false)
+  })
+
+  test('getDefinition() returns null for a key nothing on disk declares', async () => {
+    await search.refreshFromDisk()
+    assert.equal(search.getDefinition('nonexistent'), null)
+  })
+
+  test('hasImplementation() is true only for a module with a sibling search.ts', async () => {
+    assert.equal(await search.hasImplementation('db'), false)
+    assert.equal(await search.hasImplementation('zzz-engine'), true)
+  })
+})
+
+/**
+ * `search.ensureModule()`, task #558.
+ *
+ * Unlike `refreshFromDisk()`/`hasImplementation()`, the dynamic import inside `ensureModule()` is a
+ * fixed relative specifier (`../modules/search/${key}/search.ts`, resolved from `models/search.ts`'s
+ * own location) rather than something built off `WIKI.SERVERPATH` — that's exactly what makes it the
+ * "extension-sensitive dynamic path" CLAUDE.md tracks. So this writes real, throwaway fixture modules
+ * under the actual `backend/modules/search/` directory (cleaned up in `after`) instead of a tmp dir,
+ * and points `WIKI.SERVERPATH` at the real backend root so `hasImplementation()`'s gate agrees with it.
+ */
+describe('search.ensureModule()', () => {
+  const fixtureKey = '__test-fixture-ensure-module'
+  const throwingKey = '__test-fixture-ensure-module-throws'
+  const fixtureDir = path.join(backendDir, 'modules/search', fixtureKey)
+  const throwingDir = path.join(backendDir, 'modules/search', throwingKey)
+  let previousWiki: any
+
+  before(async () => {
+    await mkdir(fixtureDir, { recursive: true })
+    await writeFile(
+      path.join(fixtureDir, 'search.ts'),
+      'export default { marker: "fixture-module" }\n'
+    )
+    await mkdir(throwingDir, { recursive: true })
+    await writeFile(path.join(throwingDir, 'search.ts'), 'throw new Error("boom")\n')
+
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      SERVERPATH: backendDir,
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(async () => {
+    ;(globalThis as any).WIKI = previousWiki
+    await rm(fixtureDir, { recursive: true, force: true })
+    await rm(throwingDir, { recursive: true, force: true })
+  })
+
+  test('dynamic-imports ../modules/search/<key>/search.ts and returns its default export', async () => {
+    const mod = await search.ensureModule(fixtureKey)
+    assert.deepEqual(mod, { marker: 'fixture-module' })
+  })
+
+  test('caches the loaded module by key: a second call returns the exact same object', async () => {
+    const first = await search.ensureModule(fixtureKey)
+    const second = await search.ensureModule(fixtureKey)
+    assert.equal(first, second)
+  })
+
+  test('returns null, without throwing, for a key with no sibling search.ts', async () => {
+    assert.equal(await search.ensureModule('__test-fixture-ensure-module-nonexistent'), null)
+  })
+
+  test('returns null, without throwing, when the module throws while loading', async () => {
+    assert.equal(await search.ensureModule(throwingKey), null)
   })
 })
