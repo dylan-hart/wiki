@@ -13,6 +13,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         format: 'uuid'
       },
+      siteId: {
+        type: 'string',
+        format: 'uuid',
+        description: 'The site this target belongs to.'
+      },
       module: {
         type: 'string',
         description: 'Directory name under `modules/storage`.'

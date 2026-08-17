@@ -54,6 +54,7 @@ function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
   return {
     id: '00000000-0000-0000-0000-000000000000',
+    siteId: 'site-1',
     module: moduleKey,
     isEnabled: true,
     title: definition.title,
@@ -194,6 +195,25 @@ function fakeDispatchDeps(rows: object[]) {
   } as unknown as WikiGlobal
   return jobs
 }
+
+// ---------------------------------------------------------------------------------------------
+// getSiteTargets()
+// ---------------------------------------------------------------------------------------------
+
+test('getSiteTargets threads the siteId argument onto every target it returns', async () => {
+  fakeDispatchDeps([makeRow('git'), makeRow('disk')])
+  const targets = await storage.getSiteTargets('site-1')
+  assert.ok(targets.length >= 2, 'expected at least the git and disk targets')
+  for (const target of targets) {
+    assert.equal(target.siteId, 'site-1')
+  }
+})
+
+test('getSiteTargetById returns a target whose siteId matches the site it was fetched for', async () => {
+  fakeDispatchDeps([makeRow('git')])
+  const target = await storage.getSiteTargetById('site-1', 'target-git')
+  assert.equal(target?.siteId, 'site-1')
+})
 
 test('dispatch skips a pull-only target even when it covers the content type', async () => {
   const jobs = fakeDispatchDeps([makeRow('git', { activeTypes: ['pages'], syncMode: 'pull' })])

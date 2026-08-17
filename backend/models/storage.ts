@@ -132,6 +132,8 @@ export interface StorageDefinition {
 /** A configured target: the module definition, plus how this site has it set up. */
 export interface StorageTarget {
   id: string
+  /** The site this target belongs to — a handler's only way to know, since it receives no other argument that carries it. */
+  siteId: string
   module: string
   isEnabled: boolean
   title: string
@@ -196,6 +198,13 @@ export interface StorageTargetInput {
 /**
  * What a module implementation is expected to export, once any of them do.
  *
+ * Every handler here — `setup`, `setupDestroy`, the content-dispatch handlers, and any custom
+ * `[handler]` an action names — receives the *full* `StorageTarget`, never a bare id. That target
+ * includes `siteId`, which is therefore the one reliable way for a handler to learn which site's
+ * pages/assets/tree rows it is scoped to: nothing else is passed alongside it. `executeAction()`,
+ * `runSetup()` and `destroySetup()` all already fetch the target via `getSiteTargetById()` before
+ * calling in, so a handler never has to ask the model for it again.
+ *
  * The content-dispatch handlers below are called by the `dispatchStorage` task — never directly —
  * one per write-path event this target's `contentTypes.activeTypes` covers; see `Storage.dispatch()`
  * and `STORAGE_HANDLERS` for how an event picks its handler. Named to mirror 2.5.x's storage module
@@ -207,9 +216,9 @@ export interface StorageTargetInput {
  */
 export interface StorageModule {
   /** Advance a multi-step setup process, returning what the admin area should do next. */
-  setup?: (targetId: string, state: Record<string, any>) => Promise<Record<string, any>>
+  setup?: (target: StorageTarget, state: Record<string, any>) => Promise<Record<string, any>>
   /** Undo whatever `setup` configured, so that it can be started over. */
-  setupDestroy?: (targetId: string) => Promise<void>
+  setupDestroy?: (target: StorageTarget) => Promise<void>
   /** A page was created. */
   created?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** A page's content, title or metadata changed. */
@@ -419,6 +428,7 @@ class Storage {
       const versioning = (row.versioning ?? {}) as Record<string, any>
       targets.push({
         id: row.id,
+        siteId,
         module: definition.key,
         isEnabled: row.isEnabled,
         title: definition.title,
@@ -877,7 +887,7 @@ class Storage {
     if (!mod?.setup) {
       throw new Error(`The ${target.title} storage module has no setup process.`)
     }
-    return mod.setup(target.id, state)
+    return mod.setup(target, state)
   }
 
   /**
@@ -890,7 +900,7 @@ class Storage {
     if (!mod?.setupDestroy) {
       throw new Error(`The ${target.title} storage module has no setup process.`)
     }
-    await mod.setupDestroy(target.id)
+    await mod.setupDestroy(target)
   }
 }
 
