@@ -461,6 +461,19 @@ class Pages {
 
     const path = normalizePath(input.path)
     const locale = input.locale || this.defaultLocale(siteId)
+    // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
+    //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
+    //    into a locale that no longer exists
+    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+      this.defaultLocale(siteId)
+    ]
+    if (!activeLocales.includes(locale)) {
+      throw new CustomError(
+        'pageInvalidLocale',
+        `This site does not have the "${locale}" locale enabled.`,
+        400
+      )
+    }
     const title = (input.title ?? '').trim()
     if (title.length < 1) {
       throw new CustomError('pageTitleMissing', 'A page needs a title.')

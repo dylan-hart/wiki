@@ -71,6 +71,17 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('createPage refuses a locale the site does not have enabled', async () => {
+    await assert.rejects(
+      pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/no-such-locale', locale: 'de' }),
+        actor
+      ),
+      /pageInvalidLocale/
+    )
+  })
+
   test('the same path is free again in a different locale', async () => {
     const en = await pagesModel.createPage(
       fixtures.siteId,
