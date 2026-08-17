@@ -15,6 +15,7 @@ import {
 import maintenance from '../core/maintenance.ts'
 import { purgeTimeframes } from '../models/pageHistory.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
+import { JOB_STATES } from '../models/jobs.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -1496,6 +1497,161 @@ async function routes(app: FastifyInstance) {
         message: 'Content import queued successfully.',
         id: added.id
       }
+    }
+  )
+
+  /**
+   * SCAN FOR PAGE PROBLEMS
+   */
+  app.post(
+    '/pages/scan',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Scan for page problems',
+        description:
+          'Queues a background job that runs four integrity checks across every site: pages whose stored hash has drifted from their path, tree entries and pages that have diverged from each other, duplicate (site, locale, path) tuples, and page relations pointing at a page that no longer exists. Runs in the background — a full scan is not instant on a large wiki — and only reports; nothing is repaired automatically. Poll `GET /pages/scan/:jobId` for the result.',
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Scan queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description: 'ID of the queued job. Pass it to the status route below.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const added = await WIKI.scheduler.addJob({ task: 'scanPageProblems' })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the scan.')
+      }
+      return {
+        ok: true,
+        message: 'Page problems scan queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * GET PAGE PROBLEMS SCAN RESULT
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/pages/scan/:jobId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Get a page problems scan job',
+        description:
+          "The job's current state, and its report once `state` is `completed`. 404s when no such scan job exists.",
+        tags: ['System'],
+        params: {
+          type: 'object',
+          properties: {
+            jobId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['jobId']
+        },
+        response: {
+          200: {
+            description: 'Scan job state and, once completed, its report',
+            type: 'object',
+            properties: {
+              state: {
+                type: 'string',
+                enum: ['queued', ...JOB_STATES],
+                description:
+                  '`queued` while still waiting to be picked up — it has not reached job history yet.'
+              },
+              result: {
+                type: 'object',
+                nullable: true,
+                description: 'Null until the job has completed.',
+                properties: {
+                  hashDrift: {
+                    type: 'object',
+                    description:
+                      'Pages whose stored hash no longer matches generatePathHash(path).',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  treeDivergence: {
+                    type: 'object',
+                    description:
+                      'Tree entries and pages that have diverged from each other, matched by id.',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  duplicatePaths: {
+                    type: 'object',
+                    description: 'Groups of pages sharing the same (siteId, locale, path).',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  brokenRelations: {
+                    type: 'object',
+                    description: 'Page relations pointing at a page that no longer exists.',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  scannedAt: {
+                    type: 'string',
+                    format: 'date-time'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      if (entry) {
+        if (entry.task !== 'scanPageProblems') {
+          return reply.notFound('No such scan job.')
+        }
+        return {
+          state: entry.state,
+          result: entry.result ?? null
+        }
+      }
+
+      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
+      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
+      const pending = await WIKI.models.jobs.getPendingEntry(req.params.jobId)
+      if (!pending || pending.task !== 'scanPageProblems') {
+        return reply.notFound('No such scan job.')
+      }
+      return { state: 'queued', result: null }
     }
   )
 }

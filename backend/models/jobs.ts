@@ -205,6 +205,18 @@ class Jobs {
   }
 
   /**
+   * A single pending-queue entry, or null if no such job is waiting.
+   *
+   * A job just queued with `addJob` lives here, not in `jobHistory`, until some instance picks it
+   * up — a caller polling for a result by id needs both, since the gap between the two can be a
+   * poll interval wide.
+   */
+  async getPendingEntry(id: string) {
+    const results = await WIKI.db.select().from(jobsTable).where(eq(jobsTable.id, id)).limit(1)
+    return results[0] ?? null
+  }
+
+  /**
    * Record what a task produced, keyed by its own job id.
    *
    * The generic escape hatch a task uses to hand something back to whoever queued it — `payload` is

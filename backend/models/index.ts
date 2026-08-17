@@ -14,6 +14,7 @@ import { jobs } from './jobs.ts'
 import { locales } from './locales.ts'
 import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
+import { pageProblems } from './pageProblems.ts'
 import { pages } from './pages.ts'
 import { pageWatching } from './pageWatching.ts'
 import { passkeys } from './passkeys.ts'
@@ -46,6 +47,7 @@ export default {
   locales,
   navigation,
   pageHistory,
+  pageProblems,
   pages,
   pageWatching,
   passkeys,
