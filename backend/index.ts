@@ -366,6 +366,17 @@ async function initHTTPServer() {
   // Sessions
   // ----------------------------------------
 
+  // FIXME: `WIKI.config.auth.secret` is read once, here, at plugin registration — not re-read per
+  // request the way `WIKI.config.auth.certs` is in `models/apiKeys.ts#verify`. That means
+  // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
+  // only stops working cookies on an instance once that instance is later restarted; every other
+  // still-running instance keeps signing *new* cookies with the secret that was just invalidated, for
+  // as long as it stays up. If the secret was rotated because it leaked, that gap is the whole point
+  // of the action failing to close on a live instance. `WIKI.events.inbound` already carries
+  // `reloadConfig` to every instance the moment the row saves — the missing piece is handing
+  // @fastify/cookie / @fastify/session a secret they re-read (or re-registering the plugin) instead of
+  // one captured by value here, and there is no instance registry (see `core/maintenance.ts`'s file
+  // header) to prompt an operator to restart the others in the meantime.
   app.register(fastifyCookie, {
     secret: WIKI.config.auth.secret,
     hook: 'onRequest'

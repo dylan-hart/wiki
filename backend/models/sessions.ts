@@ -87,7 +87,11 @@ class Sessions {
    * browser — on every instance, since the rows are shared — starts a new, anonymous one. Rotating
    * the secret is what makes the cookies themselves worthless, and that one waits: @fastify/session
    * and @fastify/cookie are handed the secret when the HTTP server starts (`index.ts`), so this
-   * server goes on validating signatures with the old one until it is restarted.
+   * server goes on validating signatures with the old one until it is restarted. Verified under a
+   * real two-instance HA setup for task 589: a still-running instance does not just keep validating
+   * old-secret-signed cookies past this call, it keeps issuing new ones signed with the
+   * now-invalidated secret too, until it restarts — see the FIXME at the plugin registration in
+   * `index.ts`.
    *
    * The API key keypair is untouched: it carries its own passphrase (`models/apiKeys.ts`), so keys
    * already issued keep working.

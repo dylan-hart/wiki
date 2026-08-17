@@ -309,6 +309,10 @@ class PageHistory {
    * what finally discards it. Reclaiming that space is the point of this; there is nothing to undo it
    * with.
    *
+   * Needs none of `core/maintenance.ts`'s HA handling: there is no per-instance copy of a history row
+   * to fall out of step, so a plain `DELETE` is the whole of it — the next `SELECT` on any instance
+   * simply doesn't see the rows any more. Verified against a real two-instance setup for task 589.
+   *
    * @param olderThan How far back to keep, as one of {@link purgeTimeframes}
    * @returns How many versions were dropped
    */
