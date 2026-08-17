@@ -51,7 +51,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       forceAssetDownload: {
         type: 'boolean',
-        description: 'Stored, but asset serving is not implemented yet.'
+        description:
+          'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
         type: 'boolean',
@@ -60,16 +61,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       uploadMaxFileSize: {
         type: 'integer',
         minimum: 1,
-        description: 'Bytes. Stored, but there is no upload endpoint yet.'
+        description:
+          'Bytes. Enforced as the request body size limit on `POST /sites/:siteId/assets`.'
       },
       uploadMaxFiles: {
         type: 'integer',
         minimum: 1,
-        description: 'Stored, but there is no upload endpoint yet.'
+        description:
+          'Stored, but not enforced: an upload request is always exactly one file, so there is no batch to cap yet.'
       },
       uploadScanSVG: {
         type: 'boolean',
-        description: 'Stored, but there is no upload endpoint yet.'
+        description: 'Stored, but not enforced yet: nothing scans or sanitizes an uploaded SVG.'
       },
       authRateLimitEnabled: {
         type: 'boolean',

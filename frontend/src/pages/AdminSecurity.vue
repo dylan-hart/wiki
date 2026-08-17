@@ -282,8 +282,11 @@
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.uploadsInfo') }}</div>
-                    <!-- Saved, but nothing reads them: there is no upload endpoint yet -->
-                    <div class="mt-1">{{ t('admin.security.uploadsNotEnforced') }}</div>
+                    <!-- Uploading is real now (`POST /sites/:siteId/assets` in `api/assets.ts`), and
+                         the max file size below is enforced as the request's body limit -- but the
+                         batch count and the SVG scan toggle are still only stored, since a single
+                         request is always one file and nothing sanitizes SVGs yet -->
+                    <div class="mt-1">{{ t('admin.security.uploadsPartiallyEnforced') }}</div>
                   </w-card-section>
                 </w-card-section>
               </w-card>

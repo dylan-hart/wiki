@@ -95,3 +95,17 @@ describe('AdminSecurity CSP controls', () => {
     wrapper.unmount()
   })
 })
+
+describe('AdminSecurity uploads info banner (task 605)', () => {
+  it('no longer claims uploading is unimplemented, now that an upload endpoint exists', () => {
+    const wrapper = mountPage()
+
+    // -> `messages: { en: {} }` means every `t()` call resolves to its own key literal (see
+    //    `mountPage()`'s comment above), so this is a wiring check: the template must reference the
+    //    new key, not the removed one that said "uploading is not implemented".
+    expect(wrapper.text()).toContain('admin.security.uploadsPartiallyEnforced')
+    expect(wrapper.text()).not.toContain('admin.security.uploadsNotEnforced')
+
+    wrapper.unmount()
+  })
+})

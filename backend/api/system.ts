@@ -106,6 +106,9 @@ async function routes(app: FastifyInstance) {
               dbHost: {
                 type: 'string'
               },
+              dbVersion: {
+                type: 'string'
+              },
               groupsTotal: {
                 type: 'number'
               },
@@ -190,7 +193,7 @@ async function routes(app: FastifyInstance) {
         dbVersion: WIKI.dbManager.VERSION,
         groupsTotal: await WIKI.db.$count(groupsTable),
         hostname: os.hostname(),
-        httpPort: 0,
+        httpPort: WIKI.config.port,
         instancesTotal: (await getInstances()).length,
         isApiEnabled: WIKI.config.api.isEnabled === true,
         isMailConfigured: WIKI.config?.mail?.host?.length > 2,
