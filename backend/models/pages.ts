@@ -956,9 +956,14 @@ class Pages {
   async getPathFromAlias(
     siteId: string,
     alias: string
-  ): Promise<{ id: string; path: string } | null> {
+  ): Promise<{ id: string; path: string; locale: string; tags: string[] } | null> {
     const results = await WIKI.db
-      .select({ id: pagesTable.id, path: pagesTable.path })
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags
+      })
       .from(pagesTable)
       .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.alias, alias)))
       .limit(1)
