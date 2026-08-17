@@ -361,6 +361,9 @@ async function initHTTPServer() {
     index: false,
     maxAge: '1h'
   })
+  // -> A custom block's code is a database row, not a file under `blocks/compiled` — served by
+  //    `controllers/blocks.ts` instead, registered below with the other controllers. Its route has a
+  //    literal `custom` segment, which the router matches ahead of this mount's wildcard.
 
   // ----------------------------------------
   // Sessions
@@ -654,6 +657,7 @@ async function initHTTPServer() {
   // })
 
   app.register(import('./api/index.ts'), { prefix: '/_api' })
+  app.register(import('./controllers/blocks.ts'), { prefix: '/_blocks/custom' })
   app.register(import('./controllers/collab.ts'), { prefix: '/_collab' })
   app.register(import('./controllers/files.ts'), { prefix: '/_files' })
   app.register(import('./controllers/site.ts'), { prefix: '/_site' })

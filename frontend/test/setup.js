@@ -37,4 +37,24 @@ config.global.components = { ...config.global.components, ...sharedComponents }
 beforeEach(() => {
   globalThis.API_CLIENT = createApiClientStub()
   globalThis.EVENT_BUS = mitt()
+  globalThis.localStorage = createLocalStorageStub()
 })
+
+/**
+ * Node ships a native `localStorage` global (Node >= 22), backed by a file the process is given no
+ * path for under `vitest run` -- every read throws `TypeError: ... getItem is not a function` rather
+ * than answering `null` the way a browser's does. `stores/common.js` reads it unguarded at
+ * store-creation time (`state: () => ({ locale: localStorage.getItem('locale') ... })`), so any test
+ * that instantiates that store hits this before ever reaching its own assertions. Replaced above with
+ * a deterministic in-memory stand-in, the same category of runtime global as `API_CLIENT`/`EVENT_BUS`
+ * -- just one nothing imports either.
+ */
+function createLocalStorageStub() {
+  const store = new Map()
+  return {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+    clear: () => store.clear()
+  }
+}

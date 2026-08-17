@@ -1,6 +1,32 @@
 import { defineStore } from 'pinia'
 
-import { difference } from 'es-toolkit/array'
+import { useSiteStore } from './site'
+
+/**
+ * Normalize one entry `loadBlocks()` was given into `{ tag, isCustom, id }`.
+ *
+ * A bare tag string is shorthand for a built-in: the only kind whose import needs nothing else to be
+ * found, since its compiled file is the same one on every site. A caller that already resolved the
+ * block against the site's own list (`sites/:siteId/blocks`) passes the record itself instead, so a
+ * custom block's `isCustom`/`id` survive as far as `blockImportUrl()` needs them.
+ */
+function normalizeBlockEntry(block) {
+  return typeof block === 'string' ? { tag: block, isCustom: false, id: null } : block
+}
+
+/**
+ * Where a block's compiled component lives, for the dynamic `import()` in `loadBlocks()` below.
+ *
+ * A built-in's compiled output is a flat file under `blocks/compiled`, served by the static
+ * `/_blocks/` mount (`index.ts`) and addressed by its tag alone -- the same URL on every site, since
+ * the file never differs. A custom block has no such file: its code is a row in the `blockCode` table
+ * (`models/blocks.ts`), scoped to the site that uploaded it, and streamed back by
+ * `controllers/blocks.ts` under `/_blocks/custom/:siteId/:blockId.js` -- which is why it needs the
+ * site and the block's own id rather than just its tag.
+ */
+export function blockImportUrl(entry, siteId) {
+  return entry.isCustom ? `/_blocks/custom/${siteId}/${entry.id}.js` : `/_blocks/${entry.tag}.js`
+}
 
 export const useCommonStore = defineStore('common', {
   state: () => ({
@@ -11,7 +37,7 @@ export const useCommonStore = defineStore('common', {
   }),
   getters: {},
   actions: {
-    async fetchLocaleStrings (locale) {
+    async fetchLocaleStrings(locale) {
       try {
         return API_CLIENT.get(`locales/${locale}/strings`).json()
       } catch (err) {
@@ -19,21 +45,27 @@ export const useCommonStore = defineStore('common', {
         throw err
       }
     },
-    setLocale (locale) {
+    setLocale(locale) {
       this.$patch({
         locale,
         desiredLocale: locale
       })
       localStorage.setItem('locale', locale)
     },
-    async loadBlocks (blocks = []) {
-      const toLoad = difference(blocks, this.blocksLoaded)
-      for (const block of toLoad) {
+    /**
+     * @param blocks Tags to load, each either a bare string (a built-in) or `{ tag, isCustom, id }`
+     *   (a record from `sites/:siteId/blocks` -- see `normalizeBlockEntry()`).
+     */
+    async loadBlocks(blocks = []) {
+      const siteStore = useSiteStore()
+      const entries = blocks.map(normalizeBlockEntry)
+      const toLoad = entries.filter((entry) => !this.blocksLoaded.includes(entry.tag))
+      for (const entry of toLoad) {
         try {
-          await import(/* @vite-ignore */ `/_blocks/${block}.js`)
-          this.blocksLoaded.push(block)
+          await import(/* @vite-ignore */ blockImportUrl(entry, siteStore.id))
+          this.blocksLoaded.push(entry.tag)
         } catch (err) {
-          console.warn(`Failed to load ${block}: ${err.message}`)
+          console.warn(`Failed to load ${entry.tag}: ${err.message}`)
         }
       }
     }
