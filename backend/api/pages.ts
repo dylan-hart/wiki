@@ -489,7 +489,7 @@ async function routes(app: FastifyInstance) {
         is what makes a page view one request instead of four.
       */
       const actorId = actor?.id ?? null
-      const [approvalState, isWatching] = await Promise.all([
+      const [approvalState, isWatching, commentsCount] = await Promise.all([
         WIKI.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
           path: page.path,
@@ -497,10 +497,12 @@ async function routes(app: FastifyInstance) {
           allowContributions: page.allowContributions
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
-        WIKI.models.pageWatching.isWatching(page.id, actorId)
+        WIKI.models.pageWatching.isWatching(page.id, actorId),
+        WIKI.models.comments.countForPage(page.id)
       ])
       return {
         ...page,
+        commentsCount,
         viewer: {
           permissions: pagePermissionsFor(req, page),
           ...approvalState,

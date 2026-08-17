@@ -185,6 +185,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'Only present when the request asked for it — except on a redirection, whose content is where it sends its reader rather than a body, and comes back either way.'
       },
       allowComments: { type: 'boolean' },
+      commentsCount: {
+        type: 'integer',
+        description: 'How many comments this page has, replies included.'
+      },
       allowContributions: { type: 'boolean' },
       allowRatings: { type: 'boolean' },
       showSidebar: { type: 'boolean' },
