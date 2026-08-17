@@ -34,6 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { stripPageExtension } from './helpers/common.ts'
+import { limitApiKey } from './helpers/rateLimit.ts'
 import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
@@ -545,6 +546,10 @@ async function initHTTPServer() {
       WIKI.logger.debug(`Rejected an API key: ${err.message}`)
       return reply.unauthorized(err.message)
     }
+    // -> Global, not per-route: a compromised key has to be caught on whichever endpoint it hits,
+    //    not only the ones that remembered to attach a limiter. See helpers/rateLimit.ts for why
+    //    this one specifically has no manage:system exemption.
+    return limitApiKey(req, reply)
   })
 
   // ----------------------------------------
