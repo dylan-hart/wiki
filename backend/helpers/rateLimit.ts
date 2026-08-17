@@ -14,6 +14,21 @@ const AUTH_DEFAULTS: RateLimitPolicy = {
 }
 
 /**
+ * Defaults for the general API limit, used until an administrator saves their own and whenever a
+ * stored value is missing or unusable.
+ *
+ * Deliberately looser than {@link AUTH_DEFAULTS}: this guards the API surface as a whole against
+ * runaway or abusive clients, not credential guessing, and legitimate bulk use (a script paging
+ * through content, an integration syncing on a schedule) needs real headroom. 300 requests in five
+ * minutes is generous for that and still catches a client running away.
+ */
+const API_DEFAULTS: RateLimitPolicy = {
+  max: 300,
+  windowSeconds: 300,
+  banSeconds: 900
+}
+
+/**
  * The limit on asking for a page to be rendered.
  *
  * Not configurable, unlike the authentication limit above: what this protects is the host rather than
@@ -81,6 +96,79 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   reply.header('Retry-After', String(verdict.retryAfter))
   return reply.tooManyRequests(
     `Too many attempts. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}
+
+/**
+ * The configured policy for the general API limit. See {@link authPolicy} — same fallback shape,
+ * different fields.
+ */
+function apiPolicy(): RateLimitPolicy {
+  const security = WIKI.config.security ?? {}
+  const max = Number(security.apiRateLimitMax)
+  return {
+    max: Number.isFinite(max) && max > 0 ? Math.floor(max) : API_DEFAULTS.max,
+    windowSeconds: durationToSeconds(security.apiRateLimitWindow, API_DEFAULTS.windowSeconds),
+    banSeconds: durationToSeconds(security.apiRateLimitBan, API_DEFAULTS.banSeconds)
+  }
+}
+
+/**
+ * Refuse a request anywhere under `/_api` once its caller has made too many, regardless of endpoint.
+ *
+ * Wired as a single global `onRequest` hook scoped to `/_api/*` in `index.ts`, registered after the
+ * API-key-auth hook so `req.apiKey` is already populated. Unlike {@link limitAuthAttempts} and
+ * {@link limitRenders}, which are opted into per-route, this one applies broadly — it is the ceiling
+ * behind every API endpoint rather than a defense for one specific attack shape.
+ *
+ * The key identifies the caller as specifically as the request allows, so that one API key, one
+ * signed-in user, or one anonymous address each gets its own counter rather than sharing whichever is
+ * checked first:
+ *
+ *   - `apiKey:<id>` when the request carries a verified API key
+ *   - `user:<id>` when it is cookie-authenticated
+ *   - `ip:<address>` otherwise
+ *
+ * `manage:system` is exempt, checked against both `req.apiKey?.permissions` and
+ * `req.session?.permissions` — the same OR the permission hook in `index.ts` resolves its single
+ * `permissions` list from, kept here as two separate checks since either identity granting it is
+ * enough.
+ *
+ * Deliberately NOT exempting the endpoints {@link limitAuthAttempts} already guards (`/login`, 2FA,
+ * password reset, passkey ceremonies, page unlock): this hook and that one count into different keyed
+ * buckets (`api:` / `apiKey:` / `user:` / `ip:` vs `auth:<ip>`), so nothing is double-counted against
+ * the same counter, and the two serve different purposes. `limitAuthAttempts` is deliberately tight
+ * and per-address because the request there IS the guess; this hook is a much looser, per-caller
+ * ceiling meant to catch a client running away across the API as a whole. Because its threshold is
+ * always the looser of the two (see {@link API_DEFAULTS} vs {@link AUTH_DEFAULTS}), it never trips
+ * before the auth-specific limiter does on those routes — it only adds a backstop against a caller
+ * spreading abusive traffic across many different endpoints, auth included.
+ */
+export async function limitApiRequests(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (WIKI.config.security?.apiRateLimitEnabled === false) {
+    return
+  }
+  if (
+    req.apiKey?.permissions?.includes('manage:system') ||
+    req.session?.permissions?.includes('manage:system')
+  ) {
+    return
+  }
+  const key = req.apiKey
+    ? `apiKey:${req.apiKey.id}`
+    : req.session?.authenticated
+      ? `user:${req.session.user!.id}`
+      : `ip:${req.ip}`
+  const verdict = await WIKI.models.rateLimits.consume(`api:${key}`, apiPolicy())
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused ${req.method} ${req.url} from ${key}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
 }
 

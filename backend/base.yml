@@ -87,6 +87,10 @@ defaults:
       authRateLimitMax: 10
       authRateLimitWindow: '2m'
       authRateLimitBan: '15m'
+      apiRateLimitEnabled: true
+      apiRateLimitMax: 300
+      apiRateLimitWindow: '5m'
+      apiRateLimitBan: '15m'
     flags:
       experimental: false
       authDebug: false

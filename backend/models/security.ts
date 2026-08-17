@@ -2,6 +2,10 @@ import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
 export const SECURITY_FIELDS = [
+  'apiRateLimitBan',
+  'apiRateLimitEnabled',
+  'apiRateLimitMax',
+  'apiRateLimitWindow',
   'authRateLimitBan',
   'authRateLimitEnabled',
   'authRateLimitMax',
@@ -107,6 +111,20 @@ class Security {
       for (const [field, label] of [
         ['authRateLimitWindow', 'time window'],
         ['authRateLimitBan', 'ban duration']
+      ] as const) {
+        if (!DURATION_PATTERN.test(`${merged[field] ?? ''}`.trim())) {
+          return `The ${label} must be a duration such as 30s, 15m, 2h or 1d.`
+        }
+      }
+    }
+
+    if (merged.apiRateLimitEnabled) {
+      if (!(merged.apiRateLimitMax > 0)) {
+        return 'The API request limit must be greater than zero.'
+      }
+      for (const [field, label] of [
+        ['apiRateLimitWindow', 'time window'],
+        ['apiRateLimitBan', 'ban duration']
       ] as const) {
         if (!DURATION_PATTERN.test(`${merged[field] ?? ''}`.trim())) {
           return `The ${label} must be a duration such as 30s, 15m, 2h or 1d.`

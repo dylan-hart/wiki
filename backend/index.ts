@@ -35,6 +35,7 @@ import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { stripPageExtension } from './helpers/common.ts'
 import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
+import { limitApiRequests } from './helpers/rateLimit.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
@@ -545,6 +546,20 @@ async function initHTTPServer() {
       WIKI.logger.debug(`Rejected an API key: ${err.message}`)
       return reply.unauthorized(err.message)
     }
+  })
+
+  // ----------------------------------------
+  // General API Rate Limit
+  // ----------------------------------------
+
+  app.addHook('onRequest', async (req, reply) => {
+    // -> After the API-key hook above, so `req.apiKey` is populated for the key it builds its
+    //    counter from. See `helpers/rateLimit.ts#limitApiRequests` for the key/exemption/double-count
+    //    reasoning.
+    if (!req.url.startsWith('/_api/')) {
+      return
+    }
+    return limitApiRequests(req, reply)
   })
 
   // ----------------------------------------
