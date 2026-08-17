@@ -162,25 +162,37 @@ export class BlockSpoilerElement extends LitElement {
     this._trimEdgeMargins()
   }
 
+  /**
+   * Reveals the content and, since the cover button is about to unmount rather than stay focused,
+   * moves focus onto the (now-visible) content itself so a screen reader announces something rather
+   * than silently dropping focus back to the document body.
+   */
+  async _reveal() {
+    this._covered = false
+    await this.updateComplete
+    this.shadowRoot.getElementById('content')?.focus()
+  }
+
   render() {
     return html`
       <div class="spoiler ${this._covered ? 'is-covered' : ''}">
-        <div class="content"><slot></slot></div>
-        ${this._covered
-          ? html`
-              <button
-                type="button"
-                class="cover"
-                aria-expanded="false"
-                @click="${() => {
-                  this._covered = false
-                }}">
-                ${EYE_OFF_SVG}
-                <span class="label">${this.label}</span>
-                <span class="hint">${this.hint}</span>
-              </button>
-            `
-          : null}
+        <div class="content" id="content" tabindex="-1"><slot></slot></div>
+        ${
+          this._covered
+            ? html`
+                <button
+                  type="button"
+                  class="cover"
+                  aria-expanded="${!this._covered}"
+                  aria-controls="content"
+                  @click="${() => this._reveal()}">
+                  ${EYE_OFF_SVG}
+                  <span class="label">${this.label}</span>
+                  <span class="hint">${this.hint}</span>
+                </button>
+              `
+            : null
+        }
       </div>
     `
   }
