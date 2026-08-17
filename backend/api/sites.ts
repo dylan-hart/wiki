@@ -281,7 +281,10 @@ async function routes(app: FastifyInstance) {
     '/:siteId',
     {
       config: {
-        permissions: ['manage:sites']
+        // -> `manage:theme` only carries a patch that touches nothing but `theme` — enforced in the
+        //    handler below, since the route-level hook can only say whether a permission is held at
+        //    all, not what the body is allowed to contain.
+        permissions: ['manage:sites', 'manage:theme']
       },
       schema: {
         summary: 'Update a site',
@@ -393,6 +396,25 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> A `manage:theme` holder may only save a patch that touches nothing but `theme` -
+      //    anything else (including a `theme` key alongside another one) requires `manage:sites`.
+      //    The route-level permission list above only says one of the two is held; this is what
+      //    makes `manage:theme` actually mean something narrower.
+      const actorPermissions = WIKI.models.groups.actorForRequest(req).permissions
+      if (
+        !actorPermissions.includes('manage:system') &&
+        !actorPermissions.includes('manage:sites')
+      ) {
+        const touchedKeys = Object.keys(req.body)
+        const maySaveThemeOnly =
+          actorPermissions.includes('manage:theme') &&
+          touchedKeys.length > 0 &&
+          touchedKeys.every((key) => key === 'theme')
+        if (!maySaveThemeOnly) {
+          return reply.forbidden()
+        }
+      }
+
       // -> Validate inputs
       if (req.body.title !== undefined && !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
