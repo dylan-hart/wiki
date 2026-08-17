@@ -45,7 +45,10 @@ const pageIdParam = {
  * Who is saving, and what they may embed.
  *
  * A page records an author, so it takes a logged in user rather than an API key — and the author's
- * permissions are what the render is sanitized against.
+ * permissions are what the render is sanitized against. `write:scripts`/`write:styles` are
+ * page-rule-scoped (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is
+ * what `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()`
+ * does here.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -53,7 +56,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
   }
   return {
     id: req.session.user.id,
-    permissions: req.session.permissions ?? []
+    permissions: req.session.permissions ?? [],
+    groupIds: WIKI.models.groups.groupIdsForRequest(req)
   }
 }
 

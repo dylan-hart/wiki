@@ -97,7 +97,8 @@ before(async () => {
       },
       groups: {
         actorForRequest: () => ({ permissions: ['write:pages'] }),
-        checkAccess: () => true
+        checkAccess: () => true,
+        groupIdsForRequest: () => []
       },
       approvals: {
         pageViewerState: async () => ({
