@@ -75,6 +75,25 @@ export class BlockMapElement extends LitElement {
         hint: 'auto follows the light or dark theme the reader is using.',
         default: 'auto'
       }
+    ],
+    /**
+     * Site-level fields an admin sets once for the whole site, as opposed to `props` above, which an
+     * author sets per use in the editor.
+     */
+    config: [
+      {
+        name: 'tileServerUrl',
+        type: 'string',
+        label: 'Tile Server URL',
+        hint: 'Must contain {z}/{x}/{y} placeholders. Defaults to the public OpenStreetMap tile server.',
+        default: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+      },
+      {
+        name: 'apiKey',
+        type: 'string',
+        label: 'API Key',
+        hint: 'Only needed for tile providers that require one.'
+      }
     ]
   }
 

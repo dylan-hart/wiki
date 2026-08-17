@@ -77,6 +77,42 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             }
           }
         }
+      },
+      configFields: {
+        type: 'array',
+        description:
+          "The block's site-level fields, as its component declares them — what the admin area's block config turns into a form. Set once per site by an admin, as opposed to `props`, which an author sets per use in the editor. Read from the compiled manifest rather than the database, so it describes the code that is installed. Empty for a custom block, which has no manifest entry.",
+        items: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Attribute name, as written on the element.'
+            },
+            type: {
+              type: 'string',
+              enum: ['string', 'number', 'boolean', 'select'],
+              description: 'What kind of field to offer for it.'
+            },
+            label: {
+              type: 'string'
+            },
+            hint: {
+              type: 'string'
+            },
+            required: {
+              type: 'boolean'
+            },
+            options: {
+              type: 'array',
+              description: 'Allowed values, for `select`.',
+              items: { type: 'string' }
+            },
+            default: {
+              description: 'Value the field starts on, and the one worth leaving out of the markup.'
+            }
+          }
+        }
       }
     }
   })

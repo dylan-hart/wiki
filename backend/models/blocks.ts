@@ -22,6 +22,13 @@ export interface BlockDefinition {
   icon: string
   props?: BlockProp[]
   /**
+   * Site-level fields an admin sets once for the whole site, as opposed to `props`, which an author
+   * sets per use in the editor. Same shape as `props`, reused rather than duplicated: a tile server
+   * URL or an API key is exactly the same kind of field, just filled in by a different person in a
+   * different place (the admin area's block config, not the editor's block picker).
+   */
+  config?: BlockProp[]
+  /**
    * A block that only ever appears inside another one, such as a single tab of a set of tabs.
    *
    * It is never registered for a site: not something to insert on its own, and not something to
@@ -43,6 +50,7 @@ export interface SiteBlock {
   isEnabled: boolean
   isCustom: boolean
   config: Record<string, any>
+  configFields: BlockProp[]
   props: BlockProp[]
   template: string
 }
@@ -268,16 +276,19 @@ class Blocks {
       .where(eq(blocksTable.siteId, siteId))
       .orderBy(blocksTable.isCustom, blocksTable.name)
     /*
-      `props` come from the manifest rather than the row: they describe the component's own attributes,
-      so they belong to the installed code and not to a site's copy of it. Reading them here means an
-      updated block's props are correct the moment it is deployed, with nothing to migrate — and a
-      custom block, having no manifest entry, simply reports none.
+      `props` and `configFields` come from the manifest rather than the row: they describe the
+      component's own attributes, so they belong to the installed code and not to a site's copy of it.
+      Reading them here means an updated block's fields are correct the moment it is deployed, with
+      nothing to migrate — and a custom block, having no manifest entry, simply reports none. `config`
+      itself (the admin-set values) still comes from the row — it is the site's own data, not the
+      code's.
     */
     return (results as SiteBlock[]).map((row) => {
       const definition = this.definitions.find((d) => d.block === row.block)
       return {
         ...row,
         props: definition?.props ?? [],
+        configFields: definition?.config ?? [],
         template: definition?.template ?? ''
       }
     })
