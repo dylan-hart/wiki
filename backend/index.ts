@@ -33,7 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
-import { stripPageExtension } from './helpers/common.ts'
+import { resolveRequestSite, stripPageExtension } from './helpers/common.ts'
 import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
@@ -79,6 +79,19 @@ function isPageUrl(urlPath: string): boolean {
   const firstSegment = urlPath.split('/')[1] ?? ''
   return !firstSegment.startsWith('_') && !RESERVED_ROOT_FILES.has(firstSegment.toLowerCase())
 }
+
+/**
+ * `isPageUrl` first segments that must reach the app shell even when the hostname resolves to no
+ * site, or to one with `isEnabled === false` — the fix path for either state has to survive the very
+ * thing it exists to correct, or a disabled site locks its own administrator out of re-enabling it.
+ *
+ * `login` is the only entry: everything else an operator needs — `/_admin` itself, and the
+ * `/_api/sites/*` route `manage:sites` calls to flip `isEnabled` back on — already sits under a
+ * leading-underscore segment, which `isPageUrl` excludes before this list is ever consulted. `/login`
+ * is the one page-shaped exception, since (unlike `/_admin`) it is owned by the SPA router rather than
+ * mounted here, and it is the only way to obtain the session `/_admin` requires in the first place.
+ */
+const SITE_RESOLUTION_EXEMPT_SEGMENTS = new Set(['login'])
 
 if (!semver.satisfies(process.version, '>=26')) {
   console.error('ERROR: Node.js 26.x or later required!')
@@ -627,31 +640,52 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
-  // Routing
+  // Site Resolution
   // ----------------------------------------
 
-  // app.addHook('onRequest', async (req, reply, done) => {
-  //   const currentSite = await WIKI.db.sites.getSiteByHostname({ hostname: req.hostname })
-  //   if (!currentSite) {
-  //     return reply.code(404).send('Site Not Found')
-  //   }
+  app.decorateRequest('site', null)
 
-  //   req.locals.siteConfig = {
-  //     id: currentSite.id,
-  //     title: currentSite.config.title,
-  //     darkMode: currentSite.config.theme.dark,
-  //     lang: currentSite.config.locales.primary,
-  //     rtl: false, // TODO: handle RTL
-  //     company: currentSite.config.company,
-  //     contentLicense: currentSite.config.contentLicense
-  //   }
-  //   req.locals.theming = {
+  app.addHook('onRequest', (req, reply, done) => {
+    const urlPath = req.raw.url!.split('?')[0]!
+    const trimmed = urlPath.length > 1 && urlPath.endsWith('/') ? urlPath.slice(0, -1) : urlPath
 
-  //   }
-  //   req.locals.langs = await WIKI.db.locales.getNavLocales({ cache: true })
-  //   req.locals.analyticsCode = await WIKI.db.analytics.getCode({ cache: true })
-  //   done()
-  // })
+    // -> Not in scope for the server's own routes, static assets, etc. — see `isPageUrl`
+    if (!isPageUrl(trimmed)) {
+      return done()
+    }
+
+    const firstSegment = trimmed.split('/')[1] ?? ''
+    const resolution = resolveRequestSite({
+      firstSegment,
+      hostname: req.hostname,
+      sitesMappings: WIKI.sitesMappings,
+      sites: WIKI.sites,
+      exemptSegments: SITE_RESOLUTION_EXEMPT_SEGMENTS
+    })
+
+    switch (resolution.outcome) {
+      case 'exempt':
+        return done()
+      case 'ok':
+        req.site = resolution.site
+        return done()
+      case 'disabled':
+        // -> Distinguishable from "not-found" below: this hostname does address a real site, it is
+        //    just switched off, which is a different message (and a different fix) for whoever hits it
+        req.site = resolution.site
+        // -> A 302, not a 301: `isEnabled` is a setting an administrator can flip back, and a browser
+        //    that cached a permanent redirect would keep bouncing here after they did
+        reply.redirect('/_error/disabled', 302)
+        return
+      case 'not-found':
+        reply.redirect('/_error/unknownsite', 302)
+        return
+    }
+  })
+
+  // ----------------------------------------
+  // Routing
+  // ----------------------------------------
 
   app.register(import('./api/index.ts'), { prefix: '/_api' })
   app.register(import('./controllers/collab.ts'), { prefix: '/_collab' })

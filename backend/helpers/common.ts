@@ -130,6 +130,52 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
   return urlPath.slice(0, dot)
 }
 
+/** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
+export type RequestSiteResolution =
+  | { outcome: 'exempt' }
+  | { outcome: 'not-found' }
+  | { outcome: 'disabled'; site: Record<string, any> }
+  | { outcome: 'ok'; site: Record<string, any> }
+
+/**
+ * Decide what a page/shell request's hostname resolves to, and whether the request should be let
+ * through at all.
+ *
+ * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[hostname] ||
+ * sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide whether
+ * to strip a page extension.
+ *
+ * `exemptSegments` is the caller's list of first path segments that must reach the app shell
+ * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
+ * survive the very thing it exists to correct.
+ */
+export function resolveRequestSite({
+  firstSegment,
+  hostname,
+  sitesMappings,
+  sites,
+  exemptSegments
+}: {
+  firstSegment: string
+  hostname: string
+  sitesMappings: Record<string, string>
+  sites: Record<string, any>
+  exemptSegments: ReadonlySet<string>
+}): RequestSiteResolution {
+  if (exemptSegments.has(firstSegment)) {
+    return { outcome: 'exempt' }
+  }
+  const siteId = sitesMappings[hostname] || sitesMappings['*']
+  const site = siteId ? sites[siteId] : null
+  if (!site) {
+    return { outcome: 'not-found' }
+  }
+  if (site.isEnabled === false) {
+    return { outcome: 'disabled', site }
+  }
+  return { outcome: 'ok', site }
+}
+
 /**
  * Generate SHA-1 Hash of a string
  *

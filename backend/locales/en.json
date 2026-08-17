@@ -1514,6 +1514,8 @@
   "common.duration.minutes": "Minute(s)",
   "common.duration.months": "Month(s)",
   "common.duration.years": "Year(s)",
+  "common.error.disabled.hint": "This site has been disabled by an administrator. If you manage this site, sign in to re-enable it.",
+  "common.error.disabled.title": "Site Disabled",
   "common.error.generic.hint": "Oops, something went wrong...",
   "common.error.generic.title": "Unexpected Error",
   "common.error.notfound.hint": "That page doesn't exist or is not available.",
