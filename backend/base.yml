@@ -132,6 +132,16 @@ tsDictMappings:
   ta: tamil
   tr: turkish
   yi: yiddish
+# NOTE: this whole `editors:` block is descriptive only -- `core/config.ts` merges just
+# `defaults.config` (above) into `WIKI.config`, never this key, and no other backend/frontend code
+# reads `WIKI.data.editors`. Per-site editor config actually lives in the `sites` table and is
+# provisioned by `models/sites.ts`. Historically it also carried `latexEngine`, which 2.5.x used to
+# pick the single markdown-it plugin that rendered LaTeX; that key was removed (Feature 366 / Task
+# 618) because it had already gone dead in 3.x -- it was never seeded onto a site, never surfaced in
+# `EditorMarkdownConfigOverlay.vue`, and never read anywhere. Math rendering is now two
+# independently-enableable blocks, `block-katex` and `block-mathjax`, each with its own per-site
+# `isEnabled` flag already exposed through `AdminBlocks.vue` / `models/blocks.ts` -- that toggle IS
+# the per-site engine choice, so a second, disconnected `latexEngine` setting would only mislead.
 editors:
   asciidoc:
     contentType: html
@@ -145,7 +155,6 @@ editors:
       typographer: false
       underline: false
       tabWidth: 2
-      latexEngine: katex
       kroki: true
       plantuml: true
       multimdTable: true
