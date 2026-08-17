@@ -88,6 +88,16 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   patch: string
 }
 
+/**
+ * The outcome of `approveSubmission`.
+ *
+ * `'not-found'` covers what the boolean used to: no such submission, or its page is gone.
+ * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
+ * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
+ * rather than the write silently going ahead over whatever changed in between.
+ */
+export type ApproveSubmissionResult = { ok: true } | { ok: false; reason: 'not-found' | 'stale' }
+
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
   id: string
@@ -684,7 +694,17 @@ class Approvals {
    * other save, with the reviewer recorded as the author: they are the one putting it on the page, and
    * a guest submitter has no account to attribute it to.
    *
-   * @returns False when there is no such submission
+   * Re-checks the submission's `baseHash` against the page's current content immediately before
+   * writing, not just when the reviewer's `GET .../submissions/:id` computed `isStale` for display --
+   * that read and this write are two different moments, and the page can move between them: another
+   * reviewer accepting a different suggestion on the same page, or the author saving straight to the
+   * page while the review sat open. Refusing with `'stale'` rather than writing over it is what lets
+   * the caller reload the diff and have the reviewer reconcile it instead of silently discarding
+   * whatever changed underneath.
+   *
+   * @returns `{ ok: false, reason: 'not-found' }` when there is no such submission (or its page is
+   *   gone), `{ ok: false, reason: 'stale' }` when the page moved since `baseHash`, `{ ok: true }`
+   *   once the write has happened and the suggestion is closed out.
    */
   async approveSubmission({
     siteId,
@@ -699,15 +719,19 @@ class Approvals {
     /** The rendered HTML. Rendered here instead when the caller has none, which needs an extension. */
     render?: string
     actor: { id: string; permissions: string[] }
-  }): Promise<boolean> {
+  }): Promise<ApproveSubmissionResult> {
     const rows = await WIKI.db
-      .select({ id: submissionsTable.id, pageId: submissionsTable.pageId })
+      .select({
+        id: submissionsTable.id,
+        pageId: submissionsTable.pageId,
+        baseHash: submissionsTable.baseHash
+      })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
       .limit(1)
     const submission = rows[0]
     if (!submission) {
-      return false
+      return { ok: false, reason: 'not-found' }
     }
 
     const page = await WIKI.models.pages.getPage({
@@ -716,7 +740,14 @@ class Approvals {
       withContent: true
     })
     if (!page) {
-      return false
+      return { ok: false, reason: 'not-found' }
+    }
+
+    const currentHash = createHash('sha256')
+      .update(page.content ?? '')
+      .digest('hex')
+    if (currentHash !== submission.baseHash) {
+      return { ok: false, reason: 'stale' }
     }
 
     /*
@@ -746,7 +777,7 @@ class Approvals {
 
     await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return true
+    return { ok: true }
   }
 
   /**

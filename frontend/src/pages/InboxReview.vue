@@ -409,11 +409,34 @@ function approveSubmission() {
       await load()
       router.push(target)
     } catch (err) {
-      notify({
-        type: 'negative',
-        message: t('inbox.reviewApproveFailed'),
-        caption: apiErrorMessage(err)
-      })
+      if (err.response?.status === 409) {
+        /*
+          Distinguishable from an ordinary failure: the page moved since this reviewer's own GET
+          computed the diff, and the server refused to write over whatever changed in between. Reload
+          both sides against the page as it stands now instead of showing a toast the reviewer has no
+          way to act on -- `loadSubmission` re-fetches the same id, so `state.selected` comes back with
+          fresh `pageContent` and `isStale: true`, which is what re-prompts them to reconcile.
+        */
+        notify({
+          type: 'warning',
+          message: t('inbox.reviewApproveStale'),
+          caption: apiErrorMessage(err)
+        })
+        await loadSubmission(state.selected.id)
+        /*
+          The id watcher above only remounts the diff editor when `state.selected.id` CHANGES -- and it
+          has not, since this is the same submission reloaded. Rebuilt explicitly so the editor's two
+          models actually reflect what was just re-fetched, rather than going on showing the page
+          content from before the conflicting write.
+        */
+        mountEditor()
+      } else {
+        notify({
+          type: 'negative',
+          message: t('inbox.reviewApproveFailed'),
+          caption: apiErrorMessage(err)
+        })
+      }
     }
     state.loading--
   })

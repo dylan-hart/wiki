@@ -2140,6 +2140,7 @@
   "inbox.reviewApprove": "Approve",
   "inbox.reviewApproveConfirm": "Apply these changes to {page}? The page will be updated right away.",
   "inbox.reviewApproveFailed": "Failed to apply the suggestion.",
+  "inbox.reviewApproveStale": "The page changed since this was loaded. The diff has been reloaded — check it over before approving again.",
   "inbox.reviewApproveSuccess": "The suggestion has been applied to the page.",
   "inbox.reviewBack": "Back to the queue",
   "inbox.reviewDecline": "Decline",

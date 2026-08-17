@@ -535,7 +535,16 @@ async function routes(app: FastifyInstance) {
         render: req.body.render,
         actor
       })
-      if (!applied) {
+      if (!applied.ok) {
+        // -> Distinguishable from the generic 404 above: the submission is real, but the page moved
+        //    since this reviewer's own GET computed its diff, and writing over that would silently
+        //    discard whatever changed in between. The client re-fetches both sides and re-prompts
+        //    instead of treating this as an ordinary failure.
+        if (applied.reason === 'stale') {
+          return reply.conflict(
+            'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
+          )
+        }
         return reply.notFound('This edit suggestion does not exist.')
       }
       return {
