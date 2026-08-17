@@ -112,6 +112,22 @@ const barStyle = {
  *
  * Mind the two meanings of "target" in here: a nav item's is the address to go to, an anchor's is the
  * window to open it in.
+ *
+ * Two typed-address cases worth calling out explicitly (task 466 verified both rather than assuming):
+ *
+ *   - `mailto:` needs no special-casing here. `routableHref`'s protocol check (`/^https?:$/`) already
+ *     declines anything that is not http(s), so a `mailto:` address falls straight through to the plain
+ *     `href` branch below and the browser opens it with the reader's mail client, same as any other
+ *     link on the page.
+ *   - A bare domain typed without a scheme -- `example.com` rather than `https://example.com` -- is NOT
+ *     declined. `new URL('example.com', location.href)` resolves it as a same-origin PATH relative to
+ *     whatever page is open, so `routableHref` hands it to the router, which then renders "page not
+ *     found" for an address the author meant as external. This is not a bug to fix here: it is exactly
+ *     how a bare `<a href="example.com">` behaves in any HTML document, including this wiki's own
+ *     rendered page content, which asks `routableHref` the identical question for the identical reason.
+ *     Guessing "this looks like a domain" would be a heuristic this codebase does not apply to content
+ *     links, and applying it only to nav items would make the two inconsistent. Typing the full address
+ *     with its scheme is the author's responsibility, the same as it is when writing a link into a page.
  */
 function destination(item) {
   const address = item.target ?? '/'
@@ -140,6 +156,18 @@ function destination(item) {
  * `router-link-exact-active`, the class `RouterLink` puts on the row it has taken the reader to -- the
  * same question, answered by the same router, but kept up to date by the link itself as the reader moves
  * around rather than recomputed here.
+ *
+ * Confirmed (task 466), not assumed, against two cases that both go through `router.resolve()`:
+ *
+ *   - A trailing-slash variant of a target's path (`/foo/bar/` typed where the page is `/foo/bar`, or
+ *     vice-versa) does NOT match. `router.resolve()` does not normalize a trailing slash -- it is a
+ *     genuinely different path to the router, not an ambiguity this function is getting wrong -- so
+ *     typing one correctly is on the author, same as the address cases in `destination()`'s own doc.
+ *   - A page reached through a redirect (this wiki's alias route, `/a/:alias`, whose `beforeEnter`
+ *     resolves and redirects to the page's real path) DOES match, with no special-casing needed: once
+ *     the redirect has settled, `route.path` is the real page's path, and a nav item -- which can only
+ *     ever be authored with that real path, since the navigation editor's picker addresses pages by it,
+ *     never by an alias -- resolves to the same string through the same router.
  */
 function isCurrent(item) {
   const { to } = destination(item)
