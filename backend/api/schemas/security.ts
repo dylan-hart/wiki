@@ -91,6 +91,27 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 16,
         description:
           'How long a client is refused for once it goes over, as a duration — e.g. `15m`, `1h`. Attempts made while banned do not extend it.'
+      },
+      apiRateLimitEnabled: {
+        type: 'boolean',
+        description:
+          'Whether any request under `/_api` — not just the authentication endpoints above — refuses a client that has made too many. Counted per API key, per signed-in user, or per client address, in the database, so the limit holds across instances.'
+      },
+      apiRateLimitMax: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Requests allowed within the window. The one that exceeds it earns the ban.'
+      },
+      apiRateLimitWindow: {
+        type: 'string',
+        maxLength: 16,
+        description: 'How long requests are counted over, as a duration — e.g. `5m`, `2h`, `1d`.'
+      },
+      apiRateLimitBan: {
+        type: 'string',
+        maxLength: 16,
+        description:
+          'How long a client is refused for once it goes over, as a duration — e.g. `15m`, `1h`. Requests made while banned do not extend it.'
       }
     }
   })
