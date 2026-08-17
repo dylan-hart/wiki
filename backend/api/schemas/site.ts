@@ -101,9 +101,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
-      logoUrl: {
-        type: 'string'
-      },
       logoText: {
         type: 'boolean'
       },

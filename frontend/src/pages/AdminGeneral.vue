@@ -591,9 +591,6 @@ function defaultConfig() {
     },
     discoverable: false,
     defaults: {
-      timezone: '',
-      dateFormat: '',
-      timeFormat: '',
       tocDepth: {
         min: 1,
         max: 2

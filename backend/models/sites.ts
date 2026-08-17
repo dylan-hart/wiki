@@ -117,7 +117,6 @@ class Sites {
               reasonForChange: 'optional',
               search: true
             },
-            logoUrl: '',
             logoText: true,
             sitemap: true,
             robots: {
