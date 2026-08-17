@@ -12,6 +12,7 @@ import {
 import { mockClient } from 'aws-sdk-client-mock'
 import storageModule, {
   buildClient,
+  encodeCopySourceKey,
   ensureBucket,
   isBucketNotFound,
   keyFor,
@@ -180,6 +181,23 @@ describe('s3 storage / keyFor', () => {
   test('an empty folderPath yields a key straight under the site', () => {
     const target = makeTarget()
     assert.equal(keyFor(target, '', 'logo.png'), `${target.siteId}/logo.png`)
+  })
+})
+
+describe('s3 storage / encodeCopySourceKey', () => {
+  test('leaves the `/` path separators literal', () => {
+    assert.equal(encodeCopySourceKey('site-1/docs/report.pdf'), 'site-1/docs/report.pdf')
+  })
+
+  test('percent-encodes special characters within a segment', () => {
+    assert.equal(
+      encodeCopySourceKey('site-1/my folder/a file+name.png'),
+      'site-1/my%20folder/a%20file%2Bname.png'
+    )
+  })
+
+  test('a flat key with no folder is unaffected', () => {
+    assert.equal(encodeCopySourceKey('site-1/logo.png'), 'site-1/logo.png')
   })
 })
 
@@ -359,11 +377,37 @@ describe('s3 storage / per-asset lifecycle', () => {
     const sourceKey = `${target.siteId}/images/old-name.png`
     const destinationKey = `${target.siteId}/images/new-name.png`
     assert.equal(copyCall!.args[0].input.Bucket, 'my-bucket')
-    assert.equal(copyCall!.args[0].input.CopySource, `my-bucket/${encodeURIComponent(sourceKey)}`)
+    // -> Every segment of the key is percent-encoded, but the `/` separators between them stay
+    //    literal — `encodeURIComponent(sourceKey)` whole would turn those into `%2F` and address a
+    //    source object that does not exist, a regression `storage.emulated.test.ts` caught against a
+    //    real S3-compatible server (this mocked assertion alone could not: it would happily match
+    //    whatever the code produced, correct or not).
+    assert.equal(
+      copyCall!.args[0].input.CopySource,
+      `my-bucket/${target.siteId}/images/old-name.png`
+    )
     assert.equal(copyCall!.args[0].input.Key, destinationKey)
 
     const [deleteCall] = s3Mock.commandCalls(DeleteObjectCommand)
     assert.equal(deleteCall!.args[0].input.Key, sourceKey)
+  })
+
+  test('assetRenamed percent-encodes special characters within a segment without touching the `/` separators', async () => {
+    s3Mock.on(CopyObjectCommand).resolves({})
+    s3Mock.on(DeleteObjectCommand).resolves({})
+    const target = makeTarget()
+
+    await storageModule.assetRenamed(target, {
+      fileName: 'renamed.png',
+      previousFileName: 'a file+name.png',
+      folderPath: 'my folder'
+    })
+
+    const [copyCall] = s3Mock.commandCalls(CopyObjectCommand)
+    assert.equal(
+      copyCall!.args[0].input.CopySource,
+      `my-bucket/${target.siteId}/my%20folder/a%20file%2Bname.png`
+    )
   })
 })
 

@@ -228,6 +228,18 @@ async function assetDeleted(target: StorageTarget, data: Record<string, any>): P
   )
 }
 
+/**
+ * A key as `CopySource` needs it: every path segment percent-encoded, but the `/` separators between
+ * them left literal. `encodeURIComponent` alone also encodes `/` to `%2F`, which is fine for a flat
+ * key but corrupts every key with a folder in it — and `keyFor` always prefixes with `<siteId>/`, so
+ * that is every key this module ever builds. Caught only by `storage.emulated.test.ts`'s real S3
+ * server: `aws-sdk-client-mock` asserts the exact string this function used to produce, so a wrong but
+ * internally-consistent value passed that suite regardless of whether a real bucket could resolve it.
+ */
+export function encodeCopySourceKey(key: string): string {
+  return key.split('/').map(encodeURIComponent).join('/')
+}
+
 /** An asset moved to a new name within the same folder. */
 async function assetRenamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
   const client = await getClient(target)
@@ -243,7 +255,7 @@ async function assetRenamed(target: StorageTarget, data: Record<string, any>): P
     await client.send(
       new CopyObjectCommand({
         Bucket: bucket,
-        CopySource: `${bucket}/${encodeURIComponent(sourceKey)}`,
+        CopySource: `${bucket}/${encodeCopySourceKey(sourceKey)}`,
         Key: destinationKey,
         StorageClass: storageClassFor(target.config)
       })
