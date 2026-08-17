@@ -34,12 +34,23 @@ const DEFAULT_PAGE_EXTENSION = 'txt'
 /** The subfolder `backup()` writes manual archives into. */
 const MANUAL_BACKUP_DIR = '_manual'
 
+/** The subfolder `dailyBackup()` writes scheduled archives into. */
+const DAILY_BACKUP_DIR = '_daily'
+
 /**
- * Top-level entries `backup()` never sweeps into the archive it is writing: its own output folder,
- * and the daily-backup folder `createDailyBackups` will write into once that scheduled feature
- * exists. Without this, every backup would nest every backup before it, growing without bound.
+ * Top-level entries `buildArchive()` never sweeps into the archive it is writing: the manual and
+ * daily backup folders themselves. Without this, every backup would nest every backup before it,
+ * growing without bound.
  */
-const EXCLUDED_BACKUP_ENTRIES = new Set([MANUAL_BACKUP_DIR, '_daily'])
+const EXCLUDED_BACKUP_ENTRIES = new Set([MANUAL_BACKUP_DIR, DAILY_BACKUP_DIR])
+
+/**
+ * How long a `dailyBackup()` archive is kept before `pruneDailyBackups()` removes it — 30 days,
+ * expressed in hours because `Temporal.Instant` arithmetic only accepts exact time units (no
+ * calendar-relative `days`), and this codebase's convention is `{ hours: 24 }` per day for exactly
+ * that reason.
+ */
+const DAILY_BACKUP_RETENTION_HOURS = 30 * 24
 
 /**
  * `path` prop check beyond "is it a non-empty string" — the generic `validateConfig()` in
@@ -178,26 +189,25 @@ export async function dump(target: StorageTarget): Promise<void> {
 }
 
 /**
- * `backup` ("Create Backup"): tar.gz everything currently under `target.config.path` into
- * `<path>/_manual/<timestamp>.tar.gz`, creating the `_manual` subfolder if it does not exist yet.
+ * Shared by `backup()` and `dailyBackup()`: tar.gz everything currently under `basePath` (excluding
+ * both backup subfolders — see `EXCLUDED_BACKUP_ENTRIES`) into `<basePath>/<subDir>/<timestamp>.tar.gz`,
+ * creating `subDir` if it does not exist yet.
  *
  * The archive is built from whatever is on disk right now, not from the database — it is a backup of
  * this target's own content, which is only ever as current as the last successful `dump()` (or the
- * write-path syncs that keep landing here on every page/asset change). `_manual` itself, and `_daily`
- * (the not-yet-implemented scheduled counterpart declared by `createDailyBackups` in
- * `definition.yml`), are excluded from the archive's contents — see `EXCLUDED_BACKUP_ENTRIES` for why.
+ * write-path syncs that keep landing here on every page/asset change).
  *
- * @throws With a message naming the failing step (reading the directory, or writing the archive) and
- *         the underlying fs error, e.g. when the path became unwritable mid-run.
+ * @throws With a message naming the failing step (creating the subfolder, reading the directory, or
+ *         writing the archive) and the underlying fs error, e.g. when the path became unwritable
+ *         mid-run.
  */
-export async function backup(target: StorageTarget): Promise<void> {
-  const basePath = String(target.config.path ?? '')
-  const manualDir = path.join(basePath, MANUAL_BACKUP_DIR)
+async function buildArchive(basePath: string, subDir: string): Promise<string> {
+  const archiveDir = path.join(basePath, subDir)
 
   try {
-    await fs.mkdir(manualDir, { recursive: true })
+    await fs.mkdir(archiveDir, { recursive: true })
   } catch (err: any) {
-    throw new Error(`Failed to create "${manualDir}" for the backup: ${err.message}`)
+    throw new Error(`Failed to create "${archiveDir}" for the backup: ${err.message}`)
   }
 
   let entries: string[]
@@ -211,19 +221,94 @@ export async function backup(target: StorageTarget): Promise<void> {
   //    Windows example (`C:\wiki\backup`) as a supported destination, so the instant's own separators
   //    are swapped for dashes rather than assumed to be safe.
   const timestamp = Temporal.Now.instant().toString({ smallestUnit: 'second' }).replaceAll(':', '-')
-  const archivePath = path.join(manualDir, `${timestamp}.tar.gz`)
+  const archivePath = path.join(archiveDir, `${timestamp}.tar.gz`)
 
   try {
     await createTarball({ gzip: true, file: archivePath, cwd: basePath }, entries)
   } catch (err: any) {
     throw new Error(`Failed to write the backup archive to "${archivePath}": ${err.message}`)
   }
+
+  return archivePath
+}
+
+/**
+ * `backup` ("Create Backup"): tar.gz everything currently under `target.config.path` into
+ * `<path>/_manual/<timestamp>.tar.gz`, creating the `_manual` subfolder if it does not exist yet. See
+ * `buildArchive()` for the shared mechanics and its `@throws`.
+ */
+export async function backup(target: StorageTarget): Promise<void> {
+  const basePath = String(target.config.path ?? '')
+  await buildArchive(basePath, MANUAL_BACKUP_DIR)
+}
+
+/**
+ * Remove every `.tar.gz` archive in `dailyDir` whose file `mtime` is `DAILY_BACKUP_RETENTION_HOURS`
+ * (30 days) old or older — the "kept for a month" half of `createDailyBackups`'s `definition.yml`
+ * hint. Compared against `mtime` rather than a timestamp parsed back out of the file name: `mtime` is
+ * exactly what `buildArchive()` sets when it writes the file, needs no reverse-parsing of the
+ * colon-to-dash-substituted name `backup()`/`dailyBackup()` produce, and native `Temporal` converts a
+ * `Date` (what `fs.stat()` returns) directly via `.toTemporalInstant()`.
+ *
+ * A boundary archive — exactly `DAILY_BACKUP_RETENTION_HOURS` old — is pruned, not kept: retention is
+ * "kept for a month", not "kept for over a month".
+ *
+ * A `dailyDir` that does not exist yet (no daily backup has ever run for this target) is treated as
+ * having nothing to prune, not an error. Likewise, an entry that vanishes between being listed and
+ * being stat'd or removed (e.g. pruned concurrently) is silently skipped rather than failing the run.
+ *
+ * @param now Defaults to the real current instant; overridable so tests can exercise the boundary
+ *            without waiting 30 days or forging file mtimes.
+ */
+export async function pruneDailyBackups(
+  dailyDir: string,
+  now: Temporal.Instant = Temporal.Now.instant()
+): Promise<void> {
+  let entries: string[]
+  try {
+    entries = await fs.readdir(dailyDir)
+  } catch {
+    return
+  }
+
+  const cutoff = now.subtract({ hours: DAILY_BACKUP_RETENTION_HOURS })
+
+  for (const name of entries) {
+    if (!name.endsWith('.tar.gz')) {
+      continue
+    }
+    const entryPath = path.join(dailyDir, name)
+    let mtime: Temporal.Instant
+    try {
+      mtime = (await fs.stat(entryPath)).mtime.toTemporalInstant()
+    } catch {
+      continue
+    }
+    if (Temporal.Instant.compare(mtime, cutoff) <= 0) {
+      await fs.rm(entryPath, { force: true }).catch(() => {})
+    }
+  }
+}
+
+/**
+ * `dailyBackup`: the scheduled counterpart to `backup()`, run by the `storageDailyBackup` system task
+ * (see `tasks/simple/storage-daily-backup.ts`) for every enabled disk target with
+ * `config.createDailyBackups` set. Archives into `<path>/_daily/<timestamp>.tar.gz` via the same
+ * `buildArchive()` `backup()` uses, then prunes `_daily` entries older than a month via
+ * `pruneDailyBackups()` — so retention is enforced right after every successful archive rather than
+ * needing a separate scheduled pass.
+ */
+export async function dailyBackup(target: StorageTarget): Promise<void> {
+  const basePath = String(target.config.path ?? '')
+  await buildArchive(basePath, DAILY_BACKUP_DIR)
+  await pruneDailyBackups(path.join(basePath, DAILY_BACKUP_DIR))
 }
 
 const diskStorageModule: StorageModule = {
   validateConfig,
   dump,
-  backup
+  backup,
+  dailyBackup
 }
 
 export default diskStorageModule

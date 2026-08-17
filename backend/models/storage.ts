@@ -868,6 +868,54 @@ class Storage {
   }
 
   /**
+   * Run the `dailyBackup` handler for every enabled target, across every site, whose module declares
+   * one and whose `config.createDailyBackups` is on -- the scheduled counterpart to `dispatch()`'s
+   * write-path syncs, run by the `storageDailyBackup` task on the cron entry `models/jobs.ts` seeds
+   * for it.
+   *
+   * Only the `disk` module implements `dailyBackup` today (see `modules/storage/disk/storage.ts`),
+   * but the check here is deliberately generic: any target whose module exports a `dailyBackup`
+   * handler and whose config opts in is run, no matter which module. A target is skipped, not run,
+   * when:
+   *  - it is disabled (`isEnabled` false) -- a target an admin turned off should not keep backing up;
+   *  - `config.createDailyBackups` is not exactly `true` -- the whole point of the prop;
+   *  - its module has no `dailyBackup` handler -- nothing to call.
+   *
+   * A single target's failure (e.g. its path became unwritable) is logged and does not stop the rest,
+   * for the same reason `tickScheduledSyncs()` isolates its own per-target loop: one bad target must
+   * not turn into every other site's backup silently not running tonight.
+   *
+   * @returns How many targets' backups ran successfully, and how many failed
+   */
+  async runDailyBackups(): Promise<{ ran: number; failed: number }> {
+    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    let ran = 0
+    let failed = 0
+    for (const site of sites) {
+      const targets = await this.getSiteTargets(site.id)
+      for (const target of targets) {
+        if (!target.isEnabled || target.config.createDailyBackups !== true) {
+          continue
+        }
+        const mod = await this.ensureModule(target.module)
+        if (!mod || typeof mod.dailyBackup !== 'function') {
+          continue
+        }
+        try {
+          await mod.dailyBackup(target)
+          ran++
+        } catch (err: any) {
+          failed++
+          WIKI.logger.warn(
+            `Daily backup failed for storage target ${target.title} (site ${site.id}): ${err.message}`
+          )
+        }
+      }
+    }
+    return { ran, failed }
+  }
+
+  /**
    * Ensure a module's implementation is loaded
    *
    * @returns The implementation, or null when the module has none or it failed to load

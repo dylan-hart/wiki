@@ -4,7 +4,13 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
-import diskStorageModule, { validateConfig, dump, backup } from './storage.ts'
+import diskStorageModule, {
+  validateConfig,
+  dump,
+  backup,
+  dailyBackup,
+  pruneDailyBackups
+} from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
 /**
@@ -16,9 +22,17 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * `listSiteEntries` builds is enough to drive it.
  */
 before(async () => {
+  // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
+  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime. The
+  //    package polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
+  //    `Date.prototype.toTemporalInstant()` -- `pruneDailyBackups()` uses that conversion (this
+  //    codebase's documented convention, see CLAUDE.md), so it is patched on here too.
   if (typeof Temporal === 'undefined') {
     const polyfill = await import('@js-temporal/polyfill')
     ;(globalThis as any).Temporal = polyfill.Temporal
+    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+      return polyfill.toTemporalInstant.call(this)
+    }
   }
 })
 
@@ -58,8 +72,13 @@ function fakeDumpDeps({
   } as unknown as WikiGlobal
 }
 
-test('diskStorageModule declares validateConfig, dump and backup', () => {
-  assert.deepEqual(Object.keys(diskStorageModule).sort(), ['backup', 'dump', 'validateConfig'])
+test('diskStorageModule declares validateConfig, dump, backup and dailyBackup', () => {
+  assert.deepEqual(Object.keys(diskStorageModule).sort(), [
+    'backup',
+    'dailyBackup',
+    'dump',
+    'validateConfig'
+  ])
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -326,6 +345,133 @@ test('backup throws a clear error when _manual cannot be created (path unwritabl
   await fs.writeFile(path.join(dir, '_manual'), 'not a directory')
   try {
     await assert.rejects(backup(makeTarget(dir)), /Failed to create.*_manual/)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------------------------------------
+// dailyBackup() / pruneDailyBackups()
+// ---------------------------------------------------------------------------------------------
+
+test('dailyBackup creates the _daily folder and a timestamped tar.gz containing what was on disk', async () => {
+  const dir = await makeTempDir()
+  await fs.mkdir(path.join(dir, 'en'), { recursive: true })
+  await fs.writeFile(path.join(dir, 'en', 'home.md'), '# Hello')
+
+  try {
+    await dailyBackup(makeTarget(dir))
+
+    const dailyDir = path.join(dir, '_daily')
+    const archives = await fs.readdir(dailyDir)
+    assert.equal(archives.length, 1)
+    assert.match(archives[0], /^[\d-]+T[\d-]+Z\.tar\.gz$/)
+
+    const entries: string[] = []
+    await listTarball({
+      file: path.join(dailyDir, archives[0]),
+      onReadEntry: (entry: { path: string }) => entries.push(entry.path)
+    })
+    assert.ok(entries.includes('en/home.md'), 'expected the locale folder contents in the archive')
+    assert.ok(
+      !entries.some((entry) => entry.startsWith('_daily') || entry.startsWith('_manual')),
+      'expected both backup folders to be excluded from the archive'
+    )
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('pruneDailyBackups does nothing when the _daily folder does not exist yet', async () => {
+  const dir = await makeTempDir()
+  try {
+    await assert.doesNotReject(pruneDailyBackups(path.join(dir, '_daily')))
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('pruneDailyBackups keeps an archive under 30 days old', async () => {
+  const dailyDir = await makeTempDir()
+  const archive = path.join(dailyDir, '2026-01-01T00-00-00Z.tar.gz')
+  await fs.writeFile(archive, 'archive')
+  const now = Temporal.Now.instant()
+  const mtime = now.subtract({ hours: 30 * 24 - 1 })
+  await fs.utimes(archive, new Date(mtime.epochMilliseconds), new Date(mtime.epochMilliseconds))
+
+  try {
+    await pruneDailyBackups(dailyDir, now)
+    assert.deepEqual(await fs.readdir(dailyDir), ['2026-01-01T00-00-00Z.tar.gz'])
+  } finally {
+    await fs.rm(dailyDir, { recursive: true, force: true })
+  }
+})
+
+test('pruneDailyBackups removes an archive exactly 30 days old (the retention boundary)', async () => {
+  const dailyDir = await makeTempDir()
+  const archive = path.join(dailyDir, '2026-01-01T00-00-00Z.tar.gz')
+  await fs.writeFile(archive, 'archive')
+  const now = Temporal.Now.instant()
+  const mtime = now.subtract({ hours: 30 * 24 })
+  await fs.utimes(archive, new Date(mtime.epochMilliseconds), new Date(mtime.epochMilliseconds))
+
+  try {
+    await pruneDailyBackups(dailyDir, now)
+    assert.deepEqual(await fs.readdir(dailyDir), [])
+  } finally {
+    await fs.rm(dailyDir, { recursive: true, force: true })
+  }
+})
+
+test('pruneDailyBackups removes an archive well over 30 days old', async () => {
+  const dailyDir = await makeTempDir()
+  const archive = path.join(dailyDir, '2025-01-01T00-00-00Z.tar.gz')
+  await fs.writeFile(archive, 'archive')
+  const now = Temporal.Now.instant()
+  const mtime = now.subtract({ hours: 30 * 24 + 24 })
+  await fs.utimes(archive, new Date(mtime.epochMilliseconds), new Date(mtime.epochMilliseconds))
+
+  try {
+    await pruneDailyBackups(dailyDir, now)
+    assert.deepEqual(await fs.readdir(dailyDir), [])
+  } finally {
+    await fs.rm(dailyDir, { recursive: true, force: true })
+  }
+})
+
+test('pruneDailyBackups ignores non-tar.gz entries', async () => {
+  const dailyDir = await makeTempDir()
+  const stray = path.join(dailyDir, 'readme.txt')
+  await fs.writeFile(stray, 'not an archive')
+  const now = Temporal.Now.instant()
+  const oldMtime = new Date(now.subtract({ hours: 30 * 24 + 24 }).epochMilliseconds)
+  await fs.utimes(stray, oldMtime, oldMtime)
+
+  try {
+    await pruneDailyBackups(dailyDir, now)
+    assert.deepEqual(await fs.readdir(dailyDir), ['readme.txt'])
+  } finally {
+    await fs.rm(dailyDir, { recursive: true, force: true })
+  }
+})
+
+test('dailyBackup prunes stale archives after writing the new one', async () => {
+  const dir = await makeTempDir()
+  await fs.writeFile(path.join(dir, 'note.txt'), 'content')
+  const dailyDir = path.join(dir, '_daily')
+  await fs.mkdir(dailyDir, { recursive: true })
+  const stale = path.join(dailyDir, '2020-01-01T00-00-00Z.tar.gz')
+  await fs.writeFile(stale, 'old archive')
+  const staleMtime = new Date(
+    Temporal.Now.instant().subtract({ hours: 30 * 24 + 1 }).epochMilliseconds
+  )
+  await fs.utimes(stale, staleMtime, staleMtime)
+
+  try {
+    await dailyBackup(makeTarget(dir))
+    const archives = await fs.readdir(dailyDir)
+    assert.equal(archives.length, 1, 'expected the stale archive pruned and only the new one left')
+    assert.ok(!archives.includes('2020-01-01T00-00-00Z.tar.gz'))
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }

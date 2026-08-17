@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
@@ -534,4 +535,191 @@ test('tickScheduledSyncs logs and skips a target with an unparseable schedule ov
   const queued = await storage.tickScheduledSyncs()
   assert.equal(queued, 0)
   assert.equal(jobs.length, 0)
+})
+
+// ---------------------------------------------------------------------------------------------
+// runDailyBackups()
+// ---------------------------------------------------------------------------------------------
+
+/** Builds a raw `storage` row for the `disk` module, with `config.createDailyBackups` settable. */
+function makeDiskRow(
+  siteId: string,
+  overrides: { isEnabled?: boolean; createDailyBackups?: boolean } = {}
+) {
+  return {
+    id: `target-disk-${siteId}`,
+    siteId,
+    module: 'disk',
+    isEnabled: overrides.isEnabled ?? true,
+    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    assetDelivery: { streaming: false, directAccess: false },
+    versioning: { enabled: false },
+    syncMode: storage.getDefinition('disk')!.defaultMode,
+    scheduleOverride: null,
+    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false },
+    state: {}
+  }
+}
+
+/**
+ * Points `WIKI.db` at fakes answering both queries `runDailyBackups()` makes: the sites list (via
+ * `.from(sitesTable)`), and each site's storage rows in turn (via `getSiteTargets` -> `getTargets` ->
+ * `.from(storageTable).where(...)`) — matched by call order rather than by inspecting the drizzle
+ * `where()` expression, since `runDailyBackups()` is known to query one site right after another, in
+ * the same order `sites` lists them.
+ */
+function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
+  const warnings: string[] = []
+  let call = 0
+  global.WIKI = {
+    ...global.WIKI,
+    db: {
+      select: () => ({
+        from: (table: any) => {
+          if (table === sitesTable) {
+            return Promise.resolve(sites)
+          }
+          const rows = rowsPerSite[call] ?? []
+          call++
+          return { where: () => Promise.resolve(rows) }
+        }
+      })
+    },
+    logger: { ...global.WIKI.logger, warn: (msg: string) => warnings.push(msg) }
+  } as unknown as WikiGlobal
+  return { warnings }
+}
+
+/**
+ * Swaps `storage.modules['disk']` for a fake `dailyBackup` implementation for the duration of `fn`,
+ * bypassing `ensureModule()`'s real dynamic import (and therefore the real filesystem) entirely --
+ * `ensureModule()` returns whatever already sits in `this.modules[key]` before it ever consults a
+ * definition or imports anything, so pre-seeding the cache is enough. Restores whatever was cached
+ * before (nothing, on a fresh `storage` instance) afterwards, even if `fn` throws.
+ */
+async function withFakeDiskModule(
+  dailyBackup: (target: StorageTarget) => Promise<void>,
+  fn: () => Promise<void>
+): Promise<void> {
+  const original = storage.modules.disk
+  storage.modules.disk = { dailyBackup }
+  try {
+    await fn()
+  } finally {
+    if (original) {
+      storage.modules.disk = original
+    } else {
+      delete storage.modules.disk
+    }
+  }
+}
+
+test('runDailyBackups skips a disabled disk target even when createDailyBackups is on', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [[makeDiskRow('site-1', { isEnabled: false, createDailyBackups: true })]]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 0, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls, [])
+})
+
+test('runDailyBackups skips an enabled disk target whose createDailyBackups is off', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [[makeDiskRow('site-1', { isEnabled: true, createDailyBackups: false })]]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 0, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls, [])
+})
+
+test('runDailyBackups runs dailyBackup for every enabled disk target with createDailyBackups on, across sites', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }, { id: 'site-2' }],
+    [
+      [makeDiskRow('site-1', { isEnabled: true, createDailyBackups: true })],
+      [makeDiskRow('site-2', { isEnabled: true, createDailyBackups: true })]
+    ]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 2, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls.sort(), ['site-1', 'site-2'])
+})
+
+test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [
+      [
+        {
+          id: 'target-db-site-1',
+          siteId: 'site-1',
+          module: 'db',
+          isEnabled: true,
+          contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+          assetDelivery: { streaming: false, directAccess: false },
+          versioning: { enabled: false },
+          syncMode: storage.getDefinition('db')!.defaultMode,
+          scheduleOverride: null,
+          // -> `db` has no `createDailyBackups` prop at all, but even if a config blob somehow had
+          //    one set, the db module declares no `dailyBackup` handler -- nothing to call
+          config: { createDailyBackups: true },
+          state: {}
+        }
+      ]
+    ]
+  )
+  const result = await storage.runDailyBackups()
+  assert.deepEqual(result, { ran: 0, failed: 0 })
+})
+
+test('runDailyBackups logs and continues past a target whose dailyBackup throws, without failing the others', async () => {
+  const { warnings } = fakeDailyBackupDeps(
+    [{ id: 'site-1' }, { id: 'site-2' }],
+    [
+      [makeDiskRow('site-1', { isEnabled: true, createDailyBackups: true })],
+      [makeDiskRow('site-2', { isEnabled: true, createDailyBackups: true })]
+    ]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+      if (target.siteId === 'site-1') {
+        throw new Error('disk full')
+      }
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 1, failed: 1 })
+    }
+  )
+  assert.deepEqual(calls.sort(), ['site-1', 'site-2'])
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /disk full/)
 })
