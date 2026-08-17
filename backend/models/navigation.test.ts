@@ -352,6 +352,327 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * The cascade `UPDATE` (navigation.ts:260-284) in isolation from the mode-decision logic already
+   * covered above: each case builds its own multi-level tree (at least 3 levels deep, with a branch
+   * and a sub-branch) and asserts directly against the persisted `tree` rows, since the cascade's
+   * entire effect is on rows `updateNavigation()` never returns.
+   */
+  describe('cascade UPDATE across a multi-level tree', () => {
+    test('(a) override cascades navigationId to every inherit-mode descendant beneath it, at every depth', async () => {
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-a-root',
+        type: 'folder'
+      })
+      const branch = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-a-root/branch',
+        type: 'folder'
+      })
+      const subBranch = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-a-root/branch/sub',
+        type: 'folder'
+      })
+      const leaf = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-a-root/branch/sub/leaf'
+      })
+      const siblingLeaf = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-a-root/branch/sibling-leaf'
+      })
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: root.id,
+        mode: 'override'
+      })
+
+      for (const entry of [branch, subBranch, leaf, siblingLeaf]) {
+        const [row] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, entry.id))
+        assert.equal(
+          row!.navigationId,
+          navigationId,
+          `${entry.fileName} should pick up the cascade`
+        )
+        assert.equal(row!.navigationMode, 'inherit')
+      }
+    })
+
+    test('(b) a nearer override/hide several levels down blocks the cascade for itself and everything beneath it', async () => {
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root',
+        type: 'folder'
+      })
+      const branch = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch',
+        type: 'folder'
+      })
+
+      const nearerOverrideNavId = randomUUID()
+      const nearerOverride = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch/nearer-override',
+        type: 'folder',
+        navigationMode: 'override',
+        navigationId: nearerOverrideNavId
+      })
+      const belowOverrideSentinel = randomUUID()
+      const belowOverride = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch/nearer-override/child',
+        type: 'folder',
+        navigationId: belowOverrideSentinel
+      })
+      const deeperBelowOverrideSentinel = randomUUID()
+      const deeperBelowOverride = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch/nearer-override/child/grandchild',
+        navigationId: deeperBelowOverrideSentinel
+      })
+
+      const nearerHide = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch/nearer-hide',
+        type: 'folder',
+        navigationMode: 'hide',
+        navigationId: null
+      })
+      const belowHideSentinel = randomUUID()
+      const belowHide = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-b-root/branch/nearer-hide/child',
+        navigationId: belowHideSentinel
+      })
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: root.id,
+        mode: 'override'
+      })
+
+      // -> branch itself has no nearer override/hide above it (other than root, the source of the
+      //    cascade), so it picks up the cascade normally.
+      const [branchRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, branch.id))
+      assert.equal(branchRow!.navigationId, navigationId)
+
+      // -> The nearer-override entry's own row: excluded outright by the WHERE clause's
+      //    navigationMode = 'inherit' filter, since its mode is 'override', not touched by this
+      //    ancestor's cascade.
+      const [nearerOverrideRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, nearerOverride.id))
+      assert.equal(nearerOverrideRow!.navigationId, nearerOverrideNavId)
+      assert.equal(nearerOverrideRow!.navigationMode, 'override')
+
+      // -> Everything beneath the nearer override — the NOT EXISTS guard's actual job — stays
+      //    exactly as seeded, at both depths.
+      const [belowOverrideRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, belowOverride.id))
+      assert.equal(belowOverrideRow!.navigationId, belowOverrideSentinel)
+
+      const [deeperRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, deeperBelowOverride.id))
+      assert.equal(deeperRow!.navigationId, deeperBelowOverrideSentinel)
+
+      // -> Same guard, but for a nearer 'hide' rather than 'override'.
+      const [nearerHideRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, nearerHide.id))
+      assert.equal(nearerHideRow!.navigationMode, 'hide')
+      assert.equal(nearerHideRow!.navigationId, null)
+
+      const [belowHideRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, belowHide.id))
+      assert.equal(belowHideRow!.navigationId, belowHideSentinel)
+    })
+
+    test('(c) switching a cascading entry back to inherit hands its descendants to the next ancestor up, respecting nearer overrides beneath it', async () => {
+      const rootNavId = randomUUID()
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root',
+        type: 'folder',
+        navigationMode: 'override',
+        navigationId: rootNavId
+      })
+      const midNavId = randomUUID()
+      // -> `mid` starts out cascading in its own right (mode 'override'); `child`/`grandchild` below
+      //    it hold `midNavId` because a prior cascade from `mid` put it there.
+      const mid = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root/mid',
+        type: 'folder',
+        navigationMode: 'override',
+        navigationId: midNavId
+      })
+      const child = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root/mid/child',
+        type: 'folder',
+        navigationId: midNavId
+      })
+      const grandchild = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root/mid/child/grandchild',
+        navigationId: midNavId
+      })
+      const nearerOverrideNavId = randomUUID()
+      const nearerOverride = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root/mid/nearer-override',
+        type: 'folder',
+        navigationMode: 'override',
+        navigationId: nearerOverrideNavId
+      })
+      const deepUnderNearer = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-c-root/mid/nearer-override/deep',
+        navigationId: nearerOverrideNavId
+      })
+
+      const { navigationMode, navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: mid.id,
+        mode: 'inherit'
+      })
+
+      assert.equal(navigationMode, 'inherit')
+      // -> The next ancestor up is `root`, still on 'override' — that's what `mid` and its
+      //    still-inheriting descendants hand off to.
+      assert.equal(navigationId, rootNavId)
+
+      const [childRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, child.id))
+      assert.equal(childRow!.navigationId, rootNavId)
+      assert.equal(childRow!.navigationMode, 'inherit')
+
+      const [grandchildRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, grandchild.id))
+      assert.equal(grandchildRow!.navigationId, rootNavId)
+
+      // -> The nearer override nested under `mid` is untouched by `mid`'s own transition (its mode
+      //    isn't 'inherit')...
+      const [nearerOverrideRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, nearerOverride.id))
+      assert.equal(nearerOverrideRow!.navigationId, nearerOverrideNavId)
+      assert.equal(nearerOverrideRow!.navigationMode, 'override')
+
+      // -> ...and it still shields what's beneath it: `mid` handing its subtree back to `root` does
+      //    not reach past the nearer override in between.
+      const [deepRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, deepUnderNearer.id))
+      assert.equal(deepRow!.navigationId, nearerOverrideNavId)
+
+      // -> `root` itself is above `mid`, outside `mid`'s cascade scope entirely — untouched.
+      const [rootRow] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, root.id))
+      assert.equal(rootRow!.navigationId, rootNavId)
+      assert.equal(rootRow!.navigationMode, 'override')
+    })
+
+    test('(d) a sibling branch outside the target subtree is never touched (folderPath <@ fullPath::ltree scoping)', async () => {
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-d-root',
+        type: 'folder'
+      })
+      const siblingSentinel = randomUUID()
+      const sibling = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-d-sibling',
+        type: 'folder',
+        navigationId: siblingSentinel
+      })
+      const siblingChildSentinel = randomUUID()
+      const siblingChild = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-d-sibling/leaf',
+        navigationId: siblingChildSentinel
+      })
+
+      await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: root.id,
+        mode: 'override'
+      })
+
+      const [siblingRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, sibling.id))
+      assert.equal(siblingRow!.navigationId, siblingSentinel)
+      assert.equal(siblingRow!.navigationMode, 'inherit')
+
+      const [siblingChildRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, siblingChild.id))
+      assert.equal(siblingChildRow!.navigationId, siblingChildSentinel)
+    })
+
+    test('(e) tree entries of type asset are excluded from the cascade even when otherwise eligible', async () => {
+      const root = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-e-root',
+        type: 'folder'
+      })
+      const branch = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-e-root/branch',
+        type: 'folder'
+      })
+      const assetSentinel = randomUUID()
+      const asset = await seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: 'cascade-e-root/branch/image',
+        type: 'asset',
+        navigationId: assetSentinel
+      })
+
+      const { navigationId } = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: root.id,
+        mode: 'override'
+      })
+
+      const [branchRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, branch.id))
+      assert.equal(branchRow!.navigationId, navigationId)
+
+      const [assetRow] = await fixtures.db
+        .select()
+        .from(treeTable)
+        .where(eq(treeTable.id, asset.id))
+      assert.equal(assetRow!.navigationId, assetSentinel)
+      assert.equal(assetRow!.navigationMode, 'inherit')
+    })
+  })
+
+  /**
    * `items`-target routing (navigation.ts:199-218): which menu a page's saved items land in is the
    * *mode's* answer, not the entry's own id — except when that would mean nowhere at all.
    */
