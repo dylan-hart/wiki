@@ -393,6 +393,43 @@
             </w-item>
           </template>
         </w-card>
+        <!-- ----------------------- -->
+        <!-- CSP -->
+        <!-- ----------------------- -->
+        <w-card class="pb-2 mt-4">
+          <w-card-header>{{ t('admin.security.csp') }}</w-card-header>
+          <w-item tag="label">
+            <blueprint-icon icon="data-protection" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.security.enforceCsp`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.security.enforceCspHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.config.enforceCsp"
+                :aria-label="t(`admin.security.enforceCsp`)" />
+            </w-item-section>
+          </w-item>
+          <template v-if="state.config.enforceCsp">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="code-file" key="cspDirectives" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.cspDirectives`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.security.cspDirectivesHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-input
+                  outlined
+                  v-model="state.config.cspDirectives"
+                  dense
+                  type="textarea"
+                  :placeholder="t(`admin.security.cspDirectivesPlaceholder`)"
+                  :aria-label="t(`admin.security.cspDirectives`)" />
+              </w-item-section>
+            </w-item>
+          </template>
+        </w-card>
       </div>
     </div>
   </w-page>
