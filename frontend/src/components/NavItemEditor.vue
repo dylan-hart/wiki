@@ -98,6 +98,18 @@
                   <w-item-label>{{ t('navEdit.clearItems') }}</w-item-label>
                 </w-item-section>
               </w-item>
+              <!--
+                Hidden rather than disabled when there is nothing to copy from -- a single-locale site
+                with no other enabled site has no picker this could open onto.
+              -->
+              <w-item clickable @click="openCopyDialog" v-if="canCopyFrom">
+                <w-item-section side>
+                  <w-icon name="mdi:import" />
+                </w-item-section>
+                <w-item-section>
+                  <w-item-label>{{ t('navEdit.copyFrom') }}</w-item-label>
+                </w-item-section>
+              </w-item>
             </w-list>
           </w-menu>
         </w-btn>
@@ -509,7 +521,11 @@ const state = reactive({
     visibilityLimited: false,
     isNested: false
   },
-  groups: []
+  groups: [],
+  /** This site's default-menu roots, one per active locale -- what "Copy from..." offers same-site. */
+  copyLocales: [],
+  /** Other enabled sites -- what "Copy from..." offers for the cross-site case. */
+  copyOtherSites: []
 })
 
 /**
@@ -549,6 +565,13 @@ const currentIsParent = computed(() => {
   const idx = state.items.findIndex((it) => it.id === item.id)
   return idx >= 0 && Boolean(state.items[idx + 1]?.isNested)
 })
+
+/**
+ * Whether "Copy from..." has anything to offer: another locale of this site's own default menu, or
+ * another enabled site (any of its locales). Hidden entirely rather than shown disabled when neither
+ * holds, per the edge case a single-locale, single-site instance is in by default.
+ */
+const canCopyFrom = computed(() => state.copyLocales.length > 1 || state.copyOtherSites.length > 0)
 
 const thumbStyle = {
   right: '2px',
@@ -752,9 +775,90 @@ function buildSaveItems() {
   return items
 }
 
+/**
+ * Fetches what "Copy from..." needs to decide whether it has anything to offer, and to populate its
+ * picker without asking the server the same two questions again once opened: this site's own
+ * default-menu roots (`GET .../navigation/roots`) and the list of other enabled sites (`GET /sites`).
+ *
+ * Failures are swallowed rather than surfaced via `notify()` -- unlike the group list, losing this
+ * only hides an action, it does not break anything already on screen. The two calls are settled
+ * independently so that a site list the current user cannot read (it needs `read:sites` /
+ * `access:admin`, not just the `manage:navigation` this whole editor already requires) does not also
+ * take down the same-site "copy from another locale" case, which needs neither.
+ */
+async function loadCopySources() {
+  state.loading++
+  // -> Wrapped as a whole, not just around the `await`: `API_CLIENT.get()` itself can throw
+  //    synchronously (a bad client-side call, or a test double standing in for a network error)
+  //    before `Promise.allSettled` ever gets to run, which would otherwise skip `state.loading--`
+  //    below and leave the editor stuck looking busy forever
+  try {
+    const [rootsResult, sitesResult] = await Promise.allSettled([
+      API_CLIENT.get(`sites/${props.siteId}/navigation/roots`).json(),
+      API_CLIENT.get('sites').json()
+    ])
+    state.copyLocales = rootsResult.status === 'fulfilled' ? (rootsResult.value ?? []) : []
+    state.copyOtherSites =
+      sitesResult.status === 'fulfilled'
+        ? (sitesResult.value ?? []).filter((site) => site.id !== props.siteId && site.isEnabled)
+        : []
+  } catch {
+    state.copyLocales = []
+    state.copyOtherSites = []
+  }
+  state.loading--
+}
+
+/** Opens the source picker, then runs the copy against whatever it answers with. */
+function openCopyDialog() {
+  dialog({
+    component: defineAsyncComponent(() => import('./CopyNavItemsDialog.vue')),
+    componentProps: {
+      siteId: props.siteId,
+      navId: props.navId,
+      locales: state.copyLocales,
+      otherSites: state.copyOtherSites
+    }
+  }).onOk(({ sourceSiteId, sourceNavId }) => copyFrom(sourceSiteId, sourceNavId))
+}
+
+/**
+ * Appends a source menu's items onto this one, matching 2.5.x's merge-onto-existing "copy from
+ * locale" behavior -- `replace` is not offered from here, since this editor always already has a
+ * loaded, editable list of its own, and appending is the natural fit for that.
+ *
+ * Reloads from the server afterwards rather than splicing the response in locally, and warns the
+ * admin to check the copied items: item `target` paths travel over unrewritten (a page path valid in
+ * the source locale or site is not guaranteed to mean anything in this one), which is the same
+ * best-effort limitation 2.5.x had.
+ */
+async function copyFrom(sourceSiteId, sourceNavId) {
+  state.loading++
+  try {
+    const resp = await API_CLIENT.post(`sites/${props.siteId}/navigation/${props.navId}/copy`, {
+      json: { sourceSiteId, sourceNavId, mode: 'append' }
+    }).json()
+    // -> The API client does not throw on 400, so a refusal comes back as a parsed error
+    if (resp?.ok === false) {
+      throw new Error(resp.message || 'An unexpected error occured.')
+    }
+    await loadMenuItems()
+    notify({
+      type: 'warning',
+      message: t('navEdit.copyFromWarn')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, 'An unexpected error occured.')
+    })
+  }
+  state.loading--
+}
+
 /** Reloads the menu's items and the group list — the host calls this once `navId` is known. */
 async function load() {
-  await Promise.all([loadMenuItems(), loadGroups()])
+  await Promise.all([loadMenuItems(), loadGroups(), loadCopySources()])
 }
 
 // EXPOSED
