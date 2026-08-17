@@ -368,6 +368,57 @@ class PageHistory {
   }
 
   /**
+   * One deleted version by id, in full — the row {@link recoverDeletedPage} rebuilds a page from.
+   *
+   * Exposed separately from `recoverDeletedPage` so a caller can inspect a version — its path and
+   * locale, most usefully — before deciding whether to actually recover it. The REST route asks this
+   * first, to check `write:pages` against the *target* path ahead of the write, and to answer 404
+   * cleanly for an id that names no recoverable version.
+   *
+   * @returns The version, or null when no `deleted` version exists at this id for this site.
+   */
+  async getDeletedVersion(
+    siteId: string,
+    versionId: string
+  ): Promise<{
+    path: string
+    locale: string
+    title: string
+    content: string
+    meta: Record<string, any>
+  } | null> {
+    const rows = await WIKI.db
+      .select({
+        path: pageHistoryTable.path,
+        locale: pageHistoryTable.locale,
+        title: pageHistoryTable.title,
+        content: pageHistoryTable.content,
+        meta: pageHistoryTable.meta
+      })
+      .from(pageHistoryTable)
+      .where(
+        and(
+          eq(pageHistoryTable.siteId, siteId),
+          eq(pageHistoryTable.id, versionId),
+          eq(pageHistoryTable.action, 'deleted')
+        )
+      )
+      .limit(1)
+
+    const row: any = rows[0]
+    if (!row) {
+      return null
+    }
+    return {
+      path: row.path,
+      locale: row.locale,
+      title: row.title,
+      content: row.content ?? '',
+      meta: (row.meta ?? {}) as Record<string, any>
+    }
+  }
+
+  /**
    * Bring a deleted page back, as a new page built from one specific deleted version.
    *
    * Looked up by `id` rather than "the latest deletion at this path", so a caller acting on a
@@ -389,25 +440,7 @@ class PageHistory {
     actor: PageActor,
     overrides?: { path?: string; locale?: string }
   ): Promise<Page> {
-    const rows = await WIKI.db
-      .select({
-        path: pageHistoryTable.path,
-        locale: pageHistoryTable.locale,
-        title: pageHistoryTable.title,
-        content: pageHistoryTable.content,
-        meta: pageHistoryTable.meta
-      })
-      .from(pageHistoryTable)
-      .where(
-        and(
-          eq(pageHistoryTable.siteId, siteId),
-          eq(pageHistoryTable.id, versionId),
-          eq(pageHistoryTable.action, 'deleted')
-        )
-      )
-      .limit(1)
-
-    const row: any = rows[0]
+    const row = await this.getDeletedVersion(siteId, versionId)
     if (!row) {
       throw new CustomError(
         'pageHistoryVersionNotFound',
@@ -416,7 +449,7 @@ class PageHistory {
       )
     }
 
-    const meta = (row.meta ?? {}) as Record<string, any>
+    const meta = row.meta
     const config = (meta.config ?? {}) as Record<string, any>
     const scripts = (meta.scripts ?? {}) as Record<string, any>
 
