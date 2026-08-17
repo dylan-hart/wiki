@@ -190,6 +190,13 @@ async function create(input: {
   return record
 }
 
+const emittedEvents: { event: string; data: Record<string, any> }[] = []
+
+async function emit(event: string, data: Record<string, any> = {}) {
+  emittedEvents.push({ event, data })
+  return 1
+}
+
 let app: FastifyInstance
 
 before(async () => {
@@ -203,7 +210,8 @@ before(async () => {
         get: getComment,
         update: updateComment,
         delete: deleteComment
-      }
+      },
+      hooks: { emit }
     }
   }
 
@@ -237,6 +245,7 @@ beforeEach(() => {
   commentsById = freshComments()
   updatedIds.length = 0
   deletedIds.length = 0
+  emittedEvents.length = 0
 })
 
 test('GET list: 404 when the page does not exist', async () => {
@@ -415,6 +424,30 @@ test('POST create: 200 creates a top-level comment and includes authorEmail', as
   assert.equal(body.authorEmail, 'author@example.com')
   assert.equal(created.length, 1)
   assert.equal(created[0].authorId, 'user-1')
+
+  // -> Task 610: creating a comment queues a `comment:new` webhook event.
+  assert.equal(emittedEvents.length, 1)
+  assert.equal(emittedEvents[0].event, 'comment:new')
+  assert.equal(emittedEvents[0].data.id, body.id)
+  assert.equal(emittedEvents[0].data.pageId, PAGE_ID)
+  assert.equal(emittedEvents[0].data.siteId, SITE_ID)
+  assert.equal(emittedEvents[0].data.authorId, 'user-1')
+  assert.equal(emittedEvents[0].data.isGuest, false)
+  assert.equal(emittedEvents[0].data.content, 'Hello, world')
+})
+
+test('POST create: guest comment emits comment:new with isGuest true and a null authorId', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+    headers: { 'x-test-permissions': 'read:pages,write:comments' },
+    payload: { content: 'Hi', guestName: 'Casey', guestEmail: 'casey@example.com' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(emittedEvents.length, 1)
+  assert.equal(emittedEvents[0].event, 'comment:new')
+  assert.equal(emittedEvents[0].data.authorId, null)
+  assert.equal(emittedEvents[0].data.isGuest, true)
 })
 
 test('POST create: 200 creates a reply to an existing comment on the same page', async () => {
@@ -558,6 +591,15 @@ test('PATCH: 200 returns the updated comment with the new content', async () => 
   assert.equal(body.id, EXISTING_COMMENT_ID)
   assert.equal(body.content, 'Updated content')
   assert.deepEqual(updatedIds, [EXISTING_COMMENT_ID])
+
+  // -> Task 610: editing a comment queues a `comment:edit` webhook event.
+  assert.equal(emittedEvents.length, 1)
+  assert.equal(emittedEvents[0].event, 'comment:edit')
+  assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)
+  assert.equal(emittedEvents[0].data.pageId, PAGE_ID)
+  assert.equal(emittedEvents[0].data.siteId, SITE_ID)
+  assert.equal(emittedEvents[0].data.authorId, 'author-1')
+  assert.equal(emittedEvents[0].data.content, 'Updated content')
 })
 
 test('DELETE: 204 and actually removes the comment', async () => {
@@ -568,4 +610,11 @@ test('DELETE: 204 and actually removes the comment', async () => {
   })
   assert.equal(res.statusCode, 204)
   assert.deepEqual(deletedIds, [EXISTING_COMMENT_ID])
+
+  // -> Task 610: deleting a comment queues a `comment:delete` webhook event.
+  assert.equal(emittedEvents.length, 1)
+  assert.equal(emittedEvents[0].event, 'comment:delete')
+  assert.equal(emittedEvents[0].data.id, EXISTING_COMMENT_ID)
+  assert.equal(emittedEvents[0].data.pageId, PAGE_ID)
+  assert.equal(emittedEvents[0].data.siteId, SITE_ID)
 })

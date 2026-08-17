@@ -78,6 +78,49 @@ function commentsModel(): CommentsModel {
 }
 
 /**
+ * Queue `comment:new` / `comment:edit` / `comment:delete` webhook deliveries (task 610).
+ *
+ * The convention elsewhere (`models/pages.ts`'s `page:create` et al., `models/assets.ts`'s
+ * `asset:upload` et al.) is to call `WIKI.models.hooks.emit()` from inside the model's write
+ * methods, so every caller of the model gets the event, not just one REST route. That is exactly
+ * where this belongs too — but `models/comments.ts` is Feature #389's file (see the `CommentRecord`
+ * contract comment above) and does not exist on this branch, so there is nowhere in a model to put
+ * it. This route is presently the only way anything on this branch writes a comment, so calling it
+ * here is functionally equivalent for now. FLAG FOR INTEGRATION: once #389 lands and a real
+ * `models/comments.ts` exists, move these three `emit()` calls into its `create`/`update`/`delete`
+ * methods and delete this helper, matching the page/asset convention exactly.
+ *
+ * Payload mirrors the page/asset shape (`id`, `siteId`, `authorId`, `metadata`/`content`), plus
+ * `pageId` (comments are always scoped to a page) and `isGuest` — the `author.isGuest` convention
+ * already used by `models/approvals.ts`'s `ReviewableSubmission`, so a null `authorId` reads as "no
+ * account", not as a missing field. `content` is the comment body, split out from `metadata` the same
+ * way `hooks.emit()` splits every event's payload: a hook only receives it when its own
+ * `includeContent` is on.
+ */
+async function emitCommentEvent(
+  event: 'comment:new' | 'comment:edit' | 'comment:delete',
+  comment: CommentRecord
+): Promise<void> {
+  const base = {
+    id: comment.id,
+    pageId: comment.pageId,
+    siteId: comment.siteId,
+    authorId: comment.authorId,
+    isGuest: comment.authorId === null
+  }
+  await WIKI.models.hooks.emit(
+    event,
+    event === 'comment:delete'
+      ? base
+      : {
+          ...base,
+          metadata: { authorName: comment.authorName, replyTo: comment.replyTo },
+          content: comment.content
+        }
+  )
+}
+
+/**
  * A comment as this route hands it back, with `authorEmail` masked unless the caller asked to keep
  * it.
  *
@@ -325,6 +368,7 @@ async function routes(app: FastifyInstance) {
         guestEmail: actor ? null : req.body.guestEmail,
         guestIp: actor ? null : req.ip
       })
+      await emitCommentEvent('comment:new', comment)
       return toPublicComment(comment, { includeEmail: true })
     }
   )
@@ -382,6 +426,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const updated = await commentsModel().update(comment.id, { content: req.body.content })
+      await emitCommentEvent('comment:edit', updated)
       return toPublicComment(updated, { includeEmail: false })
     }
   )
@@ -435,6 +480,7 @@ async function routes(app: FastifyInstance) {
       }
 
       await commentsModel().delete(comment.id)
+      await emitCommentEvent('comment:delete', comment)
       return reply.code(204).send()
     }
   )

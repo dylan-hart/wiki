@@ -80,7 +80,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List the events a webhook can subscribe to',
         description:
-          'Only the `user:*` events are emitted at the moment. Pages, assets and comments are not implemented yet, so a subscription to those is stored but never triggered.',
+          'Every event listed here currently has an emit point (see `isEmitted` on each), so a subscription to any of them is triggered by the corresponding write.',
         tags: ['Webhooks'],
         response: {
           200: {
