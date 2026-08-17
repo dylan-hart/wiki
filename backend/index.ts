@@ -658,6 +658,10 @@ async function initHTTPServer() {
   app.register(import('./controllers/files.ts'), { prefix: '/_files' })
   app.register(import('./controllers/site.ts'), { prefix: '/_site' })
   app.register(import('./controllers/icons.ts'), { prefix: '/_icons' })
+  // -> Deliberate exception to the leading-underscore convention every other line here follows:
+  //    Prometheus scrapes a fixed, unprefixed `/metrics`. See `controllers/metrics.ts` for the full
+  //    scope decision (task 594).
+  app.register(import('./controllers/metrics.ts'), { prefix: '/metrics' })
   app.register(import('./controllers/render.ts'), { prefix: '/_render' })
   app.register(import('./controllers/terminal.ts'), { prefix: '/_terminal' })
   app.register(import('./controllers/thumb.ts'), { prefix: '/_thumb' })

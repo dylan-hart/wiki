@@ -23,9 +23,10 @@ import type { FastifyInstance } from 'fastify'
  * doing query work, so they are counted apart.
  *
  * Shared by the list route and the dashboard count, so that the number on the dashboard is the
- * number of rows the instances page shows.
+ * number of rows the instances page shows. Exported so `controllers/metrics.ts` can source
+ * `instancesTotal` from the same query rather than inventing a second one.
  */
-async function getInstances(): Promise<Record<string, any>[]> {
+export async function getInstances(): Promise<Record<string, any>[]> {
   const instRaw = await WIKI.db.execute(
     sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${WIKI.dbManager.dbName} AND application_name LIKE 'Wiki.js%'`
   )
@@ -753,7 +754,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get the metrics endpoint state',
         description:
-          'Whether the Prometheus metrics endpoint is turned on. The endpoint itself is not implemented yet — see the description of the PUT counterpart.',
+          'Whether the Prometheus metrics endpoint is turned on. The endpoint itself lives at `GET /metrics`, outside `/_api`, and requires its own bearer API key with `manage:system` — see the description of the PUT counterpart.',
         tags: ['System'],
         response: {
           200: {
@@ -785,7 +786,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Turn the metrics endpoint on or off',
         description:
-          'Stores the state and nothing more, for now: the `/metrics` endpoint it governs is not implemented, and its documented `read:metrics` bearer authentication depends on API keys, which are not implemented either.',
+          'Governs `GET /metrics`: while off, that route answers 404 for every caller regardless of credentials. While on, it requires a bearer API key carrying the `manage:system` global permission, verified the same way `/_api/*` verifies one.',
         tags: ['System'],
         body: {
           type: 'object',
