@@ -141,8 +141,8 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
 /**
  * `setNavItems` is what the admin-launched editor (Task 433) saves against: unlike
  * `updateNavigation`, it writes straight to a navigation row by id, with no page/mode resolution --
- * the caller (AdminNavigation.vue) already knows which row it means, either the site-wide default
- * (id === siteId) or an override's own `navigationId` from `listOverrides`.
+ * the caller (AdminNavigation.vue) already knows which row it means, either a site-wide default's own
+ * row id (from `ensureSiteNav`) or an override's own `navigationId` from `listOverrides`.
  */
 describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -161,12 +161,16 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     await teardownTestDb()
   })
 
-  test('writes to the site-wide default menu when navId is the site id', async () => {
+  test('writes to the site-wide default menu, addressed by its own row id', async () => {
     const items = [{ id: 'a', type: 'link' as const, label: 'Home', target: '/' }]
 
-    await navigationModel.setNavItems(fixtures.siteId, fixtures.siteId, items)
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    // -> The row is a real, freshly-generated id -- not the site id it belongs to
+    assert.notEqual(siteNavId, fixtures.siteId)
 
-    const stored = await navigationModel.getNav(fixtures.siteId, { unfiltered: true })
+    await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
+
+    const stored = await navigationModel.getNav(siteNavId, { unfiltered: true })
     assert.deepEqual(stored, items)
   })
 
@@ -194,10 +198,120 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.deepEqual(stored, items)
   })
 
-  test("rejects a navId that is not this site's own id and not a tree entry in this site", async () => {
+  test('rejects a navId that names neither an existing menu row of this site nor a tree entry in it', async () => {
     await assert.rejects(
       () => navigationModel.setNavItems(fixtures.siteId, crypto.randomUUID(), []),
       /does not exist/
     )
   })
 })
+
+/**
+ * The site-wide default menu is identified by `(siteId, locale)`, not by `id === siteId`: a site with
+ * more than one active locale needs a menu per locale, and each one's row id is a real, independently
+ * generated uuid rather than something a caller can derive from the site id.
+ */
+describe(
+  'navigation site-wide menu is locale-scoped (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let navigationModel: typeof import('./navigation.ts').navigation
+    let pagesModel: typeof import('./pages.ts').pages
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ navigation: navigationModel } = await import('./navigation.ts'))
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('ensureSiteNav is idempotent for the same (siteId, locale) -- the single-locale case behaves as before', async () => {
+      const first = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      const second = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      assert.equal(first, second)
+      assert.notEqual(first, fixtures.siteId)
+    })
+
+    test('ensureSiteNav returns a distinct row per locale of the same site', async () => {
+      const enNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      const frNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+      assert.notEqual(enNavId, frNavId)
+    })
+
+    test("a newly created page's navigationId resolves to its own locale's site-wide row", async () => {
+      const enPage = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'locale-scoped-en',
+          title: 'Locale Scoped EN',
+          editor: 'markdown',
+          content: '# Hello',
+          locale: 'en'
+        },
+        actor
+      )
+      const frPage = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'locale-scoped-fr',
+          title: 'Locale Scoped FR',
+          editor: 'markdown',
+          content: '# Bonjour',
+          locale: 'fr'
+        },
+        actor
+      )
+
+      const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      const frSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
+
+      assert.equal(enPage.navigationId, enSiteNavId)
+      assert.equal(frPage.navigationId, frSiteNavId)
+      assert.notEqual(enPage.navigationId, frPage.navigationId)
+    })
+
+    test("the home page of each locale edits that locale's own site-wide menu", async () => {
+      const enHome = await pagesModel.createPage(
+        fixtures.siteId,
+        { path: 'home', title: 'Home', editor: 'markdown', content: '# Home', locale: 'en' },
+        actor
+      )
+      const deHome = await pagesModel.createPage(
+        fixtures.siteId,
+        { path: 'home', title: 'Startseite', editor: 'markdown', content: '# Start', locale: 'de' },
+        actor
+      )
+
+      const enResult = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: enHome.id,
+        mode: 'override',
+        items: [{ id: 'en-item', type: 'link', label: 'EN', target: '/' }]
+      })
+      const deResult = await navigationModel.updateNavigation({
+        siteId: fixtures.siteId,
+        pageId: deHome.id,
+        mode: 'override',
+        items: [{ id: 'de-item', type: 'link', label: 'DE', target: '/' }]
+      })
+
+      assert.notEqual(enResult.navigationId, deResult.navigationId)
+
+      const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      const deSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'de')
+      assert.equal(enResult.navigationId, enSiteNavId)
+      assert.equal(deResult.navigationId, deSiteNavId)
+
+      const enItems = await navigationModel.getNav(enSiteNavId, { unfiltered: true })
+      const deItems = await navigationModel.getNav(deSiteNavId, { unfiltered: true })
+      assert.equal(enItems[0]!.label, 'EN')
+      assert.equal(deItems[0]!.label, 'DE')
+    })
+  }
+)

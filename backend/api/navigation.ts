@@ -38,8 +38,10 @@ function canManageNavigation(req: FastifyRequest): boolean {
 /**
  * Navigation API Routes
  *
- * A menu belongs to a tree entry that overrides it, or to the site itself for the one every page falls
- * back to — both addressed by the same id, which is why there is a single route to read one.
+ * A menu belongs to a tree entry that overrides it, addressed by that entry's own id, or to one
+ * locale of the site itself for the one every page in that locale falls back to, addressed by that
+ * row's own id (see `GET .../navigation/default`) rather than the site's — either way a single opaque
+ * id, which is why there is a single route to read one.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -146,6 +148,55 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * GET THE SITE-WIDE DEFAULT MENU'S ROW ID
+   */
+  app.get<{ Params: { siteId: string }; Querystring: { locale: string } }>(
+    '/sites/:siteId/navigation/default',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "Get a locale's site-wide default menu row id",
+        description:
+          "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            locale: { type: 'string' }
+          },
+          required: ['locale']
+        },
+        response: {
+          200: {
+            description: "This locale's site-wide default menu row",
+            type: 'object',
+            properties: {
+              navigationId: { type: 'string', description: 'The row id, never the site id.' }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return {
+        navigationId: await WIKI.models.navigation.ensureSiteNav(
+          req.params.siteId,
+          req.query.locale
+        )
+      }
+    }
+  )
+
+  /**
    * LIST NAVIGATION OVERRIDES
    */
   app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
@@ -216,7 +267,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Set a menu's items directly",
         description:
-          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — the site-wide default (`navId` is the site id, always present once `ensureSiteNav` has run) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` is neither the site id nor a tree entry belonging to this site.",
+          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — a locale's site-wide default (its own row id from `GET /sites/:siteId/navigation/default`) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` names neither an existing menu row of this site nor one of its own tree entries.",
         tags: ['Navigation'],
         params: {
           type: 'object',

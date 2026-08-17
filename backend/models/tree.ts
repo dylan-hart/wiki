@@ -1076,8 +1076,10 @@ class Tree {
       siteId,
       tags,
       meta,
-      // -> Pages inherit the site's navigation until something says otherwise
-      navigationId: siteId,
+      // -> Pages inherit their locale's site-wide navigation until something says otherwise. Resolved
+      //    to that menu's own row id -- never the site id, since the site-wide menu is locale-scoped
+      //    and identified by (siteId, locale) rather than by id.
+      navigationId: await WIKI.models.navigation.ensureSiteNav(siteId, locale),
       // -> A page's file name is its URL, chosen deliberately by whoever wrote it, so a clash is
       //    something to report rather than something to work around
       onConflict: 'error'

@@ -51,19 +51,21 @@ function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
 /**
  * Navigation model
  *
- * A navigation menu is a row of `items` keyed by the id of whatever it belongs to: a tree entry that
- * overrides the menu below it, or — for the site-wide menu every page falls back to — the site's own
- * id. That double use of the key is why the id alone is enough to fetch a menu, and why the home page
- * edits the site menu rather than one of its own.
+ * A navigation menu is a row of `items` keyed by its own id: a tree entry that overrides the menu
+ * below it, addressed by that entry's own id, or — for the site-wide menu every page falls back to —
+ * a row identified not by id (a real random uuid, meaningless on its own) but by the `(siteId,
+ * locale)` pair it belongs to, since a site with more than one active locale needs one such menu per
+ * locale. The home page of a given locale edits that locale's site menu rather than one of its own.
  *
  * Which menu a page gets is decided when the mode is saved rather than when the page is rendered:
- * every tree entry carries the resolved `navigationId`, so drawing a sidebar is one lookup.
+ * every tree entry carries the resolved `navigationId` — the menu row's real id either way — so
+ * drawing a sidebar is one lookup.
  */
 class Navigation {
   /**
    * The items of one menu.
    *
-   * @param id Menu id — a tree entry id, or a site id for the site-wide menu
+   * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
@@ -93,24 +95,38 @@ class Navigation {
   }
 
   /**
-   * The menu the site as a whole uses, which is the one every page inherits by default.
+   * The menu one locale of the site as a whole uses, which is what every page in that locale inherits
+   * by default. Returns its row id — never the site id, and not stable to guess at, since it is a
+   * plain `defaultRandom()` uuid — so a caller always gets this from here rather than assuming it.
    *
-   * Created empty on demand: a site made before this row existed, or one whose menu was never edited,
-   * has nothing stored, and an absent menu is an empty one rather than an error.
+   * Created empty on demand: a site made before this row existed, a locale activated since, or a menu
+   * that was never edited, has nothing stored, and an absent menu is an empty one rather than an
+   * error. Idempotent: identified by `(siteId, locale)`, not by id, so calling it again for the same
+   * site and locale returns the same row instead of creating a second one.
    */
-  async ensureSiteNav(siteId: string): Promise<void> {
-    await WIKI.db
+  async ensureSiteNav(siteId: string, locale: string): Promise<string> {
+    const inserted = await WIKI.db
       .insert(navigationTable)
-      .values({ id: siteId, siteId, items: [] })
-      .onConflictDoNothing()
+      .values({ siteId, locale, items: [] })
+      .onConflictDoNothing({ target: [navigationTable.siteId, navigationTable.locale] })
+      .returning({ id: navigationTable.id })
+    if (inserted[0]) {
+      return inserted[0].id
+    }
+    const existing = await WIKI.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.siteId, siteId), eq(navigationTable.locale, locale)))
+      .limit(1)
+    return existing[0]!.id
   }
 
   /**
    * Drop the menus belonging to tree entries that no longer exist.
    *
    * A menu is keyed by the id of the entry that owns it, so deleting a page or a folder would
-   * otherwise leave its menu behind with nothing able to reach it. The site's own menu is keyed by the
-   * site id and is never a tree entry, so it is not at risk here.
+   * otherwise leave its menu behind with nothing able to reach it. A site-wide menu is identified by
+   * `(siteId, locale)` rather than by belonging to a tree entry, so it is not at risk here.
    *
    * @param ids Tree entry ids being removed
    */
@@ -165,21 +181,26 @@ class Navigation {
    * Write a menu's items directly, addressed by the id of the row that already holds it.
    *
    * No page or mode resolution, unlike `updateNavigation` — the caller already knows which row it
-   * means, because it read the id off the thing it is editing: the site-wide default (its own id is
-   * the site id, see `ensureSiteNav`) or an override's `navigationId` from `listOverrides`. That is
-   * what the admin-launched menu editor (Task 433) saves against, as opposed to the page-context
-   * editor, which still goes through `updateNavigation` so that saving from an inheriting page can
-   * repoint at the ancestor it inherits from.
+   * means, because it read the id off the thing it is editing: a site-wide default's own row id (from
+   * `ensureSiteNav`, or `GET /sites/:siteId/navigation/default` for a caller with no db access of its
+   * own) or an override's `navigationId` from `listOverrides`. That is what the admin-launched menu
+   * editor (Task 433) saves against, as opposed to the page-context editor, which still goes through
+   * `updateNavigation` so that saving from an inheriting page can repoint at the ancestor it inherits
+   * from.
    *
-   * @param navId The row to write to — the site id, or a tree entry id belonging to this site
+   * @param navId The row to write to — a site-wide default's own id, or a tree entry id belonging to
+   *              this site
    */
   async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
-    if (navId === siteId) {
-      // -> Falls back to the site menu, and a site created before that row existed does not have one yet
-      await this.ensureSiteNav(siteId)
-    } else {
-      // -> Refuse a navId that names neither the site nor one of its own tree entries, rather than
-      //    silently creating a floating navigation row nothing else ever reaches
+    const existing = await WIKI.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, navId), eq(navigationTable.siteId, siteId)))
+      .limit(1)
+    if (existing.length < 1) {
+      // -> Refuse a navId that names neither an existing menu row of this site nor one of its own
+      //    tree entries, rather than silently creating a floating navigation row nothing else ever
+      //    reaches
       await this.getEntry(siteId, navId)
     }
 
@@ -205,26 +226,36 @@ class Navigation {
 
   /**
    * The menu a tree entry falls back to: the nearest ancestor that overrides or hides, or the
-   * site-wide menu when nothing above it does either.
+   * site-wide menu for its locale when nothing above it does either.
    *
    * @param siteId Site the entry belongs to, since paths are only unique within one
+   * @param locale Locale the entry belongs to — an ancestor override in a different locale that
+   *               happens to share the same path is not this entry's ancestor
    * @param folderPath Encoded ltree path of the folder holding the entry, empty at the site root
    */
-  private async ancestorNavId(siteId: string, folderPath: string): Promise<string | null> {
+  private async ancestorNavId(
+    siteId: string,
+    locale: string,
+    folderPath: string
+  ): Promise<string | null> {
     if (!folderPath) {
-      return siteId
+      return this.ensureSiteNav(siteId, locale)
     }
     const result = await WIKI.db.execute(sql`
       SELECT "navigationId"
       FROM tree
       WHERE "siteId" = ${siteId}
+        AND "locale" = ${locale}
         AND ("folderPath" || "fileName") @> ${folderPath}::ltree
         AND "navigationMode" IN ('override', 'hide')
       ORDER BY nlevel("folderPath" || "fileName") DESC
       LIMIT 1
     `)
     const rows = (result.rows ?? result) as any[]
-    return rows.length > 0 ? (rows[0].navigationId ?? null) : siteId
+    if (rows.length > 0) {
+      return rows[0].navigationId ?? null
+    }
+    return this.ensureSiteNav(siteId, locale)
   }
 
   /**
@@ -238,7 +269,7 @@ class Navigation {
    */
   async inheritedNavId(siteId: string, pageId: string): Promise<string | null> {
     const entry = await this.getEntry(siteId, pageId)
-    return this.ancestorNavId(siteId, entry.folderPath ?? '')
+    return this.ancestorNavId(siteId, entry.locale, entry.folderPath ?? '')
   }
 
   /**
@@ -264,18 +295,19 @@ class Navigation {
   }): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
-    // -> Whatever this change resolves to, `inherit` ultimately falls back to the site menu, and a
-    //    site created before that row existed does not have one yet
-    await this.ensureSiteNav(siteId)
+    // -> Whatever this change resolves to, `inherit` ultimately falls back to this entry's locale's
+    //    site menu, and a site created before that row existed — or a locale activated since — does
+    //    not have one yet
+    const siteNavId = await this.ensureSiteNav(siteId, entry.locale)
 
     const folderPath = entry.folderPath ?? ''
-    // -> The home page at the root edits the site-wide menu rather than one of its own, which is what
-    //    makes it the menu every other page inherits
+    // -> The home page at the root edits its locale's site-wide menu rather than one of its own, which
+    //    is what makes it the menu every other page in that locale inherits
     const isSiteRoot = folderPath === '' && entry.fileName === 'home'
-    const ownNavId = isSiteRoot ? siteId : entry.id
+    const ownNavId = isSiteRoot ? siteNavId : entry.id
     const fullPath = folderPath ? `${folderPath}.${entry.fileName}` : entry.fileName
 
-    const ancestorId = await this.ancestorNavId(siteId, folderPath)
+    const ancestorId = await this.ancestorNavId(siteId, entry.locale, folderPath)
 
     if (items) {
       /*
