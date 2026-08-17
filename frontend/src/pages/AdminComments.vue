@@ -21,8 +21,8 @@
           v-toolbar(flat, color='primary', dark, dense)
             .subtitle-1 {{$t('admin.comments.provider')}}
           v-list.py-0(two-line, dense)
-            template(v-for='(provider, idx) in providers')
-              v-list-item(:key='provider.key', @click='selectedProvider = provider.key', :disabled='!provider.isAvailable')
+            template(v-for='(provider, idx) in providers', :key='provider.key')
+              v-list-item(@click='selectedProvider = provider.key', :disabled='!provider.isAvailable')
                 v-list-item-avatar(size='24')
                   v-icon(color='grey', v-if='!provider.isAvailable') mdi-minus-box-outline
                   v-icon(color='primary', v-else-if='provider.key === selectedProvider') mdi-checkbox-marked-circle-outline
@@ -99,7 +99,8 @@
 </template>
 
 <script>
-import _ from 'lodash'
+import { cloneDeep } from 'es-toolkit/object'
+import { sortBy } from 'es-toolkit/array'
 
 export default {
   data() {
@@ -111,10 +112,10 @@ export default {
   },
   watch: {
     selectedProvider(newValue, oldValue) {
-      this.provider = _.find(this.providers, ['key', newValue]) || {}
+      this.provider = this.providers.find((prv) => prv.key === newValue) || {}
     },
     providers(newValue, oldValue) {
-      this.selectedProvider = _.get(_.find(this.providers, 'isEnabled'), 'key', 'db')
+      this.selectedProvider = this.providers.find((prv) => prv.isEnabled)?.key ?? 'db'
     }
   },
   methods: {
@@ -155,7 +156,7 @@ export default {
             }))
           }
         })
-        if (_.get(resp, 'data.comments.updateProviders.responseResult.succeeded', false)) {
+        if (resp?.data?.comments?.updateProviders?.responseResult?.succeeded ?? false) {
           this.$store.commit('showNotification', {
             message: this.$t('admin.comments.configSaveSuccess'),
             style: 'success',
@@ -163,11 +164,8 @@ export default {
           })
         } else {
           throw new Error(
-            _.get(
-              resp,
-              'data.comments.updateProviders.responseResult.message',
+            resp?.data?.comments?.updateProviders?.responseResult?.message ??
               this.$t('common.error.unexpected')
-            )
           )
         }
       } catch (err) {
@@ -199,9 +197,9 @@ export default {
       `,
       fetchPolicy: 'network-only',
       update: (data) =>
-        _.cloneDeep(data.comments.providers).map((str) => ({
+        cloneDeep(data.comments.providers).map((str) => ({
           ...str,
-          config: _.sortBy(
+          config: sortBy(
             str.config.map((cfg) => ({
               ...cfg,
               value: JSON.parse(cfg.value)

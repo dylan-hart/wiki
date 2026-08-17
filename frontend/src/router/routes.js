@@ -65,6 +65,7 @@ const routes = [
       { path: ':siteid/login', component: () => import('@/pages/AdminLogin.vue') },
       { path: ':siteid/navigation', component: () => import('@/pages/AdminNavigation.vue') },
       { path: ':siteid/storage/:id?', component: () => import('@/pages/AdminStorage.vue') },
+      { path: ':siteid/comments', component: () => import('@/pages/AdminComments.vue') },
       { path: ':siteid/theme', component: () => import('@/pages/AdminTheme.vue') },
       // -> Users
       { path: 'auth', component: () => import('@/pages/AdminAuth.vue') },
