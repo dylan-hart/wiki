@@ -637,9 +637,47 @@ superset of one of them.
   visitor to a *pageless* site's root gets redirected straight to `/login` by `Index.vue`'s route
   watcher, which is real behavior but would make a root-based guest-shell assertion race that
   client-side redirect instead of asserting on a stable page.
-- **No CI workflow is wired up yet for `backend/`, `frontend/` or `blocks/`'s own suites** — none of
-  the tasks that built them added one. This suite's own `.github/workflows/e2e.yml` is scoped to
-  itself; wiring the others in is a separate concern for whoever picks it up.
+- **CI wiring**: this suite runs as part of `.github/workflows/build.yml`'s `build` job now (task
+  762), not only from its own `e2e.yml` — see "Testing (CI)" below for why, and why `e2e.yml`'s own
+  `push: branches: [scarlett]` trigger was removed rather than left to run the same suite twice.
+
+### Testing (CI)
+
+`.github/workflows/build.yml`'s single `build` job runs every workspace's test suite — `backend/`,
+`frontend/`, `blocks/`, then the Playwright suite documented above — as ordinary steps, all placed
+**before** the Docker login/build/push steps at the bottom of the job. A failing step fails the job
+outright (GitHub Actions' default `continue-on-error: false`), so a broken test blocks the image
+from ever being built or pushed the same way a broken `npm run build` already did — there was no
+dedicated "test job" to add this to, so the steps went into the existing one, per the task's own
+either/or.
+
+- **One job, not two-plus-`needs:`.** Splitting build/test into separate jobs would mean either
+  re-installing everything in the test job (paying `npm ci`/`vite build` twice) or shuttling the
+  built `assets/`/`blocks/compiled`/`backend/node_modules` between jobs via `actions/upload-artifact`
+  — both slower and more moving parts than steps that already share one runner's filesystem and one
+  `npm ci` per workspace.
+- **The Playwright leg reuses the build that's already there, not a second one.** `e2e/`'s
+  `playwright.config.js` boots `node backend` against `frontend/`'s `assets/` output (see "Testing
+  (e2e)" above) — both already produced by the "Build Assets" and "Install Backend Dependencies"
+  steps earlier in the same job, so this leg is exactly the "against a build of the stack" the task
+  asked for without an extra `npm run build`. The Docker image itself is never rebuilt for this
+  leg's sake: it is not built at all until every test step above — including this one — has already
+  passed, so there is exactly one `docker/build-push-action` invocation per run, staged and pushed
+  once, not staged once for testing and rebuilt again to push.
+- **One `postgres:17` service container, shared by every leg that needs a real database.** Declared
+  at the job level (not per-step), with `DATABASE_URL` set as a job-level `env:` so it's visible to
+  the backend test step (turning on task 756's DB-backed model suites, skipped locally without a
+  database) and the Playwright step (its own required `DATABASE_URL`, per "Testing (e2e)" above)
+  alike, without redeclaring it twice. The two don't collide: the model tests carve out their own
+  randomly-named schema per file (`backend/test/db.ts`) while Playwright seeds the default schema
+  through the app's real first-run path, and by the time Playwright's `webServer` starts, every
+  backend test file that touched the database has already finished and been cleaned up (sequential
+  steps in one job).
+- **`e2e.yml`'s own `push: branches: [scarlett]` trigger was deleted**, not left in alongside this —
+  that push event now runs the Playwright suite from *this* job already, and gaining nothing back
+  for a second install-browsers-and-run-the-suite pass on the same commit contradicts the "CI runtime
+  stays reasonable" bar the task set for itself. `e2e.yml` still runs standalone on `pull_request`
+  and `workflow_dispatch`, which `build.yml`'s push-only trigger doesn't cover.
 
 ### Icons
 

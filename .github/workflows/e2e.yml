@@ -1,9 +1,11 @@
 name: E2E Smoke Suite
 
+# `build.yml` now runs this same suite as part of its own `build` job on every push to `scarlett`
+# (task 762: it has to gate the Docker push on it, which a separate workflow can't do — it runs in
+# parallel with no way to block a job in a different workflow run). Triggering here too on that same
+# push would mean installing Playwright's browsers and running the whole suite twice per push for no
+# gain. Left for pull_request/workflow_dispatch, which build.yml's push-only trigger doesn't cover.
 on:
-  push:
-    branches:
-      - scarlett
   pull_request:
   workflow_dispatch:
 

@@ -13,72 +13,138 @@ jobs:
       contents: read
       packages: write
 
+    # Backing store for the backend's DB-backed model tests (task 756's fixtures switch themselves
+    # on whenever DATABASE_URL is set) and for the Playwright suite's own first-run seeding. One
+    # service container per run, so "seeded test database" is true on every invocation and every
+    # test leg below shares it without colliding: model tests carve out their own randomly-named
+    # schema per file (backend/test/db.ts), the Playwright leg boots the backend straight against
+    # the default schema.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
     steps:
-    - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-    - name: Setup Node.js environment
-      uses: actions/setup-node@v7
-      with:
-        node-version: 26.x
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.x
 
-    - name: Set Build Variables
-      run: |
-        echo "REL_VERSION=3.0.0-alpha.$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+      - name: Set Build Variables
+        run: |
+          echo "REL_VERSION=3.0.0-alpha.$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
 
-    - name: Set Version
-      run: |
-        yq -iP '.version = strenv(REL_VERSION)' backend/package.json -o json
-        yq -iP '.version = strenv(REL_VERSION)' frontend/package.json -o json
-    - name: Build Assets
-      working-directory: frontend
-      run: |
-        npm ci
-        npm run build
+      - name: Set Version
+        run: |
+          yq -iP '.version = strenv(REL_VERSION)' backend/package.json -o json
+          yq -iP '.version = strenv(REL_VERSION)' frontend/package.json -o json
 
-    - name: Build Blocks
-      working-directory: blocks
-      run: |
-        npm ci
-        npm run build
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
 
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Backend Tests
+        working-directory: backend
+        run: npm run test
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
+      - name: Build Assets
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
 
-    - name: Build and push Docker images
-      uses: docker/build-push-action@v7
-      with:
-        context: .
-        file: dev/build/Dockerfile
-        push: true
-        platforms: linux/amd64
-        # platforms: linux/amd64,linux/arm64
-        tags: |
-          ghcr.io/requarks/wiki:3.0.0-alpha
-          ghcr.io/requarks/wiki:${{ env.REL_VERSION }}
+      - name: Run Frontend Tests
+        working-directory: frontend
+        run: npm run test
 
-    - name: Prepare build archive
-      run: |
-        mkdir -p _dist/blocks
-        cp -R assets _dist/assets
-        cp -R blocks/compiled _dist/blocks/compiled
-        cp -R backend _dist/backend
-        cp LICENSE _dist/LICENSE
-        cp config.sample.yml _dist/config.sample.yml
-        cd _dist/backend
-        npm ci --omit=dev
-        cd -
-        find ./_dist/ -printf "%P\n" | tar -czf wiki-js.tar.gz --no-recursion -C ./_dist/ -T -
+      - name: Build Blocks
+        working-directory: blocks
+        run: |
+          npm ci
+          npm run build
 
-    - name: Upload Build Artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: build
-        path: wiki-js.tar.gz
+      - name: Run Blocks Tests
+        working-directory: blocks
+        run: npm run test
 
+      # The e2e suite's own webServer boots `node backend` (backend/'s deps and the frontend's
+      # `assets/` build were already produced by the steps above) and serves the frontend build the
+      # same way the Docker image will — this is what "against a build of the stack" means here, and
+      # why this leg neither builds nor needs the Docker image below: that image doesn't exist yet at
+      # this point in the job, and won't be built at all until every test leg above has passed. There
+      # is therefore only ever one Docker build per run, not a rebuild for this leg plus another for
+      # the real push.
+      - name: Install E2E Dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E Smoke Suite
+        working-directory: e2e
+        run: npm test
+
+      - name: Upload Playwright Report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 14
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dev/build/Dockerfile
+          push: true
+          platforms: linux/amd64
+          # platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/requarks/wiki:3.0.0-alpha
+            ghcr.io/requarks/wiki:${{ env.REL_VERSION }}
+
+      - name: Prepare build archive
+        run: |
+          mkdir -p _dist/blocks
+          cp -R assets _dist/assets
+          cp -R blocks/compiled _dist/blocks/compiled
+          cp -R backend _dist/backend
+          cp LICENSE _dist/LICENSE
+          cp config.sample.yml _dist/config.sample.yml
+          cd _dist/backend
+          npm ci --omit=dev
+          cd -
+          find ./_dist/ -printf "%P\n" | tar -czf wiki-js.tar.gz --no-recursion -C ./_dist/ -T -
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: build
+          path: wiki-js.tar.gz
