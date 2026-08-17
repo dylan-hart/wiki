@@ -1981,6 +1981,7 @@
   "error.ERR_PK_HOSTNAME_MISSING": "Your administrator must set a valid site hostname before passkeys can be used.",
   "error.ERR_PK_INSECURE_ORIGIN": "Passkeys require a secure (HTTPS) connection to this site.",
   "error.ERR_PK_NAME_MISSING_OR_INVALID": "Passkey name is missing or invalid.",
+  "error.ERR_PK_ORIGIN_MISMATCH": "This request's origin does not match the site's hostname. If this instance is behind a reverse proxy, check that it forwards the real Host header and, if \"Trust X-Forwarded-* Proxy Headers\" is enabled, that only the proxy can reach this server directly.",
   "error.ERR_PK_USER_CANCELLED": "Passkey registration aborted. Make sure to remove the key from your device.",
   "error.ERR_PK_VERIFICATION_FAILED": "This passkey could not be verified.",
   "error.ERR_PROVIDER_REQUEST_FAILED": "The provider could not be reached. Please try again.",
