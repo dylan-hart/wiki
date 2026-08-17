@@ -16,6 +16,7 @@ import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
  */
 
 const GROUP_ID = '11111111-1111-4111-8111-111111111111'
+const SITE_ID = '22222222-2222-4222-8222-222222222222'
 let createKeyCalls: any[] = []
 
 let app: FastifyInstance
@@ -37,6 +38,9 @@ before(async () => {
       systemIds: {
         guestsGroupId: 'guests-group-id'
       }
+    },
+    sites: {
+      [SITE_ID]: { id: SITE_ID, hostname: 'example.com' }
     }
   }
 
@@ -99,4 +103,53 @@ test('omitting scope creates an unscoped key (null)', async () => {
   assert.equal(res.statusCode, 200)
   assert.equal(createKeyCalls.length, 1)
   assert.equal(createKeyCalls[0].scope, null)
+})
+
+test('rejects a siteId that names no real site', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      siteId: '99999999-9999-4999-8999-999999999999'
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createKeyCalls.length, 0)
+})
+
+test('accepts a siteId naming a real site and persists it', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      siteId: SITE_ID
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+  assert.equal(createKeyCalls[0].siteId, SITE_ID)
+})
+
+test('omitting siteId creates an instance-wide key (null)', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+  assert.equal(createKeyCalls[0].siteId, null)
 })

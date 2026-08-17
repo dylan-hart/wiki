@@ -85,6 +85,9 @@ export interface ApiKey {
   // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
   //    carries the full union of its groups' permissions). See `narrowToScope()`.
   scope: string[] | null
+  // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
+  //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
+  siteId: string | null
   expiration: Date
   isRevoked: boolean
   createdAt: Date
@@ -105,6 +108,11 @@ export interface ApiKeyListEntry extends ApiKey {
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
+  // -> The site this key is pinned to, taken from the token's `site` claim, or null for
+  //    instance-wide. Route handlers on a site-scoped path read this to decide whether the key may
+  //    act on the site the request names — see the `siteId` column comment in `db/schema.ts` for why
+  //    the enforcement itself is not here yet.
+  siteId: string | null
 }
 
 /** Raised by `verify()` when a token is not usable, with a reason safe to return to the caller. */
@@ -116,6 +124,7 @@ const keySelection = {
   keyShort: apiKeysTable.keyShort,
   groups: apiKeysTable.groups,
   scope: apiKeysTable.scope,
+  siteId: apiKeysTable.siteId,
   expiration: apiKeysTable.expiration,
   isRevoked: apiKeysTable.isRevoked,
   createdAt: apiKeysTable.createdAt,
@@ -224,13 +233,16 @@ class ApiKeys {
     name,
     expiration,
     groups,
-    scope = null
+    scope = null,
+    siteId = null
   }: {
     name: string
     expiration: KeyExpiration
     groups: string[]
     /** An explicit permission allow-list to narrow the key to, or null for no narrowing. */
     scope?: string[] | null
+    /** The single site to pin the key to, or null for instance-wide (every site). */
+    siteId?: string | null
   }): Promise<{ id: string; key: string }> {
     const id = crypto.randomUUID()
     const expiresAt = Temporal.Now.zonedDateTimeISO('UTC')
@@ -241,6 +253,7 @@ class ApiKeys {
       {
         id,
         grp: groups,
+        site: siteId,
         aud: TOKEN_AUDIENCE,
         iat: epochSeconds(),
         exp: epochSeconds(expiresAt)
@@ -254,6 +267,7 @@ class ApiKeys {
       keyShort: key.slice(-8),
       groups,
       scope,
+      siteId,
       expiration: new Date(expiresAt.epochMilliseconds),
       isRevoked: false
     })
@@ -369,7 +383,8 @@ class ApiKeys {
       permissions: await this.resolvePermissions(
         Array.isArray(claims.grp) ? (claims.grp as string[]) : [],
         key.scope
-      )
+      ),
+      siteId: typeof claims.site === 'string' ? claims.site : null
     }
   }
 }

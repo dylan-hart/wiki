@@ -35,27 +35,37 @@ const tsvector = customType({
 // == TABLES ===========================
 
 // API KEYS ----------------------------
-export const apiKeys = pgTable('apiKeys', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  // -> Only the tail of the token, to tell keys apart in the admin list. The token itself is a
-  //    signed JWT shown once at creation and never stored: it is a bearer credential, and
-  //    verification needs the public key plus this row's state, not the token.
-  keyShort: varchar({ length: 8 }).notNull(),
-  // -> IDs of the groups whose permissions the key carries. Resolved on every request, so editing a
-  //    group immediately affects the keys pointing at it.
-  groups: jsonb().notNull().default([]),
-  // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing at all
-  //    (the key carries the full union of its groups' permissions). Never widens:
-  //    `resolvePermissions()` intersects this against what the groups actually grant, so editing a
-  //    group can only take permissions away from a scoped key, never hand it one its scope doesn't
-  //    list.
-  scope: jsonb().$type<string[] | null>().default(null),
-  expiration: timestamp().notNull().defaultNow(),
-  isRevoked: boolean().notNull().default(false),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const apiKeys = pgTable(
+  'apiKeys',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    // -> Only the tail of the token, to tell keys apart in the admin list. The token itself is a
+    //    signed JWT shown once at creation and never stored: it is a bearer credential, and
+    //    verification needs the public key plus this row's state, not the token.
+    keyShort: varchar({ length: 8 }).notNull(),
+    // -> IDs of the groups whose permissions the key carries. Resolved on every request, so editing a
+    //    group immediately affects the keys pointing at it.
+    groups: jsonb().notNull().default([]),
+    // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing at all
+    //    (the key carries the full union of its groups' permissions). Never widens:
+    //    `resolvePermissions()` intersects this against what the groups actually grant, so editing a
+    //    group can only take permissions away from a scoped key, never hand it one its scope doesn't
+    //    list.
+    scope: jsonb().$type<string[] | null>().default(null),
+    // -> Deliberately nullable, unlike every other siteId column in this schema: null means the key
+    //    is instance-wide (every site), which is today's only behavior and stays the default. A
+    //    non-null value pins the key to one site. Enforcing that pin against the site a request is
+    //    actually addressed to is a follow-up (Epic 11, Multi-Site Platform) — this column and the
+    //    claim it is signed into only carry the data.
+    siteId: uuid().references(() => sites.id),
+    expiration: timestamp().notNull().defaultNow(),
+    isRevoked: boolean().notNull().default(false),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [index('apiKeys_siteId_idx').on(table.siteId)]
+)
 
 // APPROVAL RULES ----------------------
 /**

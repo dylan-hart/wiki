@@ -1,6 +1,7 @@
-import { describe, test } from 'node:test'
+import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { narrowToScope } from './apiKeys.ts'
+import { apiKeys as apiKeysTable, groups as groupsTable } from '../db/schema.ts'
+import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
 
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
@@ -33,5 +34,138 @@ describe('apiKeys.narrowToScope', () => {
 
   test('an empty scope narrows the key down to nothing', () => {
     assert.deepEqual(narrowToScope(['read:pages', 'write:pages'], []), [])
+  })
+})
+
+/**
+ * Minimal stand-in for the subset of `Temporal` that `createKey()`/`verify()` touch (`Now.instant()`,
+ * `Now.zonedDateTimeISO().add().toInstant()`, `Instant.compare()`, plus a `Date.prototype
+ * .toTemporalInstant()` polyfill for the `expiration` column value).
+ *
+ * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * v25.9.0, which doesn't expose it (same environment gap noted in `core/scheduler.test.ts` and tasks
+ * 753/756/757/760/761 — not a spec deviation). Stubbing just what this code path touches keeps the
+ * test independent of that runtime gap without changing what's actually exercised.
+ */
+function installFakeTemporal(): void {
+  const durationToMs = (d: { days?: number; years?: number }) =>
+    (d.days ?? 0) * 86_400_000 + (d.years ?? 0) * 365 * 86_400_000
+  const makeInstant = (epochMs: number): any => ({
+    epochMilliseconds: epochMs,
+    toString: () => new Date(epochMs).toISOString()
+  })
+  const makeZonedDateTime = (epochMs: number): any => ({
+    add: (d: any) => makeZonedDateTime(epochMs + durationToMs(d)),
+    toInstant: () => makeInstant(epochMs)
+  })
+  ;(globalThis as any).Temporal = {
+    Now: {
+      instant: () => makeInstant(Date.now()),
+      zonedDateTimeISO: (_tz: string) => makeZonedDateTime(Date.now())
+    },
+    Instant: {
+      compare: (a: any, b: any) =>
+        a.epochMilliseconds < b.epochMilliseconds
+          ? -1
+          : a.epochMilliseconds > b.epochMilliseconds
+            ? 1
+            : 0
+    }
+  }
+  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+    return makeInstant(this.getTime())
+  }
+}
+
+/**
+ * `siteId` propagation: `createKey()` signs the given site (or `null`, for instance-wide) into the
+ * token's `site` claim, and `verify()` reads it back onto `ApiKeyIdentity` so a route handler can read
+ * `req.apiKey.siteId`. `WIKI.db` is a minimal in-memory stub (no Postgres) — just enough of
+ * `insert()`/`select()` for `createKey`'s single insert and `verify`'s `getKeyById` +
+ * `resolvePermissions` lookups — and the signing keypair is a real one from
+ * `generateSigningCertificates()`, so the JWT is genuinely signed and verified, not faked.
+ */
+describe('apiKeys siteId propagation through JWT claims', () => {
+  const SITE_ID = '33333333-3333-4333-8333-333333333333'
+  const GROUP_ID = '44444444-4444-4444-8444-444444444444'
+  let insertedRows: any[] = []
+  let previousTemporal: any
+  let previousToTemporalInstant: any
+
+  before(() => {
+    previousTemporal = (globalThis as any).Temporal
+    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
+    installFakeTemporal()
+    ;(globalThis as any).WIKI = {
+      config: {
+        api: { isEnabled: true },
+        auth: { certs: generateSigningCertificates() }
+      },
+      db: {
+        insert: (table: any) => ({
+          values: async (row: any) => {
+            if (table === apiKeysTable) {
+              insertedRows.push(row)
+            }
+            return { rowCount: 1 }
+          }
+        }),
+        select: (_selection: any) => ({
+          from: (table: any) => {
+            const rows =
+              table === apiKeysTable
+                ? insertedRows
+                : table === groupsTable
+                  ? [{ permissions: [] }]
+                  : []
+            return {
+              // -> `getKeyById` chains `.limit(1)` off this; `resolvePermissions` awaits it directly.
+              //    A real `Promise` with `.limit` attached satisfies both without a hand-rolled
+              //    thenable.
+              where: () => {
+                const result: any = Promise.resolve(rows)
+                result.limit = async () => rows
+                return result
+              }
+            }
+          }
+        })
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+    ;(globalThis as any).Temporal = previousTemporal
+    if (previousToTemporalInstant === undefined) {
+      delete (Date.prototype as any).toTemporalInstant
+    } else {
+      ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+    }
+  })
+
+  test('createKey signs the given siteId into the token, and verify() returns it on the identity', async () => {
+    insertedRows = []
+    const { key } = await apiKeys.createKey({
+      name: 'Site-pinned key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      siteId: SITE_ID
+    })
+
+    const identity = await apiKeys.verify(key)
+    assert.equal(identity.siteId, SITE_ID)
+  })
+
+  test('createKey without a siteId signs an instance-wide key (siteId: null)', async () => {
+    insertedRows = []
+    const { key } = await apiKeys.createKey({
+      name: 'Instance-wide key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    })
+
+    const identity = await apiKeys.verify(key)
+    assert.equal(identity.siteId, null)
   })
 })

@@ -44,6 +44,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'An explicit permission allow-list the key is narrowed to, or null for no narrowing at all — the key then carries the full union of its groups. Can only narrow, never grant beyond what the groups already hold.',
         items: { $ref: 'ApiKeyScopePermission#' }
       },
+      siteId: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description:
+          'The single site this key is pinned to, or null for instance-wide (every site).'
+      },
       expiration: {
         type: 'string',
         format: 'date-time',
