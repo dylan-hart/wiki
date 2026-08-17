@@ -829,7 +829,6 @@
   "admin.ssl.subtitle": "Manage SSL configuration",
   "admin.ssl.title": "SSL",
   "admin.ssl.writableConfigFileWarning": "Note that your config file must be writable in order to persist ports configuration.",
-  "admin.stats.title": "Statistics",
   "admin.storage.actionFailed": "Failed to run {action}.",
   "admin.storage.actionRun": "Run",
   "admin.storage.actionSuccess": "{action} completed successfully.",
