@@ -1,7 +1,11 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { and, eq, inArray } from 'drizzle-orm'
-import { blocks as blocksTable, sites as sitesTable } from '../db/schema.ts'
+import {
+  blockCode as blockCodeTable,
+  blocks as blocksTable,
+  sites as sitesTable
+} from '../db/schema.ts'
 
 /** One authorable attribute of a block, as its `static definition` describes it. */
 export interface BlockProp {
@@ -45,6 +49,8 @@ export interface SiteBlock {
   config: Record<string, any>
   props: BlockProp[]
   template: string
+  /** The custom element name this block renders as. `block-{block}` unless overridden. */
+  elementTag: string
 }
 
 const blockSelection = {
@@ -55,7 +61,13 @@ const blockSelection = {
   icon: blocksTable.icon,
   isEnabled: blocksTable.isEnabled,
   isCustom: blocksTable.isCustom,
-  config: blocksTable.config
+  config: blocksTable.config,
+  // -> Raw column reads, only meaningful for a custom row — kept off `SiteBlock` under their own
+  //    names so `getSiteBlocks()` below can pick a source (this row, or the manifest) per block
+  //    without a built-in's empty defaults colliding with the field names it maps them onto.
+  customProps: blocksTable.props,
+  customTemplate: blocksTable.template,
+  customElementTag: blocksTable.elementTag
 }
 
 /**
@@ -268,19 +280,38 @@ class Blocks {
       .where(eq(blocksTable.siteId, siteId))
       .orderBy(blocksTable.isCustom, blocksTable.name)
     /*
-      `props` come from the manifest rather than the row: they describe the component's own attributes,
-      so they belong to the installed code and not to a site's copy of it. Reading them here means an
-      updated block's props are correct the moment it is deployed, with nothing to migrate — and a
-      custom block, having no manifest entry, simply reports none.
+      A built-in block's `props`/`template` come from the manifest rather than the row: they describe
+      the component's own attributes, so they belong to the installed code and not to a site's copy of
+      it. Reading them here means an updated block's props are correct the moment it is deployed, with
+      nothing to migrate.
+
+      A custom block has no manifest entry — it is not installed code, it is what was uploaded — so it
+      sources the same two things from its own row instead, written when it was uploaded/edited.
     */
-    return (results as SiteBlock[]).map((row) => {
-      const definition = this.definitions.find((d) => d.block === row.block)
-      return {
-        ...row,
-        props: definition?.props ?? [],
-        template: definition?.template ?? ''
+    type RawRow = SiteBlock & {
+      customProps: BlockProp[]
+      customTemplate: string
+      customElementTag: string
+    }
+    return (results as RawRow[]).map(
+      ({ customProps, customTemplate, customElementTag, ...row }) => {
+        if (row.isCustom) {
+          return {
+            ...row,
+            props: customProps ?? [],
+            template: customTemplate ?? '',
+            elementTag: customElementTag || `block-${row.block}`
+          }
+        }
+        const definition = this.definitions.find((d) => d.block === row.block)
+        return {
+          ...row,
+          props: definition?.props ?? [],
+          template: definition?.template ?? '',
+          elementTag: `block-${row.block}`
+        }
       }
-    })
+    )
   }
 
   /**
@@ -328,17 +359,55 @@ class Blocks {
   }
 
   /**
+   * Fetch a custom block's compiled component code, by id — for the route that serves it to the
+   * browser.
+   *
+   * Scoped to `siteId` and `isCustom` the same way `deleteCustomBlock()` is: a block id alone is not
+   * enough to say a caller may have it, and a built-in has no row in `blockCode` to find anyway.
+   *
+   * @returns The code bytes, or `undefined` if there is no such custom block on this site
+   */
+  async getCustomBlockCode(siteId: string, id: string): Promise<Buffer | undefined> {
+    const [row] = await WIKI.db
+      .select({ code: blockCodeTable.code })
+      .from(blockCodeTable)
+      .innerJoin(blocksTable, eq(blockCodeTable.blockId, blocksTable.id))
+      .where(
+        and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, id), eq(blocksTable.isCustom, true))
+      )
+    return row?.code
+  }
+
+  /**
    * Delete a custom block. Built-in blocks are rejected, since the next sync would recreate them.
+   *
+   * Removes its stored code along with the row itself — `blockCode` is a separate table (see
+   * `db/schema.ts`), so deleting `blocks` alone would leave the code behind as an orphan. Done inside
+   * a transaction, code first, so this method is what is actually responsible for the code going away
+   * rather than depending on the foreign key's `onDelete: 'cascade'` (kept as a safety net for a row
+   * reached some other way, not as a substitute for cleaning it up here).
    *
    * @returns Whether a block was deleted
    */
   async deleteCustomBlock(siteId: string, id: string): Promise<boolean> {
-    const result = await WIKI.db
-      .delete(blocksTable)
-      .where(
-        and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, id), eq(blocksTable.isCustom, true))
-      )
-    return (result.rowCount ?? 0) > 0
+    return WIKI.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ id: blocksTable.id })
+        .from(blocksTable)
+        .where(
+          and(
+            eq(blocksTable.siteId, siteId),
+            eq(blocksTable.id, id),
+            eq(blocksTable.isCustom, true)
+          )
+        )
+      if (!row) {
+        return false
+      }
+      await tx.delete(blockCodeTable).where(eq(blockCodeTable.blockId, row.id))
+      await tx.delete(blocksTable).where(eq(blocksTable.id, row.id))
+      return true
+    })
   }
 }
 

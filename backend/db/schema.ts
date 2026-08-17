@@ -136,12 +136,38 @@ export const blocks = pgTable(
     isEnabled: boolean().notNull().default(false),
     isCustom: boolean().notNull().default(false),
     config: jsonb().notNull().default({}),
+    // -> The rest of this row is what makes a CUSTOM block self-describing — a built-in one has no
+    //    use for any of it, since its props/template come from the compiled manifest and it always
+    //    renders as `block-{block}`. Left at their defaults for a built-in row.
+    // -> The component's authorable attributes, in the same shape `BlockDefinition.props` uses for a
+    //    built-in — read instead of the manifest by `models/blocks.ts#getSiteBlocks()` when isCustom.
+    props: jsonb().notNull().default([]),
+    // -> Body the editor writes between the opening and closing lines, for a custom block whose
+    //    content is other blocks. Empty for one that takes none.
+    template: text().notNull().default(''),
+    // -> Overrides the `block-{block}` element name a custom component's code actually registers
+    //    itself under. Empty string means no override — render as `block-{block}` like a built-in.
+    elementTag: varchar({ length: 255 }).notNull().default(''),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
   },
   (table) => [index('blocks_siteId_idx').on(table.siteId)]
 )
+
+// -> The compiled component code for a custom block, one-to-one with its `blocks` row. Split out
+//    rather than a column on `blocks` itself: `getSiteBlocks()` lists every block on a site on every
+//    call the editor's picker makes, and that listing has no use for the bytes — only the new serving
+//    route (fetching a single block's code by id) does. `onDelete: 'cascade'` is a safety net, not the
+//    only mechanism — `deleteCustomBlock()` removes this row itself so the deletion does not depend on
+//    it.
+export const blockCode = pgTable('blockCode', {
+  blockId: uuid()
+    .primaryKey()
+    .references(() => blocks.id, { onDelete: 'cascade' }),
+  code: bytea().notNull(),
+  updatedAt: timestamp().notNull().defaultNow()
+})
 
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {

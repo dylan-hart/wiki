@@ -42,10 +42,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Body the editor writes between the opening and closing lines when inserting the block, for a block whose content is other blocks. Empty for a block that takes none.'
       },
+      elementTag: {
+        type: 'string',
+        description:
+          'The custom element this block renders as. `block-{block}` for a built-in and for a custom block with no override.'
+      },
       props: {
         type: 'array',
         description:
-          "The block's authorable attributes, as its component declares them — what the editor's block picker turns into a form. Read from the compiled manifest rather than the database, so it describes the code that is installed. Empty for a custom block, which has no manifest entry.",
+          "The block's authorable attributes — what the editor's block picker turns into a form. For a built-in block, read from the compiled manifest, so it describes the code that is installed. For a custom block, read from what was uploaded.",
         items: {
           type: 'object',
           properties: {
