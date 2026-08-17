@@ -55,15 +55,28 @@ async function createSite(hostname: string, config: Record<string, any>) {
   return { id: 'new-site-id' }
 }
 
+let siteForUpdate: any
+const updateSiteCalls: Array<{ id: string; patch: Record<string, any> }> = []
+
+async function getSiteById({ id }: { id: string }) {
+  return id === siteForUpdate?.id ? siteForUpdate : null
+}
+
+async function updateSite(id: string, patch: Record<string, any>) {
+  updateSiteCalls.push({ id, patch })
+  return true
+}
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     logger: { warn: () => {} },
     models: {
       sites: {
         getSiteByHostname,
-        getSiteById: async () => null,
+        getSiteById,
         isHostnameUnique,
-        createSite
+        createSite,
+        updateSite
       }
     }
   }
@@ -174,4 +187,80 @@ test('the catch-all wildcard hostname is still accepted', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(createSiteCalls[0]?.hostname, '*')
+})
+
+test('an uppercase hostname is rejected by the schema and never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: 'WIKI.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('a hostname with a colon (port suffix) is rejected by the schema and never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: 'wiki.example.org:8080', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+/**
+ * Regression coverage for duplicate-hostname / duplicate-catch-all rejection: `POST /_api/sites`
+ * checks `isHostnameUnique` before ever calling `createSite`, and picks between two distinct error
+ * messages depending on whether the rejected hostname was `*` or an ordinary one.
+ */
+
+test('a duplicate ordinary hostname is rejected with the duplicate-hostname message, never reaching createSite', async () => {
+  hostnamesTakenByUnique.add('taken.example.org')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: 'taken.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /duplicate hostname/i)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('a duplicate catch-all hostname is rejected with the duplicate-catch-all message, never reaching createSite', async () => {
+  hostnamesTakenByUnique.add('*')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { hostname: '*', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /catch-all/i)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+/**
+ * Regression coverage for the last leg of task 699/702's disabled-site contract: unlike the read
+ * routes gated elsewhere in this feature, `PUT /:siteId` (behind `manage:sites`) must keep succeeding
+ * against an already-disabled site — otherwise nobody could ever flip `isEnabled` back on.
+ */
+
+test('updating a disabled site still succeeds, so it can be re-enabled', async () => {
+  updateSiteCalls.length = 0
+  siteForUpdate = {
+    id: '44444444-4444-4444-8444-444444444444',
+    hostname: 'off.example.com',
+    isEnabled: false,
+    config: { title: 'Disabled Site' }
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${siteForUpdate.id}`,
+    payload: { isEnabled: true }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].id, siteForUpdate.id)
+  assert.equal(updateSiteCalls[0].patch.isEnabled, true)
 })
