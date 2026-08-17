@@ -17,6 +17,21 @@ const EDITOR_CONTENT_TYPES: Record<string, string> = {
   redirect: 'redirect'
 }
 
+/** The inverse of `EDITOR_CONTENT_TYPES`, e.g. `markdown` -> `markdown`, `html` -> `wysiwyg`. */
+const CONTENT_TYPE_EDITORS: Record<string, string> = Object.fromEntries(
+  Object.entries(EDITOR_CONTENT_TYPES).map(([editor, contentType]) => [contentType, editor])
+)
+
+/**
+ * The editor a page created from a bare `contentType` (no editor of its own to ask) should be
+ * attributed to — a file-backed storage target importing a page it did not create is the one caller
+ * of this today: it knows the content type from the file extension, but not which editor produced
+ * it. Falls back to `markdown`, the default a brand new page would get from the editor picker too.
+ */
+export function getEditorForContentType(contentType: string): string {
+  return CONTENT_TYPE_EDITORS[contentType] ?? 'markdown'
+}
+
 /**
  * The editor whose pages send their reader somewhere else.
  *

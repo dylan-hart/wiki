@@ -27,8 +27,13 @@ import { ensureRepo } from './storage.ts'
  */
 const PAGE_EXTENSIONS = ['md', 'adoc', 'html', 'txt']
 
-/** Whether a target's active content types cover this bucket — `'pages'`, or an asset bucket. */
-function covers(target: StorageTarget, bucket: string): boolean {
+/**
+ * Whether a target's active content types cover this bucket — `'pages'`, or an asset bucket.
+ *
+ * Exported for `sync.ts`: the same gate a write-path event is checked against also decides whether a
+ * change coming the other way, from the remote, is one this target is configured to import.
+ */
+export function covers(target: StorageTarget, bucket: string): boolean {
   return target.contentTypes.activeTypes.includes(bucket)
 }
 
@@ -64,7 +69,8 @@ function assetRelPath(folderPath: string, fileName: string): string {
   return folderPath ? `${folderPath}/${fileName}` : fileName
 }
 
-async function fileExists(absPath: string): Promise<boolean> {
+/** Exported for `sync.ts`, which checks the same thing about a path the pull just changed. */
+export async function fileExists(absPath: string): Promise<boolean> {
   try {
     await fs.access(absPath)
     return true

@@ -29,6 +29,23 @@ export function getFileExtension(contentType: string): string {
   return CONTENT_TYPE_EXTENSIONS[contentType] ?? 'txt'
 }
 
+/** The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. */
+const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
+  Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType])
+)
+
+/**
+ * The page `contentType` a file extension maps back to, matching 2.5.x's
+ * `pageHelper.getContentType`, or `null` when the extension is not one a page is ever written under
+ * (i.e. this is an asset, not a page) — `txt` included: it is `getFileExtension`'s fallback for an
+ * unrecognized content type, not a real reverse mapping target, so a bare `.txt` file found in the
+ * repo is treated as an asset here, exactly as 2.5.x's `extToContent` (built the same way, by
+ * inverting the forward map) would.
+ */
+export function getContentTypeFromExtension(ext: string): string | null {
+  return EXTENSION_CONTENT_TYPES[ext] ?? null
+}
+
 /**
  * The module every site stores its content in, and the only one that is guaranteed to work: assets
  * and pages live in the wiki database. It cannot be disabled, as that would leave content nowhere.
@@ -91,6 +108,12 @@ export interface StorageDefinition {
 /** A configured target: the module definition, plus how this site has it set up. */
 export interface StorageTarget {
   id: string
+  /**
+   * The site this target belongs to. `executeAction()` hands a module implementation nothing but the
+   * target itself, so an action handler that needs to reach `WIKI.models.pages`/`WIKI.models.assets`
+   * (a two-way `sync`, chiefly) has no other way to learn which site's content it is looking at.
+   */
+  siteId: string
   module: string
   isEnabled: boolean
   title: string
@@ -336,6 +359,7 @@ class Storage {
       const versioning = (row.versioning ?? {}) as Record<string, any>
       targets.push({
         id: row.id,
+        siteId,
         module: definition.key,
         isEnabled: row.isEnabled,
         title: definition.title,

@@ -1,0 +1,401 @@
+/**
+ * Tests for the two-way `sync` action: fetch/pull-rebase, push, and reverse-mirroring the remote
+ * side's changes into the DB.
+ *
+ * Same approach as `storage.test.ts`/`content.test.ts`: real `git` binaries via `simple-git` against
+ * throwaway temp directories — a bare repo standing in for "origin", and two working copies of it (one
+ * playing this target's own local repo, one playing an outside collaborator pushing directly to
+ * origin) — plus a minimal `WIKI` stub. Nothing here needs Postgres: what's under test is which
+ * `WIKI.models.pages`/`WIKI.models.assets` call `sync()` decides to make for a given remote change,
+ * which a stub records precisely and a real DB would only obscure behind more setup.
+ */
+import { describe, test, beforeEach, mock } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { simpleGit } from 'simple-git'
+import { sync, parseRenamedPaths } from './sync.ts'
+import { ensureRepo } from './storage.ts'
+import { generatePathHash } from '../../../helpers/common.ts'
+import type { StorageTarget } from '../../../models/storage.ts'
+
+const SITE_ID = 'site-1'
+const PRIMARY_LOCALE = 'en'
+const ADMIN_EMAIL = 'admin@example.com'
+
+async function makeTempDir(prefix: string): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), prefix))
+}
+
+/** Installs a `WIKI` stub. Model calls are recorded on the returned `calls` object. */
+function installWiki(
+  rootPath: string,
+  {
+    pages = [],
+    assets = []
+  }: {
+    pages?: Array<{ id: string; path: string; locale: string; contentType: string }>
+    assets?: Array<{ id: string; folderPath: string; fileName: string }>
+  } = {}
+) {
+  const calls = {
+    createPage: [] as any[],
+    updatePage: [] as any[],
+    movePage: [] as any[],
+    deletePage: [] as any[],
+    renameAsset: [] as any[],
+    deleteAsset: [] as any[],
+    upload: [] as any[]
+  }
+
+  ;(globalThis as any).WIKI = {
+    ROOTPATH: rootPath,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    sites: {
+      [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
+    },
+    models: {
+      extensions: {
+        getDefinition: mock.fn(() => ({ key: 'git', detect: { type: 'command', value: 'git' } })),
+        isInstalled: mock.fn(async () => true)
+      },
+      users: {
+        getByEmail: mock.fn(async (email: string) =>
+          email === ADMIN_EMAIL ? { id: 'admin-1', email } : null
+        )
+      },
+      pages: {
+        getPage: mock.fn(async ({ hash, locale }: { hash: string; locale: string }) => {
+          const found = pages.find((p) => generatePathHash(p.path) === hash && p.locale === locale)
+          return found ? { ...found } : null
+        }),
+        createPage: mock.fn(async (siteId: string, input: any, actor: any) => {
+          calls.createPage.push({ siteId, input, actor })
+          return { id: 'new-page', ...input }
+        }),
+        updatePage: mock.fn(async (siteId: string, id: string, patch: any, actor: any) => {
+          calls.updatePage.push({ siteId, id, patch, actor })
+          return { id }
+        }),
+        movePage: mock.fn(async (siteId: string, id: string, patch: any, actor: any) => {
+          calls.movePage.push({ siteId, id, patch, actor })
+          return { id }
+        }),
+        deletePage: mock.fn(async (siteId: string, id: string, actor: any) => {
+          calls.deletePage.push({ siteId, id, actor })
+          return true
+        })
+      },
+      assets: {
+        getAssetByPath: mock.fn(async (siteId: string, filePath: string) => {
+          const segments = filePath.split('/').filter(Boolean)
+          const fileName = segments.pop()
+          const folderPath = segments.join('/')
+          const found = assets.find((a) => a.folderPath === folderPath && a.fileName === fileName)
+          return found ? { ...found } : null
+        }),
+        renameAsset: mock.fn(async (siteId: string, id: string, fileName: string) => {
+          calls.renameAsset.push({ siteId, id, fileName })
+          return { id }
+        }),
+        deleteAsset: mock.fn(async (siteId: string, id: string) => {
+          calls.deleteAsset.push({ siteId, id })
+          return true
+        }),
+        upload: mock.fn(async (opts: any) => {
+          calls.upload.push(opts)
+          return { id: 'new-asset' }
+        })
+      },
+      tree: {
+        getFolder: mock.fn(async ({ path: folderPath }: { path: string }) => ({
+          id: `folder:${folderPath}`
+        }))
+      }
+    }
+  }
+
+  return calls
+}
+
+function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
+  return {
+    id: 'target-1',
+    siteId: SITE_ID,
+    module: 'git',
+    isEnabled: true,
+    title: 'Local Git',
+    description: '',
+    icon: '',
+    banner: '',
+    vendor: '',
+    website: '',
+    contentTypes: {
+      activeTypes: ['pages', 'images', 'documents', 'others', 'large'],
+      largeThreshold: '5MB'
+    },
+    assetDelivery: {
+      isStreamingSupported: true,
+      isDirectAccessSupported: false,
+      streaming: true,
+      directAccess: false
+    },
+    versioning: { isSupported: true, isForceEnabled: true, enabled: true },
+    props: {},
+    config: {
+      authType: 'basic',
+      branch: 'main',
+      verifySSL: true,
+      defaultName: 'Fallback Name',
+      defaultEmail: ADMIN_EMAIL
+    },
+    actions: [],
+    ...overrides
+  } as StorageTarget
+}
+
+/** A bare repo standing in for "origin", plus a working copy already pushed to it (`seedPath`). */
+async function makeOrigin(): Promise<{ originPath: string; seedPath: string }> {
+  const originPath = await makeTempDir('wiki-git-sync-origin-')
+  await simpleGit(originPath).init(true)
+
+  const seedPath = await makeTempDir('wiki-git-sync-seed-')
+  const seed = simpleGit(seedPath)
+  await seed.init()
+  await seed.addConfig('user.name', 'Seed')
+  await seed.addConfig('user.email', 'seed@example.com')
+  await fs.writeFile(path.join(seedPath, '.keep'), '')
+  await seed.add('.keep')
+  await seed.commit('initial')
+  await seed.addRemote('origin', originPath)
+  await seed.push('origin', 'main')
+
+  return { originPath, seedPath }
+}
+
+/** A second working copy of `originPath`, standing in for an outside collaborator. */
+async function makePeer(
+  originPath: string
+): Promise<{ peerPath: string; peer: ReturnType<typeof simpleGit> }> {
+  const peerPath = await makeTempDir('wiki-git-sync-peer-')
+  const peer = simpleGit(peerPath)
+  await peer.clone(originPath, '.')
+  await peer.addConfig('user.name', 'Peer')
+  await peer.addConfig('user.email', 'peer@example.com')
+  return { peerPath, peer }
+}
+
+describe('git storage: parseRenamedPaths', () => {
+  test('a plain, unrenamed path matches neither half of the pattern', () => {
+    assert.deepEqual(parseRenamedPaths('docs/foo.md'), {
+      oldPath: 'docs/foo.md',
+      newPath: 'docs/foo.md'
+    })
+  })
+
+  test('a whole-path rename', () => {
+    assert.deepEqual(parseRenamedPaths('docs/old.md => docs/new.md'), {
+      oldPath: 'docs/old.md',
+      newPath: 'docs/new.md'
+    })
+  })
+
+  test("a rename confined to part of the path, in git's brace notation", () => {
+    assert.deepEqual(parseRenamedPaths('docs/{old => new}/page.md'), {
+      oldPath: 'docs/old/page.md',
+      newPath: 'docs/new/page.md'
+    })
+  })
+})
+
+describe('git storage: sync', () => {
+  let originPath: string
+  let localPath: string
+  let target: StorageTarget
+
+  beforeEach(async () => {
+    const origin = await makeOrigin()
+    originPath = origin.originPath
+    localPath = await makeTempDir('wiki-git-sync-local-')
+    target = makeTarget({
+      config: {
+        ...makeTarget().config,
+        repoUrl: originPath,
+        localRepoPath: path.join(localPath, 'repo')
+      }
+    })
+  })
+
+  test('pulls a page a peer created and creates it in the DB', async () => {
+    installWiki(localPath, { pages: [] })
+    // -> Establish the local clone/branch and its origin wiring, with at least one commit already
+    //    pulled — `sync()` deliberately treats a repo with no prior local commits as a job for the
+    //    separate "Import Everything" action rather than something it infers on its own.
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    await sync(target)
+
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].input.path, 'welcome')
+    assert.equal(calls.createPage[0].input.content, '# Hello there')
+    assert.equal(calls.createPage[0].input.editor, 'markdown')
+    assert.equal(calls.createPage[0].actor.id, 'admin-1')
+  })
+
+  test('pulls an update to a page already tracked in the DB', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), 'v1 content')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'welcome', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    const { git: localGit } = await ensureRepo(target)
+    // -> Local is caught up to the file as it stood before the update under test.
+    await localGit.pull('origin', 'main')
+
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), 'v2 content')
+    await peer.add('welcome.md')
+    await peer.commit('docs: update welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'welcome', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    await sync(target)
+
+    assert.equal(calls.updatePage.length, 1)
+    assert.equal(calls.updatePage[0].id, 'p1')
+    assert.equal(calls.updatePage[0].patch.content, 'v2 content')
+  })
+
+  test('pulls a page rename and moves it in the DB', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'old-name.md'), 'body')
+    await peer.add('old-name.md')
+    await peer.commit('docs: create old-name')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'old-name', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    await ensureRepo(target)
+    // -> Bring the local repo up to date with the peer's first commit before the rename.
+    const localGit = simpleGit(target.config.localRepoPath)
+    await localGit.pull('origin', 'main')
+
+    await peer.mv('old-name.md', 'new-name.md')
+    await peer.commit('docs: rename old-name to new-name')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'old-name', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    await sync(target)
+
+    assert.equal(calls.movePage.length, 1)
+    assert.equal(calls.movePage[0].id, 'p1')
+    assert.equal(calls.movePage[0].patch.path, 'new-name')
+    assert.equal(calls.createPage.length, 0)
+  })
+
+  test('pulls a page deletion and deletes it in the DB', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'doomed.md'), 'body')
+    await peer.add('doomed.md')
+    await peer.commit('docs: create doomed')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'doomed', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    await ensureRepo(target)
+    const localGit = simpleGit(target.config.localRepoPath)
+    await localGit.pull('origin', 'main')
+
+    await peer.rm('doomed.md')
+    await peer.commit('docs: delete doomed')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'doomed', locale: PRIMARY_LOCALE, contentType: 'markdown' }]
+    })
+    await sync(target)
+
+    assert.equal(calls.deletePage.length, 1)
+    assert.equal(calls.deletePage[0].id, 'p1')
+  })
+
+  test('pulls a new asset and uploads it', async () => {
+    installWiki(localPath, { assets: [] })
+    const { git: localGit } = await ensureRepo(target)
+    await localGit.pull('origin', 'main')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.mkdir(path.join(peerPath, 'images'), { recursive: true })
+    await fs.writeFile(path.join(peerPath, 'images/pic.png'), 'binarybytes')
+    await peer.add('images/pic.png')
+    await peer.commit('docs: upload pic.png')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { assets: [] })
+    await sync(target)
+
+    assert.equal(calls.upload.length, 1)
+    assert.equal(calls.upload[0].fileName, 'pic.png')
+    assert.equal(calls.upload[0].data.toString(), 'binarybytes')
+  })
+
+  test('pushes local commits to origin', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git, repoPath } = await ensureRepo(target)
+    await git.pull('origin', 'main')
+    await fs.writeFile(path.join(repoPath, 'mine.md'), 'local content')
+    await git.add('mine.md')
+    await git.commit('docs: create mine')
+
+    installWiki(localPath, { pages: [] })
+    await sync(target)
+
+    const { peerPath, peer } = await makePeer(originPath)
+    void peerPath
+    const log = await peer.log()
+    assert.ok(log.all.some((entry) => entry.message === 'docs: create mine'))
+  })
+
+  test('a rebase conflict rejects rather than being force-resolved', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'shared.md'), 'line one')
+    await peer.add('shared.md')
+    await peer.commit('docs: create shared')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, { pages: [] })
+    const { git, repoPath } = await ensureRepo(target)
+    await git.pull('origin', 'main')
+    // -> An unpushed local change to the same file...
+    await fs.writeFile(path.join(repoPath, 'shared.md'), 'local edit')
+    await git.add('shared.md')
+    await git.commit('docs: local edit')
+
+    // -> ...while the peer changes the same line a different way and gets there first.
+    await fs.writeFile(path.join(peerPath, 'shared.md'), 'peer edit')
+    await peer.add('shared.md')
+    await peer.commit('docs: peer edit')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, { pages: [] })
+    await assert.rejects(sync(target))
+  })
+})

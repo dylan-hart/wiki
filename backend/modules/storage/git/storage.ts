@@ -32,6 +32,7 @@ import {
   renamed,
   updated
 } from './content.ts'
+import { sync } from './sync.ts'
 
 /** Key of the `git` extension in `modules/extensions/`, used for the pre-flight detection check. */
 const GIT_EXTENSION_KEY = 'git'
@@ -241,7 +242,10 @@ const gitStorageModule: StorageModule = {
   deleted,
   assetUploaded,
   assetRenamed,
-  assetDeleted
+  assetDeleted,
+  // -> The `sync` action declared in `definition.yml` (task 507) — see `sync.ts`. Called as
+  //    `handler(target)` by `Storage.executeAction()`, per `StorageModule`.
+  sync
 }
 
 export default gitStorageModule
