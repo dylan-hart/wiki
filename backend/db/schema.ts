@@ -562,12 +562,20 @@ export const pageWatching = pgTable(
  * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
  * row was resolved from. The row has to be able to outlive both.
  *
- * `actorId` and `changedFields` are captured at write time rather than looked up when a notification
- * is finally sent, for the same reason `pageId` isn't a foreign key: the page (and, for a delete, the
- * `pageHistory` row it might otherwise be read from) can already be gone by the time delivery happens,
- * whether that's this task's immediate send or the digest job's later one. `actorId` is nullable and
- * `set null` on account deletion, matching `pageHistory.authorId` — a notification about who changed
- * a page should not be the reason that account can never be deleted.
+ * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
+ * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:
+ * the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can already be
+ * gone by the time delivery happens, whether that's this task's immediate send or the digest job's
+ * later one — and unlike `actorId`/`changedFields`, `pageTitle`/`pagePath` have nowhere else to be
+ * re-read from at all once that happens, since a deleted page's row is gone, not merely unreachable
+ * through a broken foreign key. `actorId` is nullable and `set null` on account deletion, matching
+ * `pageHistory.authorId` — a notification about who changed a page should not be the reason that
+ * account can never be deleted.
+ *
+ * `notifyMode` is likewise captured here rather than re-read from `pageWatching` at delivery time:
+ * that table is exactly what a delete's cascade removes (see above), so the digest job has no row
+ * left to ask "was this one digest or immediate?" by the time it runs — the answer `listWatchers`
+ * already resolved when this row was written is the only copy that survives.
  */
 export const pageWatchEvents = pgTable(
   'pageWatchEvents',
@@ -583,18 +591,25 @@ export const pageWatchEvents = pgTable(
     createdAt: timestamp().notNull().defaultNow(),
     deliveredAt: timestamp(),
     pageId: uuid().notNull(),
+    /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
+    pageTitle: text().notNull(),
+    /** The page's path as of this change, for the same reason `pageTitle` is captured here. */
+    pagePath: text().notNull(),
     siteId: uuid()
       .notNull()
       .references(() => sites.id),
     userId: uuid()
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    actorId: uuid().references(() => users.id, { onDelete: 'set null' })
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    /** `immediate` | `digest`, resolved and captured at write time — see this table's doc comment. */
+    notifyMode: varchar({ length: 16 }).notNull()
   },
   (table) => [
-    // -> "This user's undelivered notifications, oldest first" -- the query whatever sends them runs
+    // -> "This user's undelivered digest notifications, oldest first" -- the digest job's own query.
+    //    `notifyMode` leads after `userId` since that job filters on it before ordering by age.
     index('pageWatchEvents_pending_idx')
-      .on(table.userId, table.createdAt)
+      .on(table.userId, table.notifyMode, table.createdAt)
       .where(sql`"deliveredAt" IS NULL`),
     index('pageWatchEvents_pageId_idx').on(table.pageId)
   ]

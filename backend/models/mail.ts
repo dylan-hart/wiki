@@ -32,6 +32,14 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;')
 }
 
+/** One page-watch change, described the same way whether it stands alone or sits inside a digest. */
+export interface WatchEventItem {
+  page: { title: string; path: string }
+  action: PageWatchNotifiableAction
+  changedFields: string[]
+  actorName: string
+}
+
 /**
  * Mail model
  *
@@ -204,20 +212,44 @@ class MailModel {
   }
 
   /**
-   * Immediate page-watch notification, sent by `tasks/simple/notify-page-watchers.ts` for one
-   * watcher whose preference is `immediate` (see `models/pageWatching.ts#WatchNotifyMode`). One email
-   * per change per watcher — the digest job (a later task, out of this one's scope) is what batches
-   * several changes into one message for a `digest`-mode watcher instead.
+   * The content one page-watch change contributes to an email — a single line describing who did
+   * what to which page, with the summary and a link back to it. The shared building block behind
+   * both `sendPageWatchNotification` (one change, sent alone) and `sendPageWatchDigest` (several
+   * changes, one per line): the digest job composes its email out of exactly this per-event content
+   * rather than re-deriving the phrasing, so the two templates can never drift apart on how a change
+   * is described.
    *
-   * Every value here — page title/path, `changedFields`, `actorName` — is exactly what was captured
-   * on the `pageWatchEvents` row when the change was recorded, not looked up now: by the time an
-   * immediate send actually runs, a `deleted` page (and the `pageWatching` row this watcher's
-   * preference came from) can already be gone, same reasoning as `db/schema.ts#pageWatchEvents`'s own
-   * comment.
+   * Every value here — page title/path, `changedFields`, `actorName` — is expected to be exactly
+   * what was captured on the `pageWatchEvents` row when the change was recorded, not looked up now:
+   * by the time either template actually sends, a `deleted` page (and the `pageWatching` row a
+   * watcher's preference came from) can already be gone, same reasoning as
+   * `db/schema.ts#pageWatchEvents`'s own comment.
    *
    * @param page.path Used verbatim as `models/pageWatching.ts#WatchedPage`'s own link does
    *   (`InboxWatching.vue`'s `router.push('/' + page.path)`) — the wiki's page route has no locale
    *   segment, so the caller passes no locale here either.
+   */
+  private renderWatchEventLine({ page, action, changedFields, actorName }: WatchEventItem): {
+    text: string
+    html: string
+  } {
+    const label = WATCH_ACTION_LABELS[action]
+    const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
+    const link = this.buildLink(`/${page.path}`)
+    const safeTitle = escapeHtml(page.title)
+    const safeActor = escapeHtml(actorName)
+    const safeSummary = escapeHtml(summary)
+    return {
+      text: `${actorName} ${label} "${page.title}" (${summary}) — ${link}`,
+      html: `${safeActor} ${label} <strong>${safeTitle}</strong> (${safeSummary}) — <a href="${link}">${link}</a>`
+    }
+  }
+
+  /**
+   * Immediate page-watch notification, sent by `tasks/simple/notify-page-watchers.ts` for one
+   * watcher whose preference is `immediate` (see `models/pageWatching.ts#WatchNotifyMode`). One email
+   * per change per watcher — `sendPageWatchDigest` is what batches several changes into one message
+   * for a `digest`-mode watcher instead, built from the same `renderWatchEventLine` content.
    */
   async sendPageWatchNotification({
     to,
@@ -233,16 +265,36 @@ class MailModel {
     actorName: string
   }): Promise<void> {
     const label = WATCH_ACTION_LABELS[action]
-    const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
-    const link = this.buildLink(`/${page.path}`)
-    const safeTitle = escapeHtml(page.title)
-    const safeActor = escapeHtml(actorName)
-    const safeSummary = escapeHtml(summary)
+    const line = this.renderWatchEventLine({ page, action, changedFields, actorName })
     await this.send({
       to,
       subject: `Page ${label}: ${page.title}`,
-      text: `${actorName} ${label} a page you are watching: "${page.title}" (${summary}).\n\n${link}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
-      html: `<p>${safeActor} ${label} a page you are watching: <strong>${safeTitle}</strong> (${safeSummary}).</p><p><a href="${link}">${link}</a></p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
+      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+    })
+  }
+
+  /**
+   * Digest notification, sent by `tasks/simple/send-watch-digests.ts` for a `digest`-mode watcher's
+   * accumulated pending changes, batched across every page they watch into a single email — one line
+   * per change, built from the same `renderWatchEventLine` content `sendPageWatchNotification` sends
+   * alone, so the two templates read consistently without duplicating how a change is phrased.
+   *
+   * @param items At least one — the caller (the digest job) is what turns "no pending events this
+   *   cycle" into skipping the send entirely, not this method turning an empty list into an empty
+   *   email. Order is preserved as given (the caller's own chronological order).
+   */
+  async sendPageWatchDigest({ to, items }: { to: string; items: WatchEventItem[] }): Promise<void> {
+    const lines = items.map((item) => this.renderWatchEventLine(item))
+    const count = items.length
+    const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
+    const text = lines.map((line) => `- ${line.text}`).join('\n')
+    const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
+    await this.send({
+      to,
+      subject,
+      text: `${text}\n\nYou are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.`,
+      html: `${html}<p>You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.</p>`
     })
   }
 }

@@ -1,0 +1,171 @@
+import { describe, test, before, after, beforeEach, mock } from 'node:test'
+import assert from 'node:assert/strict'
+import { task as sendWatchDigests } from './send-watch-digests.ts'
+import type { PendingDigestEvent } from '../../models/pageWatchEvents.ts'
+
+/**
+ * Task 534: the digest job's own grouping/branching logic (per user, per event, empty-cycle no-op,
+ * per-recipient failure isolation) is entirely independent of real SQL — `listPendingForDigest` and
+ * `markManyDelivered` are exactly what a DB-backed suite (`models/pageWatchEvents.test.ts`) exists to
+ * verify. This suite stubs the whole model layer instead, so it can assert on what this task actually
+ * does with the rows it's handed without standing up a database for it.
+ */
+
+let previousWiki: any
+let listPendingForDigest: ReturnType<typeof mock.fn>
+let markManyDelivered: ReturnType<typeof mock.fn>
+let getById: ReturnType<typeof mock.fn>
+let sendPageWatchDigest: ReturnType<typeof mock.fn>
+let loggerError: ReturnType<typeof mock.fn>
+
+function pendingEvent(overrides: Partial<PendingDigestEvent> = {}): PendingDigestEvent {
+  return {
+    id: 'event-1',
+    userId: 'user-1',
+    pageId: 'page-1',
+    pageTitle: 'Getting Started',
+    pagePath: 'docs/getting-started',
+    action: 'updated',
+    changedFields: ['title'],
+    actorId: 'actor-1',
+    ...overrides
+  }
+}
+
+before(() => {
+  previousWiki = (globalThis as any).WIKI
+})
+
+after(() => {
+  ;(globalThis as any).WIKI = previousWiki
+})
+
+beforeEach(() => {
+  listPendingForDigest = mock.fn(async () => [] as PendingDigestEvent[])
+  markManyDelivered = mock.fn(async () => {})
+  getById = mock.fn(async (id: string) => ({
+    id,
+    name: 'Someone Person',
+    email: `${id}@example.com`
+  }))
+  sendPageWatchDigest = mock.fn(async () => {})
+  loggerError = mock.fn()
+  ;(globalThis as any).WIKI = {
+    logger: { info: mock.fn(), warn: mock.fn(), error: loggerError, debug: mock.fn() },
+    models: {
+      pageWatchEvents: { listPendingForDigest, markManyDelivered },
+      users: { getById },
+      mail: { sendPageWatchDigest }
+    }
+  }
+})
+
+describe('send-watch-digests task', () => {
+  test('no pending events is a no-op: no mail sent, nothing marked delivered', async () => {
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 0)
+    assert.equal(markManyDelivered.mock.calls.length, 0)
+  })
+
+  test('a single user with one pending event gets one digest covering it, then it is marked delivered', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
+
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 1)
+    const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
+    assert.equal(call.to, 'user-1@example.com')
+    assert.equal(call.items.length, 1)
+    assert.equal(call.items[0].page.title, 'Getting Started')
+    assert.equal(call.items[0].page.path, 'docs/getting-started')
+    assert.equal(call.items[0].actorName, 'Someone Person')
+
+    assert.equal(markManyDelivered.mock.calls.length, 1)
+    assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['event-1'])
+  })
+
+  test('several pending events for the same user are batched into one digest, one line item each', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', pageId: 'page-1' }),
+      pendingEvent({
+        id: 'ev-2',
+        pageId: 'page-2',
+        pageTitle: 'Second Page',
+        pagePath: 'second-page'
+      })
+    ])
+
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 1)
+    const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
+    assert.equal(call.items.length, 2)
+    assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['ev-1', 'ev-2'])
+  })
+
+  test('events for different users are grouped and sent as separate digests', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', userId: 'user-a' }),
+      pendingEvent({ id: 'ev-2', userId: 'user-b' })
+    ])
+
+    await sendWatchDigests()
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 2)
+    const recipients = sendPageWatchDigest.mock.calls.map((c: any) => c.arguments[0].to).sort()
+    assert.deepEqual(recipients, ['user-a@example.com', 'user-b@example.com'])
+  })
+
+  test('an actor referenced by several events is only looked up once', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', pageId: 'page-1', actorId: 'shared-actor' }),
+      pendingEvent({ id: 'ev-2', pageId: 'page-2', actorId: 'shared-actor' })
+    ])
+
+    await sendWatchDigests()
+
+    const actorLookups = getById.mock.calls.filter((c: any) => c.arguments[0] === 'shared-actor')
+    assert.equal(actorLookups.length, 1)
+  })
+
+  test('a recipient with no email address is skipped without attempting a send', async () => {
+    getById.mock.mockImplementation(async (id: string) =>
+      id === 'user-1' ? { id, name: 'No Email' } : { id, name: 'Actor', email: 'actor@example.com' }
+    )
+    listPendingForDigest.mock.mockImplementation(async () => [pendingEvent()])
+
+    await assert.doesNotReject(() => sendWatchDigests())
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 0)
+    assert.equal(markManyDelivered.mock.calls.length, 0)
+  })
+
+  test("one user failing to send does not stop another user's digest, and does not throw", async () => {
+    sendPageWatchDigest.mock.mockImplementation(async ({ to }: { to: string }) => {
+      if (to === 'user-a@example.com') {
+        throw new Error('SMTP exploded')
+      }
+    })
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', userId: 'user-a' }),
+      pendingEvent({ id: 'ev-2', userId: 'user-b' })
+    ])
+
+    await assert.doesNotReject(() => sendWatchDigests())
+
+    assert.equal(sendPageWatchDigest.mock.calls.length, 2)
+    // -> Only the succeeding user's event was marked delivered
+    assert.equal(markManyDelivered.mock.calls.length, 1)
+    assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['ev-2'])
+    assert.ok(loggerError.mock.calls.length > 0)
+  })
+
+  test('a failure querying pending events at all is thrown, not swallowed', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => {
+      throw new Error('connection refused')
+    })
+
+    await assert.rejects(() => sendWatchDigests(), /connection refused/)
+  })
+})

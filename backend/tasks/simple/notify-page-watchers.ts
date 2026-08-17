@@ -54,10 +54,13 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
       watchers.map((watcher) => ({
         siteId,
         pageId,
+        pageTitle,
+        pagePath,
         userId: watcher.userId,
         action,
         actorId,
-        changedFields
+        changedFields,
+        notifyMode: watcher.notifyMode
       }))
     )
   } catch (err: any) {
