@@ -103,6 +103,22 @@
             padding="xs lg"
             :label="t(`common.newpage.goback`)"
             @click="goBack" />
+          <!--
+            A path that resolves to nothing is also what a deleted page's own address does, and
+            `read:history` at this path -- fetched above alongside the rest of the permissions this
+            screen needs -- is exactly the permission the Recently Deleted list itself is filtered
+            on, so a reader who could not see this deletion there would not be shown a link to it.
+          -->
+          <w-btn
+            class="mt-4"
+            v-if="canViewDeletionHistory"
+            flat
+            dense
+            no-caps
+            icon="la:history"
+            color="grey-6"
+            :label="t(`history.recovery.entryLink`)"
+            :to="`/_admin/` + siteStore.id + `/pages/deleted`" />
         </div>
         <!--
           A redirection, which is a page with nowhere to read: it takes the reader on rather than
@@ -523,6 +539,21 @@ const canEditPage = computed(() =>
 */
 const canCreatePage = computed(
   () => userStore.pagePermissions.includes('write:pages') && siteStore.editors.markdown
+)
+
+/**
+ * Whether to point this reader at the Recently Deleted admin view.
+ *
+ * Two permissions, of the two different kinds, both have to hold: `access:admin` -- a GLOBAL
+ * permission -- is what `AdminLayout` itself checks on arrival, and without it the link would only
+ * bounce the reader to the unauthorized screen; `read:history` at this exact path -- a PAGE
+ * permission, from the same `pages/userPermissions` fetch `canCreatePage` reads -- is what a row for
+ * this path would need to appear on that list at all. A group can grant either without the other
+ * (a contributor with `read:history` rules but no admin access is a normal setup, not an edge case),
+ * so neither alone is enough to promise the link leads somewhere real.
+ */
+const canViewDeletionHistory = computed(
+  () => userStore.can('access:admin') && userStore.pagePermissions.includes('read:history')
 )
 
 const relationsLeft = computed(() => {
