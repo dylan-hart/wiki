@@ -1,5 +1,5 @@
 <template>
-  <w-page class="admin-flags">
+  <w-page class="admin-search">
     <div class="flex flex-wrap p-4 items-center">
       <div class="flex-none">
         <img
@@ -39,67 +39,84 @@
           color="secondary"
           :loading="state.loading > 0"
           :aria-label="t(`common.actions.refresh`)"
-          @click="load">
+          @click="refresh">
           <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
-        <w-btn
-          unelevated
-          icon="mdi:check"
-          :label="t(`common.actions.apply`)"
-          color="secondary"
-          @click="save"
-          :loading="state.loading > 0" />
       </div>
     </div>
     <w-separator inset />
-    <div class="grid grid-cols-12 p-4 gap-4">
-      <div class="col-span-12 lg:col-span-7">
-        <w-card class="py-2">
-          <w-item tag="label">
-            <blueprint-icon icon="search" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.search.highlighting`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.search.highlightingHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.termHighlighting"
-                :aria-label="t(`admin.search.highlighting`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon class="self-start" icon="search" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.search.dictOverrides`) }}</w-item-label>
-              <util-code-editor
-                class="my-2"
-                v-model="state.config.dictOverrides"
-                language="json"
-                :min-height="250"
-                :aria-label="t(`admin.search.dictOverrides`)" />
-              <w-item-label caption>
-                <i18n-t keypath="admin.search.dictOverridesHint" tag="span">
-                  <span>{ "en": "english" }</span>
-                </i18n-t>
-              </w-item-label>
-            </w-item-section>
-          </w-item>
+    <!--
+      Same list-beside-panel shape as `AdminStorage.vue`'s targets and `AdminAuth.vue`'s strategies:
+      the list is only as wide as it needs to be and the panel takes what is left, wrapping onto its
+      own row when there is no room for both.
+    -->
+    <div class="flex flex-wrap p-4 gap-4">
+      <div class="flex-none">
+        <w-card class="rounded bg-dark">
+          <w-list style="min-width: 300px" padding dark>
+            <w-item
+              v-for="eng of state.engines"
+              :key="eng.key"
+              active-class="bg-primary text-white"
+              :active="state.selectedEngineKey === eng.key"
+              :disabled="!eng.hasImplementation"
+              clickable
+              @click="state.selectedEngineKey = eng.key">
+              <w-item-section side><w-icon :name="`img:` + eng.icon" /></w-item-section>
+              <w-item-section>
+                <w-item-label>{{ eng.title }}</w-item-label>
+                <w-item-label caption>{{ eng.description }}</w-item-label>
+              </w-item-section>
+              <w-item-section side v-if="eng.isSelected">
+                <w-icon name="mdi:check-circle" size="sm" color="positive" />
+              </w-item-section>
+            </w-item>
+          </w-list>
         </w-card>
       </div>
-      <div class="col-span-12 max-lg:hidden lg:col-span-5">
-        <div class="p-4 text-center">
-          <img src="/_assets/illustrations/undraw_file_searching.svg" style="width: 80%" />
-        </div>
+      <!-- -> `min-w-0`, or a long value inside the panel would push it wider than the row -->
+      <div class="min-w-0 flex-1" v-if="selectedEngine">
+        <w-card class="pb-2">
+          <w-card-header>
+            {{ t('admin.search.engineConfig') }}
+            <template #hint>{{ selectedEngine.description }}</template>
+          </w-card-header>
+          <w-card-section v-if="!hasConfigurableProps">
+            <w-banner :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">{{
+              t('admin.search.engineNoConfig')
+            }}</w-banner>
+          </w-card-section>
+          <!--
+            Placeholder read-out of what the selected engine's `definition.yml` declares, until the
+            dynamic config form (boolean -> toggle, `enum` -> select/buttons, sensitive -> password,
+            `readOnly` -> disabled, `if` -> conditional visibility -- `AdminStorage.vue`'s
+            `buildConfigEditor()` establishes the pattern) lands in its own task. `selectedEngine.props`
+            (the schema) and `.config` (the stored values, already merged with defaults by the list
+            endpoint) are both loaded here, ready for that component to render in place of this.
+          -->
+          <template v-else v-for="(prop, key, idx) in selectedEngine.props" :key="key">
+            <w-separator class="my-2" inset v-if="idx > 0" />
+            <w-item>
+              <w-item-section>
+                <w-item-label>{{ prop.title }}</w-item-label>
+                <w-item-label caption>{{ prop.hint }}</w-item-label>
+              </w-item-section>
+              <w-item-section side>
+                <span class="text-grey">{{ selectedEngine.config[key] }}</span>
+              </w-item-section>
+            </w-item>
+          </template>
+        </w-card>
       </div>
     </div>
   </w-page>
 </template>
 
 <script setup>
-import { onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
@@ -107,8 +124,11 @@ import { loading } from '@/composables/loading'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
-import UtilCodeEditor from '@/components/UtilCodeEditor.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+
+// COMPOSABLES
+
+const dark = useDark()
 
 // STORES
 
@@ -130,89 +150,80 @@ useMeta({
 const state = reactive({
   loading: 0,
   rebuildLoading: false,
-  availableDictionaries: [],
-  config: {
-    termHighlighting: false,
-    // -> The editor works on text; the API stores and returns an object
-    dictOverrides: '{}'
-  }
+  engines: [],
+  selectedEngineKey: ''
 })
+
+// COMPUTED
+
+const selectedEngine = computed(
+  () => state.engines.find((eng) => eng.key === state.selectedEngineKey) || null
+)
+const hasConfigurableProps = computed(
+  () => Object.keys(selectedEngine.value?.props ?? {}).length > 0
+)
 
 // WATCHERS
 
+// -> Switching sites in the admin header must not leave this page pinned to the previous site's
+//    engine list/selection: `resetSelection` forces the picker back onto whichever engine the NEW
+//    site actually has active, rather than merely keeping the old key if it happens to also exist
+//    there (every site has a `db` engine, so a naive "keep if still present" check would silently
+//    stay on it even when the new site's active engine is something else).
 watch(
   () => adminStore.currentSiteId,
   () => {
     loading.show()
-    load()
+    load({ resetSelection: true })
   }
 )
 
 // METHODS
 
-async function load() {
+/**
+ * Apply a freshly-fetched engine list, choosing what stays selected.
+ *
+ * @param resetSelection Force the selection back onto the site's active engine (a site switch),
+ *   rather than keeping the currently viewed one when it is still in the list (an ordinary reload).
+ */
+function applyEngines(engines, { resetSelection = false } = {}) {
+  state.engines = engines ?? []
+  if (resetSelection || !state.engines.some((eng) => eng.key === state.selectedEngineKey)) {
+    state.selectedEngineKey =
+      state.engines.find((eng) => eng.isSelected)?.key || state.engines[0]?.key || ''
+  }
+}
+
+async function load({ resetSelection = false } = {}) {
   state.loading++
   loading.show()
   try {
-    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/search`).json()
-    state.config = {
-      termHighlighting: resp?.termHighlighting === true,
-      dictOverrides: JSON.stringify(resp?.dictOverrides ?? {}, null, 2)
-    }
-    state.availableDictionaries = resp?.availableDictionaries ?? []
+    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/search/engines`).json()
+    applyEngines(resp, { resetSelection })
   } catch (err) {
     notify({
       type: 'negative',
       message: t('admin.search.loadFailed'),
-      caption: err.message
+      caption: apiErrorMessage(err)
     })
   }
   loading.hide()
   state.loading--
 }
 
-async function save() {
+async function refresh() {
   state.loading++
   try {
-    let dictOverrides
-    try {
-      dictOverrides = JSON.parse(state.config.dictOverrides || '{}')
-    } catch (err) {
-      throw new Error(t('admin.search.dictOverridesInvalidJSON', { reason: err.message }))
-    }
-    if (
-      typeof dictOverrides !== 'object' ||
-      Array.isArray(dictOverrides) ||
-      dictOverrides === null
-    ) {
-      throw new Error(t('admin.search.dictOverridesNotAnObject'))
-    }
-    // -> Caught here rather than server-side so the offending entry can be named while the operator
-    //    is still looking at the editor
-    for (const [locale, dictionary] of Object.entries(dictOverrides)) {
-      if (typeof dictionary !== 'string' || !state.availableDictionaries.includes(dictionary)) {
-        throw new Error(t('admin.search.dictOverridesUnknown', { locale, dictionary }))
-      }
-    }
-
-    const resp = await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
-      json: {
-        termHighlighting: state.config.termHighlighting,
-        dictOverrides
-      }
-    }).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
+    const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/refresh`).json()
+    applyEngines(resp)
     notify({
       type: 'positive',
-      message: t('admin.search.saveSuccess')
+      message: t('admin.search.listRefreshSuccess')
     })
-    await load()
   } catch (err) {
     notify({
       type: 'negative',
-      message: t('admin.search.saveFailed'),
+      message: t('admin.search.loadFailed'),
       caption: apiErrorMessage(err)
     })
   }
@@ -244,7 +255,7 @@ async function rebuild() {
 
 onMounted(async () => {
   if (adminStore.currentSiteId) {
-    await load()
+    await load({ resetSelection: true })
   }
 })
 </script>
