@@ -29,6 +29,7 @@
     "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json",
     "typecheck": "tsc",
     "typecheck:watch": "tsc --watch",
+    "test": "node --test 'db/**/*.test.ts'",
     "ncu": "ncu -i",
     "ncu-u": "ncu -u",
     "db-generate": "drizzle-kit generate --dialect=postgresql --schema=./db/schema.ts --out=./db/migrations --name=main",
@@ -77,9 +78,6 @@
     "y-protocols": "1.0.7",
     "yjs": "13.6.32"
   },
-  "optionalDependencies": {
-    "sharp": "0.35.3"
-  },
   "devDependencies": {
     "@types/fs-extra": "11.0.4",
     "@types/js-yaml": "4.0.9",
@@ -96,8 +94,15 @@
     "oxlint": "1.77.0",
     "typescript": "7.0.2"
   },
+  "optionalDependencies": {
+    "sharp": "0.35.3"
+  },
   "engines": {
     "node": ">=26.0"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "puppeteer": true
   },
   "collective": {
     "type": "opencollective",
@@ -105,9 +110,5 @@
     "logo": "https://opencollective.com/opencollective/logo.txt"
   },
   "dev": true,
-  "releaseDate": "2026-01-01T01:01:01.000Z",
-  "allowScripts": {
-    "esbuild": false,
-    "puppeteer": true
-  }
+  "releaseDate": "2026-01-01T01:01:01.000Z"
 }
