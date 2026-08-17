@@ -45,15 +45,22 @@ export interface NavigationItem {
    * decided at the top level.
    */
   pinned?: 'before' | 'after'
+  /**
+   * Set by `getNav` (never stored) on every item -- and nested child -- that came from `generateFromTree`
+   * rather than the row's own `items` column, on an `auto` or `mixed` menu. Absent on a `static` menu's
+   * items, and on a `mixed` menu's stored items, since neither is ever generated. See `markGenerated`.
+   */
+  generated?: boolean
 }
 
 export interface UpdateNavigationResult {
   navigationMode: NavigationMode
   navigationId: string | null
   /**
-   * The resolved navigation row's own `mode` (static/auto/mixed) -- known here as a type so a later
-   * task can start returning it without widening this interface again, but `updateNavigation` never
-   * touches `navigation.mode`, so this task never sets it.
+   * The resolved navigation row's own `mode` (static/auto/mixed) -- present only when `updateNavigation`
+   * was called with a `menuMode`, in which case it echoes back what was just written. Absent (not
+   * `undefined`-but-stale) when the call left `navigation.mode` untouched, since a caller that didn't
+   * send `menuMode` may not otherwise know the row's current source mode.
    */
   mode?: NavigationSourceMode
 }
@@ -74,6 +81,24 @@ export interface NavigationOverride {
 function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
   const groups = item.visibilityGroups ?? []
   return groups.length < 1 || groups.some((g) => userGroups.includes(g))
+}
+
+/**
+ * Marks a `generateFromTree` result (and every nested child of it) as `generated`, recursively.
+ *
+ * What lets an `auto`/`mixed` editor (Task 464's `NavItemEditor.vue`) tell a tree-walk item apart from
+ * a hand-authored one in the single combined list `getNav` returns -- without it, editing a `mixed`
+ * menu and saving back everything on screen would freeze a snapshot of the generated items into the
+ * stored `items` column, exactly the footgun documented on `getNav` above. Applied only in `getNav`,
+ * not on `generateFromTree`'s own result, since "generated" is a property of how `getNav` is presenting
+ * an item to a caller, not of the tree walk itself.
+ */
+function markGenerated(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    generated: true,
+    ...(item.children?.length && { children: markGenerated(item.children) })
+  }))
 }
 
 /**
@@ -134,7 +159,9 @@ class Navigation {
       combined = items
     } else {
       const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id)
-      const generated = await this.generateFromTree(row.siteId, rootFolderPath, locale)
+      const generated = markGenerated(
+        await this.generateFromTree(row.siteId, rootFolderPath, locale)
+      )
       if (row.mode === 'auto') {
         combined = generated
       } else {
@@ -163,6 +190,23 @@ class Navigation {
           ? { ...item, children: item.children.filter((c) => isVisibleTo(c, userGroups)) }
           : item
       )
+  }
+
+  /**
+   * A menu row's own source mode (`static`/`auto`/`mixed`), with no item resolution -- what
+   * `NavEditMenu.vue`'s mode selector (Task 464) asks before it has anything to PUT, so it can
+   * preselect the option that is actually stored rather than always defaulting to `static`. `static`
+   * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
+   *
+   * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
+   */
+  async getMode(id: string): Promise<NavigationSourceMode> {
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, id))
+      .limit(1)
+    return rows[0]?.mode ?? 'static'
   }
 
   /**
@@ -473,19 +517,32 @@ class Navigation {
    * change alters what descendants inherit — every entry below it that is still on `inherit` is
    * repointed, stopping at any that overrides or hides in between.
    *
+   * `mode` here is the entry's cascade setting (`inherit`/`override`/`overrideExact`/`hide`/
+   * `hideExact` — `NavigationMode`, deciding WHICH menu a page's sidebar resolves to). `menuMode` is a
+   * different axis entirely: the resolved menu ROW's own `mode` column (`static`/`auto`/`mixed` —
+   * `NavigationSourceMode`, deciding whether that menu's items are hand-authored, tree-generated, or
+   * both — see `getNav`). The two can change independently of each other in the same call, which is
+   * why they are separate parameters rather than one being folded into the other.
+   *
    * @param items When given, the menu the mode resolves to, replacing whatever was there — this
    *              entry's own, or the one it inherits when the mode is `inherit`
+   * @param menuMode When given, the resolved menu row's own `mode` (`static`/`auto`/`mixed`),
+   *                 replacing whatever it already had — set on the same target row `items` would
+   *                 write to (`ancestorId` under `inherit`, `ownNavId` otherwise), independent of
+   *                 whether `items` is also given.
    */
   async updateNavigation({
     siteId,
     pageId,
     mode,
-    items
+    items,
+    menuMode
   }: {
     siteId: string
     pageId: string
     mode: NavigationMode
     items?: NavigationItem[]
+    menuMode?: NavigationSourceMode
   }): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
@@ -502,12 +559,12 @@ class Navigation {
 
     const ancestorId = await this.ancestorNavId(siteId, folderPath)
 
-    if (items) {
+    if (items || menuMode) {
       /*
-        Which menu the items belong to is the mode's answer, not the entry's: a page that inherits
-        shows a menu belonging to an ancestor, so editing the sidebar from that page edits THAT menu
-        rather than starting one of its own that nothing would point at. For the root home page the two
-        are the same id — the site-wide menu is what it inherits and what it owns.
+        Which menu the items (and/or menuMode) belong to is the mode's answer, not the entry's: a page
+        that inherits shows a menu belonging to an ancestor, so editing the sidebar from that page edits
+        THAT menu rather than starting one of its own that nothing would point at. For the root home
+        page the two are the same id — the site-wide menu is what it inherits and what it owns.
       */
       const targetNavId = mode === 'inherit' ? ancestorId : ownNavId
       if (!targetNavId) {
@@ -517,10 +574,22 @@ class Navigation {
           400
         )
       }
+      const set: { items?: NavigationItem[]; mode?: NavigationSourceMode } = {}
+      if (items) {
+        set.items = items
+      }
+      if (menuMode) {
+        set.mode = menuMode
+      }
       await WIKI.db
         .insert(navigationTable)
-        .values({ id: targetNavId, siteId, items })
-        .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+        .values({
+          id: targetNavId,
+          siteId,
+          items: items ?? [],
+          ...(menuMode && { mode: menuMode })
+        })
+        .onConflictDoUpdate({ target: navigationTable.id, set })
     }
 
     // -> A mode that stops applying below this entry hands its descendants back to the ancestor
@@ -590,7 +659,7 @@ class Navigation {
       `)
     }
 
-    return { navigationMode: mode, navigationId: navId }
+    return { navigationMode: mode, navigationId: navId, ...(menuMode && { mode: menuMode }) }
   }
 }
 

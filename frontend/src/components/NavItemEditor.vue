@@ -6,6 +6,17 @@
         nothing defines them any more, which is why the rows had drifted to full height: the density
         now comes from `dense` on each item, matching what NavSidebar renders.
       -->
+      <div class="nav-edit-mixed-hint text-caption" v-if="isMixed">
+        {{ t('navEdit.menuSourceMixedListHint') }}
+      </div>
+      <!--
+        Exactly one root node per `#item` invocation, deliberately: `sortablejs-vue3` renders this slot
+        directly into the sortable container with no per-item wrapper (see its source), so SortableJS's
+        `oldIndex`/`newIndex` are DOM child positions -- a second sibling node per item (e.g. a divider
+        rendered alongside the row) would desync those from `state.items`' own indices. The generated
+        block's boundary is marked with pure CSS sibling selectors instead (`.is-generated` adjacency,
+        below) for exactly this reason.
+      -->
       <sortable
         class="nav-edit-list"
         :list="state.items"
@@ -16,40 +27,62 @@
           <div
             class="nav-edit-item nav-edit-item-header"
             v-if="element.type === `header`"
-            :class="state.selected === element.id ? `is-active` : ``"
+            :class="{
+              'is-active': state.selected === element.id,
+              'is-generated': element.generated
+            }"
             @click="setItem(element)">
             <w-item-label class="text-caption" header>{{ element.label }}</w-item-label>
             <w-space />
             <w-item-section side>
-              <w-icon class="handle" name="mdi:drag-horizontal" size="sm" />
+              <w-icon
+                v-if="!element.generated"
+                class="handle"
+                name="mdi:drag-horizontal"
+                size="sm" />
             </w-item-section>
           </div>
           <w-item
             class="nav-edit-item nav-edit-item-link"
             v-else-if="element.type === `link`"
             dense
-            :class="{ 'is-active': state.selected === element.id, 'is-nested': element.isNested }"
+            :class="{
+              'is-active': state.selected === element.id,
+              'is-nested': element.isNested,
+              'is-generated': element.generated
+            }"
             @click="setItem(element)"
             clickable>
             <w-item-section side><w-icon :name="element.icon" color="white" /></w-item-section>
             <w-item-section class="text-wordbreak-all">{{ element.label }}</w-item-section>
             <w-item-section side>
-              <w-icon class="handle" name="mdi:drag-horizontal" size="sm" />
+              <w-icon
+                v-if="!element.generated"
+                class="handle"
+                name="mdi:drag-horizontal"
+                size="sm" />
             </w-item-section>
           </w-item>
           <div
             class="nav-edit-item nav-edit-item-separator"
             v-else
-            :class="state.selected === element.id ? `is-active` : ``"
+            :class="{
+              'is-active': state.selected === element.id,
+              'is-generated': element.generated
+            }"
             @click="setItem(element)">
             <w-separator dark inset style="flex: 1; margin-top: 11px" />
             <w-item-section side>
-              <w-icon class="handle" name="mdi:drag-horizontal" size="sm" />
+              <w-icon
+                v-if="!element.generated"
+                class="handle"
+                name="mdi:drag-horizontal"
+                size="sm" />
             </w-item-section>
           </div>
         </template>
       </sortable>
-      <div class="p-4 flex">
+      <div class="p-4 flex" v-if="!isAuto">
         <w-btn
           class="acrylic-btn"
           style="flex: 1"
@@ -90,7 +123,10 @@
           padding="xs sm">
           <w-menu :offset="[0, 10]" anchor="bottom right" self="top right" auto-close>
             <w-list separator>
-              <w-item clickable @click="clearItems" :disable="state.items.length < 1">
+              <w-item
+                clickable
+                @click="clearItems"
+                :disable="!state.items.some((item) => !item.generated)">
                 <w-item-section side>
                   <w-icon name="la:trash-alt" color="negative" />
                 </w-item-section>
@@ -123,7 +159,14 @@
         </w-card>
       </template>
       <template v-if="state.current.type === `header`">
-        <w-card class="pb-2">
+        <w-banner
+          v-if="editingDisabled"
+          dense
+          class="mb-2"
+          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
+          {{ t('navEdit.menuSourceReadOnlyNotice') }}
+        </w-banner>
+        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
           <w-card-section>
             <div class="text-subtitle1">{{ t('navEdit.header') }}</div>
           </w-card-section>
@@ -175,7 +218,7 @@
               :aria-label="t(`navEdit.selectGroups`)" />
           </w-item>
         </w-card>
-        <w-card class="p-4 mt-4 flex">
+        <w-card class="p-4 mt-4 flex" v-if="!editingDisabled">
           <w-space />
           <w-btn
             class="acrylic-btn"
@@ -188,7 +231,14 @@
         </w-card>
       </template>
       <template v-if="state.current.type === `link`">
-        <w-card class="pb-2">
+        <w-banner
+          v-if="editingDisabled"
+          dense
+          class="mb-2"
+          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
+          {{ t('navEdit.menuSourceReadOnlyNotice') }}
+        </w-banner>
+        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
           <w-card-section
             ><div class="text-subtitle1">{{ t('navEdit.link') }}</div></w-card-section
           >
@@ -349,7 +399,7 @@
               :aria-label="t(`navEdit.selectGroups`)" />
           </w-item>
         </w-card>
-        <w-card class="p-4 mt-4 flex items-start">
+        <w-card class="p-4 mt-4 flex items-start" v-if="!editingDisabled">
           <div>
             <w-btn
               class="acrylic-btn"
@@ -383,7 +433,14 @@
         </w-card>
       </template>
       <template v-if="state.current.type === `separator`">
-        <w-card class="pb-2">
+        <w-banner
+          v-if="editingDisabled"
+          dense
+          class="mb-2"
+          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-3 text-grey-9`">
+          {{ t('navEdit.menuSourceReadOnlyNotice') }}
+        </w-banner>
+        <w-card class="pb-2" :class="{ 'nav-edit-readonly': editingDisabled }">
           <w-card-section>
             <div class="text-subtitle1">{{ t('navEdit.separator') }}</div>
           </w-card-section>
@@ -420,7 +477,7 @@
               :aria-label="t(`navEdit.selectGroups`)" />
           </w-item>
         </w-card>
-        <w-card class="p-4 mt-4 flex">
+        <w-card class="p-4 mt-4 flex" v-if="!editingDisabled">
           <w-space />
           <w-btn
             class="acrylic-btn"
@@ -448,6 +505,7 @@ import { pick } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useDark } from '@/composables/dark'
 
 /**
  * The item-list-plus-detail-panel navigation editor: the sortable list of items on the left, and the
@@ -474,6 +532,23 @@ const props = defineProps({
   navId: {
     type: String,
     required: true
+  },
+  /**
+   * The menu's own source (`static`/`auto`/`mixed`) -- a different axis from wherever the host
+   * addresses this menu by. Left at the default for a host (e.g. `AdminNavEditDialog.vue`) that has
+   * not resolved it: `static` is what every menu was before this feature, and is the one source this
+   * component behaves for exactly as it always did. `NavEditOverlay.vue` is the one host that resolves
+   * and passes it, since it is the one host that also offers a way to change it (`NavEditMenu.vue`'s
+   * mode selector).
+   *
+   * `auto` renders the whole list read-only, since every item is `generated` — there is nothing of
+   * this menu's own to edit. `mixed` keeps add/remove/drag for the items that are NOT `generated`,
+   * fenced off from the generated block by both a visual divider and a drag boundary — see
+   * `sortableOptions` and `buildSaveItems`.
+   */
+  menuMode: {
+    type: String,
+    default: 'static'
   }
 })
 
@@ -492,6 +567,10 @@ const emit = defineEmits([
 // I18N
 
 const { t } = useI18n()
+
+// DARK MODE
+
+const dark = useDark()
 
 // DATA
 
@@ -521,11 +600,6 @@ const state = reactive({
  */
 const DEFAULT_LINK_ICON = 'mdi:text-box-outline'
 
-const sortableOptions = {
-  handle: '.handle',
-  animation: 150
-}
-
 const visibilityOptions = [
   { value: false, label: t('navEdit.visibilityAll') },
   { value: true, label: t('navEdit.visibilityLimited') }
@@ -549,6 +623,39 @@ const currentIsParent = computed(() => {
   const idx = state.items.findIndex((it) => it.id === item.id)
   return idx >= 0 && Boolean(state.items[idx + 1]?.isNested)
 })
+
+/** Whole menu is `getNav`'s generated preview -- nothing of this menu's own to add, remove or drag. */
+const isAuto = computed(() => props.menuMode === 'auto')
+
+/** Generated and stored items share one list -- the divider/boundary rendering only applies here. */
+const isMixed = computed(() => props.menuMode === 'mixed')
+
+/** Whether the item currently open in the detail panel is one `getNav` generated, not a stored one. */
+const isCurrentGenerated = computed(() => Boolean(state.current?.generated))
+
+/**
+ * Whether the detail panel's own fields (and its Delete/Nest buttons) are disabled -- either because
+ * the WHOLE menu is read-only (`auto`), or because THIS item specifically is a generated one sitting
+ * in an otherwise-editable `mixed` menu. Editing a generated item's fields would only be undone by the
+ * next `getNav` read, which regenerates it fresh from the tree every time.
+ */
+const editingDisabled = computed(() => isAuto.value || isCurrentGenerated.value)
+
+/**
+ * `auto` disables dragging entirely -- every item is generated, so there is nothing of this menu's
+ * own to reorder. `mixed` still drags normally among the non-generated items (`filter` blocks starting
+ * a drag ON a generated one, `onMove` blocks dropping INTO the generated block), which is what keeps a
+ * manual item from ending up interleaved with tree-walk output that would just be overwritten by the
+ * next read anyway.
+ */
+const sortableOptions = computed(() => ({
+  handle: '.handle',
+  animation: 150,
+  disabled: isAuto.value,
+  filter: '.is-generated',
+  preventOnFilter: true,
+  onMove: (evt) => !evt.related?.classList?.contains('is-generated')
+}))
 
 const thumbStyle = {
   right: '2px',
@@ -595,6 +702,11 @@ function browseTarget() {
 }
 
 function addItem(type) {
+  // -> Nothing of this menu's own to add to while every item is generated -- the Add button is
+  //    already hidden for `auto` (see the template), this is the defensive twin of that
+  if (isAuto.value) {
+    return
+  }
   const newItem = {
     id: uuid(),
     type,
@@ -622,13 +734,21 @@ function addItem(type) {
 }
 
 function removeItem(id) {
+  // -> A generated item is not this menu's own to remove -- the Delete button is already hidden for
+  //    one (see the template), this is the defensive twin of that
+  if (state.items.find((item) => item.id === id)?.generated) {
+    return
+  }
   state.items = state.items.filter((item) => item.id !== id)
   state.selected = null
   state.current = {}
 }
 
 function clearItems() {
-  state.items = []
+  // -> Clears only what this menu owns -- a generated item is not something a save could ever remove
+  //    (the next read regenerates it fresh from the tree regardless), so leaving it out of `items`
+  //    here would still show it right back after saving. Kept in place instead.
+  state.items = state.items.filter((item) => item.generated)
   state.selected = null
   state.current = {}
 }
@@ -675,7 +795,9 @@ async function loadMenuItems() {
           'target',
           'openInNewWindow',
           'expandByDefault',
-          'visibilityGroups'
+          'visibilityGroups',
+          // -> `getNav`-only, never sent back on save -- see `cleanMenuItem`/`buildSaveItems`
+          'generated'
         ]),
         visibilityLimited: item.visibilityGroups?.length > 0
       })
@@ -688,7 +810,8 @@ async function loadMenuItems() {
             'icon',
             'target',
             'openInNewWindow',
-            'visibilityGroups'
+            'visibilityGroups',
+            'generated'
           ]),
           visibilityLimited: child.visibilityGroups?.length > 0,
           isNested: true
@@ -705,12 +828,13 @@ async function loadMenuItems() {
   state.loading--
 }
 
-function cleanMenuItem(item, isNested = false) {
+function cleanMenuItem(item, isNested = false, pinned) {
   switch (item.type) {
     case 'header': {
       return {
         ...pick(item, ['id', 'type', 'label']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
+        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
+        ...(pinned && { pinned })
       }
     }
     case 'link': {
@@ -719,13 +843,15 @@ function cleanMenuItem(item, isNested = false) {
         visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
         // -> Only a top-level link can hold children, so only one of those can be a parent — a nested
         //    item carrying an expand flag would be a setting nothing ever reads
-        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) })
+        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) }),
+        ...(pinned && { pinned })
       }
     }
     case 'separator': {
       return {
         ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
+        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
+        ...(pinned && { pinned })
       }
     }
   }
@@ -736,17 +862,35 @@ function cleanMenuItem(item, isNested = false) {
  *
  * Thrown, not returned, on a nested item with nothing above it to nest under — the host's own
  * `save()` is what shows that as an error, matching how the pre-extraction code surfaced it.
+ *
+ * A `generated` item (and every nested child of one — always also `generated`, see `markGenerated` on
+ * the server) is skipped entirely: it is not this menu's own, `getNav` builds it fresh from the tree on
+ * every read, and writing it back would freeze today's snapshot into the stored `items` column exactly
+ * as the merge-rule note on the server's `getNav` warns against.
+ *
+ * On a `mixed` menu, a surviving top-level item's own `pinned` is recomputed from where it currently
+ * sits relative to the generated block, rather than trusting whatever it loaded with: dragging is
+ * fenced off from crossing that block (see `sortableOptions`), but a stored item can still move
+ * relative to OTHER stored items on the same side, and this is what keeps a save from silently
+ * reverting a drag the fence allowed.
  */
 function buildSaveItems() {
   const items = []
+  let sawGeneratedBlock = false
   for (const item of state.items) {
+    if (item.generated) {
+      sawGeneratedBlock = true
+      continue
+    }
+    const pinned = props.menuMode === 'mixed' ? (sawGeneratedBlock ? 'after' : 'before') : undefined
     if (item.isNested) {
       if (items.length < 1 || items.at(-1)?.type !== 'link') {
         throw new Error('One or more nested link items are not under a parent link!')
       }
+      // -> `pinned` is a top-level-only placement, meaningless (and never set) on a nested item
       items[items.length - 1].children.push(cleanMenuItem(item, true))
     } else {
-      items.push(cleanMenuItem(item))
+      items.push(cleanMenuItem(item, false, pinned))
     }
   }
   return items
@@ -823,6 +967,42 @@ onMounted(load)
   &.sortable-chosen {
     background-color: $blue-5;
   }
+
+  /*
+    A `mixed` menu's generated block, styled apart from what this menu actually owns: dimmed and not
+    grab-cursored (the handle icon is simply omitted for one -- see the template -- so there is nothing
+    left here to restyle for that), so a glance at the list already tells the two apart before reading
+    either `.nav-edit-mixed-hint` above the list or the detail panel's disabled fields.
+  */
+  &.is-generated {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  /*
+    The boundary itself, marked with a rule rather than an extra element: see the template comment on
+    `sortable`'s `#item` slot for why a divider cannot be a sibling DOM node here.
+  */
+  &.is-generated + &:not(.is-generated),
+  &:not(.is-generated) + &.is-generated {
+    border-top: 2px dashed rgba(255, 255, 255, 0.35);
+  }
+}
+
+.nav-edit-mixed-hint {
+  padding: 8px 16px 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/*
+  Mutes and inerts a generated item's own detail panel -- `pointer-events: none` reaches every field
+  regardless of what the shared component library renders each one as underneath (a native `<input>`,
+  a `<button>`, a plain clickable `<div>`), which a native `disabled` attribute on each field could not
+  promise without auditing every one of them individually.
+*/
+.nav-edit-readonly {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .nav-edit-item-header {

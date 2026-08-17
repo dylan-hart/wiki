@@ -2,7 +2,7 @@
   <w-card style="min-width: 350px">
     <w-card-section class="card-header">
       <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="sm" />
-      <span>{{t(`navEdit.title`)}}</span>
+      <span>{{ t(`navEdit.title`) }}</span>
     </w-card-section>
     <w-list padding>
       <template v-if="isRoot">
@@ -26,14 +26,18 @@
           <w-item-section side><w-radio v-model="state.mode" val="inherit" /></w-item-section>
           <w-item-section>
             <w-item-label>Inherit</w-item-label>
-            <w-item-label caption>Use the menu items and settings from the parent path.</w-item-label>
+            <w-item-label caption
+              >Use the menu items and settings from the parent path.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
           <w-item-section side><w-radio v-model="state.mode" val="override" /></w-item-section>
           <w-item-section>
             <w-item-label>Override Current + Descendants</w-item-label>
-            <w-item-label caption>Set menu items and settings for this path and all descendants.</w-item-label>
+            <w-item-label caption
+              >Set menu items and settings for this path and all descendants.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
@@ -47,19 +51,49 @@
           <w-item-section side><w-radio v-model="state.mode" val="hide" /></w-item-section>
           <w-item-section>
             <w-item-label>Hide Current + Descendants</w-item-label>
-            <w-item-label caption>Completely hide the left sidebar navigation for this path and all descendants.</w-item-label>
+            <w-item-label caption
+              >Completely hide the left sidebar navigation for this path and all
+              descendants.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
           <w-item-section side><w-radio v-model="state.mode" val="hideExact" /></w-item-section>
           <w-item-section>
             <w-item-label>Hide Current Only</w-item-label>
-            <w-item-label caption>Completely hide the left sidebar navigation only for this path.</w-item-label>
+            <w-item-label caption
+              >Completely hide the left sidebar navigation only for this path.</w-item-label
+            >
           </w-item-section>
         </w-item>
       </template>
     </w-list>
     <template v-if="canEditMenuItems">
+      <w-separator inset />
+      <w-list padding>
+        <w-item-label class="text-caption" header>{{ t('navEdit.menuSourceLabel') }}</w-item-label>
+        <w-item tag="label">
+          <w-item-section side><w-radio v-model="state.menuMode" val="static" /></w-item-section>
+          <w-item-section>
+            <w-item-label>{{ t('navEdit.menuSourceStatic') }}</w-item-label>
+            <w-item-label caption>{{ t('navEdit.menuSourceStaticHint') }}</w-item-label>
+          </w-item-section>
+        </w-item>
+        <w-item tag="label">
+          <w-item-section side><w-radio v-model="state.menuMode" val="auto" /></w-item-section>
+          <w-item-section>
+            <w-item-label>{{ t('navEdit.menuSourceAuto') }}</w-item-label>
+            <w-item-label caption>{{ t('navEdit.menuSourceAutoHint') }}</w-item-label>
+          </w-item-section>
+        </w-item>
+        <w-item tag="label">
+          <w-item-section side><w-radio v-model="state.menuMode" val="mixed" /></w-item-section>
+          <w-item-section>
+            <w-item-label>{{ t('navEdit.menuSourceMixed') }}</w-item-label>
+            <w-item-label caption>{{ t('navEdit.menuSourceMixedHint') }}</w-item-label>
+          </w-item-section>
+        </w-item>
+      </w-list>
       <w-separator inset />
       <w-card-section>
         <w-btn
@@ -114,7 +148,6 @@ const props = defineProps({
   }
 })
 
-
 // STORES
 
 const pageStore = usePageStore()
@@ -139,6 +172,13 @@ const state = reactive({
    * Null means nothing to inherit: the sidebar above this page is hidden.
    */
   inheritedNavId: null,
+  /**
+   * The target menu row's own source (`static`/`auto`/`mixed`) -- a different axis from `mode` above,
+   * which is this ENTRY's cascade setting. Loaded from the currently-resolved menu (`pageStore.navigationId`)
+   * on open, via `loadMenuMode`, and saved alongside `mode` as `menuMode` -- see `save()` and
+   * `updateNavigation`'s own doc comment for why the two travel separately.
+   */
+  menuMode: 'static',
   loading: 0
 })
 
@@ -192,11 +232,34 @@ async function loadInheritedNav() {
   }
 }
 
+/**
+ * Resolves the currently-resolved menu's own source mode, to preselect the Menu Source selector.
+ *
+ * `pageStore.navigationId` is already the right target regardless of this entry's own cascade mode --
+ * inheriting or owning, it is the menu this page currently shows, set by the server on every mode
+ * change. Skipped entirely when there is none (`hide`/`hideExact`), and quiet on failure like
+ * `loadInheritedNav`: the cascade mode is still usable even if this one call did not come back.
+ */
+async function loadMenuMode() {
+  if (!pageStore.navigationId) {
+    return
+  }
+  try {
+    const resp = await API_CLIENT.get(
+      `sites/${siteStore.id}/navigation/${pageStore.navigationId}/mode`
+    ).json()
+    state.menuMode = resp?.mode ?? 'static'
+  } catch (err) {
+    console.warn(`Could not resolve the menu's source mode: ${apiErrorMessage(err)}`)
+  }
+}
+
 function startEditing() {
   siteStore.$patch({
     overlay: 'NavEdit',
     overlayOpts: {
       mode: state.mode,
+      menuMode: state.menuMode,
       // -> A menu this page does not own: only Inherit edits one, and only away from the root, where
       //    inheriting and owning are the same menu. See NavEditOverlay's `navId`.
       ...(!isRoot.value && state.mode === 'inherit' && { navId: state.inheritedNavId })
@@ -208,9 +271,10 @@ function startEditing() {
 async function save() {
   state.loading++
   try {
-    // -> Only the mode: the menu items themselves are what the overlay saves
+    // -> The menu items themselves are what the overlay saves; this popup only ever saves the two
+    //    modes -- the entry's cascade (`mode`) and the resolved menu's own source (`menuMode`)
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
-      json: { mode: state.mode }
+      json: { mode: state.mode, menuMode: state.menuMode }
     }).json()
     // -> The API client does not throw on 400, so a refusal comes back as a parsed error
     if (resp?.ok === false) {
@@ -240,6 +304,7 @@ async function save() {
 
 onMounted(() => {
   state.mode = pageStore.navigationMode
+  loadMenuMode()
   if (!isRoot.value) {
     loadInheritedNav()
   }

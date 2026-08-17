@@ -11,6 +11,7 @@ import { useSiteStore } from '@/stores/site'
 const MESSAGES = {
   'navEdit.editMenuItems': 'Edit Menu Items',
   'navEdit.editingInherited': 'Inherited menu',
+  'navEdit.menuSourceReadOnlyNotice': 'This menu is generated automatically from the page tree.',
   'navEdit.saveSuccess': 'Menu items saved successfully.',
   'navEdit.emptyMenuText': 'Click the Add button to add your first menu item.',
   'navEdit.noSelection': 'Select a menu item from the left to start editing.',
@@ -30,12 +31,16 @@ const SERVER_ITEMS = [
   { id: 'link-1', type: 'link', label: 'Home', icon: 'mdi:home', target: '/', visibilityGroups: [] }
 ]
 
-function mountOverlay({ isHome = false, navId = null, mode = null } = {}) {
+function mountOverlay({ isHome = false, navId = null, mode = null, menuMode = null } = {}) {
   setActivePinia(createPinia())
 
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
-  siteStore.overlayOpts = { ...(navId && { navId }), ...(mode && { mode }) }
+  siteStore.overlayOpts = {
+    ...(navId && { navId }),
+    ...(mode && { mode }),
+    ...(menuMode && { menuMode })
+  }
 
   const pageStore = usePageStore()
   pageStore.id = 'page-1'
@@ -123,5 +128,31 @@ describe('NavEditOverlay', () => {
     await vi.waitUntil(() => siteStore.overlay === '')
 
     expect(API_CLIENT.put.mock.calls[0][1].json.mode).toBe('inherit')
+  })
+
+  it('threads overlayOpts.menuMode through to nav-item-editor and back out on save', async () => {
+    const { wrapper } = mountOverlay({ menuMode: 'mixed' })
+    await flushPromises()
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'inherit', navigationId: 'nav-x' })
+    })
+
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => API_CLIENT.put.mock.calls.length >= 1)
+
+    expect(API_CLIENT.put.mock.calls[0][1].json.menuMode).toBe('mixed')
+  })
+
+  it('shows a read-only notice and disables Save while the resolved menu is auto', async () => {
+    const { wrapper } = mountOverlay({ menuMode: 'auto' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('This menu is generated automatically from the page tree.')
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    expect(saveBtn.attributes('disabled')).not.toBeUndefined()
   })
 })

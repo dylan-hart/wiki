@@ -205,6 +205,126 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
+ * `updateNavigation`'s `menuMode` param is a different axis from its `mode` param: `mode` is the
+ * ENTRY's cascade setting (inherit/override/...), `menuMode` is the RESOLVED MENU ROW's own source
+ * (static/auto/mixed). This is the wiring `NavEditMenu.vue`'s mode selector (Task 464) saves through.
+ */
+describe('navigation updateNavigation menuMode (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+  let pagesModel: typeof import('./pages.ts').pages
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test("sending menuMode sets the site-wide menu row's mode column and echoes it in the result", async () => {
+    const home = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'home',
+        title: 'Home',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+    const result = await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: home.id,
+      mode: 'inherit',
+      menuMode: 'auto'
+    })
+
+    assert.equal(result.mode, 'auto')
+
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, fixtures.siteId))
+      .limit(1)
+    assert.equal(rows[0]?.mode, 'auto')
+  })
+
+  test('sending menuMode without items leaves the stored items untouched', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'menu-mode-no-items-page',
+        title: 'Menu Mode No Items Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+    const items = [{ id: 'x', type: 'link' as const, label: 'Existing', target: '/' }]
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'override',
+      items
+    })
+
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'override',
+      menuMode: 'mixed'
+    })
+
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode, items: navigationTable.items })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, page.id))
+      .limit(1)
+    assert.equal(rows[0]?.mode, 'mixed')
+    assert.deepEqual(rows[0]?.items, items)
+  })
+
+  test("leaving menuMode out does not change the row's existing mode", async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'menu-mode-untouched-page',
+        title: 'Menu Mode Untouched Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      actor
+    )
+    await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'override',
+      menuMode: 'auto'
+    })
+
+    const result = await navigationModel.updateNavigation({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      mode: 'overrideExact',
+      items: [{ id: 'y', type: 'link' as const, label: 'Later', target: '/' }]
+    })
+
+    assert.equal(result.mode, undefined)
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, page.id))
+      .limit(1)
+    assert.equal(rows[0]?.mode, 'auto')
+  })
+})
+
+/**
  * `mode` (static/auto/mixed) is a column landed ahead of the tree-walk resolver that will read it --
  * this task only checks the schema default holds and that the column round-trips, not any resolution
  * behavior.
@@ -258,6 +378,22 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
       .where(eq(navigationTable.id, fixtures.siteId))
       .limit(1)
     assert.equal(rows[0]?.mode, 'mixed')
+  })
+
+  test('getMode reads the same column back, and defaults to static for a menu with no row yet', async () => {
+    assert.equal(await navigationModel.getMode(crypto.randomUUID()), 'static')
+
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'mixed' })
+      .where(eq(navigationTable.id, fixtures.siteId))
+    assert.equal(await navigationModel.getMode(fixtures.siteId), 'mixed')
+
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'static' })
+      .where(eq(navigationTable.id, fixtures.siteId))
+    assert.equal(await navigationModel.getMode(fixtures.siteId), 'static')
   })
 })
 
@@ -561,5 +697,55 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   test('a nonexistent menu id returns an empty list rather than throwing', async () => {
     const result = await navigationModel.getNav(crypto.randomUUID())
     assert.deepEqual(result, [])
+  })
+
+  test('auto mode tags every generated item as generated, which static mode never does', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'generated-flag-page',
+        title: 'Generated Flag Page',
+        editor: 'markdown',
+        content: '# Hello'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+    await setMode(fixtures.siteId, 'auto')
+    const auto = await navigationModel.getNav(fixtures.siteId)
+    assert.ok(auto.length > 0)
+    assert.ok(auto.every((item) => item.generated === true))
+
+    await setMode(fixtures.siteId, 'static')
+    const staticResult = await navigationModel.getNav(fixtures.siteId)
+    assert.ok(staticResult.every((item) => item.generated === undefined))
+  })
+
+  test('mixed mode tags only the generated block, leaving stored items untagged', async () => {
+    await pagesModel
+      .createPage(
+        fixtures.siteId,
+        {
+          path: 'generated-flag-page',
+          title: 'Generated Flag Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        { id: fixtures.userId, permissions: ['manage:system'] }
+      )
+      .catch(() => {}) // -> May already exist from the previous test in this describe; irrelevant here
+    await navigationModel.setNavItems(fixtures.siteId, fixtures.siteId, [
+      { id: 'stored-before', type: 'link', label: 'Stored Before', target: '/', pinned: 'before' },
+      { id: 'stored-after', type: 'link', label: 'Stored After', target: '/' }
+    ])
+    await setMode(fixtures.siteId, 'mixed')
+
+    const result = await navigationModel.getNav(fixtures.siteId)
+    const stored = result.filter((i) => i.id === 'stored-before' || i.id === 'stored-after')
+    const generated = result.filter((i) => i.label === 'Generated Flag Page')
+
+    assert.ok(stored.length === 2)
+    assert.ok(stored.every((item) => item.generated === undefined))
+    assert.ok(generated.length > 0)
+    assert.ok(generated.every((item) => item.generated === true))
   })
 })
