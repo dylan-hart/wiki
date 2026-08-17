@@ -5,6 +5,7 @@ import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import { generatePathHash, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
 function splitList(value?: string): string[] {
@@ -440,6 +441,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
+      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
+        return reply
+      }
       const isId = uuidValidate(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       const page = await WIKI.models.pages.getPage({
@@ -608,6 +613,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
+      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
+        return reply
+      }
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
