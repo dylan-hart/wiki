@@ -157,7 +157,7 @@ export function pagePermissionsFor(
  * ever reaches a published page, and a password-protected one comes back with `isLocked` set until the
  * session has satisfied the unlock, which the caller is expected to refuse on.
  */
-async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: string) {
+export async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: string) {
   const actor = actorFrom(req)
   const page = await WIKI.models.pages.getPage({
     siteId,
