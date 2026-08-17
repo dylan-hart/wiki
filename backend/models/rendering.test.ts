@@ -39,3 +39,61 @@ describe('rendering.sanitize -- KaTeX MathML from inline TeX authoring', () => {
     assert.match(clean, /<mi mathvariant="normal">/)
   })
 })
+
+/*
+  Task 629's audit: verify the allowlist against each engine's *actual* output rather than trusting
+  what is already declared, using mhchem (`\ce{}`/`\pu{}`) specifically because chemical notation
+  exercises MathML shapes a plain algebraic formula does not -- `mpadded`, `mphantom` and `msub` used
+  together for the isotope/coefficient overlap trick, `mo[stretchy][minsize]` for the reaction arrow,
+  and `mstyle[scriptlevel][displaystyle]` wrapping a unit fraction.
+
+  These two strings are captured byte-for-byte from a real `katex.renderToString(source, { output:
+  'htmlAndMathml' })` run with `katex/contrib/mhchem` loaded (the same import `block-katex/component.js`
+  makes) -- not reconstructed by hand. Both come back from `sanitize()` with their `<math>…</math>`
+  identical to the byte, so this records a clean audit result, not a fix: every tag and attribute
+  mhchem's MathML writer uses was already covered by what Task 624 added.
+
+  mhchem is NOT wired into `renderers/markdown.js`'s literal `$…$`/`$$…$$` path today -- only plain
+  `katex` is imported there, so `\ce{}` in inline TeX currently throws ("Undefined control sequence")
+  and falls to the error panel, same as any other unrecognised command. This test is not exercising a
+  path that is live in the app; it is insurance for the allowlist itself, which is live (the plain-
+  algebra MathML this same sanitiser sees every time an author writes `$x^2$` uses many of the same
+  tags). If a later task wires mhchem into the literal path -- or `\ce{}` support becomes part of
+  "Engine Selection" -- this confirms the allowlist will not need touching to carry it.
+*/
+describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
+  test('keeps every tag and attribute a real \\ce{} render writes into MathML', () => {
+    const math =
+      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>' +
+      '<mrow><mi mathvariant="normal">C</mi><mi mathvariant="normal">O</mi></mrow>' +
+      '<msub><mpadded width="0px"><mphantom><mi>X</mi></mphantom></mpadded>' +
+      '<mpadded height="0px"><mn>2</mn></mpadded></msub>' +
+      '<mrow></mrow><mo>+</mo><mrow></mrow><mi mathvariant="normal">C</mi>' +
+      '<mover><mo stretchy="true" minsize="3.0em">→</mo>' +
+      '<mpadded width="+0.6em" lspace="0.3em"><mrow></mrow></mpadded></mover>' +
+      '<mn>2</mn><mtext> </mtext>' +
+      '<mrow><mi mathvariant="normal">C</mi><mi mathvariant="normal">O</mi></mrow>' +
+      '</mrow><annotation encoding="application/x-tex">\\ce{CO2 + C -&gt; 2 CO}</annotation>' +
+      '</semantics></math>'
+
+    const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
+
+    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+  })
+
+  test('keeps every tag and attribute a real \\pu{} render writes into MathML', () => {
+    const math =
+      '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow>' +
+      '<mn>123</mn><mtext> </mtext>' +
+      '<mstyle scriptlevel="0" displaystyle="false"><mfrac>' +
+      '<mrow><mi mathvariant="normal">k</mi><mi mathvariant="normal">J</mi></mrow>' +
+      '<mrow><mi mathvariant="normal">m</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">l</mi></mrow>' +
+      '</mfrac></mstyle></mrow>' +
+      '<annotation encoding="application/x-tex">\\pu{123 kJ//mol}</annotation>' +
+      '</semantics></math>'
+
+    const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
+
+    assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+  })
+})
