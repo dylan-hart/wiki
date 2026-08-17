@@ -143,6 +143,29 @@ export const blocks = pgTable(
   (table) => [index('blocks_siteId_idx').on(table.siteId)]
 )
 
+// COMMENT PROVIDERS --------------------
+// -> Which comment provider is active for a site, and what it is configured with. Mirrors the shape
+//    of `storage` below: one row per module per site, `config` holding the values for the props that
+//    module's `definition.yml` (under `modules/comments/`) declares. Unlike storage, only ever one
+//    row per site has `isEnabled` true — comments have a single active provider, not several
+//    simultaneous targets — enforced by `models/commentProviders.ts`, not by a db constraint.
+export const commentProviders = pgTable(
+  'commentProviders',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    // -> Directory name under `modules/comments`, one row per module per site
+    module: varchar({ length: 255 }).notNull(),
+    isEnabled: boolean().notNull().default(false),
+    // -> Values for the props the module declares in its `definition.yml`
+    config: jsonb().notNull().default({}),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id)
+  },
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('commentProviders_composite_idx').on(table.siteId, table.module)]
+)
+
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),

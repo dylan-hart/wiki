@@ -194,6 +194,10 @@ async function postBoot() {
   await WIKI.models.storage.refreshFromDisk()
   await WIKI.models.storage.syncAllSites()
 
+  // -> Same: every site gets a row per installed comment provider module
+  await WIKI.models.commentProviders.refreshFromDisk()
+  await WIKI.models.commentProviders.syncAllSites()
+
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it
   await WIKI.models.extensions.refreshFromDisk()

@@ -3,6 +3,7 @@ import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
 import { blocks } from './blocks.ts'
+import { commentProviders } from './commentProviders.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
 import { groups } from './groups.ts'
@@ -33,6 +34,7 @@ export default {
   assets,
   authentication,
   blocks,
+  commentProviders,
   extensions,
   flags,
   groups,
