@@ -143,9 +143,9 @@ export interface SearchModule {
  * `WIKI.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
  * `created`, `updated`, `deleted` and `renamed` below all just resolve the engine and call through.
  *
- * `getConfig()` is the one exception: `termHighlighting`/`dictOverrides` are instance-wide settings the
- * admin area edits regardless of which engine is active (any engine's headline generation could honour
- * `termHighlighting`), so they stay read here rather than moving into a specific module.
+ * `getConfig()` is the one exception: `termHighlighting`/`dictOverrides` are per-site settings the admin
+ * area edits regardless of which engine that site has active (any engine's headline generation could
+ * honour `termHighlighting`), so they stay read here rather than moving into a specific module.
  */
 class Search {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -243,12 +243,18 @@ class Search {
   }
 
   /**
-   * The search configuration, with the shape the API and the admin area expect
+   * A site's search configuration, with the shape the API and the admin area expect.
+   *
+   * Read off `WIKI.sites[siteId].config.search.config` -- a sibling of `search.engine`, seeded by
+   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: these settings apply to
+   * one site, not the instance, the same way `dictOverrides` (a locale mapping) only ever made sense
+   * per site once more than one could each run their own engine.
    */
-  getConfig(): SearchConfig {
+  getConfig(siteId: string): SearchConfig {
+    const config = WIKI.sites[siteId]?.config?.search?.config as Partial<SearchConfig> | undefined
     return {
-      termHighlighting: WIKI.config.search?.termHighlighting === true,
-      dictOverrides: (WIKI.config.search?.dictOverrides ?? {}) as Record<string, string>
+      termHighlighting: config?.termHighlighting === true,
+      dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>
     }
   }
 

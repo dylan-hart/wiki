@@ -1,16 +1,14 @@
 /**
- * Recompute the search vector of every page, on every site.
+ * Recompute the search vector of every page of one site.
  *
- * Queued from the admin area's search view, and safe to run at any time: it only rewrites `pages.ts`
- * from the content already stored on each page.
+ * Queued from the admin area's per-site search view (`POST /sites/:siteId/search/rebuild`), and safe
+ * to run at any time: it only rewrites `pages.ts` from the content already stored on each page.
  *
- * `WIKI.models.search.rebuild` is per-site — the `SearchModule` interface takes a `siteId`, the same
- * way `query` does, so that a site on a different engine rebuilds against its own — so this loops over
- * every site rather than issuing one instance-wide rebuild.
+ * Scoped to the `siteId` carried in the job's payload rather than looping over every site: search
+ * configuration (`site.config.search`) is per-site since task #563, so an operator with several sites
+ * rebuilds the one whose settings just changed, the same way `WIKI.models.search.rebuild(siteId)`
+ * itself is already scoped.
  */
-export async function task(): Promise<void> {
-  const sites = await WIKI.models.sites.getAllSites()
-  for (const site of sites) {
-    await WIKI.models.search.rebuild(site.id)
-  }
+export async function task(payload: { siteId: string }): Promise<void> {
+  await WIKI.models.search.rebuild(payload.siteId)
 }

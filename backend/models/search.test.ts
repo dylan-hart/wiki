@@ -277,6 +277,68 @@ describe('search.ensureModule()', () => {
 })
 
 /**
+ * `search.getConfig(siteId)`, task #563: `termHighlighting`/`dictOverrides` moved from the
+ * instance-wide `WIKI.config.search` to the per-site `WIKI.sites[siteId].config.search.config`, a
+ * sibling of `search.engine` seeded by `models/sites.ts`'s per-site defaults.
+ */
+describe('search.getConfig()', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('reads termHighlighting/dictOverrides off the named site, not off any other site', () => {
+    ;(globalThis as any).WIKI.sites['site-a'] = {
+      id: 'site-a',
+      config: {
+        search: {
+          engine: 'db',
+          config: { termHighlighting: true, dictOverrides: { en: 'english' } }
+        }
+      }
+    }
+    ;(globalThis as any).WIKI.sites['site-b'] = {
+      id: 'site-b',
+      config: { search: { engine: 'db', config: { termHighlighting: false, dictOverrides: {} } } }
+    }
+
+    assert.deepEqual(search.getConfig('site-a'), {
+      termHighlighting: true,
+      dictOverrides: { en: 'english' }
+    })
+    assert.deepEqual(search.getConfig('site-b'), {
+      termHighlighting: false,
+      dictOverrides: {}
+    })
+  })
+
+  test('defaults to termHighlighting: false and an empty dictOverrides for a site with no search config', () => {
+    ;(globalThis as any).WIKI.sites['site-bare'] = { id: 'site-bare', config: {} }
+
+    assert.deepEqual(search.getConfig('site-bare'), {
+      termHighlighting: false,
+      dictOverrides: {}
+    })
+  })
+
+  test('defaults the same way for a siteId nothing in WIKI.sites knows about', () => {
+    assert.deepEqual(search.getConfig('site-nonexistent'), {
+      termHighlighting: false,
+      dictOverrides: {}
+    })
+  })
+})
+
+/**
  * `search.query()` / `.rebuild()` / `.created()` / `.updated()` / `.deleted()` / `.renamed()`, task
  * #561: the dispatcher resolves `WIKI.sites[siteId]?.config?.search?.engine` (falling back to `db`)
  * and delegates to whatever `SearchModule` that key loads.

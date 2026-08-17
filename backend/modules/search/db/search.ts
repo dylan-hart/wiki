@@ -81,21 +81,22 @@ function escapeHtml(value: string): string {
  * is why the mapping is configurable — using the wrong stemmer for a language quietly degrades results
  * rather than failing.
  *
- * `termHighlighting`/`dictOverrides` are read through `models/search.ts`'s `getConfig()` rather than
- * duplicated here: they are instance-wide settings the admin area edits through the same `/search`
- * endpoint regardless of which engine is active (a future engine with its own highlighting could read
- * `termHighlighting` too), so the dispatcher stays the one place that reads `WIKI.config.search`.
+ * `termHighlighting`/`dictOverrides` are read through `models/search.ts`'s `getConfig(siteId)` rather
+ * than duplicated here: they are per-site settings the admin area edits through the same
+ * `/sites/:siteId/search` endpoint regardless of which engine that site has active (a future engine
+ * with its own highlighting could read `termHighlighting` too), so the dispatcher stays the one place
+ * that reads `WIKI.sites[siteId].config.search.config`.
  */
 class DbSearchModule implements SearchModule {
   /** Nothing to connect: this module runs queries straight through `WIKI.db`, already open at boot. */
   async init(_siteId: string, _config: Record<string, any>): Promise<void> {}
 
   async created(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page.id, page.locale)
+    await this.indexPage(page.id, page.locale, page.siteId)
   }
 
   async updated(page: SearchIndexablePage): Promise<void> {
-    await this.indexPage(page.id, page.locale)
+    await this.indexPage(page.id, page.locale, page.siteId)
   }
 
   /**
@@ -131,8 +132,8 @@ class DbSearchModule implements SearchModule {
    *
    * @param available Dictionary names postgres knows; an unknown mapping degrades to the fallback
    */
-  dictionaryForLocale(locale: string, available: string[]): string {
-    const { dictOverrides } = search.getConfig()
+  dictionaryForLocale(locale: string, available: string[], siteId: string): string {
+    const { dictOverrides } = search.getConfig(siteId)
     // -> Locales can be regional (`en-US`), while dictionaries are per language
     const language = locale.split(/[-_]/)[0] ?? locale
     const wanted =
@@ -158,9 +159,9 @@ class DbSearchModule implements SearchModule {
    * @param locales Locales the search covers, which is what the CASE needs arms for
    * @param available Dictionary names postgres knows
    */
-  private dictionaryExpression(locales: string[], available: string[]) {
+  private dictionaryExpression(locales: string[], available: string[], siteId: string) {
     const arms = locales.map((locale) => {
-      const dictionary = this.dictionaryForLocale(locale, available)
+      const dictionary = this.dictionaryForLocale(locale, available, siteId)
       // -> Both sides are checked values: the locale is compared as a parameter, and the dictionary
       //    name is one postgres itself reported
       return sql`WHEN ${locale} THEN ${sql.raw(`'${dictionary}'`)}`
@@ -212,8 +213,8 @@ class DbSearchModule implements SearchModule {
       That warning was the one in the logs: `english` is installed, nobody had looked.
     */
     const dict = hasQuery
-      ? this.dictionaryExpression(searchedLocales, await this.getAvailableDictionaries())
-      : this.dictionaryExpression([], [])
+      ? this.dictionaryExpression(searchedLocales, await this.getAvailableDictionaries(), siteId)
+      : this.dictionaryExpression([], [], siteId)
     const tsQuery = sql`websearch_to_tsquery(${dict}, ${terms})`
 
     const conditions = [sql`p."siteId" = ${siteId}`, sql`p."isSearchable" = true`]
@@ -270,7 +271,7 @@ class DbSearchModule implements SearchModule {
       updatedAt: sql`p."updatedAt" ${direction}`
     }[effectiveOrderBy]
 
-    const { termHighlighting } = search.getConfig()
+    const { termHighlighting } = search.getConfig(siteId)
     const headline = sql`ts_headline(${dict}, coalesce(p."searchContent", ''), ${tsQuery},
       ${`StartSel=${HL_START},StopSel=${HL_STOP},MaxWords=25,MinWords=10,MaxFragments=1`})`
     /*
@@ -378,7 +379,7 @@ class DbSearchModule implements SearchModule {
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      const dictionary = this.dictionaryForLocale(locale, available)
+      const dictionary = this.dictionaryForLocale(locale, available, siteId)
       // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
       //    names postgres itself reported, so it cannot carry anything unexpected
       const updated = await WIKI.db.execute(sql`
@@ -409,9 +410,13 @@ class DbSearchModule implements SearchModule {
    * Never throws: a page that saved correctly must not report failure because its index entry could
    * not be written, and the next rebuild puts it right.
    */
-  private async indexPage(id: string, locale: string): Promise<void> {
+  private async indexPage(id: string, locale: string, siteId: string): Promise<void> {
     try {
-      const dictionary = this.dictionaryForLocale(locale, await this.getAvailableDictionaries())
+      const dictionary = this.dictionaryForLocale(
+        locale,
+        await this.getAvailableDictionaries(),
+        siteId
+      )
       // -> The dictionary name is an identifier in `to_tsvector`, and it is only ever one of the
       //    names postgres itself reported, so it cannot carry anything unexpected
       const dict = sql.raw(`'${dictionary}'`)
