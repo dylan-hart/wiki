@@ -43,7 +43,15 @@
             <w-item v-for="ext of state.extensions" :key="`ext-` + ext.key">
               <blueprint-icon icon="module" />
               <w-item-section>
-                <w-item-label>{{ ext.title }}</w-item-label>
+                <w-item-label class="flex items-center gap-2">
+                  {{ ext.title }}
+                  <w-badge v-if="ext.needsRestart" color="warning" text-color="black" rounded>
+                    <w-icon name="la:exclamation-triangle" size="12px" />
+                    <w-tooltip anchor="center left" self="center right">{{
+                      t('admin.extensions.needsRestart')
+                    }}</w-tooltip>
+                  </w-badge>
+                </w-item-label>
                 <w-item-label caption>{{ ext.description }}</w-item-label>
                 <w-item-label caption v-if="ext.website">
                   <a class="text-primary" :href="ext.website" target="_blank" rel="noopener">{{
@@ -99,7 +107,14 @@
                       color="negative"
                       outline
                       :label="t(`admin.extensions.incompatible`)"
-                      no-caps />
+                      no-caps>
+                      <w-tooltip
+                        v-if="ext.incompatibleReason"
+                        anchor="center left"
+                        self="center right"
+                        >{{ ext.incompatibleReason }}</w-tooltip
+                      >
+                    </w-btn>
                   </w-btn-group>
                 </div>
               </w-item-section>

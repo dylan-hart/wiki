@@ -264,6 +264,7 @@
   "admin.extensions.instructions": "Instructions",
   "admin.extensions.instructionsHint": "Must be installed manually",
   "admin.extensions.loadFailed": "Failed to load extensions.",
+  "admin.extensions.needsRestart": "This extension failed to load and needs the server restarted before it can be used.",
   "admin.extensions.reinstall": "Reinstall",
   "admin.extensions.requiresSharp": "Requires Sharp extension",
   "admin.extensions.subtitle": "Install extensions for extra functionality",
