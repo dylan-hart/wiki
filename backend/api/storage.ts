@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { SYNC_SHAPED_ACTIONS } from '../models/storage.ts'
 import type { StorageTargetInput } from '../models/storage.ts'
 
 /**
@@ -151,7 +152,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Run an action on a storage target',
         description:
-          'The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any — so every action currently fails, no module having one yet.',
+          'The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any — so every action currently fails, no module having one yet. A sync-shaped action (`sync`, `syncUntracked`, `importAll`) is queued on the scheduler rather than run inline, since it may involve a network round-trip; the response confirms it was queued, not that it completed. Any other action (e.g. `purge`) is expected to be fast and runs synchronously.',
         tags: ['Storage'],
         params: {
           type: 'object',
@@ -200,6 +201,29 @@ async function routes(app: FastifyInstance) {
       }
       if (!target.actions.some((act) => act.handler === req.params.action)) {
         return reply.badRequest(`${target.title} has no "${req.params.action}" action.`)
+      }
+
+      // -> A sync-shaped action may do a real network round-trip (a git push/pull, an S3 listing),
+      //    which the request thread must not wait on -- queued the same way `dispatchStorage` events
+      //    and `storageSyncTick` are, and delivered by the same worker task. Anything else (e.g.
+      //    `purge`) is expected to be fast and stays synchronous.
+      if ((SYNC_SHAPED_ACTIONS as readonly string[]).includes(req.params.action)) {
+        const added = await WIKI.scheduler.addJob({
+          task: 'dispatchStorage',
+          payload: {
+            targetId: target.id,
+            siteId: req.params.siteId,
+            handler: req.params.action,
+            data: {}
+          }
+        })
+        if (!added?.id) {
+          return reply.internalServerError('Failed to queue the action.')
+        }
+        return {
+          ok: true,
+          message: `${target.title} "${req.params.action}" action queued.`
+        }
       }
 
       try {

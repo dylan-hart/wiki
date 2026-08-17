@@ -5,12 +5,24 @@ import type { SyncContentType } from '../../models/contentSync.ts'
 export interface DispatchStoragePayload {
   targetId: string
   siteId: string
-  contentType: SyncContentType
-  /** The page's or asset's own id, i.e. `contentSyncState.contentId`. */
-  contentId: string
-  /** The `StorageModule` handler to call, e.g. `created` or `assetUploaded` — see `models/storage.ts`. */
+  /**
+   * Present for a write-path content event; absent for a `storageSyncTick`-queued target-level sync
+   * (`handler: 'sync'`), which has no single content item to record state against — `models/storage.ts`
+   * `tickScheduledSyncs()` tracks its own progress on the `storage` row's `lastTickAt` instead.
+   */
+  contentType?: SyncContentType
+  /** The page's or asset's own id, i.e. `contentSyncState.contentId` — see `contentType` above. */
+  contentId?: string
+  /**
+   * The `StorageModule` handler to call — a content handler such as `created`/`assetUploaded` (see
+   * `models/storage.ts`), or a whole-target action such as `sync`/`syncUntracked`/`importAll` queued
+   * by `storageSyncTick` or the `/actions/:action` route (see `SYNC_SHAPED_ACTIONS`).
+   */
   handler: string
-  /** The same object `models/pages.ts` / `models/assets.ts` passed to `storage.dispatch()`. */
+  /**
+   * The same object `models/pages.ts` / `models/assets.ts` passed to `storage.dispatch()`, or `{}` for
+   * a whole-target action, which has no single content item's data to carry.
+   */
   data: Record<string, any>
 }
 
@@ -31,6 +43,10 @@ export interface DispatchStoragePayload {
  * `ensureModule()`'s own "missing means null, not an error" handling. It *does* throw once delivery
  * was actually attempted and failed, so the scheduler retries with its usual backoff — same as
  * `dispatchWebhook`.
+ *
+ * `contentSync` is only ever updated for a content-level payload (`contentType`/`contentId` both set).
+ * A whole-target action such as `sync` has no single content item to record state against, so that
+ * step is skipped for it — see `DispatchStoragePayload`.
  *
  * @param deps Real models by default; overridable so tests can exercise the branching here without a
  *             database or a loaded module.
@@ -59,9 +75,13 @@ export async function task(
 
   try {
     await mod[handler](target, data)
-    await deps.contentSync.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
+    if (contentType && contentId) {
+      await deps.contentSync.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
+    }
   } catch (err: any) {
-    await deps.contentSync.recordFailure({ contentType, contentId, targetId, error: err.message })
+    if (contentType && contentId) {
+      await deps.contentSync.recordFailure({ contentType, contentId, targetId, error: err.message })
+    }
     WIKI.logger.warn(
       `Failed to dispatch "${handler}" to storage target ${target.title}: ${err.message}`
     )

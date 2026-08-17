@@ -1,12 +1,24 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { storage } from './storage.ts'
+import { storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
 import type { StorageTarget } from './storage.ts'
 
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
 //    minimal `WIKI` global pointing at this checkout's `backend/` directory — no database involved.
 before(async () => {
+  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
+  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime. The
+  //    package polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
+  //    `Date.prototype.toTemporalInstant()` -- `tickScheduledSyncs()` uses that conversion (this
+  //    codebase's documented convention, see CLAUDE.md), so it is patched on here too.
+  if (typeof Temporal === 'undefined') {
+    const polyfill = await import('@js-temporal/polyfill')
+    ;(globalThis as any).Temporal = polyfill.Temporal
+    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+      return polyfill.toTemporalInstant.call(this)
+    }
+  }
   global.WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..'),
     logger: {
@@ -17,6 +29,10 @@ before(async () => {
     }
   } as unknown as WikiGlobal
   await storage.refreshFromDisk()
+})
+
+test('SYNC_SHAPED_ACTIONS names exactly the actions api/storage.ts queues instead of running inline', () => {
+  assert.deepEqual([...SYNC_SHAPED_ACTIONS].sort(), ['importAll', 'sync', 'syncUntracked'].sort())
 })
 
 test('refreshFromDisk reads sync-mode config from each definition.yml', () => {
@@ -274,5 +290,139 @@ test('dispatch is a no-op without a siteId or a content id', async () => {
   const jobs = fakeDispatchDeps([makeRow('git', { activeTypes: ['pages'], syncMode: 'sync' })])
   assert.equal(await storage.dispatch('page:create', { id: 'p1' }), 0)
   assert.equal(await storage.dispatch('page:create', { siteId: 'site-1' }), 0)
+  assert.equal(jobs.length, 0)
+})
+
+// ---------------------------------------------------------------------------------------------
+// tickScheduledSyncs()
+// ---------------------------------------------------------------------------------------------
+
+/** Builds a raw `storage` row with just the columns `tickScheduledSyncs` reads. */
+function makeTickRow(
+  moduleKey: string,
+  overrides: { syncMode?: string; scheduleOverride?: string | null; lastTickAt?: Date | null } = {}
+) {
+  return {
+    id: `target-${moduleKey}`,
+    siteId: 'site-1',
+    module: moduleKey,
+    isEnabled: true,
+    syncMode: overrides.syncMode ?? storage.getDefinition(moduleKey)!.defaultMode,
+    scheduleOverride: overrides.scheduleOverride ?? null,
+    lastTickAt: overrides.lastTickAt ?? null
+  }
+}
+
+/**
+ * Points `WIKI.db` at a fake answering `getTargets`'s `select().from().where()` chain with `rows`,
+ * and a fake `update().set().where()` that records what it was asked to set instead of touching a
+ * real row. `WIKI.scheduler.addJob` records calls and, unless told to fail, succeeds.
+ */
+function fakeTickDeps(
+  rows: object[],
+  { addJobSucceeds = true }: { addJobSucceeds?: boolean } = {}
+) {
+  const jobs: { task: string; payload: Record<string, any> }[] = []
+  const updates: { values: Record<string, any> }[] = []
+  global.WIKI = {
+    ...global.WIKI,
+    db: {
+      select: () => ({ from: () => ({ where: () => Promise.resolve(rows) }) }),
+      update: () => ({
+        set: (values: Record<string, any>) => ({
+          where: () => {
+            updates.push({ values })
+            return Promise.resolve()
+          }
+        })
+      })
+    },
+    scheduler: {
+      addJob: async (opts: { task: string; payload: Record<string, any> }) => {
+        jobs.push(opts)
+        return addJobSucceeds ? { id: `job-${jobs.length}` } : undefined
+      }
+    }
+  } as unknown as WikiGlobal
+  return { jobs, updates }
+}
+
+test('tickScheduledSyncs skips a push-only module even though it is enabled', async () => {
+  const { jobs } = fakeTickDeps([makeTickRow('disk', { syncMode: 'push' })])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('tickScheduledSyncs skips a scheduled module whose target is explicitly set to push mode', async () => {
+  const { jobs } = fakeTickDeps([makeTickRow('git', { syncMode: 'push' })])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('tickScheduledSyncs queues a due target that has never ticked, as a target-level sync job', async () => {
+  const { jobs, updates } = fakeTickDeps([makeTickRow('git', { syncMode: 'sync' })])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+  assert.equal(jobs[0].task, 'dispatchStorage')
+  assert.equal(jobs[0].payload.targetId, 'target-git')
+  assert.equal(jobs[0].payload.siteId, 'site-1')
+  assert.equal(jobs[0].payload.handler, 'sync')
+  assert.deepEqual(jobs[0].payload.data, {})
+  assert.equal(jobs[0].payload.contentType, undefined)
+  assert.equal(jobs[0].payload.contentId, undefined)
+  assert.equal(updates.length, 1)
+  assert.ok(updates[0].values.lastTickAt instanceof Date)
+})
+
+test('tickScheduledSyncs skips a target whose schedule has not elapsed yet', async () => {
+  const now = Temporal.Now.instant()
+  const lastTickAt = new Date(now.subtract({ minutes: 1 }).epochMilliseconds)
+  const { jobs } = fakeTickDeps([makeTickRow('git', { syncMode: 'sync', lastTickAt })])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test("tickScheduledSyncs queues a target once its module's schedule has elapsed", async () => {
+  const now = Temporal.Now.instant()
+  const lastTickAt = new Date(now.subtract({ minutes: 6 }).epochMilliseconds)
+  const { jobs } = fakeTickDeps([makeTickRow('git', { syncMode: 'sync', lastTickAt })])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+})
+
+test("tickScheduledSyncs honors a target's own scheduleOverride over the module's declared schedule", async () => {
+  const now = Temporal.Now.instant()
+  const lastTickAt = new Date(now.subtract({ minutes: 2 }).epochMilliseconds)
+  // -> git's own module schedule is PT5M, so 2 minutes elapsed would not be due on its own -- but
+  //    this target's scheduleOverride is PT1M, which 2 minutes clears
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT1M', lastTickAt })
+  ])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+})
+
+test('tickScheduledSyncs does not advance lastTickAt when the job fails to queue', async () => {
+  const { jobs, updates } = fakeTickDeps([makeTickRow('git', { syncMode: 'sync' })], {
+    addJobSucceeds: false
+  })
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 1)
+  assert.equal(updates.length, 0)
+})
+
+test('tickScheduledSyncs logs and skips a target with an unparseable schedule override, without throwing', async () => {
+  const { jobs } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'not-a-duration' })
+  ])
+  const queued = await storage.tickScheduledSyncs()
+  assert.equal(queued, 0)
   assert.equal(jobs.length, 0)
 })

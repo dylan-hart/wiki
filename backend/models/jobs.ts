@@ -17,6 +17,46 @@ export interface JobHistoryPage {
 }
 
 /**
+ * The cron entries every fresh instance starts with, inserted into `jobSchedule` by `init()`.
+ * Exported (rather than inlined there) so it can be asserted on directly, without a database.
+ */
+export const JOB_SCHEDULE_SEED = [
+  {
+    task: 'checkVersion',
+    cron: '0 0 * * *',
+    type: 'system'
+  },
+  {
+    task: 'cleanJobHistory',
+    cron: '5 0 * * *',
+    type: 'system'
+  },
+  // {
+  //   task: 'refreshAutocomplete',
+  //   cron: '0 */6 * * *',
+  //   type: 'system'
+  // },
+  {
+    task: 'purgeRateLimits',
+    cron: '10 * * * *',
+    type: 'system'
+  },
+  {
+    task: 'updateLocales',
+    cron: '0 0 * * *',
+    type: 'system'
+  },
+  // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
+  //    a short cron since the comparison against each target's own interval happens inside the task
+  //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.
+  {
+    task: 'storageSyncTick',
+    cron: '* * * * *',
+    type: 'system'
+  }
+] as const
+
+/**
  * Jobs model
  *
  * Three tables back the scheduler, and the admin area shows all three: `jobSchedule` holds the cron
@@ -30,33 +70,7 @@ class Jobs {
   async init(): Promise<void> {
     WIKI.logger.info('Inserting scheduled jobs...')
 
-    await WIKI.db.insert(jobScheduleTable).values([
-      {
-        task: 'checkVersion',
-        cron: '0 0 * * *',
-        type: 'system'
-      },
-      {
-        task: 'cleanJobHistory',
-        cron: '5 0 * * *',
-        type: 'system'
-      },
-      // {
-      //   task: 'refreshAutocomplete',
-      //   cron: '0 */6 * * *',
-      //   type: 'system'
-      // },
-      {
-        task: 'purgeRateLimits',
-        cron: '10 * * * *',
-        type: 'system'
-      },
-      {
-        task: 'updateLocales',
-        cron: '0 0 * * *',
-        type: 'system'
-      }
-    ])
+    await WIKI.db.insert(jobScheduleTable).values([...JOB_SCHEDULE_SEED])
 
     await WIKI.db.insert(jobLockTable).values({
       key: 'cron',

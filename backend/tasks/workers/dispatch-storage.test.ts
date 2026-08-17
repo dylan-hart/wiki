@@ -151,3 +151,71 @@ test('records failure and rethrows when the handler throws', async () => {
     error: 'remote unreachable'
   })
 })
+
+// ---------------------------------------------------------------------------------------------
+// Target-level payload (`storageSyncTick` / a queued `/actions/:action`) -- no `contentType`/
+// `contentId`, so there is no per-content state to record.
+// ---------------------------------------------------------------------------------------------
+
+const tickPayload = {
+  targetId: 'target-1',
+  siteId: 'site-1',
+  handler: 'sync',
+  data: {}
+}
+
+test('calls a whole-target handler and records nothing in contentSync on success', async () => {
+  const calls: any[] = []
+  await task(
+    { payload: tickPayload },
+    {
+      storage: {
+        getSiteTargetById: async () => target,
+        ensureModule: async () => ({
+          sync: async (t: StorageTarget, data: Record<string, any>) => {
+            calls.push([t, data])
+          }
+        })
+      } as any,
+      contentSync: {
+        recordSuccess: async () => {
+          throw new Error('should not be called for a target-level payload')
+        },
+        recordFailure: async () => {
+          throw new Error('should not be called for a target-level payload')
+        }
+      } as any
+    }
+  )
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0][0], target)
+  assert.deepEqual(calls[0][1], {})
+})
+
+test('rethrows a whole-target handler failure without touching contentSync', async () => {
+  await assert.rejects(
+    () =>
+      task(
+        { payload: tickPayload },
+        {
+          storage: {
+            getSiteTargetById: async () => target,
+            ensureModule: async () => ({
+              sync: async () => {
+                throw new Error('remote unreachable')
+              }
+            })
+          } as any,
+          contentSync: {
+            recordSuccess: async () => {
+              throw new Error('should not be called for a target-level payload')
+            },
+            recordFailure: async () => {
+              throw new Error('should not be called for a target-level payload')
+            }
+          } as any
+        }
+      ),
+    /remote unreachable/
+  )
+})

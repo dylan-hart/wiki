@@ -20,6 +20,14 @@ const DB_MODULE = 'db'
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
 
 /**
+ * The `/actions/:action` handlers that pull or push a whole target rather than completing
+ * synchronously: `api/storage.ts` queues these through the scheduler instead of running them inline
+ * on the request thread, the same way `tickScheduledSyncs()` queues a scheduled sync. An action such
+ * as `purge` is expected to be fast and stays synchronous.
+ */
+export const SYNC_SHAPED_ACTIONS = ['sync', 'syncUntracked', 'importAll'] as const
+
+/**
  * The storage-module handler each write-path event dispatches to, named to mirror 2.5.x's storage
  * module contract (`created` / `updated` / `deleted` / `renamed` / `assetUploaded` / `assetDeleted` /
  * `assetRenamed` — see `StorageModule`). Only the events listed here are ever dispatched; anything
@@ -744,6 +752,78 @@ class Storage {
       WIKI.logger.warn(`Failed to queue storage dispatch for ${event}: ${err.message}`)
       return 0
     }
+  }
+
+  /**
+   * Queue a sync for every enabled pull/two-way target whose schedule has elapsed since its last
+   * tick -- the scheduled counterpart to `dispatch()`'s write-path one. Run by the `storageSyncTick`
+   * task, on the cron entry `models/jobs.ts` seeds for it.
+   *
+   * A target is skipped, never ticked at all, when:
+   *  - its module declares no `schedule` (`false`) -- a push-only module such as disk/s3, which only
+   *    ever moves content out through `dispatch()`'s write-path hook;
+   *  - its own `sync.mode` is `push` -- even on a module that supports scheduling (git can run in
+   *    `push` mode too), a push-only target already gets everything it needs from the write-path
+   *    hook, and ticking it again here would risk a spurious inbound sync.
+   *
+   * For everything else, the effective interval is the target's own `scheduleOverride` when set, else
+   * the module's declared `schedule` -- the same precedence `validateTarget` enforces when accepting
+   * one. It is parsed with `Temporal.Duration.from()` and, since `Temporal.Instant.add()` only accepts
+   * exact time units (no calendar-relative days -- see `total()` below), converted to a millisecond
+   * count via `Duration.prototype.total()`, which -- with no `relativeTo` -- treats `days` as exactly
+   * 24 hours, the same UTC-exact convention this codebase already uses elsewhere. A schedule this
+   * can't parse (or that has a `years`/`months` component, which genuinely has no fixed length without
+   * a calendar) is logged and skipped rather than thrown, so one bad target cannot fail the whole tick.
+   *
+   * A due target's `lastTickAt` only advances once the sync job is actually queued -- a failure to
+   * enqueue (e.g. a transient scheduler/db error) leaves it due again next tick. Whether the queued job
+   * itself goes on to succeed is irrelevant to the schedule: ticking answers "did we ask for a sync",
+   * not "did the sync work" -- a target stuck failing every attempt still gets exactly one queued job
+   * per interval rather than a growing backlog.
+   *
+   * @returns How many syncs were queued
+   */
+  async tickScheduledSyncs(now: Temporal.Instant = Temporal.Now.instant()): Promise<number> {
+    const rows = await this.getTargets({ enabledOnly: true })
+    let queued = 0
+    for (const row of rows) {
+      const definition = this.getDefinition(row.module)
+      if (!definition || definition.schedule === false) {
+        continue
+      }
+      if (row.syncMode === 'push') {
+        continue
+      }
+      const scheduleStr = row.scheduleOverride ?? definition.schedule
+      let intervalMs: number
+      try {
+        intervalMs = Math.round(Temporal.Duration.from(scheduleStr).total({ unit: 'milliseconds' }))
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `Storage target ${row.id} has an unparseable sync schedule "${scheduleStr}", skipping: ${err.message}`
+        )
+        continue
+      }
+      const lastTick = row.lastTickAt ? row.lastTickAt.toTemporalInstant() : null
+      const due =
+        !lastTick || Temporal.Instant.compare(now, lastTick.add({ milliseconds: intervalMs })) >= 0
+      if (!due) {
+        continue
+      }
+      const added = await WIKI.scheduler.addJob({
+        task: 'dispatchStorage',
+        payload: { targetId: row.id, siteId: row.siteId, handler: 'sync', data: {} }
+      })
+      if (!added?.id) {
+        continue
+      }
+      await WIKI.db
+        .update(storageTable)
+        .set({ lastTickAt: new Date(now.epochMilliseconds) })
+        .where(eq(storageTable.id, row.id))
+      queued++
+    }
+    return queued
   }
 
   /**

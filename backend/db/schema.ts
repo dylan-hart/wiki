@@ -710,6 +710,11 @@ export const storage = pgTable(
     syncMode: varchar({ length: 32 }).notNull().default('push'),
     // -> ISO-8601 duration overriding the module's declared `schedule`, or null to trust it
     scheduleOverride: varchar({ length: 32 }),
+    // -> When `storageSyncTick` last queued a scheduled sync for this target, or null if it never
+    //    has. Read back against the module's (or the override's) schedule to decide whether it's due
+    //    again -- see `models/storage.ts`'s `tickScheduledSyncs()`. Irrelevant to a push-only target,
+    //    which is never ticked at all.
+    lastTickAt: timestamp(),
     // -> Values for the props the module declares in its `definition.yml`
     config: jsonb().notNull().default({}),
     // -> Where the module stands, as opposed to how it is configured: `{ setup: 'notconfigured' |
