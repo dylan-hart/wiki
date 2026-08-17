@@ -705,8 +705,13 @@ store; no SVG is ever written into content.
   - A reference built at runtime — an icon a **user** picked, stored on a page or nav item — is
     invisible to that scan and falls through to `iconify-icon`, resolving against `/_icons` as
     before. A name assembled by concatenation is therefore a bug: make it a literal.
-  - `img:…` renders as an `<img>`. Legacy `las la-cog` / `mdi-check` webfont names are mapped onto
-    their Iconify equivalents for data written before the fonts were dropped; do not write new ones.
+  - `img:…` renders as an `<img>`. Anything else — including a webfont-style class name such as
+    `las la-cog` or `mdi-check` — falls through to `kind: 'none'` and draws nothing. No such mapping
+    has ever existed here: those names come from `q-icon`, the Quasar component `WIcon.vue` replaced
+    (Quasar bundled the underlying webfonts and rendered the class string directly, no Iconify
+    translation involved), and nothing in this fork — nor the planned 2.5.x migration importer
+    (`Migration & Upgrade Path from 2.5.x` epic, "Importer Engine: Content" feature) — has ever
+    produced or plans to carry forward that format into a `w-icon` name. Do not write new ones.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
 
