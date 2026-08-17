@@ -1,8 +1,9 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
-import { tree as treeTable } from '../db/schema.ts'
+import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -199,5 +200,62 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
       () => navigationModel.setNavItems(fixtures.siteId, crypto.randomUUID(), []),
       /does not exist/
     )
+  })
+})
+
+/**
+ * `mode` (static/auto/mixed) is a column landed ahead of the tree-walk resolver that will read it --
+ * this task only checks the schema default holds and that the column round-trips, not any resolution
+ * behavior.
+ */
+describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let navigationModel: typeof import('./navigation.ts').navigation
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ navigation: navigationModel } = await import('./navigation.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('ensureSiteNav creates a row defaulting to static', async () => {
+    await navigationModel.ensureSiteNav(fixtures.siteId)
+
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, fixtures.siteId))
+      .limit(1)
+
+    assert.equal(rows[0]?.mode, 'static')
+  })
+
+  test('mode accepts auto and mixed', async () => {
+    await navigationModel.ensureSiteNav(fixtures.siteId)
+
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'auto' })
+      .where(eq(navigationTable.id, fixtures.siteId))
+    let rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, fixtures.siteId))
+      .limit(1)
+    assert.equal(rows[0]?.mode, 'auto')
+
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'mixed' })
+      .where(eq(navigationTable.id, fixtures.siteId))
+    rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, fixtures.siteId))
+      .limit(1)
+    assert.equal(rows[0]?.mode, 'mixed')
   })
 })

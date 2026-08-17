@@ -12,6 +12,15 @@ export const NAVIGATION_MODES = [
 ] as const
 export type NavigationMode = (typeof NAVIGATION_MODES)[number]
 
+/**
+ * Where a navigation row's items come from -- `navigation.mode` in the schema. `static` (the
+ * default, and the only value any row has ever had) is hand-authored items exactly as `getNav` /
+ * `setNavItems` already work; `auto` and `mixed` name the tree-walk modes a later task in this
+ * feature adds a resolver for. Nothing in this file produces `auto` or `mixed` yet.
+ */
+export const NAVIGATION_SOURCE_MODES = ['static', 'auto', 'mixed'] as const
+export type NavigationSourceMode = (typeof NAVIGATION_SOURCE_MODES)[number]
+
 export interface NavigationItem {
   id: string
   type: 'link' | 'header' | 'separator'
@@ -28,6 +37,12 @@ export interface NavigationItem {
 export interface UpdateNavigationResult {
   navigationMode: NavigationMode
   navigationId: string | null
+  /**
+   * The resolved navigation row's own `mode` (static/auto/mixed) -- known here as a type so a later
+   * task can start returning it without widening this interface again, but `updateNavigation` never
+   * touches `navigation.mode`, so this task never sets it.
+   */
+  mode?: NavigationSourceMode
 }
 
 /** One tree entry whose navigation mode overrides what it would otherwise inherit. */
@@ -97,6 +112,9 @@ class Navigation {
    *
    * Created empty on demand: a site made before this row existed, or one whose menu was never edited,
    * has nothing stored, and an absent menu is an empty one rather than an error.
+   *
+   * Deliberately does not set `mode` -- the schema default (`static`) is what every row created here
+   * should get, so a row this creates behaves exactly as it did before `mode` existed.
    */
   async ensureSiteNav(siteId: string): Promise<void> {
     await WIKI.db
