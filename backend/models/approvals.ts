@@ -446,6 +446,7 @@ class Approvals {
               'review:pages',
               {
                 path: page.path,
+                siteId,
                 tags: page.tags
               }
             )
