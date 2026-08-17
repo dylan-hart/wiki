@@ -1,12 +1,19 @@
 import { expect, test } from '@playwright/test'
 
 import { loginAsAdmin } from '../helpers/admin.js'
-import { deleteJob, insertSyntheticJob, withDb } from '../helpers/db.js'
+import {
+  deleteJob,
+  insertHistoryJob,
+  insertSyntheticJob,
+  seedCompletedHistory,
+  withDb
+} from '../helpers/db.js'
 
 /**
- * End-to-end verification of AdminScheduler.vue's Schedule and Upcoming tabs, against a real
- * backend/database -- see task 579. Runs serially: several cases share the one seeded schedule and
- * its naturally-produced Upcoming queue rather than each standing up their own fixture.
+ * End-to-end verification of AdminScheduler.vue's tabs against a real backend/database -- Schedule
+ * and Upcoming are task 579's, Active/Completed/Failed/Retry/history-cap below are task 581's. Runs
+ * serially: several cases share the one seeded schedule and its naturally-produced Upcoming queue
+ * rather than each standing up their own fixture.
  */
 test.describe.configure({ mode: 'serial' })
 
@@ -168,5 +175,191 @@ test.describe('admin scheduler', () => {
     //    to a network failure with no explanation at all.
     await expect(toast).toContainText('No pending job with this ID.')
     await expect(toast).not.toContainText('status code')
+  })
+
+  test('a job with no handler fails for real, lands under Failed with its own lastErrorMessage, and stays retry-disabled while an automatic retry is owed', async ({
+    page
+  }) => {
+    // -> `task` need not exist in `tasks/simple/` -- see `helpers/db.js` -- so the real
+    //    `processJob()`/`runJob()` pipeline claims this and genuinely throws trying to call it.
+    const jobId = await withDb((db) =>
+      insertSyntheticJob(db, { task: 'e2eFailNow', waitUntilHoursFromNow: 0, maxRetries: 2 })
+    )
+
+    let failedRow
+    await expect(async () => {
+      const resp = await page.request
+        .get('/_api/scheduler/jobs?states=failed&states=interrupted&limit=100')
+        .then((r) => r.json())
+      failedRow = resp.jobs.find((j) => j.id === jobId)
+      expect(failedRow).toBeTruthy()
+    }).toPass({ timeout: 15_000 })
+
+    expect(failedRow.state).toBe('failed')
+    expect(failedRow.attempt).toBe(1)
+    // -> The real V8 message for calling an undefined property as a function -- proof this is a
+    //    genuine failure from the real pipeline, not a canned string.
+    expect(failedRow.lastErrorMessage).toMatch(/is not a function/)
+
+    await page.getByRole('radio', { name: 'Failed' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    const row = page.locator('table tbody tr', { hasText: jobId })
+    await expect(row).toContainText('e2eFailNow')
+    await expect(row).toContainText('Error')
+    await expect(row).toContainText(failedRow.lastErrorMessage)
+
+    // -> Owes an automatic retry (attempt 1 <= maxRetries 2): `runJob` already rescheduled this job
+    //    with backoff, so the manual button stays withheld -- see the template comment.
+    await expect(row.getByRole('button', { name: 'Retry Job' })).toBeDisabled()
+  })
+
+  test('a failed job that already exhausted its retries leaves Retry Job enabled, and clicking it queues a fresh job with a full retry budget', async ({
+    page
+  }) => {
+    // -> Planted directly in `jobHistory` (see `helpers/db.js`) reading as already exhausted
+    //    (attempt 3 > maxRetries 2) -- a real multi-attempt job would take multiple backoff cycles
+    //    to reach that state, which this test does not have time to wait through.
+    const originalId = await withDb((db) =>
+      insertHistoryJob(db, {
+        task: 'e2eExhaustedProbe',
+        state: 'failed',
+        attempt: 3,
+        maxRetries: 2,
+        lastErrorMessage: 'Synthetic exhausted failure'
+      })
+    )
+
+    await page.getByRole('radio', { name: 'Failed' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    const row = page.locator('table tbody tr', { hasText: originalId })
+    const retryBtn = row.getByRole('button', { name: 'Retry Job' })
+    await expect(retryBtn).toBeEnabled()
+
+    await retryBtn.click()
+    await expect(page.locator('.w-notification').last()).toContainText(
+      'Job has been rescheduled and will execute shortly.'
+    )
+
+    // -> `WIKI.models.jobs.retryJob` calls `scheduler.addJob()` fresh -- the real pipeline then
+    //    claims and fails this too (still no handler named `e2eExhaustedProbe`), landing a brand
+    //    new history row. Finding it at attempt 1/3, not continuing from the exhausted original's
+    //    3/3, is the actual proof of "a full retry budget".
+    let retried
+    await expect(async () => {
+      const resp = await page.request
+        .get('/_api/scheduler/jobs?states=failed&states=interrupted&limit=100')
+        .then((r) => r.json())
+      retried = resp.jobs.find((j) => j.task === 'e2eExhaustedProbe' && j.id !== originalId)
+      expect(retried).toBeTruthy()
+    }).toPass({ timeout: 15_000 })
+
+    expect(retried.attempt).toBe(1)
+    expect(retried.maxRetries).toBe(2)
+  })
+
+  test('reapStaleJobs sweeps a stranded active job to interrupted, and it shows under the Failed tab per MODE_STATES', async ({
+    page
+  }) => {
+    const staleId = await withDb((db) =>
+      insertHistoryJob(db, {
+        task: 'e2eStaleActiveProbe',
+        state: 'active',
+        attempt: 3,
+        maxRetries: 2,
+        // -> Older than `config.e2e.yml`'s `scheduler.staleJobTimeout` (20s), so the very next
+        //    `scheduledCheck` tick (every 5s there) sweeps it.
+        startedAt: new Date(Date.now() - 30_000)
+      })
+    )
+
+    let swept
+    await expect(async () => {
+      const resp = await page.request
+        .get('/_api/scheduler/jobs?states=failed&states=interrupted&limit=100')
+        .then((r) => r.json())
+      swept = resp.jobs.find((j) => j.id === staleId)
+      expect(swept?.state).toBe('interrupted')
+    }).toPass({ timeout: 15_000 })
+    expect(swept.lastErrorMessage).toContain('No instance reported on this job')
+
+    await page.getByRole('radio', { name: 'Failed' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    const row = page.locator('table tbody tr', { hasText: staleId })
+    await expect(row).toContainText('Interrupted')
+    await expect(row).toContainText(swept.lastErrorMessage)
+
+    // -> Already exhausted (attempt 3 > maxRetries 2): `reapStaleJobs`'s own "SKIPPED" branch left
+    //    it un-requeued, so nothing is coming on its own -- the manual button should be live.
+    await expect(row.getByRole('button', { name: 'Retry Job' })).toBeEnabled()
+  })
+
+  test('an interrupted job that still owes an automatic retry keeps Retry Job disabled too', async ({
+    page
+  }) => {
+    // -> The UX gap this task closes: `reapStaleJobs` requeues an interrupted row under the exact
+    //    same rule (`attempt <= maxRetries`) it fails one under, but the template's disable
+    //    condition used to check `state === 'failed'` only. Planted directly as already-interrupted
+    //    (see `helpers/db.js`) rather than via a real sweep + wait, since a row that genuinely still
+    //    owes a retry gets requeued and reprocessed by the poller within seconds -- too fast to
+    //    reliably assert against without racing it.
+    const jobId = await withDb((db) =>
+      insertHistoryJob(db, {
+        task: 'e2eInterruptedPendingProbe',
+        state: 'interrupted',
+        attempt: 1,
+        maxRetries: 2,
+        lastErrorMessage:
+          'No instance reported on this job within 20s. Whatever was running it is gone.'
+      })
+    )
+
+    await page.getByRole('radio', { name: 'Failed' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    const row = page.locator('table tbody tr', { hasText: jobId })
+    await expect(row).toContainText('Interrupted')
+    await expect(row.getByRole('button', { name: 'Retry Job' })).toBeDisabled()
+  })
+
+  test('Active tab shows a genuinely in-flight job with the indeterminate spinner', async ({
+    page
+  }) => {
+    const jobId = await withDb((db) =>
+      insertHistoryJob(db, {
+        task: 'e2eActiveSpinnerProbe',
+        state: 'active',
+        attempt: 1,
+        maxRetries: 2
+      })
+    )
+
+    await page.getByRole('radio', { name: 'Active' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    const row = page.locator('table tbody tr', { hasText: jobId })
+    await expect(row).toBeVisible()
+    await expect(row.locator('.w-circular-progress')).toBeVisible()
+    await expect(row).toContainText('Pending')
+    // -> Active rows have no action column at all (`v-if="props.row.state !== 'active'"`)
+    await expect(row.getByRole('button', { name: 'Retry Job' })).toHaveCount(0)
+  })
+
+  test('history cap: more than HISTORY_LIMIT completed jobs renders the truncation caption with correct numbers', async ({
+    page
+  }) => {
+    const before = await page.request
+      .get('/_api/scheduler/jobs?states=completed&limit=1')
+      .then((r) => r.json())
+
+    await withDb((db) => seedCompletedHistory(db, 110))
+
+    await page.getByRole('radio', { name: 'Completed' }).click()
+    await page.getByRole('button', { name: 'Refresh' }).click()
+
+    // -> `HISTORY_LIMIT` (100) caps what the tab requests regardless of how many actually match.
+    await expect(page.locator('table tbody tr')).toHaveCount(100)
+
+    const expectedTotal = before.total + 110
+    await expect(
+      page.getByText(`Showing the 100 most recent of ${expectedTotal} jobs.`)
+    ).toBeVisible()
   })
 })
