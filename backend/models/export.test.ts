@@ -1,0 +1,135 @@
+import { after, before, describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import zlib from 'node:zlib'
+import { Readable } from 'node:stream'
+import { finished } from 'node:stream/promises'
+import { extract } from 'tar-stream'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { assets as assetsTable } from '../db/schema.ts'
+
+/**
+ * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
+ * the site-wide groups) piped straight into a tar/gzip archive on disk, so a mock of the query builder
+ * would mostly just be re-describing the code under test — same reasoning as `models/pages.test.ts`.
+ * This suite runs it against a migrated, per-run-fresh database and reads the resulting tarball back.
+ */
+describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let exportModel: typeof import('./export.ts').exportModel
+  let pagesModel: typeof import('./pages.ts').pages
+  let dataPath: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ exportModel } = await import('./export.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+
+    dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-export-test-'))
+    WIKI.config.dataPath = dataPath
+  })
+
+  after(async () => {
+    await fs.rm(dataPath, { recursive: true, force: true })
+    await teardownTestDb()
+  })
+
+  /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
+  async function readTarball(filePath: string): Promise<Record<string, Buffer>> {
+    const entries: Record<string, Buffer> = {}
+    const extractor = extract()
+    extractor.on('entry', (header, stream, next) => {
+      const chunks: Buffer[] = []
+      stream.on('data', (chunk) => chunks.push(chunk))
+      stream.on('end', () => {
+        entries[header.name] = Buffer.concat(chunks)
+        next()
+      })
+      stream.resume()
+    })
+
+    const source = Readable.from(await fs.readFile(filePath)).pipe(zlib.createGunzip())
+    source.pipe(extractor)
+    await finished(extractor)
+    return entries
+  }
+
+  test('exportSite writes a tarball with pages, tree, assets and groups', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'export-me',
+        title: 'Export Me',
+        editor: 'markdown',
+        content: '# Hello export'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+
+    const assetData = Buffer.from('fake file bytes')
+    const [asset] = await fixtures.db
+      .insert(assetsTable)
+      .values({
+        fileName: 'test.txt',
+        fileExt: 'txt',
+        mimeType: 'text/plain',
+        fileSize: assetData.length,
+        data: assetData,
+        authorId: fixtures.userId,
+        siteId: fixtures.siteId
+      })
+      .returning({ id: assetsTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+
+    assert.match(result.filePath, /\.tar\.gz$/)
+    assert.equal(path.dirname(result.filePath), path.join(dataPath, 'exports'))
+    const stat = await fs.stat(result.filePath)
+    assert.equal(stat.size, result.fileSize)
+    assert.ok(result.fileSize > 0)
+
+    const entries = await readTarball(result.filePath)
+
+    const manifest = JSON.parse(entries['manifest.json']!.toString('utf8'))
+    assert.equal(manifest.siteId, fixtures.siteId)
+
+    const exportedPages = JSON.parse(entries['pages.json']!.toString('utf8'))
+    assert.ok(exportedPages.some((p: any) => p.id === page.id && p.path === 'export-me'))
+    // -> Regenerated columns must not have made it into the export
+    assert.equal('ts' in exportedPages[0], false)
+
+    const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
+    assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
+
+    const assetManifest = JSON.parse(entries['assets/manifest.json']!.toString('utf8'))
+    const exportedAsset = assetManifest.find((a: any) => a.id === asset!.id)
+    assert.ok(exportedAsset)
+    // -> The bytes travel as their own archive entry, not inlined into the JSON manifest
+    assert.equal('data' in exportedAsset, false)
+    assert.deepEqual(entries[`assets/${asset!.id}.data`], assetData)
+  })
+
+  test('exportSite rejects an unknown site', async () => {
+    await assert.rejects(
+      exportModel.exportSite('00000000-0000-0000-0000-000000000000'),
+      /does not exist/
+    )
+  })
+
+  test('purgeExpired removes nothing when everything is fresh', async () => {
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const purged = await exportModel.purgeExpired()
+    assert.equal(purged, 0)
+    await fs.access(result.filePath)
+  })
+
+  test('deleteExport removes the file and tolerates being called twice', async () => {
+    const result = await exportModel.exportSite(fixtures.siteId)
+    await exportModel.deleteExport(result.filePath)
+    await assert.rejects(fs.access(result.filePath))
+    // -> Idempotent: a second delete of an already-gone file must not throw
+    await exportModel.deleteExport(result.filePath)
+  })
+})

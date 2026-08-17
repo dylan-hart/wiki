@@ -1,5 +1,7 @@
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import { filesize } from 'filesize'
 import { isNil } from 'es-toolkit/predicate'
 import { gte, sql } from 'drizzle-orm'
@@ -1256,6 +1258,143 @@ async function routes(app: FastifyInstance) {
         latest: WIKI.config.update.version,
         latestDate: WIKI.config.update.versionDate
       }
+    }
+  )
+
+  /**
+   * EXPORT CONTENT
+   */
+  app.post<{ Body: { siteId: string } }>(
+    '/export',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "Export a site's content",
+        description:
+          'Queues a background job that serializes the pages, tree, assets (with their stored bytes) and groups into a single tarball under `<dataPath>/exports/`. Mirrors `POST /extensions/:key/install`: a large site can take a while to serialize, so allow the request a correspondingly long timeout even though the response itself only says the job was queued — poll the scheduler view for completion, then call the download route below.',
+        tags: ['System'],
+        body: {
+          type: 'object',
+          required: ['siteId'],
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Export queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description:
+                  'ID of the queued job. Pass it to the download route once it completes.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const added = await WIKI.scheduler.addJob({
+        task: 'exportContent',
+        payload: { siteId: req.body.siteId }
+      })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the export.')
+      }
+      return {
+        ok: true,
+        message: 'Content export queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * DOWNLOAD CONTENT EXPORT
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/export/:jobId/download',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Download a finished content export',
+        description:
+          "404s when no such export job exists (or its file has already been cleaned up), 409 when the job exists but has not completed yet. The file is deleted once it has finished streaming, so a job's tarball can only be downloaded once — queue a fresh export for another copy.",
+        tags: ['System'],
+        params: {
+          type: 'object',
+          required: ['jobId'],
+          properties: {
+            jobId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'The tarball',
+            content: {
+              'application/gzip': {
+                schema: {
+                  type: 'string',
+                  format: 'binary'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      if (!entry || entry.task !== 'exportContent') {
+        return reply.notFound('No such export job.')
+      }
+      if (entry.state !== 'completed') {
+        return reply.conflict('This export has not finished yet.')
+      }
+
+      const result = entry.result as { filePath: string; fileSize: number } | null
+      if (!result?.filePath) {
+        return reply.notFound('This export left no file behind.')
+      }
+
+      let stat
+      try {
+        stat = await fsp.stat(result.filePath)
+      } catch {
+        return reply.notFound('This export file is no longer available.')
+      }
+
+      const stream = fs.createReadStream(result.filePath)
+      // -> Best-effort cleanup once the bytes are actually on the wire, not before: deleting on the
+      //    happy path here is what keeps a downloaded export from sitting in `<dataPath>/exports/`
+      //    until `purgeExports` gets to it on its own schedule.
+      stream.on('close', () => {
+        WIKI.models.export.deleteExport(result.filePath).catch(() => {})
+      })
+
+      reply.header('Content-Disposition', `attachment; filename="export-${entry.id}.tar.gz"`)
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('Content-Length', stat.size)
+      return reply.type('application/gzip').send(stream)
     }
   )
 }

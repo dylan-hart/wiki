@@ -52,6 +52,11 @@ class Jobs {
         type: 'system'
       },
       {
+        task: 'purgeExports',
+        cron: '15 0 * * *',
+        type: 'system'
+      },
+      {
         task: 'updateLocales',
         cron: '0 0 * * *',
         type: 'system'
@@ -192,6 +197,18 @@ class Jobs {
       .where(eq(jobHistoryTable.id, id))
       .limit(1)
     return results[0] ?? null
+  }
+
+  /**
+   * Record what a task produced, keyed by its own job id.
+   *
+   * The generic escape hatch a task uses to hand something back to whoever queued it — `payload` is
+   * what a task was given, this is what it made. `exportContent` is the first user: it stores
+   * `{ filePath, fileSize }` here so the download route can find the tarball without either side
+   * knowing anything more specific about the other.
+   */
+  async setResult(id: string, result: Record<string, any>): Promise<void> {
+    await WIKI.db.update(jobHistoryTable).set({ result }).where(eq(jobHistoryTable.id, id))
   }
 
   /**

@@ -17,8 +17,14 @@ import {
 import { and, eq, inArray, lt, sql } from 'drizzle-orm'
 import type { PoolClient } from 'pg'
 
-/** An in-process task, loaded from `tasks/simple/`. */
-export type SimpleTask = (payload?: any) => Promise<void> | void
+/**
+ * An in-process task, loaded from `tasks/simple/`.
+ *
+ * `jobId` is this task's own row in `jobHistory` — most tasks have no use for it, but one that wants
+ * to hand something back (`exportContent`'s `{ filePath, fileSize }`) writes it there via
+ * `WIKI.models.jobs.setResult(jobId, ...)`, which is what lets a follow-up route find it later.
+ */
+export type SimpleTask = (payload?: any, jobId?: string) => Promise<void> | void
 
 /** Fallback for `scheduler.taskTimeout`, in seconds, when nothing is configured. */
 const DEFAULT_TASK_TIMEOUT = 300
@@ -354,7 +360,7 @@ export default {
       if (job.useWorker) {
         await this.executeOnWorker(job)
       } else {
-        await this.tasks![job.task](job.payload)
+        await this.tasks![job.task](job.payload, job.id)
       }
       await WIKI.db
         .update(jobHistoryTable)

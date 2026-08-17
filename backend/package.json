@@ -51,6 +51,7 @@
     "@iconify/utils": "3.1.4",
     "@simplewebauthn/server": "13.3.2",
     "ajv-formats": "3.0.1",
+    "archiver": "8.0.0",
     "bcryptjs": "3.0.3",
     "chalk": "6.0.0",
     "cheerio": "1.2.0",
@@ -79,6 +80,7 @@
     "yjs": "13.6.32"
   },
   "devDependencies": {
+    "@types/archiver": "8.0.0",
     "@types/fs-extra": "11.0.4",
     "@types/js-yaml": "4.0.9",
     "@types/node": "26.2.0",
@@ -86,12 +88,14 @@
     "@types/qrcode": "1.5.6",
     "@types/sanitize-html": "2.16.1",
     "@types/semver": "7.8.0",
+    "@types/tar-stream": "3.1.4",
     "@types/ws": "8.18.1",
     "drizzle-kit": "1.0.0-rc.4",
     "nodemon": "3.1.14",
     "npm-check-updates": "23.0.2",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
+    "tar-stream": "3.2.0",
     "typescript": "7.0.2"
   },
   "optionalDependencies": {
