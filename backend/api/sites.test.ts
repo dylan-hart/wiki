@@ -73,11 +73,37 @@ async function updateSite(id: string, patch: any) {
   return true
 }
 
+let setAssetCalls: Array<{ siteId: string; kind: string }> = []
+async function setAsset(siteId: string, kind: string) {
+  setAssetCalls.push({ siteId, kind })
+}
+
+let clearAssetCalls: Array<{ siteId: string; kind: string }> = []
+async function clearAsset(siteId: string, kind: string) {
+  clearAssetCalls.push({ siteId, kind })
+}
+
 function actorForRequest(req: any) {
   const header = req.headers['x-test-permissions']
   const permissions = typeof header === 'string' ? header.split(',').filter(Boolean) : []
   return { groupIds: [], permissions }
 }
+
+/**
+ * Stand-in for `checkSiteAccess()` (task #682): grants whatever `site:*` permission the
+ * `x-test-site-permissions` header lists, but only for the site id it names — a request for a
+ * different site id gets nothing, which is what exercises that the routes actually thread `siteId`
+ * through rather than checking the permission in the abstract.
+ */
+function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
+  if (actor.permissions.includes('manage:system')) {
+    return true
+  }
+  return typeof currentSitePermissionHeader === 'string'
+    ? currentSitePermissionHeader.split(',').filter(Boolean).includes(`${permission}@${siteId}`)
+    : false
+}
+let currentSitePermissionHeader: string | undefined
 
 before(async () => {
   ;(globalThis as any).WIKI = {
@@ -85,10 +111,16 @@ before(async () => {
       sites: {
         getSiteByHostname,
         getSiteById,
-        updateSite
+        updateSite,
+        setAsset,
+        clearAsset
       },
       groups: {
-        actorForRequest
+        actorForRequest,
+        checkSiteAccess
+      },
+      locales: {
+        getLocales: async () => [{ code: 'en' }]
       }
     },
     logger: { warn: () => {} }
@@ -113,6 +145,10 @@ before(async () => {
   //    stubbed session instead of a real one, so the route-level OR-list is exercised too, not just
   //    the handler's own body check.
   app.addHook('preHandler', (req: any, reply, done) => {
+    // -> `checkSiteAccess()` takes no `req`, so the stub reads the per-test site-permission grants
+    //    off a module-level variable populated here, once per request, from the same header the
+    //    handler-level tests set.
+    currentSitePermissionHeader = req.headers['x-test-site-permissions']
     const routePermissions = req.routeOptions.config?.permissions
     if (routePermissions && routePermissions.length > 0) {
       const header = req.headers['x-test-permissions']
@@ -207,7 +243,7 @@ test('manage:theme alone may not save a patch that touches no theme key at all',
   assert.equal(updateSiteCalls.length, 0)
 })
 
-test('a caller with neither manage:sites nor manage:theme is refused at the route gate', async () => {
+test('a caller with neither manage:sites nor manage:theme nor site:theme is refused', async () => {
   const res = await app.inject({
     method: 'PUT',
     url: `/${PUT_SITE_ID}`,
@@ -228,4 +264,236 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
   assert.equal(res.statusCode, 200)
   assert.equal(updateSiteCalls.length, 1)
   assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
+})
+
+/**
+ * Task #683: `PUT /:siteId` now also accepts the per-surface `site:*` permissions from task #682,
+ * checked key by key against `SITE_FIELD_PERMISSIONS` since five surfaces (general/theme/login/
+ * locale/editors) share this one route (`docs/decisions/delegated-per-site-administration.md` §3).
+ */
+
+test('site:general on this site may save general-surface fields', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { title: 'Renamed', discoverable: true }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
+})
+
+test('site:general on this site may not also save the theme surface', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { title: 'Renamed', theme: { dark: true } }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:theme on this site may save a theme-only patch, same as manage:theme', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:theme@${PUT_SITE_ID}`
+    },
+    payload: { theme: { dark: true } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:login on this site may save auth and authStrategies', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: {
+      auth: { autoLogin: true },
+      authStrategies: [{ id: '4b3e6f2a-6b3a-4e34-8c8e-2e9b6a9c6f0a', order: 0, isVisible: true }]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:locale on this site may save locales', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:locale@${PUT_SITE_ID}`
+    },
+    payload: { locales: { primary: 'en', active: ['en'], forcePrefix: false, showMenu: true } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:editors on this site may save editors', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:editors@${PUT_SITE_ID}`
+    },
+    payload: { editors: { markdown: { isActive: true } } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+})
+
+test('site:editors on a DIFFERENT site does not grant access to this site', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': 'site:editors@some-other-site-id'
+    },
+    payload: { editors: { markdown: { isActive: true } } }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:general does not cover isEnabled, which stays manage:sites-only', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    },
+    payload: { isEnabled: false }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+/**
+ * `DELETE /:siteId` is deliberately excluded from the `site:*` vocabulary (§3) — it stays a
+ * route-level, global-only `manage:sites` gate, so `site:general` alone must not reach it.
+ */
+test('site:general does not grant DELETE /:siteId, which stays manage:sites-only', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      // -> A held but unrelated global permission, so the route-level hook's "some permission held"
+      //    401 branch is not what refuses this -- the "not one of the route's permissions" 403
+      //    branch is, which is the thing this test is actually about.
+      'x-test-permissions': 'read:sites',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    }
+  })
+  assert.equal(res.statusCode, 403)
+})
+
+/**
+ * Task #683: the site-image routes (`PUT`/`DELETE /:siteId/images/:kind`) split by `kind` —
+ * `logo`/`favicon` need `site:general`, `loginBg` needs `site:login` (§3's mapping to the
+ * `Admin*.vue` page each image is edited from).
+ */
+
+beforeEach(() => {
+  setAssetCalls = []
+  clearAssetCalls = []
+})
+
+// -> A minimal valid PNG, so the route's byte-sniffing validation (after the permission check)
+//    passes too, not just the permission gate.
+const ONE_PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64'
+)
+
+test('site:general on this site may upload a logo', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}/images/logo`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`,
+      'content-type': 'image/png'
+    },
+    payload: ONE_PIXEL_PNG
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(setAssetCalls.length, 1)
+  assert.equal(setAssetCalls[0].kind, 'logo')
+})
+
+test('site:general on this site may NOT upload a loginBg', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}/images/loginBg`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`,
+      'content-type': 'image/png'
+    },
+    payload: ONE_PIXEL_PNG
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(setAssetCalls.length, 0)
+})
+
+test('site:login on this site may upload a loginBg', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}/images/loginBg`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`,
+      'content-type': 'image/png'
+    },
+    payload: ONE_PIXEL_PNG
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(setAssetCalls.length, 1)
+  assert.equal(setAssetCalls[0].kind, 'loginBg')
+})
+
+test('site:general on this site may clear a favicon', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/${PUT_SITE_ID}/images/favicon`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(clearAssetCalls.length, 1)
+})
+
+test('site:general on this site may NOT clear a loginBg', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/${PUT_SITE_ID}/images/loginBg`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
+    }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(clearAssetCalls.length, 0)
 })

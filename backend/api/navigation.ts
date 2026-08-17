@@ -23,16 +23,18 @@ const navigationItem = {
   }
 }
 
-/** Whether the requester may see and edit a menu whole, rather than only the parts meant for them. */
-function canManageNavigation(req: FastifyRequest): boolean {
-  // -> Same identity resolution as the route permission hook, so a key that may save a menu may also
-  //    read it whole
-  const permissions = req.apiKey
-    ? req.apiKey.permissions
-    : req.session?.authenticated
-      ? (req.session.permissions ?? [])
-      : []
-  return permissions.includes('manage:navigation') || permissions.includes('manage:system')
+/**
+ * Whether the requester may see and edit a menu whole, rather than only the parts meant for them.
+ *
+ * `manage:navigation` keeps working exactly as before delegation existed; `site:navigation` (see
+ * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
+ */
+function canManageNavigation(req: FastifyRequest, siteId: string): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return (
+    actor.permissions.includes('manage:navigation') ||
+    WIKI.models.groups.checkSiteAccess(actor, 'site:navigation', siteId)
+  )
 }
 
 /**
@@ -51,7 +53,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a navigation menu',
         description:
-          "The items of one menu, addressed by the id a page's `navigationId` points at.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead, and needs `manage:navigation`.",
+          "The items of one menu, addressed by the id a page's `navigationId` points at.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead, and needs `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -88,8 +90,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const unfiltered = Boolean(req.query.full)
-      if (unfiltered && !canManageNavigation(req)) {
-        return reply.forbidden('Reading a menu in full requires the manage:navigation permission.')
+      if (unfiltered && !canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden(
+          'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
+        )
       }
       return WIKI.models.navigation.getNav(req.params.navId, {
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
@@ -104,13 +108,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string; pageId: string } }>(
     '/sites/:siteId/navigation/pages/:pageId/inherited',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: who may see this comes from `checkSiteAccess()`, which that
+        hook cannot call — see `canManageNavigation`.
+      */
       schema: {
         summary: 'Get the menu a page inherits',
         description:
-          "The id of the menu this page falls back to while it inherits: the nearest ancestor that overrides one, or the site-wide menu when no ancestor does.\n\nWhat the navigation editor asks so that a page which inherits can edit the sidebar it shows without being opened on the ancestor that owns it. Null when the nearest ancestor hides the sidebar, which leaves nothing to inherit — and nothing to edit. Not the same question as the page's own `navigationId`, which is what the CURRENT mode resolved to.",
+          "The id of the menu this page falls back to while it inherits: the nearest ancestor that overrides one, or the site-wide menu when no ancestor does.\n\nWhat the navigation editor asks so that a page which inherits can edit the sidebar it shows without being opened on the ancestor that owns it. Null when the nearest ancestor hides the sidebar, which leaves nothing to inherit — and nothing to edit. Not the same question as the page's own `navigationId`, which is what the CURRENT mode resolved to.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -135,7 +140,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       return {
         navigationId: await WIKI.models.navigation.inheritedNavId(
           req.params.siteId,
@@ -154,13 +162,14 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/navigation/pages/:pageId',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET above — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: 'Set how a page resolves its navigation',
         description:
-          'Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.',
+          'Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.\n\nRequires `manage:navigation`, or `site:navigation` on this site.',
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -207,7 +216,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       const result = await WIKI.models.navigation.updateNavigation({
         siteId: req.params.siteId,
         pageId: req.params.pageId,
