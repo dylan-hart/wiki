@@ -247,4 +247,63 @@ describe('mail template senders', () => {
     assert.match(msg.subject, /password/i)
     assert.match(msg.text, /Ada/)
   })
+
+  test('sendPageWatchNotification links to the page path with no locale segment', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+  })
+
+  test('sendPageWatchNotification summarises an edit as "edited: <fields>"', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      action: 'updated',
+      changedFields: ['title', 'content'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /Bob/)
+    assert.match(msg.text, /edited: title, content/)
+    assert.match(msg.html, /edited: title, content/)
+  })
+
+  test('sendPageWatchNotification for a delete has no changed fields to list', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Old Page', path: 'old-page' },
+      action: 'deleted',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /deleted/)
+    // -> No field summary to append when nothing changed about the page's content
+    assert.doesNotMatch(msg.text, /deleted:/)
+    assert.match(msg.text, /\(deleted\)/)
+  })
+
+  test('sendPageWatchNotification escapes an untrusted page title and actor name in the HTML body', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: '<script>alert(1)</script>', path: 'evil-page' },
+      action: 'updated',
+      changedFields: [],
+      actorName: '<img src=x>'
+    })
+    const msg = sendCalls[0]
+    assert.doesNotMatch(msg.html, /<script>/)
+    assert.doesNotMatch(msg.html, /<img/)
+    assert.match(msg.html, /&lt;script&gt;/)
+    // -> The plain-text alternative needs no escaping: it is never parsed as markup
+    assert.match(msg.text, /<script>alert\(1\)<\/script>/)
+  })
 })

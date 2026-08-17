@@ -1,9 +1,10 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { pageWatchEvents as pageWatchEventsTable, users as usersTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
 
 /**
@@ -233,6 +234,16 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     await teardownTestDb()
   })
 
+  const originalSendPageWatchNotification = mail.sendPageWatchNotification.bind(mail)
+
+  beforeEach(() => {
+    // -> Each test starts from the real sender; a stub installed by one test must not leak into the
+    //    next. WIKI.config here (see `test/db.ts`) has no `mail` key at all, so the real sender would
+    //    throw ERR_MAIL_NOT_CONFIGURED on its own — exactly the behavior the "leaves it pending, does
+    //    not throw the job" tests below rely on without any extra setup.
+    mail.sendPageWatchNotification = originalSendPageWatchNotification
+  })
+
   function pageInput(overrides: Partial<PageInput> = {}): PageInput {
     return {
       path: 'watched-page',
@@ -361,5 +372,129 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
     // -> The watch row itself is gone with the page (FK cascade) -- only the pending event survives it
     assert.equal(await WIKI.models.pageWatching.isWatching(page.id, watcherId), false)
+  })
+
+  test('an immediate-mode watcher gets mail sent right away and their event marked delivered', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/immediate-me' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId,
+      notifyMode: 'immediate'
+    })
+    const sendCalls: any[] = []
+    mail.sendPageWatchNotification = (async (args: any) => {
+      sendCalls.push(args)
+    }) as any
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Immediately Updated' }, actor)
+    await drainQueuedNotifications()
+
+    assert.equal(sendCalls.length, 1)
+    assert.equal(sendCalls[0].to, 'watcher@example.com')
+    assert.equal(sendCalls[0].page.title, 'Immediately Updated')
+    assert.deepEqual(sendCalls[0].changedFields, ['title'])
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.notEqual(events[0]!.deliveredAt, null)
+  })
+
+  test('a digest-mode watcher (the default) gets no mail attempt, only a pending event', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/digest-me' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+    const send = mock.fn(async () => {})
+    mail.sendPageWatchNotification = send as any
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Digest Update' }, actor)
+    await drainQueuedNotifications()
+
+    assert.equal(send.mock.calls.length, 0)
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.deliveredAt, null)
+  })
+
+  test('an immediate-mode watcher whose mail send fails keeps their event pending and does not throw', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/immediate-fails' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId,
+      notifyMode: 'immediate'
+    })
+    // -> `WIKI.config.mail` has no `host` in this test fixture (see `test/db.ts`), so the real
+    //    sender throws `ERR_MAIL_NOT_CONFIGURED` -- exactly the "unconfigured mail" case this task
+    //    has to fail loud on, not silently drop.
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Will Not Send' }, actor)
+
+    // -> Must not reject: a mail failure must not surface as a failed job (see this file's own
+    //    `notify-page-watchers.ts` doc comment on why that would also double-insert `recordMany`).
+    await assert.doesNotReject(() => drainQueuedNotifications())
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.deliveredAt, null)
+  })
+
+  test('a watcher who opted out of "edited" notifications gets no event at all for an edit', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/opted-out' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId,
+      notifyOnEdited: false
+    })
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Nobody Cares' }, actor)
+    await drainQueuedNotifications()
+
+    assert.deepEqual(await pendingEventsFor(page.id), [])
+  })
+
+  test('recorded events capture the actor and changed fields for the future digest job to use', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/captured-fields' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { title: 'Captured Title', content: '# New content' },
+      actor
+    )
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.actorId, actor.id)
+    assert.deepEqual([...events[0]!.changedFields].sort(), ['content', 'title'])
   })
 })

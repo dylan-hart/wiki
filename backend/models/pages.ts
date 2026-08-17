@@ -699,7 +699,14 @@ class Pages {
       changedFields,
       reason: patch.reasonForChange
     })
-    await this.notifyWatchers(siteId, id, 'updated', actor.id)
+    await this.notifyWatchers(
+      siteId,
+      id,
+      'updated',
+      actor.id,
+      { title: updated.title, path: updated.path },
+      changedFields
+    )
 
     if (treeTitle !== null || patch.tags !== undefined) {
       await WIKI.db
@@ -792,17 +799,25 @@ class Pages {
 
     // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound links,
     //    and a history list has to be able to say so
+    const changedFields = [
+      ...(newPath !== page.path ? ['path'] : []),
+      ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
+    ]
     await WIKI.models.pageHistory.record({
       siteId,
       pageId: id,
       action: 'moved',
       authorId: actor.id,
-      changedFields: [
-        ...(newPath !== page.path ? ['path'] : []),
-        ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
-      ]
+      changedFields
     })
-    await this.notifyWatchers(siteId, id, 'moved', actor.id)
+    await this.notifyWatchers(
+      siteId,
+      id,
+      'moved',
+      actor.id,
+      { title: moved.title, path: moved.path },
+      changedFields
+    )
 
     await WIKI.models.hooks.emit('page:rename', {
       id,
@@ -834,7 +849,10 @@ class Pages {
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
     //    has to be read while it still exists
-    await this.notifyWatchers(siteId, id, 'deleted', actor.id)
+    await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
+      title: page.title,
+      path: page.path
+    })
 
     await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
     await WIKI.models.tree.deleteEntry(id)
@@ -875,8 +893,13 @@ class Pages {
         action: 'deleted',
         authorId: actor.id
       })
-      // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below
-      await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id)
+      // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
+      //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin
+      //    with), so the file name stands in for it, same as the path built for `page:delete` below.
+      await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
+        title: entry.fileName,
+        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
+      })
     }
     await WIKI.db.delete(pagesTable).where(
       inArray(
@@ -1065,37 +1088,53 @@ class Pages {
    * freshly created page has no watchers to notify by construction (there is no page restore/undelete
    * feature yet that would make this untrue — see `deleteOrphaned` and `pageHistory` for why a
    * deletion is recoverable in principle even though nothing currently offers it back). `moved`
-   * qualifies by default, same as `updated`: there is no per-watcher preference to consult yet, so
-   * every watcher hears about every change to a page they watch, moves included — a future task can
-   * narrow that down once such a preference exists.
+   * qualifies by default, same as `updated`, for a watcher who has never touched their preference —
+   * see `pageWatching.ts#DEFAULT_PREFERENCE`.
    *
-   * The watcher list is resolved here, synchronously, rather than inside the job this queues: a
-   * delete removes the page in the very same request, and `pageWatching.pageId` cascades away with
-   * it, so a job that only got around to resolving watchers later would find none left for a
-   * `deleted` event. That resolution is one indexed `SELECT` — it does not scale with how many people
-   * watch the page, so awaiting it here costs the save a fixed, small amount regardless of audience
-   * size. What DOES scale with the audience — writing one `pageWatchEvents` row per watcher, and later
-   * rendering and sending the mail for it — is exactly the part pushed into the queued job, which is
-   * why this awaits nothing past resolving the (possibly empty) watcher list and asking the scheduler
-   * to queue one job for it.
+   * The watcher list — now paired with each watcher's resolved `notifyMode`, from
+   * `pageWatching.listWatchers` — is resolved here, synchronously, rather than inside the job this
+   * queues: a delete removes the page in the very same request, and `pageWatching.pageId` cascades
+   * away with it, so a job that only got around to resolving watchers (or their preference) later
+   * would find nothing left to read for a `deleted` event. `page` and `changedFields` are threaded
+   * through for the same reason: the job composing the actual email cannot re-query a page that, for a
+   * delete, is by then already gone. That resolution is one indexed `SELECT` — it does not scale with
+   * how many people watch the page, so awaiting it here costs the save a fixed, small amount regardless
+   * of audience size. What DOES scale with the audience — writing one `pageWatchEvents` row per
+   * watcher, and sending the mail for the ones who want it immediately — is exactly the part pushed
+   * into the queued job, which is why this awaits nothing past resolving the (possibly empty) watcher
+   * list and asking the scheduler to queue one job for it.
    *
    * A failure to queue is logged and swallowed rather than thrown: a watcher not being told about a
    * change is a real loss, but it must never be the reason the change itself fails to save.
+   *
+   * @param changedFields What `movePage`/`updatePage` already computed for `pageHistory.record` —
+   *   `['path']`/`['title']` for a move, whichever page fields for an edit. Always empty for a delete.
    */
   private async notifyWatchers(
     siteId: string,
     pageId: string,
     action: PageWatchNotifiableAction,
-    actorId: string
+    actorId: string,
+    page: { title: string; path: string },
+    changedFields: string[] = []
   ): Promise<void> {
     try {
-      const watcherIds = await WIKI.models.pageWatching.listWatcherIds(pageId, actorId)
-      if (watcherIds.length < 1) {
+      const watchers = await WIKI.models.pageWatching.listWatchers(pageId, actorId, action)
+      if (watchers.length < 1) {
         return
       }
       await WIKI.scheduler.addJob({
         task: 'notifyPageWatchers',
-        payload: { siteId, pageId, action, watcherIds }
+        payload: {
+          siteId,
+          pageId,
+          pageTitle: page.title,
+          pagePath: page.path,
+          action,
+          changedFields,
+          actorId,
+          watchers
+        }
       })
     } catch (err: any) {
       WIKI.logger.warn(`Failed to queue watch notifications for page ${pageId}: ${err.message}`)

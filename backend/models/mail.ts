@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
+import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -10,12 +11,33 @@ export interface MailMessage {
   text: string
 }
 
+/** Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`). */
+const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
+  updated: 'edited',
+  moved: 'moved',
+  deleted: 'deleted'
+}
+
+/**
+ * Escape the four HTML metacharacters, for values that land in a template's HTML body but did not
+ * come from this file — a page title or a display name is content a wiki editor chose, not a
+ * constant this module wrote, so it is escaped the same way `models/search.ts`'s own `escapeHtml`
+ * treats a search highlight.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
 /**
  * Mail model
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
- * and exposes a generic `send()` plus the three transactional templates the local-account lifecycle
- * feature needs: verify-email, forgot-password, and password-reset-confirmed. Templates are plain
+ * and exposes a generic `send()` plus the transactional templates the app needs: verify-email,
+ * forgot-password, password-reset-confirmed, and the page-watch notification. Templates are plain
  * inline HTML/text pairs — there is no admin-editable template system yet
  * (`MailTemplateEditorOverlay.vue` is unwired UI that belongs to Epic 8).
  *
@@ -178,6 +200,49 @@ class MailModel {
       subject: 'Your password has been changed',
       text: `Hi ${name},\n\nThis is a confirmation that the password for your account was just changed.\n\nIf you did not make this change, contact your wiki administrator immediately.\n\n${link}`,
       html: `<p>Hi ${name},</p><p>This is a confirmation that the password for your account was just changed.</p><p>If you did not make this change, contact your wiki administrator immediately.</p><p><a href="${link}">${link}</a></p>`
+    })
+  }
+
+  /**
+   * Immediate page-watch notification, sent by `tasks/simple/notify-page-watchers.ts` for one
+   * watcher whose preference is `immediate` (see `models/pageWatching.ts#WatchNotifyMode`). One email
+   * per change per watcher — the digest job (a later task, out of this one's scope) is what batches
+   * several changes into one message for a `digest`-mode watcher instead.
+   *
+   * Every value here — page title/path, `changedFields`, `actorName` — is exactly what was captured
+   * on the `pageWatchEvents` row when the change was recorded, not looked up now: by the time an
+   * immediate send actually runs, a `deleted` page (and the `pageWatching` row this watcher's
+   * preference came from) can already be gone, same reasoning as `db/schema.ts#pageWatchEvents`'s own
+   * comment.
+   *
+   * @param page.path Used verbatim as `models/pageWatching.ts#WatchedPage`'s own link does
+   *   (`InboxWatching.vue`'s `router.push('/' + page.path)`) — the wiki's page route has no locale
+   *   segment, so the caller passes no locale here either.
+   */
+  async sendPageWatchNotification({
+    to,
+    page,
+    action,
+    changedFields,
+    actorName
+  }: {
+    to: string
+    page: { title: string; path: string }
+    action: PageWatchNotifiableAction
+    changedFields: string[]
+    actorName: string
+  }): Promise<void> {
+    const label = WATCH_ACTION_LABELS[action]
+    const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
+    const link = this.buildLink(`/${page.path}`)
+    const safeTitle = escapeHtml(page.title)
+    const safeActor = escapeHtml(actorName)
+    const safeSummary = escapeHtml(summary)
+    await this.send({
+      to,
+      subject: `Page ${label}: ${page.title}`,
+      text: `${actorName} ${label} a page you are watching: "${page.title}" (${summary}).\n\n${link}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
+      html: `<p>${safeActor} ${label} a page you are watching: <strong>${safeTitle}</strong> (${safeSummary}).</p><p><a href="${link}">${link}</a></p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
     })
   }
 }

@@ -83,9 +83,10 @@ export interface WatchedPage {
 /**
  * Page watching model
  *
- * Who has asked to be told about which pages. Nothing is sent yet — notifications are not built — so
- * this is the list and nothing more: the bell on a page reads it, the inbox lists it, and whatever
- * delivers the news later has one place to ask who wants it.
+ * Who has asked to be told about which pages, and how: the bell on a page reads `isWatching`, the
+ * inbox lists `listForUser`, and `models/pages.ts#notifyWatchers` reads `listWatchers` to resolve who
+ * gets a notification — and whether it should be sent right away or left for the digest job — for one
+ * change.
  */
 class PageWatching {
   /**
@@ -238,21 +239,46 @@ class PageWatching {
   }
 
   /**
-   * Who is watching this page right now, minus one person — the actor whose own change this is, since
-   * nobody needs telling about their own edit.
+   * Who is watching this page right now and wants to hear about this kind of change, minus one
+   * person — the actor whose own change this is, since nobody needs telling about their own edit.
+   * Each result carries its own resolved `notifyMode`, which is what tells `notifyWatchers`'s caller
+   * whether to attempt an immediate send or leave the row for the digest job to pick up later.
    *
    * Called synchronously from `models/pages.ts#notifyWatchers` rather than from the job it queues: a
    * delete removes the page in the same request, which cascades this table away with it, so the watch
-   * list has to be read before that happens rather than whenever the queued job gets around to it. A
-   * single indexed lookup either way — this is the part of notifying watchers that does NOT scale with
-   * how many of them there are; writing a row per watcher is what the job is for.
+   * list AND each watcher's preference have to be read before that happens rather than whenever the
+   * queued job gets around to it — by then there would be no row left to read either from. A single
+   * indexed lookup either way — this is the part of notifying watchers that does NOT scale with how
+   * many of them there are; writing a row per watcher is what the job is for.
+   *
+   * A watcher whose preference excludes this action type entirely (`wantsAction` false) is left out of
+   * the result, not merely marked — there is nothing to queue for them.
    */
-  async listWatcherIds(pageId: string, excludeUserId: string): Promise<string[]> {
+  async listWatchers(
+    pageId: string,
+    excludeUserId: string,
+    action: PageWatchNotifiableAction
+  ): Promise<{ userId: string; notifyMode: WatchNotifyMode }[]> {
     const rows = await WIKI.db
-      .select({ userId: watchingTable.userId })
+      .select({
+        userId: watchingTable.userId,
+        notifyMode: watchingTable.notifyMode,
+        notifyOnEdited: watchingTable.notifyOnEdited,
+        notifyOnMoved: watchingTable.notifyOnMoved,
+        notifyOnDeleted: watchingTable.notifyOnDeleted
+      })
       .from(watchingTable)
       .where(and(eq(watchingTable.pageId, pageId), ne(watchingTable.userId, excludeUserId)))
-    return rows.map((row) => row.userId)
+    return rows
+      .map((row) => ({
+        userId: row.userId,
+        preference: resolvePreference({
+          ...row,
+          notifyMode: row.notifyMode as WatchNotifyMode | null
+        })
+      }))
+      .filter(({ preference }) => wantsAction(preference, action))
+      .map(({ userId, preference }) => ({ userId, notifyMode: preference.notifyMode }))
   }
 }
 

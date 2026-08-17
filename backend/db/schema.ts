@@ -561,6 +561,13 @@ export const pageWatching = pgTable(
  * this row runs after the request that queued it, and for a delete that request has by then already
  * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
  * row was resolved from. The row has to be able to outlive both.
+ *
+ * `actorId` and `changedFields` are captured at write time rather than looked up when a notification
+ * is finally sent, for the same reason `pageId` isn't a foreign key: the page (and, for a delete, the
+ * `pageHistory` row it might otherwise be read from) can already be gone by the time delivery happens,
+ * whether that's this task's immediate send or the digest job's later one. `actorId` is nullable and
+ * `set null` on account deletion, matching `pageHistory.authorId` — a notification about who changed
+ * a page should not be the reason that account can never be deleted.
  */
 export const pageWatchEvents = pgTable(
   'pageWatchEvents',
@@ -568,6 +575,11 @@ export const pageWatchEvents = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     /** `created` never appears here — see `notifyWatchers`: nobody can watch a page before it exists. */
     action: varchar({ length: 16 }).notNull(),
+    /** Which fields the change touched, for the same reason `pageHistory.changedFields` records it. */
+    changedFields: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp().notNull().defaultNow(),
     deliveredAt: timestamp(),
     pageId: uuid().notNull(),
@@ -576,7 +588,8 @@ export const pageWatchEvents = pgTable(
       .references(() => sites.id),
     userId: uuid()
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' })
+      .references(() => users.id, { onDelete: 'cascade' }),
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' })
   },
   (table) => [
     // -> "This user's undelivered notifications, oldest first" -- the query whatever sends them runs
