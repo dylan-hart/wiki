@@ -1502,6 +1502,7 @@
   "common.comments.postComment": "Post Comment",
   "common.comments.postSuccess": "New comment posted successfully.",
   "common.comments.postingAs": "Posting as {name}",
+  "common.comments.reply": "Reply",
   "common.comments.sdTitle": "Talk",
   "common.comments.title": "Comments",
   "common.comments.updateComment": "Update Comment",

@@ -7,6 +7,8 @@
       }}</span>
     </header>
 
+    <CommentComposer v-if="canWrite" class="page-comments-composer mb-4" @posted="onPosted" />
+
     <div v-if="loading" class="page-comments-loading flex items-center gap-2 py-4 text-grey-6">
       <w-spinner size="20px" />
       <span>{{ t(`common.comments.loading`) }}</span>
@@ -55,6 +57,21 @@
               unsanitized markdown source.
             -->
             <div class="page-comments-content" v-html="entry.comment.render" />
+
+            <div v-if="canWrite" class="page-comments-reply-row mt-2">
+              <button
+                type="button"
+                class="page-comments-reply-toggle cursor-pointer border-0 bg-transparent p-0 text-caption text-primary hover:underline"
+                @click="toggleReply(entry.comment.id)">
+                {{ t(`common.comments.reply`) }}
+              </button>
+            </div>
+            <CommentComposer
+              v-if="openReplyIds.has(entry.comment.id)"
+              class="page-comments-reply-composer mt-2"
+              :reply-to="entry.comment.id"
+              @posted="onPosted"
+              @cancel="closeReply(entry.comment.id)" />
           </div>
         </div>
       </li>
@@ -66,6 +83,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import CommentComposer from '@/components/CommentComposer.vue'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 
@@ -76,12 +94,15 @@ import { useUserStore } from '@/stores/user'
 /**
  * Page-view comments list.
  *
- * The top-level section for Feature 392: header + live count, loading/empty states, and the threaded
- * list itself. Deliberately just the reading surface -- the composer (new comment / reply / guest
- * identity capture) and the edit/delete affordances are separate tasks of the same feature, and
- * `Index.vue` wiring (where this mounts, gated on `siteStore.features.comments && pageStore.allowComments`)
- * is a further one; this component is self-contained and reads `pageStore` directly rather than taking
- * page identity as a prop, so it can be dropped in once that wiring lands.
+ * The top-level section for Feature 392: header + live count, loading/empty states, the threaded
+ * list itself, and the composer -- a new top-level comment (`CommentComposer.vue`, mounted once,
+ * always visible when `canWrite`) plus, per comment, a small 'Reply' affordance that toggles open a
+ * second instance of the same composer scoped to that comment via `replyTo`. Guest-name/email capture
+ * and client-side validation both live inside `CommentComposer.vue` itself. The edit/delete
+ * affordances are a separate task of the same feature, and so is `Index.vue` wiring (where this
+ * mounts, gated on `siteStore.features.comments && pageStore.allowComments`); this component is
+ * self-contained and reads `pageStore` directly rather than taking page identity as a prop, so it can
+ * be dropped in once that wiring lands.
  *
  * Comments come back from Feature 391's list endpoint already threaded server-side --
  * `Comments.listForPage()` (`backend/models/comments.ts`) does one flat, `createdAt`-ordered query and
@@ -90,6 +111,11 @@ import { useUserStore } from '@/stores/user'
  * flattened again here into `flatComments`, in the same depth-first order, purely to cap the visual
  * indent at {@link MAX_DEPTH} levels -- 2.5.x never had nesting to draw a line at, so this fork picks
  * a small constant rather than letting a deep reply chain run the indent off the side of the card.
+ *
+ * A freshly-posted comment is spliced straight into `comments` by `onPosted` (into the matching
+ * parent's `replies` for a reply, appended top-level otherwise) rather than re-fetching the whole
+ * list, and bumps `pageStore.commentsCount` by one -- both list and header count stay live with no
+ * extra round trip.
  */
 
 const { t } = useI18n()
@@ -109,6 +135,21 @@ const canWrite = computed(() => userStore.can('write:comments'))
 const loading = ref(true)
 /** The threaded tree exactly as Feature 391's list endpoint returns it -- see the component doc above. */
 const comments = ref([])
+
+/** Comment ids whose inline reply composer is currently open. */
+const openReplyIds = ref(new Set())
+
+function toggleReply(id) {
+  if (openReplyIds.value.has(id)) {
+    openReplyIds.value.delete(id)
+  } else {
+    openReplyIds.value.add(id)
+  }
+}
+
+function closeReply(id) {
+  openReplyIds.value.delete(id)
+}
 
 /**
  * `comments`, walked depth-first into a flat `{ comment, depth }[]` with `depth` capped at
@@ -146,6 +187,43 @@ function initialsFor(comment) {
 
 function isModified(comment) {
   return Boolean(comment.updatedAt) && comment.updatedAt !== comment.createdAt
+}
+
+/** Depth-first search of the threaded tree for the comment with `id`, or null if none matches. */
+function findNode(nodes, id) {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node
+    }
+    const found = findNode(node.replies ?? [], id)
+    if (found) {
+      return found
+    }
+  }
+  return null
+}
+
+/**
+ * Handles `CommentComposer`'s `posted` event, from either the top composer or a comment's reply
+ * box: splices the new comment straight into `comments` -- under its parent's `replies` when it is a
+ * reply, appended top-level otherwise -- closes that reply box if it was one, and bumps the live
+ * header count. No re-fetch: the server already handed back everything the list needs to show it.
+ */
+function onPosted(newComment) {
+  if (newComment.replyTo) {
+    const parent = findNode(comments.value, newComment.replyTo)
+    if (parent) {
+      parent.replies = [...(parent.replies ?? []), newComment]
+    } else {
+      // -> Parent not found in the currently loaded tree (should not happen): still show the new
+      //    comment rather than silently drop it.
+      comments.value = [...comments.value, newComment]
+    }
+    closeReply(newComment.replyTo)
+  } else {
+    comments.value = [...comments.value, newComment]
+  }
+  pageStore.commentsCount += 1
 }
 
 /**

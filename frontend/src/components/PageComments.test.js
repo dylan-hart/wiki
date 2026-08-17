@@ -17,15 +17,39 @@ const MESSAGES = {
         loading: 'Loading comments...',
         beFirst: 'Be the first to comment.',
         none: 'No comments yet.',
-        modified: 'modified {reldate}'
+        modified: 'modified {reldate}',
+        reply: 'Reply',
+        fieldContent: 'Comment Content',
+        fieldEmail: 'Your Email Address',
+        fieldName: 'Your Name',
+        newPlaceholder: 'Write a new comment...',
+        markdownFormat: 'Markdown Format',
+        contentMissingError: 'Comment is empty or too short!',
+        postComment: 'Post Comment',
+        postSuccess: 'New comment posted successfully.',
+        postingAs: 'Posting as {name}'
+      },
+      actions: {
+        cancel: 'Cancel'
       },
       error: {
         generic: {
           title: 'Unexpected Error'
         }
       }
+    },
+    auth: {
+      errors: {
+        missingName: 'Name is missing.',
+        missingEmail: 'Email is missing.',
+        invalidEmail: 'Email is invalid.'
+      }
     }
   }
+}
+
+function findButton(wrapper, text) {
+  return wrapper.findAll('button').find((btn) => btn.text().includes(text))
 }
 
 /**
@@ -52,7 +76,12 @@ function comment(overrides = {}) {
   }
 }
 
-async function mountComments({ pageId = 'p1', commentsCount = 0, canWrite = false } = {}) {
+async function mountComments({
+  pageId = 'p1',
+  commentsCount = 0,
+  canWrite = false,
+  authenticated = true
+} = {}) {
   setActivePinia(createPinia())
 
   const pageStore = usePageStore()
@@ -66,6 +95,8 @@ async function mountComments({ pageId = 'p1', commentsCount = 0, canWrite = fals
   if (canWrite) {
     userStore.pagePermissions = ['write:comments']
   }
+  userStore.authenticated = authenticated
+  userStore.name = 'Jane Doe'
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
 
@@ -230,5 +261,75 @@ describe('PageComments', () => {
       message: 'Unexpected Error',
       caption: 'boom'
     })
+  })
+
+  it('shows the composer only for a reader who holds write:comments', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    const { wrapper: withPermission } = await mountComments({ canWrite: true })
+    expect(withPermission.find('.page-comments-composer').exists()).toBe(true)
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    const { wrapper: withoutPermission } = await mountComments({ canWrite: false })
+    expect(withoutPermission.find('.page-comments-composer').exists()).toBe(false)
+  })
+
+  it('shows a per-comment Reply affordance only for a reader who holds write:comments', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper: withPermission } = await mountComments({ canWrite: true })
+    expect(withPermission.find('.page-comments-reply-toggle').exists()).toBe(true)
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper: withoutPermission } = await mountComments({ canWrite: false })
+    expect(withoutPermission.find('.page-comments-reply-toggle').exists()).toBe(false)
+  })
+
+  it('toggles a comment’s inline reply composer open and closed', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([comment()]) })
+    const { wrapper } = await mountComments({ canWrite: true })
+
+    expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(false)
+    await findButton(wrapper, 'Reply').trigger('click')
+    expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(true)
+    await findButton(wrapper, 'Reply').trigger('click')
+    expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(false)
+  })
+
+  it('splices a new top-level comment into the list and bumps commentsCount, without re-fetching', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    const { wrapper, pageStore } = await mountComments({ canWrite: true, commentsCount: 2 })
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+
+    const posted = comment({ id: 'new1', authorName: 'New Author' })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(posted) })
+
+    await wrapper.find('textarea').setValue('A fresh comment')
+    await findButton(wrapper, 'Post Comment').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('New Author')
+    expect(pageStore.commentsCount).toBe(3)
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(1)
+  })
+
+  it('splices a reply under its parent, closes the reply box, and bumps commentsCount', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([comment({ id: 'root', authorName: 'Root Author' })])
+    })
+    const { wrapper, pageStore } = await mountComments({ canWrite: true, commentsCount: 1 })
+
+    await findButton(wrapper, 'Reply').trigger('click')
+    expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(true)
+
+    const posted = comment({ id: 'reply1', replyTo: 'root', authorName: 'Reply Author' })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(posted) })
+
+    const replyComposer = wrapper.find('.page-comments-reply-composer')
+    await replyComposer.find('textarea').setValue('A reply')
+    await findButton(replyComposer, 'Post Comment').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Reply Author')
+    expect(wrapper.find('.page-comments-reply-composer').exists()).toBe(false)
+    expect(pageStore.commentsCount).toBe(2)
   })
 })

@@ -72,6 +72,7 @@ import { useI18n } from 'vue-i18n'
 import { reactive, ref } from 'vue'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { guestEmailRules, guestNameRules } from '@/helpers/guestIdentity'
 
 /**
  * Who is suggesting this edit, asked of a reader with no account.
@@ -108,12 +109,8 @@ const iptName = ref(null)
 
 // VALIDATION RULES
 
-const nameValidation = [(val) => (val ?? '').trim().length > 0 || t('auth.errors.missingName')]
-
-const emailValidation = [
-  (val) => (val ?? '').trim().length > 0 || t('auth.errors.missingEmail'),
-  (val) => /^.+@.+\..+$/.test(val) || t('auth.errors.invalidEmail')
-]
+const nameValidation = guestNameRules(t)
+const emailValidation = guestEmailRules(t)
 
 // METHODS
 
