@@ -6,8 +6,22 @@ on:
       - scarlett
 
 jobs:
+  # Delegates to quality.yml (task 766) so the exact same typecheck/lint/format gate that runs on
+  # every pull request also blocks this push-triggered job before it reaches `Build Assets`, `Build
+  # Blocks`, or the Docker login/build/push steps below. A `pull_request:` trigger was deliberately
+  # NOT added directly to this workflow: `build`'s Docker publish (and its Playwright/Postgres-backed
+  # test legs) has no place running against every PR, and `needs:` can't reach across workflow files
+  # to gate it selectively -- see quality.yml's own header comment for the full reasoning. Adding
+  # `pull_request:` here would mean either running the whole expensive pipeline on every PR too, or
+  # threading `if: github.event_name == 'push'` through several jobs for no benefit over the split
+  # already in place.
+  quality:
+    name: Quality Gates
+    uses: ./.github/workflows/quality.yml
+
   build:
     name: Build
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
