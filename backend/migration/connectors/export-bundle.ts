@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import {
   NotYetImplementedError,
   type SourceAssetFile,
@@ -13,6 +14,24 @@ import {
  * `docs/migration/2.5x-export-bundle-format.md`. Every entity is independently optional — a bundle
  * exported with only a subset of entities checked is a complete, valid bundle for that subset.
  */
+/** Merges a row's denormalized `tags: [{tag, title}]` (or an already-plain `tags: string[]`) into
+ * `seen`, keyed by tag string so a tag appearing on many pages is only kept once. Used by `tags()`
+ * below, the one generator this connector kind has to derive rather than read off a dedicated file. */
+function collectTags(tags: unknown, seen: Map<string, SourceRecord>): void {
+  if (!Array.isArray(tags)) return
+  for (const entry of tags) {
+    if (typeof entry === 'string') {
+      if (!seen.has(entry)) seen.set(entry, { tag: entry, title: null })
+    } else if (entry && typeof entry === 'object' && 'tag' in entry) {
+      const tag = (entry as { tag: unknown }).tag
+      if (typeof tag === 'string' && !seen.has(tag)) {
+        const title = 'title' in entry ? ((entry as { title: unknown }).title ?? null) : null
+        seen.set(tag, { tag, title })
+      }
+    }
+  }
+}
+
 const ENTITY_FILES: Record<string, string> = {
   users: 'users.json.gz',
   groups: 'groups.json',
@@ -33,11 +52,13 @@ const ENTITY_FILES: Record<string, string> = {
  * shape-checked against `2.5x-export-bundle-format.md` to prove the format assumption this connector
  * — and the later importer tasks reading through it — depends on.
  *
- * The bulk, batched/gzipped files (`users.json.gz`, `pages.json.gz`, `pages-history.json.gz`,
- * `comments.json.gz`) are never opened here: reading and transforming those rows is explicitly
- * deferred to the tasks that own each entity (see each generator's `NotYetImplementedError`), which
- * is also why `groups()`/`navigation()`/`settings()` remain stubs even though `connect()` already
- * parsed their files once for validation — that parsed data is not retained or exposed as rows here.
+ * `pages()`, `pageHistory()`, `tags()` and `navigation()` are implemented for real (Task 733, this
+ * feature's own extraction scaffold) — the rest (`users()`, `groups()`, `settings()`, `assets()`)
+ * remain `NotYetImplementedError` stubs, deferred to the tasks that own those entities. `connect()`
+ * already parses `groups.json`/`navigation.json`/`settings.json` once for shape-validation, but that
+ * parsed data is not retained or reused by `navigation()` below, which re-reads and re-parses the file
+ * on its own — keeping `connect()`'s validation pass and an entity generator's real read independent,
+ * the same way the still-deferred generators are documented as depending on nothing `connect()` did.
  */
 export class ExportBundleSourceConnector implements SourceConnector {
   readonly kind = 'export-bundle' as const
@@ -164,20 +185,104 @@ export class ExportBundleSourceConnector implements SourceConnector {
     throw new NotYetImplementedError('groups', 'Task 414 (Users/Groups importer)')
   }
 
+  /**
+   * Decompresses and parses one `.json.gz` entity file in one shot — `docs/migration/
+   * 2.5x-export-bundle-format.md` documents each such file as one pretty-printed JSON array written by
+   * the exporter's own batch-fetch loop, so there is no true streaming parse to do (the whole array
+   * already exists as one gzip member on disk); this keeps peak memory bounded to one entity file at a
+   * time rather than the whole bundle, mirroring what the exporter itself held before gzipping.
+   * Yields nothing, rather than throwing, when the file is absent — every export entity is
+   * independently optional (a zero-row entity is skipped entirely, per the same doc), and a missing
+   * file is exactly that case, not an error.
+   */
+  private async *readGzipJsonArray(filePath: string): AsyncGenerator<SourceRecord> {
+    const exists = await fs
+      .access(filePath)
+      .then(() => true)
+      .catch(() => false)
+    if (!exists) return
+    const compressed = await fs.readFile(filePath)
+    const decompressed = zlib.gunzipSync(compressed).toString('utf8')
+    const rows = JSON.parse(decompressed)
+    if (!Array.isArray(rows)) {
+      throw new Error(
+        `"${filePath}" does not contain a JSON array, as every 2.5.x entity file does.`
+      )
+    }
+    yield* rows as SourceRecord[]
+  }
+
   pages(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('pages', 'Task 416 (Content importer)')
+    if (!this.connected) {
+      throw new Error('pages() called before a successful connect().')
+    }
+    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pages))
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('pageHistory', 'Task 416 (Content importer)')
+    if (!this.connected) {
+      throw new Error('pageHistory() called before a successful connect().')
+    }
+    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pageHistory))
+  }
+
+  /**
+   * There is no dedicated `tags.json`/`tags.json.gz` file in the export-bundle format at all (see
+   * `ENTITY_FILES` above, and `2.5x-export-bundle-format.md`'s `pages`/`history` sections) — 2.x's
+   * `tags`/`pageTags`/`pageHistoryTags` join is already denormalized inline as each page/history row's
+   * own `tags: [{tag, title}]`. This derives a deduplicated tag list the same way any other consumer
+   * of this generator would have to: by scanning `pages()` and `pageHistory()` and collecting every
+   * distinct tag string seen. Content-staging (Task 733's own `extractContentStaging`) does not
+   * actually need to call this — it reads `tags` straight off each page/history row — but the
+   * `SourceConnector` interface promises the generator, so it is implemented for real rather than left
+   * throwing for a table this connector kind genuinely has no separate file for.
+   */
+  private async *tagsImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pages)
+    )) {
+      collectTags(row.tags, seen)
+    }
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+    )) {
+      collectTags(row.tags, seen)
+    }
+    yield* seen.values()
   }
 
   tags(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('tags', 'Task 416 (Content importer)')
+    if (!this.connected) {
+      throw new Error('tags() called before a successful connect().')
+    }
+    return this.tagsImpl()
+  }
+
+  /**
+   * `navigation.json` is one `{key: config}` object (2.x's `navigation` table reduced onto a single
+   * JSON object by the exporter — see `2.5x-export-bundle-format.md`'s `navigation.json` section), not
+   * an array of rows. Re-expands it back into `(key, config)` records, exactly as that doc's
+   * "Implications" section calls for.
+   */
+  private async *navigationImpl(): AsyncGenerator<SourceRecord> {
+    const filePath = path.join(this.bundlePath, ENTITY_FILES.navigation)
+    const exists = await fs
+      .access(filePath)
+      .then(() => true)
+      .catch(() => false)
+    if (!exists) return
+    const parsed = await this.readJson(filePath)
+    for (const [key, config] of Object.entries(parsed as Record<string, unknown>)) {
+      yield { key, config }
+    }
   }
 
   navigation(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('navigation', 'Task 420 (Settings/Auth/Storage importer)')
+    if (!this.connected) {
+      throw new Error('navigation() called before a successful connect().')
+    }
+    return this.navigationImpl()
   }
 
   settings(): AsyncIterable<SourceRecord> {

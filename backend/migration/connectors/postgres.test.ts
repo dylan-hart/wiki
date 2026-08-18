@@ -20,9 +20,15 @@ const DATABASE = process.env.MIGRATION_TEST_PG_DB ?? 'postgres'
 const USER = process.env.MIGRATION_TEST_PG_USER ?? 'postgres'
 const PASSWORD = process.env.MIGRATION_TEST_PG_PASSWORD ?? 'postgres'
 
+// -> Deliberately a top-level `await`, not a `before()` hook: every `{ skip: !dbAvailable && '...' }`
+//    below is an options object built while this module's top-level code is still running — i.e.
+//    while `describe()`/`test()` calls are registering the suite, synchronously, top to bottom. A
+//    `before()` hook's body does not run until the run phase that follows, so if the probe lived in
+//    one, every `skip` option would still see `dbAvailable`'s initial value (`true`) and never
+//    actually skip. Top-level `await` runs to completion before any of the registration code below it
+//    executes, which is what makes the probe's result visible in time for `skip` to see it.
 let dbAvailable = true
-
-before(async () => {
+{
   const probe = new Client({
     host: HOST,
     port: PORT,
@@ -36,7 +42,7 @@ before(async () => {
   } catch {
     dbAvailable = false
   }
-})
+}
 
 describe('PostgresSourceConnector', () => {
   test('rejects connecting to an unreachable host', async () => {
@@ -172,7 +178,7 @@ describe('PostgresSourceConnector', () => {
     }
   )
 
-  test('every entity generator is a deferred stub, not implemented here', () => {
+  test('users/groups/settings/assets generators remain deferred stubs (owned by other tasks)', () => {
     const connector = new PostgresSourceConnector({
       host: HOST,
       port: PORT,
@@ -180,17 +186,224 @@ describe('PostgresSourceConnector', () => {
       user: USER,
       password: PASSWORD
     })
-    for (const method of [
-      'users',
-      'groups',
-      'pages',
-      'pageHistory',
-      'tags',
-      'navigation',
-      'settings',
-      'assets'
-    ] as const) {
+    for (const method of ['users', 'groups', 'settings', 'assets'] as const) {
       assert.throws(() => connector[method](), NotYetImplementedError)
     }
   })
+
+  test('pages()/pageHistory()/tags()/navigation() reject when called before connect()', async () => {
+    const connector = new PostgresSourceConnector({
+      host: HOST,
+      port: PORT,
+      database: DATABASE,
+      user: USER,
+      password: PASSWORD
+    })
+    for (const method of ['pages', 'pageHistory', 'tags', 'navigation'] as const) {
+      const iterable = connector[method]()
+      await assert.rejects(async () => {
+        for await (const _row of iterable) {
+          // draining is enough to trigger the guard on first next()
+        }
+      }, /before a successful connect/)
+    }
+  })
+
+  describe(
+    'pages()/pageHistory()/tags()/navigation() against a 2.5.x-shaped schema (Task 733)',
+    { skip: !dbAvailable && 'no test Postgres reachable' },
+    () => {
+      let admin: Client
+
+      async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
+        const out: T[] = []
+        for await (const item of iterable) out.push(item)
+        return out
+      }
+
+      before(async () => {
+        if (!dbAvailable) return
+        admin = new Client({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await admin.connect()
+        await admin.query(
+          'DROP TABLE IF EXISTS "pageHistoryTags", "pageTags", "pageHistory", pages, tags, navigation, users, groups'
+        )
+        // connect()'s checkShape() introspects users/groups too, even though this describe block
+        // never reads through those two generators — see the "against a 2.5.x-shaped schema" describe
+        // above, whose own `after` already dropped the tables it created there.
+        await admin.query(`
+          CREATE TABLE users (
+            id serial PRIMARY KEY,
+            email varchar NOT NULL,
+            "providerKey" varchar NOT NULL DEFAULT 'local',
+            "tfaIsActive" boolean NOT NULL DEFAULT false
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE groups (
+            id serial PRIMARY KEY,
+            name varchar NOT NULL,
+            permissions json NOT NULL,
+            "pageRules" json NOT NULL,
+            "redirectOnLogin" varchar NOT NULL DEFAULT '/'
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE pages (
+            id serial PRIMARY KEY,
+            path varchar NOT NULL,
+            "localeCode" varchar NOT NULL DEFAULT 'en',
+            hash varchar NOT NULL,
+            title varchar NOT NULL,
+            "contentType" varchar NOT NULL,
+            "authorId" integer,
+            "creatorId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "pageHistory" (
+            id serial PRIMARY KEY,
+            "pageId" integer,
+            path varchar NOT NULL,
+            "localeCode" varchar NOT NULL DEFAULT 'en',
+            title varchar NOT NULL,
+            action varchar NOT NULL DEFAULT 'updated',
+            "versionDate" varchar NOT NULL,
+            "authorId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE tags (
+            id serial PRIMARY KEY,
+            tag varchar NOT NULL UNIQUE,
+            title varchar
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "pageTags" (
+            id serial PRIMARY KEY,
+            "pageId" integer,
+            "tagId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE "pageHistoryTags" (
+            id serial PRIMARY KEY,
+            "pageId" integer,
+            "tagId" integer
+          )
+        `)
+        await admin.query(`
+          CREATE TABLE navigation (
+            key varchar PRIMARY KEY,
+            config json
+          )
+        `)
+
+        await admin.query(`
+          INSERT INTO pages (id, path, "localeCode", hash, title, "contentType", "authorId", "creatorId")
+          VALUES
+            (1, 'welcome', 'en', 'hash-1', 'Welcome', 'markdown', 10, 10),
+            (2, 'welcome', 'fr', 'hash-2', 'Bienvenue', 'markdown', 11, NULL)
+        `)
+        await admin.query(`
+          INSERT INTO "pageHistory" (id, "pageId", path, "localeCode", title, action, "versionDate", "authorId")
+          VALUES
+            (100, 1, 'welcome', 'en', 'Welcome', 'updated', '2020-01-02T00:00:00.000Z', 10),
+            (101, 1, 'welcome', 'en', 'Welcome', 'created', '2020-01-01T00:00:00.000Z', 10)
+        `)
+        await admin.query(`INSERT INTO tags (id, tag, title) VALUES (1, 'intro', 'Intro')`)
+        await admin.query(`INSERT INTO "pageTags" (id, "pageId", "tagId") VALUES (1, 1, 1)`)
+        await admin.query(
+          `INSERT INTO "pageHistoryTags" (id, "pageId", "tagId") VALUES (1, 100, 1)`
+        )
+        await admin.query(
+          `INSERT INTO navigation (key, config) VALUES ('site', '[{"id":"home","label":"Home"}]')`
+        )
+      })
+
+      after(async () => {
+        if (!dbAvailable) return
+        await admin.query(
+          'DROP TABLE IF EXISTS "pageHistoryTags", "pageTags", "pageHistory", pages, tags, navigation, users, groups'
+        )
+        await admin.end()
+      })
+
+      test('pages() yields every page with its resolved tags array', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.pages())
+        assert.equal(rows.length, 2)
+        const page1 = rows.find((r) => r.id === 1)!
+        assert.deepEqual(page1.tags, [{ tag: 'intro', title: 'Intro' }])
+        const page2 = rows.find((r) => r.id === 2)!
+        assert.deepEqual(page2.tags, [])
+        await connector.disconnect()
+      })
+
+      test('pageHistory() yields every revision, ordered by pageId then versionDate, with resolved tags', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.pageHistory())
+        assert.deepEqual(
+          rows.map((r) => r.id),
+          [101, 100]
+        )
+        const updated = rows.find((r) => r.id === 100)!
+        assert.deepEqual(updated.tags, [{ tag: 'intro', title: 'Intro' }])
+        const created = rows.find((r) => r.id === 101)!
+        assert.deepEqual(created.tags, [])
+        await connector.disconnect()
+      })
+
+      test('tags() yields the raw tags table', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.tags())
+        assert.deepEqual(rows, [{ id: 1, tag: 'intro', title: 'Intro' }])
+        await connector.disconnect()
+      })
+
+      test('navigation() yields the raw navigation row(s)', async () => {
+        const connector = new PostgresSourceConnector({
+          host: HOST,
+          port: PORT,
+          database: DATABASE,
+          user: USER,
+          password: PASSWORD
+        })
+        await connector.connect()
+        const rows = await collect(connector.navigation())
+        assert.equal(rows.length, 1)
+        assert.equal(rows[0].key, 'site')
+        assert.deepEqual(rows[0].config, [{ id: 'home', label: 'Home' }])
+        await connector.disconnect()
+      })
+    }
+  )
 })

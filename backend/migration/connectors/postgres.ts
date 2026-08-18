@@ -41,9 +41,10 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
  * See `docs/migration/decision-source-scope.md` for why this is the only live-database connector kind
  * this connector supports, and for the read-only requirement `connect()` enforces defensively.
  *
- * The entity generators are not implemented here: this connector proves the lifecycle and the
- * introspection check are real, and leaves reading actual rows to the tasks that own each entity
- * (see each generator's `NotYetImplementedError`).
+ * `pages()`, `pageHistory()`, `tags()` and `navigation()` are implemented for real (Task 733, this
+ * feature's own extraction scaffold) via plain SQL against the connected client — the rest
+ * (`users()`, `groups()`, `settings()`, `assets()`) remain `NotYetImplementedError` stubs, deferred to
+ * the tasks that own those entities.
  */
 export class PostgresSourceConnector implements SourceConnector {
   readonly kind = 'postgres' as const
@@ -155,20 +156,87 @@ export class PostgresSourceConnector implements SourceConnector {
     throw new NotYetImplementedError('groups', 'Task 414 (Users/Groups importer)')
   }
 
+  /**
+   * Runs `sql` (with a trailing `LIMIT`/`OFFSET` this appends) repeatedly, batch by batch, so a large
+   * table is never held in memory all at once — `docs/migration/2.5x-export-bundle-format.md`'s
+   * "Implications" note to mirror the exporter's own batch sizes applies here too, even though this is
+   * the live-Postgres path rather than a bundle. `sql` must not itself end in a semicolon or already
+   * contain `LIMIT`/`OFFSET`, and its `$n` placeholders must line up with `params`.
+   */
+  private async *paginatedQuery(
+    sql: string,
+    params: unknown[],
+    batchSize: number
+  ): AsyncGenerator<SourceRecord> {
+    if (!this.client) {
+      throw new Error('Entity generator called before a successful connect().')
+    }
+    const client = this.client
+    let offset = 0
+    for (;;) {
+      const res = await client.query<SourceRecord>(
+        `${sql} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, batchSize, offset]
+      )
+      for (const row of res.rows) yield row
+      if (res.rows.length < batchSize) return
+      offset += batchSize
+    }
+  }
+
+  /** Batch size mirrors the exporter's own `pages`/`history` batching (`2.5x-export-bundle-format.md`:
+   * "Batch size is 10 for `pages`/`history`"), for the same reason: a workable unit of rows to hold in
+   * memory at a time without buffering a whole table. */
+  private static readonly PAGE_BATCH_SIZE = 10
+
   pages(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('pages', 'Task 416 (Content importer)')
+    // Tags are resolved here via a join+aggregate rather than exposed as a separate generator to walk
+    // against `tags()`/`pageTags` — the `SourceConnector` interface has no `pageTags()` generator at
+    // all, so a caller has nothing else to join `pages()` rows against; this mirrors the export
+    // bundle's own `pages.json.gz` shape (`tags: [{tag, title}]` inline on each row), so
+    // `content-staging.ts`'s tag resolution works identically against either connector kind.
+    return this.paginatedQuery(
+      `SELECT p.*, COALESCE(
+         json_agg(json_build_object('tag', t.tag, 'title', t.title) ORDER BY t.tag)
+           FILTER (WHERE t.id IS NOT NULL),
+         '[]'
+       ) AS tags
+       FROM pages p
+       LEFT JOIN "pageTags" pt ON pt."pageId" = p.id
+       LEFT JOIN tags t ON t.id = pt."tagId"
+       GROUP BY p.id
+       ORDER BY p.id`,
+      [],
+      PostgresSourceConnector.PAGE_BATCH_SIZE
+    )
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('pageHistory', 'Task 416 (Content importer)')
+    // Same tag-resolution rationale as pages() above, joined through pageHistoryTags instead of
+    // pageTags — note the naming trap 2.5x-source-schema.md flags: pageHistoryTags."pageId" targets
+    // "pageHistory".id, not pages.id, which is exactly what this join does.
+    return this.paginatedQuery(
+      `SELECT ph.*, COALESCE(
+         json_agg(json_build_object('tag', t.tag, 'title', t.title) ORDER BY t.tag)
+           FILTER (WHERE t.id IS NOT NULL),
+         '[]'
+       ) AS tags
+       FROM "pageHistory" ph
+       LEFT JOIN "pageHistoryTags" pht ON pht."pageId" = ph.id
+       LEFT JOIN tags t ON t.id = pht."tagId"
+       GROUP BY ph.id
+       ORDER BY ph."pageId", ph."versionDate"`,
+      [],
+      PostgresSourceConnector.PAGE_BATCH_SIZE
+    )
   }
 
   tags(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('tags', 'Task 416 (Content importer)')
+    return this.paginatedQuery(`SELECT * FROM tags ORDER BY id`, [], 100)
   }
 
   navigation(): AsyncIterable<SourceRecord> {
-    throw new NotYetImplementedError('navigation', 'Task 420 (Settings/Auth/Storage importer)')
+    return this.paginatedQuery(`SELECT * FROM navigation ORDER BY key`, [], 100)
   }
 
   settings(): AsyncIterable<SourceRecord> {
