@@ -4,6 +4,7 @@ import { eq, inArray, sql } from 'drizzle-orm'
 import { flipFromString, rotateFromString } from '@iconify/utils'
 import { jobs as jobsTable, pageRenderQueue as renderQueueTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 
@@ -994,25 +995,9 @@ class Rendering {
    * returns a string, so nothing carries over between them but the bundle's own warm caches.
    */
   private async createRenderer(): Promise<PageRenderer> {
-    // -> Held in a variable because Puppeteer is not a declared dependency: it is an extension the
-    //    operator installs, so a literal import would not typecheck
-    const specifier = 'puppeteer'
-    let puppeteer: any
-    try {
-      ;({ default: puppeteer } = await import(specifier))
-    } catch (err: any) {
-      WIKI.models.extensions.noteLoadFailure(specifier)
-      throw new CustomError(
-        'renderPuppeteerMissing',
-        `Could not load the Puppeteer extension: ${err.message}`,
-        503
-      )
-    }
-
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-dev-shm-usage']
-    })
+    // -> `helpers/puppeteer.ts` also backs `models/pdfExport.ts`'s PDF export, so both share one
+    //    launch path — same flags, same load-failure tracking
+    const browser = await launchPuppeteerBrowser('renderPuppeteerMissing')
     try {
       const page = await browser.newPage()
       // -> A shell page whose only job is to load the frontend's renderer bundle. It is served by this

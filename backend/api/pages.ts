@@ -947,6 +947,67 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * EXPORT PAGE AS PDF
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/export/pdf',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES. Checked against the page in question below instead, the same
+        `read:pages` the page view itself needs — exporting shows nothing a reader could not already
+        see.
+      */
+      // -> Same cost as re-rendering a page — a headless browser per request — so it shares that
+      //    route's throttle; see `helpers/rateLimit.ts`
+      preHandler: limitRenders,
+      schema: {
+        summary: 'Export a page as PDF',
+        description:
+          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`, and an anonymous requester only ever exports a published page. The export runs as whoever asked for it — nothing more.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: 'The page as a PDF file',
+            content: {
+              'application/pdf': {
+                schema: { type: 'string', format: 'binary' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+
+      const pdf = await WIKI.models.pdfExport.exportPdf({
+        hostname: req.hostname,
+        port: WIKI.config.port,
+        path: page.path,
+        // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
+        //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
+        sessionCookie: req.cookies?.wikiSession ?? null
+      })
+
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(page.path || 'home')}.pdf"`
+      )
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('Content-Length', pdf.length)
+      return reply.type('application/pdf').send(pdf)
+    }
+  )
+
+  /**
    * DELETE PAGE
    */
   app.delete<{ Params: { siteId: string; pageId: string } }>(
