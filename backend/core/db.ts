@@ -77,6 +77,23 @@ function createDb(client: Pool) {
 export type WikiDb = ReturnType<typeof createDb>
 
 /**
+ * The transaction handle `WIKI.db.transaction(async (tx) => ...)` hands its callback — the same
+ * query-builder surface as `WikiDb` (`.select()`/`.insert()`/`.update()`/`.delete()`), but bound to one
+ * checked-out connection for the life of the `BEGIN`/`COMMIT`. Derived from `WikiDb['transaction']`
+ * itself rather than imported from `drizzle-orm/node-postgres` so it always matches whatever
+ * `TRelations` `createDb` actually instantiates.
+ */
+export type WikiTx = Parameters<Parameters<WikiDb['transaction']>[0]>[0]
+
+/**
+ * Either the ambient `WIKI.db` or a transaction handle carved out of it. A model method that writes
+ * more than one row and wants those writes to share a caller-controlled transaction takes this as an
+ * optional `db` parameter, defaulting to the ambient `WIKI.db` — see `models/tree.ts`'s `addAsset`
+ * call chain and `importer/assets.ts`'s batch runner for the worked example.
+ */
+export type WikiDbOrTx = WikiDb | WikiTx
+
+/**
  * ORM DB module
  */
 export default {

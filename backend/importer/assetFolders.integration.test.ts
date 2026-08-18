@@ -129,6 +129,7 @@ describe('resolveAssetFolderPaths + writeImportedAsset', () => {
     const summary = createAssetImportSummary()
     const asset = await writeImportedAsset(
       {
+        sourceId: 'budget.pdf',
         filename: 'budget.pdf',
         ext: '.pdf',
         mime: 'application/pdf',
@@ -179,6 +180,7 @@ describe('resolveAssetFolderPaths + writeImportedAsset', () => {
     ] as const) {
       await writeImportedAsset(
         {
+          sourceId: fileName,
           filename: fileName,
           ext: '.txt',
           mime: 'text/plain',

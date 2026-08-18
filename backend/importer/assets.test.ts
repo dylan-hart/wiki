@@ -100,8 +100,12 @@ after(async () => {
 })
 
 function baseRecord(overrides: Partial<SourceAssetRecord> = {}): SourceAssetRecord {
+  const filename = overrides.filename ?? 'Photo.PNG'
   return {
-    filename: 'Photo.PNG',
+    // -> Every test in this file uses a distinct `filename`, so defaulting `sourceId` to it keeps
+    //    each record's deterministic id distinct too, without every call site having to say so.
+    sourceId: filename,
+    filename,
     ext: '.png',
     mime: 'image/png',
     fileSize: 4,
