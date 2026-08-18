@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
@@ -124,5 +124,109 @@ describe('hooks getDeliveryHistory (DB-backed)', { skip: !hasTestDatabase() }, (
 
     assert.equal(page.total, 5)
     assert.equal(page.deliveries.length, 2)
+  })
+})
+
+/**
+ * `emit()`'s per-hook rate limit (mocked `WIKI`, no database)
+ *
+ * `models/rateLimits.ts#consume()`'s own fixed-window algorithm is a separate, already-existing unit
+ * with its own concerns (DB-backed, concurrency-safe upsert). What this covers is whether
+ * `emit()` actually consults it before queuing each delivery, honors a refusal by skipping
+ * `WIKI.scheduler.addJob` and logging a warn line rather than silently dropping the delivery, and
+ * queues again once the window has rolled over — the behavior this task adds. A small in-memory
+ * fixed-window stand-in for `consume()`, driven by a controllable clock, makes the "resets after the
+ * window" half of that verifiable without a real wait or a live Postgres connection (none is reachable
+ * in this environment).
+ */
+describe('hooks emit rate limiting (mocked)', () => {
+  let previousWiki: any
+  let nowMs: number
+  let addJobCalls: any[]
+  let warnCalls: string[]
+  let hooksModel: typeof import('./hooks.ts').hooks
+
+  /** Mirrors `models/rateLimits.ts#consume()`'s window semantics, minus the ban/DB plumbing. */
+  function createFakeRateLimits() {
+    const store = new Map<string, { windowStart: number; hits: number }>()
+    return {
+      consume: async (key: string, policy: { max: number; windowSeconds: number }) => {
+        let entry = store.get(key)
+        if (!entry || nowMs - entry.windowStart >= policy.windowSeconds * 1000) {
+          entry = { windowStart: nowMs, hits: 0 }
+        }
+        entry.hits++
+        store.set(key, entry)
+        const allowed = entry.hits <= policy.max
+        return { allowed, hits: entry.hits, retryAfter: allowed ? 0 : policy.windowSeconds }
+      }
+    }
+  }
+
+  beforeEach(async () => {
+    previousWiki = (globalThis as any).WIKI
+    nowMs = 0
+    addJobCalls = []
+    warnCalls = []
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      config: {
+        scheduler: {
+          webhookRateLimitMax: 3,
+          webhookRateLimitWindow: '1m',
+          webhookRateLimitBan: '1m'
+        }
+      },
+      logger: { info: () => {}, warn: (msg: string) => warnCalls.push(msg), debug: () => {} },
+      models: { rateLimits: createFakeRateLimits() },
+      scheduler: {
+        // -> No `update`/`insert` stub exists on the fake `WIKI.db` below: if a throttled delivery
+        //    ever touched the persisted hook row, that branch would throw "is not a function" and
+        //    fail these tests, which is the enforcement that it must not.
+        addJob: mock.fn(async (job: any) => {
+          addJobCalls.push(job)
+          return { id: `job-${addJobCalls.length}` }
+        })
+      },
+      db: {
+        select: () => ({
+          from: () => ({
+            where: async () => [{ id: 'hook-1', includeMetadata: false, includeContent: false }]
+          })
+        })
+      }
+    }
+    ;({ hooks: hooksModel } = await import('./hooks.ts'))
+  })
+
+  afterEach(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('queues only up to the configured cap, then skips and warns without throwing', async () => {
+    for (let i = 0; i < 5; i++) {
+      await hooksModel.emit('page:create', {})
+    }
+
+    assert.equal(addJobCalls.length, 3)
+    assert.equal(warnCalls.length, 2)
+    assert.match(warnCalls[0]!, /hook-1/)
+    assert.match(warnCalls[0]!, /rate limit/i)
+  })
+
+  test('resets the count once the configured window has elapsed', async () => {
+    for (let i = 0; i < 3; i++) {
+      await hooksModel.emit('page:create', {})
+    }
+    assert.equal(addJobCalls.length, 3)
+
+    // -> Still inside the window: refused, not queued
+    await hooksModel.emit('page:create', {})
+    assert.equal(addJobCalls.length, 3)
+
+    // -> Past the configured 1-minute window: the count starts again
+    nowMs += 60_000
+    await hooksModel.emit('page:create', {})
+    assert.equal(addJobCalls.length, 4)
   })
 })

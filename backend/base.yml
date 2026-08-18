@@ -53,6 +53,12 @@ defaults:
       # running it is gone, and it is requeued. Deliberately generous: it has to outlast the longest
       # job the instance legitimately runs, since the alternative is starting a second copy of one.
       staleJobTimeout: 3600
+      # Caps how many `dispatchWebhook` jobs a single webhook may have queued per window (see
+      # `models/hooks.ts#emit()`). Protects both the remote endpoint and this shared job queue from one
+      # busy hook; deliveries beyond the cap are skipped (never queued, never retried) and logged.
+      webhookRateLimitMax: 60
+      webhookRateLimitWindow: '1m'
+      webhookRateLimitBan: '1m'
     # DB defaults
     api:
       isEnabled: false

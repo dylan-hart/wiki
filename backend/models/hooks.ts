@@ -2,7 +2,9 @@ import http from 'node:http'
 import https from 'node:https'
 import { hooks as hooksTable, jobHistory as jobHistoryTable } from '../db/schema.ts'
 import { and, count, desc, eq, sql } from 'drizzle-orm'
+import { durationToSeconds } from '../helpers/common.ts'
 import type { JobState } from './jobs.ts'
+import type { RateLimitPolicy } from './rateLimits.ts'
 
 /**
  * The events a webhook can subscribe to, as offered by the admin area.
@@ -84,6 +86,40 @@ export interface HookDeliveryPage {
 
 /** How long a remote endpoint has to answer before the delivery counts as failed. */
 const DELIVERY_TIMEOUT = 15000
+
+/**
+ * Defaults for the per-webhook delivery rate limit, used until an operator configures their own and
+ * whenever a stored value is missing or unusable. Sixty a minute is far more than any of the events
+ * this fires on legitimately produces in a burst, and is what stands between one busy hook and either
+ * the remote endpoint or the shared job queue being flooded by it.
+ */
+const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
+  max: 60,
+  windowSeconds: 60,
+  banSeconds: 60
+}
+
+/**
+ * The configured policy for `emit()`'s per-hook rate limit.
+ *
+ * Same fallback shape as `helpers/rateLimit.ts#authPolicy()`: every field falls back on its own, and
+ * the two durations are stored as an operator wrote them (`1m`, `5m`) rather than as raw seconds.
+ */
+function webhookRateLimitPolicy(): RateLimitPolicy {
+  const scheduler = WIKI.config.scheduler ?? {}
+  const max = Number(scheduler.webhookRateLimitMax)
+  return {
+    max: Number.isFinite(max) && max > 0 ? Math.floor(max) : WEBHOOK_RATE_LIMIT_DEFAULTS.max,
+    windowSeconds: durationToSeconds(
+      scheduler.webhookRateLimitWindow,
+      WEBHOOK_RATE_LIMIT_DEFAULTS.windowSeconds
+    ),
+    banSeconds: durationToSeconds(
+      scheduler.webhookRateLimitBan,
+      WEBHOOK_RATE_LIMIT_DEFAULTS.banSeconds
+    )
+  }
+}
 
 const hookSelection = {
   id: hooksTable.id,
@@ -312,8 +348,20 @@ class Hooks {
         .from(hooksTable)
         .where(sql`${event} = ANY(${hooksTable.events})`)
 
+      const policy = webhookRateLimitPolicy()
       let queued = 0
       for (const hook of subscribed) {
+        const verdict = await WIKI.models.rateLimits.consume(`webhook:${hook.id}`, policy)
+        if (!verdict.allowed) {
+          // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes
+          //    what happened to an attempted delivery (pending/success/error), and this delivery was
+          //    never attempted. A warn line is the only trace of it, same as the queueing failure
+          //    below.
+          WIKI.logger.warn(
+            `Webhook ${hook.id} is over its delivery rate limit (${verdict.hits}/${policy.max} in the current window); skipping delivery of ${event}.`
+          )
+          continue
+        }
         const { metadata, content, ...rest } = data
         const payload = {
           ...rest,
