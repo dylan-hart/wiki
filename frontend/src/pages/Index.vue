@@ -344,6 +344,7 @@ import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
+import { pickEditor } from '@/helpers/editorPicker'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
 import { flattenToc } from '@/helpers/toc'
 
@@ -876,12 +877,18 @@ function promptUnlock() {
  * Opens the editor on the page that is not there, at the path that was asked for.
  *
  * The path comes from the store rather than from the route, because the route is where it goes: the
- * editor moves to `/_create/markdown` and the path travels in the page itself, which is the same way
- * every other New Page button works.
+ * editor moves to `/_create/<editor>` and the path travels in the page itself, which is the same way
+ * every other New Page button works. Which editor is `pickEditor`'s call -- it asks when the site has
+ * more than one active, and answers on its own (no dialog shown) when there is only one real choice.
  */
 async function createPage() {
+  const editor = await pickEditor(siteStore)
+  // -> The picker was dismissed rather than answered: nothing to create yet
+  if (!editor) {
+    return
+  }
   loading.show()
-  await pageStore.pageCreate({ editor: 'markdown', path: pageStore.path })
+  await pageStore.pageCreate({ editor, path: pageStore.path })
   loading.hide()
 }
 

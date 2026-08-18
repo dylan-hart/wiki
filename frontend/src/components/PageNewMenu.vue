@@ -12,24 +12,25 @@
         <blueprint-icon icon="markdown" />
         <w-item-section class="pr-2">New Markdown Page</w-item-section>
       </w-item>
-      <template v-if="flagsStore.experimental">
-        <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
-          <blueprint-icon icon="asciidoc" />
-          <w-item-section class="pr-2">New AsciiDoc Page</w-item-section>
-        </w-item>
-        <w-item clickable @click="create(`channel`)">
-          <blueprint-icon icon="chat" />
-          <w-item-section class="pr-2">New Discussion Space</w-item-section>
-        </w-item>
-        <w-item clickable @click="create(`blog`)">
-          <blueprint-icon icon="typewriter-with-paper" />
-          <w-item-section class="pr-2">New Blog Page</w-item-section>
-        </w-item>
-        <w-item clickable @click="create(`api`)">
-          <blueprint-icon icon="api" />
-          <w-item-section class="pr-2">New API Documentation</w-item-section>
-        </w-item>
-      </template>
+      <w-item clickable @click="create(`code`)" v-if="siteStore.editors.code">
+        <blueprint-icon icon="html" />
+        <w-item-section class="pr-2">New Code Page</w-item-section>
+      </w-item>
+      <!--
+        Not behind the experimental flag, matching `AdminEditors.vue`'s own row for this editor
+        (task 491: a real `EditorAsciidoc.vue` exists now, so this is no longer speculative).
+      -->
+      <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
+        <blueprint-icon icon="asciidoc" />
+        <w-item-section class="pr-2">New AsciiDoc Page</w-item-section>
+      </w-item>
+      <!--
+        `channel`/`blog`/`api` used to be offered here too, unconditionally, once behind the
+        experimental flag. Task 492 removed all three from `AdminEditors.vue` -- none had a backing
+        `EDITOR_CONTENT_TYPES` entry, schema property, or reachable `editorComponents` registration,
+        so picking any of them here opened onto a blank, broken editor. Removed for the same reason,
+        rather than left to rot behind the flag.
+      -->
       <!-- -> Not an editor the site can turn off, because it authors nothing: a redirection is a page
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
