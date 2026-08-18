@@ -344,6 +344,7 @@ import { useMinWidth } from '@/composables/screen'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { scrollToAnchor, scrollToAnchorWhenReady } from '@/helpers/anchors'
+import { parseLocalePrefix } from '@/helpers/pagePaths'
 import { enhanceRenderedContent, routableHref, sameDocumentHash } from '@/helpers/renderedContent'
 import { flattenToc } from '@/helpers/toc'
 
@@ -666,8 +667,26 @@ watch(
     // -> Load Page. The contents panel belongs to the page being left, so it goes with it
     state.tocPanelOpen = false
     scrollPageToTop()
+    /*
+      A locale-prefixed URL (`/fr/some/page`) and its page path (`some/page`) are not the same string:
+      the segment is not part of what a page is addressed by, so it has to come off before hashing --
+      see `normalizePath`/`fastHash` in `stores/page.js`, which know nothing about locales and would
+      otherwise hash a path that matches no page at all. A first segment that is not one of the site's
+      active locale codes is an ordinary path rather than a locale (`parseLocalePrefix` returns null),
+      and one that IS active but simply absent -- a site with `locales.forcePrefix` off leaves its
+      primary locale unprefixed -- both fall back to the primary locale, same default the server uses
+      for a lookup with no `locale` on it.
+    */
+    const parsedLocale = siteStore.useLocales
+      ? parseLocalePrefix(
+          newValue,
+          siteStore.locales.active.map((l) => l.code)
+        )
+      : null
+    const pagePath = parsedLocale?.path ?? newValue
+    const pageLocale = parsedLocale?.locale ?? siteStore.locales.primary
     try {
-      await pageStore.pageLoad({ path: newValue })
+      await pageStore.pageLoad({ path: pagePath, locale: pageLocale })
       if (editorStore.isActive) {
         /*
           Walking away from the editor closes it, and `mode` describes the editor that was open — so

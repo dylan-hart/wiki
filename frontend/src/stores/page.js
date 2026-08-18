@@ -131,7 +131,7 @@ export const usePageStore = defineStore('page', {
     /**
      * PAGE - LOAD
      */
-    async pageLoad({ path, id, withContent = false }) {
+    async pageLoad({ path, id, withContent = false, locale }) {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       /*
@@ -150,7 +150,11 @@ export const usePageStore = defineStore('page', {
           `sites/${siteStore.id}/pages/${id ?? fastHash(normalizePath(path))}`,
           {
             searchParams: {
-              withContent
+              withContent,
+              // -> A hash only identifies a page within a locale; omitted, the server falls back to
+              //    the site's primary one -- see `parseLocalePrefix` in `helpers/pagePaths.js` for
+              //    where this comes from.
+              ...(locale ? { locale } : {})
             }
           }
         ).json()

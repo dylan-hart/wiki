@@ -38,3 +38,39 @@ export function stripPageExtension(urlPath, extensions) {
   }
   return urlPath.slice(0, dot)
 }
+
+/**
+ * Split the recognized leading locale segment off a URL path.
+ *
+ * Mirrors `stripLocalePrefix` in the backend's `helpers/common.ts` — a locale-prefixed URL
+ * (`/fr/some/page`) and an ordinary one (`/some/page`) are the same shape, and the only thing that
+ * tells them apart is whether the first segment happens to be one of the site's active locale codes.
+ * The router's catch-all route matches both alike, so the app has to make this call itself before it
+ * can treat the rest of the path as a page path. Matching is case-insensitive (`/FR/page` still
+ * counts), but the code returned is always the one as stored in `activeLocaleCodes`, never the
+ * request's casing.
+ *
+ * Takes the bare code list rather than the full `locales` config object the backend helper does,
+ * since the frontend already keeps `siteStore.locales.active` as descriptor objects — the caller
+ * maps those down to codes once, rather than this helper reaching into a shape it does not need.
+ *
+ * @param activeLocaleCodes The site's active locale codes, as `siteStore.locales.active` stores them
+ * @returns The matched locale code and the path with it removed, or null if the first segment isn't
+ *   one of `activeLocaleCodes`
+ */
+export function parseLocalePrefix(path, activeLocaleCodes) {
+  if (!activeLocaleCodes?.length) {
+    return null
+  }
+  const segments = path.split('/')
+  const firstSegment = segments[1] ?? ''
+  if (!firstSegment) {
+    return null
+  }
+  const match = activeLocaleCodes.find((code) => code.toLowerCase() === firstSegment.toLowerCase())
+  if (!match) {
+    return null
+  }
+  const rest = '/' + segments.slice(2).join('/')
+  return { locale: match, path: rest === '/' ? '/' : rest }
+}
