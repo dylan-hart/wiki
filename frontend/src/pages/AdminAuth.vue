@@ -89,33 +89,66 @@
           color="primary"
           icon="la:plus"
           :label="t(`admin.auth.addStrategy`)">
-          <w-menu auto-close fit max-width="300px">
-            <w-list separator>
+          <!--
+            No `auto-close`: with a filter field in the content, that would dismiss the menu the
+            instant the field is clicked (`w-menu`'s content click handler treats every click inside
+            as a selection) -- so `addStrategy` closes it explicitly instead, the same way
+            `EditorEmojiMenu.vue` / `EditorCodeBlockMenu.vue` handle a filterable menu.
+          -->
+          <w-menu ref="addStrategyMenuRef" fit max-width="300px" @show="state.strategyFilter = ''">
+            <w-list v-if="availableStrategies.length < 1" separator>
               <!-- -> The local module is filtered out: it is already configured, and a second copy
                    of it holds no credentials -->
-              <w-item v-if="availableStrategies.length < 1">
+              <w-item>
                 <w-item-section>
                   <w-item-label caption>{{ t('admin.auth.noModulesToAdd') }}</w-item-label>
                 </w-item-section>
               </w-item>
-              <w-item
-                v-for="str of availableStrategies"
-                :key="str.key"
-                clickable
-                @click="addStrategy(str)">
-                <w-item-section avatar>
-                  <w-avatar rounded color="dark" text-color="white">
-                    <w-icon :name="`img:` + str.icon" />
-                  </w-avatar>
-                </w-item-section>
-                <w-item-section>
-                  <w-item-label
-                    ><strong>{{ str.title }}</strong></w-item-label
-                  >
-                  <w-item-label caption lines="2">{{ str.description }}</w-item-label>
-                </w-item-section>
-              </w-item>
             </w-list>
+            <template v-else>
+              <!--
+                Narrows the list below as the admin types: a case-insensitive substring match against
+                each module's title, the same pattern `AdminIcons.vue`'s icon-set search uses --
+                unworkable to scroll through flat once Feature 355 adds a dozen branded presets.
+              -->
+              <div class="p-2">
+                <w-input
+                  v-model="state.strategyFilter"
+                  outlined
+                  dense
+                  clearable
+                  hide-bottom-space
+                  :label="t(`admin.auth.filterModules`)"
+                  :aria-label="t(`admin.auth.filterModules`)">
+                  <template #prepend><w-icon name="la:search" /></template>
+                </w-input>
+              </div>
+              <w-separator />
+              <w-list separator>
+                <w-item
+                  v-for="str of filteredAvailableStrategies"
+                  :key="str.key"
+                  clickable
+                  @click="addStrategy(str)">
+                  <w-item-section avatar>
+                    <w-avatar rounded color="dark" text-color="white">
+                      <w-icon :name="`img:` + str.icon" />
+                    </w-avatar>
+                  </w-item-section>
+                  <w-item-section>
+                    <w-item-label
+                      ><strong>{{ str.title }}</strong></w-item-label
+                    >
+                    <w-item-label caption lines="2">{{ str.description }}</w-item-label>
+                  </w-item-section>
+                </w-item>
+                <w-item v-if="filteredAvailableStrategies.length < 1">
+                  <w-item-section>
+                    <w-item-label caption>{{ t('admin.auth.noModulesMatchFilter') }}</w-item-label>
+                  </w-item-section>
+                </w-item>
+              </w-list>
+            </template>
           </w-menu>
         </w-btn>
       </div>
@@ -404,7 +437,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { v4 as uuid } from 'uuid'
 
 import { useDark } from '@/composables/dark'
@@ -450,10 +483,16 @@ const state = reactive({
   strategies: [],
   activeStrategies: [],
   selectedStrategy: '',
+  // -> Text typed into the "Add Strategy" menu's filter field; reset each time the menu reopens
+  strategyFilter: '',
   strategy: {
     strategy: {}
   }
 })
+
+// REFS
+
+const addStrategyMenuRef = ref(null)
 
 // COMPUTED
 
@@ -462,6 +501,14 @@ const isBuiltInLocal = computed(() => {
 })
 const availableStrategies = computed(() => {
   return state.strategies.filter((str) => str.key !== 'local')
+})
+/** `availableStrategies`, narrowed by `state.strategyFilter` as a case-insensitive title substring. */
+const filteredAvailableStrategies = computed(() => {
+  const filter = state.strategyFilter?.trim().toLowerCase()
+  if (!filter) {
+    return availableStrategies.value
+  }
+  return availableStrategies.value.filter((str) => str.title.toLowerCase().includes(filter))
 })
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.strategy?.autoEnrollGroups?.[0])[0]?.name
@@ -688,6 +735,7 @@ function addStrategy(mod) {
   state.activeStrategies.push(strategy)
   state.selectedStrategy = strategy.id
   state.strategy = strategy
+  addStrategyMenuRef.value?.hide()
   notify({
     type: 'positive',
     message: t('admin.auth.addPending', { strategy: mod.title })

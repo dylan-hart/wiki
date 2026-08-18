@@ -1,0 +1,38 @@
+key: auth0
+title: Auth0
+description: Sign in with an Auth0 tenant.
+author: requarks.io
+logo: https://static.requarks.io/logo/auth0.svg
+icon: /_assets/icons/ultraviolet-auth0.svg
+color: deep-orange
+vendor: 'Okta, Inc.'
+website: 'https://auth0.com/docs/authenticate/protocols/openid-connect-protocol'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  domain:
+    type: String
+    title: Domain
+    hint: The tenant domain, e.g. something.auth0.com. The issuer and every endpoint are discovered from it.
+    icon: internet
+    order: 1
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the Auth0 application's settings.
+    icon: key
+    order: 2
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same Auth0 application.
+    icon: password
+    sensitive: true
+    order: 3
+refs:
+  callbackUrl:
+    title: Allowed Callback URL
+    hint: Add this to the Auth0 application's Allowed Callback URLs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

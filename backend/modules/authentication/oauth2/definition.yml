@@ -1,0 +1,83 @@
+key: oauth2
+title: Generic OAuth2
+description: OAuth 2.0 is the industry-standard protocol for authorization, without OpenID Connect's identity layer on top.
+author: requarks.io
+logo: https://static.requarks.io/logo/oauth2.svg
+icon: /_assets/icons/ultraviolet-oauth2.svg
+color: teal
+vendor: 'IETF'
+website: 'https://oauth.net/2/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  clientId:
+    type: String
+    title: Client ID
+    hint: Application Client ID, as the provider issued it.
+    icon: key
+    order: 1
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: Application Client Secret, as the provider issued it.
+    icon: password
+    sensitive: true
+    order: 2
+  authorizationURL:
+    type: String
+    title: Authorization Endpoint URL
+    hint: Where to send the browser to sign in and grant access.
+    icon: enter
+    order: 3
+  tokenURL:
+    type: String
+    title: Token Endpoint URL
+    hint: Where the authorization code is exchanged for an access token.
+    icon: exit
+    order: 4
+  userInfoURL:
+    type: String
+    title: User Info Endpoint URL
+    hint: Fetched with the access token to learn who signed in.
+    icon: contact
+    order: 5
+  scope:
+    type: String
+    title: Scope
+    hint: (optional) Space-separated permission scopes to request.
+    icon: rules
+    order: 6
+  userIdClaim:
+    type: String
+    title: User ID Claim
+    hint: Which field of the user info response carries the account's unique ID.
+    icon: fingerprint-scan
+    default: id
+    order: 7
+  emailClaim:
+    type: String
+    title: Email Claim
+    hint: Which field of the user info response carries the email address.
+    icon: envelope
+    default: email
+    order: 8
+  displayNameClaim:
+    type: String
+    title: Display Name Claim
+    hint: Which field of the user info response carries the name to show. Falls back to the email address when the claim is absent.
+    icon: person
+    default: displayName
+    order: 9
+  logoutURL:
+    type: String
+    title: Logout URL
+    hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
+    icon: exit
+    order: 10
+refs:
+  callbackUrl:
+    title: Authorization Callback URL
+    hint: Register this as the redirect URI at the provider. It is the same for every provider.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

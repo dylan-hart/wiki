@@ -1,0 +1,39 @@
+key: gitlab
+title: GitLab
+description: Sign in with a GitLab.com or self-hosted GitLab account.
+author: requarks.io
+logo: https://static.requarks.io/logo/gitlab.svg
+icon: /_assets/icons/ultraviolet-gitlab.svg
+color: orange
+vendor: 'GitLab Inc.'
+website: 'https://docs.gitlab.com/ee/integration/openid_connect_provider.html'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  baseUrl:
+    type: String
+    title: Instance URL
+    hint: (optional) A self-hosted GitLab instance's base URL, e.g. https://gitlab.example.com. Leave as the default for gitlab.com.
+    icon: internet
+    default: 'https://gitlab.com'
+    order: 1
+  clientId:
+    type: String
+    title: Application ID
+    hint: From the GitLab application's settings.
+    icon: key
+    order: 2
+  clientSecret:
+    type: String
+    title: Secret
+    hint: From the same GitLab application.
+    icon: password
+    sensitive: true
+    order: 3
+refs:
+  callbackUrl:
+    title: Redirect URI
+    hint: Add this to the GitLab application's Redirect URIs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

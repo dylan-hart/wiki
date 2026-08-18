@@ -77,7 +77,11 @@ export default class OidcAuthentication {
         state,
         nonce,
         code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
-        code_challenge_method: 'S256'
+        code_challenge_method: 'S256',
+        // -> A handful of providers need something extra on the authorization request that no
+        //    other field here covers — Twitch wants a `claims` parameter asking for email even
+        //    though PKCE is in play. Set per-preset via `OidcPresetTemplate.extraAuthParams`.
+        ...this.conf.extraAuthParams
       })
       .toString()
   }

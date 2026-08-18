@@ -1,0 +1,38 @@
+key: okta
+title: Okta
+description: Sign in with an Okta organization.
+author: requarks.io
+logo: https://static.requarks.io/logo/okta.svg
+icon: /_assets/icons/ultraviolet-okta.svg
+color: blue
+vendor: 'Okta, Inc.'
+website: 'https://developer.okta.com/docs/guides/implement-oauth-for-okta/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  orgUrl:
+    type: String
+    title: Org URL
+    hint: The Okta org's base URL, e.g. https://your-org.okta.com. Also the issuer — everything else is discovered from it.
+    icon: internet
+    order: 1
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the OIDC application's General settings.
+    icon: key
+    order: 2
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same OIDC application.
+    icon: password
+    sensitive: true
+    order: 3
+refs:
+  callbackUrl:
+    title: Sign-in Redirect URI
+    hint: Add this to the OIDC application's Sign-in redirect URIs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

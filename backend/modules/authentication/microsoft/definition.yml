@@ -1,0 +1,39 @@
+key: microsoft
+title: Microsoft
+description: Sign in with a Microsoft account, via Azure AD / Entra ID.
+author: requarks.io
+logo: https://static.requarks.io/logo/microsoft.svg
+icon: /_assets/icons/ultraviolet-microsoft.svg
+color: blue-7
+vendor: 'Microsoft Corporation'
+website: 'https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  tenantId:
+    type: String
+    title: Tenant ID
+    hint: A directory (tenant) ID or verified domain from the app registration's Overview page. Leave as "common" for a multi-tenant app that accepts any Microsoft account.
+    icon: building
+    default: common
+    order: 1
+  clientId:
+    type: String
+    title: Application (client) ID
+    hint: From the app registration's Overview page.
+    icon: key
+    order: 2
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the app registration's Certificates & secrets page.
+    icon: password
+    sensitive: true
+    order: 3
+refs:
+  callbackUrl:
+    title: Redirect URI
+    hint: Add this as a Web platform Redirect URI on the app registration.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

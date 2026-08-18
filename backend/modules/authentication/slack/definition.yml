@@ -1,0 +1,40 @@
+key: slack
+title: Slack
+description: Sign in with a Slack account.
+author: requarks.io
+logo: https://static.requarks.io/logo/slack.svg
+icon: /_assets/icons/ultraviolet-slack.svg
+color: green
+vendor: 'Slack Technologies, LLC'
+website: 'https://docs.slack.dev/authentication/sign-in-with-slack/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the Slack app's Basic Information page.
+    icon: key
+    order: 1
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same Slack app.
+    icon: password
+    sensitive: true
+    order: 2
+  teamId:
+    type: String
+    title: Restrict to Workspace ID
+    hint: >-
+      (optional) A Slack workspace/team ID, e.g. T0123456. Only that workspace's members may sign in,
+      and a member already signed into it skips the consent screen.
+    icon: user-groups
+    order: 3
+refs:
+  callbackUrl:
+    title: Redirect URL
+    hint: Add this to the Slack app's OAuth & Permissions redirect URLs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

@@ -1,0 +1,329 @@
+import { describe, test, mock, afterEach } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { load } from 'js-yaml'
+import OAuth2Authentication from './authentication.ts'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+/** A configured instance pointed at endpoints, without spending them on a real provider. */
+function makeConf(overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    clientId: 'client-abc',
+    clientSecret: 'secret-xyz',
+    authorizationURL: 'https://provider.example/oauth2/authorize',
+    tokenURL: 'https://provider.example/oauth2/token',
+    userInfoURL: 'https://provider.example/oauth2/userinfo',
+    ...overrides
+  }
+}
+
+const flow = {
+  redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
+  state: 'the-state',
+  nonce: 'unused-for-bare-oauth2',
+  codeVerifier: 'unused-for-bare-oauth2'
+}
+
+describe('OAuth2Authentication', () => {
+  describe('authorizationUrl', () => {
+    test('builds the authorization request from admin-configured endpoints, scope and state', async () => {
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ scope: 'read:user read:email' })
+      )
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.origin + url.pathname, 'https://provider.example/oauth2/authorize')
+      assert.equal(url.searchParams.get('response_type'), 'code')
+      assert.equal(url.searchParams.get('client_id'), 'client-abc')
+      assert.equal(url.searchParams.get('redirect_uri'), flow.redirectUri)
+      assert.equal(url.searchParams.get('scope'), 'read:user read:email')
+      assert.equal(url.searchParams.get('state'), 'the-state')
+    })
+
+    test('omits the scope parameter when no scope is configured, rather than sending an empty one', async () => {
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.has('scope'), false)
+    })
+
+    test('throws ERR_STRATEGY_MISCONFIGURED when a required endpoint or credential is missing', async () => {
+      for (const missing of ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL']) {
+        const conf = makeConf()
+        delete conf[missing]
+        const oauth2 = new OAuth2Authentication('strategy-1', conf)
+        await assert.rejects(oauth2.authorizationUrl(flow), /ERR_STRATEGY_MISCONFIGURED/, missing)
+      }
+    })
+  })
+
+  describe('profile', () => {
+    let fetchMock: ReturnType<typeof mock.method>
+
+    afterEach(() => {
+      fetchMock?.mock.restore()
+    })
+
+    test('exchanges the code, then GETs userInfoURL with the access token and maps the configured claims', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any, init: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          assert.equal(init.method, 'POST')
+          const body = new URLSearchParams(init.body)
+          assert.equal(body.get('grant_type'), 'authorization_code')
+          assert.equal(body.get('code'), 'the-code')
+          assert.equal(body.get('client_id'), 'client-abc')
+          assert.equal(body.get('client_secret'), 'secret-xyz')
+          assert.equal(body.get('redirect_uri'), flow.redirectUri)
+          return new Response(
+            JSON.stringify({ access_token: 'the-access-token', token_type: 'bearer' }),
+            {
+              status: 200
+            }
+          )
+        }
+        if (url === 'https://provider.example/oauth2/userinfo') {
+          assert.equal(init.headers.Authorization, 'Bearer the-access-token')
+          return new Response(
+            JSON.stringify({ sub: 'user-42', mail: 'person@example.com', full_name: 'A Person' }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ userIdClaim: 'sub', emailClaim: 'mail', displayNameClaim: 'full_name' })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile, { id: 'user-42', email: 'person@example.com', name: 'A Person' })
+      assert.equal(fetchMock.mock.callCount(), 2)
+    })
+
+    test('falls back to the default id/email/displayName claim names when none are configured', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ id: 7, email: 'person@example.com' }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      // -> no displayName claim present in the response, so the name falls back to the email
+      assert.deepEqual(profile, {
+        id: '7',
+        email: 'person@example.com',
+        name: 'person@example.com'
+      })
+    })
+
+    test('throws ERR_NO_AUTHORIZATION_CODE when the provider redirected back with no code', async () => {
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: undefined }),
+        /ERR_NO_AUTHORIZATION_CODE/
+      )
+    })
+
+    test('throws ERR_TOKEN_EXCHANGE_FAILED when the token endpoint refuses the code', async () => {
+      fetchMock = mock.method(
+        globalThis,
+        'fetch',
+        async () => new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+      )
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_TOKEN_EXCHANGE_FAILED/
+      )
+    })
+
+    test('throws ERR_TOKEN_EXCHANGE_FAILED when the token endpoint answers 200 with an error field', async () => {
+      // -> mirrors github/authentication.ts: some providers report a refused exchange as 200 + `error`
+      fetchMock = mock.method(
+        globalThis,
+        'fetch',
+        async () => new Response(JSON.stringify({ error: 'invalid_client' }), { status: 200 })
+      )
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_TOKEN_EXCHANGE_FAILED/
+      )
+    })
+
+    test('throws ERR_TOKEN_EXCHANGE_FAILED when the userInfoURL request itself fails', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response('not authorized', { status: 401 })
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_TOKEN_EXCHANGE_FAILED/
+      )
+    })
+
+    test('throws ERR_NO_EMAIL_FROM_PROVIDER when the mapped email claim is absent from userinfo', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ id: 7 }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_NO_EMAIL_FROM_PROVIDER/
+      )
+    })
+
+    test('throws ERR_NO_PROVIDER_ACCOUNT when the mapped id claim is absent from userinfo', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ email: 'person@example.com' }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      await assert.rejects(
+        oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_NO_PROVIDER_ACCOUNT/
+      )
+    })
+  })
+
+  describe('logoutUrl', () => {
+    test('returns the configured logout URL, or null when none is set', () => {
+      assert.equal(
+        new OAuth2Authentication(
+          's',
+          makeConf({ logoutURL: 'https://provider.example/logout' })
+        ).logoutUrl(),
+        'https://provider.example/logout'
+      )
+      assert.equal(new OAuth2Authentication('s', makeConf()).logoutUrl(), null)
+    })
+  })
+
+  describe('against a throwaway OAuth2 app (a GitHub OAuth app treated as generic, ignoring the real github module)', () => {
+    let fetchMock: ReturnType<typeof mock.method>
+
+    afterEach(() => {
+      fetchMock?.mock.restore()
+    })
+
+    test("walks the whole flow using GitHub's actual endpoint shapes, proving the generic path against a real provider", async () => {
+      const conf = makeConf({
+        authorizationURL: 'https://github.com/login/oauth/authorize',
+        tokenURL: 'https://github.com/login/oauth/access_token',
+        userInfoURL: 'https://api.github.com/user',
+        scope: 'read:user user:email',
+        userIdClaim: 'id',
+        emailClaim: 'email',
+        displayNameClaim: 'name'
+      })
+
+      const authUrl = new URL(
+        await new OAuth2Authentication('strategy-1', conf).authorizationUrl(flow)
+      )
+      assert.equal(authUrl.origin + authUrl.pathname, 'https://github.com/login/oauth/authorize')
+      assert.equal(authUrl.searchParams.get('scope'), 'read:user user:email')
+
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        // -> GitHub's real access_token response, JSON because `Accept: application/json` is sent
+        if (url === 'https://github.com/login/oauth/access_token') {
+          return new Response(
+            JSON.stringify({
+              access_token: 'gho_faketoken',
+              token_type: 'bearer',
+              scope: 'read:user,user:email'
+            }),
+            { status: 200 }
+          )
+        }
+        // -> GitHub's real /user shape: public email is often null, but this throwaway app set one
+        if (url === 'https://api.github.com/user') {
+          return new Response(
+            JSON.stringify({
+              id: 123456,
+              login: 'octocat',
+              name: 'The Octocat',
+              email: 'octocat@example.com'
+            }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+
+      const oauth2 = new OAuth2Authentication('strategy-1', conf)
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'throwaway-code' })
+      assert.deepEqual(profile, {
+        id: '123456',
+        email: 'octocat@example.com',
+        name: 'The Octocat'
+      })
+    })
+  })
+})
+
+describe('oauth2/definition.yml', () => {
+  const def = load(readFileSync(path.join(__dirname, 'definition.yml'), 'utf-8')) as Record<
+    string,
+    any
+  >
+
+  test('follows the github/google/oidc branding convention', () => {
+    assert.equal(def.key, 'oauth2')
+    assert.equal(def.title, 'Generic OAuth2')
+    assert.equal(def.icon, '/_assets/icons/ultraviolet-oauth2.svg')
+    assert.equal(def.isAvailable, true)
+    assert.equal(def.usernameType, 'email')
+  })
+
+  test("has a color distinct from the oidc preset's, so the two generic entries read apart in the module picker", () => {
+    const oidcDef = load(
+      readFileSync(path.join(__dirname, '..', 'oidc', 'definition.yml'), 'utf-8')
+    ) as Record<string, any>
+    assert.notEqual(def.color, oidcDef.color)
+  })
+
+  test('declares the bare-OAuth2 props: endpoints, credentials, claim mappings, scope, logout', () => {
+    for (const prop of [
+      'clientId',
+      'clientSecret',
+      'authorizationURL',
+      'tokenURL',
+      'userInfoURL',
+      'userIdClaim',
+      'emailClaim',
+      'displayNameClaim',
+      'scope',
+      'logoutURL'
+    ]) {
+      assert.ok(def.props[prop], `expected a ${prop} prop`)
+    }
+    assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('drops the props this task calls out as unneeded: pictureClaim, useQueryStringForAccessToken, enableCSRFProtection', () => {
+    assert.equal(def.props.pictureClaim, undefined)
+    assert.equal(def.props.useQueryStringForAccessToken, undefined)
+    assert.equal(def.props.enableCSRFProtection, undefined)
+  })
+
+  test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {
+    assert.equal(def.refs.callbackUrl.value, '{host}/_api/auth/{id}/callback')
+  })
+})
