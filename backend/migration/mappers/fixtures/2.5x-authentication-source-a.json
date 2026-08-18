@@ -1,0 +1,43 @@
+[
+  {
+    "key": "local",
+    "isEnabled": true,
+    "config": {},
+    "selfRegistration": true,
+    "domainWhitelist": { "v": [] },
+    "autoEnrollGroups": { "v": [] },
+    "order": 0,
+    "strategyKey": "local",
+    "displayName": "Local Database"
+  },
+  {
+    "key": "github",
+    "isEnabled": true,
+    "config": {
+      "clientId": "gh-client-a",
+      "clientSecret": "gh-secret-a",
+      "useEnterprise": true,
+      "enterpriseDomain": "github.acme.example.com"
+    },
+    "selfRegistration": false,
+    "domainWhitelist": { "v": ["Acme.com", "acme.org"] },
+    "autoEnrollGroups": { "v": [1, 2] },
+    "order": 1,
+    "strategyKey": "github",
+    "displayName": "GitHub (Acme)"
+  },
+  {
+    "key": "ldap",
+    "isEnabled": true,
+    "config": {
+      "url": "ldap://ldap.acme.example.com",
+      "bindDN": "cn=admin,dc=acme,dc=example,dc=com"
+    },
+    "selfRegistration": false,
+    "domainWhitelist": { "v": [] },
+    "autoEnrollGroups": { "v": [] },
+    "order": 2,
+    "strategyKey": "ldap",
+    "displayName": "Corporate LDAP"
+  }
+]
