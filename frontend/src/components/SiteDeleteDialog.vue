@@ -43,6 +43,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { reactive } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
@@ -84,24 +85,24 @@ async function confirm() {
   state.isLoading = true
   try {
     const resp = await API_CLIENT.delete(`sites/${props.site.id}`)
-    if (resp?.ok) {
-      notify({
-        type: 'positive',
-        message: t('admin.sites.deleteSuccess')
-      })
-      adminStore.$patch({
-        sites: adminStore.sites.filter((s) => s.id !== props.site.id)
-      })
-      onDialogOK()
-    } else {
-      throw new Error(
-        t(`admin.sites.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
+    if (!resp?.ok) {
+      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
     }
+    notify({
+      type: 'positive',
+      message: t('admin.sites.deleteSuccess')
+    })
+    adminStore.$patch({
+      sites: adminStore.sites.filter((s) => s.id !== props.site.id)
+    })
+    onDialogOK()
   } catch (err) {
+    // -> ky throws for statuses above 400 (e.g. 409 for the "last site" or "still holds content"
+    //    guards), where the reason the API gave is in the response body rather than in the error
+    //    message
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoading = false

@@ -46,6 +46,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { reactive, ref } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
@@ -94,33 +95,34 @@ async function confirm() {
       json: {
         isEnabled: props.targetState
       }
-    }).json()
-    if (resp?.ok) {
-      notify({
-        type: 'positive',
-        message: t('admin.sites.updateSuccess')
-      })
-      adminStore.$patch({
-        sites: adminStore.sites.map((s) => {
-          if (s.id === props.site.id) {
-            const ns = cloneDeep(s)
-            ns.isEnabled = props.targetState
-            return ns
-          } else {
-            return s
-          }
-        })
-      })
-      onDialogOK()
-    } else {
-      throw new Error(
-        t(`admin.sites.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
+    })
+    if (!resp?.ok) {
+      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
     }
+    notify({
+      type: 'positive',
+      message: t('admin.sites.updateSuccess')
+    })
+    adminStore.$patch({
+      sites: adminStore.sites.map((s) => {
+        if (s.id === props.site.id) {
+          const ns = cloneDeep(s)
+          ns.isEnabled = props.targetState
+          return ns
+        } else {
+          return s
+        }
+      })
+    })
+    onDialogOK()
   } catch (err) {
+    // -> ky throws for statuses above 400 (e.g. a future "cannot disable the last enabled site"
+    //    guard), where the reason the API gave is in the response body rather than in the error
+    //    message. Chaining `.json()` straight off the request -- as this used to -- throws before
+    //    it gets the chance to parse anything for a status above 400.
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoading = false

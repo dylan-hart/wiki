@@ -66,6 +66,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 import { reactive, ref } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
@@ -126,23 +127,23 @@ async function create() {
         hostname: state.siteHostname,
         title: state.siteName
       }
-    }).json()
-    if (resp?.ok) {
-      notify({
-        type: 'positive',
-        message: t('admin.sites.createSuccess')
-      })
-      await adminStore.fetchSites()
-      onDialogOK()
-    } else {
-      throw new Error(
-        t(`admin.sites.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
+    })
+    if (!resp?.ok) {
+      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
     }
+    notify({
+      type: 'positive',
+      message: t('admin.sites.createSuccess')
+    })
+    await adminStore.fetchSites()
+    onDialogOK()
   } catch (err) {
+    // -> Aligned with the other Site*Dialog confirm()s for consistency: this endpoint's failures are
+    //    all <=400 today (so ky never throws here), but `apiErrorMessage()` reads the server's actual
+    //    reason either way, and stays correct the moment that stops being true.
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err)
     })
   }
   state.isLoading = false
