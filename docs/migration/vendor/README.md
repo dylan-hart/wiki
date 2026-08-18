@@ -25,6 +25,23 @@ Files:
 Source URLs follow the pattern
 `https://raw.githubusercontent.com/requarks/wiki/main/server/db/migrations/<file>`.
 
+## `2x-definitions/`
+
+Vendored for Task 709 (the column-level 2.x → 3.0 mapping doc,
+[`../2.5x-to-3.0-mapping.md`](../2.5x-to-3.0-mapping.md)): the 2.x `definition.yml` for the three
+spot-checked modules, plus the 2.x GraphQL schema fragment that pins down the `pageRules` shape.
+Fetched 2026-08-17 from `requarks/wiki` `main`:
+
+- `authentication-local-definition.yml` ← `server/modules/authentication/local/definition.yml`
+- `storage-git-definition.yml` ← `server/modules/storage/git/definition.yml`
+- `storage-s3-definition.yml` ← `server/modules/storage/s3/definition.yml`
+- `group.graphql` ← `server/graph/schemas/group.graphql` (source of the `PageRule` type used to
+  confirm the `deny: Boolean!` vs. 3.0 `mode: ALLOW|DENY|FORCEALLOW` mismatch)
+
+Cross-checked against the mapping doc by `../verify-mapping-doc.test.mjs`. Not `.js`, so none of
+these are picked up by `../verify-schema-doc.test.mjs`'s scan either way, but they get their own
+subdirectory for the same organizational reason `export-bundle/` does.
+
 ## `export-bundle/`
 
 A separate, non-migration set of vendored files — `server/graph/resolvers/system.js`,
