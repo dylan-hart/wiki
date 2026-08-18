@@ -3,6 +3,7 @@ import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
 import { blocks } from './blocks.ts'
+import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
 import { extensions } from './extensions.ts'
@@ -35,6 +36,7 @@ export default {
   assets,
   authentication,
   blocks,
+  commentProviders,
   comments,
   contentSync,
   extensions,

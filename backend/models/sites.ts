@@ -211,6 +211,10 @@ class Sites {
     // -> Same for storage: the site needs its database target from the moment it can hold content
     await WIKI.models.storage.syncSite(newSite.id)
 
+    // -> Same for comment providers: the site needs a row per module from the moment it can be
+    //    configured, even though none of them are enabled yet
+    await WIKI.models.commentProviders.syncSite(newSite.id)
+
     return newSite
   }
 

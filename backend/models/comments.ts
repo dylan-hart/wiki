@@ -1,5 +1,9 @@
-import { asc, eq } from 'drizzle-orm'
-import { comments as commentsTable, users as usersTable } from '../db/schema.ts'
+import { and, asc, desc, eq, gte, ilike, inArray, lte, sql } from 'drizzle-orm'
+import {
+  comments as commentsTable,
+  pages as pagesTable,
+  users as usersTable
+} from '../db/schema.ts'
 
 /** A stored comment row, as returned by the primitives below. */
 export interface Comment {
@@ -47,21 +51,76 @@ export interface ThreadedComment {
   replies: ThreadedComment[]
 }
 
+/** A page as `helpers/pageRules.ts` needs to see it, plus the id everything else keys off of. */
+export interface AdminPageRef {
+  id: string
+  path: string
+  locale: string
+  tags: string[]
+}
+
+/** A comment as the admin moderation listing hands it back — flat, one row per comment. */
+export interface AdminComment {
+  id: string
+  siteId: string
+  pageId: string
+  pagePath: string
+  authorId: string | null
+  /** The author's display name when `authorId` is set, `guestName` otherwise. Never null. */
+  authorName: string
+  replyTo: string | null
+  content: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+/** A comment plus just enough of its page to decide `manage:comments` against. */
+export interface AdminCommentWithPage {
+  id: string
+  siteId: string
+  pageId: string
+  page: AdminPageRef
+}
+
+export interface ListForAdminOptions {
+  siteId: string
+  /**
+   * The accessible-pages set the caller has already computed (see `accessiblePageIdsForAdmin` in
+   * `api/comments.ts`) — every comment returned is restricted to one of these page ids. An empty
+   * array is a legitimate "nothing is accessible" answer, not "no filter": it short-circuits to an
+   * empty result without touching `comments` at all.
+   */
+  pageIds: string[]
+  /** Substring match against the resolved author name (account name, or `guestName`). */
+  author?: string
+  dateFrom?: Date
+  dateTo?: Date
+  offset?: number
+  limit?: number
+}
+
 /** Trimmed content shorter than this is not a comment. Matches 2.5.x's `postNewComment`. */
 const MIN_CONTENT_LENGTH = 2
+
+const DEFAULT_LIMIT = 25
 
 /**
  * Comments model
  *
- * Create/update/delete primitives over the `comments` table — plain data access, nothing more. Two
- * things this deliberately does NOT do, both on purpose:
+ * Create/update/delete/read primitives over the `comments` table — plain data access, nothing more.
+ * Merges two independently-built halves at merge-review time: Feature 391's page-view primitives
+ * (`create`/`update`/`delete`/`listForPage`/`countForPage`) and Feature 394's admin moderation query
+ * layer (`pageRefsForSite`/`listForAdmin`/`getWithPage`), each built on its own unmerged branch
+ * against the other's absence — see their original branch history for the individual design notes.
+ * Both `delete` implementations were byte-for-byte identical and are kept once.
+ *
+ * Two things this deliberately does NOT do, both on purpose:
  *
  * - **No permission checks.** Neither `models/pages.ts` nor `models/pageWatching.ts` calls
  *   `WIKI.models.groups.checkAccess()` from inside the model — that happens one layer up, in the API
  *   route handler, which is where `FastifyRequest` and the session/actor legitimately live
  *   (`mayOnPage` in `api/pages.ts`, `api/watching.ts` calling `pageWatching.watch()`). This file
- *   follows the same layering: no `FastifyRequest` import, no embedded access check. Feature 391's
- *   route handlers are the ones that call `checkAccess`/`mayOnPage` before reaching any method here.
+ *   follows the same layering: no `FastifyRequest` import, no embedded access check.
  * - **No `render` population.** This codebase's page-rendering pipeline is a headless-browser render
  *   queue (`models/rendering.ts`) — far too heavy to hold a request open for a short synchronous
  *   comment post. `render` stays nullable and untouched here for 2.5.x row-shape parity and so a
@@ -190,6 +249,127 @@ class Comments {
   /** How many comments a page has, replies included. */
   async countForPage(pageId: string): Promise<number> {
     return WIKI.db.$count(commentsTable, eq(commentsTable.pageId, pageId))
+  }
+
+  /**
+   * Minimal page refs for a site — just `id`/`path`/`locale`/`tags`, the exact shape
+   * `helpers/pageRules.ts` matches a rule against. Deliberately not the full `Page` row
+   * `models/pages.ts` deals in: the admin moderation listing evaluates `manage:comments` against
+   * every one of these once per request (see the query-strategy note on `accessiblePageIdsForAdmin`
+   * in `api/comments.ts`), so keeping the row narrow keeps that bounded by page COUNT, not page
+   * CONTENT.
+   *
+   * `pathFilter`, when given, is pushed into the query as a prefix `ILIKE` — the same "starts with"
+   * semantics `api/pages.ts`'s page search uses for its own `path` filter — rather than applied
+   * after the fact, so it shrinks the very set about to be permission-checked, for free.
+   */
+  async pageRefsForSite(siteId: string, pathFilter?: string): Promise<AdminPageRef[]> {
+    const conditions = [eq(pagesTable.siteId, siteId)]
+    if (pathFilter) {
+      conditions.push(ilike(pagesTable.path, `${pathFilter}%`))
+    }
+    return WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags
+      })
+      .from(pagesTable)
+      .where(and(...conditions))
+  }
+
+  /**
+   * Comments across a site, restricted to `pageIds`, filtered and paginated.
+   *
+   * One query for the page (`LIMIT`/`OFFSET` pushed to SQL, not applied to a fetched-then-sliced
+   * array) plus one `count(*)` query sharing the same `WHERE`, both indexed on
+   * `comments_siteId_idx (siteId, createdAt)` and narrowed further by `pageId IN (...)`. Neither
+   * query, nor anything in `api/comments.ts` that calls this, touches the database once per comment —
+   * see the query-strategy note on `accessiblePageIdsForAdmin` in that file for the full picture.
+   */
+  async listForAdmin({
+    siteId,
+    pageIds,
+    author,
+    dateFrom,
+    dateTo,
+    offset = 0,
+    limit = DEFAULT_LIMIT
+  }: ListForAdminOptions): Promise<{ results: AdminComment[]; totalHits: number }> {
+    if (pageIds.length === 0) {
+      return { results: [], totalHits: 0 }
+    }
+
+    const authorName = sql<string>`coalesce(${usersTable.name}, ${commentsTable.guestName}, '')`
+    const conditions = [eq(commentsTable.siteId, siteId), inArray(commentsTable.pageId, pageIds)]
+    if (dateFrom) {
+      conditions.push(gte(commentsTable.createdAt, dateFrom))
+    }
+    if (dateTo) {
+      conditions.push(lte(commentsTable.createdAt, dateTo))
+    }
+    if (author) {
+      conditions.push(ilike(authorName, `%${author}%`))
+    }
+    const where = and(...conditions)
+
+    const [results, countRows] = await Promise.all([
+      WIKI.db
+        .select({
+          id: commentsTable.id,
+          siteId: commentsTable.siteId,
+          pageId: commentsTable.pageId,
+          pagePath: pagesTable.path,
+          authorId: commentsTable.authorId,
+          authorName,
+          replyTo: commentsTable.replyTo,
+          content: commentsTable.content,
+          createdAt: commentsTable.createdAt,
+          updatedAt: commentsTable.updatedAt
+        })
+        .from(commentsTable)
+        .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
+        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+        .where(where)
+        .orderBy(desc(commentsTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      WIKI.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(commentsTable)
+        .leftJoin(usersTable, eq(usersTable.id, commentsTable.authorId))
+        .where(where)
+    ])
+
+    return { results: results as AdminComment[], totalHits: countRows[0]?.count ?? 0 }
+  }
+
+  /** A single comment plus enough of its page to decide `manage:comments` against, or `null`. */
+  async getWithPage(id: string): Promise<AdminCommentWithPage | null> {
+    const rows = await WIKI.db
+      .select({
+        id: commentsTable.id,
+        siteId: commentsTable.siteId,
+        pageId: commentsTable.pageId,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags
+      })
+      .from(commentsTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
+      .where(eq(commentsTable.id, id))
+      .limit(1)
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+    return {
+      id: row.id,
+      siteId: row.siteId,
+      pageId: row.pageId,
+      page: { id: row.pageId, path: row.path, locale: row.locale, tags: row.tags }
+    }
   }
 }
 

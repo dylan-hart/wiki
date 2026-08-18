@@ -192,6 +192,29 @@ export const blocks = pgTable(
   (table) => [index('blocks_siteId_idx').on(table.siteId)]
 )
 
+// COMMENT PROVIDERS --------------------
+// -> Which comment provider is active for a site, and what it is configured with. Mirrors the shape
+//    of `storage` below: one row per module per site, `config` holding the values for the props that
+//    module's `definition.yml` (under `modules/comments/`) declares. Unlike storage, only ever one
+//    row per site has `isEnabled` true — comments have a single active provider, not several
+//    simultaneous targets — enforced by `models/commentProviders.ts`, not by a db constraint.
+export const commentProviders = pgTable(
+  'commentProviders',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    // -> Directory name under `modules/comments`, one row per module per site
+    module: varchar({ length: 255 }).notNull(),
+    isEnabled: boolean().notNull().default(false),
+    // -> Values for the props the module declares in its `definition.yml`
+    config: jsonb().notNull().default({}),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id)
+  },
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('commentProviders_composite_idx').on(table.siteId, table.module)]
+)
+
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),
@@ -424,6 +447,62 @@ export const pages = pgTable(
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
     index('pages_isSearchableComputed_idx').on(table.isSearchableComputed)
+  ]
+)
+
+// COMMENTS -----------------------------
+/**
+ * One row per comment (or reply) posted on a page.
+ *
+ * NOTE ON PROVENANCE: this table's shape is deliberately identical to the one independently designed
+ * on the sibling `feature/comments-data-model` branch (Feature 389), inspected read-only per this
+ * run's cross-branch rules — not merged, cherry-picked, or copied via git. That branch, and the
+ * page-scoped comment CRUD REST API built on top of it (`feature/comments-rest-api`, Feature 391),
+ * are not yet merged into this branch, but Task 625 (the admin moderation listing/deletion endpoint
+ * below, in `api/comments.ts`) has nothing to list or delete without a `comments` table to query.
+ * Matching the independently-designed shape field-for-field is meant to make reconciliation (likely a
+ * migration squash, keeping whichever table-creation migration lands first) as painless as possible
+ * when those branches merge — see the note left in `models/comments.ts` and `api/comments.ts` for
+ * what this task deliberately did NOT build (page-scoped list/create/update, self-authorship policy,
+ * webhook emission — all Feature 391's own job).
+ */
+export const comments = pgTable(
+  'comments',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    content: text().notNull(),
+    // -> Rendered HTML, cached alongside the source. Left null here — nothing on this branch
+    //    populates or reads it; that is Feature 390's default-provider job.
+    render: text(),
+    // -> A guest has no account to attribute the comment to, so it says who sent it. Null for a
+    //    logged in author, whose name is on `authorId` instead. Mirrors `pageEditSubmissions`.
+    guestName: varchar({ length: 255 }),
+    guestEmail: varchar({ length: 255 }),
+    // -> Long enough for an IPv6 address in its longest textual form.
+    guestIp: varchar({ length: 45 }),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
+    //    `pageHistory.authorId`.
+    authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    // -> Self-referencing: the parent comment this is a reply to, or null for a top-level comment.
+    //    Cascades so deleting a parent takes its replies with it rather than orphaning them.
+    replyTo: uuid().references((): AnyPgColumn => comments.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    // -> The page-view list query: every comment on a page, oldest first.
+    index('comments_pageId_idx').on(table.pageId, table.createdAt),
+    // -> The admin moderation query (Task 625): every comment on a site, newest first, filtered to
+    //    an accessible-pages set built separately — see `api/comments.ts`.
+    index('comments_siteId_idx').on(table.siteId, table.createdAt),
+    index('comments_authorId_idx').on(table.authorId),
+    index('comments_replyTo_idx').on(table.replyTo)
   ]
 )
 
