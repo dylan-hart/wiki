@@ -1,6 +1,8 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { groups as groupsTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -235,5 +237,111 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(deleted, false)
+  })
+
+  describe('listPagesForSitemap', () => {
+    /**
+     * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is
+     * only ever a fixed UUID looked up at runtime, not something `setupTestDb()` seeds meaning into,
+     * so pointing it at the fixture group and writing rules onto that group exercises the exact same
+     * `rulesForGroups` / `helpers/pageRules.ts` path a real anonymous request would go through.
+     */
+    async function setGuestRules(rules: any[]): Promise<void> {
+      WIKI.data = { systemIds: { guestsGroupId: fixtures.groupId } }
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+    }
+
+    test('lists published, browsable pages the guests group may read, and nothing else', async () => {
+      await setGuestRules([
+        {
+          id: 'allow-all',
+          name: 'Allow',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        }
+      ])
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'sitemap/visible', title: 'Visible' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'sitemap/draft', title: 'Draft', publishState: 'draft' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'sitemap/unbrowsable', title: 'Hidden', isBrowsable: false }),
+        actor
+      )
+
+      const listed = await pagesModel.listPagesForSitemap(fixtures.siteId)
+      const paths = listed.map((p) => p.path)
+
+      assert.ok(paths.includes('sitemap/visible'))
+      assert.ok(!paths.includes('sitemap/draft'))
+      assert.ok(!paths.includes('sitemap/unbrowsable'))
+
+      const visible = listed.find((p) => p.path === 'sitemap/visible')
+      assert.equal(visible!.locale, 'en')
+      assert.ok(visible!.updatedAt instanceof Date)
+    })
+
+    test('excludes a page the guests group is denied, even when published and browsable', async () => {
+      await setGuestRules([
+        {
+          id: 'allow-all',
+          name: 'Allow',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'ALLOW',
+          path: '',
+          locales: [],
+          sites: []
+        },
+        {
+          id: 'deny-private',
+          name: 'Deny private',
+          roles: ['read:pages'],
+          match: 'START',
+          mode: 'DENY',
+          path: 'sitemap/private',
+          locales: [],
+          sites: []
+        }
+      ])
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'sitemap/private', title: 'Private' }),
+        actor
+      )
+
+      const listed = await pagesModel.listPagesForSitemap(fixtures.siteId)
+      assert.ok(!listed.some((p) => p.path === 'sitemap/private'))
+    })
+
+    test('lists nothing when the guests group has no rules at all', async () => {
+      await setGuestRules([])
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'sitemap/no-rules', title: 'No Rules' }),
+        actor
+      )
+
+      const listed = await pagesModel.listPagesForSitemap(fixtures.siteId)
+      assert.ok(!listed.some((p) => p.path === 'sitemap/no-rules'))
+    })
   })
 })

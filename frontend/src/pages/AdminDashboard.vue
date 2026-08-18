@@ -156,7 +156,6 @@
               :color="actionColor"
               icon="la:chart-area"
               :label="t(`admin.analytics.title`)"
-              :disable="!flagsStore.experimental"
               :to="`/_admin/` + adminStore.currentSiteId + `/analytics`" />
           </w-card-actions>
         </w-card>
@@ -318,7 +317,6 @@ import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 import { relativeDate } from '@/helpers/datetime'
 
-import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -331,7 +329,6 @@ import GroupCreateDialog from '@/components/GroupCreateDialog.vue'
 // STORES
 
 const adminStore = useAdminStore()
-const flagsStore = useFlagsStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 

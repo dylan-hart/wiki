@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import AdminGeneral from './AdminGeneral.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { useAdminStore } from '@/stores/admin'
+import { useUserStore } from '@/stores/user'
 
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
@@ -49,6 +50,66 @@ async function mountPage(extensionsResponse) {
       components: { BlueprintIcon }
     }
   })
+  await flushPromises()
+
+  return wrapper
+}
+
+/**
+ * Regression coverage for Task 588: `defaultConfig()` used to seed a `defaults.timezone` /
+ * `dateFormat` / `timeFormat` sub-object that rendered no control in the template, was dropped by
+ * `save()` before it ever reached the API, and had no backend counterpart (per-user timezone/date/time
+ * preferences live in `ProfileInfo.vue` instead). Removing that dead scaffolding must not change what
+ * `save()` actually sends — this mounts the real page, loads a fixture site through it, and asserts
+ * the `PUT /_api/sites/:id` body still carries every field the admin UI is responsible for, unchanged.
+ */
+const FIXTURE_SITE = {
+  id: 'site-1',
+  hostname: 'wiki.example.com',
+  title: 'My Wiki',
+  description: 'A description',
+  company: 'Acme Corp',
+  contentLicense: 'ccby',
+  footerExtra: 'footer text',
+  pageExtensions: ['md', 'html'],
+  logoText: true,
+  discoverable: true,
+  sitemap: true,
+  robots: { index: true, follow: false },
+  uploads: { conflictBehavior: 'reject' },
+  features: {
+    browse: true,
+    comments: true,
+    ratingsMode: 'stars',
+    profile: true,
+    reasonForChange: 'optional',
+    search: true
+  },
+  defaults: { tocDepth: { min: 2, max: 4 } },
+  assets: { logo: false, favicon: false }
+}
+
+async function mountLoaded() {
+  setActivePinia(createPinia())
+  const adminStore = useAdminStore()
+  adminStore.currentSiteId = FIXTURE_SITE.id
+  // -> `manage:sites` satisfies `useSiteAdminAccess('site:general')`'s GLOBAL_FALLBACKS check on its
+  //    own, so it skips its site-scoped `fetchSitePermissions` network call entirely -- otherwise
+  //    that call, not `load()`'s, would consume the single `mockReturnValueOnce` below.
+  const userStore = useUserStore()
+  userStore.permissions = ['manage:sites']
+
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_SITE) })
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
+  })
+  router.push(`/_admin/${FIXTURE_SITE.id}/general`)
+  await router.isReady()
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
   await flushPromises()
 
   return wrapper
@@ -195,5 +256,48 @@ describe('AdminGeneral — preview toolbar across a site switch', () => {
     expect(wrapper.find('.bg-header img').attributes('src')).toContain('site-b')
     expect(wrapper.text()).toContain('Site B')
     expect(wrapper.text()).not.toContain('Site A')
+  })
+})
+
+describe('AdminGeneral save() field round-trip', () => {
+  it('sends every field load() populated, and never re-introduces defaults.timezone/dateFormat/timeFormat', async () => {
+    const wrapper = await mountLoaded()
+
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([FIXTURE_SITE]) })
+
+    const applyBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('common.actions.apply'))
+    await applyBtn.trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledTimes(1)
+    const [url, options] = API_CLIENT.put.mock.calls[0]
+    expect(url).toBe(`sites/${FIXTURE_SITE.id}`)
+
+    expect(options.json).toEqual({
+      hostname: FIXTURE_SITE.hostname,
+      title: FIXTURE_SITE.title,
+      description: FIXTURE_SITE.description,
+      company: FIXTURE_SITE.company,
+      contentLicense: FIXTURE_SITE.contentLicense,
+      footerExtra: FIXTURE_SITE.footerExtra,
+      pageExtensions: FIXTURE_SITE.pageExtensions,
+      logoText: FIXTURE_SITE.logoText,
+      sitemap: FIXTURE_SITE.sitemap,
+      uploads: { conflictBehavior: 'reject' },
+      robots: { index: true, follow: false },
+      features: {
+        browse: true,
+        comments: true,
+        ratingsMode: 'stars',
+        profile: true,
+        reasonForChange: 'optional',
+        search: true
+      },
+      discoverable: true,
+      defaults: { tocDepth: { min: 2, max: 4 } }
+    })
   })
 })

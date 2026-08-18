@@ -117,7 +117,6 @@ class Sites {
               reasonForChange: 'optional',
               search: true
             },
-            logoUrl: '',
             logoText: true,
             sitemap: true,
             robots: {
@@ -188,6 +187,9 @@ class Sites {
             },
             uploads: {
               conflictBehavior: 'overwrite'
+            },
+            analytics: {
+              providers: {}
             }
           },
           config
@@ -453,6 +455,9 @@ class Sites {
         },
         uploads: {
           conflictBehavior: 'overwrite'
+        },
+        analytics: {
+          providers: {}
         }
       }
     })

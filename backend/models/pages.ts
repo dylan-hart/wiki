@@ -6,6 +6,7 @@ import {
   normalizePagePath,
   timingSafeCompare
 } from '../helpers/common.ts'
+import { rulesAllow } from '../helpers/pageRules.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
@@ -1056,6 +1057,43 @@ class Pages {
       .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.alias, alias)))
       .limit(1)
     return results[0] ?? null
+  }
+
+  /**
+   * A site's page paths and last-updated times, for `/sitemap.xml` — the only bulk listing this model
+   * offers, because nothing else needs to see every page of a site at once.
+   *
+   * `publishState`/`isBrowsable` are cheap column filters that describe every anonymous reader at
+   * once, but they are not the whole of what a guest may see: an administrator can lock a published,
+   * browsable page to a signed-in group with a page rule, and that page must not turn up in a sitemap
+   * Google reads with no session at all. So every row that survives the column filter is checked again
+   * against the guests group's rules with `helpers/pageRules.ts`'s own `read:pages` logic — the same
+   * check a real anonymous request would get from `checkAccess` — rather than assuming "published and
+   * browsable" already means "public".
+   */
+  async listPagesForSitemap(
+    siteId: string
+  ): Promise<Array<{ path: string; locale: string; updatedAt: Date }>> {
+    const rows = await WIKI.db
+      .select({
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        updatedAt: pagesTable.updatedAt
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.publishState, 'published'),
+          eq(pagesTable.isBrowsable, true)
+        )
+      )
+
+    const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
+    return rows
+      .filter((row) => rulesAllow(guestRules, 'read:pages', row))
+      .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
   }
 
   /**

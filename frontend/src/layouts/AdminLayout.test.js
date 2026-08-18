@@ -88,14 +88,14 @@ describe('AdminLayout sidebar nav', () => {
     expect(commentsItem.element.tagName).toBe('A')
   })
 
-  it('still gates Analytics behind the experimental flag, disabled, as before', async () => {
-    const hiddenWrapper = await mountLayout({ experimental: false })
-    expect(findItemByIcon(hiddenWrapper, 'img:/_assets/icons/fluent-bar-chart.svg')).toBeUndefined()
+  it('shows the Analytics link enabled, independent of the experimental flag', async () => {
+    const wrapper = await mountLayout({ experimental: false })
 
-    const shownWrapper = await mountLayout({ experimental: true })
-    const analyticsItem = findItemByIcon(shownWrapper, 'img:/_assets/icons/fluent-bar-chart.svg')
+    const analyticsItem = findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')
+
     expect(analyticsItem).toBeDefined()
-    expect(analyticsItem.attributes('aria-disabled')).toBe('true')
+    expect(analyticsItem.attributes('aria-disabled')).toBeUndefined()
+    expect(analyticsItem.element.tagName).toBe('A')
   })
 
   it('keeps the Comments link visible when the experimental flag is on too', async () => {

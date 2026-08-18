@@ -44,6 +44,14 @@ export const useSiteStore = defineStore('site', {
   state: () => ({
     id: null,
     hostname: '',
+    /**
+     * Keyed by provider key (`google`, `gtm`, `matomo`, ...) — see `backend/modules/analytics/*`.
+     * Read once, on app load, by `boot/analytics.js` to inject each enabled provider's tracking
+     * snippet; nothing else in the app consumes this.
+     */
+    analytics: {
+      providers: {}
+    },
     company: '',
     contentLicense: '',
     footerExtra: '',
@@ -188,6 +196,9 @@ export const useSiteStore = defineStore('site', {
       this.$patch({
         id: siteInfo.id,
         hostname: siteInfo.hostname,
+        analytics: {
+          providers: siteInfo.analytics?.providers ?? {}
+        },
         title: siteInfo.title,
         description: siteInfo.description,
         logoText: siteInfo.logoText,

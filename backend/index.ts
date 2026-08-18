@@ -180,6 +180,10 @@ async function postBoot() {
 
   await WIKI.models.authentication.refreshStrategiesFromDisk()
 
+  // -> Analytics providers have no db table of their own (see `models/analytics.ts`), so this is
+  //    the only refresh they need — no per-site sync follows, unlike auth strategies and storage
+  await WIKI.models.analytics.refreshFromDisk()
+
   await WIKI.models.authentication.activateStrategies()
   await WIKI.models.locales.reloadCache()
   await WIKI.models.sites.reloadCache()
@@ -690,6 +694,9 @@ async function initHTTPServer() {
   app.register(import('./controllers/site.ts'), { prefix: '/_site' })
   app.register(import('./controllers/icons.ts'), { prefix: '/_icons' })
   app.register(import('./controllers/render.ts'), { prefix: '/_render' })
+  // -> No prefix: `/robots.txt` and `/sitemap.xml` are root-level files, not part of the `_`-prefixed
+  //    server namespace the rest of these occupy. See `RESERVED_ROOT_FILES` / `isPageUrl()` above.
+  app.register(import('./controllers/seo.ts'))
   app.register(import('./controllers/terminal.ts'), { prefix: '/_terminal' })
   app.register(import('./controllers/thumb.ts'), { prefix: '/_thumb' })
   app.register(import('./controllers/user.ts'), { prefix: '/_user' })
