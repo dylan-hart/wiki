@@ -71,7 +71,15 @@ export interface AssetImportSummary {
   written: number
   /** One entry per asset whose `authorId` did not resolve to an already-imported user and was
    *  substituted with `SystemIds.userAdminId` instead of failing the item. */
-  authorFallbacks: Array<{ assetId: string; fileName: string; sourceAuthorId: string | null }>
+  authorFallbacks: Array<{
+    assetId: string
+    /** The source record's own stable id — see `SourceAssetRecord.sourceId` — kept alongside the
+     *  3.0 `assetId` so a caller building a per-item report (`importer/runSummary.ts`) can cite the
+     *  source row this fallback happened for, not just the row it produced. */
+    sourceId: string
+    fileName: string
+    sourceAuthorId: string | null
+  }>
   /** How many `writeImportedAsset` calls found their asset already written — by `deterministicAssetId`
    *  — and returned it as-is rather than writing again. The expected, healthy outcome for every item
    *  in an already-committed batch when a run is retried after a later batch's failure; see
@@ -111,8 +119,15 @@ export function deterministicAssetId(siteId: string, sourceId: string): string {
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-${digest.slice(12, 16)}-${digest.slice(16, 20)}-${digest.slice(20, 32)}`
 }
 
-/** Read a stream fully into one buffer. Only ever holds one asset's bytes at a time. */
-async function bufferOf(data: Buffer | Readable): Promise<Buffer> {
+/**
+ * Read a stream fully into one buffer. Only ever holds one asset's bytes at a time.
+ *
+ * Exported so `importer/runSummary.ts`'s dry-run validation can perform the exact same "are this
+ * asset's bytes actually readable" check `writeImportedAsset` performs on a real run, without a
+ * write ever happening — reading is the only way to genuinely confirm a `Readable` source (a
+ * tarball entry, a DB blob handle) is not broken, truncated, or already-consumed.
+ */
+export async function bufferOf(data: Buffer | Readable): Promise<Buffer> {
   if (Buffer.isBuffer(data)) {
     return data
   }
@@ -129,7 +144,7 @@ async function bufferOf(data: Buffer | Readable): Promise<Buffer> {
  * fallback instead of a request header, so an import lands on the same values a fresh upload of the
  * same file would.
  */
-function resolveKindAndMime(fileName: string, fileExt: string, sourceMime: string | null) {
+export function resolveKindAndMime(fileName: string, fileExt: string, sourceMime: string | null) {
   const mimeType = mime.getType(fileName) ?? sourceMime ?? 'application/octet-stream'
   return { mimeType, kind: kindOf(mimeType, fileExt) }
 }
@@ -275,6 +290,7 @@ export async function writeImportedAsset(
   if (authorFallback) {
     summary.authorFallbacks.push({
       assetId: entry.id,
+      sourceId: record.sourceId,
       fileName: entry.fileName,
       sourceAuthorId: record.authorId
     })

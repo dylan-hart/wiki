@@ -215,7 +215,13 @@ export async function writeCommentsStagingBundle(
   siteId: string,
   comments: Iterable<SourceCommentRecord> | AsyncIterable<SourceCommentRecord>,
   pageIdMap: PageIdMap,
-  userIdMap: UserIdMap
+  userIdMap: UserIdMap,
+  /** Called once per comment, right after it is staged (and before its NDJSON line is written), with
+   *  both the staged row and the raw source record it came from. Purely an observation hook — nothing
+   *  in this function reads its return value — so `importer/runSummary.ts` can fold real-run staging
+   *  into its per-item report using the exact same `stageComment` resolution a dry-run validated
+   *  against, without this module knowing anything about that shared summary type. */
+  onStaged?: (staged: StagedComment, source: SourceCommentRecord) => void
 ): Promise<CommentsStagingManifest> {
   await fs.mkdir(commentsDir(bundleDir), { recursive: true })
 
@@ -227,6 +233,7 @@ export async function writeCommentsStagingBundle(
     if (staged.unresolvedPageId) {
       unresolvedPageIdCount++
     }
+    onStaged?.(staged, record)
   }
 
   await fs.writeFile(
