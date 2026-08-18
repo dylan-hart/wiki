@@ -11,7 +11,7 @@ import { addAPIProvider } from 'iconify-icon'
  *
  * Importing the package for its side effect is what defines the `<iconify-icon>` custom element.
  */
-export function initializeIconify () {
+export function initializeIconify() {
   addAPIProvider('', {
     resources: [`${window.location.origin}/_icons`]
   })

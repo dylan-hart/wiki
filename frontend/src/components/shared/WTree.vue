@@ -72,7 +72,9 @@ const emit = defineEmits(['update:expanded', 'update:selected'])
 function onToggle(key) {
   emit(
     'update:expanded',
-    props.expanded.includes(key) ? props.expanded.filter((k) => k !== key) : [...props.expanded, key]
+    props.expanded.includes(key)
+      ? props.expanded.filter((k) => k !== key)
+      : [...props.expanded, key]
   )
 }
 

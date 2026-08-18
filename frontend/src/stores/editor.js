@@ -42,7 +42,7 @@ export const useEditorStore = defineStore('editor', {
     }
   },
   actions: {
-    addPendingAsset (data) {
+    addPendingAsset(data) {
       const blobUrl = URL.createObjectURL(data)
       if (data instanceof File) {
         this.pendingAssets.push({
@@ -65,7 +65,7 @@ export const useEditorStore = defineStore('editor', {
       }
       return blobUrl
     },
-    async fetchConfigs () {
+    async fetchConfigs() {
       const siteStore = useSiteStore()
       try {
         if (!siteStore.id) {

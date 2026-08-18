@@ -1,7 +1,7 @@
 <template>
-  <w-card class="page-datatmpl-dialog" style="width: 1100px; max-width: 1100px;">
+  <w-card class="page-datatmpl-dialog" style="width: 1100px; max-width: 1100px">
     <w-toolbar class="bg-primary text-white">
-      <div class="text-subtitle2">{{t('editor.pageData.manageTemplates')}}</div>
+      <div class="text-subtitle2">{{ t('editor.pageData.manageTemplates') }}</div>
       <w-space />
       <w-btn icon="la:times" dense flat @click="$emit('close')" />
     </w-toolbar>
@@ -38,46 +38,52 @@
             color="pink"
             no-caps />
         </div>
-        <w-item-label header style="margin-top: 2px;">{{t('editor.pageData.templateFullRowTypes')}}</w-item-label>
+        <w-item-label header style="margin-top: 2px">{{
+          t('editor.pageData.templateFullRowTypes')
+        }}</w-item-label>
         <div class="px-4">
           <draggable
             class="q-list rounded"
             :list="inventoryMisc"
-            :group="{name: `shared`, pull: `clone`, put: false}"
+            :group="{ name: `shared`, pull: `clone`, put: false }"
             :clone="cloneFieldType"
             :sort="false"
             :animation="150"
             @start="state.dragStarted = true"
             @end="state.dragStarted = false"
             item-key="id">
-            <template #item="{element}">
+            <template #item="{ element }">
               <w-item clickable>
                 <w-item-section side>
                   <w-icon :name="element.icon" color="primary" />
                 </w-item-section>
-                <w-item-section><w-item-label>{{element.label}}</w-item-label></w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ element.label }}</w-item-label></w-item-section
+                >
               </w-item>
             </template>
           </draggable>
         </div>
-        <w-item-label header>{{t('editor.pageData.templateKeyValueTypes')}}</w-item-label>
+        <w-item-label header>{{ t('editor.pageData.templateKeyValueTypes') }}</w-item-label>
         <div class="px-4 pb-4">
           <draggable
             class="q-list rounded"
             :list="inventoryKV"
-            :group="{name: `shared`, pull: `clone`, put: false}"
+            :group="{ name: `shared`, pull: `clone`, put: false }"
             :clone="cloneFieldType"
             :sort="false"
             :animation="150"
             @start="state.dragStarted = true"
             @end="state.dragStarted = false"
             item-key="id">
-            <template #item="{element}">
+            <template #item="{ element }">
               <w-item clickable>
                 <w-item-section side>
                   <w-icon :name="element.icon" color="primary" />
                 </w-item-section>
-                <w-item-section><w-item-label>{{element.label}}</w-item-label></w-item-section>
+                <w-item-section
+                  ><w-item-label>{{ element.label }}</w-item-label></w-item-section
+                >
               </w-item>
             </template>
           </draggable>
@@ -88,7 +94,7 @@
           ref="scrollArea"
           :thumb-style="siteStore.thumbStyle"
           :bar-style="siteStore.barStyle"
-          style="height: 100%;">
+          style="height: 100%">
           <div class="min-w-0 flex-1 page-datatmpl-meta px-4 py-4 flex gap-4">
             <w-input
               class="min-w-0 flex-1"
@@ -113,14 +119,14 @@
               color="negative"
               @click="remove" />
           </div>
-          <w-item-label header>{{t('editor.pageData.templateStructure')}}</w-item-label>
+          <w-item-label header>{{ t('editor.pageData.templateStructure') }}</w-item-label>
           <div class="px-4 pb-4">
             <div
-              :class="(state.dragStarted || state.tmpl.data.length < 1 ? `page-datatmpl-box` : ``)">
+              :class="state.dragStarted || state.tmpl.data.length < 1 ? `page-datatmpl-box` : ``">
               <div
                 class="text-caption text-primary p-4"
                 v-if="state.tmpl.data.length < 1 && !state.dragStarted">
-                <em>{{t('editor.pageData.dragDropHint')}}</em>
+                <em>{{ t('editor.pageData.dragDropHint') }}</em>
               </div>
               <draggable
                 class="q-list rounded"
@@ -130,7 +136,7 @@
                 handle=".handle"
                 @end="state.dragStarted = false"
                 item-key="id">
-                <template #item="{element}">
+                <template #item="{ element }">
                   <w-item>
                     <w-item-section side>
                       <w-icon class="handle" name="la:bars" />
@@ -172,10 +178,10 @@
       </div>
     </div>
     <div class="p-4 text-center" v-else-if="siteStore.pageDataTemplates.length > 0">
-      <em class="text-grey-6">{{t('editor.pageData.selectTemplateAbove')}}</em>
+      <em class="text-grey-6">{{ t('editor.pageData.selectTemplateAbove') }}</em>
     </div>
     <div class="p-4 text-center" v-else>
-      <em class="text-grey-6">{{t('editor.pageData.noTemplate')}}</em>
+      <em class="text-grey-6">{{ t('editor.pageData.noTemplate') }}</em>
     </div>
   </w-card>
 </template>
@@ -203,7 +209,6 @@ const props = defineProps({
     default: null
   }
 })
-
 
 // STORES
 

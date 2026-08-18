@@ -33,7 +33,9 @@ const classes = computed(() => [
   'w-item-label',
   // -> 16px on every side, as the group headings between items have always been
   props.header ? 'w-item-label--header p-4 text-body2 text-black/54 dark:text-white/70' : '',
-  props.caption && !props.header ? 'w-item-label--caption text-caption text-black/54 dark:text-white/70' : '',
+  props.caption && !props.header
+    ? 'w-item-label--caption text-caption text-black/54 dark:text-white/70'
+    : '',
   !props.caption && !props.header ? 'text-body2' : '',
   // -> `truncate` covers the single-line case; more than one needs line-clamp
   Number(props.lines) === 1 ? 'truncate' : ''

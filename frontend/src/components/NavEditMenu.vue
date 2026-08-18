@@ -2,7 +2,7 @@
   <w-card style="min-width: 350px">
     <w-card-section class="card-header">
       <w-icon name="img:/_assets/icons/fluent-sidebar-menu.svg" left size="sm" />
-      <span>{{t(`navEdit.title`)}}</span>
+      <span>{{ t(`navEdit.title`) }}</span>
     </w-card-section>
     <w-list padding>
       <template v-if="isRoot">
@@ -26,14 +26,18 @@
           <w-item-section side><w-radio v-model="state.mode" val="inherit" /></w-item-section>
           <w-item-section>
             <w-item-label>Inherit</w-item-label>
-            <w-item-label caption>Use the menu items and settings from the parent path.</w-item-label>
+            <w-item-label caption
+              >Use the menu items and settings from the parent path.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
           <w-item-section side><w-radio v-model="state.mode" val="override" /></w-item-section>
           <w-item-section>
             <w-item-label>Override Current + Descendants</w-item-label>
-            <w-item-label caption>Set menu items and settings for this path and all descendants.</w-item-label>
+            <w-item-label caption
+              >Set menu items and settings for this path and all descendants.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
@@ -47,14 +51,19 @@
           <w-item-section side><w-radio v-model="state.mode" val="hide" /></w-item-section>
           <w-item-section>
             <w-item-label>Hide Current + Descendants</w-item-label>
-            <w-item-label caption>Completely hide the left sidebar navigation for this path and all descendants.</w-item-label>
+            <w-item-label caption
+              >Completely hide the left sidebar navigation for this path and all
+              descendants.</w-item-label
+            >
           </w-item-section>
         </w-item>
         <w-item tag="label">
           <w-item-section side><w-radio v-model="state.mode" val="hideExact" /></w-item-section>
           <w-item-section>
             <w-item-label>Hide Current Only</w-item-label>
-            <w-item-label caption>Completely hide the left sidebar navigation only for this path.</w-item-label>
+            <w-item-label caption
+              >Completely hide the left sidebar navigation only for this path.</w-item-label
+            >
           </w-item-section>
         </w-item>
       </template>
@@ -113,7 +122,6 @@ const props = defineProps({
     default: () => ({})
   }
 })
-
 
 // STORES
 

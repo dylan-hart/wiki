@@ -1,4 +1,4 @@
-function renderEm (tokens, idx, opts, env, slf) {
+function renderEm(tokens, idx, opts, env, slf) {
   const token = tokens[idx]
   if (token.markup === '_') {
     token.tag = 'u'

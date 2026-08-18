@@ -1,0 +1,82 @@
+name: Quality Gates
+
+# Runs on every pull request (fast feedback before code lands) and is also called by build.yml's
+# own `quality` job via `uses:` on every push to `scarlett`, so the Docker publish job can gate on
+# it with `needs:` -- exactly the reason e2e.yml gives for staying a separate workflow instead of a
+# few more steps bolted onto build.yml: a `needs:` dependency only works on a job in the *same*
+# workflow run, and a plain `pull_request:` trigger added directly to build.yml would have no way to
+# stop the expensive Docker build/push job from also queuing up on every PR. `workflow_call:` lets
+# this file be that one shared definition instead of a second copy of the same steps.
+on:
+  pull_request:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Typecheck, Lint & Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.x
+
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend Typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend Lint
+        working-directory: backend
+        run: npx oxlint
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Both check scripts diff the committed generated bundle (src/assets/icons.generated.js,
+      # src/assets/emoji.generated.js) against what the source + already-`npm ci`-installed data
+      # packages (@iconify-json/mdi, @iconify-json/la, unicode-emoji-json, markdown-it-emoji) produce
+      # right now -- read fs.readFileSync(node_modules/...) only, no fetch/http anywhere in either
+      # script. That's a build-time literal-reference scan, not the runtime `models/icons.ts`
+      # resolution chain CLAUDE.md's Icons section describes (memory -> disk cache -> db -> live
+      # Iconify API) for icons a *user* picks on a page -- this repo's own chrome icons are inlined at
+      # build time specifically so nothing here ever depends on that service. So both steps are safe
+      # to run on a cold CI runner with no prior icon cache: no network call, nothing to be flaky.
+      - name: Frontend Icons Check
+        working-directory: frontend
+        run: npm run icons:check
+
+      - name: Frontend Emoji Check
+        working-directory: frontend
+        run: npm run emoji:check
+
+      - name: Frontend Lint
+        working-directory: frontend
+        run: npx oxlint
+
+      - name: Install Blocks Dependencies
+        working-directory: blocks
+        run: npm ci
+
+      - name: Blocks Lint
+        working-directory: blocks
+        run: npx oxlint
+
+      # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
+      # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
+      # at run time -- exactly the floating-tag drift CLAUDE.md's Currency section rules out. The
+      # root .oxfmtrc.json is picked up automatically since oxfmt searches upward from each target
+      # path; its own `$schema` already points at backend/node_modules/oxfmt, confirming backend's
+      # install is the one meant to be canonical for repo-root checks.
+      - name: Format Check
+        run: npx --prefix backend oxfmt --check backend frontend blocks
