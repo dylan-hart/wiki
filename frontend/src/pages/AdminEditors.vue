@@ -143,9 +143,12 @@ const editors = reactive([
   {
     id: 'asciidoc',
     icon: 'asciidoc',
-    isDisabled: true,
-    hasConfig: true,
-    useRendering: true
+    // -> Task 491: a real, if minimal, editor now exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
+    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. No `hasConfig`: it
+    //    has no configuration overlay, matching the equally no-frills `code` row. `useRendering` stays
+    //    off because there is no AsciiDoc-to-HTML rendering pipeline yet -- that's a later Feature; the
+    //    description below says so.
+    useRendering: false
   },
   {
     id: 'blog',

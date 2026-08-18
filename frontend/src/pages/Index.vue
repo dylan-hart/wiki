@@ -365,6 +365,10 @@ import PageUnlockDialog from '@/components/PageUnlockDialog.vue'
 import SideDialog from '@/components/SideDialog.vue'
 
 const editorComponents = {
+  asciidoc: defineAsyncComponent({
+    loader: () => import('../components/EditorAsciidoc.vue'),
+    loadingComponent: LoadingGeneric
+  }),
   code: defineAsyncComponent({
     loader: () => import('../components/EditorCode.vue'),
     loadingComponent: LoadingGeneric

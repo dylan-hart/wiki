@@ -31,7 +31,49 @@ function mountPage() {
   return { wrapper, adminStore, siteStore }
 }
 
+/**
+ * Regression coverage for task 491: before this task `asciidoc` was `isDisabled: true` with a
+ * description implying real-time preview, even though no `EditorAsciidoc.vue` existed -- a
+ * disabled-but-visible-under-experimental-flag row that misrepresented what actually worked. Now that
+ * a real (if minimal) AsciiDoc editor exists, its row and copy should match `code`'s: visible without
+ * the experimental flag, its toggle enabled, and its description honest about there being no preview.
+ */
 describe('AdminEditors', () => {
+  it('shows the asciidoc editor row without requiring the experimental flag, with an enabled toggle', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
+    const { wrapper } = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.editors.asciidocName')
+    expect(wrapper.text()).toContain('admin.editors.asciidocDescription')
+    const asciidocEditor = wrapper.vm.editors.find((e) => e.id === 'asciidoc')
+    expect(asciidocEditor.isDisabled).toBeFalsy()
+  })
+
+  it('load()/save() round-trip editors.asciidoc.isActive through the site config', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ editors: { asciidoc: { isActive: true } } })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    const { wrapper, adminStore, siteStore } = mountPage()
+    await flushPromises()
+
+    expect(wrapper.vm.state.config.asciidoc).toBe(true)
+
+    siteStore.id = adminStore.currentSiteId
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      'sites/site-1',
+      expect.objectContaining({
+        json: expect.objectContaining({
+          editors: expect.objectContaining({ asciidoc: { isActive: true } })
+        })
+      })
+    )
+    expect(siteStore.editors.asciidoc).toBe(true)
+  })
+
   it('shows the code editor row without requiring the experimental flag', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
     const { wrapper } = mountPage()

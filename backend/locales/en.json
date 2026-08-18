@@ -218,7 +218,7 @@
   "admin.dev.voyager.title": "Voyager",
   "admin.editors.apiDescription": "Document your REST / GraphQL APIs.",
   "admin.editors.apiName": "API Docs Editor",
-  "admin.editors.asciidocDescription": "Use the AsciiDoc syntax to write content. Includes real-time preview.",
+  "admin.editors.asciidocDescription": "Write raw AsciiDoc source. No preview pane -- rendering support is not yet implemented.",
   "admin.editors.asciidocName": "AsciiDoc Editor",
   "admin.editors.blogDescription": "Write a series of posts over time.",
   "admin.editors.blogName": "Blog Editor",
