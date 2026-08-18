@@ -7,10 +7,9 @@ by Feature 412 (`backend/migration/connectors/`, see
 [`decision-source-scope.md`](decision-source-scope.md) and
 [`2.5x-to-3.0-mapping.md`](2.5x-to-3.0-mapping.md)).
 
-Read this whole document before starting. The migration is safe to *attempt* more than once — the
+Read this whole document before starting. The migration is safe to _attempt_ more than once — the
 import only ever reads the 2.x source and only ever writes to the 3.0 destination, and re-running it
-with `--update-existing` is designed to be idempotent (Feature 421 task 746) — but cutover itself (step
-6) is the point after which real users may start writing to the 3.0 instance, and that step is not
+with `--update-existing` is designed to be idempotent (Feature 421 task 746) — but cutover itself (step 6) is the point after which real users may start writing to the 3.0 instance, and that step is not
 free to repeat casually. Do the dry run (step 3) and the verification pass (step 5) properly; they are
 what make step 6 a formality instead of a gamble.
 
@@ -32,7 +31,7 @@ it is ready the moment those Features land; nothing below needs to change when t
 a live Postgres source is read through a single set of queries over one connection, and an
 Export-to-Disk bundle is a single export captured at the moment an administrator ran it. Neither path
 re-reads the source partway through, or notices a change made after it started. Any write made to the
-2.5.x installation *during or after* that snapshot — a new page, an edited page, a new user — will
+2.5.x installation _during or after_ that snapshot — a new page, an edited page, a new user — will
 simply not exist in what the connector read, and therefore will not exist in the 3.0 destination
 after import. Relative to what users see once you cut over to 3.0, that write is **lost**: nothing
 in this migration is destructive to the 2.x database itself (see the read-only requirement below),
@@ -42,7 +41,7 @@ manual, page-by-page comparison you want to avoid needing to do.
 This is also why the source connector's Postgres path is deliberately **read-only in practice and in
 principle** ([`decision-source-scope.md`](decision-source-scope.md#read-only-requirement) — it never
 issues anything but `SELECT`, and should keep working even against a role granted `SELECT` only) and
-why the Export-to-Disk bundle is only ever opened for reading. The migration is safe for the *source*
+why the Export-to-Disk bundle is only ever opened for reading. The migration is safe for the _source_
 to run repeatedly; it is not safe against a source that keeps changing underneath it.
 
 **The practical workaround.** Wiki.js 2.5.x has no built-in read-only or maintenance mode, so freezing
@@ -125,7 +124,7 @@ connects to a database (`backend/migration/source-args.ts`'s `resolveSource`).
 ## Step 3 — Dry run: review the report before writing anything
 
 Always run once with `--dry-run` before ever running for real. As shown above, `--dry-run` computes
-what each phase *would* do without writing to the 3.0 destination, and both a console table and (with
+what each phase _would_ do without writing to the 3.0 destination, and both a console table and (with
 `--report-file`) a JSON file are always produced from the same underlying `PhaseReport[]` — save the
 JSON copy, since step 5's verification can diff a live run against it:
 
@@ -140,13 +139,13 @@ dependency order). Every field is a count except `conflicts`/`unmappable`, which
 the invariant `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`
 always holds for a given phase (`backend/migration/report.ts`):
 
-| Field               | Meaning                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------- |
-| `found`              | Every record this phase read off the source.                                                  |
-| `wouldCreate`        | Records with no existing destination match — a real run creates these.                       |
-| `wouldSkipExisting`  | Records already imported in a prior run (matched via provenance tracking, task 746) — a real run leaves these alone unless `--update-existing` is also passed. |
-| `conflicts`          | Records where the source and an existing destination row disagree in a way the phase cannot resolve automatically. Empty in every phase as of this branch — no phase has a conflict rule yet, so this is not a sign your source is clean, only that the rule doesn't exist yet. Once it does, review every entry here **before** the real run; a conflict is exactly the kind of thing you do not want silently overwritten or silently skipped. |
-| `unmappable`         | Records this migration will never be able to write, dry run or not — see below.               |
+| Field               | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `found`             | Every record this phase read off the source.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `wouldCreate`       | Records with no existing destination match — a real run creates these.                                                                                                                                                                                                                                                                                                                                                                           |
+| `wouldSkipExisting` | Records already imported in a prior run (matched via provenance tracking, task 746) — a real run leaves these alone unless `--update-existing` is also passed.                                                                                                                                                                                                                                                                                   |
+| `conflicts`         | Records where the source and an existing destination row disagree in a way the phase cannot resolve automatically. Empty in every phase as of this branch — no phase has a conflict rule yet, so this is not a sign your source is clean, only that the rule doesn't exist yet. Once it does, review every entry here **before** the real run; a conflict is exactly the kind of thing you do not want silently overwritten or silently skipped. |
+| `unmappable`        | Records this migration will never be able to write, dry run or not — see below.                                                                                                                                                                                                                                                                                                                                                                  |
 
 ### Unmappable records — what to do about each category
 
@@ -223,7 +222,7 @@ only on `fail`. `incomplete` means at least one entity's source reader is still 
 mismatch or a content hash mismatch was found and needs investigating before you go further.
 
 **Then, manually, in the 3.0 UI itself** (the automated checks above are necessary but not
-sufficient — they cannot tell you a page *reads right*, only that its hash matches):
+sufficient — they cannot tell you a page _reads right_, only that its hash matches):
 
 - Log in as a handful of migrated users (ideally covering more than one auth provider/group) and
   confirm their identity, group membership, and permissions look right.
@@ -247,7 +246,7 @@ untouched is exactly what makes the rollback below possible.
 
 **Rollback plan.** If something is discovered wrong only after cutover has started — verification
 looked fine, real users hit 3.0, and something is nonetheless broken enough to back out — the
-rollback is straightforward specifically *because* this migration is **additive and never touches the
+rollback is straightforward specifically _because_ this migration is **additive and never touches the
 source**: nothing the import or verification did wrote to, deleted from, or altered the 2.5.x
 database or its Export-to-Disk bundle (`decision-source-scope.md`'s read-only requirement, step 1
 above). The frozen 2.5.x installation is exactly as it was before this runbook started. To roll back:
