@@ -49,7 +49,7 @@ extension every `users.auth[authModuleId]` entry that depended on it.
 
 `mapAuthenticationRow` (`backend/migration/mappers/authentication.ts`) reports this as
 `status: 'unsupported'` with the source key and module named, rather than silently skipping the row —
-mirroring Feature 414's provider-fallback precedent for source *users* on an unimplemented provider.
+mirroring Feature 414's provider-fallback precedent for source _users_ on an unimplemented provider.
 There is nothing further an importer can do until the module itself exists: no 3.0 prop schema to
 remap the 2.x config onto.
 
