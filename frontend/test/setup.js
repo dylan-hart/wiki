@@ -17,6 +17,27 @@ if (typeof Temporal === 'undefined') {
   globalThis.Temporal = Temporal
 }
 
+/**
+ * Same sandbox-runtime caveat as `Temporal` above, for `localStorage`: Node 25.9 defines it as a
+ * global on its own (unlike Node 26, no flag needed), but without `--localstorage-file` its methods
+ * are missing entirely -- `typeof localStorage === 'object'` yet `localStorage.getItem` is
+ * `undefined`, so `stores/common.js`'s `state()` (read at store-creation time, e.g. by mounting
+ * `App.vue`) throws `TypeError: localStorage.getItem is not a function` before a single assertion
+ * runs. Vitest's happy-dom environment does not paper over this either: its own global-population
+ * step skips any key already present on the Node global, and Node's own already is. A plain
+ * in-memory stand-in, installed only when the real API's methods are missing -- a no-op wherever
+ * `localStorage` already works (a real Node 26 runtime, or a browser).
+ */
+if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
+  const backing = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (backing.has(key) ? backing.get(key) : null),
+    setItem: (key, value) => backing.set(key, String(value)),
+    removeItem: (key) => backing.delete(key),
+    clear: () => backing.clear()
+  }
+}
+
 /*
   The `w-*` library is registered globally in the real app by `boot/components.js`, via the same
   `sharedComponents` map -- so every mounted component here sees `<w-icon>` / `<w-btn>` / ... resolve
