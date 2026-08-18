@@ -1,11 +1,13 @@
-import { AzureKeyCredential, SearchIndexClient } from '@azure/search-documents'
+import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
 import type { SearchIndex } from '@azure/search-documents'
 import type {
   RebuildResult,
   SearchIndexablePage,
   SearchModule,
+  SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult
+  SearchPagesResult,
+  SearchResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -21,6 +23,29 @@ const DEFAULT_INDEX_NAME = 'wiki'
 const SCORING_PROFILE_NAME = 'wikiRelevancy'
 
 /**
+ * Markers requested via `highlightPreTag`/`highlightPostTag` in place of Azure's own default
+ * (`<em>`/`</em>`).
+ *
+ * Control characters, same reasoning as the `db` engine's `ts_headline` markers (`modules/search/db/
+ * search.ts`): the excerpt is page text that may itself contain anything, and it is HTML-escaped
+ * before these are turned into `<b>` tags. Leaving Azure's own `<em>`/`</em>` as the markers would mean
+ * a page whose text happens to contain the literal string `<em>` gets it turned into emphasis too,
+ * which is exactly the collision the `db` engine's own comment on this explains.
+ */
+const HL_START = ''
+const HL_STOP = ''
+
+/** Fields the main, unrestricted search matches and highlights against. */
+const FULL_SEARCH_FIELDS = ['title', 'description', 'content']
+
+/** Fields a password-protected page may still be found by — see `runProtectedSplitQuery` below. */
+const PROTECTED_SEARCH_FIELDS = ['title', 'description']
+
+/** `highlightFields` value: one fragment each from `content` and `description`, matching the `db`
+ *  engine's `ts_headline` call (`MaxFragments=1`). */
+const HIGHLIGHT_FIELDS = 'content-1,description-1'
+
+/**
  * The subset of `SearchIndexClient` this module actually calls.
  *
  * Narrowed on purpose rather than importing the SDK's own type: it is what lets a test build a fake
@@ -32,10 +57,73 @@ export interface AzureSearchIndexClient {
   createOrUpdateIndex(index: SearchIndex): Promise<SearchIndex>
 }
 
-/** Builds the real SDK client from a site's stored `serviceName`/`adminApiKey` config. */
+/** One row of a query response: a document plus its relevance score and any highlighted fragments. */
+export interface AzureSearchRow {
+  document: Record<string, any>
+  score: number
+  highlights?: Record<string, string[]>
+}
+
+/** The options this module ever sends to a query — a narrowed, testable slice of the SDK's own. */
+export interface AzureSearchQueryOptions {
+  filter?: string
+  orderBy?: string[]
+  top?: number
+  skip?: number
+  includeTotalCount?: boolean
+  searchFields?: string[]
+  highlightFields?: string
+  highlightPreTag?: string
+  highlightPostTag?: string
+  queryType?: 'simple' | 'full'
+}
+
+/**
+ * The subset of `SearchClient` this module actually calls — document CRUD plus querying.
+ *
+ * Same reasoning as `AzureSearchIndexClient` above: a fake implementation can record calls and hand
+ * back canned rows with no network involved, and without fighting the real SDK's generic `TModel`
+ * typing at every call site.
+ */
+export interface AzureSearchQueryClient {
+  mergeOrUploadDocuments(documents: Record<string, any>[]): Promise<void>
+  deleteDocuments(keyName: string, keyValues: string[]): Promise<void>
+  search(
+    searchText: string | undefined,
+    options: AzureSearchQueryOptions
+  ): Promise<{ count?: number; results: AsyncIterable<AzureSearchRow> }>
+}
+
+/** Builds the real SDK index-management client from a site's stored `serviceName`/`adminApiKey` config. */
 function defaultClientFactory(config: Record<string, any>): AzureSearchIndexClient {
   const endpoint = `https://${config.serviceName}.search.windows.net`
   return new SearchIndexClient(endpoint, new AzureKeyCredential(config.adminApiKey))
+}
+
+/** Builds the real SDK document/query client from a site's stored config. */
+function defaultSearchClientFactory(config: Record<string, any>): AzureSearchQueryClient {
+  const endpoint = `https://${config.serviceName}.search.windows.net`
+  const indexName = config.indexName || DEFAULT_INDEX_NAME
+  const client = new SearchClient<Record<string, any>>(
+    endpoint,
+    indexName,
+    new AzureKeyCredential(config.adminApiKey)
+  )
+  return {
+    async mergeOrUploadDocuments(documents) {
+      await client.mergeOrUploadDocuments(documents)
+    },
+    async deleteDocuments(keyName, keyValues) {
+      await client.deleteDocuments(keyName, keyValues)
+    },
+    async search(searchText, options) {
+      const result = await client.search(searchText, options as any)
+      return {
+        count: result.count,
+        results: result.results as unknown as AsyncIterable<AzureSearchRow>
+      }
+    }
+  }
 }
 
 /**
@@ -46,9 +134,18 @@ function defaultClientFactory(config: Record<string, any>): AzureSearchIndexClie
  * handing the identical definition to `createOrUpdateIndex` twice is what makes a create-or-update
  * call safe to repeat on every boot rather than only the first one.
  *
- * Field set matches `SearchPagesParams`, not 2.5.x's narrower `id`/`path`/`locale`/`title`/
- * `description`/`content`: `tags`, `editor` and `publishState` are filterable/facetable from the
- * start so a caller gets the same filtering surface regardless of which engine a site has selected.
+ * Field set matches `SearchPagesParams`/`SearchResult`, not 2.5.x's narrower `id`/`path`/`locale`/
+ * `title`/`description`/`content`: `tags`, `editor` and `publishState` are filterable/facetable from
+ * the start so a caller gets the same filtering surface regardless of which engine a site has
+ * selected; `icon` carries through what `SearchResult.icon` needs; `hasPassword` is what `query()`
+ * uses to route a protected page into the title/description-only search (see `runQuery` below) —
+ * postgres has the page row itself to check `password IS NULL` against, an external index does not.
+ *
+ * `path` is deliberately both `filterable` (a plain prefix filter, `startswith`) and `searchable` (so
+ * `search.ismatch` — Azure's wildcard-capable filter function — can be used for a pattern containing
+ * `*`). Every query that matches free text against the document explicitly lists its own
+ * `searchFields` rather than relying on "every searchable field", specifically so `path` being
+ * searchable never lets an unrelated free-text query match on it.
  *
  * Weighting matches 2.5.x's own scoring: title outranks description outranks body, expressed here as
  * a scoring profile's `textWeights` (4 / 3 / 1) rather than left to Azure's unweighted default (every
@@ -62,14 +159,16 @@ export function buildIndexSchema(indexName: string): SearchIndex {
       { name: 'id', type: 'Edm.String', key: true, searchable: false, filterable: false },
       { name: 'siteId', type: 'Edm.String', filterable: true },
       { name: 'locale', type: 'Edm.String', filterable: true },
-      { name: 'path', type: 'Edm.String', filterable: true },
+      { name: 'path', type: 'Edm.String', searchable: true, filterable: true },
       { name: 'title', type: 'Edm.String', searchable: true },
       { name: 'description', type: 'Edm.String', searchable: true },
       { name: 'content', type: 'Edm.String', searchable: true },
       { name: 'tags', type: 'Collection(Edm.String)', filterable: true, facetable: true },
       { name: 'editor', type: 'Edm.String', filterable: true },
       { name: 'publishState', type: 'Edm.String', filterable: true },
-      { name: 'updatedAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true }
+      { name: 'updatedAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
+      { name: 'icon', type: 'Edm.String', searchable: false, filterable: false },
+      { name: 'hasPassword', type: 'Edm.Boolean', filterable: true }
     ],
     scoringProfiles: [
       {
@@ -81,29 +180,206 @@ export function buildIndexSchema(indexName: string): SearchIndex {
   }
 }
 
+/** A page row turned into the document this module writes to the index. */
+export function toIndexDocument(page: SearchIndexablePage): Record<string, any> {
+  return {
+    id: page.id,
+    siteId: page.siteId,
+    locale: page.locale,
+    path: page.path,
+    title: page.title,
+    description: page.description ?? '',
+    content: page.searchContent ?? '',
+    tags: page.tags ?? [],
+    editor: page.editor,
+    publishState: page.publishState,
+    icon: page.icon ?? '',
+    hasPassword: page.password != null,
+    // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+    //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
+    updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+  }
+}
+
+/** Escapes a literal for an OData string constant by doubling embedded single quotes. */
+function escapeODataLiteral(value: string): string {
+  return value.replaceAll("'", "''")
+}
+
+/** `escapeHtml` from the `db` engine, copied rather than imported: each engine module stays self-contained. */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** The delimiter `search.in()` splits its value list on — not a comma, so a value containing one is safe. */
+const IN_DELIMITER = '|'
+
+function eqFilter(field: string, value: string): string {
+  return `${field} eq '${escapeODataLiteral(value)}'`
+}
+
+function inFilter(field: string, values: string[]): string {
+  const list = values.map((v) => escapeODataLiteral(v)).join(IN_DELIMITER)
+  return `search.in(${field}, '${list}', '${IN_DELIMITER}')`
+}
+
+/**
+ * The `path` filter: a plain prefix — "browse this folder", what `SearchPagesParams.path` is for —
+ * uses OData's own `startswith`, which needs no full-text query engine at all; a pattern the caller
+ * marked as a wildcard match (containing `*`) uses `search.ismatch`, Azure's full-text filter
+ * function, since only it understands Lucene wildcard syntax. Matches `p.path LIKE value%` in the `db`
+ * engine for the common case.
+ */
+function pathFilter(path: string): string {
+  const escaped = escapeODataLiteral(path)
+  return path.includes('*')
+    ? `search.ismatch('${escaped}', 'path', 'full', 'any')`
+    : `startswith(path, '${escaped}')`
+}
+
+/** `publishState`/`publicOnly`/`includeDrafts` translated the same way the `db` engine's `query()` does. */
+function publishStateFilters(
+  publishState: string,
+  publicOnly: boolean,
+  includeDrafts: boolean
+): string[] {
+  const clauses: string[] = []
+  if (publicOnly) {
+    // -> Matches what a page view shows an anonymous reader, so search cannot surface a page that
+    //    could not then be opened
+    clauses.push(`publishState eq 'published'`)
+  } else if (!includeDrafts) {
+    clauses.push(`publishState ne 'draft'`)
+  }
+  if (publishState) {
+    clauses.push(eqFilter('publishState', publishState))
+  }
+  return clauses
+}
+
+export interface AzureSearchFilterParams {
+  siteId: string
+  path?: string
+  locales?: string[]
+  tags?: string[]
+  editor?: string
+  publishState?: string
+  publicOnly?: boolean
+  includeDrafts?: boolean
+  /** Route to the public or the protected half of the split query — see `runProtectedSplitQuery`. */
+  hasPassword?: boolean
+}
+
+/**
+ * The OData `$filter` expression for a query, built up as a set of `and`-joined conditions —
+ * `locales`/`tags`/`editor`/`publishState` each contribute one when set, same shape as the `db`
+ * engine's own `conditions` array. `tags` becomes `tags/any(t: search.in(t, ...))`: a document matches
+ * if any of its tags is in the requested set, the collection-field equivalent of `p.tags @> ...` in
+ * postgres (any-of, not all-of).
+ */
+export function buildFilter(params: AzureSearchFilterParams): string {
+  const conditions = [eqFilter('siteId', params.siteId)]
+  if (params.path) {
+    conditions.push(pathFilter(params.path))
+  }
+  if (params.locales && params.locales.length > 0) {
+    conditions.push(inFilter('locale', params.locales))
+  }
+  if (params.tags && params.tags.length > 0) {
+    conditions.push(`tags/any(t: ${inFilter('t', params.tags)})`)
+  }
+  if (params.editor) {
+    conditions.push(eqFilter('editor', params.editor))
+  }
+  conditions.push(
+    ...publishStateFilters(
+      params.publishState ?? '',
+      params.publicOnly ?? false,
+      params.includeDrafts ?? false
+    )
+  )
+  if (params.hasPassword !== undefined) {
+    conditions.push(`hasPassword eq ${params.hasPassword}`)
+  }
+  return conditions.join(' and ')
+}
+
+/**
+ * `orderBy`/`orderByDirection` translated into an OData `$orderby` list.
+ *
+ * `relevancy` has no field of its own — it's `search.score()`, Azure's relevance function — which is
+ * also what `db`'s `ts_rank` plays the same role for. Every other value is a plain field name already
+ * shared with `SearchResult`.
+ */
+export function buildOrderBy(orderBy: SearchOrderBy, direction: 'asc' | 'desc'): string[] {
+  const dir = direction === 'asc' ? 'asc' : 'desc'
+  if (orderBy === 'relevancy') {
+    return [`search.score() ${dir}`]
+  }
+  return [`${orderBy} ${dir}`]
+}
+
+/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+function normalizeHighlight(highlights: Record<string, string[]> | undefined): string | null {
+  const fragment = highlights?.content?.[0] ?? highlights?.description?.[0]
+  if (!fragment) {
+    return null
+  }
+  // -> Escaped first, so the only markup that survives is the emphasis Azure itself marked
+  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+}
+
+/** Compares two rows the same way Azure's own `$orderby` would, for merging two already-sorted result sets. */
+function compareRows(
+  a: AzureSearchRow,
+  b: AzureSearchRow,
+  orderBy: SearchOrderBy,
+  direction: 'asc' | 'desc'
+): number {
+  const factor = direction === 'asc' ? 1 : -1
+  if (orderBy === 'relevancy') {
+    return (a.score - b.score) * factor
+  }
+  const av = String(a.document[orderBy] ?? '')
+  const bv = String(b.document[orderBy] ?? '')
+  if (av === bv) {
+    return 0
+  }
+  return (av < bv ? -1 : 1) * factor
+}
+
 /**
  * The `azure-search` search module: Azure AI Search as an external search engine.
  *
- * This slice (task #553) only provisions the index — `init()` — plus the SDK dependency and
- * `definition.yml`. The page-mutation hooks (`created`/`updated`/`deleted`/`renamed`), `query()` and
- * `rebuild()` are task #557's and #564's respectively, so they throw rather than silently doing
- * nothing or half-indexing: a site that selects this engine before that work lands should fail loudly
- * on its first page save, not end up with a search index nobody is keeping in sync.
+ * Task #553 provisioned the index (`init()`) and the SDK dependency. This task (#557) is the page
+ * lifecycle — `created`/`updated`/`deleted`/`renamed` keep an Azure index in step with the database —
+ * plus `query()`, the read side. `rebuild()` stays task #564's.
  *
- * Takes a client factory rather than talking to `SearchIndexClient` directly, the same reason
- * `dictionaryForLocale` in the `db` module reads its config through an injected seam: it's what lets
- * a test exercise `init()`'s idempotency against a fake client with no real Azure resource, network
- * call, or credential involved.
+ * Takes both a client factory (index management) and a search-client factory (documents/queries)
+ * rather than talking to the SDK directly, the same reason `dictionaryForLocale` in the `db` module
+ * reads its config through an injected seam: it's what lets a test exercise every hook against a fake
+ * client with no real Azure resource, network call, or credential involved — there is no local Azure
+ * AI Search emulator (Feature #381).
  */
 export class AzureSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
+  private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
   /** One client per site: each site's `serviceName`/`adminApiKey` can point at a different service. */
   private readonly clients = new Map<string, AzureSearchIndexClient>()
+  private readonly queryClients = new Map<string, AzureSearchQueryClient>()
 
   constructor(
-    clientFactory: (config: Record<string, any>) => AzureSearchIndexClient = defaultClientFactory
+    clientFactory: (config: Record<string, any>) => AzureSearchIndexClient = defaultClientFactory,
+    searchClientFactory: (
+      config: Record<string, any>
+    ) => AzureSearchQueryClient = defaultSearchClientFactory
   ) {
     this.clientFactory = clientFactory
+    this.searchClientFactory = searchClientFactory
   }
 
   private clientFor(siteId: string, config: Record<string, any>): AzureSearchIndexClient {
@@ -113,6 +389,30 @@ export class AzureSearchModule implements SearchModule {
       this.clients.set(siteId, client)
     }
     return client
+  }
+
+  private queryClientFor(siteId: string, config: Record<string, any>): AzureSearchQueryClient {
+    let client = this.queryClients.get(siteId)
+    if (!client) {
+      client = this.searchClientFactory(config)
+      this.queryClients.set(siteId, client)
+    }
+    return client
+  }
+
+  /**
+   * The stored config for one site's `azure-search` engine (`serviceName`/`adminApiKey`/`indexName`).
+   *
+   * Read straight off `WIKI.sites`, the same place `models/search.ts`'s `getEngineConfig` itself reads
+   * `stored` from, rather than going through that method: `getEngineConfig` completes its result with
+   * this engine's declared prop defaults, which needs `search.definitions` to already have been
+   * populated by `refreshFromDisk()` — a boot-time precondition this module has no reason to depend
+   * on. Every default that matters here is already applied locally wherever it's used (`indexName ||
+   * DEFAULT_INDEX_NAME` in the client factories above), so reading the stored value directly is
+   * equivalent for this module's purposes and keeps every hook usable in isolation.
+   */
+  private configFor(siteId: string): Record<string, any> {
+    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
   }
 
   /**
@@ -135,29 +435,248 @@ export class AzureSearchModule implements SearchModule {
     )
   }
 
-  /** Not yet implemented — page-mutation hooks land in task #557. */
-  async created(_page: SearchIndexablePage): Promise<void> {
-    throw new Error(`${MODULE_KEY}: created() is not implemented yet (see task #557).`)
+  /**
+   * Write (or overwrite) one page's document in the index.
+   *
+   * Never throws: a page that saved correctly must not report failure because its index entry could
+   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
+   * engine. A later `rebuild()` (task #564) puts a missed write right.
+   */
+  private async indexPage(page: SearchIndexablePage): Promise<void> {
+    try {
+      const client = this.queryClientFor(page.siteId, this.configFor(page.siteId))
+      await client.mergeOrUploadDocuments([toIndexDocument(page)])
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Failed to update the Azure AI Search index for page ${page.id}: ${err.message}`
+      )
+    }
   }
 
-  /** Not yet implemented — page-mutation hooks land in task #557. */
-  async updated(_page: SearchIndexablePage): Promise<void> {
-    throw new Error(`${MODULE_KEY}: updated() is not implemented yet (see task #557).`)
+  /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
+  private async removePage(siteId: string, pageId: string): Promise<void> {
+    try {
+      const client = this.queryClientFor(siteId, this.configFor(siteId))
+      await client.deleteDocuments('id', [pageId])
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Failed to remove page ${pageId} from the Azure AI Search index: ${err.message}`
+      )
+    }
   }
 
-  /** Not yet implemented — page-mutation hooks land in task #557. */
-  async deleted(_siteId: string, _pageId: string): Promise<void> {
-    throw new Error(`${MODULE_KEY}: deleted() is not implemented yet (see task #557).`)
+  async created(page: SearchIndexablePage): Promise<void> {
+    await this.indexPage(page)
   }
 
-  /** Not yet implemented — page-mutation hooks land in task #557. */
-  async renamed(_siteId: string, _page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    throw new Error(`${MODULE_KEY}: renamed() is not implemented yet (see task #557).`)
+  async updated(page: SearchIndexablePage): Promise<void> {
+    await this.indexPage(page)
   }
 
-  /** Not yet implemented — the query adapter lands in task #557. */
-  async query(_params: SearchPagesParams): Promise<SearchPagesResult> {
-    throw new Error(`${MODULE_KEY}: query() is not implemented yet (see task #557).`)
+  async deleted(siteId: string, pageId: string): Promise<void> {
+    await this.removePage(siteId, pageId)
+  }
+
+  /**
+   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
+   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
+   * under a new key. Unlike the `db` engine — whose `ts` vector never stores the path at all, making a
+   * rename a genuine no-op — this module's index does store `path` as a filterable field, so it does
+   * need rewriting here.
+   */
+  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
+    await this.indexPage(page)
+  }
+
+  /** Runs one search and drains its result iterator into a plain array. */
+  private async runQuery(
+    client: AzureSearchQueryClient,
+    searchText: string | undefined,
+    options: AzureSearchQueryOptions
+  ): Promise<{ rows: AzureSearchRow[]; count: number }> {
+    const response = await client.search(searchText, options)
+    const rows: AzureSearchRow[] = []
+    for await (const row of response.results) {
+      rows.push(row)
+    }
+    return { rows, count: response.count ?? 0 }
+  }
+
+  /**
+   * Full-text search over the pages of a site.
+   *
+   * The text query is optional: with only tags or filters this is a browse rather than a search —
+   * `searchText` is left `undefined`, which Azure treats as "match every document" (`search=*`).
+   *
+   * `hideProtectedContent` is only meaningful with a query: `db`'s `query()` gates the same way
+   * (`hideProtectedContent && hasQuery`), since with no query there is no body text to leak in the
+   * first place.
+   */
+  async query(params: SearchPagesParams): Promise<SearchPagesResult> {
+    const {
+      siteId,
+      query = '',
+      path = '',
+      locales = [],
+      tags = [],
+      editor = '',
+      publishState = '',
+      orderBy = 'relevancy',
+      orderByDirection = 'desc',
+      offset = 0,
+      limit = 25,
+      publicOnly = false,
+      includeDrafts = false,
+      hideProtectedContent = true,
+      actor
+    } = params
+
+    const terms = query.trim()
+    const hasQuery = terms.length > 0
+    const searchText = hasQuery ? terms : undefined
+    const client = this.queryClientFor(siteId, this.configFor(siteId))
+    const azureOrderBy = buildOrderBy(orderBy, orderByDirection)
+    const filterParams: AzureSearchFilterParams = {
+      siteId,
+      path,
+      locales,
+      tags,
+      editor,
+      publishState,
+      publicOnly,
+      includeDrafts
+    }
+
+    let rows: AzureSearchRow[]
+    let totalHits: number
+
+    if (hasQuery && hideProtectedContent) {
+      const split = await this.runProtectedSplitQuery(
+        client,
+        searchText!,
+        filterParams,
+        azureOrderBy,
+        orderBy,
+        orderByDirection,
+        offset,
+        limit
+      )
+      rows = split.rows
+      totalHits = split.totalHits
+    } else {
+      const result = await this.runQuery(client, searchText, {
+        filter: buildFilter(filterParams),
+        orderBy: azureOrderBy,
+        top: limit,
+        skip: offset,
+        includeTotalCount: true,
+        queryType: 'simple',
+        searchFields: hasQuery ? FULL_SEARCH_FIELDS : undefined,
+        highlightFields: hasQuery ? HIGHLIGHT_FIELDS : undefined,
+        highlightPreTag: HL_START,
+        highlightPostTag: HL_STOP
+      })
+      rows = result.rows
+      totalHits = result.count
+    }
+
+    /*
+      Filtered here rather than in the OData filter: a page rule can be a regular expression or a set
+      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
+      permissions — a title and an excerpt are content too. Same discipline as the `db` engine.
+    */
+    const visible = actor
+      ? rows.filter((row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            path: row.document.path as string,
+            locale: row.document.locale as string,
+            tags: (row.document.tags ?? []) as string[]
+          })
+        )
+      : rows
+
+    const results: SearchResult[] = visible.map((row) => ({
+      id: row.document.id as string,
+      path: row.document.path as string,
+      locale: row.document.locale as string,
+      title: row.document.title as string,
+      description: (row.document.description || null) as string | null,
+      icon: (row.document.icon || null) as string | null,
+      tags: (row.document.tags ?? []) as string[],
+      updatedAt: row.document.updatedAt as string,
+      relevancy: row.score,
+      highlight: normalizeHighlight(row.highlights)
+    }))
+
+    return {
+      results,
+      // -> The count Azure reported for both halves of the query, less whatever the rules just
+      //    removed -- not exact when rows are dropped, same caveat the `db` engine's own comment
+      //    documents, but a total that ignored the filtering entirely would promise results that
+      //    don't exist.
+      totalHits: Math.max(0, totalHits - rows.length + visible.length)
+    }
+  }
+
+  /**
+   * The `hideProtectedContent` behavior: a protected page is findable by name, not by what it says.
+   *
+   * Two searches are issued and merged rather than one: the public half runs the ordinary full-text
+   * query (`FULL_SEARCH_FIELDS`, including `content`) restricted to pages with no password; the
+   * protected half is scoped with `searchFields: PROTECTED_SEARCH_FIELDS` to `title`/`description`
+   * only and requests no highlights at all, so a protected page surfaces when the terms are in its
+   * title or description — both of which it shows to everyone anyway — but never when they are only
+   * in the text behind the password, and never comes back with an excerpt of that text either. This is
+   * the same shape `ts_filter(p.ts, '{a,b}')` plus the headline's own `CASE WHEN p.password IS NULL`
+   * give the `db` engine, split across two Azure queries because an external index has no per-row SQL
+   * expression to fall back to.
+   *
+   * Each half is fetched `offset + limit` deep (Azure's own ordering already puts the right rows in
+   * that range), then the two already-ordered lists are merged with the same comparator Azure's own
+   * `$orderby` would apply and sliced to the requested page locally.
+   */
+  private async runProtectedSplitQuery(
+    client: AzureSearchQueryClient,
+    searchText: string,
+    filterParams: AzureSearchFilterParams,
+    azureOrderBy: string[],
+    orderBy: SearchOrderBy,
+    orderByDirection: 'asc' | 'desc',
+    offset: number,
+    limit: number
+  ): Promise<{ rows: AzureSearchRow[]; totalHits: number }> {
+    const fetchDepth = offset + limit
+    const [publicResult, protectedResult] = await Promise.all([
+      this.runQuery(client, searchText, {
+        filter: buildFilter({ ...filterParams, hasPassword: false }),
+        orderBy: azureOrderBy,
+        top: fetchDepth,
+        skip: 0,
+        includeTotalCount: true,
+        queryType: 'simple',
+        searchFields: FULL_SEARCH_FIELDS,
+        highlightFields: HIGHLIGHT_FIELDS,
+        highlightPreTag: HL_START,
+        highlightPostTag: HL_STOP
+      }),
+      this.runQuery(client, searchText, {
+        filter: buildFilter({ ...filterParams, hasPassword: true }),
+        orderBy: azureOrderBy,
+        top: fetchDepth,
+        skip: 0,
+        includeTotalCount: true,
+        queryType: 'simple',
+        searchFields: PROTECTED_SEARCH_FIELDS
+        // -> No `highlightFields`: a protected page never shows an excerpt, matching the `db` engine.
+      })
+    ])
+    const merged = [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
+      compareRows(a, b, orderBy, orderByDirection)
+    )
+    return {
+      rows: merged.slice(offset, offset + limit),
+      totalHits: publicResult.count + protectedResult.count
+    }
   }
 
   /** Not yet implemented — the bulk rebuild path lands in task #564. */
