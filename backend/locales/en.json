@@ -1313,6 +1313,8 @@
   "admin.webhooks.nameMissing": "A name for this webhook is required.",
   "admin.webhooks.new": "New Webhook",
   "admin.webhooks.none": "There are no webhooks yet.",
+  "admin.webhooks.scope": "Scope",
+  "admin.webhooks.scopeAllSites": "All sites",
   "admin.webhooks.stateError": "Failed",
   "admin.webhooks.stateErrorExplain": "The last trigger failed to call the endpoint.",
   "admin.webhooks.stateErrorHint": "The last event failed to call your endpoint. Click Edit for more details.",

@@ -64,6 +64,7 @@
               <w-item-section>
                 <w-item-label>{{ hook.name }}</w-item-label>
                 <w-item-label caption>{{ hook.url }}</w-item-label>
+                <w-item-label caption>{{ siteScopeLabel(hook.siteId) }}</w-item-label>
               </w-item-section>
               <w-item-section side style="flex-direction: row; align-items: center">
                 <template v-if="hook.state === `pending`">
@@ -83,11 +84,7 @@
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `error`">
-                  <w-icon
-                    class="mr-2"
-                    color="negative"
-                    size="xs"
-                    name="la:exclamation-triangle" />
+                  <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
                   <div class="text-caption text-negative">{{ t('admin.webhooks.stateError') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.stateErrorHint')
@@ -129,6 +126,7 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
 
+import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 import WebhookEditDialog from '@/components/WebhookEditDialog.vue'
@@ -140,6 +138,7 @@ const dark = useDark()
 
 // STORES
 
+const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
 // I18N
@@ -160,6 +159,14 @@ const state = reactive({
 })
 
 // METHODS
+
+/** The site a webhook is scoped to, or the "all sites" label for a null (instance-wide) one. */
+function siteScopeLabel(siteId) {
+  if (!siteId) {
+    return t('admin.webhooks.scopeAllSites')
+  }
+  return adminStore.sites.find((s) => s.id === siteId)?.title ?? siteId
+}
 
 async function load() {
   state.loading++

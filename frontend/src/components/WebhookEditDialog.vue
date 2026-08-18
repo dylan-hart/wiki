@@ -97,6 +97,23 @@
           </w-item-section>
         </w-item>
         <w-item>
+          <blueprint-icon icon="web-design" />
+          <w-item-section>
+            <w-select
+              v-model="state.hook.siteId"
+              outlined
+              :options="siteOptions"
+              map-options
+              emit-value
+              option-value="id"
+              option-label="title"
+              options-dense
+              dense
+              hide-bottom-space
+              :label="t(`admin.webhooks.scope`)" />
+          </w-item-section>
+        </w-item>
+        <w-item>
           <blueprint-icon icon="unknown-status" class="self-start" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.url`) }}</w-item-label>
@@ -209,6 +226,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useAdminStore } from '@/stores/admin'
 
 // PROPS
 
@@ -226,6 +244,10 @@ defineEmits([...dialogComponentEmits])
 // DIALOG
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
+
+// STORES
+
+const adminStore = useAdminStore()
 
 // I18N
 
@@ -246,7 +268,9 @@ const state = reactive({
     includeMetadata: true,
     includeContent: false,
     state: 'pending',
-    lastErrorMessage: ''
+    lastErrorMessage: '',
+    // -> Null means "all sites", the default for a new webhook
+    siteId: null
   }
 })
 
@@ -324,6 +348,12 @@ const events = computed(() =>
   }))
 )
 
+/** "All sites" (null) first, then every site the instance has, for the scope picker. */
+const siteOptions = computed(() => [
+  { id: null, title: t('admin.webhooks.scopeAllSites') },
+  ...adminStore.sites
+])
+
 // REFS
 
 const editWebhookForm = ref(null)
@@ -351,7 +381,8 @@ function writableFields() {
     includeMetadata: state.hook.includeMetadata,
     includeContent: state.hook.includeContent,
     acceptUntrusted: state.hook.acceptUntrusted,
-    authHeader: state.hook.authHeader ?? ''
+    authHeader: state.hook.authHeader ?? '',
+    siteId: state.hook.siteId
   }
 }
 

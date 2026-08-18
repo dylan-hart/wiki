@@ -1,7 +1,7 @@
 import http from 'node:http'
 import https from 'node:https'
 import { hooks as hooksTable } from '../db/schema.ts'
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
 
 /**
  * The events a webhook can subscribe to, as offered by the admin area.
@@ -62,6 +62,8 @@ export interface Hook {
   lastErrorMessage: string | null
   createdAt: Date
   updatedAt: Date
+  // -> Null means "all sites" — see the column comment in `db/schema.ts`
+  siteId: string | null
 }
 
 /** How long a remote endpoint has to answer before the delivery counts as failed. */
@@ -79,7 +81,8 @@ const hookSelection = {
   state: hooksTable.state,
   lastErrorMessage: hooksTable.lastErrorMessage,
   createdAt: hooksTable.createdAt,
-  updatedAt: hooksTable.updatedAt
+  updatedAt: hooksTable.updatedAt,
+  siteId: hooksTable.siteId
 }
 
 /**
@@ -174,6 +177,8 @@ class Hooks {
     includeContent?: boolean
     acceptUntrusted?: boolean
     authHeader?: string
+    // -> Null (or omitted) means "all sites" — see the column comment in `db/schema.ts`
+    siteId?: string | null
   }): Promise<string> {
     const result = await WIKI.db
       .insert(hooksTable)
@@ -185,6 +190,7 @@ class Hooks {
         includeContent: values.includeContent ?? false,
         acceptUntrusted: values.acceptUntrusted ?? false,
         authHeader: values.authHeader ?? null,
+        siteId: values.siteId ?? null,
         state: 'pending'
       })
       .returning({ id: hooksTable.id })
@@ -227,10 +233,21 @@ class Hooks {
    *
    * @param data Event-specific payload. `metadata` and `content` are stripped per webhook, according
    *             to what each one asked for.
+   * @param siteId The site the event happened on, or null for an event with no natural site
+   *               (`user:join`/`login`/`logout`). A hook scoped to a specific site only matches an
+   *               event whose `siteId` is that same site; a site-null hook matches every event
+   *               regardless of `siteId`, which is what keeps "all sites" the default behavior.
    * @returns How many deliveries were queued
    */
-  async emit(event: HookEvent, data: Record<string, any> = {}): Promise<number> {
+  async emit(
+    event: HookEvent,
+    data: Record<string, any> = {},
+    siteId: string | null = null
+  ): Promise<number> {
     try {
+      const siteCondition = siteId
+        ? or(isNull(hooksTable.siteId), eq(hooksTable.siteId, siteId))
+        : isNull(hooksTable.siteId)
       const subscribed = await WIKI.db
         .select({
           id: hooksTable.id,
@@ -238,7 +255,7 @@ class Hooks {
           includeContent: hooksTable.includeContent
         })
         .from(hooksTable)
-        .where(sql`${event} = ANY(${hooksTable.events})`)
+        .where(and(sql`${event} = ANY(${hooksTable.events})`, siteCondition))
 
       let queued = 0
       for (const hook of subscribed) {

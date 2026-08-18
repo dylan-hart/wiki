@@ -561,14 +561,18 @@ class Pages {
     })
 
     await WIKI.models.search.indexPage(page.id, locale)
-    await WIKI.models.hooks.emit('page:create', {
-      id: page.id,
-      path: page.path,
-      locale,
-      siteId,
-      authorId: actor.id,
-      metadata: { title: page.title, description: page.description, editor }
-    })
+    await WIKI.models.hooks.emit(
+      'page:create',
+      {
+        id: page.id,
+        path: page.path,
+        locale,
+        siteId,
+        authorId: actor.id,
+        metadata: { title: page.title, description: page.description, editor }
+      },
+      siteId
+    )
 
     return (await this.getPage({ siteId, id: page.id })) as Page
   }
@@ -709,14 +713,18 @@ class Pages {
     }
 
     await WIKI.models.search.indexPage(id, updated.locale)
-    await WIKI.models.hooks.emit('page:edit', {
-      id,
-      path: updated.path,
-      locale: updated.locale,
-      siteId,
-      authorId: actor.id,
-      metadata: { title: updated.title, description: updated.description }
-    })
+    await WIKI.models.hooks.emit(
+      'page:edit',
+      {
+        id,
+        path: updated.path,
+        locale: updated.locale,
+        siteId,
+        authorId: actor.id,
+        metadata: { title: updated.title, description: updated.description }
+      },
+      siteId
+    )
 
     return updated
   }
@@ -798,14 +806,18 @@ class Pages {
       ]
     })
 
-    await WIKI.models.hooks.emit('page:rename', {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      siteId,
-      authorId: actor.id
-    })
+    await WIKI.models.hooks.emit(
+      'page:rename',
+      {
+        id,
+        path: moved.path,
+        previousPath: page.path,
+        locale: moved.locale,
+        siteId,
+        authorId: actor.id
+      },
+      siteId
+    )
     return moved
   }
 
@@ -833,13 +845,17 @@ class Pages {
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
 
-    await WIKI.models.hooks.emit('page:delete', {
-      id,
-      path: page.path,
-      locale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
+    await WIKI.models.hooks.emit(
+      'page:delete',
+      {
+        id,
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        authorId: actor.id
+      },
+      siteId
+    )
     return true
   }
 
@@ -877,13 +893,17 @@ class Pages {
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
     for (const entry of entries) {
-      await WIKI.models.hooks.emit('page:delete', {
-        id: entry.id,
-        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
-        locale: entry.locale,
-        siteId,
-        authorId: actor.id
-      })
+      await WIKI.models.hooks.emit(
+        'page:delete',
+        {
+          id: entry.id,
+          path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
+          locale: entry.locale,
+          siteId,
+          authorId: actor.id
+        },
+        siteId
+      )
     }
     WIKI.logger.debug(`Deleted ${entries.length} page(s) that went with a deleted folder.`)
   }

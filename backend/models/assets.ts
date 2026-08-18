@@ -320,14 +320,18 @@ class Assets {
       throw err
     }
 
-    WIKI.models.hooks.emit('asset:upload', {
-      id: entry.id,
-      fileName: storedName,
-      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
-      siteId,
-      authorId,
-      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
-    })
+    WIKI.models.hooks.emit(
+      'asset:upload',
+      {
+        id: entry.id,
+        fileName: storedName,
+        folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+        siteId,
+        authorId,
+        metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+      },
+      siteId
+    )
 
     return {
       id: entry.id,
@@ -407,14 +411,18 @@ class Assets {
     this.forgetPath(siteId, folderPath, fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:edit', {
-      id,
-      fileName,
-      folderPath,
-      siteId,
-      authorId,
-      metadata: { fileSize: data.length, mimeType, kind }
-    })
+    WIKI.models.hooks.emit(
+      'asset:edit',
+      {
+        id,
+        fileName,
+        folderPath,
+        siteId,
+        authorId,
+        metadata: { fileSize: data.length, mimeType, kind }
+      },
+      siteId
+    )
 
     const updated = await this.getAsset(siteId, id)
     // -> Only if the row vanished between the update and the read, which means someone deleted the
@@ -862,13 +870,17 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, safeName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:rename', {
-      id,
-      fileName: safeName,
-      previousFileName: asset.fileName,
-      folderPath: asset.folderPath,
+    WIKI.models.hooks.emit(
+      'asset:rename',
+      {
+        id,
+        fileName: safeName,
+        previousFileName: asset.fileName,
+        folderPath: asset.folderPath,
+        siteId
+      },
       siteId
-    })
+    )
 
     return this.getAsset(siteId, id)
   }
@@ -889,12 +901,16 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, asset.fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit('asset:delete', {
-      id,
-      fileName: asset.fileName,
-      folderPath: asset.folderPath,
+    WIKI.models.hooks.emit(
+      'asset:delete',
+      {
+        id,
+        fileName: asset.fileName,
+        folderPath: asset.folderPath,
+        siteId
+      },
       siteId
-    })
+    )
 
     return true
   }
@@ -916,12 +932,16 @@ class Assets {
     // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each file, not about the folder it happened to sit in
     for (const entry of entries) {
-      await WIKI.models.hooks.emit('asset:delete', {
-        id: entry.id,
-        fileName: entry.fileName,
-        folderPath: entry.folderPath,
+      await WIKI.models.hooks.emit(
+        'asset:delete',
+        {
+          id: entry.id,
+          fileName: entry.fileName,
+          folderPath: entry.folderPath,
+          siteId
+        },
         siteId
-      })
+      )
     }
   }
 }
