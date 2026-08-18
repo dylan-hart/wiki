@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { afterEach, describe, test } from 'node:test'
 import {
+  createDrizzleWriter,
   createDryRunWriter,
+  createGroupConverter,
   createProviderFallbackUserConverter,
   importUsersAndGroups,
   needsProviderFallback,
@@ -334,5 +336,204 @@ describe('createProviderFallbackUserConverter', () => {
       },
       { email: 'ldap@example.com', sourceProvider: 'ldap' }
     )
+  })
+})
+
+/**
+ * Coverage for `createGroupConverter()` (Task 730): group and page-rule schema conversion.
+ */
+describe('createGroupConverter', () => {
+  const convert = createGroupConverter()
+
+  test('skips a system group rather than importing it — 3.0 seeds its own via Groups.init()', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Administrators',
+      isSystem: true,
+      permissions: ['manage:system'],
+      pageRules: []
+    })
+
+    assert.equal(outcome.status, 'skipped')
+    assert.match((outcome as any).message, /Groups\.init/)
+  })
+
+  test('skips a group record with no name', async () => {
+    const outcome = await convert({ id: 1, isSystem: false, permissions: [], pageRules: [] })
+    assert.equal(outcome.status, 'skipped')
+  })
+
+  test('converts deny:true/false to mode DENY/ALLOW, never FORCEALLOW, with fresh ids, synthesized names and sites: []', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        {
+          id: '1',
+          deny: true,
+          match: 'START',
+          path: 'private',
+          roles: ['read:pages'],
+          locales: []
+        },
+        { id: '2', deny: false, match: 'EXACT', path: '', roles: ['write:pages'], locales: ['en'] }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 2)
+
+    assert.equal(rules[0].mode, 'DENY')
+    assert.equal(rules[0].match, 'START')
+    assert.equal(rules[0].path, 'private')
+    assert.deepEqual(rules[0].roles, ['read:pages'])
+    assert.deepEqual(rules[0].sites, [])
+    assert.equal(rules[0].name, 'Imported Rule 1: START private')
+    assert.notEqual(rules[0].id, '1') // -> fresh id, not the 2.x source id carried forward
+
+    assert.equal(rules[1].mode, 'ALLOW')
+    assert.deepEqual(rules[1].locales, ['en'])
+    assert.equal(rules[1].name, 'Imported Rule 2') // -> empty path falls back to the generic label
+
+    for (const rule of rules) {
+      assert.notEqual(rule.mode, 'FORCEALLOW')
+    }
+  })
+
+  test('drops a malformed page rule (missing deny, or an unsupported match value) instead of failing the group', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        { id: '1', match: 'START', path: '', roles: [], locales: [] }, // -> no `deny`
+        { id: '2', deny: false, match: 'TAGALL', path: '', roles: [], locales: [] }, // -> no 2.x source
+        { id: '3', deny: true, match: 'END', path: 'blog', roles: [], locales: [] } // -> valid
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal((outcome.row.rules as any[]).length, 1)
+    assert.match(outcome.message ?? '', /2 malformed page rule/)
+  })
+
+  test('keeps only the closed seven-name global permissions, dropping page-rule-effectiveness-only entries', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: ['manage:navigation', 'read:pages', 'write:pages', 'manage:system'],
+      pageRules: []
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.deepEqual(outcome.row.permissions, ['manage:navigation', 'manage:system'])
+    assert.match(outcome.message ?? '', /dropped 2 permission/)
+  })
+
+  test('a clean conversion (nothing dropped) has no message', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: ['manage:navigation'],
+      pageRules: [{ id: '1', deny: false, match: 'START', path: '', roles: [], locales: [] }]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.message, undefined)
+  })
+
+  test('end-to-end through importUsersAndGroups: a converted group is written and its rule shape survives the writer round-trip', async () => {
+    const writer = createDryRunWriter()
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: (async function* () {
+          yield {
+            id: 1,
+            name: 'Editors',
+            isSystem: false,
+            permissions: ['manage:navigation'],
+            pageRules: [
+              {
+                id: '1',
+                deny: true,
+                match: 'START',
+                path: 'blog',
+                roles: ['read:pages'],
+                locales: []
+              }
+            ]
+          }
+        })(),
+        users: (async function* () {})(),
+        userGroups: (async function* () {})()
+      },
+      writer,
+      convertGroup: createGroupConverter()
+    })
+
+    assert.equal(result.groups.created, 1)
+    assert.equal(result.groups.records[0].status, 'created')
+    assert.ok(result.groups.records[0].targetId)
+  })
+})
+
+/**
+ * Coverage for `createDrizzleWriter()`'s group-write path (Task 730): groups are written through
+ * `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)`.
+ */
+describe('createDrizzleWriter insertGroup', () => {
+  let restoreWiki: (() => void) | undefined
+
+  afterEach(() => {
+    restoreWiki?.()
+    restoreWiki = undefined
+  })
+
+  test('delegates to WIKI.models.groups.createGroupFromImport rather than inserting the row directly', async () => {
+    const previous = (globalThis as any).WIKI
+    const calls: any[] = []
+    ;(globalThis as any).WIKI = {
+      models: {
+        groups: {
+          async createGroupFromImport(input: any) {
+            calls.push(input)
+            return 'model-written-group-uuid'
+          }
+        }
+      }
+    }
+    restoreWiki = () => {
+      ;(globalThis as any).WIKI = previous
+    }
+
+    // `db` is never touched by insertGroup on this task's writer, so a stub that throws on any use
+    // proves the raw-insert path is genuinely gone rather than merely unused by this particular row.
+    const explodingDb = {
+      insert() {
+        throw new Error('insertGroup must not call db.insert directly — see Task 730')
+      }
+    } as any
+
+    const writer = createDrizzleWriter(explodingDb)
+    const result = await writer.insertGroup({
+      name: 'Editors',
+      permissions: ['manage:navigation'],
+      rules: []
+    } as NewGroupRow)
+
+    assert.equal(result.id, 'model-written-group-uuid')
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0], { name: 'Editors', permissions: ['manage:navigation'], rules: [] })
   })
 })

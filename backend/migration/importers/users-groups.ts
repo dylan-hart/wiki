@@ -1,11 +1,13 @@
 import bcrypt from 'bcryptjs'
 import { nanoid } from 'nanoid'
+import { v4 as uuid } from 'uuid'
 import type { WikiDb } from '../../core/db.ts'
 import {
   groups as groupsTable,
   userGroups as userGroupsTable,
   users as usersTable
 } from '../../db/schema.ts'
+import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 
 /**
@@ -50,6 +52,21 @@ import type { SourceRecord } from '../connector.ts'
  * dry-run report renders. It still isn't the full `convertUser` (that's `local`, plus real
  * github/google/oidc linking when a mapping resolves — both deferred, per this module's own stubs
  * above); a later task composes this with those into one real `convertUser`.
+ *
+ * Task 730 adds the real (non-stub) group converter: `createGroupConverter()`. It converts a
+ * non-system source group's `pageRules` array into 3.0's `GroupRule` shape (`deny` -> `mode`, a fresh
+ * `id`, a synthesized `name`, `sites: []`) and splits the source group's flat `permissions` array into
+ * what actually belongs on 3.0's `groups.permissions` -- the closed seven-name global-permission list
+ * (`manage:users`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
+ * `manage:system`, `access:admin`) -- versus entries that only ever gated page-rule effectiveness in
+ * 2.x and have no 3.0 destination (3.0's rules alone govern page access). A source group's own
+ * Administrators/Users/Guests (`isSystem: true`) are skipped outright: 3.0 seeds its own system groups
+ * once, in `Groups.init()`. Like the provider-fallback converter above, this is exported but NOT wired
+ * as the default `convertGroup` -- composing every real converter into one default is a later task.
+ * Unlike groups conversion itself, `createDrizzleWriter()`'s `insertGroup()` IS changed by this task,
+ * from a raw `db.insert(groupsTable)` to `WIKI.models.groups.createGroupFromImport()`, per the task's
+ * own instruction to write groups through the model rather than a raw insert -- see that method's doc
+ * in `models/groups.ts`.
  */
 
 // ---------------------------------------------------------------------------
@@ -123,7 +140,15 @@ export type NewUserRow = typeof usersTable.$inferInsert
  * to land on `UsersGroupsImportResult.providerFallbacks`, since the account genuinely gets created
  * and is *also* flagged for admin attention — not one or the other. */
 export type ConversionOutcome<TRow> =
-  | { status: 'created'; row: TRow; providerFallback?: ProviderFallbackFlag }
+  | {
+      status: 'created'
+      row: TRow
+      providerFallback?: ProviderFallbackFlag
+      /** Optional note for an otherwise-successful conversion — e.g. `createGroupConverter()` uses
+       * this to report permissions/rules that were dropped during conversion rather than silently
+       * discarding them. Never required: most converters that reach `created` have nothing to add. */
+      message?: string
+    }
   | { status: 'skipped' | 'conflicted' | 'flagged'; message: string }
 
 export type GroupConverter = (
@@ -145,6 +170,154 @@ export const stubConvertUser: UserConverter = () => ({
   status: 'flagged',
   message: 'user field mapping not implemented yet (deferred to a later Feature 414 task)'
 })
+
+// ---------------------------------------------------------------------------
+// Group conversion (Task 730) — the one real (non-stub) piece of group conversion this task adds:
+// pageRules -> rules reshaping and the permissions/global-vs-page-rule-only split. See the module
+// doc's Task 730 paragraph and `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
+// ---------------------------------------------------------------------------
+
+/** The closed seven-name global-permission list documented in this repo's `CLAUDE.md` — the only
+ * strings 3.0's `groups.permissions` column may hold. Everything else a 2.x source group's flat
+ * `permissions` array might contain (`read:pages`, `write:pages`, …) only ever gated whether that
+ * group's page rules took effect at all in 2.x — 3.0 has no equivalent global gate; the rules alone
+ * govern page access — so those entries are dropped rather than carried into `groups.permissions`. */
+const GLOBAL_PERMISSIONS = new Set([
+  'manage:users',
+  'manage:groups',
+  'manage:navigation',
+  'manage:theme',
+  'manage:sites',
+  'manage:system',
+  'access:admin'
+])
+
+/** The five `match` values 2.x's `PageRule.match` enum actually has (`server/graph/schemas/group.graphql`
+ * @ `requarks/wiki`). 3.0's sixth value, `TAGALL`, has no 2.x source to map from, so a rule claiming it
+ * (or anything else) is treated as malformed rather than guessed at. */
+const VALID_2X_RULE_MATCH = new Set(['START', 'END', 'REGEX', 'TAG', 'EXACT'])
+
+/** Reads a boolean column off a source record. */
+function readSourceBoolean(source: SourceRecord, column: string): boolean | undefined {
+  const raw = source[column]
+  return typeof raw === 'boolean' ? raw : undefined
+}
+
+/** Narrows an arbitrary value to a string array, dropping any non-string element rather than
+ * throwing — a defensively-read 2.x jsonb column may contain anything. */
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : []
+}
+
+/** A synthesized label for an imported rule, since 2.x rules carry no `name` of their own — e.g.
+ * `Imported Rule 2: START blog/` when the rule addresses a path, or plain `Imported Rule 2` for a
+ * rule with an empty path (2.x's convention for "the whole site"). */
+function synthesizeRuleName(rule: { match: string; path: string }, index: number): string {
+  return rule.path
+    ? `Imported Rule ${index + 1}: ${rule.match} ${rule.path}`
+    : `Imported Rule ${index + 1}`
+}
+
+/**
+ * Converts one 2.x `pageRules[]` element into 3.0's `GroupRule` shape, or `undefined` if the source
+ * element is too malformed to convert (missing `deny`, or a `match` outside 2.x's own five-value
+ * enum) — the caller drops such an element and counts it rather than failing the whole group.
+ *
+ * - `deny: true` -> `mode: 'DENY'`; `deny: false` -> `mode: 'ALLOW'`. `mode: 'FORCEALLOW'` is never
+ *   produced — 2.x has no concept a force-allow rule could come from.
+ * - `id` is always freshly generated: a 2.x rule id has no cross-table reference depending on it.
+ * - `sites` is always `[]`: 2.x predates multi-site, so an imported rule applies on every site, which
+ *   is the only site there was.
+ * - `name` is synthesized (`synthesizeRuleName`), since 2.x rules carry none.
+ */
+function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
+  if (typeof raw !== 'object' || raw === null) {
+    return undefined
+  }
+  const source = raw as Record<string, unknown>
+  const deny = readSourceBoolean(source, 'deny')
+  const rawMatch = source.match
+  if (deny === undefined || typeof rawMatch !== 'string' || !VALID_2X_RULE_MATCH.has(rawMatch)) {
+    return undefined
+  }
+  const match = rawMatch as GroupRuleMatch
+  const path = typeof source.path === 'string' ? source.path : ''
+
+  return {
+    id: uuid(),
+    name: synthesizeRuleName({ match, path }, index),
+    roles: asStringArray(source.roles),
+    match,
+    mode: deny ? 'DENY' : 'ALLOW',
+    path,
+    locales: asStringArray(source.locales),
+    sites: []
+  }
+}
+
+/**
+ * Builds the real (non-stub) `GroupConverter` for Task 730.
+ *
+ * A source group flagged `isSystem` is skipped outright: 3.0 seeds its own Administrators/Users/
+ * Guests once, in `Groups.init()`, with fixed system ids nothing else may collide with — a 2.x
+ * source's own system groups have no destination to import into.
+ *
+ * Otherwise, the source group's `permissions` array is split against `GLOBAL_PERMISSIONS`: entries in
+ * the closed list are carried onto `groups.permissions`; everything else (2.x page-permission strings
+ * that only ever gated page-rule effectiveness, with no 3.0 equivalent) is dropped. The source group's
+ * `pageRules` array is converted element-by-element by `convertPageRule()`; a malformed element is
+ * dropped rather than failing the whole group. When anything was dropped, the outcome's `message`
+ * says what and how many — an otherwise-successful `created` conversion, not a failure.
+ */
+export function createGroupConverter(): GroupConverter {
+  return (source) => {
+    if (readSourceBoolean(source, 'isSystem') === true) {
+      return {
+        status: 'skipped',
+        message:
+          "system groups (Administrators/Users/Guests) are already seeded by 3.0's own Groups.init() and are not imported"
+      }
+    }
+
+    const name = readSourceString(source, 'name')
+    if (!name) {
+      return { status: 'skipped', message: 'source group record has no name' }
+    }
+
+    const sourcePermissions = asStringArray(source.permissions)
+    const permissions = sourcePermissions.filter((permission) => GLOBAL_PERMISSIONS.has(permission))
+    const droppedPermissionCount = sourcePermissions.length - permissions.length
+
+    const sourceRules = Array.isArray(source.pageRules) ? source.pageRules : []
+    const rules: GroupRule[] = []
+    let droppedRuleCount = 0
+    sourceRules.forEach((raw, index) => {
+      const converted = convertPageRule(raw, index)
+      if (converted) {
+        rules.push(converted)
+      } else {
+        droppedRuleCount++
+      }
+    })
+
+    const notes: string[] = []
+    if (droppedPermissionCount > 0) {
+      notes.push(
+        `dropped ${droppedPermissionCount} permission(s) that only gated page-rule effectiveness in 2.x and have no 3.0 global equivalent`
+      )
+    }
+    if (droppedRuleCount > 0) {
+      notes.push(`dropped ${droppedRuleCount} malformed page rule(s)`)
+    }
+
+    const row: NewGroupRow = { name, permissions, rules, isSystem: false }
+    return notes.length > 0
+      ? { status: 'created', row, message: notes.join('; ') }
+      : { status: 'created', row }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Provider fallback (Task 729) — the one non-stub piece of user conversion this task adds. Every
@@ -306,12 +479,23 @@ export interface UsersGroupsWriter {
 
 /** Real writer, backed by Drizzle. Any insert failure (e.g. `users.email`'s unique constraint) is
  * surfaced to the caller as a thrown error — `importUsersAndGroups()` catches it per-record and
- * downgrades that record to `conflicted` rather than aborting the whole import. */
+ * downgrades that record to `conflicted` rather than aborting the whole import.
+ *
+ * `insertGroup()` is the one exception to "backed by Drizzle": per Task 730, a group is written
+ * through `WIKI.models.groups.createGroupFromImport()` rather than a raw `db.insert(groupsTable)` —
+ * that model method carries `createGroup()`'s own insert-then-`reloadCache()` shape, which a bare
+ * insert here would silently skip (a newly-imported group's rules would not take effect until the
+ * next process restart). `insertUser()`/`insertUserGroup()` stay raw inserts; routing those through
+ * their own models is not this task's scope. */
 export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
   return {
     async insertGroup(row) {
-      const [inserted] = await db.insert(groupsTable).values(row).returning({ id: groupsTable.id })
-      return inserted
+      const id = await WIKI.models.groups.createGroupFromImport({
+        name: row.name,
+        permissions: (row.permissions ?? []) as string[],
+        rules: (row.rules ?? []) as GroupRule[]
+      })
+      return { id }
     },
     async insertUser(row) {
       const [inserted] = await db.insert(usersTable).values(row).returning({ id: usersTable.id })
@@ -396,7 +580,7 @@ async function importGroups(
     try {
       const { id: targetId } = await writer.insertGroup(outcome.row)
       idMap.set(sourceId, targetId)
-      record(summary, { sourceId, targetId, status: 'created' })
+      record(summary, { sourceId, targetId, status: 'created', message: outcome.message })
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
     }
