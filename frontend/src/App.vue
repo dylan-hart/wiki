@@ -92,6 +92,21 @@ watch(() => commonStore.locale, applyLocale)
 // LOCALE
 
 async function applyLocale(locale) {
+  /*
+    -> Direction + <html lang>
+    Set synchronously, ahead of the (possibly awaited) locale-strings fetch below: this function is
+    called un-awaited from the router guard, whose `afterEach` removes `.init-loading` as soon as
+    navigation resolves -- it does not wait on this promise. Direction comes from `siteStore.locales`,
+    already loaded by the time the guard reaches locale handling, so it does not depend on `locale`
+    being in `i18n.availableLocales` or on its strings having arrived. Left this way rather than after
+    `i18n.locale.value = locale` below, a reader would see the outgoing (or default LTR) layout for as
+    long as the strings take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs the
+    boot code to correct.
+  */
+  const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
+  document.documentElement.setAttribute('dir', localeInfo?.isRTL ? 'rtl' : 'ltr')
+  document.documentElement.setAttribute('lang', locale)
+
   if (!i18n.availableLocales.includes(locale)) {
     try {
       i18n.setLocaleMessage(locale, await commonStore.fetchLocaleStrings(locale))

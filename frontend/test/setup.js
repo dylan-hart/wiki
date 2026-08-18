@@ -17,6 +17,26 @@ if (typeof Temporal === 'undefined') {
   globalThis.Temporal = Temporal
 }
 
+/**
+ * Same story, different global: Node ships a `localStorage` object from the process on up (no import
+ * needed), but it only actually stores anything when launched with `--localstorage-file` -- absent
+ * that flag `getItem`/`setItem` are missing outright. Because it already exists on `globalThis`
+ * before happy-dom's environment sets up `window`, happy-dom's own (working) `localStorage` never
+ * gets a chance to become the global one, so `stores/common.js`'s `localStorage.getItem('locale')` at
+ * store-creation time throws `TypeError: localStorage.getItem is not a function` in this sandbox's
+ * Node 25.9. A minimal in-memory stand-in, keyed the same way, is enough for anything a test does
+ * with it. Real Node 26 environments running with the flag, or a browser, never hit this branch.
+ */
+if (typeof localStorage?.getItem !== 'function') {
+  const store = new Map()
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => store.set(key, String(value)),
+    removeItem: (key) => store.delete(key),
+    clear: () => store.clear()
+  }
+}
+
 /*
   The `w-*` library is registered globally in the real app by `boot/components.js`, via the same
   `sharedComponents` map -- so every mounted component here sees `<w-icon>` / `<w-btn>` / ... resolve

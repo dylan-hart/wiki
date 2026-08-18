@@ -17,6 +17,13 @@ import { useUserStore } from './user'
  * Resolved here rather than server-side so the write shape stays a plain list of codes, and with
  * `Intl.DisplayNames` rather than a table, which gives the name in the reader's own language for
  * free. Asking for a code's name IN that code is what produces the native spelling.
+ *
+ * `isRTL` is resolved the same way, with `Intl.Locale`'s `textInfo.direction` rather than a second
+ * request to `/_api/locales` (which also carries `isRTL`, sourced from CLDR via
+ * `backend/models/locales.ts`). Every page load already reaches this function for the name fields,
+ * and `Intl.Locale` reads from the same CLDR-backed data the ICU build ships with -- so folding the
+ * direction in here keeps this store the single source of truth for locale descriptors without a
+ * second locale-list round trip on every load.
  */
 function describeLocales(codes) {
   const localized = new Intl.DisplayNames(undefined, { type: 'language' })
@@ -24,18 +31,22 @@ function describeLocales(codes) {
   return (codes ?? []).map((code) => {
     let name = code
     let nativeName = code
+    let isRTL = false
     try {
       name = localized.of(code) ?? code
       nativeName = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? code
+      isRTL = new Intl.Locale(code).textInfo.direction === 'rtl'
     } catch {
-      // -> An unregistered or malformed tag throws rather than returning nothing; show the code
+      // -> An unregistered or malformed tag throws rather than returning nothing; show the code and
+      //    fall back to left-to-right, the safer default for a direction nothing could be read for
     }
     return {
       code,
       // -> The bare language, for the two-letter badge beside each entry
       language: code.split('-')[0],
       name,
-      nativeName
+      nativeName,
+      isRTL
     }
   })
 }
@@ -96,7 +107,8 @@ export const useSiteStore = defineStore('site', {
           code: 'en',
           language: 'en',
           name: 'English',
-          nativeName: 'English'
+          nativeName: 'English',
+          isRTL: false
         }
       ]
     },
