@@ -73,7 +73,35 @@ export interface SearchResult {
 export interface SearchPagesResult {
   results: SearchResult[]
   totalHits: number
+  /**
+   * The closest page title to a query that matched nothing, for a "did you mean" prompt.
+   *
+   * `null` whenever there is nothing to suggest: no query was given, the query already found
+   * results, or nothing cleared the similarity threshold. Only ever set alongside `totalHits === 0`.
+   */
+  suggestion: string | null
 }
+
+export interface SuggestTitleParams {
+  siteId: string
+  query: string
+  /** Same meaning as on `SearchPagesParams`: restrict the candidates to what an anonymous reader may see. */
+  publicOnly?: boolean
+  /** Same meaning as on `SearchPagesParams`: include unpublished pages among the candidates. */
+  includeDrafts?: boolean
+  /** Same meaning as on `SearchPagesParams`: drop a candidate the actor could not actually open. */
+  actor?: AccessActor
+}
+
+/**
+ * Minimum trigram similarity (`pg_trgm`'s `similarity()`, 0..1) for a title to be worth suggesting.
+ *
+ * Picked as a starting point rather than tuned against real usage — see the note on `suggestTitle`.
+ */
+export const SUGGEST_TITLE_THRESHOLD = 0.3
+
+/** How many similarity candidates to pull before permission-filtering them down to one. */
+const SUGGEST_TITLE_CANDIDATES = 5
 
 export interface SearchPagesParams {
   siteId: string
@@ -370,21 +398,87 @@ class Search {
         : null
     }))
 
-    return {
-      results: result,
+    const totalHits = Math.max(
+      0,
       /*
         The count postgres reported, less whatever the rules just removed from this page of results.
         Not exact when rows are dropped -- the window function counted every match, including ones on
         later pages this reader may not see -- but a total that ignored the filtering entirely would
         promise results that do not exist.
       */
-      totalHits: Math.max(
-        0,
-        Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-          ((rows.rows ?? rows) as any[]).length +
-          visible.length
-      )
+      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
+        ((rows.rows ?? rows) as any[]).length +
+        visible.length
+    )
+
+    // -> Only worth asking when the search itself came up empty: a query that matched something has
+    //    nothing to be corrected, and no query means there was nothing to have mistyped.
+    const suggestion =
+      totalHits === 0 && hasQuery
+        ? await this.suggestTitle({ siteId, query: terms, publicOnly, includeDrafts, actor })
+        : null
+
+    return { results: result, totalHits, suggestion }
+  }
+
+  /**
+   * The closest page title to a query that found nothing, for a "did you mean" prompt.
+   *
+   * Trigram similarity (`pg_trgm`), not full-text search: a typo like "settngs" shares no stemmed
+   * token with "settings" for `websearch_to_tsquery` to match, but the two strings are close letter
+   * for letter, which is exactly what `similarity()` measures. Capped to the same
+   * visibility/permission conditions `searchPages` applies — `isSearchable`, `publishState`, and the
+   * actor's `read:pages` access — so a suggestion never names a page the searcher could not then
+   * open. Filters like `path`/`locales`/`tags` are deliberately not repeated here: those narrow what
+   * the searcher was looking *in*, not what they may see at all, and a "did you mean" that also
+   * enforced them would stay silent for a title that exists just outside the filtered scope, which
+   * defeats the point of suggesting it.
+   *
+   * `0.3` is a starting threshold, not a tuned one — there is no query log yet to tune it against.
+   * If it turns out too loose or too tight in practice, that is a follow-up once real usage exists,
+   * not something to guess further at here.
+   */
+  async suggestTitle({
+    siteId,
+    query,
+    publicOnly = false,
+    includeDrafts = false,
+    actor
+  }: SuggestTitleParams): Promise<string | null> {
+    const terms = query.trim()
+    if (!terms) {
+      return null
     }
+
+    const conditions = [sql`p."siteId" = ${siteId}`, sql`p."isSearchable" = true`]
+    if (publicOnly) {
+      conditions.push(sql`p."publishState" = 'published'`)
+    } else if (!includeDrafts) {
+      conditions.push(sql`p."publishState" <> 'draft'`)
+    }
+    conditions.push(sql`similarity(p.title, ${terms}) > ${SUGGEST_TITLE_THRESHOLD}`)
+
+    const rows = await WIKI.db.execute(sql`
+      SELECT p.path, p.locale, p.title, p.tags, similarity(p.title, ${terms}) AS score
+      FROM pages p
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY score DESC
+      LIMIT ${SUGGEST_TITLE_CANDIDATES}
+    `)
+
+    // -> Same reasoning as `searchPages`: which rule covers a candidate can depend on a regular
+    //    expression or its tags, neither of which the query above could express.
+    const visible = actor
+      ? ((rows.rows ?? rows) as any[]).filter((row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            path: row.path as string,
+            locale: row.locale as string,
+            tags: (row.tags ?? []) as string[]
+          })
+        )
+      : ((rows.rows ?? rows) as any[])
+
+    return (visible[0]?.title as string | undefined) ?? null
   }
 
   /**
