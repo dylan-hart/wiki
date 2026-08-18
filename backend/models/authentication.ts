@@ -35,6 +35,21 @@ export interface AuthModule {
 export interface AuthFlow {
   /** Where the provider sends the browser back. Registered with the provider by the administrator. */
   redirectUri: string
+  /**
+   * Ties the callback back to the browser that started this login. Threaded differently by every
+   * protocol, since only OAuth2/OIDC define a `state` parameter of their own:
+   *
+   *   - OAuth2 / OIDC (Google, GitHub, generic OIDC): the native `state` query parameter, round-tripped
+   *     by the provider unchanged and read back by the GET `/auth/:strategyId/callback` route.
+   *   - SAML: carried in `RelayState`, which the identity provider echoes back as a same-named form
+   *     field on the POST it sends the browser to make — see the POST `/auth/:strategyId/callback`
+   *     route, and `AuthFlowCallback.body`.
+   *   - CAS: CAS defines neither `state` nor anything to echo it back in — it only ever appends its own
+   *     `?ticket=` to whatever `service` / `serviceURL` was registered for the login, preserving
+   *     whatever query string was already there. So a CAS module's `authorizationUrl()` appends
+   *     `state` as a query parameter onto that URL itself before redirecting; CAS hands it straight
+   *     back on the GET callback, alongside `ticket`, without ever looking at it.
+   */
   state: string
   nonce: string
   /** PKCE verifier, whose challenge goes on the authorization request. */
@@ -47,6 +62,12 @@ export interface AuthFlowCallback extends AuthFlow {
   currentUrl: string
   /** The authorization code, for a module that reads it directly rather than through a library. */
   code?: string
+  /**
+   * The parsed `application/x-www-form-urlencoded` body, for a module whose provider answers with a
+   * form POST rather than a redirect — SAML's `SAMLResponse` and `RelayState` arrive this way. Absent
+   * on a GET callback.
+   */
+  body?: Record<string, any>
 }
 
 /**
@@ -60,6 +81,34 @@ export interface ProviderProfile {
   id: string
   email: string
   name: string
+  /**
+   * Group names as the provider reports them, for a strategy configured with `mapGroups: true`. Absent
+   * (rather than empty) means the module did not look — `undefined` and `[]` are different answers, and
+   * only the former leaves the user's wiki-side group membership untouched. See
+   * `models/users.ts`'s `syncProviderGroups()`.
+   */
+  groups?: string[]
+}
+
+/**
+ * Thrown by a form-based module's (`useForm: true`, e.g. LDAP) `authenticate()` when the credentials
+ * checked out at the provider but no local account matches yet.
+ *
+ * A redirect-based provider always goes through `loginWithProvider()`, which finds-or-creates the
+ * account itself; a form-based one calls straight into `authenticate()` from `login()` and has no other
+ * way to hand back "this person is real, here is who they are, but there is no account for them yet" —
+ * this is that signal. `login()` catches it and, if the strategy accepts new users, provisions the
+ * account through the same find-or-create path a redirect-based provider uses (see
+ * `models/users.ts`'s `findOrCreateProviderUser()`).
+ */
+export class ProvisionableLoginError extends Error {
+  profile: ProviderProfile
+
+  constructor(profile: ProviderProfile) {
+    super('ERR_USER_NOT_FOUND_PROVISIONABLE')
+    this.name = 'ProvisionableLoginError'
+    this.profile = profile
+  }
 }
 
 /** A configured instance of an authentication module. */
