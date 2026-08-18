@@ -48,9 +48,32 @@ describe(
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
     )
 
+    /**
+     * A polyglot: a valid PNG signature followed by literal `<svg>...<script>` text later in the
+     * buffer. `getAsset` resolves the mime with `detectImageMime(data) ?? (detectSvg(data) ? ... :
+     * ...)` — the PNG signature is checked first, so this must come back as `image/png`, never
+     * `svgMimeType`. That precedence is what keeps `SVG_CSP` from being skippable by disguising an
+     * SVG payload behind a raster magic number: served as `image/png` with `X-Content-Type-Options:
+     * nosniff` (`controllers/site.ts`), a browser opening the URL directly trusts the declared type
+     * rather than sniffing the trailing markup, so it never gets treated — or executed — as SVG.
+     */
+    const pngSvgPolyglot = Buffer.concat([
+      pngBuffer(64),
+      Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+    ])
+
     test('getAsset returns null for a kind that has never been uploaded', async () => {
       const asset = await sitesModel.getAsset(fixtures.siteId, 'logo')
       assert.equal(asset, null)
+    })
+
+    test('a PNG-signature/embedded-SVG polyglot round-trips as image/png, not svgMimeType', async () => {
+      await sitesModel.setAsset(fixtures.siteId, 'logo', pngSvgPolyglot)
+      const asset = await sitesModel.getAsset(fixtures.siteId, 'logo')
+
+      assert.ok(asset)
+      assert.equal(asset!.mime, 'image/png')
+      assert.notEqual(asset!.mime, svgMimeType)
     })
 
     for (const kind of siteAssetKinds as readonly SiteAssetKind[]) {
@@ -77,6 +100,33 @@ describe(
         assert.ok(asset)
         assert.equal(asset!.mime, svgMimeType)
         assert.ok(asset!.data.equals(svgBuffer), 'stored bytes must match the upload exactly')
+      })
+
+      test(`${kind}: clearAsset removes the row and flips config.assets.${kind} back off, so getAsset returns null again`, async () => {
+        await sitesModel.setAsset(fixtures.siteId, kind, svgBuffer)
+        assert.ok(await sitesModel.getAsset(fixtures.siteId, kind), 'sanity: upload landed first')
+
+        const uploadedSite = await sitesModel.getSiteById({
+          id: fixtures.siteId,
+          forceReload: true
+        })
+        assert.equal(
+          uploadedSite.config.assets?.[kind],
+          true,
+          'setAsset must flip the cached config flag on'
+        )
+
+        await sitesModel.clearAsset(fixtures.siteId, kind)
+
+        const asset = await sitesModel.getAsset(fixtures.siteId, kind)
+        assert.equal(asset, null, 'the row must actually be gone, not just unflagged')
+
+        const clearedSite = await sitesModel.getSiteById({ id: fixtures.siteId, forceReload: true })
+        assert.equal(
+          clearedSite.config.assets?.[kind],
+          false,
+          'clearAsset must flip the cached config flag back off'
+        )
       })
     }
   }

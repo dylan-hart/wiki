@@ -96,6 +96,39 @@ describe('detectSvg', () => {
   test('returns false for plain markup with no svg element', () => {
     assert.equal(detectSvg(Buffer.from('<html><body>not an svg</body></html>')), false)
   })
+
+  test('returns false for a truncated/malformed fragment that merely starts with the letters "svg"', () => {
+    // -> No whitespace or `>` immediately follows "svg", so this must not match — otherwise
+    //    `<svgfoo` inside arbitrary binary/text garbage would be misdetected as SVG markup.
+    assert.equal(detectSvg(Buffer.from('<svgness-is-not-a-tag>')), false)
+  })
+
+  test('returns false for a corrupted/incomplete SVG whose root element never appears within the first 1024 bytes', () => {
+    // -> Simulates a truncated upload: plausible SVG-adjacent preamble, but the `<svg` root element
+    //    itself got cut off past the read window.
+    const padding = 'x'.repeat(1100)
+    const markup = `<?xml version="1.0"?>\n<!-- ${padding} -->\n<svg></svg>`
+    assert.equal(detectSvg(Buffer.from(markup)), false)
+  })
+
+  test('is case-insensitive, matching an upper-cased root element', () => {
+    assert.equal(detectSvg(Buffer.from('<SVG xmlns="http://www.w3.org/2000/svg"></SVG>')), true)
+  })
+
+  test(
+    'polyglot: bytes carrying a valid PNG signature that also embed literal "<svg" text later in ' +
+      'the buffer are still recognized as SVG-shaped by detectSvg in isolation — precedence between ' +
+      "the two detectors is `Sites.getAsset`/`setAsset`'s job (detectImageMime is consulted first " +
+      "there), not this function's",
+    () => {
+      const polyglot = Buffer.concat([
+        pngBytes(64),
+        Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+      ])
+      assert.equal(detectImageMime(polyglot), 'image/png')
+      assert.equal(detectSvg(polyglot), true)
+    }
+  )
 })
 
 /**

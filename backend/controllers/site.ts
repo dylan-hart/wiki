@@ -20,15 +20,32 @@ const SITE_ASSET_FALLBACKS: Record<SiteAssetKind, string> = {
  * An uploaded site image changes whenever an administrator replaces it, and the URL never carries a
  * version — so it is always revalidated, and the ETag turns that into an empty 304 rather than a
  * re-download.
+ *
+ * Only the uploaded branch below sends this (plus the ETag): the `replyWithFile` fallback further
+ * down sends neither. That is intentional, not a gap this file forgot to close — the fallback's
+ * bytes are a fixed path under this repo's own `assets/_assets/`, which only ever changes via a
+ * redeploy (a new build, a new process), not a request an administrator can make against a running
+ * instance the way an upload is. There is no per-instance revalidation problem to solve for content
+ * that cannot change out from under a live process.
  */
 const SITE_ASSET_CACHE = 'public, no-cache'
 
 /**
- * An SVG is a document, not an image file: opened directly rather than through an `<img>`, a browser
- * will run whatever scripts are in it, in this origin. Uploading one takes `manage:sites`, which
- * already allows injecting markup into every page of the site — but that is a reason to keep the
- * blast radius of a stolen admin session small, not to ignore it. Nothing legitimate in a logo needs
- * more than the markup itself, so the response allows nothing else.
+ * Every current consumer of a site image — `HeaderNav.vue`, `Login.vue`, `AdminGeneral.vue` — loads
+ * it inside an `<img>`, and a browser never executes script markup found through `<img src>`
+ * regardless of any response header; that holds for an SVG exactly as it would for any other image
+ * format. So this header is not what stops a malicious upload from running in the app's own UI —
+ * nothing needs to, because `<img>` already can't run it. What it actually guards against is the
+ * request nothing here otherwise controls: this same URL fetched *outside* an `<img>` context —
+ * typed directly into the address bar, or loaded through `<object>`/`<iframe>`/a same-origin
+ * top-level navigation — where a browser would otherwise treat the response as an HTML-capable
+ * document and run whatever the file contains, in this origin, as whoever is looking at it. Uploading
+ * one takes `manage:sites`, which already allows injecting markup into every page of the site — but
+ * that is a reason to keep the blast radius of a stolen admin session small, not to ignore it.
+ * Nothing legitimate in a logo needs more than the markup itself, so the response allows nothing
+ * else. (Verified manually against an uploaded SVG carrying a `<script>` payload in both Chrome and
+ * Firefox: rendered via `<img src>` it never runs, matching the reasoning above regardless of this
+ * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
  */
 const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
@@ -63,6 +80,10 @@ async function routes(app: FastifyInstance) {
         ? await WIKI.models.sites.getAsset(site.id, kind)
         : null
       if (!asset) {
+        // -> No SVG_CSP/ETag/Cache-Control here either, and for the same reason for each: this file's
+        //    bytes are picked by the codebase (`SITE_ASSET_FALLBACKS`), never by anything a request
+        //    can influence, so none of the risks those headers guard against — an admin-uploaded
+        //    payload, content changing under an unversioned URL — apply to it.
         return replyWithFile(reply, path.join(WIKI.ROOTPATH, fallback))
       }
 
