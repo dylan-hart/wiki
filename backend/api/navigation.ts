@@ -84,7 +84,8 @@ async function routes(app: FastifyInstance) {
                 children: { type: 'array', items: navigationItem }
               }
             }
-          }
+          },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -136,7 +137,9 @@ async function routes(app: FastifyInstance) {
                   'The menu this page inherits. Null when the sidebar above it is hidden.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -198,7 +201,9 @@ async function routes(app: FastifyInstance) {
                 navigationId: { type: ['string', 'null'] }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -258,7 +263,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -330,7 +337,11 @@ async function routes(app: FastifyInstance) {
                 description: 'The menu this page now resolves to. Null when the sidebar is hidden.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

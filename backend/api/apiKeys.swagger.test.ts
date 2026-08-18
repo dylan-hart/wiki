@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import fastifySwagger from '@fastify/swagger'
 import apiKeysRoutes from './apiKeys.ts'
 import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Task 622: the `siteId` and `scope` fields added to API keys (tasks 612/616) must actually surface
@@ -41,6 +42,7 @@ before(async () => {
 
   app = fastify()
   await app.register(fastifySensible)
+  await registerErrorSchema(app)
   await app.register(fastifySwagger, {
     hideUntagged: true,
     openapi: { openapi: '3.1.0', info: { title: 'Wiki.js API', version: 'test' } }

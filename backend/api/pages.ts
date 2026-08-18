@@ -375,7 +375,9 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'IncludedPage#' }
+          200: { $ref: 'IncludedPage#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -453,7 +455,9 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'Page#' }
+          200: { $ref: 'Page#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -577,7 +581,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'Page#' }
+          200: { $ref: 'Page#' },
+          401: { $ref: 'ApiError#', description: 'The password is wrong, or the page has none.' }
         }
       }
     },
@@ -639,7 +644,9 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' },
               page: { $ref: 'Page#' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -703,6 +710,9 @@ async function routes(app: FastifyInstance) {
               page: { $ref: 'Page#' }
             }
           },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
           409: {
             description:
               "The page changed since `expectedUpdatedAt` was read; the write was refused rather than overwriting somebody else's save.",
@@ -841,7 +851,10 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' },
               page: { $ref: 'Page#' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -904,7 +917,10 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -957,7 +973,10 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Page deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1004,7 +1023,9 @@ async function routes(app: FastifyInstance) {
             description: 'Versions of this page, newest first',
             type: 'array',
             items: { $ref: 'PageHistoryEntry#' }
-          }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1054,7 +1075,9 @@ async function routes(app: FastifyInstance) {
           required: ['siteId', 'pageId', 'versionId']
         },
         response: {
-          200: { $ref: 'PageHistoryVersion#' }
+          200: { $ref: 'PageHistoryVersion#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1118,6 +1141,10 @@ async function routes(app: FastifyInstance) {
               id: { type: 'string', format: 'uuid' },
               path: { type: 'string' }
             }
+          },
+          404: {
+            $ref: 'ApiError#',
+            description: 'No page uses this alias, or the requester may not read it.'
           }
         }
       }

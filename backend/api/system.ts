@@ -175,7 +175,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -266,7 +268,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The system flags could not be saved.' }
         }
       }
     },
@@ -301,7 +307,9 @@ async function routes(app: FastifyInstance) {
           'Most of this is applied when the HTTP server starts, so changing it takes effect on the next restart.',
         tags: ['System'],
         response: {
-          200: { $ref: 'SecurityConfig#' }
+          200: { $ref: 'SecurityConfig#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -337,7 +345,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The security configuration could not be saved.' }
         }
       }
     },
@@ -397,7 +409,9 @@ async function routes(app: FastifyInstance) {
                 items: { type: 'string' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -448,7 +462,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The search configuration could not be saved.' }
         }
       }
     },
@@ -523,7 +541,10 @@ async function routes(app: FastifyInstance) {
                 description: 'ID of the queued job, which the scheduler view lists.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The scheduler could not queue the rebuild.' }
         }
       }
     },
@@ -559,7 +580,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of extensions',
             type: 'array',
             items: { $ref: 'Extension#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -609,6 +632,17 @@ async function routes(app: FastifyInstance) {
                   'True when this server already tried and failed to load the module. Node replays a failed module load for the life of the process, so the repaired files cannot be used until the server restarts.'
               }
             }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'The extension is not compatible with this system, or is not installable.'
+          },
+          500: {
+            $ref: 'ApiError#',
+            description: 'The install failed. The message carries npm’s own output.'
           }
         }
       }
@@ -673,7 +707,9 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -720,7 +756,10 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The API state could not be saved.' }
         }
       }
     },
@@ -764,7 +803,9 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -811,7 +852,10 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The metrics endpoint state could not be saved.' }
         }
       }
     },
@@ -878,7 +922,9 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -917,7 +963,9 @@ async function routes(app: FastifyInstance) {
                 description: 'Connections that were open on this instance and have been closed.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -958,7 +1006,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -997,7 +1047,9 @@ async function routes(app: FastifyInstance) {
                 description: 'RFC 3339 Date Time'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1037,7 +1089,10 @@ async function routes(app: FastifyInstance) {
                   'Keys that were neither revoked nor expired, and have just stopped working.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The new certificates could not be saved.' }
         }
       }
     },
@@ -1084,7 +1139,9 @@ async function routes(app: FastifyInstance) {
                 description: 'Keys deleted.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1128,7 +1185,10 @@ async function routes(app: FastifyInstance) {
                 description: 'Sessions that were open and have been ended.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The new session secret could not be saved.' }
         }
       }
     },
@@ -1196,7 +1256,9 @@ async function routes(app: FastifyInstance) {
                 description: 'Versions deleted.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1238,7 +1300,9 @@ async function routes(app: FastifyInstance) {
                 format: 'date-time'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

@@ -34,7 +34,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of icon sets',
             type: 'array',
             items: { $ref: 'IconSet#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -81,7 +83,10 @@ async function routes(app: FastifyInstance) {
               },
               set: { $ref: 'IconSet#' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -145,7 +150,10 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -201,7 +209,10 @@ async function routes(app: FastifyInstance) {
                 type: 'integer'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -238,7 +249,10 @@ async function routes(app: FastifyInstance) {
             description: 'List of available icon sets',
             type: 'array',
             items: { $ref: 'AvailableIconSet#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          502: { $ref: 'ApiError#', description: 'The Iconify API could not be reached.' }
         }
       }
     },
@@ -281,7 +295,10 @@ async function routes(app: FastifyInstance) {
                 type: 'integer'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          502: { $ref: 'ApiError#', description: 'The Iconify API could not be reached.' }
         }
       }
     },
@@ -348,7 +365,10 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          502: { $ref: 'ApiError#', description: 'The Iconify API could not be reached.' }
         }
       }
     },
@@ -406,7 +426,10 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#', description: 'The set is not enabled or does not exist.' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -471,7 +494,9 @@ async function routes(app: FastifyInstance) {
                   'References that could not be stored: malformed, from a set that is not enabled, or unknown upstream.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -527,7 +552,9 @@ async function routes(app: FastifyInstance) {
                 description: 'Bytes held by the SVG files in the disk cache.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -562,7 +589,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

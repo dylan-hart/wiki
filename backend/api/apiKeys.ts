@@ -24,7 +24,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of API keys',
             type: 'array',
             items: { $ref: 'ApiKey#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -112,7 +114,10 @@ async function routes(app: FastifyInstance) {
                 description: 'The token. Shown once and never again.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -194,7 +199,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The key is already revoked.' }
         }
       }
     },

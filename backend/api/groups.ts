@@ -67,7 +67,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of all groups',
             type: 'array',
             items: { $ref: 'GroupCore#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -118,7 +120,11 @@ async function routes(app: FastifyInstance) {
                 format: 'uuid'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The group could not be created.' }
         }
       }
     },
@@ -169,7 +175,10 @@ async function routes(app: FastifyInstance) {
             description: 'Group info',
             type: 'object',
             $ref: 'Group#'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -256,7 +265,12 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The group could not be updated.' }
         }
       }
     },
@@ -370,7 +384,12 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Group deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The group is a built-in system group.' },
+          500: { $ref: 'ApiError#', description: 'The group could not be deleted.' }
         }
       }
     },
@@ -450,7 +469,10 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'UserCore#' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -512,7 +534,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
         }
       }
     },
@@ -585,7 +611,11 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'User unassigned successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' }
         }
       }
     },

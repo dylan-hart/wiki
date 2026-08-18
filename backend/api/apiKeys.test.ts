@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import apiKeysRoutes from './apiKeys.ts'
 import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * `POST /_api/api-keys`'s `scope` field is validated against the closed permission vocabulary
@@ -46,6 +47,18 @@ before(async () => {
 
   app = fastify()
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`badRequest()`/etc. is a
+  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
+  await registerErrorSchema(app)
   await registerApiKeySchema(app)
   await app.register(apiKeysRoutes)
   await app.ready()

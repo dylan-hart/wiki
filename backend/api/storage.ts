@@ -35,7 +35,10 @@ async function routes(app: FastifyInstance) {
             description: 'List of storage targets',
             type: 'array',
             items: { $ref: 'StorageTarget#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -77,7 +80,9 @@ async function routes(app: FastifyInstance) {
           required: ['siteId', 'targetId']
         },
         response: {
-          200: { $ref: 'StorageSyncStatus#' }
+          200: { $ref: 'StorageSyncStatus#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -144,7 +149,11 @@ async function routes(app: FastifyInstance) {
                   'How many target rows were written. A target already in the requested state still counts.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -229,7 +238,12 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The target is disabled.' }
         }
       }
     },
@@ -345,7 +359,11 @@ async function routes(app: FastifyInstance) {
                 description: 'What the module wants done next, e.g. `{ nextStep, url }`.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -415,7 +433,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

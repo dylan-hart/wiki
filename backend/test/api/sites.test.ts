@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import sitesRoutes from '../../api/sites.ts'
 import { registerSchemas as registerSiteSchema } from '../../api/schemas/site.ts'
+import { registerSchemas as registerErrorSchema } from '../../api/schemas/error.ts'
 
 /**
  * Regression test for a pre-existing bug in `GET /_api/sites/:siteIdorHostname`: the handler read
@@ -69,6 +70,18 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`badRequest()`/etc. is a
+  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
+  await registerErrorSchema(app)
   await registerSiteSchema(app)
   await app.register(sitesRoutes)
   await app.ready()

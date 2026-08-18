@@ -133,7 +133,8 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -234,7 +235,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'AuthLoginResult#' }
+          200: { $ref: 'AuthLoginResult#' },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -318,7 +320,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'AuthLoginResult#' }
+          200: { $ref: 'AuthLoginResult#' },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -424,7 +427,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'AuthLoginResult#' }
+          200: { $ref: 'AuthLoginResult#' },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -499,7 +503,8 @@ async function routes(app: FastifyInstance) {
                 description: 'A WebAuthn `PublicKeyCredentialRequestOptions`, JSON-encoded.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -563,7 +568,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'AuthLoginResult#' }
+          200: { $ref: 'AuthLoginResult#' },
+          400: { $ref: 'ApiError#' }
         }
       }
     },
@@ -633,7 +639,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          302: { description: 'Redirect to the identity provider', type: 'null' }
+          302: { description: 'Redirect to the identity provider', type: 'null' },
+          404: { $ref: 'ApiError#', description: 'No such strategy, or it is disabled.' }
         }
       }
     },
@@ -867,7 +874,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of authentication modules',
             type: 'array',
             items: { $ref: 'AuthModule#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -895,7 +904,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of configured strategies',
             type: 'array',
             items: { $ref: 'AuthStrategy#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -927,7 +938,10 @@ async function routes(app: FastifyInstance) {
           required: ['strategyId']
         },
         response: {
-          200: { $ref: 'AuthStrategy#' }
+          200: { $ref: 'AuthStrategy#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -973,7 +987,10 @@ async function routes(app: FastifyInstance) {
                 format: 'uuid'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1042,7 +1059,12 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The strategy update could not be saved.' }
         }
       }
     },
@@ -1120,6 +1142,13 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Strategy deleted successfully'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'The built-in local strategy cannot be deleted.'
           }
         }
       }

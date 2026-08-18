@@ -7,6 +7,7 @@ import ajvFormats from 'ajv-formats'
 import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Two independently-built route test suites merged at merge-review time (see `comments.ts`'s own
@@ -79,6 +80,7 @@ describe('comment provider routes', () => {
 
     app = fastify()
     await app.register(fastifySensible)
+    await registerErrorSchema(app)
     await registerCommentSchema(app)
     await registerCommentProviderSchema(app)
     await app.register(commentsRoutes)
@@ -377,6 +379,7 @@ describe('page-scoped comment routes', () => {
       ) as any
     })
     await app.register(fastifySensible)
+    await registerErrorSchema(app)
     await registerCommentSchema(app)
     await registerCommentProviderSchema(app)
     await app.register(commentsRoutes)

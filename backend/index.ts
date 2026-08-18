@@ -34,6 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { stripPageExtension } from './helpers/common.ts'
+import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'
 
@@ -425,20 +426,9 @@ async function initHTTPServer() {
         version: WIKI.version
       },
       components: {
-        securitySchemes: {
-          apiKeyAuth: {
-            type: 'apiKey',
-            in: 'header',
-            name: 'X-API-Key'
-          },
-          bearerAuth: {
-            type: 'http',
-            scheme: 'bearer',
-            bearerFormat: 'JWT'
-          }
-        }
+        securitySchemes: OPENAPI_SECURITY_SCHEMES
       },
-      security: [{ apiKeyAuth: [] }, { bearerAuth: [] }]
+      security: OPENAPI_SECURITY
     },
     transform: ({ schema, url, route }: any) => {
       // Add permissions to the route schema description

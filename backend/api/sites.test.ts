@@ -7,6 +7,7 @@ import ajvFormats from 'ajv-formats'
 import sitesRoutes from './sites.ts'
 import { registerSchemas as registerSiteSchema } from './schemas/site.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Regression test for `GET /_api/sites/:siteIdorHostname`'s `strict` querystring flag: the handler
@@ -141,6 +142,18 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()` etc. is a thrown
+  //    `@fastify/sensible` error, and it is THIS handler — not fastify's default — that shapes it
+  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema below expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
+  await registerErrorSchema(app)
   await registerSiteSchema(app)
   // -> Mirrors the real route-level permission hook from `index.ts`, reading permissions off a
   //    stubbed session instead of a real one, so the route-level OR-list is exercised too, not just

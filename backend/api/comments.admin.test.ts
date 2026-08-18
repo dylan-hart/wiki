@@ -9,6 +9,7 @@ import { comments as commentsTable, groups as groupsTable } from '../db/schema.t
 import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import type { GroupRule } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
 
@@ -47,6 +48,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       ;(req as any).session = testSession
     })
     await app.register(fastifySensible)
+    await registerErrorSchema(app)
     await registerCommentSchema(app)
     await registerCommentProviderSchema(app)
     await app.register(commentsRoutes)

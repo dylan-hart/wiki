@@ -59,7 +59,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of webhooks',
             type: 'array',
             items: { $ref: 'Hook#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -98,7 +100,9 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -130,7 +134,10 @@ async function routes(app: FastifyInstance) {
           required: ['hookId']
         },
         response: {
-          200: { $ref: 'Hook#' }
+          200: { $ref: 'Hook#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -175,7 +182,10 @@ async function routes(app: FastifyInstance) {
                 format: 'uuid'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -240,7 +250,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -304,7 +318,10 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Webhook deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

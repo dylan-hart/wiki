@@ -85,12 +85,16 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       usernameType: {
         type: 'string'
       },
+      // Deliberately loose: keys and value types come from each module's own `definition.yml` on
+      // disk, so the shape genuinely differs per authentication module (local, OIDC, LDAP, …).
       props: {
         type: 'object',
         additionalProperties: true,
         description:
           'The module configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to.'
       },
+      // Deliberately loose: same reason as `props` above — which refs a module exposes, and their
+      // keys, are declared per module.
       refs: {
         type: 'object',
         additionalProperties: true,
@@ -134,6 +138,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         }
       },
+      // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
+      // declares — a different set of keys per module.
       config: {
         type: 'object',
         additionalProperties: true,
@@ -184,6 +190,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
       },
+      // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {
         type: 'object',
         additionalProperties: true,

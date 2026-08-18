@@ -145,7 +145,9 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'UserCore#' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -203,7 +205,9 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -219,7 +223,28 @@ async function routes(app: FastifyInstance) {
         summary: 'Get currently logged in user info',
         description:
           'Includes the group-wide permissions of the session, which is what the interface hides its own controls by. Permissions ON A PAGE are a different question, answered by `pages/userPermissions`.\n\nThe app itself gets this from `bootstrap` on load, together with the site and the flags; this endpoint is what asks again once a login or a logout has changed the answer.',
-        tags: ['Users']
+        tags: ['Users'],
+        response: {
+          200: {
+            description:
+              '`{ authenticated: false }` for a guest. A logged in session also includes the profile fields carried on the session, plus the flattened permissions its groups grant.',
+            allOf: [
+              {
+                type: 'object',
+                properties: {
+                  authenticated: { type: 'boolean' },
+                  permissions: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description:
+                      'The same list the route permission hook checks against, from the groups this user belongs to.'
+                  }
+                }
+              },
+              { $ref: 'UserProfile#' }
+            ]
+          }
+        }
       }
     },
     async (req, reply) => {
@@ -244,7 +269,8 @@ async function routes(app: FastifyInstance) {
             description: 'User profile',
             type: 'object',
             $ref: 'UserProfile#'
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -292,7 +318,10 @@ async function routes(app: FastifyInstance) {
                 $ref: 'UserProfile#'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -387,7 +416,10 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -447,7 +479,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -500,7 +534,8 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -539,7 +574,8 @@ async function routes(app: FastifyInstance) {
             description: 'Editor settings. An object whose shape belongs to the editor.',
             type: 'object',
             additionalProperties: true
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -583,7 +619,8 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               config: { type: 'object', additionalProperties: true }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -665,7 +702,8 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'Passkey#' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -714,7 +752,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -774,7 +814,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -840,7 +882,9 @@ async function routes(app: FastifyInstance) {
                   'The base32 secret the QR code encodes, for a user who would rather type it into an authenticator app than scan it. Only ever returned here, to the user setting 2FA up on their own account.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -913,7 +957,9 @@ async function routes(app: FastifyInstance) {
                   'The fresh recovery codes in plaintext. Only ever returned here, to the user activating 2FA on their own account — only hashes are kept afterwards. Show them once and prompt to save; `POST /users/profile/tfa/recovery-codes` is the only way to see the count remaining again, and regenerating is the only way to get a readable set back.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -962,7 +1008,9 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: '2FA turned off successfully'
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1118,7 +1166,9 @@ async function routes(app: FastifyInstance) {
                 description: 'A WebAuthn `PublicKeyCredentialCreationOptions`, JSON-encoded.'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1181,7 +1231,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               passkey: { $ref: 'Passkey#' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1235,7 +1287,9 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Passkey removed successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1270,7 +1324,9 @@ async function routes(app: FastifyInstance) {
             description: 'User defaults',
             type: 'object',
             $ref: 'UserDefaults#'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1308,7 +1364,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The user defaults could not be saved.' }
         }
       }
     },
@@ -1375,7 +1435,10 @@ async function routes(app: FastifyInstance) {
             description: 'User info',
             type: 'object',
             $ref: 'User#'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1476,7 +1539,11 @@ async function routes(app: FastifyInstance) {
                 format: 'uuid'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The user could not be created.' }
         }
       }
     },
@@ -1603,7 +1670,13 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The user could not be updated.' }
         }
       }
     },
@@ -1763,7 +1836,10 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1824,7 +1900,9 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'Passkey#' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1872,7 +1950,9 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Passkey revoked successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1937,7 +2017,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1989,7 +2071,12 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'User deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The user could not be deleted.' }
         }
       }
     },

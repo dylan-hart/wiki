@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import approvalsRoutes from './approvals.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
@@ -104,6 +105,18 @@ before(async () => {
 
   app = fastify()
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
+  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
+  await registerErrorSchema(app)
   await registerApprovalSchema(app)
   app.addHook('preHandler', (req: any, reply, done) => {
     currentSitePermissionHeader = req.headers['x-test-site-permissions']

@@ -3,12 +3,14 @@ import { after, before, beforeEach, describe, it, test } from 'node:test'
 import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import fastifySwagger from '@fastify/swagger'
 import ajvFormats from 'ajv-formats'
 
 import { registerSchemas } from './schemas/page.ts'
 // -> 'Page#' nests a 'viewer.pendingSubmissions' item that $refs 'PageEditSubmission#', so that
 //    schema has to exist too or Fastify fails to build the serializer at all.
 import { registerSchemas as registerApprovalSchemas } from './schemas/approval.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import pagesRoutes from './pages.ts'
 
 /**
@@ -81,6 +83,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
     const app = Fastify()
     await registerSchemas(app)
     await registerApprovalSchemas(app)
+    await registerErrorSchema(app)
     await app.register(pagesRoutes)
     await app.ready()
     return app
@@ -172,6 +175,17 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
 
     app = Fastify()
     await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
+    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
     app.addHook('onRequest', async (req) => {
       const rawKey = req.headers['x-test-api-key']
       if (typeof rawKey === 'string') {
@@ -184,6 +198,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
     })
     await registerApprovalSchemas(app)
     await registerSchemas(app)
+    await registerErrorSchema(app)
     await app.register(pagesRoutes)
     await app.ready()
   })
@@ -275,303 +290,516 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
 })
 
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
-let previousTemporal: any
-let previousToTemporalInstant: any
+  let previousTemporal: any
+  let previousToTemporalInstant: any
 
-/**
- * Minimal stand-in for the subset of `Temporal` the route under test calls: `Temporal.Instant.from()`
- * plus `.epochMilliseconds` for the concurrency check, and `Date#toTemporalInstant().toString({
- * smallestUnit })` for the collab-save notification the handler already sends.
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * older and doesn't expose it (same environment gap noted in `core/scheduler.test.ts` — not a spec
- * deviation). Installed only when genuinely missing, so a real Node 26 run exercises the native API.
- */
-function installFakeTemporal(): void {
-  ;(globalThis as any).Temporal = {
-    Instant: {
-      from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) })
-    }
-  }
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const epochMilliseconds = this.getTime()
-    return {
-      epochMilliseconds,
-      toString: () => new Date(epochMilliseconds).toISOString()
-    }
-  }
-}
-
-/**
- * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
- * (task 542): the handler already fetches the current row before calling `updatePage()` for the
- * permission check, so an `expectedUpdatedAt` on the body is compared against `target.updatedAt`
- * right there (millisecond precision, via `Temporal.Instant`) rather than being plumbed into the
- * model. A mismatch skips the write entirely and answers 409 with enough of the current page for
- * the client to offer a diff/overwrite choice without a second round trip.
- *
- * `WIKI.models.pages` / `WIKI.models.groups` / `WIKI.collab` are stubbed, and an `onRequest` hook
- * stands in for `@fastify/session` by writing an authenticated session directly onto the request —
- * keeping this a self-contained unit test of the route's conflict-detection wiring rather than
- * pulling in the db/schema/drizzle/session-store graph.
- *
- * Also covers `GET /sites/:siteId/pages/:pageIdOrHash`'s `viewer.activeEditors` (task 546): the route
- * folds `WIKI.collab.participantInfo()` — itself covered directly, against the real `Awareness`
- * library, in `core/collab.test.ts` — into the same per-page-view response as `approvalState` and
- * `isWatching`. What is worth a route-level test here is the wiring around that call, not
- * `participantInfo()` itself: that it is only ever asked for on a site with `collaborativeEditing` on,
- * and that its answer reaches `viewer.activeEditors` unchanged.
- */
-
-const SITE_ID = '11111111-1111-1111-1111-111111111111'
-const PAGE_ID = '22222222-2222-2222-2222-222222222222'
-const STORED_UPDATED_AT = new Date('2026-08-17T10:00:00.000Z')
-
-let app: FastifyInstance
-let updatePageCalls: any[]
-let participantInfoCalls: string[]
-let siteCollabEnabled: boolean
-let participantInfoResult: { count: number; names: string[] }
-let searchPagesCalls: any[]
-let ruleGrantedPermissions: string[]
-
-function currentPage() {
-  return {
-    id: PAGE_ID,
-    path: 'some-page',
-    locale: 'en',
-    tags: [],
-    allowContributions: true,
-    title: 'Stored Title',
-    content: 'Stored content',
-    authorName: 'Someone Else',
-    updatedAt: STORED_UPDATED_AT
-  }
-}
-
-before(async () => {
-  previousTemporal = (globalThis as any).Temporal
-  previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-  if (typeof previousTemporal === 'undefined') {
-    installFakeTemporal()
-  }
-  ;(globalThis as any).WIKI = {
-    models: {
-      pages: {
-        getPage: async () => currentPage(),
-        updatePage: async (siteId: string, id: string, patch: any, actor: any) => {
-          updatePageCalls.push({ siteId, id, patch, actor })
-          return { ...currentPage(), updatedAt: new Date(), authorId: actor.id }
-        }
-      },
-      groups: {
-        actorForRequest: () => ({ permissions: ['write:pages'], groupIds: [] }),
-        checkAccess: () => true,
-        groupIdsForRequest: () => [],
-        // -> Regression stub for task 551's fix: the search route asks this rather than scanning
-        //    `actor.permissions` (the GLOBAL list) for `write:pages`/`manage:pages`, which are page-rule
-        //    permissions and never legitimately appear there. Driven per-test by
-        //    `ruleGrantedPermissions`, standing in for "some rule across this actor's groups grants it".
-        mayHoldPermissionSomewhere: (_actor: any, permissions: string[]) =>
-          permissions.some((p) => ruleGrantedPermissions.includes(p))
-      },
-      approvals: {
-        pageViewerState: async () => ({
-          canSuggestEdits: false,
-          hasOpenSuggestion: false,
-          canReview: false,
-          pendingSubmissions: []
-        })
-      },
-      pageWatching: {
-        isWatching: async () => false
-      },
-      search: {
-        searchPages: async (params: any) => {
-          searchPagesCalls.push(params)
-          return { results: [], totalHits: 0 }
-        }
-      },
-      comments: {
-        countForPage: async () => 0
+  /**
+   * Minimal stand-in for the subset of `Temporal` the route under test calls: `Temporal.Instant.from()`
+   * plus `.epochMilliseconds` for the concurrency check, and `Date#toTemporalInstant().toString({
+   * smallestUnit })` for the collab-save notification the handler already sends.
+   *
+   * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+   * older and doesn't expose it (same environment gap noted in `core/scheduler.test.ts` — not a spec
+   * deviation). Installed only when genuinely missing, so a real Node 26 run exercises the native API.
+   */
+  function installFakeTemporal(): void {
+    ;(globalThis as any).Temporal = {
+      Instant: {
+        from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) })
       }
-    },
-    collab: {
-      pageSaved: () => {},
-      participantInfo: (pageId: string) => {
-        participantInfoCalls.push(pageId)
-        return participantInfoResult
-      }
-    },
-    get sites() {
+    }
+    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+      const epochMilliseconds = this.getTime()
       return {
-        [SITE_ID]: { config: { features: { collaborativeEditing: siteCollabEnabled } } }
+        epochMilliseconds,
+        toString: () => new Date(epochMilliseconds).toISOString()
       }
     }
   }
 
-  app = Fastify({
-    ajv: {
-      plugins: [[ajvFormats.default, {}] as any]
+  /**
+   * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
+   * (task 542): the handler already fetches the current row before calling `updatePage()` for the
+   * permission check, so an `expectedUpdatedAt` on the body is compared against `target.updatedAt`
+   * right there (millisecond precision, via `Temporal.Instant`) rather than being plumbed into the
+   * model. A mismatch skips the write entirely and answers 409 with enough of the current page for
+   * the client to offer a diff/overwrite choice without a second round trip.
+   *
+   * `WIKI.models.pages` / `WIKI.models.groups` / `WIKI.collab` are stubbed, and an `onRequest` hook
+   * stands in for `@fastify/session` by writing an authenticated session directly onto the request —
+   * keeping this a self-contained unit test of the route's conflict-detection wiring rather than
+   * pulling in the db/schema/drizzle/session-store graph.
+   *
+   * Also covers `GET /sites/:siteId/pages/:pageIdOrHash`'s `viewer.activeEditors` (task 546): the route
+   * folds `WIKI.collab.participantInfo()` — itself covered directly, against the real `Awareness`
+   * library, in `core/collab.test.ts` — into the same per-page-view response as `approvalState` and
+   * `isWatching`. What is worth a route-level test here is the wiring around that call, not
+   * `participantInfo()` itself: that it is only ever asked for on a site with `collaborativeEditing` on,
+   * and that its answer reaches `viewer.activeEditors` unchanged.
+   */
+
+  const SITE_ID = '11111111-1111-1111-1111-111111111111'
+  const PAGE_ID = '22222222-2222-2222-2222-222222222222'
+  const STORED_UPDATED_AT = new Date('2026-08-17T10:00:00.000Z')
+
+  let app: FastifyInstance
+  let updatePageCalls: any[]
+  let participantInfoCalls: string[]
+  let siteCollabEnabled: boolean
+  let participantInfoResult: { count: number; names: string[] }
+  let searchPagesCalls: any[]
+  let ruleGrantedPermissions: string[]
+
+  function currentPage() {
+    return {
+      id: PAGE_ID,
+      path: 'some-page',
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      title: 'Stored Title',
+      content: 'Stored content',
+      authorName: 'Someone Else',
+      updatedAt: STORED_UPDATED_AT
     }
-  })
-  await app.register(fastifySensible)
-  // -> Stands in for `@fastify/session`: every injected request arrives already logged in.
-  app.addHook('onRequest', async (req) => {
-    ;(req as any).session = {
-      authenticated: true,
-      user: { id: 'author-1', email: 'author@example.com', name: 'Author' },
-      permissions: []
+  }
+
+  before(async () => {
+    previousTemporal = (globalThis as any).Temporal
+    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
+    if (typeof previousTemporal === 'undefined') {
+      installFakeTemporal()
     }
-  })
-  await registerSchemas(app)
-  await registerApprovalSchemas(app)
-  await app.register(pagesRoutes)
-  await app.ready()
-})
-
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-  ;(globalThis as any).Temporal = previousTemporal
-  ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
-})
-
-beforeEach(() => {
-  updatePageCalls = []
-  participantInfoCalls = []
-  siteCollabEnabled = true
-  participantInfoResult = { count: 0, names: [] }
-  searchPagesCalls = []
-  ruleGrantedPermissions = []
-})
-
-test('a save with no expectedUpdatedAt writes through as before', async () => {
-  const res = await app.inject({
-    method: 'PATCH',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
-    payload: { title: 'New Title' }
-  })
-  assert.equal(res.statusCode, 200)
-  assert.equal(updatePageCalls.length, 1)
-})
-
-test('a save whose expectedUpdatedAt matches the stored value writes through', async () => {
-  const res = await app.inject({
-    method: 'PATCH',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
-    payload: {
-      title: 'New Title',
-      expectedUpdatedAt: STORED_UPDATED_AT.toISOString()
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => currentPage(),
+          updatePage: async (siteId: string, id: string, patch: any, actor: any) => {
+            updatePageCalls.push({ siteId, id, patch, actor })
+            return { ...currentPage(), updatedAt: new Date(), authorId: actor.id }
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: ['write:pages'], groupIds: [] }),
+          checkAccess: () => true,
+          groupIdsForRequest: () => [],
+          // -> Regression stub for task 551's fix: the search route asks this rather than scanning
+          //    `actor.permissions` (the GLOBAL list) for `write:pages`/`manage:pages`, which are page-rule
+          //    permissions and never legitimately appear there. Driven per-test by
+          //    `ruleGrantedPermissions`, standing in for "some rule across this actor's groups grants it".
+          mayHoldPermissionSomewhere: (_actor: any, permissions: string[]) =>
+            permissions.some((p) => ruleGrantedPermissions.includes(p))
+        },
+        approvals: {
+          pageViewerState: async () => ({
+            canSuggestEdits: false,
+            hasOpenSuggestion: false,
+            canReview: false,
+            pendingSubmissions: []
+          })
+        },
+        pageWatching: {
+          isWatching: async () => false
+        },
+        search: {
+          searchPages: async (params: any) => {
+            searchPagesCalls.push(params)
+            return { results: [], totalHits: 0 }
+          }
+        },
+        comments: {
+          countForPage: async () => 0
+        }
+      },
+      collab: {
+        pageSaved: () => {},
+        participantInfo: (pageId: string) => {
+          participantInfoCalls.push(pageId)
+          return participantInfoResult
+        }
+      },
+      get sites() {
+        return {
+          [SITE_ID]: { config: { features: { collaborativeEditing: siteCollabEnabled } } }
+        }
+      }
     }
-  })
-  assert.equal(res.statusCode, 200)
-  assert.equal(updatePageCalls.length, 1)
-})
 
-test('a save whose expectedUpdatedAt is stale is rejected with 409 and skips the write', async () => {
-  const staleDate = new Date(STORED_UPDATED_AT.getTime() - 60_000).toISOString()
-  const res = await app.inject({
-    method: 'PATCH',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
-    payload: { title: 'New Title', expectedUpdatedAt: staleDate }
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Stands in for `@fastify/session`: every injected request arrives already logged in.
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = {
+        authenticated: true,
+        user: { id: 'author-1', email: 'author@example.com', name: 'Author' },
+        permissions: []
+      }
+    })
+    await registerSchemas(app)
+    await registerApprovalSchemas(app)
+    await registerErrorSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
   })
-  assert.equal(res.statusCode, 409)
-  assert.equal(updatePageCalls.length, 0)
-  const body = res.json()
-  assert.equal(body.ok, false)
-  assert.equal(typeof body.message, 'string')
-  assert.ok(body.page)
-  assert.equal(body.page.title, 'Stored Title')
-  assert.equal(body.page.content, 'Stored content')
-  assert.equal(body.page.authorName, 'Someone Else')
-  assert.equal(body.page.updatedAt, STORED_UPDATED_AT.toISOString())
-})
 
-test('expectedUpdatedAt is compared at millisecond precision, not nanosecond', async () => {
-  // -> Same instant, just re-serialized without sub-millisecond noise
-  const res = await app.inject({
-    method: 'PATCH',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
-    payload: {
-      title: 'New Title',
-      expectedUpdatedAt: STORED_UPDATED_AT.toTemporalInstant().toString({
-        smallestUnit: 'millisecond'
-      })
-    }
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+    ;(globalThis as any).Temporal = previousTemporal
+    ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   })
-  assert.equal(res.statusCode, 200)
-  assert.equal(updatePageCalls.length, 1)
-})
 
-test('GET page carries collab.participantInfo() through as viewer.activeEditors, on a site with the feature on', async () => {
-  participantInfoResult = { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] }
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  beforeEach(() => {
+    updatePageCalls = []
+    participantInfoCalls = []
+    siteCollabEnabled = true
+    participantInfoResult = { count: 0, names: [] }
+    searchPagesCalls = []
+    ruleGrantedPermissions = []
   })
-  assert.equal(res.statusCode, 200)
-  assert.deepEqual(participantInfoCalls, [PAGE_ID])
-  const body = res.json()
-  assert.deepEqual(body.viewer.activeEditors, { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] })
-})
 
-test('GET page never asks collab for participants, and answers zero, on a site with collaborativeEditing off', async () => {
-  siteCollabEnabled = false
-  participantInfoResult = { count: 5, names: ['Should Not Appear'] }
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  test('a save with no expectedUpdatedAt writes through as before', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { title: 'New Title' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updatePageCalls.length, 1)
   })
-  assert.equal(res.statusCode, 200)
-  assert.deepEqual(participantInfoCalls, [])
-  const body = res.json()
-  assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
-})
 
-test('GET page answers activeEditors: { count: 0, names: [] } when nobody else has the page open', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+  test('a save whose expectedUpdatedAt matches the stored value writes through', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: {
+        title: 'New Title',
+        expectedUpdatedAt: STORED_UPDATED_AT.toISOString()
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updatePageCalls.length, 1)
   })
-  assert.equal(res.statusCode, 200)
-  const body = res.json()
-  assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+
+  test('a save whose expectedUpdatedAt is stale is rejected with 409 and skips the write', async () => {
+    const staleDate = new Date(STORED_UPDATED_AT.getTime() - 60_000).toISOString()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: { title: 'New Title', expectedUpdatedAt: staleDate }
+    })
+    assert.equal(res.statusCode, 409)
+    assert.equal(updatePageCalls.length, 0)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.equal(typeof body.message, 'string')
+    assert.ok(body.page)
+    assert.equal(body.page.title, 'Stored Title')
+    assert.equal(body.page.content, 'Stored content')
+    assert.equal(body.page.authorName, 'Someone Else')
+    assert.equal(body.page.updatedAt, STORED_UPDATED_AT.toISOString())
+  })
+
+  test('expectedUpdatedAt is compared at millisecond precision, not nanosecond', async () => {
+    // -> Same instant, just re-serialized without sub-millisecond noise
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: {
+        title: 'New Title',
+        expectedUpdatedAt: STORED_UPDATED_AT.toTemporalInstant().toString({
+          smallestUnit: 'millisecond'
+        })
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updatePageCalls.length, 1)
+  })
+
+  test('GET page carries collab.participantInfo() through as viewer.activeEditors, on a site with the feature on', async () => {
+    participantInfoResult = { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(participantInfoCalls, [PAGE_ID])
+    const body = res.json()
+    assert.deepEqual(body.viewer.activeEditors, { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] })
+  })
+
+  test('GET page never asks collab for participants, and answers zero, on a site with collaborativeEditing off', async () => {
+    siteCollabEnabled = false
+    participantInfoResult = { count: 5, names: ['Should Not Appear'] }
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(participantInfoCalls, [])
+    const body = res.json()
+    assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+  })
+
+  test('GET page answers activeEditors: { count: 0, names: [] } when nobody else has the page open', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.viewer.activeEditors, { count: 0, names: [] })
+  })
+
+  /**
+   * Regression tests for task 551's audit-sweep fix: the search route (`GET
+   * /sites/:siteId/pages/search`) used to decide `includeDrafts`/`hideProtectedContent` by scanning
+   * `actor.permissions` — the GLOBAL, group-wide permission list — for `write:pages`/`manage:pages`,
+   * which are page-rule permissions a group's global `permissions` column never legitimately carries
+   * (the group editor doesn't offer them, and nothing seeds them there). The check was effectively dead
+   * for every real editor, contradicting the route's own documented behavior ("Drafts are included only
+   * for someone who may write pages"). It now asks `WIKI.models.groups.mayHoldPermissionSomewhere()`,
+   * which pools the actor's actual page rules instead — covered directly, against real rule rows, in
+   * `models/groups.test.ts`; what's worth covering here is that the route wires that answer through to
+   * both search options rather than the old `actor.permissions` scan.
+   */
+  test('search includes drafts and bypasses password-protected excerpts for an actor whose page rules grant write:pages, even though write:pages is absent from their global permission list', async () => {
+    ruleGrantedPermissions = ['write:pages']
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/search`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(searchPagesCalls.length, 1)
+    assert.equal(searchPagesCalls[0].includeDrafts, true)
+    assert.equal(searchPagesCalls[0].hideProtectedContent, false)
+  })
+
+  test('search excludes drafts and hides password-protected excerpts for an actor with no write:pages/manage:pages rule anywhere', async () => {
+    ruleGrantedPermissions = ['read:pages']
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/search`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(searchPagesCalls.length, 1)
+    assert.equal(searchPagesCalls[0].includeDrafts, false)
+    assert.equal(searchPagesCalls[0].hideProtectedContent, true)
+  })
 })
 
 /**
- * Regression tests for task 551's audit-sweep fix: the search route (`GET
- * /sites/:siteId/pages/search`) used to decide `includeDrafts`/`hideProtectedContent` by scanning
- * `actor.permissions` — the GLOBAL, group-wide permission list — for `write:pages`/`manage:pages`,
- * which are page-rule permissions a group's global `permissions` column never legitimately carries
- * (the group editor doesn't offer them, and nothing seeds them there). The check was effectively dead
- * for every real editor, contradicting the route's own documented behavior ("Drafts are included only
- * for someone who may write pages"). It now asks `WIKI.models.groups.mayHoldPermissionSomewhere()`,
- * which pools the actor's actual page rules instead — covered directly, against real rule rows, in
- * `models/groups.test.ts`; what's worth covering here is that the route wires that answer through to
- * both search options rather than the old `actor.permissions` scan.
+ * Task 602 regression coverage for `pages.ts`, the file this task's TDD change actually lands in:
+ *
+ * 1. `relations` and `toc` used to be `{ type: 'object', additionalProperties: true }` — accurate to
+ *    nothing in particular. Both have exactly one producer (`PageRelationDialog.vue` for relations,
+ *    `rendering.ts`'s `anchorHeadings`/`nestHeadings` for toc) with a fixed shape, so they are now
+ *    `PageRelation#` / `PageTocNode#`. The first block below proves the tightened schema is not just
+ *    documentation: fast-json-stringify silently drops a field the schema doesn't declare, so a
+ *    response carrying one is proof the schema is actually narrower than before.
+ * 2. `GET /sites/:siteId/pages/:pageIdOrHash` can reply 403 and 404 (`mayOnPage` / `getPage` returning
+ *    null) but declared neither. The second block proves both are now declared AND that what the
+ *    handler actually sends on those paths validates against the declared `ApiError` schema.
  */
-test('search includes drafts and bypasses password-protected excerpts for an actor whose page rules grant write:pages, even though write:pages is absent from their global permission list', async () => {
-  ruleGrantedPermissions = ['write:pages']
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/search`
-  })
-  assert.equal(res.statusCode, 200)
-  assert.equal(searchPagesCalls.length, 1)
-  assert.equal(searchPagesCalls[0].includeDrafts, true)
-  assert.equal(searchPagesCalls[0].hideProtectedContent, false)
-})
+describe('pages API — response schema completeness (task 602)', () => {
+  const samplePage = {
+    id: '11111111-1111-1111-1111-111111111111',
+    path: 'foo',
+    hash: 'abc123',
+    alias: null,
+    title: 'Foo',
+    description: null,
+    icon: null,
+    locale: 'en',
+    editor: 'markdown',
+    contentType: 'text',
+    publishState: 'published',
+    publishStartDate: null,
+    publishEndDate: null,
+    isBrowsable: true,
+    isSearchable: true,
+    isLocked: false,
+    relations: [
+      {
+        id: 'r1',
+        position: 'left',
+        label: 'Next',
+        icon: 'la:arrow-left',
+        target: '/bar',
+        // -> Not part of `PageRelation`'s declared properties: proves the schema is enforced, not
+        //    merely descriptive, since it must NOT survive serialization.
+        bogusField: 'should be stripped'
+      }
+    ],
+    tags: [],
+    toc: [
+      {
+        key: 'h-intro',
+        label: 'Intro',
+        level: 1,
+        children: []
+      }
+    ],
+    render: '<p>hi</p>',
+    allowComments: true,
+    allowContributions: true,
+    allowRatings: true,
+    showSidebar: true,
+    showTags: true,
+    showToc: true,
+    tocDepth: { min: 1, max: 2 },
+    scriptJsLoad: '',
+    scriptJsUnload: '',
+    scriptCss: '',
+    navigationId: null,
+    navigationMode: 'default',
+    authorId: '22222222-2222-2222-2222-222222222222',
+    authorName: 'Alice',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-02T00:00:00.000Z'
+  }
 
-test('search excludes drafts and hides password-protected excerpts for an actor with no write:pages/manage:pages rule anywhere', async () => {
-  ruleGrantedPermissions = ['read:pages']
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/search`
+  let app: FastifyInstance
+  let mayOnPageResult = true
+  let getPageResult: any = samplePage
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => getPageResult
+        },
+        groups: {
+          actorForRequest: () => ({ groupIds: [], permissions: [] }),
+          checkAccess: () => mayOnPageResult,
+          groupIdsForRequest: () => []
+        },
+        approvals: {
+          pageViewerState: async () => ({
+            canSuggestEdits: false,
+            hasOpenSuggestion: false,
+            canReview: false,
+            pendingSubmissions: []
+          })
+        },
+        pageWatching: {
+          isWatching: async () => false
+        },
+        comments: {
+          countForPage: async () => 0
+        }
+      },
+      sites: {}
+    }
+
+    app = Fastify()
+    await app.register(fastifySensible)
+    await app.register(fastifySwagger, {
+      hideUntagged: true,
+      openapi: { openapi: '3.1.0', info: { title: 'test', version: '0.0.0' } }
+    })
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()` etc. is a
+    //    thrown `@fastify/sensible` error, and it is THIS handler — not fastify's default — that shapes
+    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema below expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await app.register(pagesRoutes)
+    await app.ready()
   })
-  assert.equal(res.statusCode, 200)
-  assert.equal(searchPagesCalls.length, 1)
-  assert.equal(searchPagesCalls[0].includeDrafts, false)
-  assert.equal(searchPagesCalls[0].hideProtectedContent, true)
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  /** Follows a `$ref` (however `@fastify/swagger` named the component) to the schema it points at. */
+  function resolveRef(doc: any, schema: any): any {
+    if (!schema?.$ref) return schema
+    const name = schema.$ref.replace('#/components/schemas/', '')
+    return doc.components.schemas[name]
+  }
+
+  test('Page relations and toc are no longer bare additionalProperties blobs', () => {
+    const doc: any = app.swagger()
+    const pageSchema = resolveRef(
+      doc,
+      doc.paths['/sites/{siteId}/pages/{pageIdOrHash}'].get.responses['200'].content[
+        'application/json'
+      ].schema
+    )
+
+    const relation = resolveRef(doc, pageSchema.properties.relations.items)
+    assert.deepEqual(Object.keys(relation.properties).sort(), [
+      'caption',
+      'icon',
+      'id',
+      'label',
+      'position',
+      'target'
+    ])
+    assert.notEqual(relation.additionalProperties, true)
+
+    const tocNode = resolveRef(doc, pageSchema.properties.toc.items)
+    assert.deepEqual(Object.keys(tocNode.properties).sort(), ['children', 'key', 'label', 'level'])
+    assert.notEqual(tocNode.additionalProperties, true)
+  })
+
+  test('GET single page declares its 403 and 404 responses', () => {
+    const doc: any = app.swagger()
+    const responses = doc.paths['/sites/{siteId}/pages/{pageIdOrHash}'].get.responses
+    assert.ok(responses['403'], '403 must be declared: mayOnPage can refuse')
+    assert.ok(responses['404'], '404 must be declared: getPage can return null')
+  })
+
+  test('a bogus field on a relation is stripped by the tightened schema', async () => {
+    mayOnPageResult = true
+    getPageResult = samplePage
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/33333333-3333-3333-3333-333333333333/pages/abc123'
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.relations[0].bogusField, undefined)
+    assert.equal(body.relations[0].id, 'r1')
+    assert.deepEqual(body.toc[0], { key: 'h-intro', label: 'Intro', level: 1, children: [] })
+  })
+
+  test('GET single page: 404 when the page does not exist, matching ApiError', async () => {
+    getPageResult = null
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/33333333-3333-3333-3333-333333333333/pages/abc123'
+    })
+    assert.equal(res.statusCode, 404)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    assert.equal(typeof body.message, 'string')
+  })
+
+  test('GET single page: 403 when mayOnPage refuses', async () => {
+    getPageResult = samplePage
+    mayOnPageResult = false
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/33333333-3333-3333-3333-333333333333/pages/abc123'
+    })
+    assert.equal(res.statusCode, 403)
+    const body = res.json()
+    assert.equal(body.ok, false)
+    mayOnPageResult = true
   })
 })

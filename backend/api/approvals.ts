@@ -213,7 +213,10 @@ async function routes(app: FastifyInstance) {
             description: 'List of approval rules',
             type: 'array',
             items: { $ref: 'ApprovalRule#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -268,7 +271,11 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               rule: { $ref: 'ApprovalRule#' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -341,7 +348,11 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               rule: { $ref: 'ApprovalRule#' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -421,7 +432,10 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Rule deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -489,7 +503,8 @@ async function routes(app: FastifyInstance) {
           required: ['siteId', 'submissionId']
         },
         response: {
-          200: { $ref: 'PageEditSubmissionDetail#' }
+          200: { $ref: 'PageEditSubmissionDetail#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -551,7 +566,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -621,7 +638,8 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -677,7 +695,8 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'PageEditSubmission#' }
               }
             }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -770,7 +789,8 @@ async function routes(app: FastifyInstance) {
                 description: 'Only present with `withContent`, and only when `canSubmit` holds.'
               }
             }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -851,7 +871,10 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

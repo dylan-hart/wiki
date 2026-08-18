@@ -226,6 +226,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       {
         type: 'object',
         properties: {
+          // Deliberately loose: `models/users.ts` treats `meta`/`prefs` as free-form blobs (its own
+          // comment says so at `updateProfile()`) — `meta` holds ad-hoc profile fields plus internal
+          // bookkeeping like a login-attempt counter, `prefs` is keyed per editor under
+          // `prefs.editors[editor]` so each editor owns an arbitrary blob of its own.
           meta: {
             type: 'object',
             additionalProperties: true
@@ -254,6 +258,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
                 strategyIcon: {
                   type: 'string'
                 },
+                // Deliberately loose: same reason as `AuthStrategy.config` in schemas/authentication.ts
+                // — values for whichever props the linked module declares.
                 config: {
                   type: 'object',
                   additionalProperties: true

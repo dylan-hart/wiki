@@ -259,7 +259,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of comment providers',
             type: 'array',
             items: { $ref: 'CommentProvider#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -301,7 +303,9 @@ async function routes(app: FastifyInstance) {
           200: {
             description: 'The provider now active, as stored',
             $ref: 'CommentProvider#'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

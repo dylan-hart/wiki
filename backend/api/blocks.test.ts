@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import blocksRoutes from './blocks.ts'
 import { registerSchemas as registerBlockSchema } from './schemas/block.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 describe('POST /sites/:siteId/blocks (custom block upload)', () => {
   /**
@@ -70,6 +71,7 @@ customElements.define('block-widget', BlockWidget)
 
     app = fastify()
     await app.register(fastifySensible)
+    await registerErrorSchema(app)
     await registerBlockSchema(app)
     await app.register(blocksRoutes)
     await app.ready()
@@ -178,6 +180,7 @@ customElements.define('block-widget', BlockWidget)
     const smallApp = fastify()
     await smallApp.register(fastifySensible)
     await registerBlockSchema(smallApp)
+    await registerErrorSchema(smallApp)
     await smallApp.register(blocksRoutes)
     await smallApp.ready()
     try {
@@ -269,6 +272,18 @@ describe('PUT/DELETE /sites/:siteId/blocks (site-scoped delegation)', () => {
 
     app = fastify()
     await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
+    //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+    //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
     await registerBlockSchema(app)
     app.addHook('preHandler', (req: any, reply, done) => {
       currentSitePermissionHeader = req.headers['x-test-site-permissions']
@@ -377,6 +392,7 @@ describe('PUT /sites/:siteId/blocks (per-block config passthrough)', () => {
       }
     })
     await app.register(fastifySensible)
+    await registerErrorSchema(app)
     await registerBlockSchema(app)
     await app.register(blocksRoutes)
     await app.ready()
