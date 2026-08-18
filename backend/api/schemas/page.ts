@@ -128,6 +128,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         maxLength: 255,
         description:
           "Why this save is being made, as the editor's reason-for-change prompt collected it. Not stored on the page: it is recorded on the history version this save produces."
+      },
+      expectedUpdatedAt: {
+        type: 'string',
+        format: 'date-time',
+        description:
+          "The page's `updatedAt` as the editor last saw it, for optimistic concurrency on update. When present and it no longer matches the stored value — somebody else saved in between — the write is refused with 409 instead of overwriting their change. Ignored on create, and ignored by an in-progress collab session, whose own saves keep this field current."
       }
     }
   })
@@ -244,6 +250,20 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
             type: 'array',
             items: { $ref: 'PageEditSubmission#' },
             description: 'What is waiting on this page, oldest first. Empty unless `canReview`.'
+          },
+          activeEditors: {
+            type: 'object',
+            description:
+              'Who else has this page open in a live collaboration room on this instance, right now — a same-instance approximation, not a cluster-wide count (see `core/collab.ts#participantInfo`). Always zero on a site with collaborative editing off.',
+            properties: {
+              count: { type: 'integer' },
+              names: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Best-effort: only those participants whose awareness state carries a name.'
+              }
+            }
           }
         }
       }

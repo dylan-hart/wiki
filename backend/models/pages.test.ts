@@ -17,7 +17,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   before(async () => {
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('./pages.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
   after(async () => {

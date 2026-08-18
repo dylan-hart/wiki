@@ -349,7 +349,7 @@ describe('page-scoped comment routes', () => {
     ;(globalThis as any).WIKI = {
       models: {
         pages: { getPage },
-        groups: { actorForRequest, checkAccess },
+        groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
         users: { getById },
         comments: {
           listForPage,
@@ -378,6 +378,7 @@ describe('page-scoped comment routes', () => {
     })
     await app.register(fastifySensible)
     await registerCommentSchema(app)
+    await registerCommentProviderSchema(app)
     await app.register(commentsRoutes)
     await app.ready()
   })

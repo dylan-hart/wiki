@@ -34,7 +34,15 @@ export const useEditorStore = defineStore('editor', {
     configIsLoaded: false,
     reasonForChange: '',
     ignoreRouteChange: false,
-    pendingAssets: []
+    pendingAssets: [],
+    /**
+     * The page as the server now has it, when a save was refused because somebody else saved first.
+     *
+     * Set by `pageSave()` in `stores/page.js` on a 409 reply, whose body is `{ updatedAt, title,
+     * content, authorName }` -- and read by `EditorMarkdown.vue`, which watches it to put up the
+     * resolution dialog. Null the rest of the time, which is what the watcher gates on.
+     */
+    saveConflict: null
   }),
   getters: {
     hasPendingChanges: (state) => {

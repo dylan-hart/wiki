@@ -47,7 +47,10 @@ const pageIdParam = {
  * Who is saving, and what they may embed.
  *
  * A page records an author, so it takes a logged in user rather than an API key — and the author's
- * permissions are what the render is sanitized against.
+ * permissions are what the render is sanitized against. `write:scripts`/`write:styles` are
+ * page-rule-scoped (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is
+ * what `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()`
+ * does here.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -55,25 +58,28 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
   }
   return {
     id: req.session.user.id,
-    permissions: req.session.permissions ?? []
+    permissions: req.session.permissions ?? [],
+    groupIds: WIKI.models.groups.groupIdsForRequest(req)
   }
 }
 
 /**
- * Permissions that make a page's password irrelevant to the holder.
+ * The page permissions that make a page's password irrelevant to the holder — asked of
+ * `WIKI.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
  *
- * Whoever may edit a page can read its source in the editor and can take the password off it
- * altogether, so asking them for it protects nothing. Everybody else — including a logged in reader —
- * has to enter it.
- *
- * Site-wide rather than per page, because per-path rules are not implemented. See the FIXME on the
- * page-permissions route below.
+ * Used only by search, which spans many pages that may each carry a different rule, so there is no
+ * single page here to ask `mayOnPage()` about. This is deliberately coarser than `mayBypassPassword()`
+ * below: search either hides every protected excerpt from this searcher or none of them, rather than
+ * deciding page by page. (`manage:system` needs no entry here — `mayHoldPermissionSomewhere()` already
+ * short-circuits on it.)
  */
-const PASSWORD_BYPASS = ['write:pages', 'manage:pages', 'manage:system']
+const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 
-export function mayBypassPassword(req: FastifyRequest): boolean {
-  const permissions = req.apiKey?.permissions ?? req.session?.permissions ?? []
-  return PASSWORD_BYPASS.some((permission) => permissions.includes(permission))
+export function mayBypassPassword(
+  req: FastifyRequest,
+  page: { path: string; locale?: string; tags?: string[] }
+): boolean {
+  return mayOnPage(req, 'write:pages', page) || mayOnPage(req, 'manage:pages', page)
 }
 
 /**
@@ -82,8 +88,11 @@ export function mayBypassPassword(req: FastifyRequest): boolean {
  * The unlock is recorded on the session — server side, by page id — so that reading a page the reader
  * unlocked a moment ago does not ask again, and so that nothing the browser can set decides this.
  */
-export function unlockedFor(req: FastifyRequest, pageId: string): boolean {
-  return mayBypassPassword(req) || Boolean(req.session?.unlockedPages?.includes(pageId))
+export function unlockedFor(
+  req: FastifyRequest,
+  page: { id: string; path: string; locale?: string; tags?: string[] }
+): boolean {
+  return mayBypassPassword(req, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
 }
 
 /**
@@ -143,7 +152,7 @@ export async function loadReadablePage(req: FastifyRequest, siteId: string, page
     siteId,
     id: pageId,
     publicOnly: !actor,
-    unlocked: (id: string) => unlockedFor(req, id)
+    unlocked: (page) => unlockedFor(req, page)
   })
   // -> Not readable is indistinguishable from not there, for anything hanging off the page
   if (!page || !mayOnPage(req, 'read:pages', page)) {
@@ -303,7 +312,15 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const actor = actorFrom(req)
-      const permissions = actor?.permissions ?? []
+      const accessActor = WIKI.models.groups.actorForRequest(req)
+      // -> "May write pages somewhere" and "may read a locked page's text anywhere" are the same
+      //    question here — both amount to holding `write:pages`/`manage:pages` via SOME rule, not the
+      //    (unrelated) group-wide permission list. See `mayHoldPermissionSomewhere()`'s own doc for why
+      //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
+      const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
+        accessActor,
+        PAGE_PASSWORD_BYPASS_ROLES
+      )
       return WIKI.models.search.searchPages({
         siteId: req.params.siteId,
         query: req.query.query,
@@ -318,15 +335,13 @@ async function routes(app: FastifyInstance) {
         limit: req.query.limit,
         publicOnly: !actor,
         // -> So that a page the caller could not open never shows up as a result
-        actor: WIKI.models.groups.actorForRequest(req),
+        actor: accessActor,
         // -> An unpublished page is only of interest to someone who could have written it
-        includeDrafts: ['write:pages', 'manage:pages', 'manage:system'].some((p) =>
-          permissions.includes(p)
-        ),
+        includeDrafts: maySeeEverything,
         // -> Same rule as the page view: a protected page's text is for whoever holds the password, and
         //    a search excerpt is that text. Its title and description are not covered, so the page is
-        //    still listed — see `hideProtectedContent`.
-        hideProtectedContent: !mayBypassPassword(req)
+        //    still listed. Global rather than per page — since a search spans many pages at once.
+        hideProtectedContent: !maySeeEverything
       })
     }
   )
@@ -374,7 +389,9 @@ async function routes(app: FastifyInstance) {
         hash: generatePathHash(path || 'home'),
         locale: req.query.locale,
         publicOnly: !actor,
-        unlocked: (pageId) => unlockedFor(req, pageId),
+        // -> Only ever needs the body's presence/absence, which `isLocked` already answers below, so
+        //    the password value itself is never read back here.
+        unlocked: (page) => unlockedFor(req, page),
         withPassword: false
       })
       if (!page) {
@@ -405,7 +422,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Per-page access rules are not implemented yet.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester may edit the page, for whom the password is not a barrier.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per page against the requester's group rules (`mayOnPage()`), not against a group-wide permission list, so who may read a given page can differ path by path.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester holds `write:pages` or `manage:pages` ON THIS PAGE, for whom the password is not a barrier.",
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -454,9 +471,10 @@ async function routes(app: FastifyInstance) {
         // -> The source is what an editor loads, and editing is not something an anonymous reader does
         withContent: Boolean(req.query.withContent) && Boolean(actor),
         publicOnly: !actor,
-        // -> Answered once the page is known, since a hash does not say which page it is yet
-        unlocked: (pageId) => unlockedFor(req, pageId),
-        withPassword: mayBypassPassword(req)
+        // -> Both answered once the page is known, since a hash does not say which page it is yet, and
+        //    the bypass is decided per page (`mayOnPage()`), not from a group-wide permission list.
+        unlocked: (page) => unlockedFor(req, page),
+        withPassword: (page) => mayBypassPassword(req, page)
       })
       if (!page) {
         return reply.notFound('This page does not exist.')
@@ -484,13 +502,24 @@ async function routes(app: FastifyInstance) {
         WIKI.models.pageWatching.isWatching(page.id, actorId),
         WIKI.models.comments.countForPage(page.id)
       ])
+      /*
+        Who else already has this page open, on this instance — a cheap "someone else has this open"
+        hint for before a collab session starts, drawn straight from whatever room `core/collab.ts`
+        already has for the page. No query: it is in memory or it is nothing. Left at zero on a site
+        without the feature, since a room can never exist there and the number would be misleading if
+        the feature were re-enabled and disabled again while a stale one lingered.
+      */
+      const activeEditors = WIKI.sites[req.params.siteId]?.config?.features?.collaborativeEditing
+        ? WIKI.collab.participantInfo(page.id)
+        : { count: 0, names: [] }
       return {
         ...page,
         commentsCount,
         viewer: {
           permissions: pagePermissionsFor(req, page),
           ...approvalState,
-          isWatching
+          isWatching,
+          activeEditors
         }
       }
     }
@@ -639,7 +668,17 @@ async function routes(app: FastifyInstance) {
   /**
    * UPDATE PAGE
    */
-  app.patch<{ Params: { siteId: string; pageId: string }; Body: Partial<PageInput> }>(
+  app.patch<{
+    Params: { siteId: string; pageId: string }
+    Body: Partial<PageInput> & {
+      /**
+       * The page's `updatedAt` as the editor last saw it. Checked against the stored value below —
+       * see the optimistic-concurrency comment further down — rather than being passed into
+       * `updatePage()`, since it describes the save's precondition rather than a field of the page.
+       */
+      expectedUpdatedAt?: string
+    }
+  }>(
     '/sites/:siteId/pages/:pageId',
     {
       /*
@@ -663,6 +702,26 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' },
               page: { $ref: 'Page#' }
             }
+          },
+          409: {
+            description:
+              "The page changed since `expectedUpdatedAt` was read; the write was refused rather than overwriting somebody else's save.",
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              page: {
+                type: 'object',
+                description:
+                  'The page as it is stored right now, for a diff or an overwrite prompt.',
+                properties: {
+                  updatedAt: { type: 'string', format: 'date-time' },
+                  title: { type: 'string' },
+                  content: { type: 'string' },
+                  authorName: { type: 'string' }
+                }
+              }
+            }
           }
         }
       }
@@ -674,13 +733,41 @@ async function routes(app: FastifyInstance) {
       }
       const target = await WIKI.models.pages.getPage({
         siteId: req.params.siteId,
-        id: req.params.pageId
+        id: req.params.pageId,
+        withContent: true
       })
       if (!target) {
         return reply.notFound('This page does not exist.')
       }
       if (!mayOnPage(req, 'write:pages', target)) {
         return reply.forbidden('You are not allowed to edit this page.')
+      }
+      /*
+        Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
+        A collab-connected editor's next save naturally carries the post-save timestamp its own
+        collaborators' saves already advanced it to (`applySave()` in `composables/collab.js`), so this
+        never false-positives against them — it only catches a save that began before somebody else's
+        landed. Millisecond precision, since that is what the API hands back and what a client round-
+        trips; comparing `Temporal.Instant` values directly with `<` throws, so this compares
+        `epochMilliseconds` instead.
+      */
+      if (
+        req.body.expectedUpdatedAt &&
+        Temporal.Instant.from(req.body.expectedUpdatedAt).epochMilliseconds !==
+          target.updatedAt.toTemporalInstant().epochMilliseconds
+      ) {
+        return reply.code(409).send({
+          ok: false,
+          message: 'This page was changed since you started editing it.',
+          page: {
+            updatedAt: target.updatedAt
+              .toTemporalInstant()
+              .toString({ smallestUnit: 'millisecond' }),
+            title: target.title,
+            content: target.content,
+            authorName: target.authorName
+          }
+        })
       }
       const page = await WIKI.models.pages.updatePage(
         req.params.siteId,

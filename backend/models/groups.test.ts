@@ -133,4 +133,48 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       false
     )
   })
+
+  /**
+   * Task 551's audit-sweep finding: callers that span many pages (search is the only one today) used
+   * to approximate "may write pages" by reading `actor.permissions` — the GLOBAL, group-wide list —
+   * for `write:pages`/`manage:pages`, which are page-rule permissions no group's `permissions` column
+   * legitimately carries. `mayHoldPermissionSomewhere()` replaces that scan with a real (if
+   * deliberately coarse) question against the actor's rules.
+   */
+  test('mayHoldPermissionSomewhere answers true for a permission granted by a rule scoped to one path, even though it is absent from the group-wide permission list', async () => {
+    await setGroupRules([rule({ path: 'engineering', roles: ['write:pages'] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      true
+    )
+  })
+
+  test('mayHoldPermissionSomewhere answers false when no rule grants any of the asked permissions', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      false
+    )
+  })
+
+  test('mayHoldPermissionSomewhere still answers true for an actor holding manage:system, with no matching rule at all', async () => {
+    await setGroupRules([])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+  })
+
+  test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
+    await setGroupRules([
+      rule({ id: 'deny-secret', path: 'secret', mode: 'DENY', roles: ['write:pages'] }),
+      rule({ id: 'allow-public', path: 'public', mode: 'ALLOW', roles: ['write:pages'] })
+    ])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+  })
 })

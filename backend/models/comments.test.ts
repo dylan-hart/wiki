@@ -333,7 +333,7 @@ describe('comments (DB-backed)', { skip: !hasTestDatabase() }, () => {
     fixtures = await setupTestDb()
     ;({ comments: commentsModel } = await import('./comments.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
   after(async () => {

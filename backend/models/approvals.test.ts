@@ -27,7 +27,7 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ approvals: approvalsModel } = await import('./approvals.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     const [secondAuthor] = await fixtures.db
       .insert(usersTable)
@@ -232,7 +232,7 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ approvals: approvalsModel } = await import('./approvals.ts'))
     ;({ groups: groupsModel } = await import('./groups.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     const [reviewerA] = await fixtures.db
       .insert(usersTable)
@@ -457,7 +457,7 @@ describe(
       fixtures = await setupTestDb()
       ;({ pages: pagesModel } = await import('./pages.ts'))
       ;({ approvals: approvalsModel } = await import('./approvals.ts'))
-      actor = { id: fixtures.userId, permissions: ['manage:system'] }
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     })
 
     after(async () => {
@@ -558,7 +558,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ approvals: approvalsModel } = await import('./approvals.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     await approvalsModel.createRule(fixtures.siteId, {
       name: 'covers everything',

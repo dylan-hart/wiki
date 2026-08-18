@@ -13,7 +13,7 @@ async function loadWatchablePage(req: FastifyRequest, siteId: string, pageId: st
   const page = await WIKI.models.pages.getPage({
     siteId,
     id: pageId,
-    unlocked: (id: string) => unlockedFor(req, id)
+    unlocked: (page) => unlockedFor(req, page)
   })
   if (!page || !mayOnPage(req, 'read:pages', page)) {
     return null

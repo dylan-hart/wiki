@@ -20,7 +20,7 @@ describe('navigation listOverrides (DB-backed)', { skip: !hasTestDatabase() }, (
     fixtures = await setupTestDb()
     ;({ navigation: navigationModel } = await import('./navigation.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
   after(async () => {
@@ -154,7 +154,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     fixtures = await setupTestDb()
     ;({ navigation: navigationModel } = await import('./navigation.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
 
   after(async () => {

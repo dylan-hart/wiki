@@ -854,7 +854,7 @@ class Approvals {
     content: string
     /** The rendered HTML. Rendered here instead when the caller has none, which needs an extension. */
     render?: string
-    actor: { id: string; permissions: string[] }
+    actor: { id: string; permissions: string[]; groupIds: string[] }
   }): Promise<ApproveSubmissionResult> {
     const rows = await WIKI.db
       .select({

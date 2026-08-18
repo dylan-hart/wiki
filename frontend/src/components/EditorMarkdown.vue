@@ -1225,6 +1225,64 @@ function reloadEditorContent({ replacements = [] } = {}) {
   }
 }
 
+/**
+ * Puts up the resolution dialog once `pageSave()` has flagged a save the server refused because
+ * somebody else saved first (`editorStore.saveConflict`, the page snapshot the 409 came back with --
+ * see `stores/page.js`).
+ *
+ * Offers two ways out: adopt the server's version wholesale, or re-issue the save with the server's
+ * `updatedAt` as the new baseline -- an informed overwrite, now that this author has been told there
+ * was something to overwrite, rather than the blind one `expectedUpdatedAt` exists to prevent.
+ */
+function resolveSaveConflict(snapshot) {
+  dialog({
+    component: defineAsyncComponent(() => import('./PageSaveConflictDialog.vue')),
+    componentProps: { authorName: snapshot.authorName }
+  })
+    .onOk(async (action) => {
+      if (action === 'discard') {
+        pageStore.$patch({
+          title: snapshot.title,
+          content: snapshot.content,
+          contentLoaded: true,
+          updatedAt: snapshot.updatedAt
+        })
+        editor.setValue(snapshot.content)
+        processContent(pageStore.content)
+        // -> Adopting the server's copy leaves nothing of this author's pending; see `hasPendingChanges`
+        const now = Temporal.Now.instant()
+        editorStore.$patch({ lastChangeTimestamp: now, lastSaveTimestamp: now })
+      } else if (action === 'overwrite') {
+        pageStore.updatedAt = snapshot.updatedAt
+        try {
+          await pageStore.pageSave()
+          notify({
+            type: 'positive',
+            message: t('editor.collab.saveConflict.saveSuccess')
+          })
+        } catch (err) {
+          notify({
+            type: 'negative',
+            message: t('editor.collab.saveConflict.saveFailed'),
+            caption: err.message
+          })
+        }
+      }
+    })
+    .onDismiss(() => {
+      editorStore.saveConflict = null
+    })
+}
+
+watch(
+  () => editorStore.saveConflict,
+  (snapshot) => {
+    if (snapshot) {
+      resolveSaveConflict(snapshot)
+    }
+  }
+)
+
 // MOUNTED
 
 onMounted(async () => {
@@ -1466,6 +1524,21 @@ onMounted(async () => {
 
   if (collabEnabled.value) {
     /*
+      "Someone else already has this open" -- said once, before the collab session below has even
+      asked to connect. `pageStore.activeEditors` came with the page itself (`viewer.activeEditors` on
+      `GET .../pages/:id`, task 546), read off whatever room `core/collab.ts` already has for it on
+      this instance -- so this can be shown immediately, without waiting on a socket.
+    */
+    if (pageStore.activeEditors.count > 0) {
+      notify({
+        type: 'info',
+        message: t('editor.collab.activeEditors', pageStore.activeEditors.count, {
+          count: pageStore.activeEditors.count
+        })
+      })
+    }
+
+    /*
       Read-only until the shared document has arrived, and only that first time.
 
       The binding below starts by making the editor say what the document says, so anything typed
@@ -1548,13 +1621,6 @@ onMounted(async () => {
   //       this.processMarkers(selStartLine, selEndLine)
   //       break
   //   }
-  // })
-  // // Handle save conflict
-  // this.$root.$on('saveConflict', () => {
-  //   this.toggleModal(`editorModalConflict`)
-  // })
-  // this.$root.$on('overwriteEditorContent', () => {
-  //   this.cm.setValue(this.$store.get('editor/content'))
   // })
 })
 

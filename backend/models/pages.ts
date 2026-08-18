@@ -8,6 +8,7 @@ import {
 } from '../helpers/common.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
+import type { RulePageRef } from '../helpers/pageRules.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -30,6 +31,17 @@ const REDIRECT_EDITOR = 'redirect'
 /** A page path is what ends up in a URL, so it is held to what reads and routes cleanly. */
 const rePagePath = /^[a-zA-Z0-9-_/]*$/
 const reAlias = /^[a-zA-Z0-9-_]*$/
+
+/**
+ * What `getPage`'s `unlocked`/`withPassword` callbacks are handed: enough of the row to ask
+ * `mayOnPage()` whether a page rule applies, without exposing the whole raw row.
+ */
+export interface UnlockPageRef {
+  id: string
+  path: string
+  locale: string
+  tags: string[]
+}
 
 /** Fields kept in the `config` blob rather than as columns, and flattened again on the way out. */
 const CONFIG_FIELDS = [
@@ -131,14 +143,30 @@ export interface PageInput {
   reasonForChange?: string
 }
 
-/** Who is saving, and what they are allowed to put in a page. */
+/**
+ * Who is saving, and what they are allowed to put in a page.
+ *
+ * `write:scripts` and `write:styles` are page-rule-scoped permissions, not group-wide ones (see
+ * CLAUDE.md's Permissions section), so deciding them takes more than the flat `permissions` list:
+ * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
+ * `hasPermission()`.
+ */
 export interface PageActor {
   id: string
   permissions: string[]
+  groupIds: string[]
 }
 
-function hasPermission(actor: PageActor, permission: string): boolean {
-  return actor.permissions.includes('manage:system') || actor.permissions.includes(permission)
+/**
+ * Whether this actor may embed scripts/styles ON THIS PAGE.
+ *
+ * `write:scripts`/`write:styles` are granted by a group's page rules, not by the group-wide
+ * permission list (`PageActor.permissions` alone), so this asks `WIKI.models.groups.checkAccess()` —
+ * the same per-page decision `mayOnPage()` makes in `api/pages.ts` — rather than scanning
+ * `actor.permissions`, which a page-rule-only grant would never appear in.
+ */
+export function hasPermission(actor: PageActor, permission: string, page: RulePageRef): boolean {
+  return WIKI.models.groups.checkAccess(actor, permission, page)
 }
 
 /**
@@ -317,11 +345,14 @@ class Pages {
    * are exactly two: the `GET` route, and `unlockPage` below.
    *
    * @param unlocked Whether the password has been satisfied for this requester. Route-level concern:
-   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the page's id once
-   *                 the row is in hand, which is what lets a caller answer per page even though it
-   *                 asked for the page by path hash.
-   * @param withPassword Whether to include the password value. For whoever may edit the page — not for
-   *                     a reader who just entered it, who needs it no more after that.
+   *                 see `unlockedFor` in `api/pages.ts`. A function is called with the row's path,
+   *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
+   *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
+   *                 the only place that has them when the caller only knew a path hash going in.
+   * @param withPassword Whether to include the password value, for whoever may edit the page — not for
+   *                     a reader who just entered it, who needs it no more after that. Also a function
+   *                     for the same reason as `unlocked`: which page it is, and therefore whether this
+   *                     requester may edit it, is only known once the row is in hand.
    */
   async getPage({
     siteId,
@@ -340,8 +371,8 @@ class Pages {
     withContent?: boolean
     /** Restrict to what a reader with no session may see: published pages. */
     publicOnly?: boolean
-    unlocked?: boolean | ((pageId: string) => boolean)
-    withPassword?: boolean
+    unlocked?: boolean | ((page: UnlockPageRef) => boolean)
+    withPassword?: boolean | ((page: UnlockPageRef) => boolean)
   }): Promise<Page | null> {
     const conditions = [eq(pagesTable.siteId, siteId)]
     if (publicOnly) {
@@ -377,7 +408,15 @@ class Pages {
     if (!row) {
       return null
     }
-    const isUnlocked = typeof unlocked === 'function' ? unlocked(row.page.id) : unlocked
+    const unlockRef: UnlockPageRef = {
+      id: row.page.id,
+      path: row.page.path,
+      locale: row.page.locale,
+      tags: row.page.tags
+    }
+    const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
+    const includePassword =
+      typeof withPassword === 'function' ? withPassword(unlockRef) : withPassword
     return this.toPage(
       {
         ...row.page,
@@ -385,7 +424,11 @@ class Pages {
         navigationId: row.navigationId,
         navigationMode: row.navigationMode
       },
-      { withContent, withPassword, locked: Boolean(row.page.password) && !isUnlocked }
+      {
+        withContent,
+        withPassword: includePassword,
+        locked: Boolean(row.page.password) && !isUnlocked
+      }
     )
   }
 
@@ -487,12 +530,13 @@ class Pages {
     }
 
     const alias = await this.validateAlias(siteId, input.alias)
+    const pageRef: RulePageRef = { path, locale, tags: input.tags }
     const { render, toc, text } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
       {
-        scripts: hasPermission(actor, 'write:scripts'),
-        styles: hasPermission(actor, 'write:styles')
+        scripts: hasPermission(actor, 'write:scripts', pageRef),
+        styles: hasPermission(actor, 'write:styles', pageRef)
       }
     )
 
@@ -524,7 +568,7 @@ class Pages {
         relations: input.relations ?? [],
         render,
         searchContent: text,
-        scripts: this.buildScripts(input, actor),
+        scripts: this.buildScripts(input, actor, pageRef),
         siteId,
         tags: input.tags ?? [],
         title,
@@ -661,11 +705,17 @@ class Pages {
       values.tags = patch.tags
     }
 
+    const existingRef: RulePageRef = {
+      path: existing.path,
+      locale: existing.locale,
+      tags: existing.tags ?? []
+    }
+
     // -> A render only means anything next to the content it came from, so the two move together
     if (patch.render !== undefined) {
       const { render, toc, text } = await WIKI.models.rendering.postProcess(siteId, patch.render, {
-        scripts: hasPermission(actor, 'write:scripts'),
-        styles: hasPermission(actor, 'write:styles')
+        scripts: hasPermission(actor, 'write:scripts', existingRef),
+        styles: hasPermission(actor, 'write:styles', existingRef)
       })
       values.render = render
       values.toc = toc
@@ -680,7 +730,12 @@ class Pages {
       patch.scriptJsUnload !== undefined ||
       patch.scriptCss !== undefined
     ) {
-      values.scripts = this.buildScripts(patch, actor, existing.scripts as Record<string, any>)
+      values.scripts = this.buildScripts(
+        patch,
+        actor,
+        existingRef,
+        existing.scripts as Record<string, any>
+      )
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -952,8 +1007,8 @@ class Pages {
       siteId,
       pageId: page.id,
       permissions: {
-        scripts: hasPermission(actor, 'write:scripts'),
-        styles: hasPermission(actor, 'write:styles')
+        scripts: hasPermission(actor, 'write:scripts', page),
+        styles: hasPermission(actor, 'write:styles', page)
       },
       requestedById: actor.id
     })
@@ -1071,10 +1126,11 @@ class Pages {
   private buildScripts(
     input: Partial<PageInput>,
     actor: PageActor,
+    page: RulePageRef,
     existing: Record<string, any> = {}
   ): Record<string, any> {
-    const mayScript = hasPermission(actor, 'write:scripts')
-    const mayStyle = hasPermission(actor, 'write:styles')
+    const mayScript = hasPermission(actor, 'write:scripts', page)
+    const mayStyle = hasPermission(actor, 'write:styles', page)
     return {
       jsLoad: mayScript ? (input.scriptJsLoad ?? existing.jsLoad ?? '') : (existing.jsLoad ?? ''),
       jsUnload: mayScript

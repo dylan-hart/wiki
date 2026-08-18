@@ -40,7 +40,7 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
     ;({ groups: groupsModel } = await import('../models/groups.ts'))
     ;({ pages: pagesModel } = await import('../models/pages.ts'))
     ;({ comments: commentsModel } = await import('../models/comments.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     app = fastify()
     app.addHook('onRequest', async (req) => {

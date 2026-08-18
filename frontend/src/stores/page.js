@@ -93,7 +93,14 @@ export const usePageStore = defineStore('page', {
      * Whether this reader has asked to be told about changes to this page. Always false for a guest:
      * a watch belongs to an account, which is what a notification would eventually be sent to.
      */
-    isWatching: false
+    isWatching: false,
+    /**
+     * Who else already has this page open in a live collaboration room, on the instance that answered
+     * this request — a same-instance approximation, not a cluster-wide count. What lets the editor say
+     * "N other people have this page open" before a collab session of its own has even started; see
+     * `EditorMarkdown.vue`. Always `{ count: 0, names: [] }` on a site without collaborative editing.
+     */
+    activeEditors: { count: 0, names: [] }
   }),
   getters: {
     breadcrumbs: (state) => {
@@ -270,7 +277,8 @@ export const usePageStore = defineStore('page', {
         hasOpenSuggestion: viewer.hasOpenSuggestion === true,
         canReview: viewer.canReview === true,
         pendingSubmissions: viewer.pendingSubmissions ?? [],
-        isWatching: viewer.isWatching === true
+        isWatching: viewer.isWatching === true,
+        activeEditors: viewer.activeEditors ?? { count: 0, names: [] }
       })
     },
     /**
@@ -311,6 +319,7 @@ export const usePageStore = defineStore('page', {
         canReview: false,
         pendingSubmissions: [],
         isWatching: false,
+        activeEditors: { count: 0, names: [] },
         notFound: true
       })
     },
@@ -691,7 +700,13 @@ export const usePageStore = defineStore('page', {
         } else {
           const resp = unwrap(
             await API_CLIENT.patch(`sites/${siteStore.id}/pages/${this.id}`, {
-              json: body
+              /*
+                Not a page field either, and not sent on create: there is nothing yet to conflict
+                with. The server compares this against what it actually has stored and refuses the
+                write on a mismatch -- see the 409 branch below -- which is what stops one editor's
+                save from silently overwriting another's.
+              */
+              json: { ...body, expectedUpdatedAt: this.updatedAt }
             }).json()
           )
           pageData = resp?.page
@@ -728,6 +743,18 @@ export const usePageStore = defineStore('page', {
           reasonForChange: ''
         })
       } catch (err) {
+        /*
+          Somebody else saved this page first. The server's reply carries the page as it now stands
+          -- see the `expectedUpdatedAt` mismatch handling in `PATCH /sites/:siteId/pages/:pageId`
+          -- which is handed to the editor store rather than reported as an ordinary failure: there is
+          a page to react to here, not just an error to show. `EditorMarkdown.vue` watches it to put
+          up the resolution dialog.
+        */
+        if (err.response?.status === 409) {
+          const conflictBody = await err.response.json().catch(() => null)
+          editorStore.saveConflict = conflictBody?.page ?? null
+          throw new Error('ERR_SAVE_CONFLICT')
+        }
         console.warn(err)
         throw err
       }

@@ -55,6 +55,7 @@ function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
   return {
     id: '00000000-0000-0000-0000-000000000000',
+    siteId: 'site-1',
     module: moduleKey,
     isEnabled: true,
     title: definition.title,
