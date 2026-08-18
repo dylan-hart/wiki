@@ -131,6 +131,75 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
 }
 
 /**
+ * A site's `config.locales` shape, as far as URL routing cares about it.
+ */
+export interface LocaleRoutingConfig {
+  primary: string
+  active: string[]
+  forcePrefix?: boolean
+}
+
+/**
+ * Split the recognized leading locale segment off a URL path.
+ *
+ * A locale-prefixed URL (`/fr/some/page`) and an ordinary one (`/some/page`) are the same shape —
+ * the only thing that tells them apart is whether the first segment happens to be one of the site's
+ * active locale codes, which is why this takes the site's `locales` config rather than trying to
+ * recognize a locale code on its own. Matching is case-insensitive (a link typed as `/FR/page` still
+ * counts), but the code returned is always the one as stored in `active`, never the request's casing.
+ *
+ * Only the presence of a match is decided here — what to do about it (redirect, strip, neither) is
+ * the caller's call, same division as `stripPageExtension`.
+ *
+ * @returns The matched locale code and the path with it removed, or null if the first segment isn't
+ *   one of `active`'s codes
+ */
+export function stripLocalePrefix(
+  urlPath: string,
+  locales?: LocaleRoutingConfig | null
+): { locale: string; path: string } | null {
+  if (!locales?.active || locales.active.length < 1) {
+    return null
+  }
+  const segments = urlPath.split('/')
+  const firstSegment = segments[1] ?? ''
+  if (!firstSegment) {
+    return null
+  }
+  const match = locales.active.find((code) => code.toLowerCase() === firstSegment.toLowerCase())
+  if (!match) {
+    return null
+  }
+  const rest = '/' + segments.slice(2).join('/')
+  return { locale: match, path: rest === '/' ? '/' : rest }
+}
+
+/**
+ * Whether a page URL should be redirected to carry its site's forced locale prefix, and if so, where.
+ *
+ * A site with more than one active locale can require every page URL to name one up front
+ * (`locales.forcePrefix`), so a link copied out of the address bar unambiguously encodes which
+ * translation it points at. There is nothing to disambiguate with a single active locale, and a site
+ * with `forcePrefix` off has chosen to leave its primary locale unprefixed — both cases return null
+ * without even asking `stripLocalePrefix` whether the path already names one.
+ *
+ * @returns The path to redirect to (query string still needs reattaching, as with
+ *   `stripPageExtension`'s result), or null if no redirect is warranted
+ */
+export function localePrefixRedirectTarget(
+  urlPath: string,
+  locales?: LocaleRoutingConfig | null
+): string | null {
+  if (!locales?.forcePrefix || !locales.active || locales.active.length <= 1) {
+    return null
+  }
+  if (stripLocalePrefix(urlPath, locales)) {
+    return null
+  }
+  return `/${locales.primary}${urlPath === '/' ? '' : urlPath}`
+}
+
+/**
  * Generate SHA-1 Hash of a string
  *
  * @param str String to hash

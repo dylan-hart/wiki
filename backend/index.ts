@@ -33,7 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
-import { stripPageExtension } from './helpers/common.ts'
+import { localePrefixRedirectTarget, stripPageExtension } from './helpers/common.ts'
 import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
@@ -599,10 +599,8 @@ async function initHTTPServer() {
       // -> Straight off the site caches rather than through the model: this runs on every request, and
       //    both lookups are the ones `getSiteByHostname` would do, minus its optional reload
       const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
-      const withoutExtension = stripPageExtension(
-        trimmed,
-        WIKI.sites[siteId]?.config?.pageExtensions
-      )
+      const siteConfig = WIKI.sites[siteId]?.config
+      const withoutExtension = stripPageExtension(trimmed, siteConfig?.pageExtensions)
       if (withoutExtension) {
         // -> Answers a trailing slash as well, rather than sending the client back for a second
         //    round trip to be told about the extension.
@@ -610,6 +608,16 @@ async function initHTTPServer() {
         //    Not a 301: which extensions resolve this way is a setting, and a browser that cached a
         //    permanent redirect would go on applying it after an administrator had changed it
         reply.redirect(withQuery(withoutExtension), 302)
+        return
+      }
+
+      // -> `SERVER_ROUTE_SEGMENTS` and `RESERVED_ROOT_FILES` are already excluded by `isPageUrl`
+      //    above, so a locale code can never collide with one of those first segments here.
+      const localeRedirect = localePrefixRedirectTarget(trimmed, siteConfig?.locales)
+      if (localeRedirect) {
+        // -> Same reasoning as the extension redirect above: `forcePrefix` is a setting, not a
+        //    permanent fact about the URL, so a 301 here would outlive an admin turning it off.
+        reply.redirect(withQuery(localeRedirect), 302)
         return
       }
     }
