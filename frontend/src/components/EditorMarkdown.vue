@@ -320,7 +320,12 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { bindCollabEditor, startCollabSession, stopCollabSession } from '@/composables/collab'
+import {
+  bindCollabEditor,
+  collabStatusEffects,
+  startCollabSession,
+  stopCollabSession
+} from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
@@ -1480,13 +1485,12 @@ onMounted(async () => {
     watch(
       () => collabStore.status,
       (status) => {
-        if (status === 'connected') {
+        const effects = collabStatusEffects(status, collabStore.hasSynced)
+        if (effects.shouldBindEditor) {
           bindCollabEditor(editor)
         }
-        if (status !== 'connecting') {
-          editor.updateOptions({ readOnly: false })
-        }
-        if (status === 'denied') {
+        editor.updateOptions({ readOnly: effects.readOnly })
+        if (effects.notifyDenied) {
           notify({
             type: 'warning',
             message: t('editor.collab.notAllowed')

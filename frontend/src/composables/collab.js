@@ -30,6 +30,20 @@ import { useUserStore } from '@/stores/user'
 const SYNC_TIMEOUT = 5000
 
 /**
+ * Ceiling on `y-websocket`'s own reconnect backoff (`WebsocketProvider`'s `maxBackoffTime`).
+ *
+ * `WebsocketProvider` never gives up retrying on its own -- a dropped socket schedules another
+ * attempt forever, doubling the delay each miss (100ms, 200ms, 400ms, ...) until it hits this
+ * ceiling, then holding there. Left unset, the library's own default is the same 2500ms pinned here;
+ * pinning it explicitly is so a `y-websocket` upgrade changing that default can't silently change how
+ * quickly a real outage (a wifi drop, a restarted backend instance) recovers once connectivity
+ * returns, out from under this file. 2500ms keeps that worst case well under `SYNC_TIMEOUT`'s 5000ms
+ * budget for the *first* connection, and is frequent enough that a reconnect is never the reason a
+ * multi-second outage feels longer than it was.
+ */
+const RECONNECT_MAX_BACKOFF = 2500
+
+/**
  * How long after someone's last change they still count as typing.
  *
  * Long enough to ride out the pause between two words, short enough that the indicator means "right
@@ -94,6 +108,25 @@ export function isCollabActive() {
 }
 
 /**
+ * What a `collabStore.status` change means for the editor it gates -- whether to (re)bind it to the
+ * shared document, and whether it may still be typed in.
+ *
+ * Pulled out as its own pure function specifically so the read-only guard can be tested on its own,
+ * without mounting the (Monaco-backed) `EditorMarkdown.vue`: `hasSynced` is the guard
+ * `stores/collab.js`'s own doc comment describes -- "the editor must not lock itself again" over a
+ * reconnect's trip back through `connecting` -- made explicit here rather than left as an accident of
+ * the caller never being told to re-lock. Only the very first sync is worth waiting for; every status
+ * after that, including a mid-session `disconnected`, releases the editor and keeps it released.
+ */
+export function collabStatusEffects(status, hasSynced) {
+  return {
+    shouldBindEditor: status === 'connected',
+    readOnly: !hasSynced && status === 'connecting',
+    notifyDenied: status === 'denied'
+  }
+}
+
+/**
  * Open a session on a page.
  *
  * Returns without waiting for the socket: the editor stays usable throughout, and the store's status
@@ -117,7 +150,8 @@ export function startCollabSession({ siteId, pageId }) {
   provider = new WebsocketProvider(
     `${protocol}//${window.location.host}/_collab`,
     `${siteId}/${pageId}`,
-    doc
+    doc,
+    { maxBackoffTime: RECONNECT_MAX_BACKOFF }
   )
 
   collabStore.$patch({

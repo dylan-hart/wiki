@@ -46,6 +46,14 @@ interface Session {
   conn: WebSocket
   doc: Y.Doc
   room: Awaited<ReturnType<typeof import('../core/collab.ts').default.ensureRoom>>
+  /**
+   * Whether this session's transport is currently live, mirroring what a real `WebsocketProvider`'s
+   * `wsconnected` means to the browser side. `false` between `disconnectSession` and `reconnectSession`
+   * — task 482's whole scenario: a session's own `doc` keeps accumulating local edits exactly as it
+   * would while a real socket is down, but nothing may be relayed out over the (closed) `conn` until a
+   * fresh one replaces it.
+   */
+  connected: boolean
 }
 
 const sessions = new Map<string, Session>()
@@ -180,28 +188,74 @@ async function handle(
     //    step 1 only ever asks the other side what it is missing, never carries content itself.
     case 'openSession': {
       const pageId = msg.pageId as string
+      const sessionId = msg.sessionId as string
       const room = await collab.ensureRoom({ id: pageId, siteId })
       const doc = new Y.Doc()
       const conn = makeSessionSocket(collab, doc, room)
       doc.on('update', (update: Uint8Array, origin: unknown) => {
-        // -> Origin is `conn` for an update this session just applied from the server (see
-        //    `makeSessionSocket`'s `readSyncMessage` calls); anything else is this session's own edit,
-        //    which needs to go out over the wire the way a local Monaco keystroke would.
-        if (origin === conn) {
+        /*
+          Re-reads the session on every update rather than closing over `conn`/`room`: after a
+          `reconnectSession`, this is the same long-lived listener but the session's live transport has
+          been swapped out from under it, and the check below must see the *current* one. Origin is the
+          session's own `conn` for an update this session just applied from the server (see
+          `makeSessionSocket`'s `readSyncMessage` calls); anything else is this session's own edit.
+        */
+        const current = sessions.get(sessionId)
+        if (!current || origin === current.conn) {
+          return
+        }
+        // -> Not connected: hold the edit locally, exactly as a real `WebsocketProvider` does while its
+        //    socket is down. Relaying it anyway would erase the point of `disconnectSession`.
+        if (!current.connected) {
           return
         }
         const encoder = encoding.createEncoder()
         encoding.writeVarUint(encoder, MESSAGE_SYNC)
         syncProtocol.writeUpdate(encoder, update)
-        collab.onMessage(room, conn, encoding.toUint8Array(encoder))
+        collab.onMessage(current.room, current.conn, encoding.toUint8Array(encoder))
       })
       await collab.join(conn, { id: pageId, siteId }, { room: null, pending: [] })
       const step1 = encoding.createEncoder()
       encoding.writeVarUint(step1, MESSAGE_SYNC)
       syncProtocol.writeSyncStep1(step1, doc)
       collab.onMessage(room, conn, encoding.toUint8Array(step1))
-      sessions.set(msg.sessionId as string, { conn, doc, room })
+      sessions.set(sessionId, { conn, doc, room, connected: true })
       return { text: doc.getText('content').toString(), length: doc.getText('content').length }
+    }
+    // -> Simulates an abrupt network drop (devtools offline, a killed instance): the server notices
+    //    exactly the way it would for a real closed socket -- `onClose` retracts this session's
+    //    awareness and drops it from `room.conns` -- but this session's own `doc` is left completely
+    //    alone, the same as a browser tab's `WebsocketProvider` leaves its `Y.Doc` alone while offline.
+    case 'disconnectSession': {
+      const session = sessions.get(msg.sessionId as string)
+      if (!session) {
+        throw new Error(`No open session ${msg.sessionId as string}`)
+      }
+      collab.onClose(session.room, session.conn)
+      session.connected = false
+      return {}
+    }
+    // -> Restores connectivity for a session that reused its *own* `doc` throughout the outage
+    //    (`sessionEdit` still works while disconnected — see the `connected` check above): a fresh
+    //    `conn` rejoins the room exactly the way `openSession` first joined, so the reconnect pushes
+    //    this session's offline edits out *and* pulls down whatever the room gained while it was away,
+    //    the two halves of the reconnect-and-resync task 482 exists to verify.
+    case 'reconnectSession': {
+      const sessionId = msg.sessionId as string
+      const session = sessions.get(sessionId)
+      if (!session) {
+        throw new Error(`No open session ${sessionId}`)
+      }
+      const pageId = msg.pageId as string
+      const room = await collab.ensureRoom({ id: pageId, siteId })
+      const conn = makeSessionSocket(collab, session.doc, room)
+      sessions.set(sessionId, { conn, doc: session.doc, room, connected: true })
+      await collab.join(conn, { id: pageId, siteId }, { room: null, pending: [] })
+      const step1 = encoding.createEncoder()
+      encoding.writeVarUint(step1, MESSAGE_SYNC)
+      syncProtocol.writeSyncStep1(step1, session.doc)
+      collab.onMessage(room, conn, encoding.toUint8Array(step1))
+      return { text: session.doc.getText('content').toString() }
     }
     // -> A burst of local typing from one simulated session: inserted into that session's own
     //    replica, exactly like a Monaco edit would be, so it flows out through the `doc.on('update')`

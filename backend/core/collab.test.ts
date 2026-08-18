@@ -448,4 +448,87 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       await instance.call('closeSession', { sessionId: id })
     }
   })
+
+  test('a session that disconnects mid-edit, keeps typing offline, and reconnects merges cleanly (task 482)', async () => {
+    // -> The literal scenario the doc comment at the top of this file promises and task 482 exists to
+    //    verify end to end: two browser tabs on the same page (here, two sessions on the same instance
+    //    -- the room stays open throughout because B never leaves), one goes offline, keeps being typed
+    //    into locally, and comes back. No text may be duplicated or dropped in either direction.
+    const { pages } = await import('../models/pages.ts')
+    const page = await pages.createPage(
+      fixtures.siteId,
+      {
+        path: 'collab/reconnect-offline-edits',
+        title: 'Reconnect Offline Edits',
+        editor: 'markdown',
+        content: 'Seed. '
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+
+    await a.call('ensureRoom', { pageId: page.id })
+    await a.call('openSession', { pageId: page.id, sessionId: 'sess-a' })
+    await a.call('openSession', { pageId: page.id, sessionId: 'sess-b' })
+
+    // -> Both editing normally, before anyone goes offline.
+    await a.call('sessionEdit', { sessionId: 'sess-a', text: 'A1 ' })
+    await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B1 ' })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    // -> A's tab loses connectivity. The room is not torn down: B is still in it.
+    await a.call('disconnectSession', { sessionId: 'sess-a' })
+    const stillOpen = await a.call('roomText', { pageId: page.id })
+    assert.equal(stillOpen.exists, true, 'the room must survive one of two sessions dropping')
+
+    // -> A keeps typing locally -- past what `SYNC_TIMEOUT` would have given up waiting for -- and B
+    //    keeps typing too, unaware A is gone.
+    await a.call('sessionEdit', { sessionId: 'sess-a', text: 'OFFLINE-FROM-A ' })
+    await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B2-WHILE-A-OFFLINE ' })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    // -> Proof the disconnect was real, not a no-op: the room got B's edit but never saw A's, and A's
+    //    own replica never heard about B's either.
+    const whileOffline = await a.call('roomText', { pageId: page.id })
+    assert.ok(
+      whileOffline.text.includes('B2-WHILE-A-OFFLINE'),
+      "B's edit while A was away reached the room"
+    )
+    assert.ok(
+      !whileOffline.text.includes('OFFLINE-FROM-A'),
+      "A's offline edit must not reach the room until it reconnects"
+    )
+    const aWhileOffline = await a.call('sessionText', { sessionId: 'sess-a' })
+    assert.ok(
+      !aWhileOffline.text.includes('B2-WHILE-A-OFFLINE'),
+      "A's own replica must not see B's edit while genuinely disconnected"
+    )
+
+    // -> Connectivity restored. The reconnect must both push A's offline edits out and pull down what
+    //    the room gained while A was away.
+    await a.call('reconnectSession', { pageId: page.id, sessionId: 'sess-a' })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    const finalA = await a.call('sessionText', { sessionId: 'sess-a' })
+    const finalB = await a.call('sessionText', { sessionId: 'sess-b' })
+    const finalRoom = await a.call('roomText', { pageId: page.id })
+
+    assert.equal(
+      finalA.text,
+      finalRoom.text,
+      "A's replica must converge with the room after reconnecting"
+    )
+    assert.equal(finalB.text, finalRoom.text, "B's replica must still agree with the room")
+
+    for (const fragment of ['A1', 'B1', 'OFFLINE-FROM-A', 'B2-WHILE-A-OFFLINE']) {
+      const occurrences = finalRoom.text.split(fragment).length - 1
+      assert.equal(
+        occurrences,
+        1,
+        `"${fragment}" must appear exactly once, not ${occurrences} times`
+      )
+    }
+
+    await a.call('closeSession', { sessionId: 'sess-a' })
+    await a.call('closeSession', { sessionId: 'sess-b' })
+  })
 })
