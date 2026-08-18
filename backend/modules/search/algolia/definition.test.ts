@@ -39,4 +39,12 @@ describe('search algolia module definition', () => {
     assert.equal(props.indexName!.default, 'wiki')
     assert.equal(props.indexName!.sensitive, false)
   })
+
+  test('requires appId and apiKey, task #556: Algolia cannot function without either', () => {
+    const props = parseModuleProps(parsed.props ?? {})
+
+    assert.equal(props.appId!.required, true)
+    assert.equal(props.apiKey!.required, true)
+    assert.equal(props.indexName!.required, false)
+  })
 })

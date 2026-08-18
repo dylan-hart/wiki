@@ -42,14 +42,21 @@ function makeDbEngine() {
 const dictOverrides = { en: 'english' }
 const availableDictionaries = ['english', 'simple']
 
+// -> What `getEngineConfig` reports as already stored for the site's `db` engine, task #556: the PUT
+//    route must pass this through to `validateEngineConfig` as its `existing` argument so a required
+//    prop already saved does not need to be resent just to keep validating.
+const storedEngineConfig = { termHighlighting: false }
+
 let app: FastifyInstance
 let refreshCalls: number
 let selectCalls: any[]
+let validateCalls: any[]
 let validateResult: string | null
 
 before(async () => {
   refreshCalls = 0
   selectCalls = []
+  validateCalls = []
   validateResult = null
 
   ;(globalThis as any).WIKI = {
@@ -62,7 +69,11 @@ before(async () => {
         //    shared object here would let one test's mutation leak into the next test's assertions
         getSiteEngines: async (siteId: string) => (sites[siteId] ? [makeDbEngine()] : []),
         getDefinition: (key: string) => (key === 'db' ? makeDbEngine() : null),
-        validateEngineConfig: (_key: string, _incoming: any) => validateResult,
+        getEngineConfig: (_siteId: string, _key: string) => storedEngineConfig,
+        validateEngineConfig: (key: string, incoming: any, existing: any) => {
+          validateCalls.push([key, incoming, existing])
+          return validateResult
+        },
         selectEngine: async (siteId: string, key: string, incoming: any) => {
           selectCalls.push([siteId, key, incoming])
           return true
@@ -151,6 +162,16 @@ test('PUT .../search/engines/:key selects the engine and echoes success on a val
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().ok, true)
   assert.deepEqual(selectCalls, [[SITE_ID, 'db', { termHighlighting: true }]])
+})
+
+test('PUT .../search/engines/:key validates against the site’s stored config for that engine, task #556', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/sites/${SITE_ID}/search/engines/db`,
+    payload: { config: { termHighlighting: true } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(validateCalls.at(-1), ['db', { termHighlighting: true }, storedEngineConfig])
 })
 
 test('POST .../search/refresh 404s for a site that does not exist', async () => {

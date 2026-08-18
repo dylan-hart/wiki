@@ -404,63 +404,14 @@
                   >{{ t('admin.storage.noConfigOption') }}</w-banner
                 >
               </w-card-section>
-              <template v-for="(cfg, cfgKey, idx) in state.target.config">
-                <template v-if="configIfCheck(cfg.if)">
-                  <w-separator class="my-2" inset v-if="idx > 0" />
-                  <w-item v-if="cfg.type === `boolean`" tag="label">
-                    <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                    <w-item-section>
-                      <w-item-label>{{ cfg.title }}</w-item-label>
-                      <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                    </w-item-section>
-                    <w-item-section avatar>
-                      <w-toggle
-                        v-model="cfg.value"
-                        :aria-label="t(`admin.general.allowComments`)"
-                        :disable="cfg.readOnly" />
-                    </w-item-section>
-                  </w-item>
-                  <w-item v-else>
-                    <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                    <w-item-section>
-                      <w-item-label>{{ cfg.title }}</w-item-label>
-                      <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                    </w-item-section>
-                    <w-item-section
-                      :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``"
-                      :class="{ 'col-auto': cfg.enum && cfg.enumDisplay === `buttons` }">
-                      <w-btn-toggle
-                        v-if="cfg.enum && cfg.enumDisplay === `buttons`"
-                        v-model="cfg.value"
-                        push
-                        glossy
-                        no-caps
-                        toggle-color="primary"
-                        :options="cfg.enum"
-                        :disable="cfg.readOnly" />
-                      <w-select
-                        v-else-if="cfg.enum"
-                        outlined
-                        v-model="cfg.value"
-                        :options="cfg.enum"
-                        emit-value
-                        map-options
-                        dense
-                        options-dense
-                        :aria-label="cfg.title"
-                        :disable="cfg.readOnly" />
-                      <w-input
-                        v-else
-                        outlined
-                        v-model="cfg.value"
-                        dense
-                        :type="inputTypeFor(cfg)"
-                        :aria-label="cfg.title"
-                        :disable="cfg.readOnly" />
-                    </w-item-section>
-                  </w-item>
-                </template>
-              </template>
+              <!--
+                Generic per-prop config form, shared with `AdminSearch.vue`'s engine config editor
+                (task #556) -- see `ModuleConfigForm.vue`. `state.target.config` is the
+                `buildConfigEditor()`-built editable structure `load()` below produces, not the raw
+                stored values -- mutating a field's `.value` there, which this component does in
+                place, is what `buildConfigPayload()` in `payloadFor()` below reads back.
+              -->
+              <module-config-form :config="state.target.config" />
             </w-card>
             <!-- ----------------------- -->
             <!-- Sync -->
@@ -757,7 +708,9 @@ import { useSiteStore } from '@/stores/site'
 
 import * as VNG from 'v-network-graph'
 import GithubSetupInstallDialog from '../components/GithubSetupInstallDialog.vue'
+import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 
 // COMPOSABLES
 
@@ -932,37 +885,6 @@ watch(
 
 // METHODS
 
-/**
- * Turn a module prop declaration and its stored value into the shape the config editor renders,
- * expanding `value|label` enum entries into options.
- */
-function buildConfigEditor(props, values) {
-  const config = {}
-  for (const [key, prop] of Object.entries(props ?? {})) {
-    config[key] = {
-      ...prop,
-      value: values?.[key] ?? prop.default,
-      ...(prop.enum && {
-        enum: prop.enum.map((entry) => {
-          const [value, label] = entry.split('|')
-          return { value, label: label ?? value }
-        })
-      })
-    }
-  }
-  return config
-}
-
-function inputTypeFor(cfg) {
-  if (cfg.multiline) {
-    return 'textarea'
-  }
-  if (cfg.sensitive) {
-    return 'password'
-  }
-  return cfg.type === 'number' ? 'number' : 'text'
-}
-
 async function load() {
   state.loading++
   loading.show()
@@ -984,25 +906,13 @@ async function load() {
   state.loading--
 }
 
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => state.target.config[s.key]?.value === s.eq)
-}
-
 /**
  * A target as the API expects it. Read-only props are left out: the server keeps whatever is stored
- * for them, so sending them back would be pretending they can be set.
+ * for them, so sending them back would be pretending they can be set. The `config` reduction itself
+ * is the shared `buildConfigPayload()` (`@/helpers/moduleConfig.js`) -- everything around it here is
+ * target-only, which is why the shared helper stops at the plain config object.
  */
 function payloadFor(tgt) {
-  const config = {}
-  for (const [key, cfg] of Object.entries(tgt.config ?? {})) {
-    if (cfg.readOnly) {
-      continue
-    }
-    config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
-  }
   return {
     id: tgt.id,
     isEnabled: tgt.isEnabled,
@@ -1017,7 +927,7 @@ function payloadFor(tgt) {
     versioning: {
       enabled: tgt.versioning.enabled
     },
-    config
+    config: buildConfigPayload(tgt.config)
   }
 }
 

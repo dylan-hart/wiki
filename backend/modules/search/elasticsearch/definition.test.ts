@@ -65,4 +65,22 @@ describe('search elasticsearch module definition', () => {
     assert.equal(props.sniffInterval!.type, 'number')
     assert.equal(props.sniffInterval!.default, 0)
   })
+
+  test('requires hosts and shape-checks it, task #556: a basic URL-with-optional-credentials check', () => {
+    const props = parseModuleProps(parsed.props ?? {})
+
+    assert.equal(props.hosts!.required, true)
+    assert.equal(props.indexName!.required, false)
+
+    const hostsPattern = new RegExp(props.hosts!.pattern)
+    assert.ok(hostsPattern.test('http://localhost:9200'))
+    assert.ok(hostsPattern.test('https://user:pass@es1.example.com:9200'))
+    assert.ok(
+      hostsPattern.test('http://localhost:9200, https://user:pass@es1.example.com:9200'),
+      'accepts a comma-separated list of hosts'
+    )
+    assert.ok(!hostsPattern.test(''), 'rejects an empty value')
+    assert.ok(!hostsPattern.test('not-a-url'), 'rejects a value with no scheme')
+    assert.ok(!hostsPattern.test('ftp://localhost:9200'), 'rejects a non-http(s) scheme')
+  })
 })

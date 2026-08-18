@@ -10,6 +10,8 @@ props:
     title: Host(s)
     hint: Comma-separated list of Elasticsearch hosts to connect to, including the port, username and password if necessary. (e.g. http://localhost:9200, https://user:pass@es1.example.com:9200)
     icon: server
+    required: true
+    pattern: '^https?://(?:[^\s:@/]+(?::[^\s:@/]+)?@)?[^\s:@/]+(?::\d+)?(?:\s*,\s*https?://(?:[^\s:@/]+(?::[^\s:@/]+)?@)?[^\s:@/]+(?::\d+)?)*$'
     order: 1
   verifyTLSCertificate:
     type: Boolean

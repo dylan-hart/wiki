@@ -27,6 +27,8 @@ function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
     multiline: false,
     sensitive: false,
     readOnly: false,
+    required: false,
+    pattern: '',
     icon: 'text-box-search',
     order: 100,
     if: [],
@@ -135,6 +137,8 @@ describe('SearchEngineDefinition', () => {
           multiline: false,
           sensitive: false,
           readOnly: false,
+          required: false,
+          pattern: '',
           icon: 'text-box-search',
           order: 100,
           if: []
@@ -554,6 +558,35 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     }
   }
 
+  /**
+   * A third, distinct fixture (task #556): a required prop left empty must be refused, and a
+   * shaped prop must match its declared `pattern` -- neither `dbDefinition` nor `customDefinition`
+   * declares either, so a dedicated engine keeps those two fixtures' existing tests undisturbed.
+   */
+  const strictDefinition: SearchEngineDefinition = {
+    key: 'strict-engine',
+    title: 'Strict Engine',
+    description: 'A fake external engine with a required field and a shaped field.',
+    vendor: 'Test',
+    website: 'https://example.com',
+    props: {
+      apiKey: fakeProp({
+        default: '',
+        type: 'string',
+        title: 'API Key',
+        required: true,
+        icon: 'key'
+      }),
+      hosts: fakeProp({
+        default: '',
+        type: 'string',
+        title: 'Host(s)',
+        pattern: '^https?://[\\w.-]+(:\\d+)?$',
+        icon: 'server'
+      })
+    }
+  }
+
   before(() => {
     previousWiki = (globalThis as any).WIKI
     ;(globalThis as any).WIKI = {
@@ -561,7 +594,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
     previousDefinitions = search.definitions
-    search.definitions = [dbDefinition, customDefinition]
+    search.definitions = [dbDefinition, customDefinition, strictDefinition]
   })
 
   after(() => {
@@ -580,7 +613,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
       assert.deepEqual(
         engines.map((e) => e.key),
-        ['db', 'custom-engine']
+        ['db', 'custom-engine', 'strict-engine']
       )
       assert.equal(engines.find((e) => e.key === 'db')!.isSelected, false)
       assert.equal(engines.find((e) => e.key === 'custom-engine')!.isSelected, true)
@@ -709,6 +742,45 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     test('rejects a wrong-typed boolean prop', () => {
       const message = search.validateEngineConfig('db', { termHighlighting: 'yes' })
       assert.match(message!, /Term Highlighting must be true or false/)
+    })
+
+    test('rejects a required prop left empty, naming the engine', () => {
+      const message = search.validateEngineConfig('strict-engine', { hosts: 'http://x:1' })
+      assert.match(message!, /API Key is required/)
+      assert.match(message!, /Strict Engine/)
+    })
+
+    test('accepts a required prop that was already stored, without it being resent', () => {
+      assert.equal(
+        search.validateEngineConfig(
+          'strict-engine',
+          { hosts: 'http://x:1' },
+          { apiKey: 'stored-key' }
+        ),
+        null
+      )
+    })
+
+    test('rejects a value that fails the declared pattern', () => {
+      const message = search.validateEngineConfig('strict-engine', {
+        apiKey: 'k',
+        hosts: 'not-a-url'
+      })
+      assert.match(message!, /Host\(s\) is not valid for Strict Engine/)
+    })
+
+    test('accepts a value that matches the declared pattern', () => {
+      assert.equal(
+        search.validateEngineConfig('strict-engine', { apiKey: 'k', hosts: 'http://x:1' }),
+        null
+      )
+    })
+
+    test('does not flag a required prop that is merely absent from the effective config’s defaults when it has no default and nothing stored', () => {
+      // -> Same case as the first test above, restated: `hosts` has no `required: true`, so an
+      //    empty default is fine for it even though it also has a `pattern` -- patterns are only
+      //    checked once a value is non-empty.
+      assert.equal(search.validateEngineConfig('strict-engine', { apiKey: 'k' }), null)
     })
   })
 

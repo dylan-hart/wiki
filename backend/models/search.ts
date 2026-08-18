@@ -359,9 +359,24 @@ class Search {
    * engine picker only ever sends what the engine's own props currently list, so an unrecognized key
    * means the request is stale or wrong, not that a prop was removed server-side.
    *
+   * Beyond the per-key type/enum check above, a `required` prop (e.g. Algolia's `apiKey`, Elasticsearch's
+   * `hosts`) and a `pattern` prop (e.g. Elasticsearch's `hosts` shape) are checked against the
+   * *effective* config -- `incoming` merged onto `existing`, the same merge `buildEngineConfig` does for
+   * what actually gets saved -- rather than against `incoming` alone. Two things fall out of that: an
+   * engine switch that sends no config at all is still refused if a required field was genuinely never
+   * filled in (its default is empty, and empty stays empty through the merge), and a value saved on an
+   * earlier request does not need to be resent on every later save just to keep validating.
+   *
+   * @param existing What is already stored for this engine on the site making the request, task #556 --
+   *   omit it (e.g. for a plain type/enum check with no site in play) to validate `incoming` as if
+   *   nothing were stored yet.
    * @returns The reason it is invalid, or null when it is fine
    */
-  validateEngineConfig(key: string, incoming: Record<string, any> = {}): string | null {
+  validateEngineConfig(
+    key: string,
+    incoming: Record<string, any> = {},
+    existing: Record<string, any> = {}
+  ): string | null {
     const definition = this.getDefinition(key)
     const props = definition?.props ?? {}
     for (const [propKey, value] of Object.entries(incoming)) {
@@ -395,6 +410,22 @@ class Search {
           if (typeof value !== 'string') {
             return `${prop.title} must be a string.`
           }
+      }
+    }
+
+    const effective = this.buildEngineConfig(key, incoming, existing)
+    for (const [propKey, prop] of Object.entries(props)) {
+      const value = effective[propKey]
+      if (prop.required && (value === undefined || value === null || value === '')) {
+        return `${prop.title} is required for ${definition?.title ?? key}.`
+      }
+      if (
+        prop.pattern &&
+        typeof value === 'string' &&
+        value !== '' &&
+        !new RegExp(prop.pattern).test(value)
+      ) {
+        return `${prop.title} is not valid for ${definition?.title ?? key}.`
       }
     }
     return null
