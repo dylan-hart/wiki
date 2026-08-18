@@ -9,7 +9,7 @@
           flat
           :icon="menuItem.icon"
           padding="xs"
-          :class='{ "is-active": menuItem.isActive && menuItem.isActive() }'
+          :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           :aria-label="menuItem.title"
           split
@@ -29,7 +29,9 @@
                   <w-item-section side>
                     <w-icon :name="child.icon" :color="child.color" />
                   </w-item-section>
-                  <w-item-section><w-item-label>{{child.title}}</w-item-label></w-item-section>
+                  <w-item-section
+                    ><w-item-label>{{ child.title }}</w-item-label></w-item-section
+                  >
                 </w-item>
               </template>
             </w-list>
@@ -42,7 +44,7 @@
             flat
             :icon="child.icon"
             padding="xs"
-            :class='{ "is-active": child.isActive && child.isActive() }'
+            :class="{ 'is-active': child.isActive && child.isActive() }"
             :color="child.isActive && child.isActive() ? `primary` : `grey-10`"
             @click="child.action"
             :aria-label="child.title"
@@ -54,7 +56,7 @@
           flat
           :icon="menuItem.icon"
           padding="xs"
-          :class='{ "is-active": menuItem.isActive && menuItem.isActive() }'
+          :class="{ 'is-active': menuItem.isActive && menuItem.isActive() }"
           :color="menuItem.isActive && menuItem.isActive() ? `primary` : `grey-10`"
           @click="menuItem.action"
           :aria-label="menuItem.title"
@@ -95,19 +97,18 @@ import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Mention from '@tiptap/extension-mention'
 import Placeholder from '@tiptap/extension-placeholder'
-import Table from '@tiptap/extension-table'
+import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import TextAlign from '@tiptap/extension-text-align'
-import TextStyle from '@tiptap/extension-text-style'
+import { TextStyle } from '@tiptap/extension-text-style'
 import Typography from '@tiptap/extension-typography'
 import { common, createLowlight } from 'lowlight'
 
 const lowlight = createLowlight(common)
-
 
 // STORES
 
@@ -686,6 +687,7 @@ function init() {
       Image,
       Mention.configure({
         // TODO: suggestions
+
       }),
       Placeholder.configure({
         placeholder: 'Enter some content here...'
@@ -735,6 +737,11 @@ onBeforeUnmount(() => {
 })
 
 init()
+
+// -> Exposed for tests only, so a mounted instance can drive the TipTap editor directly (e.g.
+//    `wrapper.vm.editor.chain().focus().insertContent(...).run()`) the way the toolbar's own
+//    handlers above do, rather than trying to simulate real keystrokes through happy-dom.
+defineExpose({ editor })
 </script>
 
 <style lang="scss">

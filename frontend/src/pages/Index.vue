@@ -372,11 +372,11 @@ const editorComponents = {
   redirect: defineAsyncComponent({
     loader: () => import('../components/EditorRedirect.vue'),
     loadingComponent: LoadingGeneric
+  }),
+  wysiwyg: defineAsyncComponent({
+    loader: () => import('../components/EditorWysiwyg.vue'),
+    loadingComponent: LoadingGeneric
   })
-  // wysiwyg: defineAsyncComponent({
-  //   loader: () => import('../components/EditorWysiwyg.vue'),
-  //   loadingComponent: LoadingGeneric
-  // })
 }
 
 // STORES
