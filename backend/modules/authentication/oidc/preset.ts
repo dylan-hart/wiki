@@ -6,7 +6,7 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
  * to re-hardcode `client.discovery`/`buildAuthorizationUrl`/`authorizationCodeGrant` the way
  * `google/authentication.ts` does. `issuer` is a function rather than a string because some providers
  * derive it from another admin-supplied value — Auth0's issuer is `https://{domain}/`, built from the
- * tenant domain the admin enters — while others (Slack, Discord) can fix it outright.
+ * tenant domain the admin enters — while others (Slack, Twitch) can fix it outright.
  *
  * Every other field is optional and, when set, overrides whatever the admin's own config carries for
  * that key: a preset exists specifically to stop the admin from having to know a scope string or a
@@ -19,11 +19,16 @@ export interface OidcPresetTemplate {
   displayNameClaim?: string
   useDiscovery?: boolean
   /**
-   * Static authorization-request parameters a provider needs beyond the generic set, forwarded to
+   * Authorization-request parameters a provider needs beyond the generic set, forwarded to
    * `OidcAuthentication`'s `extraAuthParams` and merged onto the authorization URL as-is. Twitch is
-   * the reason this exists: it wants a `claims` parameter asking for email even under PKCE.
+   * the reason this exists at all: it wants a static `claims` parameter asking for email even under
+   * PKCE. A function form exists for a preset whose extra parameter depends on what the admin
+   * configured — Slack's optional `team` workspace restriction is only sent when a `teamId` was set,
+   * so returning `undefined` there means "nothing extra", not an empty/`"undefined"` query param.
    */
-  extraAuthParams?: Record<string, string>
+  extraAuthParams?:
+    | Record<string, string>
+    | ((conf: Record<string, any>) => Record<string, string> | undefined)
 }
 
 /**
@@ -43,7 +48,10 @@ export function buildOidcConfig(
     emailClaim: template.emailClaim ?? conf.emailClaim,
     displayNameClaim: template.displayNameClaim ?? conf.displayNameClaim,
     useDiscovery: template.useDiscovery ?? conf.useDiscovery,
-    extraAuthParams: template.extraAuthParams ?? conf.extraAuthParams
+    extraAuthParams:
+      typeof template.extraAuthParams === 'function'
+        ? template.extraAuthParams(conf)
+        : (template.extraAuthParams ?? conf.extraAuthParams)
   }
 }
 

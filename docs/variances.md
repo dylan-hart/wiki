@@ -64,3 +64,50 @@ of it, per provider:
 self-hosted Keycloak realm, GitLab, and Twitch should do the actual browser round-trip for each
 preset before it ships, per the original task instruction. Not economically doable inside this
 bounded, credential-less run.
+
+## Task 440 — Discord/Slack presets: no live-application manual login round-trip
+
+**Spec asked for:** "Manual login test against a real Discord application and Slack app required for
+both."
+
+**What was actually done:** This run did have outbound HTTPS to public, unauthenticated endpoints —
+used to verify, live rather than from memory, that `slack.com/.well-known/openid-configuration` and
+`discord.com/.well-known/openid-configuration` both answer, that Slack's response describes a
+genuine OpenID Connect flow (issuing a verifiable ID token) while Discord's does not
+(`response_types_supported` has no `id_token`, and Discord's own current docs describe plain OAuth2),
+that `docs.slack.dev`/`docs.discord.com` confirm the same in prose, and that both
+`static.requarks.io/logo/{discord,slack}.svg` resolve (200) for `definition.yml`. That reclassified
+Slack from the Task 436 audit's original `oauth2` preset to `oidc` preset — see
+`docs/auth-provider-audit.md`'s note above its table — and is a materially different, better-grounded
+result than the audit had going in, not just a substitute for the missing manual test.
+
+What none of that reaches: a real or sandboxed Discord application (client ID/secret registered in
+the Discord Developer Portal) or Slack app (registered in the Slack API console, with "Sign in with
+Slack" configured), and a browser to drive an actual authorization-code round-trip through either
+provider's real consent screen back to this instance's `/_api/auth/{id}/callback`. No such
+credentials exist in this run, and there is no browser automation available to exercise the redirect.
+Verified everything short of that instead:
+
+- Unit tests (`backend/modules/authentication/discord/authentication.test.ts`,
+  `backend/modules/authentication/slack/authentication.test.ts`) cover: Discord's fixed
+  authorization/token/userinfo endpoints and `identify email` scope (widened to add `guilds` only
+  when `guildId` is configured), the guild-membership check against a mocked
+  `/users/@me/guilds` response (member allowed, non-member and a failed check both rejected with
+  `ERR_LOGIN_RESTRICTED`, and the check's access token traced through to prove it reuses the same
+  token exchange rather than a second one); Slack's fixed `https://slack.com` issuer, `openid email
+profile` scopes, and the optional `team` authorization parameter (present only when `teamId` is
+  configured) — plus, for both, delegation of the actual protocol calls to the shared `oauth2`/`oidc`
+  modules (no reimplemented token exchange or discovery).
+- Confirmed both load through the exact dynamic-import path
+  `models/authentication.ts#activateStrategies` uses at runtime
+  (`import('../modules/authentication/{discord,slack}/authentication.ts')`), construct, and expose
+  `authorizationUrl`/`profile`/`logoutUrl` — Discord's `authorizationUrl()` was additionally run
+  unmocked end-to-end (no network involved, since it only builds a URL) to see the real query string.
+- `definition.yml` for each follows the existing branding convention and the shared
+  `{host}/_api/auth/{id}/callback` ref, which `AdminAuth.vue` already renders generically.
+
+**Follow-up:** A human with a real or sandboxed Discord application and Slack app should do the
+actual browser round-trip for each — including Discord's `guildId` restriction against a real guild
+membership, and Slack's `teamId` restriction against a real workspace — before either preset ships,
+per the original task instruction. Not economically doable inside this bounded run, credentials
+aside.

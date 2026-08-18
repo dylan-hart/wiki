@@ -43,6 +43,26 @@ describe('buildOidcConfig', () => {
     assert.deepEqual(config.extraAuthParams, { claims: '{"userinfo":{"email":null}}' })
   })
 
+  test("a function-valued extraAuthParams (e.g. Slack's optional workspace restriction) is computed from the admin config", () => {
+    const withTeam = buildOidcConfig(
+      {
+        issuer: () => 'https://slack.com',
+        extraAuthParams: (c) => (c.teamId ? { team: c.teamId } : undefined)
+      },
+      { clientId: 'abc', clientSecret: 'xyz', teamId: 'T12345' }
+    )
+    assert.deepEqual(withTeam.extraAuthParams, { team: 'T12345' })
+
+    const withoutTeam = buildOidcConfig(
+      {
+        issuer: () => 'https://slack.com',
+        extraAuthParams: (c) => (c.teamId ? { team: c.teamId } : undefined)
+      },
+      { clientId: 'abc', clientSecret: 'xyz' }
+    )
+    assert.equal(withoutTeam.extraAuthParams, undefined)
+  })
+
   test('fields the template leaves unset fall back to the admin config untouched', () => {
     const config = buildOidcConfig(
       { issuer: () => 'https://issuer.example' },

@@ -1,0 +1,41 @@
+key: discord
+title: Discord
+description: Sign in with a Discord account.
+author: requarks.io
+logo: https://static.requarks.io/logo/discord.svg
+icon: /_assets/icons/ultraviolet-discord.svg
+color: indigo
+vendor: 'Discord Inc.'
+website: 'https://docs.discord.com/developers/topics/oauth2'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the application registered in the Discord Developer Portal.
+    icon: key
+    order: 1
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same application.
+    icon: password
+    sensitive: true
+    order: 2
+  guildId:
+    type: String
+    title: Restrict to Server ID
+    hint: >-
+      (optional) A Discord guild/server ID. Only its members may sign in — checked against the
+      authenticated user's own guild list, so the application must also request the `guilds` scope
+      (added automatically here whenever this is set).
+    icon: user-groups
+    order: 3
+refs:
+  callbackUrl:
+    title: OAuth2 Redirect URL
+    hint: Add this to the application's OAuth2 Redirects.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

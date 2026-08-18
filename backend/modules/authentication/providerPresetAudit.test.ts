@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url'
  * Guards the Feature 355 / Task 436 audit table (docs/auth-provider-audit.md) against drift.
  * Tasks 437-440 gate on a provider appearing here with `oidc preset` or `oauth2 preset` as its
  * target module before a preset may be built for it — see that doc's "Gate" section.
+ *
+ * Slack moved from `oauth2` preset to `oidc` preset during Task 440: its description asked for the
+ * classification to be re-checked against current Slack docs before writing code, and "Sign in with
+ * Slack" turned out to be genuine OIDC now (see the doc's note above the table). Discord was
+ * re-checked the same way and stayed OAuth2-only.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -23,7 +28,7 @@ const expectedClassifications: Record<string, string> = {
   GitLab: '`oidc` preset',
   Twitch: '`oidc` preset',
   Discord: '`oauth2` preset',
-  Slack: '`oauth2` preset',
+  Slack: '`oidc` preset',
   Facebook: 'Deferred',
   Dropbox: 'Deferred',
   RocketChat: 'Deferred',
@@ -67,25 +72,24 @@ describe('auth provider preset audit (Feature 355 / Task 436)', () => {
     }
   })
 
-  test('the six confirmed-OIDC providers are marked OIDC', () => {
+  test('the seven confirmed-OIDC providers are marked OIDC', () => {
     for (const provider of [
       'Auth0',
       'Okta',
       'Microsoft (Azure AD / Entra ID)',
       'Keycloak',
       'GitLab',
-      'Twitch'
+      'Twitch',
+      'Slack'
     ]) {
       const [protocol] = rows[provider]
       assert.equal(protocol, 'OIDC', `expected ${provider} to be classified OIDC`)
     }
   })
 
-  test('Discord and Slack are marked OAuth2-only, not OIDC', () => {
-    for (const provider of ['Discord', 'Slack']) {
-      const [protocol] = rows[provider]
-      assert.equal(protocol, 'OAuth2-only', `expected ${provider} to be classified OAuth2-only`)
-    }
+  test('Discord is marked OAuth2-only, not OIDC', () => {
+    const [protocol] = rows.Discord
+    assert.equal(protocol, 'OAuth2-only', 'expected Discord to be classified OAuth2-only')
   })
 
   test('Facebook, Dropbox and RocketChat are OAuth2-only and deferred, not targeted by this Feature', () => {

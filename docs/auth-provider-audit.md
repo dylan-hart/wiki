@@ -14,20 +14,39 @@ that has no discovery document at all, is **OAuth2-only** — it needs the new g
 (task 439) instead. Firebase does neither: it verifies a client-SDK-issued token rather than running a
 redirect-based authorization-code flow, so it fits no preset shape and is recorded as out of scope.
 
-| Provider                        | Protocol    | Target module   | Reason                                                                                                                                                                     |
-| ------------------------------- | ----------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth0                           | OIDC        | `oidc` preset   | Publishes `/.well-known/openid-configuration` per tenant domain; issues a verifiable ID token.                                                                             |
-| Okta                            | OIDC        | `oidc` preset   | Publishes discovery per org URL; issues a verifiable ID token.                                                                                                             |
-| Microsoft (Azure AD / Entra ID) | OIDC        | `oidc` preset   | Publishes discovery per tenant; issues a verifiable ID token.                                                                                                              |
-| Keycloak                        | OIDC        | `oidc` preset   | Self-hosted, standards-compliant OIDC discovery + verifiable ID token.                                                                                                     |
-| GitLab                          | OIDC        | `oidc` preset   | Publishes discovery + a verifiable ID token (GitLab has been an OIDC provider since 11.9).                                                                                 |
-| Twitch                          | OIDC        | `oidc` preset   | Publishes discovery (`id.twitch.tv`) + a verifiable ID token.                                                                                                              |
-| Discord                         | OAuth2-only | `oauth2` preset | No discovery document, no ID token; 2.5.x's `discord/authentication.js` uses `passport-discord` (`identify email guilds` scope) against Discord's REST API (`/users/@me`). |
-| Slack                           | OAuth2-only | `oauth2` preset | No discovery document, no ID token; 2.5.x's `slack/authentication.js` uses `passport-slack-oauth2` (`identity.email` scope).                                               |
-| Facebook                        | OAuth2-only | Deferred        | Plain OAuth2 against the Graph API, no ID token — a plausible future `oauth2` preset once the generic module exists, but not named as a Feature 355 deliverable.           |
-| Dropbox                         | OAuth2-only | Deferred        | Plain OAuth2, no ID token — same rationale as Facebook; not named as a Feature 355 deliverable.                                                                            |
-| RocketChat                      | OAuth2-only | Deferred        | Plain OAuth2 against a self-hosted Rocket.Chat instance, no ID token — same rationale as Facebook; not named as a Feature 355 deliverable.                                 |
-| Firebase                        | Neither     | Out of scope    | Verifies a client-SDK-issued Firebase ID token rather than running a redirect-based OAuth2/OIDC authorization-code flow — does not fit either preset shape.                |
+> **Slack reclassified during Task 440.** This table originally carried Slack as OAuth2-only, matching
+> 2.5.x's `passport-slack-oauth2` (`identity.email` scope) module. Task 440's description itself
+> flagged that Slack has since shipped "Sign in with Slack" as genuine OpenID Connect and asked for
+> re-verification before writing code. Checked directly against live Slack endpoints during Task 440
+> (2026-08-17): `https://slack.com/.well-known/openid-configuration` answers 200 with a full OIDC
+> discovery document (`authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `jwks_uri`,
+> `id_token_signing_alg_values_supported`), and `docs.slack.dev/authentication/sign-in-with-slack/`
+> confirms it in prose ("built on top of OAuth 2.0" / "works with any package that successfully
+> implements this standard"). Slack is therefore moved to `oidc` preset below; the row that follows is
+> current, the OAuth2-only classification above does not apply to Slack.
+
+> Discord was re-checked the same way for completeness: `discord.com/.well-known/openid-configuration`
+> also answers 200, but Discord's own current docs
+> (`docs.discord.com/developers/topics/oauth2`) describe the flow as plain OAuth2 (RFC 6749) with no
+> OpenID Connect extension, and `response_types_supported` in that discovery document lists only
+> `code`/`token` — no `id_token` response type, i.e. no ID-token issuance. Discord's classification
+> stays OAuth2-only; the discovery document is not evidence of OIDC compliance by itself, only a
+> verifiable ID token is, per the rule above.
+
+| Provider                        | Protocol    | Target module   | Reason                                                                                                                                                                                                                                                                                                   |
+| ------------------------------- | ----------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth0                           | OIDC        | `oidc` preset   | Publishes `/.well-known/openid-configuration` per tenant domain; issues a verifiable ID token.                                                                                                                                                                                                           |
+| Okta                            | OIDC        | `oidc` preset   | Publishes discovery per org URL; issues a verifiable ID token.                                                                                                                                                                                                                                           |
+| Microsoft (Azure AD / Entra ID) | OIDC        | `oidc` preset   | Publishes discovery per tenant; issues a verifiable ID token.                                                                                                                                                                                                                                            |
+| Keycloak                        | OIDC        | `oidc` preset   | Self-hosted, standards-compliant OIDC discovery + verifiable ID token.                                                                                                                                                                                                                                   |
+| GitLab                          | OIDC        | `oidc` preset   | Publishes discovery + a verifiable ID token (GitLab has been an OIDC provider since 11.9).                                                                                                                                                                                                               |
+| Twitch                          | OIDC        | `oidc` preset   | Publishes discovery (`id.twitch.tv`) + a verifiable ID token.                                                                                                                                                                                                                                            |
+| Discord                         | OAuth2-only | `oauth2` preset | Publishes a discovery document but issues no verifiable ID token (`response_types_supported` has no `id_token`); own docs describe it as plain OAuth2 (RFC 6749). 2.5.x's `discord/authentication.js` used `passport-discord` (`identify email guilds` scope) against Discord's REST API (`/users/@me`). |
+| Slack                           | OIDC        | `oidc` preset   | Reclassified in Task 440 (see note above): "Sign in with Slack" publishes `/.well-known/openid-configuration` and issues a verifiable ID token. 2.5.x's `slack/authentication.js` predates this and used `passport-slack-oauth2` (`identity.email` scope) — no longer the current integration path.      |
+| Facebook                        | OAuth2-only | Deferred        | Plain OAuth2 against the Graph API, no ID token — a plausible future `oauth2` preset once the generic module exists, but not named as a Feature 355 deliverable.                                                                                                                                         |
+| Dropbox                         | OAuth2-only | Deferred        | Plain OAuth2, no ID token — same rationale as Facebook; not named as a Feature 355 deliverable.                                                                                                                                                                                                          |
+| RocketChat                      | OAuth2-only | Deferred        | Plain OAuth2 against a self-hosted Rocket.Chat instance, no ID token — same rationale as Facebook; not named as a Feature 355 deliverable.                                                                                                                                                               |
+| Firebase                        | Neither     | Out of scope    | Verifies a client-SDK-issued Firebase ID token rather than running a redirect-based OAuth2/OIDC authorization-code flow — does not fit either preset shape.                                                                                                                                              |
 
 ## Gate
 

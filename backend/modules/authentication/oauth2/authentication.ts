@@ -19,6 +19,14 @@ import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../model
  * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
  * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — there is no
  * verification step to add without a protocol feature to hang it on.
+ *
+ * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` rather than folded
+ * into `profile()` so a fixed-endpoint preset built on top of this module — `discord/authentication.ts`
+ * is the reason this exists — can override `profile()` to slot in a provider-specific check (Discord's
+ * optional guild-membership call) between the token exchange and the userinfo fetch, without
+ * reimplementing either. A preset that needs no such hook, like the branded OIDC presets do via
+ * `OidcPreset`, would just wrap an instance instead; Discord's guild check needs the raw access token
+ * `profile()` would otherwise discard, so composition alone can't reach it — subclassing can.
  */
 export default class OAuth2Authentication {
   strategyId: string
@@ -32,7 +40,7 @@ export default class OAuth2Authentication {
   }
 
   /** Every field a login actually needs; a preset built on top of this module still has to set them all. */
-  private assertConfigured(): void {
+  protected assertConfigured(): void {
     if (
       !this.conf.clientId ||
       !this.conf.clientSecret ||
@@ -58,8 +66,8 @@ export default class OAuth2Authentication {
     return url.toString()
   }
 
-  async profile({ code, redirectUri }: AuthFlowCallback): Promise<ProviderProfile> {
-    this.assertConfigured()
+  /** POST the authorization code to `tokenURL` and return the access token. */
+  protected async exchangeCode(code: string | undefined, redirectUri: string): Promise<string> {
     if (!code) {
       throw new Error('ERR_NO_AUTHORIZATION_CODE')
     }
@@ -91,18 +99,25 @@ export default class OAuth2Authentication {
     if (!tokenResp.ok || token.error || !token.access_token) {
       throw new Error('ERR_TOKEN_EXCHANGE_FAILED')
     }
+    return token.access_token
+  }
 
+  /** GET `userInfoURL` bearing the access token, and return its raw JSON. */
+  protected async fetchUserInfo(accessToken: string): Promise<Record<string, any>> {
     const infoResp = await fetch(this.conf.userInfoURL, {
       headers: {
-        Authorization: `Bearer ${token.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
         Accept: 'application/json'
       }
     })
     if (!infoResp.ok) {
       throw new Error('ERR_TOKEN_EXCHANGE_FAILED')
     }
-    const info = (await infoResp.json()) as Record<string, any>
+    return (await infoResp.json()) as Record<string, any>
+  }
 
+  /** Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names. */
+  protected mapProfile(info: Record<string, any>): ProviderProfile {
     const id = info[this.conf.userIdClaim || 'id']
     if (id === undefined || id === null || id === '') {
       throw new Error('ERR_NO_PROVIDER_ACCOUNT')
@@ -118,6 +133,13 @@ export default class OAuth2Authentication {
       email,
       name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email
     }
+  }
+
+  async profile({ code, redirectUri }: AuthFlowCallback): Promise<ProviderProfile> {
+    this.assertConfigured()
+    const accessToken = await this.exchangeCode(code, redirectUri)
+    const info = await this.fetchUserInfo(accessToken)
+    return this.mapProfile(info)
   }
 
   /** Where a logout should continue, so that the session at the provider ends too. */
