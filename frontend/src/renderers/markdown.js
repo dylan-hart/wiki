@@ -214,9 +214,7 @@ export class MarkdownRenderer {
       typography: config.typographer,
       quotes: quoteStyles[config.quotes] ?? quoteStyles.english,
       highlight(str, lang) {
-        if (lang === 'diagram') {
-          return `<pre class="diagram">${Buffer.from(str, 'base64').toString()}</pre>`
-        } else if (['kroki', 'mermaid', 'plantuml'].includes(lang)) {
+        if (['kroki', 'mermaid', 'plantuml'].includes(lang)) {
           /*
             Left as source, deliberately: a diagram is drawn by the block whose body it is —
             `block-diagram` for mermaid, `block-plantuml` and `block-kroki` for the others — and each

@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit'
 import { deflateRaw } from 'pako'
 import { DarkMode } from '../shared/theme.js'
+import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
 
 /** The default server, which is the one PlantUML runs for everybody. */
 const DEFAULT_SERVER = 'https://www.plantuml.com/plantuml'
@@ -21,8 +22,9 @@ const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
  * the padding decodes to.
  *
  * The result is about 1.4 characters per character of source, so a very large diagram can outgrow what
- * a server will accept in a URL. That is a limit of this transport, and the way past it is the
- * server's POST endpoint, which is not implemented here.
+ * a server will accept in a URL. That is a limit of this transport this fork has decided to live with
+ * rather than add a server-side POST proxy for -- see `docs/variances.md` -- so `firstUpdated()` below
+ * measures the result and refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
  */
 function encodeForUrl(source) {
   const bytes = deflateRaw(new TextEncoder().encode(source), { level: 9 })
@@ -267,14 +269,27 @@ Bob --> Alice : hi
       this._error =
         'This diagram is empty. Its source goes in the body of the block, inside a ```plantuml fence.'
       if (this.querySelector('img')) {
-        // -> The renderer's own PlantUML option claims that fence and draws it before this block is
-        //    ever built, leaving an image where the source should be
+        // -> Something already put an image where the source should be — pasted-in markup, most
+        //    likely, since nothing in this wiki's own render pipeline ever does
         this._error +=
-          '\n\nThe PlantUML option in the markdown editor settings is on, and it has already turned this fence into a diagram of its own. Switch it off to draw through this block.'
+          "\n\nAn image sits here instead of source text. Replace it with the diagram's PlantUML source, inside the ```plantuml fence."
       }
       return
     }
-    this._src = this._url(source)
+    const url = this._url(source)
+    /*
+      A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
+      diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the
+      browser tries to load the `img` below, surfacing as `_explain()`'s generic "could not be
+      drawn" message with no hint that size is the actual problem. Checking the string's own length
+      here catches it before any request is made, with an explanation the vague network failure
+      never gave.
+    */
+    if (url.length > MAX_DIAGRAM_URL_LENGTH) {
+      this._error = explainUrlTooLarge(url.length)
+      return
+    }
+    this._src = url
   }
 
   render() {

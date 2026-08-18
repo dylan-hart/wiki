@@ -49,7 +49,14 @@ export class BlockDiagramElement extends LitElement {
    */
   static definition = {
     block: 'diagram',
-    name: 'Diagram',
+    /*
+      Named after the engine it draws with, matching how block-kroki and block-plantuml name
+      themselves — "Diagram" alone would read as a generic catch-all next to those two specific
+      names, when this block draws exactly one family of diagram syntax, no more "the" diagram
+      block than either of them. The tag stays `block-diagram` (and the fence stays ```mermaid`):
+      only this display name changes.
+    */
+    name: 'Mermaid',
     description: 'Draws a Mermaid diagram — flowchart, sequence, class, state, ER, gantt and more.',
     icon: 'workflow',
     /*

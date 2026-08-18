@@ -1,0 +1,93 @@
+import { describe, expect, it } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+
+import BlockPickerOverlay from './BlockPickerOverlay.vue'
+
+/**
+ * Regression coverage for the picker starting a newly-selected block's form on the site's configured
+ * default (`block.config`, written by the admin "Content Blocks" page's per-block "Server" field —
+ * see `models/blocks.ts#setBlocksState`) rather than always on the component's own hardcoded
+ * `prop.default`. `helpers/blocks.js#propDefault` carries the actual precedence logic and has its own
+ * direct unit coverage via `helpers/markdownBlocks.test.js`; this locks down that the picker's
+ * `select()` really calls it, by reading the generated markdown back out of the panel.
+ */
+
+const BLOCK = {
+  id: 'block-1',
+  block: 'kroki',
+  name: 'Kroki',
+  description: 'Draws a diagram through a Kroki server.',
+  icon: 'tree-structure',
+  isEnabled: true,
+  isCustom: false,
+  config: { server: 'https://kroki.example.com' },
+  props: [{ name: 'server', type: 'string', label: 'Server', default: 'https://kroki.io' }],
+  template: ''
+}
+
+async function mountPicker(blocks) {
+  setActivePinia(createPinia())
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(blocks) })
+
+  const wrapper = mount(BlockPickerOverlay, {
+    global: { plugins: [i18n] }
+  })
+  await flushPromises()
+  return wrapper
+}
+
+describe('BlockPickerOverlay', () => {
+  it("starts a selected block's form on the site's configured default, not the component's own", async () => {
+    const wrapper = await mountPicker([BLOCK])
+
+    await wrapper.find('.block-picker-card').trigger('click')
+
+    expect(wrapper.find('.block-picker-output').text()).toContain(
+      'server="https://kroki.example.com"'
+    )
+  })
+
+  it("falls back to the component's own default when the site has not configured one", async () => {
+    const wrapper = await mountPicker([{ ...BLOCK, config: {} }])
+
+    await wrapper.find('.block-picker-card').trigger('click')
+
+    // -> Equal to the prop's own default, so `blockAttributes` leaves it out of the markup entirely
+    expect(wrapper.find('.block-picker-output').text()).not.toContain('server=')
+  })
+})
+
+/**
+ * `blocks` is computed straight off `state.isEnabled` with no other gate, so a block the site has
+ * switched off must never appear as a card at all -- not just unselected, but literally absent, since
+ * a card is the only way to select or insert one. This is also what rules out the "stale, insertable
+ * entry" the task asks about: the picker fetches the block list fresh every time it mounts (see
+ * `onMounted`), and a component instance is torn down and rebuilt each time the overlay dialog closes
+ * and reopens (`MainOverlayDialog.vue`'s `<component :is>` unmounts it the moment
+ * `siteStore.overlay` stops naming it) -- so a block disabled after the picker was last open is
+ * simply never in the list the next mount fetches, and nothing here can hold a reference to it.
+ */
+describe('the isEnabled filter', () => {
+  const DISABLED = { ...BLOCK, id: 'block-2', block: 'diagram', name: 'Mermaid', isEnabled: false }
+  const ENABLED = { ...BLOCK, id: 'block-1', isEnabled: true }
+
+  it('never lists a block disabled for the current site', async () => {
+    const wrapper = await mountPicker([ENABLED, DISABLED])
+
+    const cards = wrapper.findAll('.block-picker-card')
+    expect(cards).toHaveLength(1)
+    expect(wrapper.text()).toContain('Kroki')
+    expect(wrapper.text()).not.toContain('Mermaid')
+  })
+
+  it('leaves nothing selectable when every block on the site is disabled', async () => {
+    const wrapper = await mountPicker([DISABLED])
+
+    expect(wrapper.findAll('.block-picker-card')).toHaveLength(0)
+    expect(wrapper.find('.block-picker-output').exists()).toBe(false)
+  })
+})

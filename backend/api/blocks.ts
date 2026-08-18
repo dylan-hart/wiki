@@ -227,7 +227,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string }
-    Body: { states: { id: string; isEnabled: boolean }[] }
+    Body: { states: { id: string; isEnabled: boolean; config?: Record<string, any> }[] }
   }>(
     '/sites/:siteId/blocks',
     {
@@ -238,7 +238,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Enable or disable site blocks',
         description:
-          'Only the blocks listed are affected; any others keep their current state.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
+          'Only the blocks listed are affected; any others keep their current state. A state entry may also carry a `config` object, written to that block\'s per-site config as-is (e.g. the "Server" field block-kroki and block-plantuml offer) — omit it to leave a block\'s config untouched.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -266,6 +266,10 @@ async function routes(app: FastifyInstance) {
                   },
                   isEnabled: {
                     type: 'boolean'
+                  },
+                  config: {
+                    type: 'object',
+                    additionalProperties: true
                   }
                 }
               }

@@ -82,6 +82,19 @@
                 <em class="text-teal-7" v-else>{{ t('admin.blocks.builtin') }}</em>
               </w-item-label>
             </w-item-section>
+            <template v-if="hasServerProp(block)">
+              <w-item-section side style="min-width: 260px">
+                <w-input
+                  dense
+                  outlined
+                  v-model="block.config.server"
+                  :label="t('admin.blocks.server')"
+                  :aria-label="t('admin.blocks.server')"
+                  :placeholder="serverProp(block)?.default"
+                  :hint="t('admin.blocks.serverHint')" />
+              </w-item-section>
+              <w-separator class="mx-4" vertical />
+            </template>
             <template v-if="block.isCustom">
               <w-item-section side>
                 <w-btn
@@ -169,10 +182,22 @@ watch(
 
 // METHODS
 
+/** Whether this block declares a `server` prop — only block-kroki and block-plantuml do today. */
+function hasServerProp(block) {
+  return Boolean(serverProp(block))
+}
+
+function serverProp(block) {
+  return block.props?.find((prop) => prop.name === 'server')
+}
+
 async function load() {
   state.loading++
   try {
-    state.blocks = (await API_CLIENT.get(`sites/${adminStore.currentSiteId}/blocks`).json()) ?? []
+    const blocks = (await API_CLIENT.get(`sites/${adminStore.currentSiteId}/blocks`).json()) ?? []
+    // -> `config` is always an object from the API, but guarded here too so `v-model="block.config.server"`
+    //    never writes onto `undefined` if that ever stops being true
+    state.blocks = blocks.map((block) => ({ ...block, config: block.config ?? {} }))
   } catch (err) {
     notify({
       type: 'negative',
@@ -189,7 +214,7 @@ async function save() {
   try {
     const resp = await API_CLIENT.put(`sites/${adminStore.currentSiteId}/blocks`, {
       json: {
-        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled']))
+        states: state.blocks.map((bl) => pick(bl, ['id', 'isEnabled', 'config']))
       }
     }).json()
     if (!resp?.ok) {

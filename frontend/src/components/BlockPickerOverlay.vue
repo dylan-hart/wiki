@@ -110,7 +110,7 @@ import { computed, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
-import { blockMarkdown, blockPropsFilled } from '@/helpers/blocks'
+import { blockMarkdown, blockPropsFilled, propDefault } from '@/helpers/blocks'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
@@ -162,8 +162,11 @@ const canInsert = computed(
 
 function select(block) {
   state.selected = block
-  // -> Started at the block's own defaults, so the form shows what it would do if left alone
-  state.values = Object.fromEntries(block.props.map((prop) => [prop.name, prop.default ?? '']))
+  // -> Started at the site's configured default where there is one, else the block's own — so the
+  //    form shows what inserting it now would actually do
+  state.values = Object.fromEntries(
+    block.props.map((prop) => [prop.name, propDefault(block, prop)])
+  )
 }
 
 function insert() {
