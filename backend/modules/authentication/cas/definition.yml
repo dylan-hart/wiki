@@ -60,3 +60,9 @@ props:
     order: 6
     if:
       - { key: 'casVersion', eq: 'CAS3.0' }
+refs:
+  serviceUrl:
+    title: Service URL
+    hint: Register this as an allowed service with the CAS server above (a pattern match covering it is fine — the actual value this module sends is this URL plus a `?state=` parameter that changes on every login attempt).
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

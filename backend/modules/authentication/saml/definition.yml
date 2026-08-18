@@ -213,3 +213,9 @@ props:
     order: 25
     if:
       - { key: 'mapGroups', eq: true }
+refs:
+  acsUrl:
+    title: Assertion Consumer Service (ACS) URL
+    hint: Register this as the ACS URL (sometimes called the reply URL or single sign-on URL) at the identity provider.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'
