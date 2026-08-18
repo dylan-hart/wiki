@@ -5,7 +5,7 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import * as syncProtocol from 'y-protocols/sync'
 import * as Y from 'yjs'
 
-import { createNotifier } from '../helpers/pubsub.ts'
+import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 
 import type { PoolClient } from 'pg'
 import type { WebSocket } from 'ws'
@@ -193,6 +193,7 @@ const notifier = createNotifier(() => WIKI.collab.listenClient, 'collaboration r
 export default {
   rooms: new Map<string, CollabRoom>(),
   listenClient: null as PoolClient | null,
+  listenerHandle: null as ListenerHandle | null,
   /** Chunked relay messages still waiting for the rest of themselves, keyed by sender and message id. */
   partials: new Map<string, PartialRelay>(),
   /** Rooms this instance is waiting on a peer's state for, by page id. */
@@ -208,19 +209,29 @@ export default {
    * are, and a slow consumer on one channel should not hold up the other.
    */
   async init(): Promise<void> {
-    this.listenClient = await WIKI.dbManager.pool!.connect()
-    await this.listenClient.query(`SET application_name = 'Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB'`)
-    this.listenClient.on('notification', (msg) => {
-      if (msg.channel !== NOTIFY_CHANNEL || !msg.payload) {
-        return
-      }
-      try {
-        this.receiveRelay(JSON.parse(msg.payload) as RelayEnvelope)
-      } catch (err: any) {
-        WIKI.logger.warn(`Malformed collaboration relay message: ${err.message}`)
+    // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
+    //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
+    //    an unhandled 'error' and taking the process down with it.
+    this.listenerHandle = await connectListener({
+      pool: WIKI.dbManager.pool!,
+      applicationName: `Wiki.js - ${WIKI.INSTANCE_ID}:COLLAB`,
+      channels: [NOTIFY_CHANNEL],
+      label: 'collaboration relay',
+      onNotification: (msg) => {
+        if (msg.channel !== NOTIFY_CHANNEL || !msg.payload) {
+          return
+        }
+        try {
+          this.receiveRelay(JSON.parse(msg.payload) as RelayEnvelope)
+        } catch (err: any) {
+          WIKI.logger.warn(`Malformed collaboration relay message: ${err.message}`)
+        }
+      },
+      getClient: () => this.listenClient,
+      setClient: (client) => {
+        this.listenClient = client
       }
     })
-    await this.listenClient.query(`LISTEN ${NOTIFY_CHANNEL}`)
 
     this.pingTimer = setInterval(() => {
       for (const room of this.rooms.values()) {
@@ -259,12 +270,12 @@ export default {
       room.doc.destroy()
     }
     this.rooms.clear()
-    if (this.listenClient) {
+    if (this.listenerHandle) {
       // -> Whatever is still on its way out goes out first: releasing the client from under a
       //    notification in flight would fail that one for no reason
       await notifier.drained()
-      this.listenClient.release(true)
-      this.listenClient = null
+      await this.listenerHandle.close()
+      this.listenerHandle = null
     }
   },
 

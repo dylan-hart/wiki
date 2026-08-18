@@ -5,7 +5,7 @@ import path from 'node:path'
 import { CronExpressionParser } from 'cron-parser'
 import { v4 as uuid } from 'uuid'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
-import { createNotifier } from '../helpers/pubsub.ts'
+import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import { camelCase } from 'es-toolkit/string'
 import { remove } from 'es-toolkit/array'
 import {
@@ -71,6 +71,7 @@ export interface AddJobOptions {
 export default {
   workerPool: null as DynamicThreadPool<any, boolean> | null,
   pubsubClient: null as PoolClient | null,
+  listenerHandle: null as ListenerHandle | null,
   maxWorkers: 1,
   activeWorkers: 0,
   pollingRef: null as NodeJS.Timeout | null,
@@ -107,43 +108,51 @@ export default {
     WIKI.logger.info('Starting Scheduler...')
 
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
-    this.pubsubClient = await WIKI.dbManager.pool!.connect()
-    await this.pubsubClient!.query(`SET application_name = '${connectionAppName}'`)
 
-    // -> Outbound events handling
-
-    await this.pubsubClient!.query('LISTEN scheduler')
-    this.pubsubClient!.on('notification', async (msg) => {
-      if (msg.channel !== 'scheduler') {
-        return
-      }
-      try {
-        const decoded = JSON.parse(msg.payload!)
-        switch (decoded?.event) {
-          case 'newJob': {
-            // -> No counting here: `processJob` accounts for the jobs it actually claims, and
-            //    counting this call as a worker as well would hide one slot for its duration
-            if (this.activeWorkers < this.maxWorkers) {
-              await this.processJob()
-            }
-            break
-          }
-          case 'jobCompleted': {
-            const jobPromise = this.completionPromises.find((p) => p.id === decoded.id)
-            if (jobPromise) {
-              if (decoded.state === 'success') {
-                jobPromise.resolve()
-              } else {
-                jobPromise.reject(new Error(decoded.errorMessage))
-              }
-              setTimeout(() => {
-                remove(this.completionPromises, (p) => p.id === decoded.id)
-              })
-            }
-            break
-          }
+    // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
+    //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
+    //    an unhandled 'error' and taking the process down with it.
+    this.listenerHandle = await connectListener({
+      pool: WIKI.dbManager.pool!,
+      applicationName: connectionAppName,
+      channels: ['scheduler'],
+      label: 'scheduler',
+      onNotification: async (msg) => {
+        if (msg.channel !== 'scheduler') {
+          return
         }
-      } catch {}
+        try {
+          const decoded = JSON.parse(msg.payload!)
+          switch (decoded?.event) {
+            case 'newJob': {
+              // -> No counting here: `processJob` accounts for the jobs it actually claims, and
+              //    counting this call as a worker as well would hide one slot for its duration
+              if (this.activeWorkers < this.maxWorkers) {
+                await this.processJob()
+              }
+              break
+            }
+            case 'jobCompleted': {
+              const jobPromise = this.completionPromises.find((p) => p.id === decoded.id)
+              if (jobPromise) {
+                if (decoded.state === 'success') {
+                  jobPromise.resolve()
+                } else {
+                  jobPromise.reject(new Error(decoded.errorMessage))
+                }
+                setTimeout(() => {
+                  remove(this.completionPromises, (p) => p.id === decoded.id)
+                })
+              }
+              break
+            }
+          }
+        } catch {}
+      },
+      getClient: () => this.pubsubClient,
+      setClient: (client) => {
+        this.pubsubClient = client
+      }
     })
 
     // -> Start scheduled jobs check
@@ -566,6 +575,11 @@ export default {
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
     await this.workerPool!.destroy()
+    if (this.listenerHandle) {
+      await notifier.drained()
+      await this.listenerHandle.close()
+      this.listenerHandle = null
+    }
     WIKI.logger.info('Scheduler: [ STOPPED ]')
   }
 }

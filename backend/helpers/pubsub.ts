@@ -1,4 +1,5 @@
-import type { PoolClient } from 'pg'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { Notification, Pool, PoolClient } from 'pg'
 
 /**
  * A `pg_notify` sender for one LISTEN/NOTIFY client.
@@ -48,6 +49,116 @@ export function createNotifier(client: () => PoolClient | null, label: string): 
     },
     drained(): Promise<void> {
       return tail
+    }
+  }
+}
+
+/** A live, reconnecting LISTEN/NOTIFY client, as returned by {@link connectListener}. */
+export interface ListenerHandle {
+  /**
+   * Stop this listener for good: no further reconnect attempts, and releases the live client, if
+   * there is one, back to the pool.
+   */
+  close(): Promise<void>
+}
+
+export interface ListenerOptions {
+  /** Pool to (re)connect a dedicated client from. */
+  pool: Pool
+  /** `application_name` set on every (re)connection, so `pg_stat_activity` / AdminInstances can name it. */
+  applicationName: string
+  /** Channel(s) this client LISTENs on, (re-)issued on every (re)connection. */
+  channels: string[]
+  /** Attached to `'notification'` on every (re)connection. */
+  onNotification: (msg: Notification) => void
+  /** What this client is, for the log line when it drops or fails to reconnect. */
+  label: string
+  /** Read the currently live client, or `null` while a reconnect is in flight. */
+  getClient: () => PoolClient | null
+  /** Store the newly (re)connected client, or `null` right after it drops. */
+  setClient: (client: PoolClient | null) => void
+  /** Delay between reconnect attempts, in ms. Defaults to 3000. */
+  retryDelayMs?: number
+}
+
+/**
+ * Open a dedicated LISTEN/NOTIFY client that survives a dropped connection.
+ *
+ * node-postgres supervises a pool-routed query, but not a client checked out via `pool.connect()`
+ * and held onto the way the three dedicated listener clients in this codebase are (the event bus in
+ * `core/db.ts`, the scheduler, and collaborative editing): an `'error'` on such a client with nobody
+ * listening throws on the client's own `EventEmitter`, which crashes the process on something as
+ * ordinary as a connection reset, a Postgres restart, or idle-connection reaping by a proxy — turning
+ * a transient network blip into a full instance death.
+ *
+ * The three callers are near-identical in shape — connect, set `application_name`, `LISTEN` one or
+ * more channels, attach a `'notification'` handler — so this is shared between them rather than
+ * written three times. On `'error'` the stale client is dropped (`setClient(null)`, mirroring each
+ * caller's own shutdown path) and a fresh one is connected on a short backoff, re-issuing the same
+ * `LISTEN`s and re-attaching the same notification handler, so the instance resumes on its own once
+ * Postgres is reachable again instead of going silently dead — or crashing outright.
+ *
+ * Retries forever rather than giving up after some count: unlike the one-shot initial database
+ * connection in `db.connect()`, there is no boot sequence waiting on this to fail fast, and a listener
+ * that stops trying is exactly the "silently dead" outcome this exists to prevent.
+ */
+export async function connectListener(opts: ListenerOptions): Promise<ListenerHandle> {
+  const { pool, applicationName, channels, onNotification, label, getClient, setClient } = opts
+  const retryDelayMs = opts.retryDelayMs ?? 3000
+  let closed = false
+
+  function attach(client: PoolClient): void {
+    client.on('notification', onNotification)
+    client.on('error', (err: any) => {
+      if (closed) {
+        return
+      }
+      WIKI.logger.warn(`Lost the ${label} listener connection, reconnecting: ${err.message}`)
+      setClient(null)
+      void reconnect()
+    })
+  }
+
+  async function connectOnce(): Promise<PoolClient> {
+    const client = await pool.connect()
+    try {
+      await client.query(`SET application_name = '${applicationName}'`)
+      for (const channel of channels) {
+        await client.query(`LISTEN ${channel}`)
+      }
+    } catch (err) {
+      client.release(true)
+      throw err
+    }
+    return client
+  }
+
+  async function reconnect(): Promise<void> {
+    while (!closed) {
+      try {
+        const client = await connectOnce()
+        attach(client)
+        setClient(client)
+        return
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `Failed to (re)connect the ${label} listener, retrying in ${retryDelayMs}ms: ${err.message}`
+        )
+        await delay(retryDelayMs)
+      }
+    }
+  }
+
+  await reconnect()
+
+  return {
+    async close(): Promise<void> {
+      closed = true
+      const client = getClient()
+      if (client) {
+        setClient(null)
+        client.release(true)
+      }
     }
   }
 }
