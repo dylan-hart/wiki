@@ -561,7 +561,7 @@ class Pages {
     })
 
     await WIKI.models.search.indexPage(page.id, locale)
-    await WIKI.models.hooks.emit('page:create', {
+    await WIKI.models.hooks.emit('page:create', siteId, {
       id: page.id,
       path: page.path,
       locale,
@@ -709,7 +709,7 @@ class Pages {
     }
 
     await WIKI.models.search.indexPage(id, updated.locale)
-    await WIKI.models.hooks.emit('page:edit', {
+    await WIKI.models.hooks.emit('page:edit', siteId, {
       id,
       path: updated.path,
       locale: updated.locale,
@@ -798,7 +798,7 @@ class Pages {
       ]
     })
 
-    await WIKI.models.hooks.emit('page:rename', {
+    await WIKI.models.hooks.emit('page:rename', siteId, {
       id,
       path: moved.path,
       previousPath: page.path,
@@ -833,7 +833,7 @@ class Pages {
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
 
-    await WIKI.models.hooks.emit('page:delete', {
+    await WIKI.models.hooks.emit('page:delete', siteId, {
       id,
       path: page.path,
       locale: page.locale,
@@ -877,7 +877,7 @@ class Pages {
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
     for (const entry of entries) {
-      await WIKI.models.hooks.emit('page:delete', {
+      await WIKI.models.hooks.emit('page:delete', siteId, {
         id: entry.id,
         path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
         locale: entry.locale,

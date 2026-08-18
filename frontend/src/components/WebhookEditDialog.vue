@@ -97,6 +97,24 @@
           </w-item-section>
         </w-item>
         <w-item>
+          <blueprint-icon icon="web-design" />
+          <w-item-section>
+            <w-select
+              v-model="state.hook.siteId"
+              outlined
+              dense
+              :options="siteOptions"
+              option-value="id"
+              option-label="title"
+              emit-value
+              map-options
+              options-dense
+              hide-bottom-space
+              :label="t(`admin.webhooks.site`)" />
+            <w-item-label caption>{{ t(`admin.webhooks.siteHint`) }}</w-item-label>
+          </w-item-section>
+        </w-item>
+        <w-item>
           <blueprint-icon icon="unknown-status" class="self-start" />
           <w-item-section>
             <w-item-label>{{ t(`admin.webhooks.url`) }}</w-item-label>
@@ -219,6 +237,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useAdminStore } from '@/stores/admin'
 
 // PROPS
 
@@ -241,6 +260,10 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 
 const { t } = useI18n()
 
+// STORES
+
+const adminStore = useAdminStore()
+
 // DATA
 
 const state = reactive({
@@ -257,7 +280,9 @@ const state = reactive({
     includeMetadata: true,
     includeContent: false,
     state: 'pending',
-    lastErrorMessage: ''
+    lastErrorMessage: '',
+    // -> Null means "fires for every site" -- the default, and today's only behavior
+    siteId: null
   }
 })
 
@@ -335,6 +360,13 @@ const events = computed(() =>
   }))
 )
 
+/** `All sites` (null, the default) followed by every site, sourced the same way `AdminLayout.vue`'s
+ *  own site picker is: straight off `adminStore.sites`. */
+const siteOptions = computed(() => [
+  { id: null, title: t('admin.webhooks.siteAll') },
+  ...adminStore.sites
+])
+
 // REFS
 
 const editWebhookForm = ref(null)
@@ -365,7 +397,8 @@ function writableFields() {
     includeMetadata: state.hook.includeMetadata,
     includeContent: state.hook.includeContent,
     acceptUntrusted: state.hook.acceptUntrusted,
-    authHeader: state.hook.authHeader ?? ''
+    authHeader: state.hook.authHeader ?? '',
+    siteId: state.hook.siteId ?? null
   }
 }
 

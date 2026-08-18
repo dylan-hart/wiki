@@ -177,7 +177,12 @@ export const hooks = pgTable('hooks', {
   state: hookStateEnum().notNull().default('pending'),
   lastErrorMessage: text(),
   createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
+  updatedAt: timestamp().notNull().defaultNow(),
+  // -> Null means "fires for every site" -- today's behavior, and what every hook created before this
+  //    column existed keeps meaning with no backfill. `set null` on delete rather than restricting it
+  //    or cascading: a webhook scoped to a site that goes away reverts to firing instance-wide instead
+  //    of taking the row down with the site or blocking the site's deletion.
+  siteId: uuid().references(() => sites.id, { onDelete: 'set null' })
 })
 
 // ICONS -------------------------------

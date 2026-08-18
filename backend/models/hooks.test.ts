@@ -2,7 +2,11 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { jobHistory as jobHistoryTable } from '../db/schema.ts'
+import {
+  hooks as hooksTable,
+  jobHistory as jobHistoryTable,
+  sites as sitesTable
+} from '../db/schema.ts'
 
 /**
  * `getDeliveryHistory()` is a filtered, paginated read against the shared `jobHistory` table (a
@@ -205,7 +209,7 @@ describe('hooks emit rate limiting (mocked)', () => {
 
   test('queues only up to the configured cap, then skips and warns without throwing', async () => {
     for (let i = 0; i < 5; i++) {
-      await hooksModel.emit('page:create', {})
+      await hooksModel.emit('page:create', null, {})
     }
 
     assert.equal(addJobCalls.length, 3)
@@ -216,17 +220,109 @@ describe('hooks emit rate limiting (mocked)', () => {
 
   test('resets the count once the configured window has elapsed', async () => {
     for (let i = 0; i < 3; i++) {
-      await hooksModel.emit('page:create', {})
+      await hooksModel.emit('page:create', null, {})
     }
     assert.equal(addJobCalls.length, 3)
 
     // -> Still inside the window: refused, not queued
-    await hooksModel.emit('page:create', {})
+    await hooksModel.emit('page:create', null, {})
     assert.equal(addJobCalls.length, 3)
 
     // -> Past the configured 1-minute window: the count starts again
     nowMs += 60_000
-    await hooksModel.emit('page:create', {})
+    await hooksModel.emit('page:create', null, {})
     assert.equal(addJobCalls.length, 4)
+  })
+})
+
+/**
+ * `emit()`'s site-scoping filter (DB-backed)
+ *
+ * The filter itself is a `WHERE` clause (`siteId IS NULL OR siteId = :siteId`, or just `siteId IS
+ * NULL` for a site-less event) — exactly the kind of SQL a mocked query builder can't actually
+ * verify, since a mock's `where()` never evaluates what it was given. Real rows, a real query,
+ * against the DB-backed fixture the same way `getDeliveryHistory` above is verified.
+ */
+describe('hooks emit site scoping (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let otherSiteId: string
+  let hooksModel: typeof import('./hooks.ts').hooks
+  let addJobCalls: any[]
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ hooks: hooksModel } = await import('./hooks.ts'))
+
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'other.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    otherSiteId = otherSite!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  beforeEach(() => {
+    addJobCalls = []
+    ;(globalThis as any).WIKI.scheduler = {
+      addJob: mock.fn(async (job: any) => {
+        addJobCalls.push(job)
+        return { id: `job-${addJobCalls.length}` }
+      })
+    }
+  })
+
+  /**
+   * Creates a hook subscribed to `page:create` and `user:login`, scoped to `siteId` (null means
+   * every site).
+   */
+  async function createHook(siteId: string | null) {
+    const [row] = await fixtures.db
+      .insert(hooksTable)
+      .values({
+        name: `hook-${randomUUID()}`,
+        url: 'https://example.com/hook',
+        events: ['page:create', 'user:login'],
+        siteId
+      })
+      .returning({ id: hooksTable.id })
+    return row!.id
+  }
+
+  /** The `hookId`s that were queued a delivery, in no particular order. */
+  function queuedHookIds(): string[] {
+    return addJobCalls.map((job) => job.payload.hookId)
+  }
+
+  test("an event scoped to a site reaches an unscoped hook and that site's hook, not another site's", async () => {
+    const unscoped = await createHook(null)
+    const thisSite = await createHook(fixtures.siteId)
+    const otherSite = await createHook(otherSiteId)
+
+    await hooksModel.emit('page:create', fixtures.siteId, {})
+
+    const queued = queuedHookIds()
+    assert.ok(queued.includes(unscoped), 'unscoped hook should fire')
+    assert.ok(queued.includes(thisSite), "the event's own site hook should fire")
+    assert.ok(!queued.includes(otherSite), "a different site's hook must not fire")
+  })
+
+  test('a site-less event (siteId null) reaches only unscoped hooks, never a site-scoped one', async () => {
+    const unscoped = await createHook(null)
+    const scoped = await createHook(fixtures.siteId)
+
+    // -> The deliberate behavior task 651 documents: no site context is not a wildcard match against
+    //    a specific site, so a site-scoped hook must not fire on e.g. `user:login` instance-wide.
+    await hooksModel.emit('user:login', null, {})
+
+    const queued = queuedHookIds()
+    assert.ok(queued.includes(unscoped), 'unscoped hook should still fire')
+    assert.ok(!queued.includes(scoped), 'a site-scoped hook must not fire on a site-less event')
   })
 })

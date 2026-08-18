@@ -456,7 +456,10 @@ class Users {
       `Created user ${userId} <${email.toLowerCase()}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}, verified: ${isVerified}`
     )
 
-    await WIKI.models.hooks.emit('user:join', {
+    // -> No site context: an account is a global entity, not one the wiki can attribute to a site. A
+    //    hook scoped to one site must not fire on every join instance-wide just because there is no
+    //    site to compare against, so `null` here, not the first/current site.
+    await WIKI.models.hooks.emit('user:join', null, {
       userId,
       metadata: {
         name,
@@ -1405,7 +1408,9 @@ class Users {
       .set({ lastLoginAt: sql`now()` })
       .where(eq(usersTable.id, user.id))
 
-    await WIKI.models.hooks.emit('user:login', {
+    // -> Same reasoning as `user:join` above: a login has no site context, so a site-scoped hook must
+    //    not receive it.
+    await WIKI.models.hooks.emit('user:login', null, {
       userId: user.id,
       strategyId,
       ip: context.ip,

@@ -5,8 +5,14 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { randomUUID } from 'node:crypto'
 import hooksRoutes from './hooks.ts'
 import { registerSchemas as registerHookSchema } from './schemas/hook.ts'
+
+/** A site that "exists" for the `siteId` validation in `invalidReason()`, and one that never does. */
+const SITE_1_ID = randomUUID()
+const UNKNOWN_SITE_ID = randomUUID()
+const EXISTING_HOOK_ID = randomUUID()
 
 /**
  * `POST /_api/hooks/test` sends a synthetic delivery to whatever `url`/`authHeader`/`acceptUntrusted`
@@ -27,6 +33,9 @@ let lastRequestHeaders: http.IncomingHttpHeaders | null = null
 let lastRequestBody = ''
 let responseStatus = 200
 let previousTemporal: any
+let createHookCalls: any[]
+let updateHookCalls: any[]
+let existingHook: any
 
 /**
  * Minimal stand-in for the subset of `Temporal.Instant` the route touches (`Now.instant()`,
@@ -48,7 +57,21 @@ before(async () => {
   ;(globalThis as any).WIKI = {
     version: 'test',
     INSTANCE_ID: 'test-instance',
-    logger: { warn: () => {}, debug: () => {} }
+    logger: { warn: () => {}, debug: () => {} },
+    sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
+    models: {
+      hooks: {
+        createHook: async (values: any) => {
+          createHookCalls.push(values)
+          return 'new-hook-id'
+        },
+        updateHook: async (id: string, patch: any) => {
+          updateHookCalls.push({ id, patch })
+          return true
+        },
+        getHookById: async (id: string) => (id === existingHook?.id ? existingHook : null)
+      }
+    }
   }
 
   server = http.createServer((req, res) => {
@@ -85,6 +108,14 @@ beforeEach(() => {
   responseStatus = 200
   lastRequestHeaders = null
   lastRequestBody = ''
+  createHookCalls = []
+  updateHookCalls = []
+  existingHook = {
+    id: EXISTING_HOOK_ID,
+    name: 'Existing',
+    url: 'https://example.com',
+    siteId: null
+  }
 })
 
 test('a successful (2xx) response reports ok:true with the status code', async () => {
@@ -148,4 +179,74 @@ test('a connection failure is reported as ok:false with statusCode 0 rather than
   assert.equal(json.ok, false)
   assert.equal(json.statusCode, 0)
   assert.ok(json.message)
+})
+
+/**
+ * `POST /hooks` and `PUT /hooks/:hookId` thread the new `siteId` field through to
+ * `WIKI.models.hooks.createHook()`/`updateHook()`, and reject one that names a site the instance
+ * doesn't have -- against a fake `WIKI.models.hooks` rather than a real one, since what these tests
+ * cover is the route's own validation and field-forwarding, not the model (which has its own
+ * DB-backed coverage in `models/hooks.test.ts`).
+ */
+test('create defaults siteId to null when omitted', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { name: 'My Hook', events: ['page:create'], url: 'https://example.com/hook' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createHookCalls.length, 1)
+  assert.equal(createHookCalls[0].siteId, null)
+})
+
+test('create forwards a valid siteId', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'My Hook',
+      events: ['page:create'],
+      url: 'https://example.com/hook',
+      siteId: SITE_1_ID
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createHookCalls[0].siteId, SITE_1_ID)
+})
+
+test('create rejects a siteId that names no known site', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'My Hook',
+      events: ['page:create'],
+      url: 'https://example.com/hook',
+      siteId: UNKNOWN_SITE_ID
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createHookCalls.length, 0)
+})
+
+test('update patches siteId, including explicitly clearing it back to null', async () => {
+  existingHook.siteId = SITE_1_ID
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_HOOK_ID}`,
+    payload: { siteId: null }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateHookCalls.length, 1)
+  assert.equal(updateHookCalls[0].patch.siteId, null)
+})
+
+test('update rejects a siteId that names no known site', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_HOOK_ID}`,
+    payload: { siteId: UNKNOWN_SITE_ID }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateHookCalls.length, 0)
 })

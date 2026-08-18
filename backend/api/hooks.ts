@@ -9,6 +9,7 @@ interface HookBody {
   includeContent?: boolean
   acceptUntrusted?: boolean
   authHeader?: string
+  siteId?: string | null
 }
 
 interface HookTestBody {
@@ -40,6 +41,9 @@ function invalidReason(body: HookBody, { partial }: { partial: boolean }): strin
   }
   if (body.events !== undefined && body.events.length < 1) {
     return 'At least one event is required.'
+  }
+  if (body.siteId != null && !WIKI.sites[body.siteId]) {
+    return 'The selected site does not exist.'
   }
   return null
 }
@@ -339,7 +343,8 @@ async function routes(app: FastifyInstance) {
         includeMetadata: req.body.includeMetadata,
         includeContent: req.body.includeContent,
         acceptUntrusted: req.body.acceptUntrusted,
-        authHeader: req.body.authHeader
+        authHeader: req.body.authHeader,
+        siteId: req.body.siteId ?? null
       })
 
       return {
@@ -407,7 +412,8 @@ async function routes(app: FastifyInstance) {
         'includeMetadata',
         'includeContent',
         'acceptUntrusted',
-        'authHeader'
+        'authHeader',
+        'siteId'
       ] as const) {
         if (req.body[field] !== undefined) {
           patch[field] = req.body[field]

@@ -829,7 +829,10 @@ async function routes(app: FastifyInstance) {
         WIKI.models.flags.authDebug(
           `User ${user.id} <${user.email}> logged out, redirecting to ${redirect}`
         )
-        await WIKI.models.hooks.emit('user:logout', {
+        // -> No site context: `req.params.siteId` names which site's login page the user happened to
+        //    log out from, not a business site scope for the account -- same reasoning as
+        //    `user:join`/`user:login` in `models/users.ts`. A site-scoped hook must not receive this.
+        await WIKI.models.hooks.emit('user:logout', null, {
           userId: user.id,
           ip: req.ip,
           metadata: {

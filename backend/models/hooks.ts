@@ -65,6 +65,8 @@ export interface Hook {
   lastErrorMessage: string | null
   createdAt: Date
   updatedAt: Date
+  /** Which site this webhook fires for. Null means every site -- see `emit()`. */
+  siteId: string | null
 }
 
 /** One recorded attempt to deliver an event to a webhook. */
@@ -133,7 +135,8 @@ const hookSelection = {
   state: hooksTable.state,
   lastErrorMessage: hooksTable.lastErrorMessage,
   createdAt: hooksTable.createdAt,
-  updatedAt: hooksTable.updatedAt
+  updatedAt: hooksTable.updatedAt,
+  siteId: hooksTable.siteId
 }
 
 /**
@@ -282,6 +285,7 @@ class Hooks {
     includeContent?: boolean
     acceptUntrusted?: boolean
     authHeader?: string
+    siteId?: string | null
   }): Promise<string> {
     const result = await WIKI.db
       .insert(hooksTable)
@@ -293,7 +297,8 @@ class Hooks {
         includeContent: values.includeContent ?? false,
         acceptUntrusted: values.acceptUntrusted ?? false,
         authHeader: values.authHeader ?? null,
-        state: 'pending'
+        state: 'pending',
+        siteId: values.siteId ?? null
       })
       .returning({ id: hooksTable.id })
     return result[0].id
@@ -333,12 +338,26 @@ class Hooks {
    * Safe to call from anywhere, including request handlers: it only writes jobs, and it never throws
    * — a webhook problem must not fail the action that triggered it.
    *
+   * @param siteId Which site the event happened on, or `null` for an event with no site context
+   *                (`user:join`/`user:login`/`user:logout` — users are global entities). A hook
+   *                scoped to one site (`hooks.siteId` set) only fires for that exact site; a hook
+   *                scoped to every site (`hooks.siteId` null) always fires. This means a site-scoped
+   *                hook deliberately does NOT receive a `siteId: null` event: "no site context" is not
+   *                a wildcard match against a specific site, the same way a site-scoped API key's
+   *                permissions don't extend to an action that has no page/site context either.
    * @param data Event-specific payload. `metadata` and `content` are stripped per webhook, according
    *             to what each one asked for.
    * @returns How many deliveries were queued
    */
-  async emit(event: HookEvent, data: Record<string, any> = {}): Promise<number> {
+  async emit(
+    event: HookEvent,
+    siteId: string | null,
+    data: Record<string, any> = {}
+  ): Promise<number> {
     try {
+      const siteFilter = siteId
+        ? sql`(${hooksTable.siteId} IS NULL OR ${hooksTable.siteId} = ${siteId})`
+        : sql`${hooksTable.siteId} IS NULL`
       const subscribed = await WIKI.db
         .select({
           id: hooksTable.id,
@@ -346,7 +365,7 @@ class Hooks {
           includeContent: hooksTable.includeContent
         })
         .from(hooksTable)
-        .where(sql`${event} = ANY(${hooksTable.events})`)
+        .where(and(sql`${event} = ANY(${hooksTable.events})`, siteFilter))
 
       const policy = webhookRateLimitPolicy()
       let queued = 0

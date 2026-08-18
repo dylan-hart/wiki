@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import WebhookEditDialog from './WebhookEditDialog.vue'
 import { queue as notifyQueue } from '@/composables/notify'
+import { useAdminStore } from '@/stores/admin'
 
 /**
  * `POST /_api/hooks/test` lets an admin validate whatever is currently typed into this form -- via a
@@ -15,7 +17,10 @@ import { queue as notifyQueue } from '@/composables/notify'
  * in both.
  */
 
-function mountDialog(hookId = null) {
+function mountDialog(hookId = null, { sites = [], siteId = null } = {}) {
+  setActivePinia(createPinia())
+  useAdminStore().sites = sites
+
   // -> `onMounted` calls `fetchEmittedEvents()` (hits `hooks/events`) before `fetchHook()` (hits
   //    `hooks/:id`), so the stubbed `get` calls have to be queued in that same order.
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
@@ -31,6 +36,7 @@ function mountDialog(hookId = null) {
           includeContent: false,
           acceptUntrusted: false,
           authHeader: null,
+          siteId,
           state: 'pending',
           lastErrorMessage: null
         })
@@ -141,5 +147,79 @@ describe('WebhookEditDialog - send test event', () => {
         (n) => n.type === 'negative' && n.message === 'The endpoint did not respond within 15s.'
       )
     ).toBe(true)
+  })
+})
+
+/**
+ * The site picker (task 651) -- sourced off `adminStore.sites` the same way `AdminLayout.vue`'s own
+ * site picker and `UserCreateDialog.vue`'s per-site fields are, defaulting to "All sites" (`siteId:
+ * null`) so a webhook created without touching the field keeps today's fires-for-every-site
+ * behavior.
+ */
+describe('WebhookEditDialog - site scoping', () => {
+  const SITES = [
+    { id: 'site-1', title: 'Site One' },
+    { id: 'site-2', title: 'Site Two' }
+  ]
+
+  it('defaults to "All sites" (siteId null) on the create form', async () => {
+    const wrapper = mountDialog(null, { sites: SITES })
+    await flushPromises()
+
+    expect(wrapper.vm.state.hook.siteId).toBe(null)
+  })
+
+  it('offers "All sites" plus every known site as options', async () => {
+    const wrapper = mountDialog(null, { sites: SITES })
+    await flushPromises()
+
+    const optionIds = wrapper.vm.siteOptions.map((opt) => opt.id)
+    expect(optionIds).toEqual([null, 'site-1', 'site-2'])
+  })
+
+  it("loads a persisted webhook's siteId on the edit form", async () => {
+    const wrapper = mountDialog('hook-1', { sites: SITES, siteId: 'site-1' })
+    await flushPromises()
+
+    expect(wrapper.vm.state.hook.siteId).toBe('site-1')
+  })
+
+  it('sends the selected siteId as part of create', async () => {
+    const wrapper = mountDialog(null, { sites: SITES })
+    await flushPromises()
+    wrapper.vm.state.hook.name = 'My Hook'
+    wrapper.vm.state.hook.events = ['page:create']
+    wrapper.vm.state.hook.url = 'https://example.com/hook'
+    wrapper.vm.state.hook.siteId = 'site-2'
+    await flushPromises()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'new-hook' })
+    })
+
+    await wrapper.vm.create()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      'hooks',
+      expect.objectContaining({ json: expect.objectContaining({ siteId: 'site-2' }) })
+    )
+  })
+
+  it('sends siteId: null when saving with "All sites" selected', async () => {
+    const wrapper = mountDialog('hook-1', { sites: SITES, siteId: 'site-1' })
+    await flushPromises()
+    wrapper.vm.state.hook.siteId = null
+    await flushPromises()
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true })
+    })
+
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      'hooks/hook-1',
+      expect.objectContaining({ json: expect.objectContaining({ siteId: null }) })
+    )
   })
 })

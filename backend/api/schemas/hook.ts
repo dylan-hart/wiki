@@ -44,6 +44,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         maxLength: 2048,
         description: 'Sent verbatim as the Authorization header.'
+      },
+      siteId: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'Restrict this webhook to one site. Null (the default) fires for every site.'
       }
     }
   })
@@ -106,6 +112,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       authHeader: {
         type: 'string',
         nullable: true
+      },
+      siteId: {
+        type: 'string',
+        format: 'uuid',
+        nullable: true,
+        description: 'The site this webhook is restricted to. Null fires for every site.'
       },
       state: {
         type: 'string',
