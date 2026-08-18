@@ -11,7 +11,7 @@ no third case.
 Upstream `requarks/wiki` has shipped every 2.5.x build under a plain semver tag —
 `v2.5.300`, `v2.5.301`, ... `v2.5.314`, and onward — pushed by a maintainer, each producing a
 GitHub Release with categorized notes (New Features / Bug Fixes / Refactors / Chores) and a Docker
-image. Notably, upstream has not bumped *minor* or *major* in years: every 2.5.x release only ever
+image. Notably, upstream has not bumped _minor_ or _major_ in years: every 2.5.x release only ever
 increments the patch number, because there has been no upstream event large enough to justify a
 minor bump and no breaking change large enough to justify a major one. That's the same shape this
 fork inherits — a single active line, patch-incremented by default, with minor/major reserved for
@@ -64,14 +64,14 @@ the one and only action that starts a release build.
 Standard [semver](https://semver.org/): `MAJOR.MINOR.PATCH[-PRERELEASE]`, tagged in git as
 `vMAJOR.MINOR.PATCH[-PRERELEASE]` (matching upstream's `v`-prefixed convention).
 
-| Tag pushed        | Meaning                                                             |
-| ------------------ | -------------------------------------------------------------------- |
-| `v3.0.0-rc.1`       | Release candidate 1 for `3.0.0`. Pre-release: not "stable".         |
-| `v3.0.0-rc.2`       | A further RC after fixes, still gated by the same checklist.        |
-| `v3.0.0`            | The first stable 3.0 release.                                       |
-| `v3.0.1`            | A bugfix-only patch release on top of `3.0.0`.                      |
-| `v3.1.0`            | A minor release: a new epic's feature-parity milestone landed.      |
-| `v4.0.0`            | A major release: a genuinely breaking schema/config change shipped. |
+| Tag pushed    | Meaning                                                             |
+| ------------- | ------------------------------------------------------------------- |
+| `v3.0.0-rc.1` | Release candidate 1 for `3.0.0`. Pre-release: not "stable".         |
+| `v3.0.0-rc.2` | A further RC after fixes, still gated by the same checklist.        |
+| `v3.0.0`      | The first stable 3.0 release.                                       |
+| `v3.0.1`      | A bugfix-only patch release on top of `3.0.0`.                      |
+| `v3.1.0`      | A minor release: a new epic's feature-parity milestone landed.      |
+| `v4.0.0`      | A major release: a genuinely breaking schema/config change shipped. |
 
 Release candidates (`-rc.N`) are optional and used at a maintainer's discretion — typically for a
 major or minor release where a soak period is wanted before calling it stable, not required for
@@ -91,8 +91,8 @@ actually happened in the repo, mirroring how upstream's own 2.5.x line has behav
 - **Major (`X`)** — reserved for a genuinely breaking schema or config change: something an
   operator cannot silently no-op through. Given this codebase's stance in the root `CLAUDE.md`
   ("change the shape, change the callers, and delete the old path" — no migration shims, no
-  legacy-value fallbacks, no deprecated aliases), a schema or config change here is *by
-  construction* breaking the moment it ships, because the code deliberately does not carry
+  legacy-value fallbacks, no deprecated aliases), a schema or config change here is _by
+  construction_ breaking the moment it ships, because the code deliberately does not carry
   backward-compatible fallbacks for the old shape. A major bump is the version-number signal that
   such a change occurred; it is not a statement about how large the diff was. Resets `Y` and `Z`
   to 0.
@@ -119,17 +119,17 @@ channels — see [See also](#see-also)) pushes:
   build.
 
   | Tag pushed    | `:latest` rewritten? |
-  | -------------- | :-------------------: |
-  | `v3.0.0-rc.1`   | No                    |
-  | `v3.0.0`        | Yes                   |
-  | `v3.0.1`        | Yes                   |
-  | `v3.1.0-rc.1`   | No                    |
-  | `v3.1.0`        | Yes                   |
+  | ------------- | :------------------: |
+  | `v3.0.0-rc.1` |          No          |
+  | `v3.0.0`      |         Yes          |
+  | `v3.0.1`      |         Yes          |
+  | `v3.1.0-rc.1` |          No          |
+  | `v3.1.0`      |         Yes          |
 
 - `backend/package.json` and `frontend/package.json` `version` fields are stamped to the
   tag-derived version (`v` stripped) for that build, the same mechanism channel 1 already uses.
 
-### What a release is *not*
+### What a release is _not_
 
 - Not every commit, not every merge to `scarlett`, not every green CI run. Those all continue to
   produce only channel-1 alpha builds, unchanged by anything in this document.
@@ -176,8 +176,8 @@ git-cliff -o CHANGELOG.md                     # write the full changelog (every 
 `cliff.toml` groups commits into four sections, in this order, mirroring upstream 2.5.x's GitHub
 Release convention (New Features / Bug Fixes / Refactors / Chores):
 
-| Group         | Conventional Commit types                                            |
-| ------------- | ---------------------------------------------------------------------- |
+| Group         | Conventional Commit types                                             |
+| ------------- | --------------------------------------------------------------------- |
 | **Features**  | `feat`                                                                |
 | **Bug Fixes** | `fix`                                                                 |
 | **Refactors** | `refactor`                                                            |
@@ -190,7 +190,7 @@ history and asserts the four sections come out non-empty, in order, and that thi
 commits land in the section their prefix says they should.
 
 Since no `vX.Y.Z` tag has been pushed yet (see [Channel 2](#channel-2-real-releases) above),
-`--unreleased` today walks the *entire* history rather than "since the last release" — there is no
+`--unreleased` today walks the _entire_ history rather than "since the last release" — there is no
 last release. That resolves itself the moment the first tag is pushed; nothing about the config
 needs to change. Wiring this into the release workflow itself (auto-generating GitHub Release notes
 on a tag push) is a separate task under this Feature — this document only covers running the tool
@@ -198,10 +198,10 @@ by hand.
 
 ## See also
 
-- **Pre-release checklist** (companion document under this Feature) — the concrete gate that must
-  pass before a maintainer is allowed to push a release tag: CI quality gates green, test suites
-  green, `docs/variances.md` current, and the Epic 13 migration tooling run end-to-end against a
-  real 2.5.x dataset with human sign-off.
+- **[`docs/release-checklist.md`](release-checklist.md)** — the concrete gate that must pass
+  before a maintainer is allowed to push a release tag: CI quality gates green, test suites green,
+  `docs/variances.md` current, and the Epic 13 migration tooling run end-to-end against a real
+  2.5.x dataset with human sign-off.
 - **`RELEASING.md`** (companion document under this Feature) — the release-manager runbook: the
   actual step-by-step commands to cut a release once the checklist has passed.
 - `.github/workflows/build.yml` — the continuous alpha channel's current, correct implementation.
