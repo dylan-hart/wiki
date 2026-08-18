@@ -9,8 +9,8 @@ export const contentPhase = definePhase({
   label: 'Pages, page history & tags',
   dependsOn: ['users'],
   entities: (ctx) => ({
-    pages: () => ctx.source.pages(),
-    pageHistory: () => ctx.source.pageHistory(),
-    tags: () => ctx.source.tags()
+    pages: { source: () => ctx.source.pages() },
+    pageHistory: { source: () => ctx.source.pageHistory() },
+    tags: { source: () => ctx.source.tags() }
   })
 })

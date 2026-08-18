@@ -122,6 +122,23 @@ describe('parseMigrationArgs', () => {
     )
   })
 
+  test('parses --report-file', () => {
+    const args = parseMigrationArgs([
+      '--site-id',
+      'site-1',
+      '--bundle-path',
+      '/bundle',
+      '--report-file',
+      '/tmp/report.json'
+    ])
+    assert.equal(args.reportFile, '/tmp/report.json')
+  })
+
+  test('omits reportFile entirely when --report-file is not given', () => {
+    const args = parseMigrationArgs(['--site-id', 'site-1', '--bundle-path', '/bundle'])
+    assert.equal('reportFile' in args, false)
+  })
+
   test('rejects a non-numeric --source-port', () => {
     assert.throws(() =>
       parseMigrationArgs([

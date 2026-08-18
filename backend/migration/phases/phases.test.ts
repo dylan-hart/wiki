@@ -110,4 +110,76 @@ describe('migration phases', () => {
     const result = await settingsPhase.run(contextWith(stubConnector()))
     assert.ok(result.durationMs >= 0)
   })
+
+  test('report.found equals wouldCreate + unmappable.length when nothing is skipped/conflicting', async () => {
+    const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
+    assert.ok(result.report)
+    assert.equal(result.report!.found, 5)
+    assert.equal(result.report!.wouldCreate, 5)
+    assert.equal(result.report!.wouldSkipExisting, 0)
+    assert.deepEqual(result.report!.conflicts, [])
+    assert.deepEqual(result.report!.unmappable, [])
+  })
+
+  test('usersPhase classifies an unsupported auth provider as unmappable, not wouldCreate', async () => {
+    async function* users(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
+      yield { id: 2, email: 'bob@example.com', providerKey: 'ldap' }
+    }
+    const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+    const result = await usersPhase.run(contextWith(connector))
+    assert.equal(result.status, 'ok')
+    assert.ok(result.report)
+    assert.equal(result.report!.found, 2)
+    assert.equal(result.report!.wouldCreate, 1)
+    assert.deepEqual(result.report!.unmappable, [
+      {
+        identifier: 'bob@example.com',
+        reason: 'unsupported-auth-provider',
+        detail:
+          'providerKey "ldap" has no matching 3.0 authentication module (3.0 ships local/google/github/oidc only).'
+      }
+    ])
+  })
+
+  test('assetsPhase always reports comments as unmappable (no destination table)', async () => {
+    const result = await assetsPhase.run(contextWith(stubConnector()))
+    assert.ok(result.report)
+    assert.deepEqual(result.report!.unmappable, [
+      {
+        identifier: 'comments',
+        reason: 'no-destination-table',
+        detail:
+          'Wiki.js 3.0 has no comments table, model, or API route yet (blocked on Epic 335) — comments are not imported.'
+      }
+    ])
+  })
+
+  test('a phase that errors out reports an empty report rather than a stale/partial one', async () => {
+    const connector = stubConnector()
+    connector.settings = () => {
+      throw new Error('connection reset')
+    }
+    const result = await settingsPhase.run(contextWith(connector))
+    assert.deepEqual(result.report, {
+      phase: 'settings',
+      found: 0,
+      wouldCreate: 0,
+      wouldSkipExisting: 0,
+      conflicts: [],
+      unmappable: []
+    })
+  })
+
+  test('dry run vs. live run produce the same report shape (no real writes exist yet either way)', async () => {
+    const dryRunResult = await usersPhase.run({
+      ...contextWith(workingConnector({ users: 2, groups: 1 })),
+      dryRun: true
+    })
+    const liveResult = await usersPhase.run({
+      ...contextWith(workingConnector({ users: 2, groups: 1 })),
+      dryRun: false
+    })
+    assert.deepEqual(dryRunResult.report, liveResult.report)
+  })
 })

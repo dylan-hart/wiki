@@ -15,6 +15,7 @@
  * `SourceConnector` interface — Feature 412 — and is expected to look like a 2.x database).
  */
 
+import fs from 'node:fs/promises'
 import path from 'node:path'
 import configSvc from '../core/config.ts'
 import dbManager from '../core/db.ts'
@@ -24,6 +25,8 @@ import { PostgresSourceConnector } from '../migration/connectors/postgres.ts'
 import { parseMigrationArgs } from '../migration/cli.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
+import { formatReportTable, reportsToJson } from '../migration/render.ts'
+import { emptyPhaseReport } from '../migration/report.ts'
 import type { MigrationContext } from '../migration/context.ts'
 import type { ParsedMigrationArgs } from '../migration/cli.ts'
 import type { SourceConnector } from '../migration/connector.ts'
@@ -115,6 +118,18 @@ async function main(): Promise<void> {
   WIKI.db = await dbManager.init()
   WIKI.models = await loadModels()
 
+  // Unlike index.ts's server, this process has nothing else keeping the event loop alive once it's
+  // done — an open pg Pool does, though, so without closing it here the CLI would exit its own logic
+  // but never actually return control to whoever ran it (a real bug an operator would hit on every
+  // invocation, dry-run or not).
+  try {
+    await runAgainstDestination(args)
+  } finally {
+    await WIKI.dbManager.pool?.end()
+  }
+}
+
+async function runAgainstDestination(args: ParsedMigrationArgs): Promise<void> {
   const site = await WIKI.models.sites.getSiteById({ id: args.siteId, forceReload: true })
   if (!site) {
     WIKI.logger.error(`Destination site "${args.siteId}" was not found. Exiting...`)
@@ -157,6 +172,17 @@ async function main(): Promise<void> {
           WIKI.logger.error(`    ${message}`)
         }
       }
+    }
+
+    // Dry-run/report mode (Feature 421 task 744): the console table is always printed, regardless of
+    // `--dry-run` — it is exactly as informative for a live run, and `--report-file` additionally
+    // writes it as JSON for diffing between runs (e.g. two dry runs against the same source/
+    // destination pair, to confirm nothing changed).
+    const reports = results.map((result) => result.report ?? emptyPhaseReport(result.phase))
+    process.stdout.write(`\n${formatReportTable(reports)}\n`)
+    if (args.reportFile) {
+      await fs.writeFile(args.reportFile, `${reportsToJson(reports)}\n`, 'utf8')
+      WIKI.logger.info(`Report written to ${args.reportFile}`)
     }
 
     process.exitCode = results.some((result) => result.status === 'error') ? 1 : 0

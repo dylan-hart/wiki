@@ -14,12 +14,16 @@ export interface ParsedMigrationArgs {
   /** Absent means "run every phase". Every id is checked against `MIGRATION_PHASE_IDS` here, so a
    * typo is rejected before anything connects to a database. */
   only?: MigrationPhaseId[]
+  /** When given, the aggregate dry-run/report-mode report (Feature 421 task 744) is also written here
+   * as JSON, in addition to the console table always printed. */
+  reportFile?: string
 }
 
 interface RawOptions {
   siteId: string
   dryRun: boolean
   only?: string
+  reportFile?: string
   bundlePath?: string
   sourceHost?: string
   sourcePort: string
@@ -46,6 +50,10 @@ function buildProgram(): Command {
     .option(
       '--only <phases>',
       `Comma-separated phase id(s) to (re-)run, e.g. "content" or "users,content". One of: ${MIGRATION_PHASE_IDS.join(', ')}.`
+    )
+    .option(
+      '--report-file <path>',
+      'Also write the aggregate dry-run report as JSON to this path, in addition to the console table'
     )
     .option('--bundle-path <path>', 'Path to a 2.x "export to disk" bundle directory')
     .option('--source-host <host>', 'Source Postgres host (live-connection source)')
@@ -141,6 +149,9 @@ export function parseMigrationArgs(argv: string[]): ParsedMigrationArgs {
     source: resolveSource(opts),
     siteId: opts.siteId,
     dryRun: Boolean(opts.dryRun),
-    only: parseOnly(opts.only)
+    only: parseOnly(opts.only),
+    // Omitted entirely (not set to `undefined`) when absent, so a caller can tell "write a report
+    // file" apart from "don't" with a plain truthiness check rather than an `in` check.
+    ...(opts.reportFile ? { reportFile: opts.reportFile } : {})
   }
 }

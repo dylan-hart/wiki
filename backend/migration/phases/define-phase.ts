@@ -1,55 +1,89 @@
 import { NotYetImplementedError } from '../connector.ts'
+import { createRecorder } from '../recorder.ts'
+import { emptyPhaseReport } from '../report.ts'
+import type { WriteRecorder } from '../recorder.ts'
+import type { UnmappableEntry } from '../report.ts'
 import type { MigrationContext, MigrationPhase, MigrationPhaseId, PhaseResult } from '../context.ts'
 
-/** Exhausts one entity generator, counting rows/files rather than buffering them — the harness never
- * needs the records themselves, only how many the source reports, until the tasks that own each
- * phase's row-transformation logic (414/416/418/420) fill in real writes. */
-async function countEntity(factory: () => AsyncIterable<unknown>): Promise<number> {
+/**
+ * One entity a phase reads off the source connector.
+ *
+ * `classify`, when given, is called for every record read and decides how it counts toward the
+ * phase's `PhaseReport` — typically `recorder.unmappable(...)` for a record this task's named
+ * unmappable categories cover (see `../unmappable.ts`), otherwise `recorder.create(...)`. An entity
+ * that omits it still gets every record it reads counted as a plain "would create" via the default
+ * below — the correct behavior for an entity this task has no per-record reconciliation rule for.
+ */
+export interface PhaseEntity {
+  source: () => AsyncIterable<unknown>
+  classify?: (record: unknown, recorder: WriteRecorder) => void | Promise<void>
+}
+
+function identifierFor(record: unknown, fallback: number): string {
+  if (typeof record === 'object' && record !== null && 'id' in record) {
+    return String((record as Record<string, unknown>).id)
+  }
+  return String(fallback)
+}
+
+async function defaultClassify(
+  record: unknown,
+  recorder: WriteRecorder,
+  index: number
+): Promise<void> {
+  await recorder.create(identifierFor(record, index))
+}
+
+/**
+ * Exhausts one entity's source generator, running `classify` (or the default) per record and counting
+ * how many were read — the harness never needs the records themselves once classified, only how many
+ * the source reports and how each one was classified.
+ *
+ * An entity generator that is still a `NotYetImplementedError` stub — every one of them, until
+ * Features 414/416/418/420 land — resolves to `'not_implemented'` rather than aborting the whole
+ * phase, so an operator running the CLI today gets a clean per-phase report instead of a crash. Any
+ * other error propagates, since that is a real fault (a bad connection, a malformed row) the operator
+ * needs to see.
+ */
+async function readEntity(
+  entity: PhaseEntity,
+  recorder: WriteRecorder
+): Promise<number | 'not_implemented'> {
   let count = 0
-  for await (const _record of factory()) {
-    count++
+  try {
+    for await (const record of entity.source()) {
+      count++
+      if (entity.classify) {
+        await entity.classify(record, recorder)
+      } else {
+        await defaultClassify(record, recorder, count)
+      }
+    }
+  } catch (err: any) {
+    if (err instanceof NotYetImplementedError) {
+      return 'not_implemented'
+    }
+    throw err
   }
   return count
 }
 
 /**
- * Reads every entity a phase declares off the source connector, in whatever order `Object.entries`
- * gives them (insertion order, so callers get a stable, readable result).
- *
- * An entity generator that is still a `NotYetImplementedError` stub — every one of them, until
- * Features 414/416/418/420 land — is collected into `notImplemented` rather than aborting the whole
- * phase, so an operator running the CLI today gets a clean per-phase report instead of a crash. Any
- * other error propagates, since that is a real fault (a bad connection, a malformed row) the operator
- * needs to see.
- */
-async function readPhaseEntities(
-  entities: Record<string, () => AsyncIterable<unknown>>
-): Promise<{ counts: Record<string, number>; notImplemented: string[] }> {
-  const counts: Record<string, number> = {}
-  const notImplemented: string[] = []
-  for (const [name, factory] of Object.entries(entities)) {
-    try {
-      counts[name] = await countEntity(factory)
-    } catch (err: any) {
-      if (err instanceof NotYetImplementedError) {
-        notImplemented.push(name)
-      } else {
-        throw err
-      }
-    }
-  }
-  return { counts, notImplemented }
-}
-
-/**
  * Builds one `MigrationPhase` from its id/label/dependencies plus the source entities it reads,
- * wrapping the read in structured success/not-implemented/error reporting — see `PhaseResult`.
+ * wrapping the read in structured success/not-implemented/error reporting (`PhaseResult`) and, on top
+ * of that, the dry-run/report-mode reconciliation every phase now produces (`PhaseResult.report`, see
+ * Feature 421 task 744 and `../report.ts`).
  */
 export function definePhase(config: {
   id: MigrationPhaseId
   label: string
   dependsOn: MigrationPhaseId[]
-  entities: (ctx: MigrationContext) => Record<string, () => AsyncIterable<unknown>>
+  entities: (ctx: MigrationContext) => Record<string, PhaseEntity>
+  /** Unmappable entries that hold regardless of what the source connector can read yet — e.g. the
+   * assets phase's "comments have no destination table" note, which is a fact about this codebase's
+   * schema, not about any particular record read off the source. Always included in `report.unmappable`
+   * on a successful or partially-implemented run. */
+  staticUnmappable?: UnmappableEntry[]
 }): MigrationPhase {
   return {
     id: config.id,
@@ -57,19 +91,46 @@ export function definePhase(config: {
     dependsOn: config.dependsOn,
     async run(ctx: MigrationContext): Promise<PhaseResult> {
       const startedAt = performance.now()
+      const recorder = createRecorder(ctx.dryRun)
+      const counts: Record<string, number> = {}
+      const notImplemented: string[] = []
       try {
-        const { counts, notImplemented } = await readPhaseEntities(config.entities(ctx))
-        const durationMs = performance.now() - startedAt
-        if (notImplemented.length > 0) {
-          return { phase: config.id, status: 'not_implemented', counts, notImplemented, durationMs }
+        for (const [name, entity] of Object.entries(config.entities(ctx))) {
+          const result = await readEntity(entity, recorder)
+          if (result === 'not_implemented') {
+            notImplemented.push(name)
+          } else {
+            counts[name] = result
+          }
         }
-        return { phase: config.id, status: 'ok', counts, durationMs }
+        const durationMs = performance.now() - startedAt
+        const snapshot = recorder.snapshot()
+        const report = {
+          phase: config.id,
+          found: Object.values(counts).reduce((sum, n) => sum + n, 0),
+          wouldCreate: snapshot.wouldCreate,
+          wouldSkipExisting: snapshot.wouldSkipExisting,
+          conflicts: snapshot.conflicts,
+          unmappable: [...snapshot.unmappable, ...(config.staticUnmappable ?? [])]
+        }
+        if (notImplemented.length > 0) {
+          return {
+            phase: config.id,
+            status: 'not_implemented',
+            counts,
+            notImplemented,
+            durationMs,
+            report
+          }
+        }
+        return { phase: config.id, status: 'ok', counts, durationMs, report }
       } catch (err: any) {
         return {
           phase: config.id,
           status: 'error',
           errors: [err.message],
-          durationMs: performance.now() - startedAt
+          durationMs: performance.now() - startedAt,
+          report: emptyPhaseReport(config.id)
         }
       }
     }

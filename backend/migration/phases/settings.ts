@@ -9,6 +9,6 @@ export const settingsPhase = definePhase({
   label: 'Settings, authentication & storage config',
   dependsOn: [],
   entities: (ctx) => ({
-    settings: () => ctx.source.settings()
+    settings: { source: () => ctx.source.settings() }
   })
 })

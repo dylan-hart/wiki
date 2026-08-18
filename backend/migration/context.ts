@@ -1,5 +1,6 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
+import type { PhaseReport } from './report.ts'
 
 /**
  * The four import phases the migration CLI sequences, in the dependency order Feature 421 specifies:
@@ -26,6 +27,10 @@ export interface PhaseResult {
   /** Error message(s) encountered, when `status` is `'error'`. */
   errors?: string[]
   durationMs: number
+  /** The dry-run/report-mode reconciliation for this phase — see Feature 421 task 744. Optional so a
+   * hand-built `PhaseResult` (e.g. in a test fixture) doesn't have to supply one; every phase built via
+   * `definePhase` always sets it. */
+  report?: PhaseReport
 }
 
 /**
