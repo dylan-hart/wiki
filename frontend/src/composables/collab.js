@@ -1,6 +1,5 @@
 import { watch } from 'vue'
 
-import { MonacoBinding } from 'y-monaco'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 
@@ -274,20 +273,25 @@ export function startCollabSession({ siteId, pageId }) {
 }
 
 /**
- * Hand the Monaco model over to the session.
+ * Hand an editor over to the session.
  *
- * Called once the document has synced, and not before: the binding starts by making the model say
- * what the document says, and a document that has not synced yet says nothing at all.
+ * Called once the document has synced, and not before: a binding built before that would start by
+ * making the editor say whatever an empty document says.
+ *
+ * Takes a factory rather than the editor itself, because Monaco and TipTap bind to a Yjs document in
+ * incompatible ways: `y-monaco`'s `MonacoBinding` is a constructor this file could call given the
+ * model, while TipTap's `@tiptap/extension-collaboration` binds itself as an extension configured
+ * with the document, and owns its own lifecycle from there rather than handing back an object. What
+ * every binding needs is the same regardless -- the shared `ytext` and the live `awareness` -- so
+ * `createBinding(ytext, awareness)` receives exactly those two and returns whatever should be torn
+ * down when the session ends (anything with a `destroy()` method), or a falsy value if there is
+ * nothing left for this session to own.
  */
-export function bindCollabEditor(editor) {
+export function bindCollabEditor(createBinding) {
   if (!doc || binding) {
     return
   }
-  const model = editor.getModel()
-  if (!model) {
-    return
-  }
-  binding = new MonacoBinding(doc.getText('content'), model, new Set([editor]), provider.awareness)
+  binding = createBinding(doc.getText('content'), provider.awareness) || null
 }
 
 /** Close the session and put everything back the way an ordinary editor leaves it. */

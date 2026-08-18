@@ -80,9 +80,9 @@ const { FakeWebsocketProvider } = vi.hoisted(() => {
 })
 
 vi.mock('y-websocket', () => ({ WebsocketProvider: FakeWebsocketProvider }))
-vi.mock('y-monaco', () => ({ MonacoBinding: class {} }))
 
-const { collabStatusEffects, startCollabSession, stopCollabSession } = await import('./collab.js')
+const { bindCollabEditor, collabStatusEffects, startCollabSession, stopCollabSession } =
+  await import('./collab.js')
 const { useCollabStore } = await import('@/stores/collab')
 const { usePageStore } = await import('@/stores/page')
 const { useSiteStore } = await import('@/stores/site')
@@ -215,5 +215,76 @@ describe('startCollabSession reconnect behavior', () => {
     provider.emit('status', { status: 'connecting' })
     provider.emit('status', { status: 'disconnected' })
     expect(collabStore.status).toBe('denied')
+  })
+})
+
+/**
+ * Task 485: `bindCollabEditor` must not assume Monaco.
+ *
+ * Prior to this task it constructed `y-monaco`'s `MonacoBinding` directly, so any other editor --
+ * TipTap included -- had no way to bind to the same session. It now takes a factory and hands it the
+ * two things every binding needs (the shared `ytext`, the provider's `awareness`), leaving how those
+ * turn into a live binding, and what (if anything) needs tearing down later, entirely up to the
+ * caller.
+ */
+describe('bindCollabEditor', () => {
+  function boot() {
+    const siteStore = useSiteStore()
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    siteStore.id = 'site-1'
+    pageStore.id = 'page-1'
+    userStore.id = 'user-1'
+    userStore.name = 'Ada Lovelace'
+    startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
+    return { provider: latestProvider() }
+  }
+
+  it('does nothing until a session is open -- there is no shared document to bind to yet', () => {
+    const createBinding = vi.fn()
+    bindCollabEditor(createBinding)
+    expect(createBinding).not.toHaveBeenCalled()
+  })
+
+  it('hands the factory the session´s real shared text and the live awareness, editor-agnostic', () => {
+    const { provider } = boot()
+    let seenYtext = null
+    let seenAwareness = null
+    bindCollabEditor((ytext, awareness) => {
+      seenYtext = ytext
+      seenAwareness = awareness
+      return { destroy: vi.fn() }
+    })
+    expect(seenAwareness).toBe(provider.awareness)
+    // -> A real Y.Text bound to this session's own document, not a stand-in -- so any real binding
+    //    (Monaco's, TipTap's, or a test double) sees genuine session content.
+    seenYtext.insert(0, 'hello')
+    expect(seenYtext.toString()).toBe('hello')
+  })
+
+  it('binds only once per session -- a second call is a no-op', () => {
+    boot()
+    const first = vi.fn(() => ({ destroy: vi.fn() }))
+    const second = vi.fn()
+    bindCollabEditor(first)
+    bindCollabEditor(second)
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).not.toHaveBeenCalled()
+  })
+
+  it('tears down whatever the factory returned when the session stops', () => {
+    boot()
+    const fakeBinding = { destroy: vi.fn() }
+    bindCollabEditor(() => fakeBinding)
+    stopCollabSession()
+    expect(fakeBinding.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it('tolerates a factory that owns its own lifecycle and returns nothing to track', () => {
+    // -> This is TipTap's shape: `@tiptap/extension-collaboration` binds itself once configured with
+    //    the document, and there is nothing left for this session to hold onto or tear down.
+    boot()
+    expect(() => bindCollabEditor(() => undefined)).not.toThrow()
+    expect(() => stopCollabSession()).not.toThrow()
   })
 })

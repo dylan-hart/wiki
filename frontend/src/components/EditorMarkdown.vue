@@ -351,6 +351,7 @@ import { enhanceRenderedContent } from '@/helpers/renderedContent'
 import { debounce } from 'es-toolkit/function'
 import * as monaco from 'monaco-editor'
 import { Position, Range } from 'monaco-editor'
+import { MonacoBinding } from 'y-monaco'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 // STORES
@@ -1487,7 +1488,13 @@ onMounted(async () => {
       (status) => {
         const effects = collabStatusEffects(status, collabStore.hasSynced)
         if (effects.shouldBindEditor) {
-          bindCollabEditor(editor)
+          bindCollabEditor((ytext, awareness) => {
+            const model = editor.getModel()
+            if (!model) {
+              return null
+            }
+            return new MonacoBinding(ytext, model, new Set([editor]), awareness)
+          })
         }
         editor.updateOptions({ readOnly: effects.readOnly })
         if (effects.notifyDenied) {
