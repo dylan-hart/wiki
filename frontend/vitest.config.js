@@ -21,6 +21,11 @@ import { fileURLToPath } from 'node:url'
  *     same injection runs here. Without it such a component fails to even mount — a Sass "undefined
  *     variable" error — which looks nothing like the assertion actually being tested and wastes time
  *     chasing the wrong failure.
+ *   - the `markdown-it/lib/token.mjs` alias — markdown-it 15 dropped that subpath export and
+ *     `markdown-it-mdc` still imports it; without the same shim `vite.config.js` points the build at,
+ *     any test that imports `renderers/markdown.js` (or anything that pulls it in) fails to resolve
+ *     before a single test in the file even runs, with Node's own `ERR_PACKAGE_PATH_NOT_EXPORTED`
+ *     rather than a failing assertion.
  */
 export default defineConfig({
   plugins: [
@@ -50,7 +55,10 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'markdown-it/lib/token.mjs': fileURLToPath(
+        new URL('./src/renderers/modules/markdown-it-token.js', import.meta.url)
+      )
     }
   },
   css: {
@@ -64,6 +72,18 @@ export default defineConfig({
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
     include: ['src/**/*.test.js'],
-    css: true
+    css: true,
+    server: {
+      deps: {
+        /*
+          Vitest externalizes `node_modules` packages by default and loads them straight through
+          Node's own resolver, bypassing every Vite plugin and the `resolve.alias` above — which is
+          exactly the layer the `markdown-it/lib/token.mjs` shim needs to run through. Inlining
+          `markdown-it-mdc` here is what makes it get processed by Vite instead, the same as it is in
+          a real build.
+        */
+        inline: ['markdown-it-mdc']
+      }
+    }
   }
 })
