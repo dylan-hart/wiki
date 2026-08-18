@@ -84,6 +84,12 @@
 import { onBeforeUnmount, onMounted, reactive, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { dialog } from '@/composables/dialog'
+
+import { createPageMentionSuggestion } from '@/helpers/editorMentions'
+
+import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
+
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -95,6 +101,7 @@ import { Color } from '@tiptap/extension-color'
 import FontFamily from '@tiptap/extension-font-family'
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
+import Link from '@tiptap/extension-link'
 import Mention from '@tiptap/extension-mention'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Table } from '@tiptap/extension-table'
@@ -476,9 +483,8 @@ const menuBar = [
     key: 'link',
     icon: 'mdi:link-variant',
     title: 'Link',
-    action: () => {
-      // TODO: insert link
-    }
+    action: () => insertLink(),
+    isActive: () => editor.value.isActive('link')
   },
   {
     key: 'image',
@@ -669,6 +675,10 @@ function init() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        // -> Configured explicitly below instead, so its options (`openOnClick`) can be set for this
+        //    editing surface -- leaving it on here as well would register the `link` node twice and
+        //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
+        link: false,
         history: {
           depth: 500
         }
@@ -685,9 +695,13 @@ function init() {
         multicolor: true
       }),
       Image,
+      Link.configure({
+        // -> A click in the editor places the cursor, as in any other mark; without this, clicking
+        //    linked text navigates the browser away instead of letting it be edited.
+        openOnClick: false
+      }),
       Mention.configure({
-        // TODO: suggestions
-
+        suggestion: createPageMentionSuggestion(siteStore)
       }),
       Placeholder.configure({
         placeholder: 'Enter some content here...'
@@ -715,6 +729,40 @@ function init() {
         contentLoaded: true,
         render: editor.getHTML()
       })
+    }
+  })
+}
+
+/**
+ * Opens `LinkPickerDialog` (the same component and result shape `EditorMarkdown.vue`'s own
+ * `insertLink()` uses) and applies the answer as a `link` mark over the current selection.
+ *
+ * A real text selection keeps its own text as the label -- `setLink` marks it in place, nothing is
+ * replaced. A collapsed cursor has no text to mark, so the label (`title`, falling back to `href`,
+ * matching what `EditorMarkdown.vue` falls back to) is inserted first and the mark applied to it.
+ */
+function insertLink() {
+  const { from, to, empty } = editor.value.state.selection
+  dialog({ component: LinkPickerDialog }).onOk(({ href, openInNewTab, title }) => {
+    const target = openInNewTab ? '_blank' : null
+    if (empty) {
+      const label = title || href
+      editor.value
+        .chain()
+        .focus()
+        .insertContentAt(from, label)
+        .setTextSelection({ from, to: from + label.length })
+        .extendMarkRange('link')
+        .setLink({ href, target })
+        .run()
+    } else {
+      editor.value
+        .chain()
+        .focus()
+        .setTextSelection({ from, to })
+        .extendMarkRange('link')
+        .setLink({ href, target })
+        .run()
     }
   })
 }
