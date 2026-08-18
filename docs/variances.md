@@ -28,9 +28,9 @@ Copy this block for each new entry and fill in all four fields.
 
 - **What deviates**: `frontend/src/assets/icons.generated.js` and
   `frontend/src/assets/emoji.generated.js` are excluded from oxfmt via `ignorePatterns` in the root
-  `.oxfmtrc.json`, so `npx oxfmt --check frontend` (equivalently `npx oxfmt --check .` run from
-  `frontend/`) never inspects them even though their single-line, minified-object-per-entry layout
-  does not match the rest of the codebase's formatting.
+  `.oxfmtrc.json`, so `cd frontend && npx oxfmt --check .` never inspects them even though their
+  single-line, minified-object-per-entry layout does not match the rest of the codebase's
+  formatting.
 - **Why it's justified**: Both files are deterministic build output written by
   `frontend/scripts/generate-icons.mjs` and `frontend/scripts/generate-emoji.mjs` (`npm run icons`,
   `npm run emoji`), and each generator already owns its own freshness gate —
@@ -46,7 +46,7 @@ Copy this block for each new entry and fill in all four fields.
   format that nobody reads or hand-edits, for two files whose entire content is machine-produced.
 - **Resolved when**: `frontend/scripts/generate-icons.mjs` and
   `frontend/scripts/generate-emoji.mjs` are changed to emit output that already satisfies oxfmt
-  (verified by removing the `ignorePatterns` entry and confirming `npx oxfmt --check frontend`
+  (verified by removing the `ignorePatterns` entry and confirming `cd frontend && npx oxfmt --check .`
   still passes after a fresh `npm run icons && npm run emoji`), at which point delete this entry
   and the `frontend/src/assets/*.generated.js` line from `.oxfmtrc.json`'s `ignorePatterns`.
 
@@ -55,9 +55,35 @@ sources plus a handful of incidentally-drifted config/HTML/CSS files) was review
 found to be purely stylistic pre-oxfmt drift — standard-JS space-before-parens, template
 interpolation spacing, quote/semicolon and line-wrap differences, with no behavioral change in any
 file — and has been brought current with `npx oxfmt --write`. There is therefore no "stays as-is"
-exception list for source files: as of this entry, `npx oxfmt --check frontend` (run from the repo
-root) is the exact command that defines "current" for `frontend/`, and it exits clean except for the
-two generated bundles this entry documents.
+exception list for source files.
+
+One thing this took two passes to get right: `npx oxfmt --check frontend` run from the _repo root_
+is not a reliable definition of "current", because the repo has no root `package.json` — npx finds
+no local `node_modules/.bin/oxfmt` to walk up to from there, so it silently resolves whatever oxfmt
+version npm's cache or the registry hands it (observed drifting to 0.64.0) instead of the version
+`frontend/package.json` actually pins. `frontend/`'s own pinned 0.61.0 disagreed with 0.64.0 on 8
+files — it inserted a stray leading space before a `/**` block comment when that comment is the
+_only_ statement in a `<script setup>` block (`WSpace.vue`, `WCardHeader.vue`,
+`WPageContainer.vue`, `WScrollArea.vue`, `WToolbar.vue`, `WToolbarTitle.vue`, `LoadingGeneric.vue`,
+plus a spurious blank line before a closing `})` in `EditorWysiwyg.vue`) — a version-specific
+formatter quirk, not a real style question: every other file in `src/components/shared/` uses the
+same lead-comment-then-code shape with no leading space, and 0.61.0 only flagged the ones where the
+comment was the block's sole content. Rather than write an exception list around a bug in an
+outdated pin, `frontend/package.json`'s `oxfmt` devDependency is bumped to `0.64.0` (current
+latest stable, per this file's Currency policy) in this same change, which resolves the
+disagreement outright.
+
+As of this entry, the exact command that defines "current" for `frontend/` — the one sibling
+feature #423's CI gate should run, and the one this file's own resolution criteria above assume —
+is:
+
+```sh
+cd frontend && npm ci && npx oxfmt --check .
+```
+
+`npm ci` matters as much as the check itself: it is what makes the command resolve
+`frontend/package.json`'s pinned oxfmt version instead of whatever `npx` finds unpinned. Run this
+way, it exits clean except for the two generated bundles this entry documents.
 
 ## TODO/FIXME audit
 

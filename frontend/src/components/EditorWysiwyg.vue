@@ -687,7 +687,6 @@ function init() {
       Image,
       Mention.configure({
         // TODO: suggestions
-
       }),
       Placeholder.configure({
         placeholder: 'Enter some content here...'

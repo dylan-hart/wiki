@@ -93,8 +93,12 @@ describe('docs/variances.md', () => {
     const entriesStart = content.indexOf('## Entries')
     const entriesSection = content.slice(entriesStart)
     assert.match(entriesSection, /Generated icon\/emoji bundles excluded from oxfmt/)
-    assert.match(entriesSection, /npx oxfmt --check frontend/)
     assert.match(entriesSection, /icons\.generated\.js/)
     assert.match(entriesSection, /emoji\.generated\.js/)
+    // The command must be pinned to frontend/'s own installed oxfmt (via `npm ci`), not a bare
+    // `npx oxfmt --check frontend` from the repo root — the entry documents exactly why that
+    // form is unreliable (no root node_modules for npx to resolve against).
+    assert.match(entriesSection, /npm ci/)
+    assert.match(entriesSection, /cd frontend && npx oxfmt --check \./)
   })
 })
