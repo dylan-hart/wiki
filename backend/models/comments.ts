@@ -56,6 +56,37 @@ export interface CommentProviderDefinition {
  * `default` provider (server-rendered, this wiki's own database) plus any external one (Disqus,
  * Commento, Artalk, ...). Mirrors the `StorageDefinition`/`refreshFromDisk()` pattern in
  * `models/storage.ts`.
+ *
+ * ---
+ *
+ * **`read:comments` permission boundary — binding on any future embed rendering.**
+ *
+ * Nothing in this repo renders a `codeTemplate` provider's embed yet (Task 653, Feature 396): there
+ * is no page-view comment slot component on this branch (that is Feature 392, unbuilt here), and no
+ * `backend/api/comments.ts` REST endpoint to serve one through. This note exists so that whichever
+ * future change adds one does not reintroduce a permission bug that would be easy to miss precisely
+ * *because* Disqus/Commento/Artalk have no server-side code of their own to gate.
+ *
+ * The `default` provider's comments are read through `models/*` calls a future comments API route
+ * will make, and any such route is expected to check `mayOnPage(req, 'read:comments', page)`
+ * (`api/pages.ts`) before returning anything — the same page-rule boundary every other page-scoped
+ * permission in this codebase goes through (see CLAUDE.md's "Permissions" section: `read:comments`
+ * is a **page rule** permission, bound to path/locale/tags via a group's rules, not a global one —
+ * it cannot be enforced by Fastify's route-level `config.permissions` hook, only by an explicit
+ * `mayOnPage`/`checkAccess` call in the handler).
+ *
+ * A `codeTemplate` provider has no equivalent handler to put that check in — embedding its `<script>`
+ * IS the render, there is no server response to withhold first. That makes it easy to wire up a page
+ * view that drops the vendor's embed tag onto the page unconditionally, reachable by anyone who can
+ * load the page's HTML at all. Doing that would leak more than the comments: Disqus/Commento/Artalk
+ * are third-party services, and initializing their embed tells that third party the page exists (its
+ * URL/shortname, at minimum, before the visitor supplies any credential of their own) — for a reader
+ * who lacks `read:comments` on that specific page, that is a leak the native provider's own
+ * `mayOnPage` check exists precisely to prevent. So: **whatever future code renders a `codeTemplate`
+ * provider's embed on a page view must call `mayOnPage(req, 'read:comments', page)` (or the
+ * equivalent frontend-side `userStore.pagePermissions` check described in CLAUDE.md) and skip
+ * emitting the embed script entirely when it is false** — not merely hide the resulting widget with
+ * CSS, which would still have let the third-party script load and phone home first.
  */
 class Comments {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
