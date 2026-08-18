@@ -4,6 +4,7 @@ import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
 import { blocks } from './blocks.ts'
 import { comments } from './comments.ts'
+import { contentSync } from './contentSync.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
 import { groups } from './groups.ts'
@@ -35,6 +36,7 @@ export default {
   authentication,
   blocks,
   comments,
+  contentSync,
   extensions,
   flags,
   groups,

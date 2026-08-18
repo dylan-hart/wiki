@@ -76,3 +76,33 @@ export function humanizeDuration(start, end) {
   // -> Something that took under a millisecond still has to render as something
   return parts.length > 0 ? durationListFormat.format(parts) : '0ms'
 }
+
+/**
+ * Wide, largest-first -- "1 day, 12 hours" rather than `humanizeDuration`'s narrow "1d 12h". This is
+ * for a module's own sync interval (e.g. `PT5M`), read by an admin deciding whether to override it, not
+ * a job timing where density matters more than words.
+ */
+const ISO_DURATION_UNITS = ['years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds']
+const isoDurationListFormat = new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' })
+
+/**
+ * How long an ISO-8601 duration is, in words.
+ *
+ * @param {string|false|null} value An ISO-8601 duration such as `PT5M`, or `false`/null for "no
+ *   schedule" (a module that only ever acts on write).
+ * @returns {string} e.g. `5 minutes`, `1 day, 12 hours`, or `---` for nothing at all.
+ */
+export function humanizeIsoDuration(value) {
+  if (!value) {
+    return '---'
+  }
+  const dur = Temporal.Duration.from(value)
+  const parts = ISO_DURATION_UNITS.filter((unit) => dur[unit] > 0).map((unit) =>
+    new Intl.NumberFormat(undefined, {
+      style: 'unit',
+      unit: unit.slice(0, -1),
+      unitDisplay: 'long'
+    }).format(dur[unit])
+  )
+  return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
+}

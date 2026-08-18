@@ -328,6 +328,15 @@ class Assets {
       authorId,
       metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
     })
+    WIKI.models.storage.dispatch('asset:upload', {
+      id: entry.id,
+      fileName: storedName,
+      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+      siteId,
+      authorId,
+      kind,
+      fileSize: data.length
+    })
 
     return {
       id: entry.id,
@@ -414,6 +423,15 @@ class Assets {
       siteId,
       authorId,
       metadata: { fileSize: data.length, mimeType, kind }
+    })
+    WIKI.models.storage.dispatch('asset:edit', {
+      id,
+      fileName,
+      folderPath,
+      siteId,
+      authorId,
+      kind,
+      fileSize: data.length
     })
 
     const updated = await this.getAsset(siteId, id)
@@ -869,6 +887,15 @@ class Assets {
       folderPath: asset.folderPath,
       siteId
     })
+    WIKI.models.storage.dispatch('asset:rename', {
+      id,
+      fileName: safeName,
+      previousFileName: asset.fileName,
+      folderPath: asset.folderPath,
+      siteId,
+      kind: asset.kind,
+      fileSize: asset.fileSize
+    })
 
     return this.getAsset(siteId, id)
   }
@@ -895,6 +922,14 @@ class Assets {
       folderPath: asset.folderPath,
       siteId
     })
+    WIKI.models.storage.dispatch('asset:delete', {
+      id,
+      fileName: asset.fileName,
+      folderPath: asset.folderPath,
+      siteId,
+      kind: asset.kind,
+      fileSize: asset.fileSize
+    })
 
     return true
   }
@@ -907,7 +942,14 @@ class Assets {
       return
     }
     const ids = entries.map((entry) => entry.id)
-    await WIKI.db.delete(assetsTable).where(inArray(assetsTable.id, ids))
+    // -> `kind`/`fileSize` are returned rather than dropped with the rows: dispatching a delete needs
+    //    them to classify the content type against a target's `contentTypes.activeTypes`, and this is
+    //    the last point at which the database still has them
+    const deleted = await WIKI.db
+      .delete(assetsTable)
+      .where(inArray(assetsTable.id, ids))
+      .returning({ id: assetsTable.id, kind: assetsTable.kind, fileSize: assetsTable.fileSize })
+    const deletedById = new Map(deleted.map((row) => [row.id, row]))
 
     // -> Which paths they sat at is no longer knowable from the tree: those rows went with the folder
     this.forgetAllPaths()
@@ -921,6 +963,15 @@ class Assets {
         fileName: entry.fileName,
         folderPath: entry.folderPath,
         siteId
+      })
+      const row = deletedById.get(entry.id)
+      await WIKI.models.storage.dispatch('asset:delete', {
+        id: entry.id,
+        fileName: entry.fileName,
+        folderPath: entry.folderPath,
+        siteId,
+        kind: row?.kind,
+        fileSize: row?.fileSize
       })
     }
   }

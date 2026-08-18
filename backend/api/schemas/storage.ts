@@ -90,6 +90,29 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           }
         }
       },
+      sync: {
+        type: 'object',
+        description:
+          'How this target dispatches content. `supportedModes` and `schedule` come from the module and are read-only; a module with a single supported mode cannot have it changed per target.',
+        properties: {
+          supportedModes: {
+            type: 'array',
+            items: { type: 'string' }
+          },
+          schedule: {
+            description:
+              'ISO-8601 duration the module syncs on by default (e.g. `PT5M`), or `false` for a module that only acts on write.',
+            oneOf: [{ type: 'string' }, { type: 'boolean', enum: [false] }]
+          },
+          mode: {
+            type: 'string'
+          },
+          scheduleOverride: {
+            type: ['string', 'null'],
+            description: 'Overrides the module schedule for this target, or null to trust it.'
+          }
+        }
+      },
       setup: {
         type: 'object',
         description:
@@ -152,6 +175,33 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * STORAGE SYNC STATUS - A target's sync status at a glance
+   */
+  app.addSchema({
+    $id: 'StorageSyncStatus',
+    type: 'object',
+    properties: {
+      lastSyncedAt: {
+        type: ['string', 'null'],
+        description: 'The most recent successful sync to this target, across every content item.'
+      },
+      lastError: {
+        type: ['string', 'null'],
+        description: 'The error from the most recently attempted sync, if the last attempt failed.'
+      },
+      lastAttemptAt: {
+        type: ['string', 'null'],
+        description: 'When `lastError` happened. Null exactly when `lastError` is.'
+      },
+      outOfDateCount: {
+        type: 'integer',
+        description:
+          'Pages plus assets with no successful sync to this target newer than their own last edit.'
+      }
+    }
+  })
+
+  /**
    * STORAGE TARGET INPUT - A partial update of one target
    */
   app.addSchema({
@@ -203,6 +253,19 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         properties: {
           enabled: {
             type: 'boolean'
+          }
+        }
+      },
+      sync: {
+        type: 'object',
+        description:
+          "Refused if `mode` is outside the module's `supportedModes`, or if the module only declares one mode.",
+        properties: {
+          mode: {
+            type: 'string'
+          },
+          scheduleOverride: {
+            type: ['string', 'null']
           }
         }
       },

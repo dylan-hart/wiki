@@ -569,6 +569,13 @@ class Pages {
       authorId: actor.id,
       metadata: { title: page.title, description: page.description, editor }
     })
+    await WIKI.models.storage.dispatch('page:create', {
+      id: page.id,
+      path: page.path,
+      locale,
+      siteId,
+      authorId: actor.id
+    })
 
     return (await this.getPage({ siteId, id: page.id })) as Page
   }
@@ -717,6 +724,13 @@ class Pages {
       authorId: actor.id,
       metadata: { title: updated.title, description: updated.description }
     })
+    await WIKI.models.storage.dispatch('page:edit', {
+      id,
+      path: updated.path,
+      locale: updated.locale,
+      siteId,
+      authorId: actor.id
+    })
 
     return updated
   }
@@ -806,6 +820,14 @@ class Pages {
       siteId,
       authorId: actor.id
     })
+    await WIKI.models.storage.dispatch('page:rename', {
+      id,
+      path: moved.path,
+      previousPath: page.path,
+      locale: moved.locale,
+      siteId,
+      authorId: actor.id
+    })
     return moved
   }
 
@@ -834,6 +856,13 @@ class Pages {
     await WIKI.models.navigation.deleteNavForEntries([id])
 
     await WIKI.models.hooks.emit('page:delete', {
+      id,
+      path: page.path,
+      locale: page.locale,
+      siteId,
+      authorId: actor.id
+    })
+    await WIKI.models.storage.dispatch('page:delete', {
       id,
       path: page.path,
       locale: page.locale,
@@ -877,9 +906,17 @@ class Pages {
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
     for (const entry of entries) {
+      const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
       await WIKI.models.hooks.emit('page:delete', {
         id: entry.id,
-        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
+        path,
+        locale: entry.locale,
+        siteId,
+        authorId: actor.id
+      })
+      await WIKI.models.storage.dispatch('page:delete', {
+        id: entry.id,
+        path,
         locale: entry.locale,
         siteId,
         authorId: actor.id
