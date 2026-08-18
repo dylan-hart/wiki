@@ -120,13 +120,19 @@ useMeta({
   title: t('admin.editors.title')
 })
 
+// -> Task 492: `api`/`blog`/`channel` rows removed. None had a backing `EDITOR_CONTENT_TYPES` entry
+//    (backend/models/pages.ts), schema property (backend/api/schemas/site.ts), or reachable
+//    `editorComponents` registration (Index.vue) -- they were unbacked speculation, visible under the
+//    experimental flag but non-functional even when toggled on. `channel`'s only artifact,
+//    `EditorChannel.vue` (79 lines of Options-API mock data, never imported anywhere reachable), has
+//    been deleted outright. `channel`-style real-time discussion channels are filed as a stretch-goal
+//    Feature under the Comments epic (OpenProject #335) for a future cycle to pick up if it wants to;
+//    `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible near-term epic
+//    home identified and are dropped with no follow-up.
 const state = reactive({
   loading: 0,
   config: {
-    api: false,
     asciidoc: false,
-    blog: false,
-    channel: false,
     code: false,
     markdown: false,
     redirect: true,
@@ -135,12 +141,6 @@ const state = reactive({
 })
 const editors = reactive([
   {
-    id: 'api',
-    icon: 'api',
-    isDisabled: true,
-    useRendering: false
-  },
-  {
     id: 'asciidoc',
     icon: 'asciidoc',
     // -> Task 491: a real, if minimal, editor now exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
@@ -148,18 +148,6 @@ const editors = reactive([
     //    has no configuration overlay, matching the equally no-frills `code` row. `useRendering` stays
     //    off because there is no AsciiDoc-to-HTML rendering pipeline yet -- that's a later Feature; the
     //    description below says so.
-    useRendering: false
-  },
-  {
-    id: 'blog',
-    icon: 'typewriter-with-paper',
-    isDisabled: true,
-    useRendering: true
-  },
-  {
-    id: 'channel',
-    icon: 'chat',
-    isDisabled: true,
     useRendering: false
   },
   {
