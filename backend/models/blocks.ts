@@ -303,25 +303,35 @@ class Blocks {
   }
 
   /**
-   * Enable or disable blocks in bulk.
+   * Enable or disable blocks in bulk, and write each one's per-site `config` when the caller gives
+   * one — e.g. the "Server" field the admin area offers Kroki and PlantUML, so every author on this
+   * site gets that default instead of the component's own hardcoded one.
    *
-   * @param states Block IDs with their desired state
+   * One row per state entry, not batched by `isEnabled` the way this used to be: a batch only works
+   * when every row in it gets the same `.set()` values, and `config` differs per block. The list here
+   * is a handful of rows at most (the built-in blocks plus any custom ones), so there is nothing to
+   * gain from batching that is worth the loss of per-row values.
+   *
+   * `config` is left untouched, not cleared, when the caller omits it for a state entry — an empty
+   * object `{}` is a deliberate "clear whatever was set", not the same as "say nothing about it".
+   *
+   * @param states Block IDs with their desired state, and optionally a config to write with it
    * @returns The number of block rows written — a block already in the requested state still counts
    */
   async setBlocksState(
     siteId: string,
-    states: { id: string; isEnabled: boolean }[]
+    states: { id: string; isEnabled: boolean; config?: Record<string, any> }[]
   ): Promise<number> {
     let changed = 0
-    for (const isEnabled of [true, false]) {
-      const ids = states.filter((s) => s.isEnabled === isEnabled).map((s) => s.id)
-      if (ids.length < 1) {
-        continue
-      }
+    for (const state of states) {
+      const values =
+        state.config === undefined
+          ? { isEnabled: state.isEnabled }
+          : { isEnabled: state.isEnabled, config: state.config }
       const result = await WIKI.db
         .update(blocksTable)
-        .set({ isEnabled })
-        .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, ids)))
+        .set(values)
+        .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, state.id)))
       changed += result.rowCount ?? 0
     }
     return changed

@@ -267,10 +267,10 @@ Bob --> Alice : hi
       this._error =
         'This diagram is empty. Its source goes in the body of the block, inside a ```plantuml fence.'
       if (this.querySelector('img')) {
-        // -> The renderer's own PlantUML option claims that fence and draws it before this block is
-        //    ever built, leaving an image where the source should be
+        // -> Something already put an image where the source should be — pasted-in markup, most
+        //    likely, since nothing in this wiki's own render pipeline ever does
         this._error +=
-          '\n\nThe PlantUML option in the markdown editor settings is on, and it has already turned this fence into a diagram of its own. Switch it off to draw through this block.'
+          "\n\nAn image sits here instead of source text. Replace it with the diagram's PlantUML source, inside the ```plantuml fence."
       }
       return
     }

@@ -1,4 +1,4 @@
-import { blockAttributes } from '@/helpers/blocks'
+import { blockAttributes, propDefault } from '@/helpers/blocks'
 
 /**
  * The blocks already in a page's source, read back and rewritten.
@@ -94,11 +94,13 @@ export function findBlocks(text) {
 /**
  * What the form should open on: the block's props, filled in from what the page gave them.
  *
- * A prop the source says nothing about starts at the block's own default, which is what the block
- * will do if left alone — the same footing the picker starts a new block on.
+ * A prop the source says nothing about starts at the site's configured default when it has one
+ * (`propDefault`), and otherwise at the block's own default — the same footing the picker starts a
+ * new block on.
  *
  * @param {{ attributes: Array }} found A block from `findBlocks`.
- * @param {{ props?: Array }} definition The same block as the API describes it.
+ * @param {{ props?: Array, config?: Record<string, unknown> }} definition The same block as the API
+ *   describes it.
  * @returns {Record<string, unknown>} Values by prop name.
  */
 export function blockValues(found, definition) {
@@ -108,7 +110,7 @@ export function blockValues(found, definition) {
   return Object.fromEntries(
     (definition.props ?? []).map((prop) => {
       if (!written.has(prop.name)) {
-        return [prop.name, prop.default ?? '']
+        return [prop.name, propDefault(definition, prop)]
       }
       const value = written.get(prop.name)
       switch (prop.type) {

@@ -61,6 +61,27 @@ export function blockMarkdown(block, values = {}) {
 }
 
 /**
+ * What a prop starts on when nothing has said otherwise: the site's own configured default (e.g.
+ * block-kroki/block-plantuml's "Server" field, set on the admin Content Blocks page) when the site
+ * has set one, falling back to the block's own hardcoded default otherwise.
+ *
+ * Shared by the block picker, filling in a form for a block about to be inserted, and the "Edit Block
+ * Parameters" lens, filling in a form for one already in the page whose source is silent about this
+ * prop — both want the same starting point.
+ *
+ * An empty string in `config` counts as though it were not there: the admin card leaves the field
+ * blank to mean "no site-wide override", not "override with nothing".
+ *
+ * @param {{ config?: Record<string, unknown> }} block A block as the API describes it.
+ * @param {{ name: string, default?: unknown }} prop One of that block's declared props.
+ * @returns {unknown}
+ */
+export function propDefault(block, prop) {
+  const configured = block.config?.[prop.name]
+  return configured !== undefined && configured !== '' ? configured : (prop.default ?? '')
+}
+
+/**
  * Whether every prop the block insists on has been given something.
  *
  * Asked by both the picker's Insert button and the parameters dialog's Apply: a required prop left

@@ -146,8 +146,6 @@ editors:
       underline: false
       tabWidth: 2
       latexEngine: katex
-      kroki: true
-      plantuml: true
       multimdTable: true
   wysiwyg:
     contentType: html
