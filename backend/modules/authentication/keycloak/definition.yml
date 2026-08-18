@@ -1,0 +1,44 @@
+key: keycloak
+title: Keycloak
+description: Sign in with a self-hosted Keycloak realm.
+author: requarks.io
+logo: https://static.requarks.io/logo/keycloak.svg
+icon: /_assets/icons/ultraviolet-keycloak.svg
+color: red
+vendor: 'Keycloak (CNCF)'
+website: 'https://www.keycloak.org/securing-apps/oidc-layers'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  baseUrl:
+    type: String
+    title: Base URL
+    hint: This is the self-hosted preset — point it at your own Keycloak install's base URL, e.g. https://sso.example.com. No hosted default is offered because there isn't one.
+    icon: internet
+    order: 1
+  realm:
+    type: String
+    title: Realm
+    hint: The realm this wiki signs into, e.g. wiki. Together with the base URL this is the issuer, e.g. https://sso.example.com/realms/wiki.
+    icon: building
+    order: 2
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the realm's client settings.
+    icon: key
+    order: 3
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same client's Credentials tab (requires the client's access type to be confidential).
+    icon: password
+    sensitive: true
+    order: 4
+refs:
+  callbackUrl:
+    title: Valid Redirect URI
+    hint: Add this to the client's Valid Redirect URIs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

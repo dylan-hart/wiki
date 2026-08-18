@@ -1,0 +1,32 @@
+key: twitch
+title: Twitch
+description: Sign in with a Twitch account.
+author: requarks.io
+logo: https://static.requarks.io/logo/twitch.svg
+icon: /_assets/icons/ultraviolet-twitch.svg
+color: purple
+vendor: 'Twitch Interactive, Inc.'
+website: 'https://dev.twitch.tv/docs/authentication/getting-tokens-oidc/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  clientId:
+    type: String
+    title: Client ID
+    hint: From the application registered in the Twitch Developer Console.
+    icon: key
+    order: 1
+  clientSecret:
+    type: String
+    title: Client Secret
+    hint: From the same application.
+    icon: password
+    sensitive: true
+    order: 2
+refs:
+  callbackUrl:
+    title: OAuth Redirect URL
+    hint: Add this to the application's OAuth Redirect URLs.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

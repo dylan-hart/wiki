@@ -32,6 +32,17 @@ describe('buildOidcConfig', () => {
     assert.equal(config.displayNameClaim, 'name')
   })
 
+  test("a template's extraAuthParams (e.g. Twitch's claims parameter) is carried onto the merged config", () => {
+    const config = buildOidcConfig(
+      {
+        issuer: () => 'https://id.twitch.tv/oauth2',
+        extraAuthParams: { claims: '{"userinfo":{"email":null}}' }
+      },
+      { clientId: 'abc', clientSecret: 'xyz' }
+    )
+    assert.deepEqual(config.extraAuthParams, { claims: '{"userinfo":{"email":null}}' })
+  })
+
   test('fields the template leaves unset fall back to the admin config untouched', () => {
     const config = buildOidcConfig(
       { issuer: () => 'https://issuer.example' },

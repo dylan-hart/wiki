@@ -18,6 +18,12 @@ export interface OidcPresetTemplate {
   emailClaim?: string
   displayNameClaim?: string
   useDiscovery?: boolean
+  /**
+   * Static authorization-request parameters a provider needs beyond the generic set, forwarded to
+   * `OidcAuthentication`'s `extraAuthParams` and merged onto the authorization URL as-is. Twitch is
+   * the reason this exists: it wants a `claims` parameter asking for email even under PKCE.
+   */
+  extraAuthParams?: Record<string, string>
 }
 
 /**
@@ -36,7 +42,8 @@ export function buildOidcConfig(
     scopes: template.scopes ?? conf.scopes,
     emailClaim: template.emailClaim ?? conf.emailClaim,
     displayNameClaim: template.displayNameClaim ?? conf.displayNameClaim,
-    useDiscovery: template.useDiscovery ?? conf.useDiscovery
+    useDiscovery: template.useDiscovery ?? conf.useDiscovery,
+    extraAuthParams: template.extraAuthParams ?? conf.extraAuthParams
   }
 }
 
