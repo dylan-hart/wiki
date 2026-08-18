@@ -260,6 +260,19 @@ describe('batchDocuments()', () => {
  * overridden per instance) rather than a live account -- see `moduleWithFakeClient()`. `search`'s real
  * `definitions` are loaded from the actual `definition.yml` files on disk so `getEngineConfig()`
  * resolves this module's `appId`/`apiKey`/`indexName` defaults exactly the way the running app would.
+ *
+ * Task #559: unlike `modules/search/elasticsearch/search.smoke.test.ts`'s companion suite, there is no
+ * live-cluster equivalent for this module. Algolia is a hosted SaaS with no self-hostable server to
+ * bring up in a `docker-compose.yml` the way Elasticsearch's own image can be -- a real run would mean
+ * either committing a throwaway account's live API keys to CI (a secret-management problem no other
+ * suite in this repo takes on) or silently skipping in every environment that lacks one, both worse
+ * than what this file already does. So this is where Algolia's coverage stops rather than a gap
+ * nobody noticed: `moduleWithFakeClient()`'s `calls` recorder is a genuine contract test against
+ * `algoliasearch`'s actual method call shapes -- `setSettings`'s `indexName`/`indexSettings`
+ * (`init()`, above), `saveObject`'s `indexName`/`body` (`created`/`updated`/`renamed`), `deleteObject`'s
+ * `indexName`/`objectID` (`deleted()`), and `searchSingleIndex`'s `searchParams.filters` string built by
+ * `buildFilters()` (`query()`) -- asserted against the same request shapes the real SDK method
+ * signatures expect, just never sent over the wire.
  */
 describe('AlgoliaSearchModule', () => {
   const siteId = 'site-1'
