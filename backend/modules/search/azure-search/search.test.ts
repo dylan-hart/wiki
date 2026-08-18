@@ -6,10 +6,12 @@ import {
   buildFilter,
   buildIndexSchema,
   buildOrderBy,
+  REBUILD_BATCH_SIZE,
   toIndexDocument,
   type AzureSearchIndexClient,
   type AzureSearchQueryClient,
-  type AzureSearchRow
+  type AzureSearchRow,
+  type RebuildPageSource
 } from './search.ts'
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
@@ -652,6 +654,94 @@ describe('azure-search module: query()', () => {
 
     assert.equal(client.searches.length, 1)
     assert.doesNotMatch(client.searches[0]!.options.filter, /hasPassword/)
+  })
+})
+
+/**
+ * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
+ * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
+ * the full set in the batches it should have, rather than only checking the final tally.
+ */
+function fakePageSource(
+  pagesByLocale: Record<string, SearchIndexablePage[]>
+): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
+  const calls: { locale: string; offset: number; limit: number }[] = []
+  return {
+    calls,
+    async locales() {
+      return Object.keys(pagesByLocale)
+    },
+    async pageBatch(_siteId, locale, offset, limit) {
+      calls.push({ locale, offset, limit })
+      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
+    }
+  }
+}
+
+describe('azure-search module: rebuild()', () => {
+  test('streams every locale through mergeOrUploadDocuments and reports a per-locale RebuildResult', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({
+      en: [page({ id: 'en-1' }), page({ id: 'en-2' })],
+      fr: [page({ id: 'fr-1', locale: 'fr' })]
+    })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.equal(result.pages, 3)
+    assert.deepEqual(result.locales, [
+      { locale: 'en', pages: 2 },
+      { locale: 'fr', pages: 1 }
+    ])
+    // -> No `dictionary` on either entry: this engine has no such concept (see `RebuildResult`'s own
+    //    doc comment in `models/search.ts`).
+    assert.ok(result.locales.every((l) => !('dictionary' in l)))
+  })
+
+  test('uploads the exact documents toIndexDocument would build for each page', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [page({ id: 'en-1' })] })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    await azureSearch.rebuild('site-1')
+
+    assert.equal(client.merged.length, 1)
+    assert.deepEqual(client.merged[0], toIndexDocument(page({ id: 'en-1' })))
+  })
+
+  test('paginates a locale larger than one batch, walking every row exactly once', async () => {
+    const client = fakeQueryClient()
+    const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
+      page({ id: `en-${i}` })
+    )
+    const source = fakePageSource({ en: enPages })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.equal(result.pages, REBUILD_BATCH_SIZE + 3)
+    assert.equal(result.locales[0]!.pages, REBUILD_BATCH_SIZE + 3)
+    // -> Two `pageBatch` calls (a full batch, then the 3-row remainder) and two matching
+    //    `mergeOrUploadDocuments` calls -- the working set never grows past one batch.
+    assert.deepEqual(
+      source.calls.map((c) => c.offset),
+      [0, REBUILD_BATCH_SIZE]
+    )
+    assert.equal(client.merged.length, REBUILD_BATCH_SIZE + 3)
+    const ids = new Set(client.merged.map((d) => d.id))
+    assert.equal(ids.size, REBUILD_BATCH_SIZE + 3)
+  })
+
+  test('a locale with no pages contributes zero and no upload call', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [] })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.deepEqual(result, { pages: 0, locales: [{ locale: 'en', pages: 0 }] })
+    assert.equal(client.merged.length, 0)
   })
 })
 

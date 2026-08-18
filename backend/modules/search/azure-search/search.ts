@@ -1,4 +1,6 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
+import { and, asc, eq } from 'drizzle-orm'
+import { pages as pagesTable } from '../../../db/schema.ts'
 import type { SearchIndex } from '@azure/search-documents'
 import type {
   RebuildResult,
@@ -92,6 +94,60 @@ export interface AzureSearchQueryClient {
     searchText: string | undefined,
     options: AzureSearchQueryOptions
   ): Promise<{ count?: number; results: AsyncIterable<AzureSearchRow> }>
+}
+
+/**
+ * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
+ * `AzureSearchIndexClient`/`AzureSearchQueryClient` above: a test hands it a fake that returns fixed
+ * pages with no real postgres involved, rather than requiring a live database for logic that is really
+ * about pagination and per-locale counting.
+ */
+export interface RebuildPageSource {
+  /** Every distinct locale a site currently has at least one page in, in a stable order. */
+  locales(siteId: string): Promise<string[]>
+  /**
+   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
+   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
+   */
+  pageBatch(
+    siteId: string,
+    locale: string,
+    offset: number,
+    limit: number
+  ): Promise<SearchIndexablePage[]>
+}
+
+/** Rows read from postgres, and documents sent per `mergeOrUploadDocuments` call, in one `rebuild()` step. */
+export const REBUILD_BATCH_SIZE = 500
+
+/**
+ * The real, database-backed `RebuildPageSource`.
+ *
+ * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through the bulk
+ * indexing client instead of building one giant document array: a site's full page set should never
+ * have to fit in memory at once, and Azure's own `mergeOrUploadDocuments` has request-size limits of
+ * its own that a `REBUILD_BATCH_SIZE`-sized chunk comfortably stays under.
+ */
+function defaultPageSource(): RebuildPageSource {
+  return {
+    async locales(siteId) {
+      const rows = await WIKI.db
+        .selectDistinct({ locale: pagesTable.locale })
+        .from(pagesTable)
+        .where(eq(pagesTable.siteId, siteId))
+        .orderBy(pagesTable.locale)
+      return rows.map((r) => r.locale)
+    },
+    async pageBatch(siteId, locale, offset, limit) {
+      return WIKI.db
+        .select()
+        .from(pagesTable)
+        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
+        .orderBy(asc(pagesTable.id))
+        .limit(limit)
+        .offset(offset)
+    }
+  }
 }
 
 /** Builds the real SDK index-management client from a site's stored `serviceName`/`adminApiKey` config. */
@@ -357,7 +413,7 @@ function compareRows(
  *
  * Task #553 provisioned the index (`init()`) and the SDK dependency. This task (#557) is the page
  * lifecycle — `created`/`updated`/`deleted`/`renamed` keep an Azure index in step with the database —
- * plus `query()`, the read side. `rebuild()` stays task #564's.
+ * plus `query()`, the read side. `rebuild()` (task #564) is the bulk streaming path below.
  *
  * Takes both a client factory (index management) and a search-client factory (documents/queries)
  * rather than talking to the SDK directly, the same reason `dictionaryForLocale` in the `db` module
@@ -368,6 +424,7 @@ function compareRows(
 export class AzureSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
   private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
+  private readonly pageSource: RebuildPageSource
   /** One client per site: each site's `serviceName`/`adminApiKey` can point at a different service. */
   private readonly clients = new Map<string, AzureSearchIndexClient>()
   private readonly queryClients = new Map<string, AzureSearchQueryClient>()
@@ -376,10 +433,12 @@ export class AzureSearchModule implements SearchModule {
     clientFactory: (config: Record<string, any>) => AzureSearchIndexClient = defaultClientFactory,
     searchClientFactory: (
       config: Record<string, any>
-    ) => AzureSearchQueryClient = defaultSearchClientFactory
+    ) => AzureSearchQueryClient = defaultSearchClientFactory,
+    pageSource: RebuildPageSource = defaultPageSource()
   ) {
     this.clientFactory = clientFactory
     this.searchClientFactory = searchClientFactory
+    this.pageSource = pageSource
   }
 
   private clientFor(siteId: string, config: Record<string, any>): AzureSearchIndexClient {
@@ -679,9 +738,53 @@ export class AzureSearchModule implements SearchModule {
     }
   }
 
-  /** Not yet implemented — the bulk rebuild path lands in task #564. */
-  async rebuild(_siteId: string): Promise<RebuildResult> {
-    throw new Error(`${MODULE_KEY}: rebuild() is not implemented yet (see task #564).`)
+  /**
+   * Recompute the whole Azure AI Search index of a site from scratch, streaming every page of every
+   * locale through `mergeOrUploadDocuments` rather than the `db` engine's single SQL `UPDATE` — there
+   * is no equivalent single-statement primitive against an external index, and a whole site's pages
+   * should never have to fit in memory at once to be reindexed.
+   *
+   * Indexes every page unconditionally, the same as `created`/`updated`/`renamed` above — not just
+   * "published, non-private" pages the way 2.5.x's own `aws`/`azure` engines' `rebuild()` filtered
+   * (`isPublished: true, isPrivate: false` in a since-removed `knex` query, recovered via `git log
+   * --all` for reference). That filter predates this schema's `hasPassword`/`publishState` index
+   * fields (task #557's design decision #1): this module already routes a protected or draft page's
+   * visibility through those fields at *query* time (`buildFilter`, `runProtectedSplitQuery`), the same
+   * way the `db` engine's own `rebuild()` reindexes every page and leaves `isSearchable` to query time.
+   * Filtering here too would leave a draft or password-protected page permanently missing from the
+   * index after any rebuild, even though an editor's `includeDrafts` search or a password page's
+   * title/description are both meant to still find it — a regression `created`/`updated` do not have.
+   *
+   * Each locale's rows are paginated through `pageSource.pageBatch` (`REBUILD_BATCH_SIZE` at a time)
+   * and every batch's documents are pushed through `mergeOrUploadDocuments` before the next page of
+   * rows is read, so the working set stays one batch wide regardless of site size.
+   */
+  async rebuild(siteId: string): Promise<RebuildResult> {
+    const locales = await this.pageSource.locales(siteId)
+    WIKI.logger.info(`Rebuilding the Azure AI Search index for ${locales.length} locale(s)...`)
+    const result: RebuildResult = { pages: 0, locales: [] }
+
+    for (const locale of locales) {
+      const client = this.queryClientFor(siteId, this.configFor(siteId))
+      let offset = 0
+      let localePages = 0
+      let batch: SearchIndexablePage[]
+      do {
+        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
+        if (batch.length > 0) {
+          await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
+          localePages += batch.length
+          offset += batch.length
+        }
+      } while (batch.length === REBUILD_BATCH_SIZE)
+
+      result.pages += localePages
+      result.locales.push({ locale, pages: localePages })
+      WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+    }
+
+    WIKI.logger.info(`Azure AI Search index rebuild completed: ${result.pages} page(s) [ OK ]`)
+    return result
   }
 }
 

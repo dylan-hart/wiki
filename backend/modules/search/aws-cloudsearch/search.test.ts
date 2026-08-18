@@ -12,6 +12,7 @@ import {
   MAX_BATCH_BYTES,
   MAX_BATCH_DOCUMENTS,
   MAX_DOCUMENT_BYTES,
+  REBUILD_BATCH_SIZE,
   toIndexDocument,
   type CloudSearchAdminClient,
   type CloudSearchHit,
@@ -20,6 +21,7 @@ import {
   type DescribedAnalysisScheme,
   type DescribedCloudSearchField,
   type DescribedSuggester,
+  type RebuildPageSource,
   type SdfDocument
 } from './search.ts'
 import defaultAwsCloudSearchModule from './search.ts'
@@ -372,13 +374,6 @@ describe('aws-cloudsearch module: init()', () => {
     assert.ok(clients['wiki-one'])
     assert.ok(clients['wiki-two'])
     assert.notEqual(clients['wiki-one'], clients['wiki-two'])
-  })
-})
-
-describe('aws-cloudsearch module: not-yet-implemented rebuild', () => {
-  test('rebuild throws, pointing at task #564', async () => {
-    const module = new AwsCloudSearchModule(() => fakeClient())
-    await assert.rejects(() => module.rebuild('site-1'), /task #564/)
   })
 })
 
@@ -792,6 +787,98 @@ describe('aws-cloudsearch module: query()', () => {
     await module.query({ siteId: 'site-1' })
 
     assert.equal(factoryCalls, 1)
+  })
+})
+
+/**
+ * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
+ * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
+ * the full set in the batches it should have, rather than only checking the final tally. Identical
+ * shape to `azure-search`'s own `fakePageSource` (task #564), copied rather than imported — each
+ * module's test file stays self-contained too.
+ */
+function fakePageSource(
+  pagesByLocale: Record<string, SearchIndexablePage[]>
+): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
+  const calls: { locale: string; offset: number; limit: number }[] = []
+  return {
+    calls,
+    async locales() {
+      return Object.keys(pagesByLocale)
+    },
+    async pageBatch(_siteId, locale, offset, limit) {
+      calls.push({ locale, offset, limit })
+      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
+    }
+  }
+}
+
+describe('aws-cloudsearch module: rebuild()', () => {
+  test('streams every locale through uploadBatch and reports a per-locale RebuildResult', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({
+      en: [basePage({ id: 'en-1' }), basePage({ id: 'en-2' })],
+      fr: [basePage({ id: 'fr-1', locale: 'fr' })]
+    })
+    const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+    const result = await module.rebuild('site-1')
+
+    assert.equal(result.pages, 3)
+    assert.deepEqual(result.locales, [
+      { locale: 'en', pages: 2 },
+      { locale: 'fr', pages: 1 }
+    ])
+    // -> No `dictionary` on either entry: this engine has no such concept (see `RebuildResult`'s own
+    //    doc comment in `models/search.ts`).
+    assert.ok(result.locales.every((l) => !('dictionary' in l)))
+  })
+
+  test('uploads the exact SDF documents toIndexDocument would build for each page', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [basePage({ id: 'en-1' })] })
+    const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+    await module.rebuild('site-1')
+
+    assert.equal(client.uploaded.length, 1)
+    assert.deepEqual(client.uploaded[0], [toIndexDocument(basePage({ id: 'en-1' }))])
+  })
+
+  test('paginates a locale larger than one read batch, walking every row exactly once', async () => {
+    const client = fakeQueryClient()
+    const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
+      basePage({ id: `en-${i}` })
+    )
+    const source = fakePageSource({ en: enPages })
+    const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+    const result = await module.rebuild('site-1')
+
+    assert.equal(result.pages, REBUILD_BATCH_SIZE + 3)
+    // -> Two `pageBatch` calls (a full read batch, then the 3-row remainder) each fed straight into
+    //    `uploadBatch` -- and since both batches are well under CloudSearch's own 1000-document/5MB
+    //    `UploadDocuments` limits (`batchDocuments`, task #562), each becomes exactly one upload.
+    assert.deepEqual(
+      source.calls.map((c) => c.offset),
+      [0, REBUILD_BATCH_SIZE]
+    )
+    assert.equal(client.uploaded.length, 2)
+    assert.equal(client.uploaded[0]!.length, REBUILD_BATCH_SIZE)
+    assert.equal(client.uploaded[1]!.length, 3)
+    const ids = new Set(client.uploaded.flat().map((d) => d.id))
+    assert.equal(ids.size, REBUILD_BATCH_SIZE + 3)
+  })
+
+  test('a locale with no pages contributes zero and no upload call', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [] })
+    const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+    const result = await module.rebuild('site-1')
+
+    assert.deepEqual(result, { pages: 0, locales: [{ locale: 'en', pages: 0 }] })
+    assert.equal(client.uploaded.length, 0)
   })
 })
 

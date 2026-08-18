@@ -13,6 +13,8 @@ import {
   SearchCommand,
   UploadDocumentsCommand
 } from '@aws-sdk/client-cloudsearch-domain'
+import { and, asc, eq } from 'drizzle-orm'
+import { pages as pagesTable } from '../../../db/schema.ts'
 import type {
   RebuildResult,
   SearchIndexablePage,
@@ -658,6 +660,60 @@ export interface CloudSearchQueryClient {
   search(request: CloudSearchSearchRequest): Promise<CloudSearchSearchResponse>
 }
 
+/**
+ * Where `rebuild()` reads pages from — narrowed to what it needs, the same reasoning as
+ * `CloudSearchAdminClient`/`CloudSearchQueryClient` above: a test hands it a fake that returns fixed
+ * pages with no real postgres involved, rather than requiring a live database for logic that is really
+ * about pagination and per-locale counting. Identical shape to `azure-search`'s own `RebuildPageSource`
+ * (task #564), copied rather than imported — each engine module stays self-contained.
+ */
+export interface RebuildPageSource {
+  /** Every distinct locale a site currently has at least one page in, in a stable order. */
+  locales(siteId: string): Promise<string[]>
+  /**
+   * One page of a site's rows for one locale, ordered by `id` so repeated calls with an increasing
+   * `offset` walk the whole set exactly once each, with no gaps or duplicates.
+   */
+  pageBatch(
+    siteId: string,
+    locale: string,
+    offset: number,
+    limit: number
+  ): Promise<SearchIndexablePage[]>
+}
+
+/** Rows read from postgres, and documents handed to `uploadBatch` (task #562's own SDF chunking), in one `rebuild()` step. */
+export const REBUILD_BATCH_SIZE = 500
+
+/**
+ * The real, database-backed `RebuildPageSource`.
+ *
+ * Paginated rather than one `SELECT *`, the same reason `rebuild()` itself streams through
+ * `uploadBatch` instead of building one giant document array: a site's full page set should never have
+ * to fit in memory at once.
+ */
+function defaultPageSource(): RebuildPageSource {
+  return {
+    async locales(siteId) {
+      const rows = await WIKI.db
+        .selectDistinct({ locale: pagesTable.locale })
+        .from(pagesTable)
+        .where(eq(pagesTable.siteId, siteId))
+        .orderBy(pagesTable.locale)
+      return rows.map((r) => r.locale)
+    },
+    async pageBatch(siteId, locale, offset, limit) {
+      return WIKI.db
+        .select()
+        .from(pagesTable)
+        .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.locale, locale)))
+        .orderBy(asc(pagesTable.id))
+        .limit(limit)
+        .offset(offset)
+    }
+  }
+}
+
 /** Builds the real SDK document/query client from a site's stored `endpoint`/region/credentials config. */
 function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQueryClient {
   const client = new CloudSearchDomainClient({
@@ -706,8 +762,8 @@ function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQuer
  * Task #560 provisioned the domain (`init()`) and the SDK dependencies. This task (#562) is the page
  * lifecycle — `created`/`updated`/`deleted`/`renamed` keep a CloudSearch domain in step with the
  * database — plus `query()`, the read side, built on `@aws-sdk/client-cloudsearch-domain`
- * (`UploadDocumentsCommand`/`SearchCommand`). `rebuild()` stays task #564's, same split `azure-search`
- * used across #553/#557/#564.
+ * (`UploadDocumentsCommand`/`SearchCommand`). `rebuild()` (task #564) is the bulk streaming path below,
+ * same split `azure-search` used across #553/#557/#564.
  *
  * Takes both an admin client factory (domain provisioning, task #560) and a query client factory
  * (documents/queries, this task) rather than talking to the SDK directly, the same reason
@@ -718,6 +774,7 @@ function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQuer
 export class AwsCloudSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
   private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
+  private readonly pageSource: RebuildPageSource
   /** One client per site: each site's region/credentials can point at a different account. */
   private readonly clients = new Map<string, CloudSearchAdminClient>()
   private readonly queryClients = new Map<string, CloudSearchQueryClient>()
@@ -728,10 +785,12 @@ export class AwsCloudSearchModule implements SearchModule {
     ) => CloudSearchAdminClient = defaultAdminClientFactory,
     queryClientFactory: (
       config: Record<string, any>
-    ) => CloudSearchQueryClient = defaultQueryClientFactory
+    ) => CloudSearchQueryClient = defaultQueryClientFactory,
+    pageSource: RebuildPageSource = defaultPageSource()
   ) {
     this.clientFactory = clientFactory
     this.queryClientFactory = queryClientFactory
+    this.pageSource = pageSource
   }
 
   private clientFor(siteId: string, config: Record<string, any>): CloudSearchAdminClient {
@@ -1062,9 +1121,53 @@ export class AwsCloudSearchModule implements SearchModule {
     }
   }
 
-  /** Not yet implemented — the bulk rebuild path lands in task #564. */
-  async rebuild(_siteId: string): Promise<RebuildResult> {
-    throw new Error(`${MODULE_KEY}: rebuild() is not implemented yet (see task #564).`)
+  /**
+   * Recompute the whole CloudSearch domain of a site from scratch, streaming every page of every
+   * locale through `uploadBatch` (task #562's own SDF chunking helper, built on `batchDocuments` from
+   * this same task) rather than the `db` engine's single SQL `UPDATE` — there is no equivalent
+   * single-statement primitive against an external index, and a whole site's pages should never have
+   * to fit in memory at once to be reindexed.
+   *
+   * Indexes every page unconditionally, the same as `created`/`updated`/`renamed` above — not just
+   * "published, non-private" pages the way 2.5.x's own `aws` engine's `rebuild()` filtered
+   * (`isPublished: true, isPrivate: false` in a since-removed `knex` query, recovered via `git log
+   * --all` for reference). That filter predates this schema's `hasPassword`/`publishState` index
+   * fields (task #562's design decision #1): this module already routes a protected or draft page's
+   * visibility through those fields at *query* time (`buildFilterQuery`, `runProtectedSplitQuery`), the
+   * same way the `db` engine's own `rebuild()` reindexes every page and leaves `isSearchable` to query
+   * time. Filtering here too would leave a draft or password-protected page permanently missing from
+   * the domain after any rebuild, even though an editor's `includeDrafts` search or a password page's
+   * title/description are both meant to still find it — a regression `created`/`updated` do not have.
+   *
+   * Each locale's rows are paginated through `pageSource.pageBatch` (`REBUILD_BATCH_SIZE` at a time)
+   * and every batch's documents are pushed through `uploadBatch` before the next page of rows is read,
+   * so the working set stays one batch wide regardless of domain size.
+   */
+  async rebuild(siteId: string): Promise<RebuildResult> {
+    const locales = await this.pageSource.locales(siteId)
+    WIKI.logger.info(`Rebuilding the AWS CloudSearch domain for ${locales.length} locale(s)...`)
+    const result: RebuildResult = { pages: 0, locales: [] }
+
+    for (const locale of locales) {
+      let offset = 0
+      let localePages = 0
+      let batch: SearchIndexablePage[]
+      do {
+        batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
+        if (batch.length > 0) {
+          await this.uploadBatch(siteId, batch.map(toIndexDocument))
+          localePages += batch.length
+          offset += batch.length
+        }
+      } while (batch.length === REBUILD_BATCH_SIZE)
+
+      result.pages += localePages
+      result.locales.push({ locale, pages: localePages })
+      WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+    }
+
+    WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)
+    return result
   }
 }
 
