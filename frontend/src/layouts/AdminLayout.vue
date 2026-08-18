@@ -32,11 +32,22 @@
             icon="la:language"
             :label="commonStore.locale"
             color="grey-4">
+            <!--
+              Down from the button's trailing edge, like `PageHeader.vue`'s review-queue menu: `WMenu`
+              places itself in raw viewport pixels and knows nothing about `direction`
+              (`composables/anchoredPosition.js`), so the LTR-written "right" pair would pop the panel
+              off toward the visual right even once `dir="rtl"` has moved this button (the last item in
+              this toolbar's row) to the visual left. `localeMenu` mirrors it via `directionalAnchor`,
+              kept reactive off `composables/direction.js` since this header, like `PageHeader.vue`'s,
+              outlives a single locale -- it is this very menu that switches `commonStore.locale`, so a
+              reader picking an RTL locale from it must see it flip on the next render, not only after a
+              full reload.
+            -->
             <w-menu
               content-class="translucent-menu"
               auto-close
-              anchor="bottom right"
-              self="top right">
+              :anchor="localeMenu.anchor"
+              :self="localeMenu.self">
               <w-list separator padding>
                 <w-item
                   v-for="lang of adminStore.locales"
@@ -472,6 +483,8 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { useMinWidth } from '@/composables/screen'
+import { useDirection } from '@/composables/direction'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 
 import { useAdminStore } from '@/stores/admin'
 import { useCommonStore } from '@/stores/common'
@@ -537,6 +550,10 @@ useMeta(() => {
  */
 const narrowSidebarOpen = ref(false)
 
+// DIRECTION
+
+const direction = useDirection()
+
 // COMPUTED
 
 /**
@@ -544,6 +561,14 @@ const narrowSidebarOpen = ref(false)
  * this layout leaves alone (unlike the site sidebar, which asks for 1200).
  */
 const isWideViewport = useMinWidth(1024)
+
+/**
+ * The header's own language-switcher menu's `anchor`/`self`, LTR-correct pair mirrored for
+ * `dir="rtl"` — see the template comment above the `w-menu` this feeds.
+ */
+const localeMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
+)
 
 /**
  * Whether the sidebar is on screen: always on a wide viewport, and only once asked for on a narrow one.
@@ -596,10 +621,10 @@ const overlayIsShown = computed(() => {
 // METHODS
 
 /*
-  The nav count badges carry a right border saying whether the thing they count exists at all --
-  red at zero, green otherwise -- so a section that is empty reads as such without opening it. The
-  colours are the status lights' own, so the two markers in the column say the same thing the same
-  way; see the `.count-badge` rules for where they come from.
+  The nav count badges carry a trailing-edge border saying whether the thing they count exists at
+  all -- red at zero, green otherwise -- so a section that is empty reads as such without opening
+  it. The colours are the status lights' own, so the two markers in the column say the same thing
+  the same way; see the `.count-badge` rules for where they come from.
 */
 function countBadgeClass(count) {
   return count > 0 ? 'count-badge count-badge--filled' : 'count-badge'
@@ -689,10 +714,15 @@ onMounted(async () => {
 
   /*
     Nav rows carry two kinds of trailing marker -- a status light and a count badge -- and they have
-    to read as one column. Both already end on the same right edge; what did not line up is the
-    height. StatusLight is `height: 100%`, so it takes whatever the row gives it (28px on these
-    dense rows), while a badge is sized by its own text at 16px, leaving the lights standing 6px
-    proud above and below every badge in the column.
+    to read as one column. Both already end on the same trailing edge (regression coverage for
+    feature 413, task 727: StatusLight has no left/right of its own, only document order inside the
+    row's flex layout, so it already follows the reader's direction for free -- .count-badge's own
+    border below has to use the matching logical property, `border-inline-end`, or a `dir="rtl"`
+    reader would see the two markers' accent colours point at opposite edges of the same row, same
+    class of bug NavSidebar's open-group rail had). What did not line up is the height. StatusLight is
+    `height: 100%`, so it takes whatever the row gives it (28px on these dense rows), while a badge is
+    sized by its own text at 16px, leaving the lights standing 6px proud above and below every badge
+    in the column.
 
     Pinning them to the badge's band fixes that. It is scoped to the sidebar rather than changed in
     StatusLight, because the full-height stripe is the point everywhere else it is used: the storage,
@@ -712,10 +742,10 @@ onMounted(async () => {
   // -> 5px is StatusLight's own width, so the stripe on a badge and the light on the row below it
   //    are the same bar of colour rather than two thicknesses of it
   .count-badge {
-    border-right: 5px solid $negative;
+    border-inline-end: 5px solid $negative;
 
     &--filled {
-      border-right-color: $positive;
+      border-inline-end-color: $positive;
     }
   }
 

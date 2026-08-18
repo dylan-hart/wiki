@@ -18,13 +18,33 @@ import { useUserStore } from './user'
  * `Intl.DisplayNames` rather than a table, which gives the name in the reader's own language for
  * free. Asking for a code's name IN that code is what produces the native spelling.
  *
- * `isRTL` is resolved the same way, with `Intl.Locale`'s `textInfo.direction` rather than a second
- * request to `/_api/locales` (which also carries `isRTL`, sourced from CLDR via
+ * `isRTL` is resolved the same way, with `Intl.Locale`'s own text-direction info rather than a
+ * second request to `/_api/locales` (which also carries `isRTL`, sourced from CLDR via
  * `backend/models/locales.ts`). Every page load already reaches this function for the name fields,
  * and `Intl.Locale` reads from the same CLDR-backed data the ICU build ships with -- so folding the
  * direction in here keeps this store the single source of truth for locale descriptors without a
  * second locale-list round trip on every load.
+ *
+ * `textDirection()` below feature-detects between the two shapes real engines actually ship for
+ * this: verified live (feature 413, task 727) against a real Chromium build (Playwright's, a recent
+ * one) rather than assumed, since Node's own V8 -- what every Vitest run in this repo executes
+ * against -- silently accepted the OTHER shape and never caught the mismatch. Chrome/Chromium
+ * implements `Intl.Locale.prototype.getTextInfo()` as a METHOD (the shape the "Intl Locale Info"
+ * proposal settled on); this environment's Node instead exposes the EARLIER draft's `.textInfo`
+ * GETTER, which Chrome does not have at all. Reading `.textInfo.direction` -- what this function did
+ * before task 727 -- throws in Chrome (`.textInfo` is `undefined`), which the surrounding `try/catch`
+ * swallows, silently defaulting every single locale to `isRTL: false`. That is a whole-feature
+ * regression, not a cosmetic one: it means `dir="rtl"` never actually applied in a real browser
+ * regardless of anything task 716/721/723 built on top of it, and the existing Vitest suite could not
+ * have caught it because it runs on Node's shape, not Chrome's.
  */
+function textDirection(locale) {
+  if (typeof locale.getTextInfo === 'function') {
+    return locale.getTextInfo().direction
+  }
+  return locale.textInfo?.direction
+}
+
 function describeLocales(codes) {
   const localized = new Intl.DisplayNames(undefined, { type: 'language' })
 
@@ -35,7 +55,7 @@ function describeLocales(codes) {
     try {
       name = localized.of(code) ?? code
       nativeName = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? code
-      isRTL = new Intl.Locale(code).textInfo.direction === 'rtl'
+      isRTL = textDirection(new Intl.Locale(code)) === 'rtl'
     } catch {
       // -> An unregistered or malformed tag throws rather than returning nothing; show the code and
       //    fall back to left-to-right, the safer default for a direction nothing could be read for
