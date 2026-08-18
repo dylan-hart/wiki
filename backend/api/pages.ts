@@ -64,8 +64,18 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
  * altogether, so asking them for it protects nothing. Everybody else — including a logged in reader —
  * has to enter it.
  *
- * Site-wide rather than per page, because per-path rules are not implemented. See the FIXME on the
- * page-permissions route below.
+ * KNOWN BUG (tracked as a candidate under feature #422, not fixed here — see task #781): per-path
+ * rules ARE implemented and enforced (`mayOnPage` / `WIKI.models.groups.checkAccess()` below), but
+ * `mayBypassPassword` does not call them. `write:pages` and `manage:pages` are page-rule
+ * permissions, granted per path via a group's `rules` column (`db/schema.ts`), never via a group's
+ * global `permissions` column — and `models/users.ts`'s `updateSession()` populates
+ * `req.session.permissions` from that global column alone. So this list's first two entries can
+ * never actually match `req.session.permissions`; only `manage:system` ever does. An editor who
+ * holds `write:pages` on a page solely through a path rule is asked for the page's password anyway,
+ * despite being able to open it in the editor and remove the password outright. The real fix is for
+ * `mayBypassPassword` to take the page in hand and call `mayOnPage`/`checkAccess` instead of reading
+ * the flat session list — see `api/pages.mayBypassPassword.test.ts` for a characterization test of
+ * the current (buggy) behavior.
  */
 const PASSWORD_BYPASS = ['write:pages', 'manage:pages', 'manage:system']
 
@@ -425,7 +435,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a single page',
         description:
-          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Per-page access rules are not implemented yet.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester may edit the page, for whom the password is not a barrier.",
+          "Addressed either by ID or by the hash of its path, which is how a page view asks for one. A hash only identifies a page within a locale, so `locale` picks between translations — the site's primary one when absent.\n\nReadable without a session, because a wiki is read by people who are not logged in — but an anonymous request only ever sees published pages, and never their source. Access is enforced per path by the requester's page rules (`read:pages`), not by a route-level permission.\n\nA password-protected page answers with its metadata and `isLocked: true`, its body withheld, until the session satisfies `POST …/unlock` — or unless the requester may edit the page, for whom the password is meant not to be a barrier (a known bug currently makes that bypass fire only for `manage:system`, not for edit access granted via a path rule — see the `PASSWORD_BYPASS` comment in this file).",
         tags: ['Pages'],
         params: {
           type: 'object',
