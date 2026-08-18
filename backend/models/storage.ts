@@ -11,6 +11,43 @@ import type { HookEvent } from './hooks.ts'
 export const CONTENT_TYPES = ['pages', 'images', 'documents', 'others', 'large'] as const
 
 /**
+ * File extension a page's `contentType` is written under, for a target that stores pages as files
+ * (git, disk, ...) rather than DB rows. Keyed by the strings `EDITOR_CONTENT_TYPES` in
+ * `models/pages.ts` actually produces (`markdown`, `asciidoc`, `html`) — `redirect` and anything else
+ * has no natural file representation and falls through to `getFileExtension`'s `txt` fallback.
+ */
+export const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  markdown: 'md',
+  asciidoc: 'adoc',
+  html: 'html'
+}
+
+/**
+ * The file extension for a page's `contentType`, matching 2.5.x's `pageHelper.getFileExtension`.
+ * Lives here, once, rather than as a switch re-implemented in every file-backed storage module.
+ */
+export function getFileExtension(contentType: string): string {
+  return CONTENT_TYPE_EXTENSIONS[contentType] ?? 'txt'
+}
+
+/** The inverse of `CONTENT_TYPE_EXTENSIONS`, e.g. `md` -> `markdown`. */
+const EXTENSION_CONTENT_TYPES: Record<string, string> = Object.fromEntries(
+  Object.entries(CONTENT_TYPE_EXTENSIONS).map(([contentType, ext]) => [ext, contentType])
+)
+
+/**
+ * The page `contentType` a file extension maps back to, matching 2.5.x's
+ * `pageHelper.getContentType`, or `null` when the extension is not one a page is ever written under
+ * (i.e. this is an asset, not a page) — `txt` included: it is `getFileExtension`'s fallback for an
+ * unrecognized content type, not a real reverse mapping target, so a bare `.txt` file found in the
+ * repo is treated as an asset here, exactly as 2.5.x's `extToContent` (built the same way, by
+ * inverting the forward map) would.
+ */
+export function getContentTypeFromExtension(ext: string): string | null {
+  return EXTENSION_CONTENT_TYPES[ext] ?? null
+}
+
+/**
  * The module every site stores its content in, and the only one that is guaranteed to work: assets
  * and pages live in the wiki database. It cannot be disabled, as that would leave content nowhere.
  */
@@ -136,7 +173,9 @@ export interface StorageTarget {
    * The site this target belongs to. Not projected onto the API response (the JSON schema in
    * `api/schemas/storage.ts` doesn't list it, and every route it's needed on is already scoped to a
    * site of its own), but a module implementation needs it: `executeAction()` hands a module only the
-   * target, never the site, and an action such as `exportAll` has to know whose assets to read.
+   * target, never the site, so an action handler that needs to reach
+   * `WIKI.models.pages`/`WIKI.models.assets` (a two-way `sync`, chiefly, or `exportAll`) has no other
+   * way to learn whose content it is looking at.
    */
   siteId: string
   module: string

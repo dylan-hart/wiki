@@ -93,120 +93,6 @@
               v-if="
                 state.target.setup &&
                 state.target.setup.handler &&
-                state.target.setup.state !== `configured`
-              ">
-              <w-card-header>
-                {{ t('admin.storage.setup') }}
-                <template #hint>{{ t('admin.storage.setupHint') }}</template>
-              </w-card-header>
-              <template
-                v-if="
-                  state.target.setup.handler === `github` &&
-                  state.target.setup.state === `notconfigured`
-                ">
-                <w-item>
-                  <blueprint-icon icon="test-account" />
-                  <w-item-section>
-                    <w-item-label>GitHub Account Type</w-item-label>
-                    <w-item-label caption
-                      >Whether to use an organization or personal GitHub account during
-                      setup.</w-item-label
-                    >
-                  </w-item-section>
-                  <w-item-section class="flex-none">
-                    <w-btn-toggle
-                      v-model="state.target.setup.values.accountType"
-                      push
-                      glossy
-                      no-caps
-                      toggle-color="primary"
-                      :options="[
-                        { label: t('admin.storage.githubAccTypeOrg'), value: 'org' },
-                        { label: t('admin.storage.githubAccTypePersonal'), value: 'personal' }
-                      ]" />
-                  </w-item-section>
-                </w-item>
-                <w-separator class="my-2" inset />
-                <template v-if="state.target.setup.values.accountType === `org`">
-                  <w-item>
-                    <blueprint-icon icon="github" />
-                    <w-item-section>
-                      <w-item-label>{{ t('admin.storage.githubOrg') }}</w-item-label>
-                      <w-item-label caption>{{ t('admin.storage.githubOrgHint') }}</w-item-label>
-                    </w-item-section>
-                    <w-item-section>
-                      <w-input
-                        outlined
-                        v-model="state.target.setup.values.org"
-                        dense
-                        :aria-label="t(`admin.storage.githubOrg`)" />
-                    </w-item-section>
-                  </w-item>
-                  <w-separator class="my-2" inset />
-                </template>
-                <w-item>
-                  <blueprint-icon icon="dns" />
-                  <w-item-section>
-                    <w-item-label>{{ t('admin.storage.githubPublicUrl') }}</w-item-label>
-                    <w-item-label caption>{{
-                      t('admin.storage.githubPublicUrlHint')
-                    }}</w-item-label>
-                  </w-item-section>
-                  <w-item-section>
-                    <w-input
-                      outlined
-                      v-model="state.target.setup.values.publicUrl"
-                      dense
-                      :aria-label="t(`admin.storage.githubPublicUrl`)" />
-                  </w-item-section>
-                </w-item>
-                <w-card-section class="pt-2 text-right">
-                  <form ref="githubSetupForm" method="POST" :action="state.setupCfg.action">
-                    <input type="hidden" name="manifest" :value="state.setupCfg.manifest" />
-                    <w-btn
-                      unelevated
-                      icon="la:angle-double-right"
-                      :label="t(`admin.storage.startSetup`)"
-                      color="secondary"
-                      @click="setupGitHub"
-                      :loading="state.setupCfg.loading" />
-                  </form>
-                </w-card-section>
-              </template>
-              <template
-                v-else-if="
-                  state.target.setup.handler === `github` &&
-                  state.target.setup.state === `pendinginstall`
-                ">
-                <w-card-section class="py-0">
-                  <w-banner
-                    :class="dark.isActive ? `bg-teal-9 text-white` : `bg-teal-1 text-teal-9`"
-                    >{{ t('admin.storage.githubFinish') }}</w-banner
-                  >
-                </w-card-section>
-                <w-card-section class="pt-2 text-right">
-                  <w-btn
-                    class="mr-2"
-                    unelevated
-                    icon="la:times-circle"
-                    :label="t(`admin.storage.cancelSetup`)"
-                    color="negative"
-                    @click="setupDestroy" />
-                  <w-btn
-                    unelevated
-                    icon="la:angle-double-right"
-                    :label="t(`admin.storage.finishSetup`)"
-                    color="secondary"
-                    @click="setupGitHubStep(`verify`)"
-                    :loading="state.setupCfg.loading" />
-                </w-card-section>
-              </template>
-            </w-card>
-            <w-card
-              class="pb-2 mb-4"
-              v-if="
-                state.target.setup &&
-                state.target.setup.handler &&
                 state.target.setup.state === `configured`
               ">
               <w-card-header>
@@ -832,21 +718,20 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
-import { confirm, dialog } from '@/composables/dialog'
+import { confirm } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import * as VNG from 'v-network-graph'
-import GithubSetupInstallDialog from '../components/GithubSetupInstallDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeIsoDuration, relativeDate } from '@/helpers/datetime'
 import { isQueuedAction, syncPayloadFor, syncStatusKind } from '@/helpers/storageSync'
@@ -977,10 +862,6 @@ const state = reactive({
   })
 })
 
-// REFS
-
-const githubSetupForm = ref(null)
-
 // COMPUTED
 
 const isSetupNeeded = computed(() => {
@@ -1059,7 +940,6 @@ watch(
           router.replace(`/_admin/${adminStore.currentSiteId}/storage/${state.selectedTarget}`)
         }
       }
-      handleSetupCallback()
     }
   }
 )
@@ -1303,22 +1183,6 @@ async function executeAction(act) {
   }
 }
 
-/**
- * Pick up a setup flow that took the administrator to a provider and back, the provider having
- * returned them here with a code in the query string.
- */
-async function handleSetupCallback() {
-  if (state.targets.length < 1 || !state.selectedTarget) {
-    return
-  }
-
-  nextTick(() => {
-    if (state.target?.setup?.handler === 'github' && route.query.code) {
-      setupGitHubStep('connect', route.query.code)
-    }
-  })
-}
-
 async function setupDestroy() {
   confirm({
     title: t('admin.storage.destroyConfirm'),
@@ -1338,153 +1202,23 @@ async function setupDestroy() {
         throw new Error(resp?.message || 'An unexpected error occured.')
       }
       state.target.setup.state = 'notconfigured'
-      // -> GitHub needs a moment to settle before the setup can be started over
+      // -> A provider-backed setup handler may need a moment to settle before it can be started over
       setTimeout(() => {
         loading.hide()
         notify({
           type: 'positive',
-          message: t('admin.storage.githubSetupDestroySuccess')
+          message: t('admin.storage.setupDestroySuccess')
         })
       }, 2000)
     } catch (err) {
       loading.hide()
       notify({
         type: 'negative',
-        message: t('admin.storage.githubSetupDestroyFailed'),
+        message: t('admin.storage.setupDestroyFailed'),
         caption: apiErrorMessage(err)
       })
     }
   })
-}
-
-async function setupGitHub() {
-  // -> Format values
-  state.target.setup.values.publicUrl = state.target.setup.values.publicUrl.toLowerCase()
-
-  // -> Basic input check
-  if (state.target.setup.values.accountType === 'org' && state.target.setup.values.org.length < 1) {
-    return notify({
-      type: 'negative',
-      message: 'Invalid GitHub Organization',
-      caption: 'Enter a valid github organization.'
-    })
-  }
-  if (
-    state.target.setup.values.publicUrl.length < 11 ||
-    !/^https?:\/\/.{4,}$/.test(state.target.setup.values.publicUrl)
-  ) {
-    return notify({
-      type: 'negative',
-      message: 'Invalid Wiki Public URL',
-      caption: 'Enter a valid public URL for your wiki.'
-    })
-  }
-
-  if (state.target.setup.values.publicUrl.endsWith('/')) {
-    state.target.setup.values.publicUrl = state.target.setup.values.publicUrl.slice(0, -1)
-  }
-
-  // -> Generate manifest
-  state.setupCfg.loading = true
-  if (state.target.setup.values.accountType === 'org') {
-    state.setupCfg.action = `https://github.com/organizations/${state.target.setup.values.org}/settings/apps/new`
-  } else {
-    state.setupCfg.action = 'https://github.com/settings/apps/new'
-  }
-  state.setupCfg.manifest = JSON.stringify({
-    name: `Wiki.js - ${adminStore.currentSiteId.slice(-12)}`,
-    description: 'Connects your Wiki.js to GitHub repositories and synchronize their contents.',
-    url: state.target.setup.values.publicUrl,
-    hook_attributes: {
-      url: `${state.target.setup.values.publicUrl}/_github/${adminStore.currentSiteId}/events`
-    },
-    redirect_url: `${state.target.setup.values.publicUrl}/_admin/${adminStore.currentSiteId}/storage/${state.target.id}`,
-    callback_urls: [
-      `${state.target.setup.values.publicUrl}/_admin/${adminStore.currentSiteId}/storage/${state.target.id}`
-    ],
-    public: false,
-    default_permissions: {
-      contents: 'write',
-      metadata: 'read',
-      members: 'read'
-    },
-    default_events: ['create', 'delete', 'push']
-  })
-  loading.show({
-    message: t('admin.storage.githubPreparingManifest')
-  })
-  // -> The values typed into the setup form are stored as config, since GitHub sends the
-  //    administrator back here and the flow has to resume from them
-  if (await save({ silent: true })) {
-    githubSetupForm.value.submit()
-  } else {
-    state.setupCfg.loading = false
-    loading.hide()
-  }
-}
-
-async function setupGitHubStep(step, code) {
-  loading.show({
-    message: t('admin.storage.githubVerifying')
-  })
-
-  try {
-    const resp = await API_CLIENT.post(
-      `sites/${adminStore.currentSiteId}/storage/targets/${state.selectedTarget}/setup`,
-      {
-        json: {
-          step,
-          ...(code && { code })
-        }
-      }
-    ).json()
-    if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
-    }
-    switch (resp.state?.nextStep) {
-      case 'installApp': {
-        router.replace({ query: null })
-        loading.hide()
-
-        dialog({
-          component: GithubSetupInstallDialog,
-          persistent: true
-        })
-          .onOk(() => {
-            loading.show({
-              message: t('admin.storage.githubRedirecting')
-            })
-            window.location.assign(resp.state?.url)
-          })
-          .onCancel(() => {
-            throw new Error('Setup was aborted prematurely.')
-          })
-        break
-      }
-      case 'completed': {
-        state.target.isEnabled = true
-        state.target.setup.state = 'configured'
-        setTimeout(() => {
-          loading.hide()
-          notify({
-            type: 'positive',
-            message: t('admin.storage.githubSetupSuccess')
-          })
-        }, 2000)
-        break
-      }
-      default: {
-        throw new Error('Unknown Setup Step')
-      }
-    }
-  } catch (err) {
-    loading.hide()
-    notify({
-      type: 'negative',
-      message: t('admin.storage.githubSetupFailed'),
-      caption: apiErrorMessage(err)
-    })
-  }
 }
 
 function generateGraph() {
@@ -1676,7 +1410,6 @@ onMounted(() => {
   if (adminStore.currentSiteId) {
     load()
   }
-  handleSetupCallback()
 })
 </script>
 
