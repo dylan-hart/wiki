@@ -203,6 +203,16 @@ class Comments {
     return rows[0] as Comment
   }
 
+  /**
+   * A single comment by id, flat (no `replies`), or `null` when it does not exist. Existence and
+   * ownership lookups (the page-scoped PATCH/DELETE routes' `maySelfModerate` check) need this
+   * directly rather than searching a page's whole `listForPage` tree for one id.
+   */
+  async get(id: string): Promise<Comment | null> {
+    const rows = await WIKI.db.select().from(commentsTable).where(eq(commentsTable.id, id)).limit(1)
+    return (rows[0] as Comment) ?? null
+  }
+
   /** Delete a comment. Cascades to its replies via the `replyTo` foreign key. */
   async delete(id: string): Promise<void> {
     await WIKI.db.delete(commentsTable).where(eq(commentsTable.id, id))
