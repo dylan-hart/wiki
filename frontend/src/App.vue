@@ -14,6 +14,7 @@ import { useI18n } from 'vue-i18n'
 
 import { setCssVar } from '@/helpers/cssVars'
 import { applyInjectCss } from '@/helpers/injectCss'
+import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
@@ -128,6 +129,10 @@ async function applyTheme() {
 
   // -> Injected CSS
   applyInjectCss(siteStore.theme.injectCSS)
+
+  // -> Injected HTML
+  applyInjectHead(siteStore.theme.injectHead)
+  applyInjectBody(siteStore.theme.injectBody)
 
   // -> Highlight.js Theme
   await applyCodeBlocksTheme()
