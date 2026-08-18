@@ -36,6 +36,9 @@
     "db-up": "drizzle-kit up --dialect=postgresql --out=./db/migrations"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1111.0",
+    "@aws-sdk/s3-request-presigner": "3.1111.0",
+    "@azure/storage-blob": "12.33.0",
     "@fastify/compress": "9.2.0",
     "@fastify/cookie": "11.1.2",
     "@fastify/cors": "11.3.0",
@@ -47,6 +50,7 @@
     "@fastify/swagger": "9.8.1",
     "@fastify/swagger-ui": "6.1.1",
     "@fastify/websocket": "11.3.0",
+    "@google-cloud/storage": "8.0.0",
     "@gquittet/graceful-server": "6.0.10",
     "@iconify/utils": "3.1.4",
     "@simplewebauthn/server": "13.3.2",
@@ -85,14 +89,17 @@
     "@types/node": "26.2.0",
     "@types/pg": "8.21.0",
     "@types/qrcode": "1.5.6",
+    "@types/s3rver": "3.7.4",
     "@types/sanitize-html": "2.16.1",
     "@types/semver": "7.8.0",
     "@types/ws": "8.18.1",
+    "aws-sdk-client-mock": "4.1.0",
     "drizzle-kit": "1.0.0-rc.4",
     "nodemon": "3.1.14",
     "npm-check-updates": "23.0.2",
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
+    "s3rver": "3.7.1",
     "typescript": "7.0.2"
   },
   "optionalDependencies": {
