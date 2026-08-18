@@ -16,10 +16,14 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import * as decoding from 'lib0/decoding'
+import * as encoding from 'lib0/encoding'
+import * as syncProtocol from 'y-protocols/sync'
 import * as Y from 'yjs'
 import { relations } from '../db/relations.ts'
 import { createCacheStub, createEventsStub } from './mocks.ts'
 import type { WikiDb } from '../core/db.ts'
+import type { WebSocket } from 'ws'
 
 interface WorkerInit {
   connectionString: string
@@ -27,6 +31,24 @@ interface WorkerInit {
   instanceId: string
   siteId: string
 }
+
+/** y-websocket message types, mirrored from `core/collab.ts` — not exported there, so restated here. */
+const MESSAGE_SYNC = 0
+
+/**
+ * A stand-in `ws` `WebSocket` good enough for `collab.join()`/`collab.onMessage()`: it has its own Yjs
+ * document and speaks the real sync protocol both ways, the same as `y-websocket`'s `WebsocketProvider`
+ * does in the browser — see `frontend/src/composables/collab.js`. Used by the `openSession` family of
+ * commands to load-test `relay()`/`reassemble()` with genuinely separate client replicas rather than
+ * editing the room's document directly, which is what `localEdit` does for the simpler races.
+ */
+interface Session {
+  conn: WebSocket
+  doc: Y.Doc
+  room: Awaited<ReturnType<typeof import('../core/collab.ts').default.ensureRoom>>
+}
+
+const sessions = new Map<string, Session>()
 
 const { connectionString, schema, instanceId, siteId } = workerData as WorkerInit
 
@@ -151,7 +173,101 @@ async function handle(
       }
       return {}
     }
+    // -> Opens a genuinely separate client replica against a room, syncing it the way a real
+    //    `WebsocketProvider` connection does: the server's `join()` sends sync step 1 (its state
+    //    vector) as it always does, and — the part a direct API call would skip — this session sends
+    //    its *own* step 1 right back, which is what actually pulls the room's real content down; a
+    //    step 1 only ever asks the other side what it is missing, never carries content itself.
+    case 'openSession': {
+      const pageId = msg.pageId as string
+      const room = await collab.ensureRoom({ id: pageId, siteId })
+      const doc = new Y.Doc()
+      const conn = makeSessionSocket(collab, doc, room)
+      doc.on('update', (update: Uint8Array, origin: unknown) => {
+        // -> Origin is `conn` for an update this session just applied from the server (see
+        //    `makeSessionSocket`'s `readSyncMessage` calls); anything else is this session's own edit,
+        //    which needs to go out over the wire the way a local Monaco keystroke would.
+        if (origin === conn) {
+          return
+        }
+        const encoder = encoding.createEncoder()
+        encoding.writeVarUint(encoder, MESSAGE_SYNC)
+        syncProtocol.writeUpdate(encoder, update)
+        collab.onMessage(room, conn, encoding.toUint8Array(encoder))
+      })
+      await collab.join(conn, { id: pageId, siteId }, { room: null, pending: [] })
+      const step1 = encoding.createEncoder()
+      encoding.writeVarUint(step1, MESSAGE_SYNC)
+      syncProtocol.writeSyncStep1(step1, doc)
+      collab.onMessage(room, conn, encoding.toUint8Array(step1))
+      sessions.set(msg.sessionId as string, { conn, doc, room })
+      return { text: doc.getText('content').toString(), length: doc.getText('content').length }
+    }
+    // -> A burst of local typing from one simulated session: inserted into that session's own
+    //    replica, exactly like a Monaco edit would be, so it flows out through the `doc.on('update')`
+    //    handler above and through the real relay/chunking path rather than being written to the room
+    //    directly.
+    case 'sessionEdit': {
+      const session = sessions.get(msg.sessionId as string)
+      if (!session) {
+        throw new Error(`No open session ${msg.sessionId as string}`)
+      }
+      const text = session.doc.getText('content')
+      const at = Math.max(
+        0,
+        Math.min((msg.position as number | undefined) ?? text.length, text.length)
+      )
+      session.doc.transact(() => {
+        text.insert(at, msg.text as string)
+      }, 'test-session-edit')
+      return {}
+    }
+    case 'sessionText': {
+      const session = sessions.get(msg.sessionId as string)
+      const text = session?.doc.getText('content')
+      return { text: text ? text.toString() : null, length: text?.length ?? 0 }
+    }
+    case 'closeSession': {
+      const session = sessions.get(msg.sessionId as string)
+      if (session) {
+        collab.onClose(session.room, session.conn)
+        session.doc.destroy()
+        sessions.delete(msg.sessionId as string)
+      }
+      return {}
+    }
+    // -> Times a full `hello`/`state` handshake without `PEER_STATE_TIMEOUT`'s own cutoff, so a load
+    //    test can measure how long a large document's chunked `state` reply actually takes to
+    //    reassemble under real (if same-box) NOTIFY latency, independent of whatever the constant is
+    //    currently set to.
+    case 'measureStateHandshake': {
+      const pageId = msg.pageId as string
+      const timeoutMs = msg.timeoutMs as number
+      const start = performance.now()
+      const update: Uint8Array | null = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          collab.awaitingState.delete(pageId)
+          resolve(null)
+        }, timeoutMs)
+        collab.awaitingState.set(pageId, (u: Uint8Array) => {
+          clearTimeout(timer)
+          collab.awaitingState.delete(pageId)
+          resolve(u)
+        })
+        collab.relay({ r: pageId, t: 'hello' })
+      })
+      return {
+        ms: performance.now() - start,
+        gotState: update !== null,
+        bytes: update?.length ?? 0
+      }
+    }
     case 'shutdown': {
+      for (const session of sessions.values()) {
+        collab.onClose(session.room, session.conn)
+        session.doc.destroy()
+      }
+      sessions.clear()
       await collab.shutdown()
       await (WIKI.dbManager as { pool: Pool }).pool.end()
       return {}
@@ -159,6 +275,43 @@ async function handle(
     default:
       throw new Error(`Unknown worker command: ${msg.cmd}`)
   }
+}
+
+/**
+ * Build a `ws`-shaped socket backed by a real client-side Yjs document, satisfying exactly the surface
+ * `collab.join()`/`collab.onMessage()`/`collab.onClose()` touch (`readyState`, `OPEN`, `send`, `on`,
+ * `close`, `terminate`, `ping`) with none of it going over an actual network — everything below is a
+ * synchronous, in-process stand-in for the round trip a browser tab's `WebsocketProvider` makes.
+ */
+function makeSessionSocket(
+  collab: typeof import('../core/collab.ts').default,
+  doc: Y.Doc,
+  room: Awaited<ReturnType<typeof import('../core/collab.ts').default.ensureRoom>>
+): WebSocket {
+  const conn = {
+    readyState: 1,
+    OPEN: 1,
+    on() {},
+    close() {},
+    terminate() {},
+    ping() {},
+    send(data: Uint8Array) {
+      const decoder = decoding.createDecoder(data)
+      if (decoding.readVarUint(decoder) !== MESSAGE_SYNC) {
+        // -> Awareness traffic is real too, but this load test only asserts on document convergence.
+        return
+      }
+      const encoder = encoding.createEncoder()
+      encoding.writeVarUint(encoder, MESSAGE_SYNC)
+      // -> `conn` as origin: what tags an update applied here as "came from the server", so the
+      //    `doc.on('update')` handler in `openSession` knows not to relay it straight back out.
+      syncProtocol.readSyncMessage(decoder, encoder, doc, conn)
+      if (encoding.length(encoder) > 1) {
+        collab.onMessage(room, conn as unknown as WebSocket, encoding.toUint8Array(encoder))
+      }
+    }
+  }
+  return conn as unknown as WebSocket
 }
 
 boot().catch((err) => {

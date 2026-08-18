@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import { Worker } from 'node:worker_threads'
 import * as Y from 'yjs'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import collab, { RELAY_REASSEMBLY_TIMEOUT, PEER_STATE_TIMEOUT, buildSeed } from './collab.ts'
+import collab, {
+  RELAY_CHUNK_SIZE,
+  RELAY_REASSEMBLY_TIMEOUT,
+  PEER_STATE_TIMEOUT,
+  buildSeed
+} from './collab.ts'
 
 /**
  * `core/collab.ts` covers two very different kinds of behavior, tested two very different ways:
@@ -58,6 +63,30 @@ describe('buildSeed', () => {
     assert.equal(merged.getText('content').toString(), single.getText('content').toString())
     // -> Byte-identical states merge to a document of the identical size, not a doubled one.
     assert.deepEqual(Y.encodeStateAsUpdate(merged), Y.encodeStateAsUpdate(single))
+  })
+})
+
+describe('RELAY_CHUNK_SIZE', () => {
+  test('the worst-case relay envelope stays under the 8000-byte NOTIFY cap (task 478)', () => {
+    // -> Every optional field populated, each at its real worst-case length: `i`/`to` are a 10-char
+    //    `nanoid` (see `WIKI.INSTANCE_ID` in `index.ts`), `r` a full 36-char page uuid, `t` the longest
+    //    of the five message types, and `m`/`c`/`n` generously long numbers — this is what `relay()`
+    //    actually sends for a chunk of a large `update`/`state` message, not a hypothetical worse case.
+    const worstCase = {
+      i: 'V1StGXR8_Z',
+      r: '550e8400-e29b-41d4-a716-446655440000',
+      t: 'awareness',
+      to: 'V1StGXR8_Z',
+      m: '999999999',
+      c: 999999,
+      n: 999999,
+      p: 'A'.repeat(RELAY_CHUNK_SIZE)
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(worstCase))
+    assert.ok(
+      bytes <= 8000,
+      `worst-case envelope is ${bytes} bytes, over postgres's 8000-byte NOTIFY cap`
+    )
   })
 })
 
@@ -344,5 +373,79 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     await new Promise((resolve) => setTimeout(resolve, RELAY_REASSEMBLY_TIMEOUT))
     const after = await a.call('partialsSize')
     assert.equal(after.size, 0, 'the abandoned partial was dropped rather than held forever')
+  })
+
+  test('concurrent bursty edits from several sessions across two instances converge with no dropped chunks or leaked partials', async () => {
+    // -> A scaled-down, CI-fast version of task 478's throwaway load test
+    //    (`scripts/collab-load-test.ts`, run manually at multi-megabyte scale): the same claim — several
+    //    simulated sessions, spread across real separate instances, firing concurrent bursty edits
+    //    (some large enough on their own to need several `RELAY_CHUNK_SIZE` chunks) — at a size this
+    //    suite can afford to run on every change.
+    const { pages } = await import('../models/pages.ts')
+    const page = await pages.createPage(
+      fixtures.siteId,
+      {
+        path: 'collab/concurrent-load',
+        title: 'Concurrent Load',
+        editor: 'markdown',
+        content: 'Seed. '
+      },
+      { id: fixtures.userId, permissions: ['manage:system'] }
+    )
+
+    await a.call('ensureRoom', { pageId: page.id })
+    await b.call('ensureRoom', { pageId: page.id })
+
+    const sessions = [
+      { instance: a, id: 'sess-a0' },
+      { instance: a, id: 'sess-a1' },
+      { instance: b, id: 'sess-b0' },
+      { instance: b, id: 'sess-b1' }
+    ]
+    for (const { instance, id } of sessions) {
+      await instance.call('openSession', { pageId: page.id, sessionId: id })
+    }
+
+    // -> Three rounds, every session editing at once each round; every third session's edit is well
+    //    over RELAY_CHUNK_SIZE base64 characters on its own, forcing genuine multi-chunk relay traffic
+    //    to interleave with the smaller ones rather than testing chunking and concurrency separately.
+    for (let round = 0; round < 3; round++) {
+      await Promise.all(
+        sessions.map(({ instance, id }, index) => {
+          const big = index % 3 === 0
+          const text = big ? 'x'.repeat(15000) : `edit-${round}-${index} `
+          return instance.call('sessionEdit', { sessionId: id, text, position: 0 })
+        })
+      )
+    }
+
+    // -> Give the relay traffic time to fully drain before checking convergence.
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+
+    const texts = new Set<string>()
+    for (const { instance, id } of sessions) {
+      const { text } = await instance.call('sessionText', { sessionId: id })
+      texts.add(text)
+    }
+    const roomA = await a.call('roomText', { pageId: page.id })
+    const roomB = await b.call('roomText', { pageId: page.id })
+    texts.add(roomA.text)
+    texts.add(roomB.text)
+
+    assert.equal(
+      texts.size,
+      1,
+      'every session and every room must converge to byte-identical text — more than one distinct ' +
+        'text means a chunk was dropped or misordered'
+    )
+
+    const partialsA = await a.call('partialsSize')
+    const partialsB = await b.call('partialsSize')
+    assert.equal(partialsA.size, 0, 'instance a must not be left holding an abandoned partial')
+    assert.equal(partialsB.size, 0, 'instance b must not be left holding an abandoned partial')
+
+    for (const { instance, id } of sessions) {
+      await instance.call('closeSession', { sessionId: id })
+    }
   })
 })
