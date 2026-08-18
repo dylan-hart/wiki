@@ -720,7 +720,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Start a login at an identity provider',
         description:
-          'Answers with a redirect to the provider, for a strategy whose module signs users in there rather than through a form — OpenID Connect, Google, GitHub. The `state`, `nonce` and PKCE verifier that tie the answer back to this browser are generated here and kept on the session; the browser is never trusted with any of them.\n\nOpened by following the link, not by fetching it: what comes back is a page at the provider.',
+          'Answers with a redirect to the provider, for a strategy whose module signs users in there rather than through a form — OpenID Connect, Google, GitHub. The `state`, `nonce` and PKCE verifier that tie the answer back to this browser are generated here and kept on the session; the browser is never trusted with any of them.\n\nOpened by following the link, not by fetching it: what comes back is a page at the provider, or — for a module whose provider needs its AuthnRequest sent as a form POST rather than a redirect, e.g. a SAML strategy configured for the HTTP-POST binding — a self-submitting HTML form addressed to it.',
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -742,6 +742,10 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
+          200: {
+            description: 'A self-submitting form addressed to the identity provider',
+            type: 'string'
+          },
           302: { description: 'Redirect to the identity provider', type: 'null' }
         }
       }
@@ -767,7 +771,7 @@ async function routes(app: FastifyInstance) {
       req.session.authFlow = flow
 
       try {
-        const url = await instance.authorizationUrl({
+        const authorization = await instance.authorizationUrl({
           redirectUri: callbackUrl(req, strategy.id),
           state: flow.state,
           nonce: flow.nonce,
@@ -776,7 +780,11 @@ async function routes(app: FastifyInstance) {
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
         )
-        return reply.redirect(url)
+        // -> A module answers with a URL to redirect to, or — see `SamlAuthorizationResult` — an HTML
+        //    page with a form that submits itself, for a provider whose request has to travel as a POST
+        return typeof authorization === 'string'
+          ? reply.redirect(authorization)
+          : reply.type('text/html').send(authorization.html)
       } catch (err: any) {
         WIKI.logger.warn(`Could not start a login at ${strategy.module}: ${err.message}`)
         return reply.redirect(loginErrorUrl(flow.redirect, err.message))

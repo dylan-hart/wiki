@@ -49,6 +49,7 @@
     "@fastify/websocket": "11.3.0",
     "@gquittet/graceful-server": "6.0.10",
     "@iconify/utils": "3.1.4",
+    "@node-saml/node-saml": "5.1.0",
     "@simplewebauthn/server": "13.3.2",
     "ajv-formats": "3.0.1",
     "bcryptjs": "3.0.3",
