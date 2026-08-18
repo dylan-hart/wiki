@@ -12,6 +12,7 @@
     "ncu-u": "ncu -u",
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
+    "test": "vitest run",
     "emoji": "node scripts/generate-emoji.mjs",
     "emoji:check": "node scripts/generate-emoji.mjs --check",
     "test": "vitest run"
