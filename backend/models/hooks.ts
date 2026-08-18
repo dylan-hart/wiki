@@ -1,7 +1,8 @@
 import http from 'node:http'
 import https from 'node:https'
-import { hooks as hooksTable } from '../db/schema.ts'
-import { desc, eq, sql } from 'drizzle-orm'
+import { hooks as hooksTable, jobHistory as jobHistoryTable } from '../db/schema.ts'
+import { and, count, desc, eq, sql } from 'drizzle-orm'
+import type { JobState } from './jobs.ts'
 
 /**
  * The events a webhook can subscribe to, as offered by the admin area.
@@ -62,6 +63,23 @@ export interface Hook {
   lastErrorMessage: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+/** One recorded attempt to deliver an event to a webhook. */
+export interface HookDelivery {
+  event: string
+  state: JobState
+  attempt: number
+  maxRetries: number
+  lastErrorMessage: string | null
+  startedAt: Date
+  completedAt: Date | null
+}
+
+/** One page of a webhook's delivery history, with the total matching the filter. */
+export interface HookDeliveryPage {
+  total: number
+  deliveries: HookDelivery[]
 }
 
 /** How long a remote endpoint has to answer before the delivery counts as failed. */
@@ -159,6 +177,56 @@ class Hooks {
       .where(eq(hooksTable.id, id))
       .limit(1)
     return (results[0] as Hook) ?? null
+  }
+
+  /**
+   * A webhook's delivery history, most recently started first.
+   *
+   * Backed by `jobHistory` — `deliver()` runs as the `dispatchWebhook` task and every attempt is
+   * already recorded there, so this reads that log rather than keeping a second one. Paginated the
+   * same way `models/jobs.ts#getHistory()` paginates: `total` counts every matching row, `deliveries`
+   * is capped at `limit`, so a caller can tell it is looking at a truncated view.
+   *
+   * Retention is `jobHistory`'s own — `scheduler.historyExpiration` (~25h by default), purged by the
+   * same `cleanJobHistory` task as every other job. Deliberately not given its own longer-lived
+   * retention: the durable signal for "is this webhook healthy" is `hooks.state` /
+   * `hooks.lastErrorMessage`, which this table has nothing to do with and which never expires. This
+   * history is recent-attempts diagnostics on top of that — a window onto the last day or so of
+   * retries — not an audit log, so the shared retention is the right default. A longer-lived history
+   * would need its own config knob and cleanup path (not a reason to duplicate this table); revisit
+   * if that diagnostic window in practice proves too short.
+   *
+   * @param hookId Which webhook's deliveries to return
+   * @param limit Caps the rows returned
+   */
+  async getDeliveryHistory(
+    hookId: string,
+    { limit = 100 }: { limit?: number } = {}
+  ): Promise<HookDeliveryPage> {
+    const where = and(
+      eq(jobHistoryTable.task, 'dispatchWebhook'),
+      sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
+    )
+    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    const deliveries = await WIKI.db
+      .select({
+        event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+        state: jobHistoryTable.state,
+        attempt: jobHistoryTable.attempt,
+        maxRetries: jobHistoryTable.maxRetries,
+        lastErrorMessage: jobHistoryTable.lastErrorMessage,
+        startedAt: jobHistoryTable.startedAt,
+        completedAt: jobHistoryTable.completedAt
+      })
+      .from(jobHistoryTable)
+      .where(where)
+      .orderBy(desc(jobHistoryTable.startedAt))
+      .limit(limit)
+
+    return {
+      total: totals[0]?.total ?? 0,
+      deliveries
+    }
   }
 
   /**

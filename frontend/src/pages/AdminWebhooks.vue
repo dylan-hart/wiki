@@ -83,11 +83,7 @@
                   }}</w-tooltip>
                 </template>
                 <template v-else-if="hook.state === `error`">
-                  <w-icon
-                    class="mr-2"
-                    color="negative"
-                    size="xs"
-                    name="la:exclamation-triangle" />
+                  <w-icon class="mr-2" color="negative" size="xs" name="la:exclamation-triangle" />
                   <div class="text-caption text-negative">{{ t('admin.webhooks.stateError') }}</div>
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.webhooks.stateErrorHint')
@@ -96,6 +92,15 @@
               </w-item-section>
               <w-separator class="ml-4" vertical />
               <w-item-section side style="flex-direction: row; align-items: center">
+                <w-btn
+                  class="acrylic-btn mr-2"
+                  color="grey"
+                  icon="la:history"
+                  flat
+                  :aria-label="t(`admin.webhooks.history`)"
+                  @click="viewHistory(hook)">
+                  <w-tooltip>{{ t(`admin.webhooks.history`) }}</w-tooltip>
+                </w-btn>
                 <w-btn
                   class="acrylic-btn mr-2"
                   color="indigo"
@@ -133,6 +138,7 @@ import { useSiteStore } from '@/stores/site'
 
 import WebhookEditDialog from '@/components/WebhookEditDialog.vue'
 import WebhookDeleteDialog from '@/components/WebhookDeleteDialog.vue'
+import WebhookHistoryDialog from '@/components/WebhookHistoryDialog.vue'
 
 // COMPOSABLES
 
@@ -196,6 +202,15 @@ function editHook(id) {
     }
   }).onOk(() => {
     load()
+  })
+}
+
+function viewHistory(hook) {
+  dialog({
+    component: WebhookHistoryDialog,
+    componentProps: {
+      hook
+    }
   })
 }
 

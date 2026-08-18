@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { HOOK_EVENTS } from '../../models/hooks.ts'
+import { JOB_STATES } from '../../models/jobs.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -101,6 +102,49 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         format: 'date-time',
         description: 'RFC 3339 Date Time'
+      }
+    }
+  })
+
+  /**
+   * HOOK DELIVERY - One attempt to deliver an event to a webhook, as recorded in job history
+   */
+  app.addSchema({
+    $id: 'HookDelivery',
+    type: 'object',
+    properties: {
+      event: {
+        type: 'string',
+        description: 'The event key that triggered this delivery, e.g. `page:create`.'
+      },
+      state: {
+        type: 'string',
+        enum: JOB_STATES,
+        description:
+          '`active` while in flight, `interrupted` when the attempt was cut short rather than failing on its own.'
+      },
+      attempt: {
+        type: 'integer',
+        description: 'Which attempt this delivery was, starting at 1.'
+      },
+      maxRetries: {
+        type: 'integer'
+      },
+      lastErrorMessage: {
+        type: 'string',
+        nullable: true,
+        description: 'Why this attempt failed. Null unless the state is `failed`.'
+      },
+      startedAt: {
+        type: 'string',
+        format: 'date-time',
+        description: 'RFC 3339 Date Time'
+      },
+      completedAt: {
+        type: 'string',
+        nullable: true,
+        format: 'date-time',
+        description: 'RFC 3339 Date Time. Null while still in flight.'
       }
     }
   })

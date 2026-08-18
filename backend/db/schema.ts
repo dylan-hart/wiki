@@ -227,21 +227,36 @@ export const jobHistoryStateEnum = pgEnum('jobHistoryState', [
   'failed',
   'interrupted'
 ])
-export const jobHistory = pgTable('jobHistory', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  state: jobHistoryStateEnum().notNull(),
-  useWorker: boolean().notNull().default(false),
-  wasScheduled: boolean().notNull().default(false),
-  payload: jsonb(),
-  attempt: integer().notNull().default(1),
-  maxRetries: integer().notNull().default(0),
-  lastErrorMessage: text(),
-  executedBy: varchar({ length: 255 }),
-  createdAt: timestamp().notNull(),
-  startedAt: timestamp().notNull().defaultNow(),
-  completedAt: timestamp()
-})
+export const jobHistory = pgTable(
+  'jobHistory',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    state: jobHistoryStateEnum().notNull(),
+    useWorker: boolean().notNull().default(false),
+    wasScheduled: boolean().notNull().default(false),
+    payload: jsonb(),
+    attempt: integer().notNull().default(1),
+    maxRetries: integer().notNull().default(0),
+    lastErrorMessage: text(),
+    executedBy: varchar({ length: 255 }),
+    createdAt: timestamp().notNull(),
+    startedAt: timestamp().notNull().defaultNow(),
+    completedAt: timestamp()
+  },
+  (table) => [
+    // -> `models/hooks.ts#getDeliveryHistory()` filters this generic table by
+    //    `task = 'dispatchWebhook'` and the `hookId` embedded in `payload`, which has no usable index
+    //    today: a plain btree on `payload` covers containment queries, not a `->>'hookId'` text
+    //    extraction, and indexing every row's payload would size the index to the whole table for a
+    //    lookup only one task ever makes. A partial expression index scoped to that one task keeps it
+    //    small and keeps `jobHistory` itself generic — no `hookId` column on a table every other task
+    //    also writes to.
+    index('jobHistory_dispatchWebhook_hookId_idx')
+      .on(sql`(payload ->> 'hookId')`)
+      .where(sql`${table.task} = 'dispatchWebhook'`)
+  ]
+)
 
 // JOB SCHEDULE ------------------------
 export const jobSchedule = pgTable('jobSchedule', {

@@ -144,6 +144,70 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * LIST WEBHOOK DELIVERY HISTORY
+   */
+  app.get<{ Params: { hookId: string }; Querystring: { limit?: number } }>(
+    '/:hookId/deliveries',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "List a webhook's delivery history",
+        description:
+          'Past delivery attempts, most recently started first. Backed by the scheduler job history, so entries are purged on the same retention as every other job.',
+        tags: ['Webhooks'],
+        params: {
+          type: 'object',
+          properties: {
+            hookId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['hookId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 }
+          }
+        },
+        response: {
+          200: {
+            description: 'List of deliveries',
+            type: 'object',
+            properties: {
+              total: {
+                type: 'integer',
+                description:
+                  'How many deliveries this webhook has, which can exceed the number returned.'
+              },
+              limit: {
+                type: 'integer'
+              },
+              deliveries: {
+                type: 'array',
+                items: { $ref: 'HookDelivery#' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!(await WIKI.models.hooks.getHookById(req.params.hookId))) {
+        return reply.notFound('Webhook does not exist.')
+      }
+      const limit = req.query.limit ?? 100
+      const { total, deliveries } = await WIKI.models.hooks.getDeliveryHistory(req.params.hookId, {
+        limit
+      })
+      return { total, limit, deliveries }
+    }
+  )
+
+  /**
    * CREATE WEBHOOK
    */
   app.post<{ Body: HookBody }>(
