@@ -13,6 +13,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { setCssVar } from '@/helpers/cssVars'
+import { applyInjectCss } from '@/helpers/injectCss'
 import { stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
@@ -124,6 +125,9 @@ async function applyTheme() {
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
   setCssVar('positive', userStore.getAccessibleColor('positive', '#02C39A'))
   setCssVar('negative', userStore.getAccessibleColor('negative', '#f03a47'))
+
+  // -> Injected CSS
+  applyInjectCss(siteStore.theme.injectCSS)
 
   // -> Highlight.js Theme
   await applyCodeBlocksTheme()
