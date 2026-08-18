@@ -11,6 +11,13 @@
         </div>
       </div>
       <div class="flex-none flex">
+        <!--
+          Kept behind the experimental flag even now that upload is real: an uploaded block is
+          arbitrary JS, served back to every reader of the page it's used on with no permission gate
+          of its own (see controllers/blocks.ts) once `manage:sites` on this site let someone in. That
+          is a materially bigger blast radius than the rest of this flag's surface, and deserves a
+          deliberate graduation rather than falling out of this task as a side effect.
+        -->
         <template v-if="flagsStore.experimental">
           <w-btn
             class="mr-2 acrylic-btn"
@@ -110,7 +117,9 @@ import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
-import { confirm } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
+
+import BlockUploadDialog from '@/components/BlockUploadDialog.vue'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -203,11 +212,10 @@ async function refresh() {
 }
 
 function addBlock() {
-  // TODO: registering a custom block means uploading a compiled component, which needs an upload
-  // endpoint that does not exist yet. Built-in blocks come from the compiled block manifest.
-  notify({
-    type: 'warning',
-    message: t('admin.blocks.addUnavailable')
+  dialog({ component: BlockUploadDialog }).onOk((block) => {
+    if (block) {
+      state.blocks.push(block)
+    }
   })
 }
 

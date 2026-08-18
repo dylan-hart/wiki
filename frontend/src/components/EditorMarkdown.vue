@@ -1101,7 +1101,13 @@ function processContent(newContent) {
     */
     await Promise.all(tabsets.map((el) => el.updateComplete ?? Promise.resolve()))
     container.scrollTop = scrollTop
-    const pendingTags = new Set()
+    // -> Keyed on the tag, so a repeat of the same element in the preview is only resolved once. The
+    //    value carries `isCustom`/`id` off `siteBlocks` when the tag matches a block this site has --
+    //    what `loadBlocks()` needs to tell a custom block's per-site import URL from a built-in's flat
+    //    one. A tag that matches nothing there (an unknown element, or the list not having loaded yet)
+    //    is passed as the bare string, which `loadBlocks()` treats as a built-in guess -- the same
+    //    generous-preview fallback `loadSiteBlocks()` above already documents.
+    const pendingBlocks = new Map()
     for (const block of container.querySelectorAll(':not(:defined)')) {
       const tag = block.tagName.toLowerCase()
       // -> Left undefined on purpose, so the preview shows what saving is about to leave behind
@@ -1109,16 +1115,19 @@ function processContent(newContent) {
         markDisabledBlock(block)
         continue
       }
-      pendingTags.add(tag)
+      if (!pendingBlocks.has(tag)) {
+        const record = siteBlocks.find((b) => b.elementTag === tag)
+        pendingBlocks.set(tag, record ? { tag, isCustom: record.isCustom, id: record.id } : tag)
+      }
     }
-    if (pendingTags.size > 0) {
+    if (pendingBlocks.size > 0) {
       /*
         Asked again once the definitions land. A block that has not been upgraded yet is a plain unknown
         element: setting `active` on it puts a value somewhere Lit will pick up, but nothing has read the
         panels or hidden any of them, so the tab the author is in is only actually opened here -- on the
         first render of a page whose blocks are being fetched for the first time.
       */
-      commonStore.loadBlocks([...pendingTags]).then(syncPreviewTabs)
+      commonStore.loadBlocks([...pendingBlocks.values()]).then(syncPreviewTabs)
     }
     // -> The render was just replaced, so the copy buttons went with it
     enhanceRenderedContent(container)

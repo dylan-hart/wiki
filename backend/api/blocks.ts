@@ -1,3 +1,4 @@
+import { extractBlockDefinition } from '../helpers/blockDefinition.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -57,6 +58,18 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
  * Blocks API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> An upload is the raw `component.js` source rather than a multipart form: one file per
+  //    request, exactly like `assets.ts`'s own upload route. The catch-all only claims content types
+  //    nothing else in this plugin parses, so the JSON routes below are unaffected — and it is scoped
+  //    to this plugin instance, not global, the same way `assets.ts`'s and `sites.ts`'s each are.
+  app.addContentTypeParser(
+    '*',
+    { parseAs: 'buffer', bodyLimit: WIKI.config.security?.uploadMaxFileSize ?? 10485760 },
+    (req, body, done) => {
+      done(null, body)
+    }
+  )
+
   /**
    * LIST SITE BLOCKS
    */
@@ -101,6 +114,97 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to list the blocks of this site.')
       }
       return WIKI.models.blocks.getSiteBlocks(req.params.siteId)
+    }
+  )
+
+  /**
+   * UPLOAD CUSTOM BLOCK
+   */
+  app.post<{ Params: { siteId: string } }>(
+    '/sites/:siteId/blocks',
+    {
+      /*
+        Security posture (full review: docs/security/custom-block-upload.md): the AST validator below
+        only constrains the literal `static definition` metadata block — it cannot and does not
+        sandbox the rest of the uploaded source. Everything else in the file is full same-origin
+        JavaScript, imported straight into the app's module graph on every page view that uses the
+        block (`loadBlocks()` — no iframe, Worker or shadow-DOM script boundary). `manage:sites` is
+        therefore the entire security boundary for this route, not a formality alongside some other
+        containment layer — a knowing, not incidental, trust decision: anyone holding `manage:sites`
+        on a site can already inject markup into every page of it, and this route extends that to
+        arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
+        also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
+        Permissions section) and no new, narrower permission name may be invented for this route.
+        Applied identically on the PUT (enable/disable) and DELETE routes below.
+      */
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Upload a custom block',
+        description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another.`,
+        tags: ['Blocks'],
+        consumes: ['*/*'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: 'Custom block uploaded successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              block: { $ref: 'Block#' }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
+      if (!site) {
+        return reply.notFound('Site does not exist.')
+      }
+
+      const data = req.body
+      if (!Buffer.isBuffer(data) || data.length < 1) {
+        return reply.badRequest('No file was sent.')
+      }
+
+      const result = extractBlockDefinition(data.toString('utf8'))
+      if (!result.ok) {
+        return reply.badRequest(result.error.message)
+      }
+      const { definition } = result
+      if (!definition.block || typeof definition.block !== 'string') {
+        return reply.badRequest('component.js has no "block" tag in its static definition.')
+      }
+
+      if (await WIKI.models.blocks.isTagTaken(req.params.siteId, definition.block)) {
+        return reply.conflict(
+          `A block already registers the tag "block-${definition.block}" on this site.`
+        )
+      }
+
+      const block = await WIKI.models.blocks.createCustomBlock(req.params.siteId, definition, data)
+
+      return {
+        ok: true,
+        message: 'Custom block uploaded successfully.',
+        block
+      }
     }
   )
 
