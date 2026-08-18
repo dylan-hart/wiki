@@ -1,3 +1,5 @@
+import bcrypt from 'bcryptjs'
+import { nanoid } from 'nanoid'
 import type { WikiDb } from '../../core/db.ts'
 import {
   groups as groupsTable,
@@ -37,6 +39,17 @@ import type { SourceRecord } from '../connector.ts'
  *   look up both remapped ids and write the join row, which is exactly what `importUsersAndGroups()`
  *   already has to do to satisfy the ordering requirement above. There is no per-record 2.x → 3.0
  *   *field* to convert once the two ids are resolved.
+ *
+ * Task 729 adds one real (non-stub) piece: `createProviderFallbackUserConverter()`, a `UserConverter`
+ * for source users whose `providerKey` cannot become a real 3.0 provider-linked account on this
+ * install — see that function's doc for the full routing rule. It creates the account through the
+ * local strategy with a random, unusable password (`mustChangePwd: true` forced), the same shape
+ * `loginWithProvider()` already establishes for a brand-new provider account
+ * (`models/users.ts`, `password: nanoid(32)`), and appends one entry to
+ * `UsersGroupsImportResult.providerFallbacks` per account it creates — the data feature #421's
+ * dry-run report renders. It still isn't the full `convertUser` (that's `local`, plus real
+ * github/google/oidc linking when a mapping resolves — both deferred, per this module's own stubs
+ * above); a later task composes this with those into one real `convertUser`.
  */
 
 // ---------------------------------------------------------------------------
@@ -68,11 +81,23 @@ export interface EntityImportSummary {
   records: RecordResult[]
 }
 
-/** What `importUsersAndGroups()` resolves with — one summary per entity, in write order. */
+/** One entry per source user whose account was created through the unsupported/reconfigured-provider
+ * local-strategy fallback (Task 729, `createProviderFallbackUserConverter`) — the data feature #421's
+ * dry-run report renders so an administrator can see exactly which accounts need a password reset
+ * before they're usable, without cross-referencing the per-record detail for each entity. */
+export interface ProviderFallbackFlag {
+  email: string
+  sourceProvider: string
+  reason: string
+}
+
+/** What `importUsersAndGroups()` resolves with — one summary per entity, in write order, plus the
+ * cross-cutting provider-fallback report (see `ProviderFallbackFlag`). */
 export interface UsersGroupsImportResult {
   groups: EntityImportSummary
   users: EntityImportSummary
   userGroups: EntityImportSummary
+  providerFallbacks: ProviderFallbackFlag[]
 }
 
 function emptySummary(): EntityImportSummary {
@@ -93,9 +118,12 @@ function record(summary: EntityImportSummary, result: RecordResult): void {
 export type NewGroupRow = typeof groupsTable.$inferInsert
 export type NewUserRow = typeof usersTable.$inferInsert
 
-/** A conversion either produces an insertable row, or explains why it doesn't. */
+/** A conversion either produces an insertable row, or explains why it doesn't. `providerFallback` is
+ * only ever set by `createProviderFallbackUserConverter()` (Task 729): a created row that also needs
+ * to land on `UsersGroupsImportResult.providerFallbacks`, since the account genuinely gets created
+ * and is *also* flagged for admin attention — not one or the other. */
 export type ConversionOutcome<TRow> =
-  | { status: 'created'; row: TRow }
+  | { status: 'created'; row: TRow; providerFallback?: ProviderFallbackFlag }
   | { status: 'skipped' | 'conflicted' | 'flagged'; message: string }
 
 export type GroupConverter = (
@@ -117,6 +145,153 @@ export const stubConvertUser: UserConverter = () => ({
   status: 'flagged',
   message: 'user field mapping not implemented yet (deferred to a later Feature 414 task)'
 })
+
+// ---------------------------------------------------------------------------
+// Provider fallback (Task 729) — the one non-stub piece of user conversion this task adds. Every
+// other providerKey (`local`, or a mapped github/google/oidc) is out of scope here; see the module
+// doc and `needsProviderFallback()` below.
+// ---------------------------------------------------------------------------
+
+/** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
+ * today — `backend/modules/authentication/{local,github,google,oidc}/` is the full list. Membership
+ * here is necessary but not sufficient for a real provider-linked import: see
+ * `needsProviderFallback()`. */
+const IMPLEMENTED_PROVIDER_MODULES = new Set(['local', 'github', 'google', 'oidc'])
+
+/**
+ * Whether a source user's `providerKey` must be routed through the unsupported/reconfigured-provider
+ * local-strategy fallback, rather than a real provider-linked (or local-password-carryover) import.
+ *
+ * - `local` never falls back here — a local password carries over through `Users.importLocalUser()`
+ *   (Task 728), a different path entirely, not this one.
+ * - Every other `providerKey` falls back UNLESS `strategyMapping` names a target strategy id for it.
+ *   This covers both halves of the task deliberately: a 2.x provider with no 3.0 module at all (LDAP,
+ *   SAML, CAS, Auth0, Okta, ... — Epic #333's territory) has nowhere else to go, and a 2.x
+ *   `github`/`google`/`oidc` account has nowhere *safe* to go either — 3.0 keys `auth` by
+ *   strategy-instance UUID, and a fresh 3.0 install's same-module strategy (if configured at all)
+ *   will not share the source's client id/secret, so the linked external account id cannot be
+ *   assumed to resolve to anything on this install. A caller that has actually verified the mapping
+ *   (an administrator who reconfigured the equivalent strategy and knows its new id) opts out per
+ *   source module by supplying it here; real conversion for a mapped entry is not this function's
+ *   job — see the module doc.
+ */
+export function needsProviderFallback(
+  providerKey: string,
+  strategyMapping: Record<string, string> = {}
+): boolean {
+  if (providerKey === 'local') return false
+  return !(providerKey in strategyMapping)
+}
+
+function providerFallbackReason(providerKey: string): string {
+  return IMPLEMENTED_PROVIDER_MODULES.has(providerKey)
+    ? `source provider '${providerKey}' is implemented in 3.0, but no target-strategy mapping was supplied for it — a fresh install's ${providerKey} strategy (if configured at all) would not share the source's client id/secret, so the linked account cannot be assumed to resolve on this install`
+    : `source provider '${providerKey}' has no 3.0-native implementation (local/github/google/oidc is the full list — see Epic #333)`
+}
+
+/** Reads a string column, treating an empty string the same as absent so a blank source field is
+ * reported rather than silently accepted. */
+function readSourceString(source: SourceRecord, column: string): string | undefined {
+  const raw = source[column]
+  return typeof raw === 'string' && raw.length > 0 ? raw : undefined
+}
+
+export interface ProviderFallbackConverterOptions {
+  /** Target UUID of this install's local authentication strategy. The engine deliberately has no
+   * `WIKI` dependency (see the module doc's testability goal), so the caller — the future #421 CLI —
+   * supplies this from `WIKI.data.systemIds.localAuthId` at runtime. */
+  localStrategyId: string
+  /** Source-module -> target-strategy-id mapping the caller explicitly verified, e.g.
+   * `{ github: '<uuid-of-a-freshly-configured-github-strategy>' }`. A source module with no entry
+   * here always falls back. Defaults to empty (every non-`local` provider falls back). */
+  strategyMapping?: Record<string, string>
+}
+
+/**
+ * Builds the `UserConverter` for the unsupported/reconfigured-provider fallback path (Task 729).
+ *
+ * For a source user whose `providerKey` needs `needsProviderFallback()`, this creates the account
+ * through the local strategy with the same "provider-authenticated, no usable local password" shape
+ * `loginWithProvider()` already establishes for a brand-new provider account (`models/users.ts`,
+ * `password: nanoid(32)`) — except `mustChangePwd` is forced `true`, since (unlike a fresh
+ * provider-authenticated signup) this account has no working sign-in path on this install at all
+ * until an administrator resets it. Every account this converter actually creates also gets one
+ * `ProviderFallbackFlag` entry (source email, source provider, reason) on the outcome, which
+ * `importUsersAndGroups()` collects onto `UsersGroupsImportResult.providerFallbacks`.
+ *
+ * A `local` source user, or one whose provider resolves through `strategyMapping`, is NOT this
+ * converter's job — both return `flagged` (not `skipped`: the record is real and needs handling, just
+ * not by this converter) rather than being silently passed through, so a caller relying solely on
+ * this converter still sees every record accounted for.
+ */
+export function createProviderFallbackUserConverter(
+  options: ProviderFallbackConverterOptions
+): UserConverter {
+  const strategyMapping = options.strategyMapping ?? {}
+
+  return async (source) => {
+    const providerKey = readSourceString(source, 'providerKey')
+    if (providerKey === undefined) {
+      return {
+        status: 'flagged',
+        message: 'source user record has no providerKey; cannot determine provider routing'
+      }
+    }
+
+    if (!needsProviderFallback(providerKey, strategyMapping)) {
+      return {
+        status: 'flagged',
+        message: `source provider '${providerKey}' is not handled by the provider-fallback converter (either 'local' — see Users.importLocalUser, Task 728 — or explicitly mapped by the caller); real conversion is deferred to a later Feature 414 task`
+      }
+    }
+
+    const email = readSourceString(source, 'email')?.toLowerCase()
+    if (!email) {
+      return { status: 'skipped', message: 'source user record has no email address' }
+    }
+    const name = readSourceString(source, 'name') ?? email
+
+    const row: NewUserRow = {
+      email,
+      name,
+      auth: {
+        [options.localStrategyId]: {
+          // -> Same "provider-authenticated, no usable local password" shape loginWithProvider()
+          //    establishes for a brand-new provider account, except mustChangePwd is forced true: this
+          //    account cannot sign in through its source provider on this install (see
+          //    needsProviderFallback above), so it must go through a password reset before use.
+          password: await bcrypt.hash(nanoid(32), 12),
+          mustChangePwd: true,
+          restrictLogin: false,
+          tfaIsActive: false,
+          tfaRequired: false,
+          tfaSecret: ''
+        }
+      },
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      meta: { location: '', jobTitle: '', pronouns: '' },
+      prefs: {
+        timezone: 'America/New_York',
+        dateFormat: 'YYYY-MM-DD',
+        timeFormat: '12h',
+        appearance: 'site',
+        cvd: 'none'
+      }
+    }
+
+    return {
+      status: 'created',
+      row,
+      providerFallback: {
+        email,
+        sourceProvider: providerKey,
+        reason: providerFallbackReason(providerKey)
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Write port — lets orchestration be unit-tested without a live database, and lets the CLI (#421)
@@ -234,9 +409,14 @@ async function importUsers(
   source: AsyncIterable<SourceRecord>,
   convert: UserConverter,
   writer: UsersGroupsWriter
-): Promise<{ summary: EntityImportSummary; idMap: Map<number, string> }> {
+): Promise<{
+  summary: EntityImportSummary
+  idMap: Map<number, string>
+  providerFallbacks: ProviderFallbackFlag[]
+}> {
   const summary = emptySummary()
   const idMap = new Map<number, string>()
+  const providerFallbacks: ProviderFallbackFlag[] = []
 
   for await (const sourceRecord of source) {
     const sourceId = readSourceId(sourceRecord, 'id')
@@ -259,12 +439,15 @@ async function importUsers(
       const { id: targetId } = await writer.insertUser(outcome.row)
       idMap.set(sourceId, targetId)
       record(summary, { sourceId, targetId, status: 'created' })
+      if (outcome.providerFallback) {
+        providerFallbacks.push(outcome.providerFallback)
+      }
     } catch (err: any) {
       record(summary, { sourceId, status: 'conflicted', message: err.message })
     }
   }
 
-  return { summary, idMap }
+  return { summary, idMap, providerFallbacks }
 }
 
 /** Translates and writes `userGroups` join rows, strictly after both id maps are fully populated —
@@ -344,6 +527,7 @@ export async function importUsersAndGroups(
   return {
     groups: groupsResult.summary,
     users: usersResult.summary,
-    userGroups: userGroupsSummary
+    userGroups: userGroupsSummary,
+    providerFallbacks: usersResult.providerFallbacks
   }
 }

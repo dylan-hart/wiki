@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
   createDryRunWriter,
+  createProviderFallbackUserConverter,
   importUsersAndGroups,
+  needsProviderFallback,
   stubConvertGroup,
   stubConvertUser,
   type NewGroupRow,
@@ -180,5 +182,157 @@ describe('importUsersAndGroups', () => {
 
     assert.equal(result.groups.conflicted, 1)
     assert.match(result.groups.records[0].message ?? '', /unique constraint/)
+  })
+})
+
+/**
+ * Coverage for `needsProviderFallback()` and `createProviderFallbackUserConverter()` (Task 729):
+ * unsupported and reconfigured-provider fallback handling.
+ */
+describe('needsProviderFallback', () => {
+  test('local never falls back', () => {
+    assert.equal(needsProviderFallback('local'), false)
+    assert.equal(needsProviderFallback('local', { local: 'some-uuid' }), false)
+  })
+
+  test('an unimplemented 2.x provider (no 3.0 module at all) always falls back', () => {
+    assert.equal(needsProviderFallback('ldap'), true)
+    assert.equal(needsProviderFallback('saml'), true)
+    assert.equal(needsProviderFallback('auth0'), true)
+  })
+
+  test('a 3.0-implemented provider (github/google/oidc) falls back when unmapped', () => {
+    assert.equal(needsProviderFallback('github'), true)
+    assert.equal(needsProviderFallback('google'), true)
+    assert.equal(needsProviderFallback('oidc'), true)
+  })
+
+  test('a 3.0-implemented provider does not fall back once the caller supplies a strategy mapping for it', () => {
+    assert.equal(needsProviderFallback('github', { github: 'target-github-strategy-uuid' }), false)
+  })
+
+  test('a mapping for a different provider does not exempt this one', () => {
+    assert.equal(needsProviderFallback('github', { google: 'target-google-strategy-uuid' }), true)
+  })
+})
+
+describe('createProviderFallbackUserConverter', () => {
+  const LOCAL_STRATEGY_ID = 'local-strategy-uuid'
+
+  test('creates an unsupported-provider (e.g. ldap) account through the local strategy, mustChangePwd forced true', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 1,
+      email: 'Ldap.User@Example.com',
+      name: 'LDAP User',
+      providerKey: 'ldap'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return // -> type narrowing for the assertions below
+    assert.equal(outcome.row.email, 'ldap.user@example.com')
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.mustChangePwd, true)
+    assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
+    assert.ok(outcome.providerFallback)
+    assert.deepEqual(outcome.providerFallback, {
+      email: 'ldap.user@example.com',
+      sourceProvider: 'ldap',
+      reason: outcome.providerFallback!.reason
+    })
+    assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
+  })
+
+  test('creates a github account via fallback when no strategy mapping is supplied, with a mapping-specific reason', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 2,
+      email: 'gh@example.com',
+      name: 'GH User',
+      providerKey: 'github'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.providerFallback?.sourceProvider, 'github')
+    assert.match(outcome.providerFallback!.reason, /no target-strategy mapping was supplied/)
+  })
+
+  test('does not route a mapped github account through fallback', async () => {
+    const convert = createProviderFallbackUserConverter({
+      localStrategyId: LOCAL_STRATEGY_ID,
+      strategyMapping: { github: 'target-github-strategy-uuid' }
+    })
+
+    const outcome = await convert({
+      id: 3,
+      email: 'gh@example.com',
+      name: 'GH User',
+      providerKey: 'github'
+    })
+
+    assert.equal(outcome.status, 'flagged')
+  })
+
+  test("flags rather than converts a local-provider source user — not this converter's job", async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 4,
+      email: 'local@example.com',
+      name: 'Local User',
+      providerKey: 'local'
+    })
+
+    assert.equal(outcome.status, 'flagged')
+    assert.match((outcome as any).message, /Users\.importLocalUser/)
+  })
+
+  test('flags a record with no providerKey rather than guessing', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({ id: 5, email: 'nobody@example.com', name: 'No Provider' })
+
+    assert.equal(outcome.status, 'flagged')
+    assert.match((outcome as any).message, /providerKey/)
+  })
+
+  test('skips a fallback-eligible record with no email rather than creating an unreachable account', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({ id: 6, name: 'No Email', providerKey: 'ldap' })
+
+    assert.equal(outcome.status, 'skipped')
+  })
+
+  test('end-to-end through importUsersAndGroups: fallback-routed accounts are written and reported in providerFallbacks', async () => {
+    const writer = createDryRunWriter()
+    const convertUser = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: (async function* () {})(),
+        users: (async function* () {
+          yield { id: 1, email: 'ldap@example.com', name: 'LDAP User', providerKey: 'ldap' }
+          yield { id: 2, email: 'local@example.com', name: 'Local User', providerKey: 'local' }
+        })(),
+        userGroups: (async function* () {})()
+      },
+      writer,
+      convertUser
+    })
+
+    assert.equal(result.users.created, 1)
+    assert.equal(result.users.flagged, 1)
+    assert.equal(result.providerFallbacks.length, 1)
+    assert.deepEqual(
+      {
+        email: result.providerFallbacks[0].email,
+        sourceProvider: result.providerFallbacks[0].sourceProvider
+      },
+      { email: 'ldap@example.com', sourceProvider: 'ldap' }
+    )
   })
 })
