@@ -1,11 +1,10 @@
-import { Command, InvalidArgumentError } from 'commander'
+import { Command } from 'commander'
 import { MIGRATION_PHASE_IDS } from './phases/index.ts'
+import { addSourceOptions, resolveSource } from './source-args.ts'
 import type { MigrationPhaseId } from './context.ts'
-import type { PostgresSourceConfig } from './connectors/postgres.ts'
+import type { ParsedSource, SourceRawOptions } from './source-args.ts'
 
-export type ParsedSource =
-  | { kind: 'postgres'; config: PostgresSourceConfig }
-  | { kind: 'export-bundle'; path: string }
+export type { ParsedSource } from './source-args.ts'
 
 export interface ParsedMigrationArgs {
   source: ParsedSource
@@ -24,27 +23,13 @@ export interface ParsedMigrationArgs {
   reportFile?: string
 }
 
-interface RawOptions {
+interface RawOptions extends SourceRawOptions {
   siteId: string
   dryRun: boolean
   updateExisting: boolean
   only?: string
   reportFile?: string
-  bundlePath?: string
-  sourceHost?: string
-  sourcePort: string
-  sourceDatabase?: string
-  sourceUser?: string
-  sourcePassword?: string
-  sourceSsl: boolean
 }
-
-const POSTGRES_SOURCE_FIELDS = [
-  ['sourceHost', '--source-host'],
-  ['sourceDatabase', '--source-database'],
-  ['sourceUser', '--source-user'],
-  ['sourcePassword', '--source-password']
-] as const
 
 function buildProgram(): Command {
   const program = new Command()
@@ -66,57 +51,9 @@ function buildProgram(): Command {
       '--report-file <path>',
       'Also write the aggregate dry-run report as JSON to this path, in addition to the console table'
     )
-    .option('--bundle-path <path>', 'Path to a 2.x "export to disk" bundle directory')
-    .option('--source-host <host>', 'Source Postgres host (live-connection source)')
-    .option('--source-port <port>', 'Source Postgres port', '5432')
-    .option('--source-database <database>', 'Source Postgres database name')
-    .option('--source-user <user>', 'Source Postgres user')
-    .option('--source-password <password>', 'Source Postgres password')
-    .option('--source-ssl', 'Use SSL for the source Postgres connection', false)
-    .exitOverride()
-    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+  addSourceOptions(program)
+  program.exitOverride().configureOutput({ writeOut: () => {}, writeErr: () => {} })
   return program
-}
-
-function parsePort(raw: string): number {
-  const port = Number.parseInt(raw, 10)
-  if (Number.isNaN(port) || port <= 0) {
-    throw new InvalidArgumentError(`"${raw}" is not a valid port number.`)
-  }
-  return port
-}
-
-function resolveSource(opts: RawOptions): ParsedSource {
-  if (opts.bundlePath) {
-    return { kind: 'export-bundle', path: opts.bundlePath }
-  }
-
-  const providedFields = POSTGRES_SOURCE_FIELDS.filter(([key]) => Boolean(opts[key]))
-  if (providedFields.length === 0) {
-    throw new Error(
-      'No source given: pass --bundle-path <dir> for an export bundle, or --source-host/--source-database/' +
-        '--source-user/--source-password for a live Postgres source.'
-    )
-  }
-
-  const missingFields = POSTGRES_SOURCE_FIELDS.filter(([key]) => !opts[key])
-  if (missingFields.length > 0) {
-    throw new Error(
-      `Incomplete Postgres source: missing ${missingFields.map(([, flag]) => flag).join(', ')}.`
-    )
-  }
-
-  return {
-    kind: 'postgres',
-    config: {
-      host: opts.sourceHost!,
-      port: parsePort(opts.sourcePort),
-      database: opts.sourceDatabase!,
-      user: opts.sourceUser!,
-      password: opts.sourcePassword!,
-      ssl: opts.sourceSsl ? true : undefined
-    }
-  }
 }
 
 function parseOnly(raw: string | undefined): MigrationPhaseId[] | undefined {

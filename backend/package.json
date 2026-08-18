@@ -28,6 +28,7 @@
     "start": "cd .. && node backend",
     "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json",
     "migrate": "cd .. && node backend/tasks/migrate.ts",
+    "verify-migration": "cd .. && node backend/tasks/verify-migration.ts",
     "typecheck": "tsc",
     "typecheck:watch": "tsc --watch",
     "ncu": "ncu -i",
