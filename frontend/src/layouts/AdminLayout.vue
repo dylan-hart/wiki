@@ -196,11 +196,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/navigation`"
               active-class="bg-primary text-white"
-              disabled
-              v-if="
-                flagsStore.experimental &&
-                (userStore.can(`manage:sites`) || userStore.can(`manage:navigation`))
-              ">
+              v-if="userStore.can(`manage:sites`) || userStore.can(`manage:navigation`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-tree-structure.svg" />
               </w-item-section>

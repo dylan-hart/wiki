@@ -1,6 +1,7 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import type { TreeItemType } from './tree.ts'
 
 export const NAVIGATION_MODES = [
   'inherit',
@@ -25,6 +26,18 @@ export interface NavigationItem {
 }
 
 export interface UpdateNavigationResult {
+  navigationMode: NavigationMode
+  navigationId: string | null
+}
+
+/** One tree entry whose navigation mode overrides what it would otherwise inherit. */
+export interface NavigationOverride {
+  id: string
+  type: TreeItemType
+  folderPath: string
+  fileName: string
+  title: string
+  locale: string
   navigationMode: NavigationMode
   navigationId: string | null
 }
@@ -106,6 +119,74 @@ class Navigation {
       return
     }
     await WIKI.db.delete(navigationTable).where(inArray(navigationTable.id, ids))
+  }
+
+  /**
+   * Every tree entry in a site whose navigation mode overrides what it would otherwise inherit.
+   *
+   * A flat scan against `tree`, not a walk of the hierarchy: `navigationMode` and `folderPath` are
+   * both indexed, so filtering on the former and ordering by the latter is a cheap indexed scan
+   * rather than something that needs `ancestorNavId`'s ltree-ancestry logic, which answers a
+   * different question (the single nearest override above one entry, not every entry that overrides).
+   *
+   * @param locale Restrict to entries in this locale. Every locale when omitted.
+   */
+  async listOverrides(
+    siteId: string,
+    { locale }: { locale?: string } = {}
+  ): Promise<NavigationOverride[]> {
+    const conditions = [eq(treeTable.siteId, siteId), ne(treeTable.navigationMode, 'inherit')]
+    if (locale) {
+      conditions.push(eq(treeTable.locale, locale))
+    }
+
+    const rows = await WIKI.db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        title: treeTable.title,
+        locale: treeTable.locale,
+        navigationMode: treeTable.navigationMode,
+        navigationId: treeTable.navigationId
+      })
+      .from(treeTable)
+      .where(and(...conditions))
+      .orderBy(asc(treeTable.folderPath), asc(treeTable.fileName))
+
+    return rows.map((row) => ({
+      ...row,
+      folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
+    }))
+  }
+
+  /**
+   * Write a menu's items directly, addressed by the id of the row that already holds it.
+   *
+   * No page or mode resolution, unlike `updateNavigation` — the caller already knows which row it
+   * means, because it read the id off the thing it is editing: the site-wide default (its own id is
+   * the site id, see `ensureSiteNav`) or an override's `navigationId` from `listOverrides`. That is
+   * what the admin-launched menu editor (Task 433) saves against, as opposed to the page-context
+   * editor, which still goes through `updateNavigation` so that saving from an inheriting page can
+   * repoint at the ancestor it inherits from.
+   *
+   * @param navId The row to write to — the site id, or a tree entry id belonging to this site
+   */
+  async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
+    if (navId === siteId) {
+      // -> Falls back to the site menu, and a site created before that row existed does not have one yet
+      await this.ensureSiteNav(siteId)
+    } else {
+      // -> Refuse a navId that names neither the site nor one of its own tree entries, rather than
+      //    silently creating a floating navigation row nothing else ever reaches
+      await this.getEntry(siteId, navId)
+    }
+
+    await WIKI.db
+      .insert(navigationTable)
+      .values({ id: navId, siteId, items })
+      .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
   }
 
   /** The tree entry a navigation change is addressed to. */
