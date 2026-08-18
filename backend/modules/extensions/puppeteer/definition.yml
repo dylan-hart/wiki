@@ -8,9 +8,26 @@ website: 'https://pptr.dev'
 detect:
   type: module
   value: puppeteer
+# Chrome for Testing, the Chromium build @puppeteer/browsers downloads on install, has no ia32 or
+# loong64 build at all — leaving them off this list (rather than adding them and letting npm install
+# discover it) is what keeps the admin area from offering an install that can only fail. Verified
+# against @puppeteer/browsers 3.0.6's browser-data/chrome.ts folder mapping, the dependency this
+# puppeteer version pins (npm registry metadata for puppeteer@25.4.0), 2026-08-17.
 architectures:
   - x64
   - arm64
+# @puppeteer/browsers' detectBrowserPlatform() (browser-data 3.0.6) only recognizes darwin/linux/win32
+# — anything else makes it return undefined and the postinstall download throw, which is the same
+# "looked compatible, npm install failed" failure the architecture restriction above avoids. Note also
+# that on native (non-x64-emulated) Linux arm64 that same function still resolves to the x64
+# `linux64` Chrome build, since Chrome for Testing ships no Linux arm64 build — this is why the
+# production Dockerfile (dev/build/Dockerfile) installs Chromium from the distro instead and sets
+# PUPPETEER_SKIP_DOWNLOAD/PUPPETEER_EXECUTABLE_PATH; an operator installing Puppeteer here by hand on a
+# bare Linux arm64 host needs to do the same. Verified 2026-08-17, re-check on a Puppeteer bump.
+platforms:
+  - linux
+  - darwin
+  - win32
 # Not a declared dependency of the backend, unlike Sharp: a browser is worth a few hundred megabytes
 # only to an instance that renders pages on the server, so installing it is a decision rather than a
 # default. That makes this a real first install and not merely a repair.

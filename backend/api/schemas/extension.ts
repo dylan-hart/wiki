@@ -34,6 +34,16 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isCompatible: {
         type: 'boolean',
         description: 'Whether this platform and architecture can run it at all.'
+      },
+      incompatibleReason: {
+        type: ['string', 'null'],
+        description:
+          'Why `isCompatible` is false — the architecture(s) and/or platform(s) this extension requires versus what this server reports. Null when compatible.'
+      },
+      needsRestart: {
+        type: 'boolean',
+        description:
+          'True when this process already tried and failed to load the module — set independent of any install attempt this session, e.g. after a page render triggered the failure. Node replays a failed module load for the life of the process, so this stays true until the server restarts.'
       }
     }
   })

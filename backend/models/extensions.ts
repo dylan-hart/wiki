@@ -59,6 +59,20 @@ export interface ExtensionState {
   isInstalled: boolean
   isInstallable: boolean
   isCompatible: boolean
+  /**
+   * Why `isCompatible` is false — the architecture(s) and/or platform(s) the extension requires versus
+   * what this server reports (`os.arch()` / `process.platform`). Null when compatible.
+   */
+  incompatibleReason: string | null
+  /**
+   * Whether this process already tried and failed to load the extension's module, so it cannot be used
+   * however healthy the files on disk now are.
+   *
+   * Computed from `hasLoadFailed()` on every call, independent of whether an admin has clicked install
+   * this session — so a module that failed to load during, say, a page render shows the warning here
+   * immediately rather than only after a one-shot install-response toast.
+   */
+  needsRestart: boolean
 }
 
 /**
@@ -170,6 +184,26 @@ class Extensions {
   }
 
   /**
+   * Why `isCompatible(definition)` is false, naming what the extension needs against what this server
+   * reports — or null when it is compatible. Checks both dimensions rather than stopping at the first
+   * failure, so an extension restricted on both counts explains both at once.
+   */
+  incompatibilityReason(definition: ExtensionDefinition): string | null {
+    const problems: string[] = []
+    if (definition.architectures && !definition.architectures.includes(os.arch())) {
+      problems.push(
+        `requires architecture ${definition.architectures.join(' or ')}, but this server is running ${os.arch()}`
+      )
+    }
+    if (definition.platforms && !definition.platforms.includes(process.platform)) {
+      problems.push(
+        `requires platform ${definition.platforms.join(' or ')}, but this server is running ${process.platform}`
+      )
+    }
+    return problems.length > 0 ? problems.join('; ') : null
+  }
+
+  /**
    * Whether the extension is present on this system
    */
   async isInstalled(definition: ExtensionDefinition): Promise<boolean> {
@@ -203,7 +237,9 @@ class Extensions {
         //    PATH walk out of the way
         isInstalled: isCompatible ? await this.isInstalled(definition) : false,
         isInstallable: definition.isInstallable === true,
-        isCompatible
+        isCompatible,
+        incompatibleReason: isCompatible ? null : this.incompatibilityReason(definition),
+        needsRestart: this.hasLoadFailed(definition)
       })
     }
     return results

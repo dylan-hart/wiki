@@ -43,7 +43,15 @@
             <w-item v-for="ext of state.extensions" :key="`ext-` + ext.key">
               <blueprint-icon icon="module" />
               <w-item-section>
-                <w-item-label>{{ ext.title }}</w-item-label>
+                <w-item-label class="flex items-center gap-2">
+                  {{ ext.title }}
+                  <w-badge v-if="ext.needsRestart" color="warning" text-color="black" rounded>
+                    <w-icon name="la:exclamation-triangle" size="12px" />
+                    <w-tooltip anchor="center left" self="center right">{{
+                      t('admin.extensions.needsRestart')
+                    }}</w-tooltip>
+                  </w-badge>
+                </w-item-label>
                 <w-item-label caption>{{ ext.description }}</w-item-label>
                 <w-item-label caption v-if="ext.website">
                   <a class="text-primary" :href="ext.website" target="_blank" rel="noopener">{{
@@ -52,8 +60,32 @@
                 </w-item-label>
               </w-item-section>
               <w-item-section side>
-                <div class="flex flex-wrap">
-                  <w-btn-group unelevated>
+                <div class="flex flex-wrap items-center">
+                  <!-- Page-local install progress for this row, replacing the button while it runs --
+                       no full-screen overlay for something that can take up to 20 minutes. See
+                       `install()` for why. -->
+                  <div
+                    v-if="state.installing[ext.key]"
+                    class="flex items-center gap-2 text-caption text-grey"
+                    role="status"
+                    aria-live="polite">
+                    <w-spinner size="16px" />
+                    <div>
+                      <div>{{ t('admin.extensions.installing') }}</div>
+                      <div>{{ t('admin.extensions.installingHint') }}</div>
+                      <!-- aria-hidden: the message above is announced once via aria-live when this
+                           status appears; a per-second announcement of the elapsed time would spam
+                           screen reader users without adding anything actionable -->
+                      <div aria-hidden="true">
+                        {{
+                          t('admin.extensions.installElapsed', {
+                            time: formatElapsed(state.installing[ext.key].elapsedSeconds)
+                          })
+                        }}
+                      </div>
+                    </div>
+                  </div>
+                  <w-btn-group v-else unelevated>
                     <w-btn
                       icon="la:check"
                       size="sm"
@@ -87,7 +119,7 @@
                       icon="la:info-circle"
                       color="indigo"
                       outline
-                      :href="`https://docs.js.wiki/admin/extensions/` + ext.key"
+                      :href="siteStore.docsBase + `/system/extensions#` + ext.key"
                       target="_blank"
                       no-caps>
                       <w-tooltip anchor="center left" self="center right">{{
@@ -99,7 +131,14 @@
                       color="negative"
                       outline
                       :label="t(`admin.extensions.incompatible`)"
-                      no-caps />
+                      no-caps>
+                      <w-tooltip
+                        v-if="ext.incompatibleReason"
+                        anchor="center left"
+                        self="center right"
+                        >{{ ext.incompatibleReason }}</w-tooltip
+                      >
+                    </w-btn>
                   </w-btn-group>
                 </div>
               </w-item-section>
@@ -113,7 +152,8 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { onMounted, onUnmounted, reactive } from 'vue'
+import { isTimeoutError } from 'ky'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -140,8 +180,46 @@ useMeta({
 
 const state = reactive({
   loading: 0,
-  extensions: []
+  extensions: [],
+  /**
+   * Per-row install progress, keyed by `ext.key`. Page-local state rather than the global
+   * `loading` overlay: a full-screen block for up to 20 minutes over a background npm install is
+   * itself questionable UX, and it also has no way to carry a per-row message (see `install()`).
+   * @type {Record<string, { startedAt: number, elapsedSeconds: number }>}
+   */
+  installing: {}
 })
+
+/** Formats a whole number of seconds as `m:ss`, for the elapsed-time readout next to an in-progress
+ *  install -- npm gives no percentage, so elapsed time is the only progress signal there is. */
+function formatElapsed(totalSeconds) {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+/** Ticks every `state.installing` entry's `elapsedSeconds`. Single shared interval rather than one
+ *  per row, started on the first concurrent install and stopped once none remain. */
+let elapsedTicker = null
+
+function ensureElapsedTicker() {
+  if (elapsedTicker !== null) {
+    return
+  }
+  elapsedTicker = setInterval(() => {
+    const now = Date.now()
+    for (const entry of Object.values(state.installing)) {
+      entry.elapsedSeconds = Math.floor((now - entry.startedAt) / 1000)
+    }
+  }, 1000)
+}
+
+function stopElapsedTickerIfIdle() {
+  if (elapsedTicker !== null && Object.keys(state.installing).length === 0) {
+    clearInterval(elapsedTicker)
+    elapsedTicker = null
+  }
+}
 
 /**
  * How long to give an install, in milliseconds.
@@ -172,10 +250,9 @@ async function load() {
 }
 
 async function install(ext) {
-  loading.show({
-    message: t('admin.extensions.installing') + '<br>' + t('admin.extensions.installingHint'),
-    html: true
-  })
+  // -> Page-local, not the global `loading` overlay: see `state.installing`'s doc comment above.
+  state.installing[ext.key] = { startedAt: Date.now(), elapsedSeconds: 0 }
+  ensureElapsedTicker()
   try {
     const resp = await API_CLIENT.post(`system/extensions/${ext.key}/install`, {
       timeout: INSTALL_TIMEOUT
@@ -195,19 +272,40 @@ async function install(ext) {
     // -> Re-detect rather than assume: the install is only done once the server can see the tool
     await load()
   } catch (err) {
-    // -> ky throws above 400 — an extension that must be installed by hand answers 409 saying so
-    notify({
-      type: 'negative',
-      message: t('admin.extensions.installFailed'),
-      caption: apiErrorMessage(err)
-    })
+    // -> The 20-minute client timeout (INSTALL_TIMEOUT) firing while npm is still genuinely working
+    //    on the server must not read like a real failure -- it looks identical to one otherwise, and
+    //    a legitimate slow download would send the administrator off to retry an install already in
+    //    flight. `resp?.ok` failures and HTTP errors (ky throws above 400, e.g. the 409 an extension
+    //    that must be installed by hand answers with) fall through to the generic caption below.
+    if (isTimeoutError(err)) {
+      notify({
+        type: 'negative',
+        message: t('admin.extensions.installTimedOut'),
+        caption: t('admin.extensions.installTimedOutHint'),
+        timeout: 0
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: t('admin.extensions.installFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
   }
-  loading.hide()
+  delete state.installing[ext.key]
+  stopElapsedTickerIfIdle()
 }
 
 // MOUNTED
 
 onMounted(() => {
   load()
+})
+
+onUnmounted(() => {
+  if (elapsedTicker !== null) {
+    clearInterval(elapsedTicker)
+    elapsedTicker = null
+  }
 })
 </script>
