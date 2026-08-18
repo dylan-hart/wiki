@@ -1,7 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { KEY_EXPIRATIONS } from '../../models/apiKeys.ts'
+import { ALL_PERMISSIONS } from '../../helpers/permissions.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
+  /**
+   * API KEY SCOPE PERMISSION - The closed vocabulary a scope entry may name
+   */
+  app.addSchema({
+    $id: 'ApiKeyScopePermission',
+    type: 'string',
+    enum: ALL_PERMISSIONS
+  })
+
   /**
    * API KEY - Metadata only; the token itself exists once, in the create response
    */
@@ -27,6 +37,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           type: 'string',
           format: 'uuid'
         }
+      },
+      scope: {
+        type: ['array', 'null'],
+        description:
+          'An explicit permission allow-list the key is narrowed to, or null for no narrowing at all — the key then carries the full union of its groups. Can only narrow, never grant beyond what the groups already hold.',
+        items: { $ref: 'ApiKeyScopePermission#' }
+      },
+      siteId: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description:
+          'The single site this key is pinned to, or null for instance-wide (every site).'
       },
       expiration: {
         type: 'string',

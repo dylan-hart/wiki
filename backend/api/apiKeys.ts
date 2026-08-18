@@ -37,7 +37,13 @@ async function routes(app: FastifyInstance) {
    * CREATE API KEY
    */
   app.post<{
-    Body: { name: string; expiration: KeyExpiration; groups: string[] }
+    Body: {
+      name: string
+      expiration: KeyExpiration
+      groups: string[]
+      scope?: string[] | null
+      siteId?: string | null
+    }
   }>(
     '/',
     {
@@ -47,7 +53,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a new API key',
         description:
-          'The response carries the token, which is the only time it can be read: only its last characters are stored. The key holds the combined permissions of the groups given.',
+          'The response carries the token, which is the only time it can be read: only its last characters are stored. The key holds the combined permissions of the groups given, narrowed to `scope` when one is given.',
         tags: ['API Keys'],
         body: {
           type: 'object',
@@ -69,6 +75,20 @@ async function routes(app: FastifyInstance) {
                 type: 'string',
                 format: 'uuid'
               }
+            },
+            scope: {
+              type: ['array', 'null'],
+              default: null,
+              description:
+                'An explicit permission allow-list to narrow the key to. Omit or pass null for no narrowing — the key then carries the full union of the groups given. Can only narrow: a permission here that none of the groups grant still grants nothing.',
+              items: { $ref: 'ApiKeyScopePermission#' }
+            },
+            siteId: {
+              type: ['string', 'null'],
+              format: 'uuid',
+              default: null,
+              description:
+                "The single site to pin the key to, or null for instance-wide (every site) — today's only behavior, and the default."
             }
           }
         },
@@ -115,10 +135,18 @@ async function routes(app: FastifyInstance) {
         }
       }
 
+      // -> null pins nothing (instance-wide, today's only behavior); any other value must name a
+      //    real site, the same way every entry in `groups` must name a real group above
+      if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
+        return reply.badRequest('This site does not exist.')
+      }
+
       const { id, key } = await WIKI.models.apiKeys.createKey({
         name: req.body.name,
         expiration: req.body.expiration,
-        groups: req.body.groups
+        groups: req.body.groups,
+        scope: req.body.scope ?? null,
+        siteId: req.body.siteId ?? null
       })
 
       return {

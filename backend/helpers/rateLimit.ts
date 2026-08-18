@@ -115,3 +115,59 @@ export async function limitRenders(req: FastifyRequest, reply: FastifyReply): Pr
     `Too many render requests. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
 }
+
+/**
+ * The limit on every request an API key makes, summed across all `/_api/` endpoints it hits.
+ *
+ * Not configurable per key: `apiKeys` has no per-row policy storage (the `scope` column added
+ * alongside this feature narrows *what* a key may do, and says nothing about *how often*), so this
+ * is a single fixed default shared by every key, modeled on `RENDER_LIMIT`'s shape rather than
+ * `AUTH_DEFAULTS`'s admin-configurable one. A future per-key override — raising or lowering this for
+ * one key specifically — is explicitly deferred, not designed away: it would need its own column on
+ * `apiKeys` (or a reuse of `scope`'s jsonb pattern) plus admin UI, and neither exists yet. 300 in
+ * five minutes is generous for a legitimate integration's steady traffic while still bounding what a
+ * single leaked key can do against the whole API in that window.
+ */
+const API_KEY_LIMIT: RateLimitPolicy = {
+  max: 300,
+  windowSeconds: 300,
+  banSeconds: 900
+}
+
+/**
+ * Refuse a request bearing an API key once that key has made too many, across every endpoint it hits.
+ *
+ * Wired directly into the onRequest API-key-auth hook in `index.ts`, immediately after `req.apiKey`
+ * is populated — not attached per-route like `limitAuthAttempts`/`limitRenders` above. What this
+ * protects against is a compromised key, and a compromised key is exactly as dangerous on an endpoint
+ * nobody thought to attach a limiter to as on one that has one; the only place that catches it
+ * everywhere is the hook every bearer-token request already passes through.
+ *
+ * Keyed by the key's id, not by `req.ip`: the credential is what is being bounded, not the address it
+ * arrives from. A legitimate integration typically calls from one stable, shared address, so an
+ * IP-keyed limit here would either sit too loose to matter or punish every other key that happens to
+ * share it.
+ *
+ * Deliberately carries no `manage:system` exemption, unlike `limitRenders`. That exemption exists
+ * there because a root admin driving renders is doing legitimate, expensive operator work. Here the
+ * calculus is the opposite: a key whose resolved permissions include `manage:system` is the single
+ * highest-value credential in the system, and it is exactly the case this limiter has to hold —
+ * exempting it would mean the API key most worth stealing is also the one this protection does
+ * nothing for.
+ */
+export async function limitApiKey(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!req.apiKey) {
+    return
+  }
+  const verdict = await WIKI.models.rateLimits.consume(`apikey:${req.apiKey.id}`, API_KEY_LIMIT)
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.logger.debug(
+    `Rate limit: refused ${req.method} ${req.url} for API key ${req.apiKey.id}, ${verdict.retryAfter}s left of its ban.`
+  )
+  reply.header('Retry-After', String(verdict.retryAfter))
+  return reply.tooManyRequests(
+    `Too many requests for this API key. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
+  )
+}

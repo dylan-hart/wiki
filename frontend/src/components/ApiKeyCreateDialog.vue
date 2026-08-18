@@ -52,6 +52,30 @@
           </w-item-section>
         </w-item>
         <w-item>
+          <blueprint-icon icon="home" />
+          <w-item-section>
+            <!--
+              Single-select, same reasoning as expiration above: a key is pinned to one site or none.
+              `null` (the "All Sites" entry prepended below) is instance-wide -- today's only
+              behavior, and what a key created before site-pinning existed still has.
+            -->
+            <w-select
+              v-model="state.keySiteId"
+              outlined
+              :options="siteOptions"
+              map-options
+              option-value="id"
+              option-label="title"
+              emit-value
+              options-dense
+              dense
+              hide-bottom-space
+              :label="t(`admin.api.newKeySite`)"
+              :hint="t(`admin.api.newKeySiteHint`)"
+              :loading="state.loadingSites" />
+          </w-item-section>
+        </w-item>
+        <w-item>
           <blueprint-icon icon="access" />
           <w-item-section>
             <w-select
@@ -89,6 +113,33 @@
                 <span v-else />
               </template>
             </w-select>
+          </w-item-section>
+        </w-item>
+        <w-item>
+          <blueprint-icon icon="lock" />
+          <w-item-section>
+            <!--
+              Left empty, a key carries the full union of its groups' permissions -- exactly what
+              creating a key did before scoping existed, so an operator who never touches this field
+              gets identical behavior. Selecting anything narrows the key: the API always intersects
+              this list against what the groups actually grant, so a permission picked here that no
+              selected group holds still grants nothing (`apiKeys.narrowToScope`, backend).
+            -->
+            <w-select
+              v-model="state.keyScope"
+              outlined
+              :options="scopeOptions"
+              multiple
+              map-options
+              emit-value
+              option-value="value"
+              option-label="label"
+              options-dense
+              dense
+              use-chips
+              hide-bottom-space
+              :label="t(`admin.api.newKeyPermissionScopes`)"
+              :hint="t(`admin.api.newKeyScopeHint`)" />
           </w-item-section>
         </w-item>
       </w-form>
@@ -141,8 +192,17 @@ const state = reactive({
   keyName: '',
   keyExpiration: '90d',
   keyGroups: [],
+  // -> Empty means unscoped (null on the wire): the key carries the full union of its groups, same
+  //    as a key created before scoping existed. Anything picked here narrows it -- see the field's
+  //    own comment in the template.
+  keyScope: [],
+  // -> null is the "All Sites" entry -- instance-wide, same as a key created before site-pinning
+  //    existed.
+  keySiteId: null,
   groups: [],
   loadingGroups: false,
+  sites: [],
+  loadingSites: false,
   loading: 0
 })
 
@@ -161,6 +221,37 @@ const expirations = [
   { value: '3y', text: t('admin.api.expiration3y') }
 ]
 
+/**
+ * The closed permission vocabulary a scope entry may name -- mirrors `ALL_PERMISSIONS`
+ * (`backend/helpers/permissions.ts`), which is what the API actually validates a scope against.
+ * Duplicated rather than fetched: it is a fixed, closed list (see CLAUDE.md's "Permissions"
+ * section), the same way `GroupEditOverlay.vue`'s own `permissions` / `rules` arrays are.
+ */
+const scopeOptions = [
+  'access:admin',
+  'manage:users',
+  'manage:groups',
+  'manage:navigation',
+  'manage:theme',
+  'manage:sites',
+  'manage:system',
+  'read:pages',
+  'write:pages',
+  'review:pages',
+  'manage:pages',
+  'delete:pages',
+  'write:styles',
+  'write:scripts',
+  'read:source',
+  'read:history',
+  'read:assets',
+  'write:assets',
+  'manage:assets',
+  'read:comments',
+  'write:comments',
+  'manage:comments'
+].map((value) => ({ value, label: value }))
+
 // REFS
 
 const createKeyForm = ref(null)
@@ -170,6 +261,11 @@ const iptName = ref(null)
 
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.keyGroups[0])[0]?.name
+})
+
+/** The site select's own "All Sites" entry (`id: null`) is prepended -- see the field's template comment. */
+const siteOptions = computed(() => {
+  return [{ id: null, title: t('admin.api.newKeySiteAllSites') }, ...state.sites]
 })
 
 // VALIDATION RULES
@@ -200,6 +296,23 @@ async function loadGroups() {
   state.loading--
 }
 
+async function loadSites() {
+  state.loading++
+  state.loadingSites = true
+  try {
+    const resp = await API_CLIENT.get('sites').json()
+    state.sites = resp ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.api.loadFailed'),
+      caption: err.message
+    })
+  }
+  state.loadingSites = false
+  state.loading--
+}
+
 async function create() {
   state.loading++
   try {
@@ -211,7 +324,9 @@ async function create() {
       json: {
         name: state.keyName,
         expiration: state.keyExpiration,
-        groups: state.keyGroups
+        groups: state.keyGroups,
+        scope: state.keyScope.length > 0 ? state.keyScope : null,
+        siteId: state.keySiteId
       }
     }).json()
     if (!resp?.ok || !resp?.key) {
@@ -241,5 +356,8 @@ async function create() {
 
 // MOUNTED
 
-onMounted(loadGroups)
+onMounted(() => {
+  loadGroups()
+  loadSites()
+})
 </script>
