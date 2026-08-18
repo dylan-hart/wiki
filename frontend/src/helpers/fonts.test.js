@@ -1,6 +1,19 @@
-import { describe, it, expect } from 'vitest'
+// @vitest-environment-options {"settings":{"disableCSSFileLoading":true,"handleDisabledFileLoadingAsSuccess":true}}
+//
+// happy-dom fetches a real `<link rel="stylesheet">`'s `href` as soon as it's appended to the
+// document (`DefaultBrowserSettings.disableCSSFileLoading === false`) -- there is no dev server
+// behind `/_assets/fonts/...` in this test run, so left on it just logs a stream of aborted-fetch
+// `NetworkError`s per assertion below. `disableCSSFileLoading` alone swaps that for a `load`-disabled
+// `NotSupportedError` instead, still logged; `handleDisabledFileLoadingAsSuccess` is what actually
+// quiets it, by making the disabled load resolve like a normal (empty) stylesheet instead of firing
+// an error. `applyFonts()`'s own DOM-shape assertions (which id/data attribute got set, what the href
+// string is) never depended on the fetch actually completing either way.
+
+import { afterEach, describe, it, expect } from 'vitest'
 import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
+
+import { applyFonts } from './fonts.js'
 
 /**
  * Structural regression coverage for the vendored self-hosted font assets under
@@ -129,5 +142,87 @@ describe('vendored font assets', () => {
       expect(token).toBe('arabic_latin')
     }
     expect(content).toMatch(/docs\/variances\.md/)
+  })
+})
+
+describe('applyFonts() (runtime baseFont / contentFont loader)', () => {
+  afterEach(() => {
+    document.querySelectorAll('link[data-theme-font]').forEach((el) => el.remove())
+    document.querySelector('#theme-content-font')?.remove()
+    document.documentElement.style.removeProperty('--font-sans')
+  })
+
+  it('links the stylesheet and sets --font-sans on the root for a real baseFont', () => {
+    applyFonts('inter', 'user')
+
+    const link = document.querySelector('link[data-theme-font="inter"]')
+    expect(link).not.toBeNull()
+    expect(link.rel).toBe('stylesheet')
+    expect(link.href).toContain('/_assets/fonts/inter/inter.css')
+
+    expect(document.documentElement.style.getPropertyValue('--font-sans')).toContain("'Inter'")
+  })
+
+  it('scopes --font-content under a .page-contents style block, not the root', () => {
+    applyFonts('user', 'montserrat')
+
+    const styleEl = document.querySelector('#theme-content-font')
+    expect(styleEl).not.toBeNull()
+    expect(styleEl.tagName).toBe('STYLE')
+    expect(styleEl.textContent).toContain('.page-contents')
+    expect(styleEl.textContent).toContain("'Montserrat'")
+
+    // Never written to the root as an app-wide override
+    expect(document.documentElement.style.getPropertyValue('--font-content')).toBe('')
+  })
+
+  it('dedupes the stylesheet link when baseFont and contentFont match', () => {
+    applyFonts('rubik', 'rubik')
+
+    const links = document.querySelectorAll('link[data-theme-font="rubik"]')
+    expect(links.length).toBe(1)
+  })
+
+  it('links a separate stylesheet for each font when baseFont and contentFont differ', () => {
+    applyFonts('roboto', 'tajawal')
+
+    expect(document.querySelectorAll('link[data-theme-font="roboto"]').length).toBe(1)
+    expect(document.querySelectorAll('link[data-theme-font="tajawal"]').length).toBe(1)
+    expect(document.querySelectorAll('link[data-theme-font]').length).toBe(2)
+  })
+
+  it('treats baseFont "user" as no override: removes --font-sans, links nothing for it', () => {
+    applyFonts('inter', 'user')
+    applyFonts('user', 'user')
+
+    expect(document.documentElement.style.getPropertyValue('--font-sans')).toBe('')
+    expect(document.querySelectorAll('link[data-theme-font]').length).toBe(0)
+  })
+
+  it('treats contentFont "user" as no override: removes the .page-contents style block', () => {
+    applyFonts('user', 'inter')
+    applyFonts('user', 'user')
+
+    expect(document.querySelector('#theme-content-font')).toBeNull()
+  })
+
+  it('never requests a stylesheet literally named "user"', () => {
+    applyFonts('user', 'user')
+
+    expect(document.querySelectorAll('link[data-theme-font]').length).toBe(0)
+    for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
+      expect(link.href).not.toContain('/fonts/user/')
+    }
+  })
+
+  it('replaces rather than duplicates links and the content-font style block on repeated calls', () => {
+    applyFonts('inter', 'montserrat')
+    applyFonts('opensans', 'roboto')
+
+    expect(document.querySelectorAll('link[data-theme-font]').length).toBe(2)
+    expect(document.querySelectorAll('link[data-theme-font="inter"]').length).toBe(0)
+    expect(document.querySelectorAll('link[data-theme-font="opensans"]').length).toBe(1)
+    expect(document.querySelectorAll('#theme-content-font').length).toBe(1)
+    expect(document.querySelector('#theme-content-font').textContent).toContain("'Roboto'")
   })
 })

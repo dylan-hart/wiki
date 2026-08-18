@@ -13,6 +13,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { setCssVar } from '@/helpers/cssVars'
+import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { stripPageExtension } from '@/helpers/pagePaths'
@@ -126,6 +127,9 @@ async function applyTheme() {
   setCssVar('sidebar', userStore.getAccessibleColor('sidebar', siteStore.theme.colorSidebar))
   setCssVar('positive', userStore.getAccessibleColor('positive', '#02C39A'))
   setCssVar('negative', userStore.getAccessibleColor('negative', '#f03a47'))
+
+  // -> Fonts
+  applyFonts(siteStore.theme.baseFont, siteStore.theme.contentFont)
 
   // -> Injected CSS
   applyInjectCss(siteStore.theme.injectCSS)

@@ -190,6 +190,15 @@
   --content-code-deletion-wash: rgba(207, 34, 46, 0.12);
 
   color: var(--content-ink);
+  /*
+    `--font-content` is written scoped to this selector, at runtime, by `helpers/fonts.js`'s
+    `applyContentFont()` -- the same nested-`<style>` pattern `App.vue`'s `applyCodeBlocksTheme()`
+    uses for the highlight.js theme, so a reader's chosen content font never leaks past this element
+    into the surrounding chrome. With nothing selected (`theme.contentFont === 'user'`, or before the
+    site's theme has loaded at all) the property is never set, and this falls back to whatever
+    `--font-sans` resolves to -- the same font the rest of the app is using, not the browser default.
+  */
+  font-family: var(--font-content, var(--font-sans));
   font-size: 1rem;
   /*
     1.6, not the 1.7 the documentation platforms tend to set: at this measure the looser leading read
