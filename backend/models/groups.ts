@@ -3,6 +3,7 @@ import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
+import { resolveSiteRule } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
 
@@ -232,6 +233,25 @@ class Groups {
     return permissions.some((permission) =>
       rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
+  }
+
+  /**
+   * Whether this caller may administer this site.
+   *
+   * The site-scoped counterpart to `checkAccess()`: the same rule rows, the same pooling across an
+   * actor's groups, but addressed by `sites` alone instead of `path`/`match`/`locales` — see
+   * `helpers/siteRules.ts` for how a rule is chosen. `permission` is one of `SITE_PERMISSIONS`.
+   *
+   * @param permission A single site-admin permission, e.g. `site:theme`
+   * @param siteId The site being administered
+   */
+  checkSiteAccess(actor: AccessActor, permission: string, siteId: string): boolean {
+    // -> Above the rules entirely, same guard as checkAccess()
+    if (actor.permissions.includes('manage:system')) {
+      return true
+    }
+    const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
+    return rule ? rule.mode !== 'DENY' : false
   }
 
   async init(ids: SystemIds): Promise<void> {

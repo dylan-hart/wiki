@@ -911,6 +911,86 @@ const rules = [
     warning: false,
     restrictedForSystem: true,
     disabled: false
+  },
+  /*
+    Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
+    `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
+    one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
+    `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
+
+    Deliberately in the SAME catalog as the page permissions above, not a second list or a second
+    UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
+    exactly what it already means for a page permission -- empty is every site, populated is only
+    those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
+    `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+
+    None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
+    group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
+    screen offers.
+  */
+  {
+    permission: 'site:general',
+    title: 'Site: General Settings',
+    hint: 'Can manage general site settings (title, description, features, robots, sitemap, uploads, etc.), and the site logo / favicon.',
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:theme',
+    title: 'Site: Theme',
+    hint: "Can manage the site's theme and appearance.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:navigation',
+    title: 'Site: Navigation',
+    hint: "Can manage the site's navigation menus.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:blocks',
+    title: 'Site: Blocks',
+    hint: "Can enable, disable or delete the site's blocks.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:approvals',
+    title: 'Site: Approval Rules',
+    hint: "Can view and manage the site's approval rules for suggested edits.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:login',
+    title: 'Site: Login & Authentication',
+    hint: "Can manage the site's authentication strategies and login background image.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:locale',
+    title: 'Site: Locale',
+    hint: "Can manage the site's active locales.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'site:editors',
+    title: 'Site: Editors',
+    hint: 'Can manage which content editors are enabled for the site.',
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
   }
 ]
 

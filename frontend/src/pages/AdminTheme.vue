@@ -351,6 +351,7 @@ import { onMounted, reactive, watch } from 'vue'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -362,6 +363,12 @@ import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/a
 import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
 import UtilCodeEditor from '../components/UtilCodeEditor.vue'
+
+// ACCESS
+// -> Task #684: gates this page behind `site:theme` (or `manage:sites` / the older instance-wide
+//    `manage:theme`, task #681), redirecting away from a site the caller may not administer. See
+//    `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:theme')
 
 // STORES
 

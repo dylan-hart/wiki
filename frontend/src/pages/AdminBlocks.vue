@@ -118,6 +118,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { confirm, dialog } from '@/composables/dialog'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import BlockUploadDialog from '@/components/BlockUploadDialog.vue'
 
@@ -131,6 +132,9 @@ import { apiErrorMessage } from '@/helpers/apiError'
 // COMPOSABLES
 
 const dark = useDark()
+// -> Task #684: gates this page behind `site:blocks` (or `manage:sites`), redirecting away from a
+//    site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:blocks')
 
 // STORES
 

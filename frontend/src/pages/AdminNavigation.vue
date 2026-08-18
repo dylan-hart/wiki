@@ -131,6 +131,7 @@ import { dialog } from '@/composables/dialog'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
+import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
@@ -170,6 +171,11 @@ import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
 // COMPOSABLES
 
 const dark = useDark()
+
+// ACCESS
+// -> Task #684: gates this page behind `site:navigation` (or `manage:navigation`), redirecting away
+//    from a site the caller may not administer. See `composables/siteAdminAccess.js`.
+useSiteAdminAccess('site:navigation')
 
 // STORES
 

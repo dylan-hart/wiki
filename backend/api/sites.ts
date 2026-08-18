@@ -1,9 +1,10 @@
 import { validate as uuidValidate } from 'uuid'
 import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
+import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /** How large one of a site's own images may be uploaded, before it is re-encoded. */
 const imageUploadLimit = 10 * 1024 * 1024
@@ -32,6 +33,86 @@ const SITE_CONFIG_KEYS = [
   'theme',
   'uploads'
 ] as const
+
+/**
+ * Which `site:*` permission (see `helpers/siteRules.ts`) governs each key `PUT /:siteId` can
+ * touch, per the per-surface mapping in §3 of `docs/decisions/delegated-per-site-administration.md`.
+ *
+ * `general`, `theme`, `login`, `locale` and `editors` all write through this one route, so — unlike
+ * `blocks.ts`, `navigation.ts` and `approvals.ts`, which each have a dedicated route per permission —
+ * the check here has to be per body key, not per route. A key with no entry (`isEnabled`, or
+ * anything not in `SITE_CONFIG_KEYS`) is deliberately left ungated by any `site:*` permission: it
+ * belongs to `AdminSites.vue`'s own site-management actions (enable/disable, alongside create and
+ * delete), which stay `manage:sites`-only rather than becoming delegable.
+ */
+const SITE_FIELD_PERMISSIONS: Partial<
+  Record<(typeof SITE_CONFIG_KEYS)[number] | 'hostname' | 'isEnabled', string>
+> = {
+  hostname: 'site:general',
+  title: 'site:general',
+  description: 'site:general',
+  company: 'site:general',
+  contentLicense: 'site:general',
+  footerExtra: 'site:general',
+  pageExtensions: 'site:general',
+  logoText: 'site:general',
+  sitemap: 'site:general',
+  discoverable: 'site:general',
+  defaults: 'site:general',
+  features: 'site:general',
+  robots: 'site:general',
+  uploads: 'site:general',
+  auth: 'site:login',
+  authStrategies: 'site:login',
+  locales: 'site:locale',
+  editors: 'site:editors',
+  theme: 'site:theme'
+}
+
+/** Which `site:*` permission covers replacing or clearing each of a site's own images. */
+const SITE_IMAGE_KIND_PERMISSIONS: Record<SiteAssetKind, string> = {
+  logo: 'site:general',
+  favicon: 'site:general',
+  loginBg: 'site:login'
+}
+
+/**
+ * Whether this caller may replace or clear one of a site's images.
+ *
+ * `manage:sites` keeps working exactly as it did before delegation existed; `site:general` /
+ * `site:login` are the new, narrower alternative a rule can grant per site.
+ */
+function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKind): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return (
+    actor.permissions.includes('manage:sites') ||
+    WIKI.models.groups.checkSiteAccess(actor, SITE_IMAGE_KIND_PERMISSIONS[kind], siteId)
+  )
+}
+
+/**
+ * Every `site:*` permission (see `helpers/siteRules.ts`) this requester holds on this site.
+ *
+ * The site-scoped counterpart to `pagePermissionsFor` in `api/pages.ts`: what the interface hides
+ * `AdminGeneral.vue`, `AdminTheme.vue` and the rest of the nine site-scoped admin pages by, asked the
+ * same way that route's own handlers decide it (`checkSiteAccess`) rather than a broader question.
+ *
+ * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
+ * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
+ * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayReadApprovalRules` in
+ * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
+ * a specific route would still refuse. The frontend already has all three of those in
+ * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
+ */
+function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  if (actor.permissions.includes('manage:system')) {
+    return SITE_PERMISSIONS
+  }
+  return SITE_PERMISSIONS.filter((permission) =>
+    WIKI.models.groups.checkSiteAccess(actor, permission, siteId)
+  )
+}
 
 /**
  * Sites API Routes
@@ -142,6 +223,46 @@ async function routes(app: FastifyInstance) {
       } else {
         return reply.notFound('Site does not exist.')
       }
+    }
+  )
+
+  /**
+   * SITE USER PERMISSIONS
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/:siteId/userPermissions',
+    {
+      /*
+        No route-level `permissions`: same reasoning as `pages/userPermissions` in `api/pages.ts` --
+        this answers what the caller may do, which for an anonymous or under-permissioned caller is
+        an empty array rather than a 403.
+      */
+      schema: {
+        summary: 'Get site-admin user permissions',
+        description:
+          "Which `site:*` permissions (see `helpers/siteRules.ts`) the caller holds on this site. This is what the interface hides the nine site-scoped admin pages by. Deliberately does not fold in `manage:sites` / `manage:theme` / `manage:navigation` -- see `sitePermissionsFor`'s own comment for why.",
+        tags: ['Sites'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: 'Site-admin permissions the current user holds for this site',
+            type: 'array',
+            items: { type: 'string' }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return sitePermissionsFor(req, req.params.siteId)
     }
   )
 
@@ -280,11 +401,17 @@ async function routes(app: FastifyInstance) {
   }>(
     '/:siteId',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: five different `site:*` permissions gate different keys of the
+        same body (see `SITE_FIELD_PERMISSIONS`), which `config.permissions` cannot express any more
+        than it can express a page permission — see CLAUDE.md's "A page permission cannot be enforced
+        by `config.permissions`" note, which applies identically to a site-scoped one. Checked in the
+        handler below instead.
+      */
       schema: {
         summary: 'Update a site',
+        description:
+          'Requires `manage:sites`, or — per key touched — the matching `site:*` permission on this site: `site:general` for `hostname`/`title`/`description`/`company`/`contentLicense`/`footerExtra`/`pageExtensions`/`logoText`/`sitemap`/`discoverable`/`defaults`/`features`/`robots`/`uploads`, `site:theme` for `theme`, `site:login` for `auth`/`authStrategies`, `site:locale` for `locales`, `site:editors` for `editors`. `isEnabled` is not delegable and always requires `manage:sites`. The instance-wide `manage:theme` permission (see task #681) also covers a patch that touches nothing but `theme`.',
         tags: ['Sites'],
         params: {
           type: 'object',
@@ -393,6 +520,39 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      const actor = WIKI.models.groups.actorForRequest(req)
+      if (
+        !actor.permissions.includes('manage:system') &&
+        !actor.permissions.includes('manage:sites')
+      ) {
+        const touchedKeys = Object.keys(req.body) as (
+          | (typeof SITE_CONFIG_KEYS)[number]
+          | 'hostname'
+          | 'isEnabled'
+        )[]
+        // -> The instance-wide `manage:theme` grant (task #681) only ever covers a patch that
+        //    touches nothing but `theme` — anything broader falls through to the per-key check
+        //    below, same as it always has.
+        const maySaveThemeOnly =
+          actor.permissions.includes('manage:theme') &&
+          touchedKeys.length > 0 &&
+          touchedKeys.every((key) => key === 'theme')
+        if (!maySaveThemeOnly) {
+          const missingPermission = touchedKeys.some((key) => {
+            const required = SITE_FIELD_PERMISSIONS[key]
+            // -> `isEnabled`, or any key nobody delegated a `site:*` permission for, stays
+            //    `manage:sites`-only -- reaching this branch already means that's absent.
+            if (!required) {
+              return true
+            }
+            return !WIKI.models.groups.checkSiteAccess(actor, required, req.params.siteId)
+          })
+          if (missingPermission) {
+            return reply.forbidden()
+          }
+        }
+      }
+
       // -> Validate inputs
       if (req.body.title !== undefined && !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
@@ -489,12 +649,14 @@ async function routes(app: FastifyInstance) {
   app.put<{ Params: { siteId: string; kind: SiteAssetKind } }>(
     '/:siteId/images/:kind',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: which `site:*` permission applies depends on `kind` (`logo`
+        and `favicon` are `site:general`, `loginBg` is `site:login`), which a route-level list can't
+        express. Checked in the handler via `maySaveSiteImage`.
+      */
       schema: {
         summary: "Replace one of a site's images",
-        description: `The body is the raw image, not a multipart form — send the file itself with its \`Content-Type\`. At most ${imageUploadLimit / 1024 / 1024} MB, and it must really be one of the accepted formats: the bytes are checked, not the declared type.\n\nA raster upload is re-encoded to the size and format the image is served at — 512x512 WebP for a logo, 180x180 PNG for a favicon, 1920x1080 WebP for a login background — when the Sharp extension is installed, and stored as uploaded when it is not. An SVG is always stored as uploaded.\n\nServed afterwards from \`/_site/<siteId>/<kind>\`, which falls back to the built-in default until something is uploaded.`,
+        description: `Requires \`manage:sites\`, or \`site:general\` for \`logo\`/\`favicon\` and \`site:login\` for \`loginBg\` on this site.\n\nThe body is the raw image, not a multipart form — send the file itself with its \`Content-Type\`. At most ${imageUploadLimit / 1024 / 1024} MB, and it must really be one of the accepted formats: the bytes are checked, not the declared type.\n\nA raster upload is re-encoded to the size and format the image is served at — 512x512 WebP for a logo, 180x180 PNG for a favicon, 1920x1080 WebP for a login background — when the Sharp extension is installed, and stored as uploaded when it is not. An SVG is always stored as uploaded.\n\nServed afterwards from \`/_site/<siteId>/<kind>\`, which falls back to the built-in default until something is uploaded.`,
         tags: ['Sites'],
         consumes: [...imageMimeTypes, svgMimeType],
         params: {
@@ -533,6 +695,9 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
+      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+        return reply.forbidden()
+      }
 
       const data = req.body
       if (!Buffer.isBuffer(data) || data.length < 1) {
@@ -562,13 +727,14 @@ async function routes(app: FastifyInstance) {
   app.delete<{ Params: { siteId: string; kind: SiteAssetKind } }>(
     '/:siteId/images/:kind',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the PUT above — `kind` decides which `site:*`
+        permission applies, checked in the handler via `maySaveSiteImage`.
+      */
       schema: {
         summary: "Remove one of a site's images",
         description:
-          'Leaves the built-in default to be served in its place again. Succeeds even if there was no image to remove.',
+          'Requires `manage:sites`, or `site:general` for `logo`/`favicon` and `site:login` for `loginBg` on this site.\n\nLeaves the built-in default to be served in its place again. Succeeds even if there was no image to remove.',
         tags: ['Sites'],
         params: {
           type: 'object',
@@ -606,6 +772,9 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
+      if (!maySaveSiteImage(req, req.params.siteId, req.params.kind)) {
+        return reply.forbidden()
+      }
 
       await WIKI.models.sites.clearAsset(req.params.siteId, req.params.kind)
 
@@ -622,6 +791,14 @@ async function routes(app: FastifyInstance) {
   app.delete<{ Params: { siteId: string } }>(
     '/:siteId',
     {
+      /*
+        Deliberately still a route-level, global-only gate: deleting a site is one of
+        `AdminSites.vue`'s own site-management actions (alongside create and enable/disable), not one
+        of the eight delegable `site:*` settings surfaces in
+        `docs/decisions/delegated-per-site-administration.md` §3, so there is no site-scoped
+        permission for `config.permissions` to be unable to express here — `manage:sites` says the
+        whole of it, same as before.
+      */
       config: {
         permissions: ['manage:sites']
       },

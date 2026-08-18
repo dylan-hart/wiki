@@ -79,6 +79,16 @@ export const useUserStore = defineStore('user', {
     cvd: 'none',
     permissions: [],
     pagePermissions: [],
+    /**
+     * The `site:*` permissions (see `backend/helpers/siteRules.ts`) the caller holds on
+     * `sitePermissionsSiteId` — the site-scoped counterpart to `pagePermissions`. Only ever valid for
+     * the one site it was last fetched for, which is exactly what `sitePermissionsSiteId` records: a
+     * component asking about a DIFFERENT site must not read this as an answer for that site. See
+     * `canOnSite`.
+     */
+    sitePermissions: [],
+    /** Which site `sitePermissions` was fetched for, or null before the first fetch. */
+    sitePermissionsSiteId: null,
     authenticated: false,
     profileLoaded: false
   }),
@@ -157,6 +167,8 @@ export const useUserStore = defineStore('user', {
         // -> Page permissions arrive with the page, so leaving them would keep edit buttons on screen
         //    for a user who is no longer logged in until they navigate
         pagePermissions: [],
+        sitePermissions: [],
+        sitePermissionsSiteId: null,
         authenticated: false,
         /*
           Loaded, not unknown: being a guest IS an answer, and this is where it is recorded — whether
@@ -197,6 +209,47 @@ export const useUserStore = defineStore('user', {
       } catch (err) {
         console.warn(`Failed to fetch page permissions at path ${path}!`)
       }
+    },
+    /**
+     * Which `site:*` permissions the caller holds on `siteId` — what the admin area's nine
+     * site-scoped pages hide their sidebar links and content behind. See
+     * `frontend/src/composables/siteAdminAccess.js`, the actual caller.
+     *
+     * Clears first, synchronously, rather than only on success: while a fetch for a NEW site is in
+     * flight, `sitePermissionsSiteId` no longer matches that (or any) site, so `canOnSite` reads as
+     * denied for it in the meantime — the safe direction for a permission check to be wrong in,
+     * unlike serving the PREVIOUS site's answer while this one is still loading would be.
+     */
+    async fetchSitePermissions(siteId) {
+      this.sitePermissions = []
+      this.sitePermissionsSiteId = null
+      if (!siteId) {
+        return
+      }
+      try {
+        const permissions = await API_CLIENT.get(`sites/${siteId}/userPermissions`).json()
+        // -> Guards `canOnSite`'s `.includes()` against a malformed/empty response the same way an
+        //    absent one is already guarded against above.
+        this.sitePermissions = Array.isArray(permissions) ? permissions : []
+        this.sitePermissionsSiteId = siteId
+      } catch (err) {
+        console.warn(`Failed to fetch site permissions for site ${siteId}!`)
+      }
+    },
+    /**
+     * Whether the caller holds a `site:*` permission on a specific site — the site-scoped counterpart
+     * to `can()`. Takes `siteId` explicitly, unlike `can()`'s implicit "current path": `sitePermissions`
+     * is only ever valid for one site at a time, and a caller asking about a site it was not fetched
+     * for must be refused rather than answered with a stale or unrelated site's grant.
+     */
+    canOnSite(permission, siteId) {
+      if (this.permissions.includes('manage:system')) {
+        return true
+      }
+      if (!siteId || this.sitePermissionsSiteId !== siteId) {
+        return false
+      }
+      return this.sitePermissions.includes(permission)
     },
     /**
      * Format a moment as this user asked to see it: their date pattern, their 12h/24h choice, and their

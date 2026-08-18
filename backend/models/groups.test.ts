@@ -178,3 +178,125 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
   })
 })
+
+/**
+ * `groups.checkSiteAccess` is the site-scoped counterpart to `checkAccess` (see
+ * `helpers/siteRules.ts`), reusing the same `rules` column and in-memory cache — so, like
+ * `checkAccess` above, what belongs here is the wiring (cache reload, `manage:system` bypass,
+ * pooling across an actor's groups), not the resolution algorithm itself, which
+ * `helpers/siteRules.test.ts` already covers in isolation.
+ */
+describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
+    id: 'rule-1',
+    name: 'Test Rule',
+    roles: ['site:theme'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: [],
+    sites: [],
+    ...overrides
+  })
+
+  test('a group granting the permission for all sites (empty `sites`) allows any site', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', 'site-a'), true)
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', 'site-b'), true)
+  })
+
+  test('a group granting the permission for one specific site denies it implicitly for others', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [fixtures.siteId] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', 'some-other-site'), false)
+  })
+
+  test('a DENY rule from a second group overrides a broader ALLOW from the first', async () => {
+    const [secondGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Second Fixture Group',
+        permissions: [],
+        rules: [rule({ id: 'scoped-deny', mode: 'DENY', sites: [fixtures.siteId] })]
+      })
+      .returning({ id: groupsTable.id })
+
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ id: 'broad-allow', mode: 'ALLOW', sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId, secondGroup!.id], permissions: [] }
+    // -> The DENY from the second group wins over the broad ALLOW from the first, on this one site
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), false)
+    // -> A site the DENY does not name is untouched: the broad ALLOW still decides it
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', 'unrelated-site'), true)
+
+    // -> A FORCEALLOW on the same site, from a third group, overrides that DENY in turn
+    const [thirdGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Third Fixture Group',
+        permissions: [],
+        rules: [rule({ id: 'scoped-force', mode: 'FORCEALLOW', sites: [fixtures.siteId] })]
+      })
+      .returning({ id: groupsTable.id })
+    await groupsModel.reloadCache()
+
+    const actorWithForceAllow = {
+      groupIds: [fixtures.groupId, secondGroup!.id, thirdGroup!.id],
+      permissions: []
+    }
+    assert.equal(
+      groupsModel.checkSiteAccess(actorWithForceAllow, 'site:theme', fixtures.siteId),
+      true
+    )
+  })
+
+  test('manage:system bypasses every site rule, including an explicit DENY', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ mode: 'DENY', sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+  })
+
+  test('a group with no matching rule denies rather than falling through to allow', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), false)
+  })
+})

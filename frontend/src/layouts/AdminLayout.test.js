@@ -42,10 +42,16 @@ describe('AdminLayout sidebar nav', () => {
     flagsStore.experimental = experimental
 
     // -> Avoids the pre-existing `this.sites[0].id` crash in `adminStore.fetchSites()` (called from
-    //    `onMounted`) when the stubbed API_CLIENT response is empty by default.
+    //    `onMounted`) when the stubbed API_CLIENT response is empty by default. The
+    //    `userPermissions` branch avoids a similar crash in `userStore.fetchSitePermissions()`,
+    //    triggered by AdminLayout.vue's watcher on `adminStore.currentSiteId` once `fetchSites()`
+    //    resolves — `sitePermissions.includes()` needs an array, not the default `undefined`.
     API_CLIENT.get.mockImplementation((url) => {
       if (url === 'sites') {
         return { json: () => Promise.resolve([{ id: 'site1', title: 'Site 1' }]) }
+      }
+      if (typeof url === 'string' && url.endsWith('/userPermissions')) {
+        return { json: () => Promise.resolve([]) }
       }
       return { json: () => Promise.resolve(undefined) }
     })
@@ -151,8 +157,18 @@ describe('AdminLayout Navigation nav-tree entry', () => {
     expect(link.attributes('aria-disabled')).toBeUndefined()
   })
 
-  it('shows the entry when the user has manage:sites, with the experimental flag off', async () => {
+  it('hides the entry for manage:sites alone -- the backend has never accepted it for navigation', async () => {
     const wrapper = await mountLayout({ permissions: ['manage:sites'], experimental: false })
+
+    expect(findNavigationLink(wrapper).exists()).toBe(false)
+  })
+
+  it('shows the entry for a delegated site:navigation grant on the current site, without manage:navigation', async () => {
+    const wrapper = await mountLayout({ permissions: [], experimental: false })
+    const userStore = useUserStore()
+    userStore.sitePermissions = ['site:navigation']
+    userStore.sitePermissionsSiteId = 'site-1'
+    await wrapper.vm.$nextTick()
 
     expect(findNavigationLink(wrapper).exists()).toBe(true)
   })

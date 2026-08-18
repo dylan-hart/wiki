@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminNavigation from './AdminNavigation.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { dialog } from '@/composables/dialog'
 
 vi.mock('@/composables/dialog', async (importOriginal) => ({
@@ -57,7 +59,7 @@ const OVERRIDES = [
   }
 ]
 
-function mountPage() {
+async function mountPage() {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
@@ -68,11 +70,24 @@ function mountPage() {
     { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français' }
   ]
 
+  // -> useSiteAdminAccess('site:navigation') needs a real route (for its `siteid` param) and a
+  //    permission that satisfies GLOBAL_FALLBACKS['site:navigation'], so this mount neither warns
+  //    on a missing router injection nor redirects away mid-test.
+  const userStore = useUserStore()
+  userStore.permissions = ['manage:navigation']
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/_admin/:siteid/navigation', component: { template: '<div />' } }]
+  })
+  router.push('/_admin/site-1/navigation')
+  await router.isReady()
+
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: MESSAGES } })
 
   const wrapper = mount(AdminNavigation, {
     global: {
-      plugins: [i18n]
+      plugins: [router, i18n]
     }
   })
 
@@ -83,7 +98,7 @@ describe('AdminNavigation', () => {
   it('loads overrides for the current admin site and renders path, locale and mode per row', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
     expect(API_CLIENT.get).toHaveBeenCalledWith(
@@ -101,7 +116,7 @@ describe('AdminNavigation', () => {
   it('filters rows by path only, not by locale or mode', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
     // -> 'fr' matches the second row's locale but not either row's path -- a path-only filter
@@ -116,7 +131,7 @@ describe('AdminNavigation', () => {
   it('re-fetches with the selected locale as a query param', async () => {
     API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue(OVERRIDES) })
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 1)
 
     // -> Drives the locale select through its public v-model contract rather than reaching into
@@ -134,7 +149,7 @@ describe('AdminNavigation', () => {
     API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
     dialog.mockClear()
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
     // -> `w-btn` renders its label as text rather than `aria-label` when one is given -- find it by
@@ -158,7 +173,7 @@ describe('AdminNavigation', () => {
     dialog.mockClear()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
     // -> The first row (overrideExact) has a navigationId -- its own menu -- so it opens the editor
@@ -183,7 +198,7 @@ describe('AdminNavigation', () => {
     dialog.mockClear()
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
 
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await vi.waitUntil(() => wrapper.findAll('.w-table__row').length === OVERRIDES.length)
 
     // -> The second row (hide) has no navigationId -- nothing to edit -- so it falls back to opening

@@ -55,6 +55,20 @@ async function mayListBlocks(req: FastifyRequest, siteId: string): Promise<boole
 }
 
 /**
+ * Whether this caller may enable, disable or delete this site's blocks.
+ *
+ * `manage:sites` keeps working exactly as before delegation existed; `site:blocks` (see
+ * `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
+ */
+function mayManageBlocks(req: FastifyRequest, siteId: string): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return (
+    actor.permissions.includes('manage:sites') ||
+    WIKI.models.groups.checkSiteAccess(actor, 'site:blocks', siteId)
+  )
+}
+
+/**
  * Blocks API Routes
  */
 async function routes(app: FastifyInstance) {
@@ -217,12 +231,14 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/blocks',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: who may change a site's blocks comes from `checkSiteAccess()`,
+        which that hook cannot call — see `mayManageBlocks`.
+      */
       schema: {
         summary: 'Enable or disable site blocks',
-        description: 'Only the blocks listed are affected; any others keep their current state.',
+        description:
+          'Only the blocks listed are affected; any others keep their current state.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -282,6 +298,9 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
+      if (!mayManageBlocks(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
 
       try {
         const updated = await WIKI.models.blocks.setBlocksState(req.params.siteId, req.body.states)
@@ -303,13 +322,13 @@ async function routes(app: FastifyInstance) {
   app.delete<{ Params: { siteId: string; blockId: string } }>(
     '/sites/:siteId/blocks/:blockId',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the PUT above — see `mayManageBlocks`.
+      */
       schema: {
         summary: 'Delete a custom block',
         description:
-          'Only custom blocks can be deleted. Built-in blocks are registered from disk and would reappear on the next sync.',
+          'Only custom blocks can be deleted. Built-in blocks are registered from disk and would reappear on the next sync.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -336,6 +355,9 @@ async function routes(app: FastifyInstance) {
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
+      }
+      if (!mayManageBlocks(req, req.params.siteId)) {
+        return reply.forbidden()
       }
 
       const siteBlocks = await WIKI.models.blocks.getSiteBlocks(req.params.siteId)

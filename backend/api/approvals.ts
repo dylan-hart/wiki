@@ -72,6 +72,30 @@ function isReviewerSession(req: FastifyRequest): boolean {
 }
 
 /**
+ * Whether this caller may read this site's approval rules — i.e. reach `AdminApprovals.vue` for it.
+ *
+ * `read:sites` and `manage:sites` keep working exactly as before delegation existed; `site:approvals`
+ * (see `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
+ */
+function mayReadApprovalRules(req: FastifyRequest, siteId: string): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return (
+    actor.permissions.includes('read:sites') ||
+    actor.permissions.includes('manage:sites') ||
+    WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
+  )
+}
+
+/** Whether this caller may create, change or delete this site's approval rules. */
+function mayManageApprovalRules(req: FastifyRequest, siteId: string): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return (
+    actor.permissions.includes('manage:sites') ||
+    WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
+  )
+}
+
+/**
  * Everything a rule has to satisfy beyond what the JSON Schema already enforces.
  *
  * All of it comes down to the same thing: a rule that cannot match a page, or that nobody is on either
@@ -165,13 +189,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/approvals/rules',
     {
-      config: {
-        permissions: ['read:sites', 'manage:sites']
-      },
+      /*
+        No route-level `permissions`: who may read this comes from `checkSiteAccess()`, which that
+        hook cannot call — see `mayReadApprovalRules`.
+      */
       schema: {
         summary: 'List the approval rules of a site',
         description:
-          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.',
+          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `read:sites` or `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -197,6 +222,9 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
+      if (!mayReadApprovalRules(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       return WIKI.models.approvals.getRules(req.params.siteId)
     }
   )
@@ -207,13 +235,14 @@ async function routes(app: FastifyInstance) {
   app.post<{ Params: { siteId: string }; Body: ApprovalRulePatch }>(
     '/sites/:siteId/approvals/rules',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: who may write this comes from `checkSiteAccess()`, which that
+        hook cannot call — see `mayManageApprovalRules`.
+      */
       schema: {
         summary: 'Create an approval rule',
         description:
-          'Rules are not ordered: a page is covered when any rule matches it, so a new one only ever adds coverage.',
+          'Rules are not ordered: a page is covered when any rule matches it, so a new one only ever adds coverage.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -248,6 +277,9 @@ async function routes(app: FastifyInstance) {
       if (!site) {
         return reply.notFound('Site does not exist.')
       }
+      if (!mayManageApprovalRules(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
 
       const invalid = validateRule({
         name: req.body.name!,
@@ -277,12 +309,14 @@ async function routes(app: FastifyInstance) {
   app.put<{ Params: { siteId: string; ruleId: string }; Body: ApprovalRulePatch }>(
     '/sites/:siteId/approvals/rules/:ruleId',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the POST above — see
+        `mayManageApprovalRules`.
+      */
       schema: {
         summary: 'Update an approval rule',
-        description: 'Accepts any subset of the fields; omitted ones are left unchanged.',
+        description:
+          'Accepts any subset of the fields; omitted ones are left unchanged.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -312,6 +346,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!mayManageApprovalRules(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       const current = await WIKI.models.approvals.getRule(req.params.siteId, req.params.ruleId)
       if (!current) {
         return reply.notFound('Approval rule does not exist.')
@@ -358,13 +395,14 @@ async function routes(app: FastifyInstance) {
   app.delete<{ Params: { siteId: string; ruleId: string } }>(
     '/sites/:siteId/approvals/rules/:ruleId',
     {
-      config: {
-        permissions: ['manage:sites']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the POST above — see
+        `mayManageApprovalRules`.
+      */
       schema: {
         summary: 'Delete an approval rule',
         description:
-          'The pages it covered stop accepting edit suggestions, unless another rule also matches them.',
+          'The pages it covered stop accepting edit suggestions, unless another rule also matches them.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -388,6 +426,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!mayManageApprovalRules(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       if (!(await WIKI.models.approvals.deleteRule(req.params.siteId, req.params.ruleId))) {
         return reply.notFound('Approval rule does not exist.')
       }
