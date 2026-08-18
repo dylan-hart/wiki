@@ -60,6 +60,7 @@
     "drizzle-orm": "1.0.0-rc.4",
     "emittery": "2.0.0",
     "es-toolkit": "1.50.0",
+    "fast-xml-parser": "5.11.0",
     "fastify": "5.11.3",
     "fastify-favicon": "5.0.0",
     "filesize": "11.0.22",

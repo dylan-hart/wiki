@@ -20,10 +20,12 @@ import { registerSchemas as registerAuthSchema } from './schemas/authentication.
  */
 
 const STRATEGY_ID = 'a1111111-1111-1111-1111-111111111111'
+const CAS_STRATEGY_ID = 'a2222222-2222-2222-2222-222222222222'
 
 let app: FastifyInstance
 let session: Record<string, any>
 let loginCalls: any[]
+let profileCalls: any[]
 
 function freshFlow(overrides: Record<string, any> = {}) {
   return {
@@ -40,10 +42,12 @@ function freshFlow(overrides: Record<string, any> = {}) {
 
 beforeEach(() => {
   loginCalls = []
+  profileCalls = []
 })
 
 before(async () => {
   loginCalls = []
+  profileCalls = []
   ;(globalThis as any).WIKI = {
     config: { security: { authRateLimitEnabled: false } },
     models: {
@@ -52,7 +56,9 @@ before(async () => {
         getStrategyById: async (id: string) =>
           id === STRATEGY_ID
             ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, registration: true }
-            : null
+            : id === CAS_STRATEGY_ID
+              ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, registration: true }
+              : null
       },
       users: {
         loginWithProvider: async (args: any) => {
@@ -66,6 +72,13 @@ before(async () => {
         [STRATEGY_ID]: {
           module: 'saml',
           profile: async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' })
+        },
+        [CAS_STRATEGY_ID]: {
+          module: 'cas',
+          profile: async (args: any) => {
+            profileCalls.push(args)
+            return { id: 'alice', email: 'alice@example.com', name: 'Alice Example' }
+          }
         }
       }
     }
@@ -146,6 +159,29 @@ test('a callback with no authFlow on the session at all is refused', async () =>
   assert.equal(res.statusCode, 302)
   assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_EXPIRED/)
   assert.equal(loginCalls.length, 0)
+})
+
+/**
+ * CAS reads `state` off the query string exactly like an OAuth2/OIDC provider does — see `AuthFlow.state`
+ * in `models/authentication.ts` — but carries its own answer in `ticket` rather than `code`. This is the
+ * route-level half of that wiring: the GET callback's typed querystring and the object handed to the
+ * module's `profile()` both need a `ticket` field alongside `code`, or a CAS module never sees the ticket
+ * CAS granted.
+ */
+test("a GET callback forwards `ticket` (not `code`) to the module's profile(), alongside `state`", async () => {
+  session = { authFlow: freshFlow({ strategyId: CAS_STRATEGY_ID }) }
+
+  const res = await app.inject({
+    method: 'GET',
+    url: `/auth/${CAS_STRATEGY_ID}/callback?ticket=ST-abc123&state=abc123`
+  })
+
+  assert.equal(res.statusCode, 302)
+  assert.equal(res.headers.location, '/welcome')
+  assert.equal(profileCalls.length, 1)
+  assert.equal(profileCalls[0].ticket, 'ST-abc123')
+  assert.equal(profileCalls[0].state, 'abc123')
+  assert.equal(profileCalls[0].code, undefined)
 })
 
 test('an expired flow is refused even with a matching RelayState', async () => {

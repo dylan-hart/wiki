@@ -63,6 +63,11 @@ export interface AuthFlowCallback extends AuthFlow {
   /** The authorization code, for a module that reads it directly rather than through a library. */
   code?: string
   /**
+   * CAS's equivalent of `code`: the service ticket it granted, read off the same GET callback route's
+   * querystring. Absent for every other protocol.
+   */
+  ticket?: string
+  /**
    * The parsed `application/x-www-form-urlencoded` body, for a module whose provider answers with a
    * form POST rather than a redirect — SAML's `SAMLResponse` and `RelayState` arrive this way. Absent
    * on a GET callback.

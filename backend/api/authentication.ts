@@ -117,7 +117,7 @@ async function finishProviderLogin(
   reply: FastifyReply,
   flow: NonNullable<FastifyRequest['session']['authFlow']>,
   redirect: string,
-  extra: { code?: string; body?: Record<string, any>; currentUrl: string }
+  extra: { code?: string; ticket?: string; body?: Record<string, any>; currentUrl: string }
 ) {
   const strategy = await WIKI.models.authentication.getStrategyById(flow.strategyId)
   const instance = WIKI.auth.strategies[flow.strategyId] as any
@@ -133,6 +133,7 @@ async function finishProviderLogin(
       codeVerifier: flow.codeVerifier,
       currentUrl: extra.currentUrl,
       code: extra.code,
+      ticket: extra.ticket,
       body: extra.body
     })
     const result = await WIKI.models.users.loginWithProvider(
@@ -797,7 +798,14 @@ async function routes(app: FastifyInstance) {
    */
   app.get<{
     Params: { strategyId: string }
-    Querystring: { code?: string; state?: string; error?: string; error_description?: string }
+    Querystring: {
+      code?: string
+      /** CAS's equivalent of `code` — see `AuthFlowCallback.ticket` in `models/authentication.ts`. */
+      ticket?: string
+      state?: string
+      error?: string
+      error_description?: string
+    }
   }>(
     '/auth/:strategyId/callback',
     {
@@ -843,6 +851,7 @@ async function routes(app: FastifyInstance) {
 
       return finishProviderLogin(req, reply, flow, redirect, {
         code: req.query.code,
+        ticket: req.query.ticket,
         currentUrl: `${callbackUrl(req, req.params.strategyId)}?${new URLSearchParams(req.query as Record<string, string>).toString()}`
       })
     }
