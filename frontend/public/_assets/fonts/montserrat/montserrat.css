@@ -1,0 +1,40 @@
+/* montserrat-300 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 300;
+  src: local(''),
+       url('/_assets/fonts/montserrat/montserrat-all-300.woff2') format('woff2')
+}
+/* montserrat-regular - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 400;
+  src: local(''),
+       url('/_assets/fonts/montserrat/montserrat-all-regular.woff2') format('woff2')
+}
+/* montserrat-500 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 500;
+  src: local(''),
+       url('/_assets/fonts/montserrat/montserrat-all-500.woff2') format('woff2')
+}
+/* montserrat-700 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 700;
+  src: local(''),
+       url('/_assets/fonts/montserrat/montserrat-all-700.woff2') format('woff2')
+}
+/* montserrat-900 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 900;
+  src: local(''),
+       url('/_assets/fonts/montserrat/montserrat-all-900.woff2') format('woff2')
+}

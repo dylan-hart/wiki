@@ -1,0 +1,40 @@
+/* tajawal-300 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/variances.md */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 300;
+  src: local(''),
+       url('/_assets/fonts/tajawal/tajawal-all-300.woff2') format('woff2')
+}
+/* tajawal-regular - arabic_latin. No latin-ext instance exists upstream for this family - see docs/variances.md */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 400;
+  src: local(''),
+       url('/_assets/fonts/tajawal/tajawal-all-regular.woff2') format('woff2')
+}
+/* tajawal-500 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/variances.md */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 500;
+  src: local(''),
+       url('/_assets/fonts/tajawal/tajawal-all-500.woff2') format('woff2')
+}
+/* tajawal-700 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/variances.md */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 700;
+  src: local(''),
+       url('/_assets/fonts/tajawal/tajawal-all-700.woff2') format('woff2')
+}
+/* tajawal-900 - arabic_latin. No latin-ext instance exists upstream for this family - see docs/variances.md */
+@font-face {
+  font-family: 'Tajawal';
+  font-style: normal;
+  font-weight: 900;
+  src: local(''),
+       url('/_assets/fonts/tajawal/tajawal-all-900.woff2') format('woff2')
+}
