@@ -301,7 +301,7 @@
             <blueprint-icon
               class="self-start"
               icon="butterfly"
-              indicator
+              :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
               <div class="flex">
@@ -365,7 +365,7 @@
             <blueprint-icon
               class="self-start"
               icon="starfish"
-              indicator
+              :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
               <div class="flex">
@@ -614,6 +614,10 @@ const state = reactive({
   //    The previews always render: without one they show the default that is served instead.
   hasLogo: false,
   hasFavicon: false,
+  // -> Drives the "requires Sharp" indicator on the logo / favicon uploaders. Starts false rather
+  //    than true so a slow or failed `system/extensions` call understates the warning instead of
+  //    crying wolf while it's still unknown.
+  sharpMissing: false,
   config: defaultConfig()
 })
 
@@ -672,6 +676,21 @@ async function load() {
   state.hasFavicon = resp?.assets?.favicon ?? false
   loading.hide()
   state.loading--
+}
+
+/**
+ * Whether the Sharp extension is usable on this server, which decides whether an uploaded logo /
+ * favicon gets resized and re-encoded or stored as-is. Site-independent, so this runs once on mount
+ * rather than on every `load()` (which re-runs per site switch).
+ */
+async function checkSharpAvailability() {
+  try {
+    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
+    const sharp = extensions.find((ext) => ext.key === 'sharp')
+    state.sharpMissing = !sharp?.isInstalled
+  } catch (err) {
+    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
+  }
 }
 
 /**
@@ -855,6 +874,7 @@ onMounted(() => {
   if (adminStore.currentSiteId) {
     load()
   }
+  checkSharpAvailability()
 })
 </script>
 

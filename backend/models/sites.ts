@@ -290,6 +290,17 @@ class Sites {
    * indicator is warning about. An SVG is stored as it came in either way: it is markup, it already
    * scales to any size, and rasterizing it would throw away the only reason to use one.
    *
+   * Decision: an oversized-but-unresized upload (up to the route's 10 MB `imageUploadLimit`, stored
+   * raw because Sharp is missing) is deliberately NOT flagged per-upload beyond the admin area's
+   * "requires Sharp" indicator, which is a standing warning rather than a one-shot toast — it is
+   * visible on every visit to this screen for as long as Sharp stays uninstalled, which fits an
+   * operator-level problem (fix by reinstalling Sharp, not by re-uploading a smaller file) better
+   * than a dismiss-and-forget notification would. Doing better than that would mean broadening the
+   * upload route's response (today just `{ ok, message }`) to report whether normalization actually
+   * ran and how large the stored bytes ended up — a real feature, not this task's hardening scope.
+   * The 10 MB ceiling already bounds the worst case: what is at stake is "served raw, up to 10 MB",
+   * not an unbounded original.
+   *
    * @param data The uploaded image, already known to be one of the supported formats
    */
   async setAsset(siteId: string, kind: SiteAssetKind, data: Buffer): Promise<void> {

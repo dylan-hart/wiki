@@ -54,7 +54,7 @@
             <blueprint-icon
               class="self-start"
               icon="full-image"
-              indicator
+              :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
               <div class="flex">
@@ -292,6 +292,10 @@ const state = reactive({
   // -> Whether this site has a background of its own, i.e. whether there is anything to clear. The
   //    preview always renders: without one it shows the default the login page falls back to.
   hasBg: false,
+  // -> Drives the "requires Sharp" indicator on the background uploader. Starts false rather than
+  //    true so a slow or failed `system/extensions` call understates the warning instead of crying
+  //    wolf while it's still unknown.
+  sharpMissing: false,
   assetTimestamp: new Date().toISOString()
 })
 
@@ -375,6 +379,21 @@ async function save() {
   state.loading--
 }
 
+/**
+ * Whether the Sharp extension is usable on this server, which decides whether an uploaded
+ * background gets resized and re-encoded or stored as-is. Site-independent, so this runs once on
+ * mount rather than on every `load()` (which re-runs per site switch).
+ */
+async function checkSharpAvailability() {
+  try {
+    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
+    const sharp = extensions.find((ext) => ext.key === 'sharp')
+    state.sharpMissing = !sharp?.isInstalled
+  } catch (err) {
+    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
+  }
+}
+
 function updateAuthPosition(ev) {
   const item = state.providers.splice(ev.oldIndex, 1)[0]
   state.providers.splice(ev.newIndex, 0, item)
@@ -438,6 +457,7 @@ onMounted(() => {
   if (adminStore.currentSiteId) {
     load()
   }
+  checkSharpAvailability()
 })
 </script>
 
