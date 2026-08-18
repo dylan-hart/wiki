@@ -336,16 +336,21 @@ export const usePageStore = defineStore('page', {
       })
     },
     /**
-     * PAGE - GET PATH FROM ALIAS
+     * PAGE - RESOLVE ALIAS
+     *
+     * Returns the `{ id, path, locale }` the alias points at -- the locale as well as the bare path,
+     * so the caller can build a properly-prefixed link (`localizedPagePath`) instead of landing on
+     * the primary-locale default for a translation that isn't. `routes.js`'s `/a/:alias` is the only
+     * caller.
      */
     async pageAlias(alias) {
       const siteStore = useSiteStore()
       try {
-        const pagePath = await API_CLIENT.get(`sites/${siteStore.id}/pages/alias/${alias}`).json()
-        if (!pagePath?.id) {
+        const target = await API_CLIENT.get(`sites/${siteStore.id}/pages/alias/${alias}`).json()
+        if (!target?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        return pagePath.path
+        return target
       } catch (err) {
         if (err.response?.status === 404) {
           throw new Error('ERR_PAGE_NOT_FOUND')
@@ -368,6 +373,7 @@ export const usePageStore = defineStore('page', {
       fromNavigate = false
     } = {}) {
       const editorStore = useEditorStore()
+      const siteStore = useSiteStore()
 
       // -> Load editor config
       if (!editorStore.configIsLoaded) {
@@ -388,7 +394,19 @@ export const usePageStore = defineStore('page', {
       // -> Redirect if not at /_create path
       if (!this.router.currentRoute.value.path.startsWith('/_create/') && !fromNavigate) {
         editorStore.$patch({ ignoreRouteChange: true })
-        this.router.push(`/_create/${editor}`)
+        /*
+          `/_create` has no page segment of its own to carry a locale in, so the app router's own
+          locale-prefix guard (`App.vue`'s `beforeEach`, via `resolveRouteLocale`) would otherwise
+          reset `pageStore.locale` to the site's primary the instant this navigation resolves --
+          overwriting whatever gets patched in below before anything downstream can read it back.
+          Carrying it here, as `?locale=`, is what that guard falls back to instead. Skipped for a
+          single-locale site, where that guard never runs at all.
+        */
+        const createLocale = locale || this.locale
+        this.router.push({
+          path: `/_create/${editor}`,
+          query: siteStore.useLocales && createLocale ? { locale: createLocale } : undefined
+        })
       }
 
       // -> Init editor

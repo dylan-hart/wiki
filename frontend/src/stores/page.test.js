@@ -49,6 +49,7 @@ describe('page store: pageLoad()', () => {
 function makeMultiLocaleSite({ forcePrefix = false } = {}) {
   const siteStore = useSiteStore()
   siteStore.$patch({
+    id: 'site-1',
     locales: {
       primary: 'en',
       showMenu: true,
@@ -61,6 +62,94 @@ function makeMultiLocaleSite({ forcePrefix = false } = {}) {
   })
   return siteStore
 }
+
+describe('page store: pageAlias()', () => {
+  it('returns the resolved id, path and locale', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ id: 'page-1', path: 'docs/target', locale: 'fr' })
+    })
+
+    const pageStore = usePageStore()
+    const target = await pageStore.pageAlias('some-alias')
+
+    expect(target).toEqual({ id: 'page-1', path: 'docs/target', locale: 'fr' })
+  })
+
+  it('throws ERR_PAGE_NOT_FOUND when nothing claims the alias', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(undefined) })
+
+    const pageStore = usePageStore()
+    await expect(pageStore.pageAlias('missing')).rejects.toThrow('ERR_PAGE_NOT_FOUND')
+  })
+})
+
+describe('page store: pageCreate()', () => {
+  /** A stand-in for the router the pinia plugin normally injects — see `stores/index.js`. */
+  function stubRouter(currentPath = '/fr/some-page') {
+    return {
+      currentRoute: { value: { path: currentPath } },
+      push: vi.fn()
+    }
+  }
+
+  it('carries the current locale as ?locale= on the /_create push, on a multi-locale site', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ locale: 'fr' })
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.router.push).toHaveBeenCalledWith({
+      path: '/_create/markdown',
+      query: { locale: 'fr' }
+    })
+  })
+
+  it('an explicit locale argument wins over the current page locale', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ locale: 'fr' })
+
+    await pageStore.pageCreate({ editor: 'markdown', locale: 'en' })
+
+    expect(pageStore.router.push).toHaveBeenCalledWith({
+      path: '/_create/markdown',
+      query: { locale: 'en' }
+    })
+  })
+
+  it('sends no locale query on a single-locale site', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ locale: 'en' })
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.router.push).toHaveBeenCalledWith({
+      path: '/_create/markdown',
+      query: undefined
+    })
+  })
+
+  it('does not push again when already navigating from the route watcher', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+    pageStore.$patch({ locale: 'fr' })
+
+    await pageStore.pageCreate({ editor: 'markdown', fromNavigate: true })
+
+    expect(pageStore.router.push).not.toHaveBeenCalled()
+  })
+})
 
 describe('page store: breadcrumbs', () => {
   it('leaves the path unprefixed on a single-locale site', () => {

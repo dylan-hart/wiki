@@ -951,14 +951,18 @@ class Pages {
   }
 
   /**
-   * Resolve a page alias to its path, or null if nothing claims that alias.
+   * Resolve a page alias to its path and locale, or null if nothing claims that alias.
+   *
+   * The locale travels with the path because an alias identifies one specific page, in one specific
+   * locale -- the caller (the frontend's `/a/:alias` route) needs both to build a correctly-prefixed
+   * link rather than landing on the site's primary-locale default for a translation that isn't.
    */
   async getPathFromAlias(
     siteId: string,
     alias: string
-  ): Promise<{ id: string; path: string } | null> {
+  ): Promise<{ id: string; path: string; locale: string } | null> {
     const results = await WIKI.db
-      .select({ id: pagesTable.id, path: pagesTable.path })
+      .select({ id: pagesTable.id, path: pagesTable.path, locale: pagesTable.locale })
       .from(pagesTable)
       .where(and(eq(pagesTable.siteId, siteId), eq(pagesTable.alias, alias)))
       .limit(1)

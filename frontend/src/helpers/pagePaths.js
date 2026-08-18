@@ -67,12 +67,53 @@ export function parseLocalePrefix(path, activeLocaleCodes) {
   if (!firstSegment) {
     return null
   }
-  const match = activeLocaleCodes.find((code) => code.toLowerCase() === firstSegment.toLowerCase())
+  const match = matchLocaleCode(firstSegment, activeLocaleCodes)
   if (!match) {
     return null
   }
   const rest = '/' + segments.slice(2).join('/')
   return { locale: match, path: rest === '/' ? '/' : rest }
+}
+
+/**
+ * Match a candidate code against a site's active locale codes, case-insensitively.
+ *
+ * The comparison `parseLocalePrefix` makes for a path's leading segment, pulled out so
+ * `resolveRouteLocale` below can make the same comparison against a query parameter instead of a
+ * path segment, without duplicating the case-folding rule in two places.
+ *
+ * @returns The matched code as stored in `activeLocaleCodes`, or null if nothing matches (including
+ *   an empty or missing `candidate`)
+ */
+export function matchLocaleCode(candidate, activeLocaleCodes) {
+  if (!candidate || !activeLocaleCodes?.length) {
+    return null
+  }
+  return activeLocaleCodes.find((code) => code.toLowerCase() === candidate.toLowerCase()) ?? null
+}
+
+/**
+ * The locale a navigation resolves `pageStore.locale` to, before the page itself is known.
+ *
+ * An ordinary path carries its locale in its own leading segment — see `parseLocalePrefix`. An app
+ * route (anything starting `/_`) is not a page and has no such segment to read, with one deliberate
+ * exception: `/_create` writes a NEW page, and its reader-facing default is the locale of the page
+ * the reader was just looking at, not the site's primary. That locale has nowhere else to travel —
+ * the route it lands on names an editor, not a page — so `pageStore.pageCreate` carries it forward
+ * itself, as `?locale=` on the very URL it pushes (see its own doc comment). Every other app route
+ * (profile, admin, search, …) has no reader-facing locale of its own, so an absent or unrecognized
+ * query value falls back to the site's primary exactly like an ordinary unprefixed path does.
+ *
+ * @param path The route's path (`to.path`)
+ * @param query The route's query params (`to.query`); only `.locale` is read
+ * @param activeLocaleCodes The site's active locale codes, as `siteStore.locales.active` stores them
+ * @param primary The site's primary locale code
+ */
+export function resolveRouteLocale(path, query, activeLocaleCodes, primary) {
+  if (path.startsWith('/_')) {
+    return matchLocaleCode(query?.locale, activeLocaleCodes) ?? primary
+  }
+  return parseLocalePrefix(path, activeLocaleCodes)?.locale ?? primary
 }
 
 /**

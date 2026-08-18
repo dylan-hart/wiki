@@ -13,7 +13,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { setCssVar } from '@/helpers/cssVars'
-import { parseLocalePrefix, stripPageExtension } from '@/helpers/pagePaths'
+import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
@@ -248,19 +248,20 @@ router.beforeEach(async (to, from) => {
     (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `desiredLocale` below,
     which is the interface language and persists across pages regardless of which translation is being
     read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
-    is the app itself rather than a page, same as the extension check above, and a first segment that
-    is not one of the site's active codes is an ordinary path rather than a locale, so both fall back
-    to the site's primary. `Index.vue`'s own route watcher does the matching strip of the segment off
-    the path it hashes to look the page up -- this only resolves which locale that lookup asks for.
+    is the app itself rather than a page, same as the extension check above, so it has no path segment
+    to read one from -- `resolveRouteLocale` falls back to a `?locale=` query instead (only `/_create`
+    ever sets one; see `pageStore.pageCreate`), and then to the site's primary same as an ordinary path
+    whose leading segment isn't one of the site's active codes. `Index.vue`'s own route watcher does
+    the matching strip of the segment off the path it hashes to look the page up -- this only resolves
+    which locale that lookup asks for.
   */
   if (siteStore.useLocales) {
-    const parsedLocale = to.path.startsWith('/_')
-      ? null
-      : parseLocalePrefix(
-          to.path,
-          siteStore.locales.active.map((l) => l.code)
-        )
-    pageStore.locale = parsedLocale?.locale ?? siteStore.locales.primary
+    pageStore.locale = resolveRouteLocale(
+      to.path,
+      to.query,
+      siteStore.locales.active.map((l) => l.code),
+      siteStore.locales.primary
+    )
   }
 
   // -> Locale

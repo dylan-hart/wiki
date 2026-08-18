@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { localizedPagePath, parseLocalePrefix, shouldPrefixLocale } from './pagePaths.js'
+import {
+  localizedPagePath,
+  matchLocaleCode,
+  parseLocalePrefix,
+  resolveRouteLocale,
+  shouldPrefixLocale
+} from './pagePaths.js'
 
 describe('parseLocalePrefix', () => {
   const codes = ['en', 'fr']
@@ -59,6 +65,55 @@ describe('localizedPagePath', () => {
 
   it('handles the root path', () => {
     expect(localizedPagePath('', 'fr', siteLocales)).toBe('/fr/')
+  })
+})
+
+describe('matchLocaleCode', () => {
+  const codes = ['en', 'fr']
+
+  it('matches case-insensitively but returns the code as stored', () => {
+    expect(matchLocaleCode('FR', codes)).toBe('fr')
+  })
+
+  it('returns null for a code that is not active', () => {
+    expect(matchLocaleCode('de', codes)).toBeNull()
+  })
+
+  it('returns null for an empty or missing candidate', () => {
+    expect(matchLocaleCode('', codes)).toBeNull()
+    expect(matchLocaleCode(undefined, codes)).toBeNull()
+  })
+
+  it('returns null with no active codes', () => {
+    expect(matchLocaleCode('fr', [])).toBeNull()
+  })
+})
+
+describe('resolveRouteLocale', () => {
+  const codes = ['en', 'fr']
+
+  it('reads the locale off an ordinary path prefix', () => {
+    expect(resolveRouteLocale('/fr/some/page', {}, codes, 'en')).toBe('fr')
+  })
+
+  it('falls back to primary for an ordinary path with no prefix', () => {
+    expect(resolveRouteLocale('/some/page', {}, codes, 'en')).toBe('en')
+  })
+
+  it('reads the locale off the query on an app route', () => {
+    expect(resolveRouteLocale('/_create/markdown', { locale: 'fr' }, codes, 'en')).toBe('fr')
+  })
+
+  it('falls back to primary on an app route with no locale query', () => {
+    expect(resolveRouteLocale('/_create/markdown', {}, codes, 'en')).toBe('en')
+  })
+
+  it('falls back to primary on an app route with an unrecognized locale query', () => {
+    expect(resolveRouteLocale('/_create/markdown', { locale: 'de' }, codes, 'en')).toBe('en')
+  })
+
+  it('ignores a locale query on an ordinary path', () => {
+    expect(resolveRouteLocale('/some/page', { locale: 'fr' }, codes, 'en')).toBe('en')
   })
 })
 
