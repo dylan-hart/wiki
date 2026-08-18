@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   bytea,
@@ -494,6 +495,57 @@ export const pageEditSubmissions = pgTable(
     uniqueIndex('pageEditSubmissions_page_author_idx')
       .on(table.pageId, table.authorId)
       .where(sql`"authorId" IS NOT NULL`)
+  ]
+)
+
+// COMMENTS -----------------------------
+/**
+ * A comment on a page, or a reply to one — `replyTo` is null for the former and points at the parent
+ * for the latter. There is no depth limit: a reply's `replyTo` is just another comment's `id`, so
+ * threads nest as deep as the discussion goes.
+ *
+ * `siteId` is carried alongside `pageId` rather than reached through the page, for the same reason
+ * `pageWatching` and `pageEditSubmissions` do: every query here is scoped to one site.
+ */
+export const comments = pgTable(
+  'comments',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    content: text().notNull(),
+    /**
+     * Rendered HTML, cached alongside the source the way a page's own render is. Left null by this
+     * Feature — nothing populates it yet, and nothing reads it yet either. Populating it is
+     * Feature 390.
+     */
+    render: text(),
+    // -> A guest has no account to attribute the comment to, so it says who sent it. Null for a
+    //    logged in author, whose name is on `authorId` instead. Mirrors `pageEditSubmissions`.
+    guestName: varchar({ length: 255 }),
+    guestEmail: varchar({ length: 255 }),
+    // -> Long enough for an IPv6 address in its longest textual form.
+    guestIp: varchar({ length: 45 }),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> Null once the account is gone, rather than holding the account hostage: a comment is a record
+    //    of what was said, and requiring its author to exist for ever would mean that commenting once
+    //    made an account undeletable. Mirrors `pageHistory.authorId`.
+    authorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    // -> Self-referencing: the parent comment this is a reply to, or null for a top-level comment.
+    //    Cascades so deleting a parent takes its replies with it rather than orphaning them.
+    replyTo: uuid().references((): AnyPgColumn => comments.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    // -> The page-view list query: every comment on a page, oldest first.
+    index('comments_pageId_idx').on(table.pageId, table.createdAt),
+    index('comments_siteId_idx').on(table.siteId),
+    index('comments_authorId_idx').on(table.authorId),
+    index('comments_replyTo_idx').on(table.replyTo)
   ]
 )
 
