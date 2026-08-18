@@ -1,0 +1,127 @@
+import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+
+/**
+ * Generic OAuth2
+ *
+ * The bare authorization-code flow, RFC 6749 and nothing more: no ID token, no discovery document,
+ * no signature to verify — an authorization URL built from admin-configured endpoints, a code exchanged
+ * for an access token, and a profile read from a configured user-info endpoint using that token. That
+ * is little enough to write with `fetch` and no dependency, the same call it was for `github/authentication.ts`
+ * rather than the `passport-oauth2` strategy 2.5.x used for this module.
+ *
+ * `state` is the only part of `AuthFlow` this module reads: it is generated and checked by the shared
+ * flow around it (`api/authentication.ts`), so there is nothing here to verify beyond passing it through
+ * unchanged. `nonce` and `codeVerifier` exist for OIDC/PKCE providers and are simply ignored — a plain
+ * OAuth2 provider has no ID token to bind a nonce to, and no client-side secret PKCE would protect.
+ *
+ * Where an OIDC provider's ID token would carry the subject's identity claims, this module is told
+ * where to find the same information on whatever JSON the provider's user-info endpoint answers with:
+ * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
+ * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — there is no
+ * verification step to add without a protocol feature to hang it on.
+ */
+export default class OAuth2Authentication {
+  strategyId: string
+  conf: Record<string, any>
+  /** Set by `models/authentication.ts` right after construction. */
+  module?: string
+
+  constructor(strategyId: string, conf: Record<string, any>) {
+    this.strategyId = strategyId
+    this.conf = conf
+  }
+
+  /** Every field a login actually needs; a preset built on top of this module still has to set them all. */
+  private assertConfigured(): void {
+    if (
+      !this.conf.clientId ||
+      !this.conf.clientSecret ||
+      !this.conf.authorizationURL ||
+      !this.conf.tokenURL ||
+      !this.conf.userInfoURL
+    ) {
+      throw new Error('ERR_STRATEGY_MISCONFIGURED')
+    }
+  }
+
+  async authorizationUrl({ redirectUri, state }: AuthFlow): Promise<string> {
+    this.assertConfigured()
+    const url = new URL(this.conf.authorizationURL)
+    url.searchParams.set('response_type', 'code')
+    url.searchParams.set('client_id', this.conf.clientId)
+    url.searchParams.set('redirect_uri', redirectUri)
+    // -> Omitted rather than sent empty: an admin who configured no scope gets the provider's default.
+    if (this.conf.scope) {
+      url.searchParams.set('scope', this.conf.scope)
+    }
+    url.searchParams.set('state', state)
+    return url.toString()
+  }
+
+  async profile({ code, redirectUri }: AuthFlowCallback): Promise<ProviderProfile> {
+    this.assertConfigured()
+    if (!code) {
+      throw new Error('ERR_NO_AUTHORIZATION_CODE')
+    }
+
+    const tokenResp = await fetch(this.conf.tokenURL, {
+      method: 'POST',
+      headers: {
+        // -> Ask for JSON: a plain OAuth2 endpoint is free to answer form-encoded otherwise, GitHub's
+        //    among them, and a client_secret this module needs to keep off the browser belongs in the
+        //    body, not appended to the token URL as a query string.
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: this.conf.clientId,
+        client_secret: this.conf.clientSecret,
+        redirect_uri: redirectUri,
+        code
+      }).toString()
+    })
+    let token: Record<string, any>
+    try {
+      token = (await tokenResp.json()) as Record<string, any>
+    } catch {
+      throw new Error('ERR_TOKEN_EXCHANGE_FAILED')
+    }
+    // -> Some providers report a refused exchange as 200 with an `error` field, not as a status code
+    if (!tokenResp.ok || token.error || !token.access_token) {
+      throw new Error('ERR_TOKEN_EXCHANGE_FAILED')
+    }
+
+    const infoResp = await fetch(this.conf.userInfoURL, {
+      headers: {
+        Authorization: `Bearer ${token.access_token}`,
+        Accept: 'application/json'
+      }
+    })
+    if (!infoResp.ok) {
+      throw new Error('ERR_TOKEN_EXCHANGE_FAILED')
+    }
+    const info = (await infoResp.json()) as Record<string, any>
+
+    const id = info[this.conf.userIdClaim || 'id']
+    if (id === undefined || id === null || id === '') {
+      throw new Error('ERR_NO_PROVIDER_ACCOUNT')
+    }
+
+    const email = info[this.conf.emailClaim || 'email']
+    if (!email || typeof email !== 'string') {
+      throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+    }
+
+    return {
+      id: String(id),
+      email,
+      name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email
+    }
+  }
+
+  /** Where a logout should continue, so that the session at the provider ends too. */
+  logoutUrl(): string | null {
+    return this.conf.logoutURL || null
+  }
+}
