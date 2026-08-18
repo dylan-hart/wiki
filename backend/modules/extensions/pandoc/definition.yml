@@ -1,3 +1,6 @@
+# Scope decided in OpenProject task 666 (Feature 402): multi-format page import is built as
+# described below (tasks 667/668). See docs/variances.md for the full per-capability decision
+# covering this file and puppeteer/definition.yml.
 key: pandoc
 title: Pandoc
 description: >-
