@@ -39,6 +39,9 @@ export interface TestFixtures {
   siteId: string
   userId: string
   groupId: string
+  /** The schema this run's tables live in — a worker thread standing up its own `WIKI` needs this to
+   *  point its own pool's `search_path` at the same tables rather than an empty `public`. */
+  schema: string
 }
 
 /** Whether a DB-backed suite may run at all. Gate every such `describe` on this. */
@@ -121,7 +124,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
 
   WIKI.sites[site!.id] = { id: site!.id, config: { locales: { primary: 'en' } } }
 
-  return { db, siteId: site!.id, userId: user!.id, groupId: group!.id }
+  return { db, siteId: site!.id, userId: user!.id, groupId: group!.id, schema }
 }
 
 /**

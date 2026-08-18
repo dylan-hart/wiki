@@ -47,7 +47,11 @@ import type { WebSocket } from 'ws'
  * seed is made *deterministic*: it is built in a scratch document pinned to client id 0, and two seeds
  * of identical text therefore produce byte-identical operations, which merge as one. That is also what
  * lets a client reconnect after a network blip and push back the edits it made while it was away — its
- * local copy of the seed is the same seed a freshly created room builds.
+ * local copy of the seed is the same seed a freshly created room builds, and it is what makes it safe
+ * for {@link receiveRelay}'s `state` case to merge a `peerState` reply that arrives after
+ * {@link PEER_STATE_TIMEOUT} straight into an already-fallen-back room rather than discard it: the
+ * seed portion of the peer's state is byte-identical to this instance's own, so `Y.applyUpdate` treats
+ * it as already known and only the peer's genuinely new edits land.
  */
 
 /** y-websocket message types. The values are that protocol's, not ours. */
@@ -62,15 +66,19 @@ const NOTIFY_CHANNEL = 'wiki_collab'
  */
 const RELAY_CHUNK_SIZE = 5000
 
-/** How long a half-assembled relay message waits for the rest of its chunks before being dropped. */
-const RELAY_REASSEMBLY_TIMEOUT = 10 * 1000
+/**
+ * How long a half-assembled relay message waits for the rest of its chunks before being dropped.
+ * Exported for `core/collab.test.ts`, which verifies a partial's cleanup against the real constant
+ * rather than a hardcoded copy of it.
+ */
+export const RELAY_REASSEMBLY_TIMEOUT = 10 * 1000
 
 /**
  * How long a new room waits for a peer to hand over the state it already has, before seeding itself
  * from the stored page. Only paid when this instance does not already have the room open, and skipped
  * entirely when no other instance is running — which is the ordinary case.
  */
-const PEER_STATE_TIMEOUT = 500
+export const PEER_STATE_TIMEOUT = 500
 
 /** How long the "is anyone else running?" answer is trusted before it is looked up again. */
 const PEER_PRESENCE_TTL = 15 * 1000
@@ -162,7 +170,7 @@ function toBytes(data: unknown): Uint8Array {
  * Built in a scratch document whose client id is pinned to 0, so that the bytes depend on nothing but
  * the page — see the note at the top of this file on why that matters.
  */
-function buildSeed(page: {
+export function buildSeed(page: {
   content?: string | null
   title?: string | null
   description?: string | null
@@ -669,15 +677,26 @@ export default {
       }
       case 'state': {
         const waiting = this.awaitingState.get(envelope.r)
-        if (!waiting) {
-          // -> Too late to be adopted, and merging it now is exactly the duplication this handshake
-          //    exists to avoid. See the note at the top of this file.
-          WIKI.logger.debug(
-            `Ignoring a late collaboration state for page ${envelope.r} from instance ${envelope.i}`
-          )
-          return
+        if (waiting) {
+          waiting(Buffer.from(envelope.p ?? '', 'base64'))
+          break
         }
-        waiting(Buffer.from(envelope.p ?? '', 'base64'))
+        /*
+          Too late for peerState() to hand it to — that call already timed out and this instance's room,
+          if it opened one, seeded itself from the stored page instead. That is not the end of the
+          story: the peer's state can still be merged straight into the room, and doing so is safe
+          rather than the duplication a naive merge of two independent seeds would risk, precisely
+          because of the client-id-0 trick described at the top of this file — this instance's own
+          buildSeed() output and the seed folded into the peer's state are byte-identical, so Y.applyUpdate
+          treats that part as already-known and only the peer's genuinely new operations (edits this
+          instance never saw while the handshake was still in flight) land. Skipped when there is no
+          room to catch up: either this instance never opened one, or it already closed again, and
+          either way there is nothing here for the update to join.
+        */
+        const room = this.rooms.get(envelope.r)
+        if (room && envelope.p) {
+          Y.applyUpdate(room.doc, Buffer.from(envelope.p, 'base64'), RELAYED)
+        }
         break
       }
       case 'update': {
