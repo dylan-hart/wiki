@@ -85,6 +85,7 @@ export const useSiteStore = defineStore('site', {
     },
     editors: {
       asciidoc: false,
+      code: false,
       markdown: false,
       wysiwyg: false
     },
@@ -204,6 +205,7 @@ export const useSiteStore = defineStore('site', {
         },
         editors: {
           asciidoc: siteInfo.editors.asciidoc.isActive,
+          code: siteInfo.editors.code.isActive,
           markdown: siteInfo.editors.markdown.isActive,
           wysiwyg: siteInfo.editors.wysiwyg.isActive
         },

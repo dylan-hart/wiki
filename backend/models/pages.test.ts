@@ -71,6 +71,42 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('createPage stores the code editor content as html, matching EDITOR_CONTENT_TYPES', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/code-page',
+        title: 'Code Page',
+        editor: 'code',
+        content: '<p>Raw HTML</p>'
+      }),
+      actor
+    )
+
+    assert.equal(page.contentType, 'html')
+  })
+
+  /**
+   * Task 491: locks the `pages.ts` side of the asciidoc contentType agreement -- `base.test.ts`'s
+   * "base.yml declares the asciidoc editor with asciidoc as its content type" locks the `base.yml`
+   * side. Before this task the two disagreed (`base.yml` said `html`, `EDITOR_CONTENT_TYPES.asciidoc`
+   * said `asciidoc`); this is what a real save actually produces.
+   */
+  test('createPage stores the asciidoc editor content as asciidoc, matching EDITOR_CONTENT_TYPES', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/asciidoc-page',
+        title: 'AsciiDoc Page',
+        editor: 'asciidoc',
+        content: '= Title\n\nSome asciidoc content.'
+      }),
+      actor
+    )
+
+    assert.equal(page.contentType, 'asciidoc')
+  })
+
   test('the same path is free again in a different locale', async () => {
     const en = await pagesModel.createPage(
       fixtures.siteId,

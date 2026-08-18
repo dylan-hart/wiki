@@ -133,6 +133,9 @@ tsDictMappings:
   yi: yiddish
 editors:
   asciidoc:
+    contentType: asciidoc
+    config: {}
+  code:
     contentType: html
     config: {}
   markdown:

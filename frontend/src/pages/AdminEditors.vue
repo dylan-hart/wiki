@@ -124,13 +124,20 @@ useMeta({
   title: t('admin.editors.title')
 })
 
+// -> Task 492: `api`/`blog`/`channel` rows removed. None had a backing `EDITOR_CONTENT_TYPES` entry
+//    (backend/models/pages.ts), schema property (backend/api/schemas/site.ts), or reachable
+//    `editorComponents` registration (Index.vue) -- they were unbacked speculation, visible under the
+//    experimental flag but non-functional even when toggled on. `channel`'s only artifact,
+//    `EditorChannel.vue` (79 lines of Options-API mock data, never imported anywhere reachable), has
+//    been deleted outright. `channel`-style real-time discussion channels are filed as stretch-goal
+//    Feature #786 under the Comments epic (OpenProject #335) for a future cycle to pick up if it
+//    wants to; `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible
+//    near-term epic home identified and are dropped with no follow-up.
 const state = reactive({
   loading: 0,
   config: {
-    api: false,
     asciidoc: false,
-    blog: false,
-    channel: false,
+    code: false,
     markdown: false,
     redirect: true,
     wysiwyg: false
@@ -138,29 +145,19 @@ const state = reactive({
 })
 const editors = reactive([
   {
-    id: 'api',
-    icon: 'api',
-    isDisabled: true,
-    useRendering: false
-  },
-  {
     id: 'asciidoc',
     icon: 'asciidoc',
-    isDisabled: true,
-    hasConfig: true,
-    useRendering: true
-  },
-  {
-    id: 'blog',
-    icon: 'typewriter-with-paper',
-    isDisabled: true,
-    useRendering: true
-  },
-  {
-    id: 'channel',
-    icon: 'chat',
-    isDisabled: true,
+    // -> Task 491: a real, if minimal, editor now exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
+    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. No `hasConfig`: it
+    //    has no configuration overlay, matching the equally no-frills `code` row. `useRendering` stays
+    //    off because there is no AsciiDoc-to-HTML rendering pipeline yet -- that's a later Feature; the
+    //    description below says so.
     useRendering: false
+  },
+  {
+    id: 'code',
+    icon: 'html',
+    useRendering: true
   },
   {
     id: 'markdown',
@@ -200,6 +197,7 @@ async function load() {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     const data = resp?.editors
     state.config.asciidoc = data?.asciidoc?.isActive ?? false
+    state.config.code = data?.code?.isActive ?? false
     state.config.markdown = data?.markdown?.isActive ?? false
     state.config.wysiwyg = data?.wysiwyg?.isActive ?? false
   } catch (err) {
@@ -220,6 +218,7 @@ async function save() {
       json: {
         editors: {
           asciidoc: { isActive: state.config.asciidoc },
+          code: { isActive: state.config.code },
           markdown: { isActive: state.config.markdown },
           wysiwyg: { isActive: state.config.wysiwyg }
         }
@@ -234,6 +233,7 @@ async function save() {
       siteStore.$patch({
         editors: {
           asciidoc: state.config.asciidoc,
+          code: state.config.code,
           markdown: state.config.markdown,
           wysiwyg: state.config.wysiwyg
         }
