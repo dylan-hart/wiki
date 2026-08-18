@@ -71,6 +71,7 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       directAccess: true
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
+    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
     props: {},
     config: {
       mode: 'aws',
@@ -307,7 +308,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     }))
     const target = makeTarget()
 
-    await storageModule.assetUploaded(target, {
+    await storageModule.assetUploaded!(target, {
       id: 'asset-1',
       fileName: 'notes.txt',
       folderPath: 'docs',
@@ -332,7 +333,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     }))
     const target = makeTarget({ mode: 'do', doRegion: 'nyc3', storageTier: 'STANDARD' })
 
-    await storageModule.assetUploaded(target, {
+    await storageModule.assetUploaded!(target, {
       id: 'asset-2',
       fileName: 'notes.txt',
       folderPath: ''
@@ -346,7 +347,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
     const target = makeTarget()
 
-    await storageModule.assetUploaded(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
+    await storageModule.assetUploaded!(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
 
     assert.equal(s3Mock.commandCalls(PutObjectCommand).length, 0)
   })
@@ -355,7 +356,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     s3Mock.on(DeleteObjectCommand).resolves({})
     const target = makeTarget()
 
-    await storageModule.assetDeleted(target, { fileName: 'old.png', folderPath: 'images' })
+    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
 
     const [call] = s3Mock.commandCalls(DeleteObjectCommand)
     assert.equal(call!.args[0].input.Bucket, 'my-bucket')
@@ -367,7 +368,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     s3Mock.on(DeleteObjectCommand).resolves({})
     const target = makeTarget()
 
-    await storageModule.assetRenamed(target, {
+    await storageModule.assetRenamed!(target, {
       fileName: 'new-name.png',
       previousFileName: 'old-name.png',
       folderPath: 'images'
@@ -397,7 +398,7 @@ describe('s3 storage / per-asset lifecycle', () => {
     s3Mock.on(DeleteObjectCommand).resolves({})
     const target = makeTarget()
 
-    await storageModule.assetRenamed(target, {
+    await storageModule.assetRenamed!(target, {
       fileName: 'renamed.png',
       previousFileName: 'a file+name.png',
       folderPath: 'my folder'

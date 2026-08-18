@@ -91,6 +91,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
         directAccess: true
       },
       versioning: { isSupported: false, isForceEnabled: false, enabled: false },
+      sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
       props: {},
       config: {
         mode: 'custom',
@@ -116,7 +117,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
     })
 
     const target = makeTarget()
-    await storageModule.assetUploaded(target, {
+    await storageModule.assetUploaded!(target, {
       id: 'a1',
       folderPath: 'docs',
       fileName: 'hello.txt'
@@ -136,10 +137,10 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
       fileName: 'gone.txt'
     })
     const target = makeTarget()
-    await storageModule.assetUploaded(target, { id: 'a1', folderPath: '', fileName: 'gone.txt' })
+    await storageModule.assetUploaded!(target, { id: 'a1', folderPath: '', fileName: 'gone.txt' })
     await verifyClient.send(new HeadObjectCommand({ Bucket: bucket, Key: 'site-1/gone.txt' }))
 
-    await storageModule.assetDeleted(target, { fileName: 'gone.txt' })
+    await storageModule.assetDeleted!(target, { fileName: 'gone.txt' })
 
     await assert.rejects(
       () => verifyClient.send(new HeadObjectCommand({ Bucket: bucket, Key: 'site-1/gone.txt' })),
@@ -154,9 +155,9 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
       fileName: 'old.txt'
     })
     const target = makeTarget()
-    await storageModule.assetUploaded(target, { id: 'a1', folderPath: 'x', fileName: 'old.txt' })
+    await storageModule.assetUploaded!(target, { id: 'a1', folderPath: 'x', fileName: 'old.txt' })
 
-    await storageModule.assetRenamed(target, {
+    await storageModule.assetRenamed!(target, {
       folderPath: 'x',
       previousFileName: 'old.txt',
       fileName: 'new.txt'
@@ -213,7 +214,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
     const target = makeTarget({ endpoint: 'http://127.0.0.1:1' })
 
     await assert.rejects(
-      () => storageModule.assetUploaded(target, { id: 'a1', folderPath: '', fileName: 'x.txt' }),
+      () => storageModule.assetUploaded!(target, { id: 'a1', folderPath: '', fileName: 'x.txt' }),
       (err: any) => {
         assert.ok(err instanceof Error)
         assert.match(err.message, /Could not reach the "wiki-emulated-test" bucket/)
@@ -229,7 +230,7 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
     const target = makeTarget({ bucket: '' })
 
     await assert.rejects(
-      () => storageModule.assetUploaded(target, { id: 'a1', folderPath: '', fileName: 'x.txt' }),
+      () => storageModule.assetUploaded!(target, { id: 'a1', folderPath: '', fileName: 'x.txt' }),
       (err: any) => {
         assert.ok(err instanceof Error)
         assert.match(err.message, /Could not reach the "" bucket/)

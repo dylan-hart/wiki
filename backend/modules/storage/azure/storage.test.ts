@@ -72,6 +72,7 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       directAccess: true
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
+    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
     props: {},
     config: {
       accountName: 'testaccount',
@@ -172,7 +173,7 @@ describe('azure storage / per-asset lifecycle', () => {
     }))
     const target = makeTarget()
 
-    await storageModule.assetUploaded(target, {
+    await storageModule.assetUploaded!(target, {
       id: 'asset-1',
       fileName: 'notes.txt',
       folderPath: 'docs',
@@ -195,7 +196,7 @@ describe('azure storage / per-asset lifecycle', () => {
     ;(WIKI.models.assets.getContent as any).mock.mockImplementationOnce(async () => null)
     const target = makeTarget()
 
-    await storageModule.assetUploaded(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
+    await storageModule.assetUploaded!(target, { id: 'gone', fileName: 'x.txt', folderPath: '' })
 
     assert.equal(uploadMock.mock.callCount(), 0)
   })
@@ -203,7 +204,7 @@ describe('azure storage / per-asset lifecycle', () => {
   test('assetDeleted deletes the site-scoped key with snapshots included', async () => {
     const target = makeTarget()
 
-    await storageModule.assetDeleted(target, { fileName: 'old.png', folderPath: 'images' })
+    await storageModule.assetDeleted!(target, { fileName: 'old.png', folderPath: 'images' })
 
     assert.equal(deleteMock.mock.callCount(), 1)
     const call = deleteMock.mock.calls[0]!
@@ -214,7 +215,7 @@ describe('azure storage / per-asset lifecycle', () => {
   test('assetRenamed copies to the new key via syncCopyFromURL, then deletes the old one', async () => {
     const target = makeTarget()
 
-    await storageModule.assetRenamed(target, {
+    await storageModule.assetRenamed!(target, {
       fileName: 'new-name.png',
       previousFileName: 'old-name.png',
       folderPath: 'images'
