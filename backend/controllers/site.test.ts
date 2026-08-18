@@ -1,0 +1,280 @@
+import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { after, afterEach, before, describe, test } from 'node:test'
+import fastify from 'fastify'
+import type { FastifyInstance } from 'fastify'
+import siteRoutes from './site.ts'
+import { svgMimeType } from '../helpers/images.ts'
+
+/**
+ * Regression / verification coverage for `GET /_site/current/<resource>` (task 745, part 2), the
+ * asset-serving counterpart of `GET /_api/sites/:siteIdorHostname`'s `strict` fix
+ * (`api/sites.test.ts`). Both routes resolve a site the same way — `WIKI.models.sites
+ * .getSiteByHostname({ hostname: req.hostname })` — so this suite proves that mechanism actually
+ * picks the right site per-request across multiple hostnames, not just that the model function is
+ * correct in isolation.
+ *
+ * `WIKI.models.sites.getSiteByHostname`/`getAsset` are stubbed to reproduce the real model's
+ * exact/wildcard semantics (`models/sites.ts`) rather than pulling in the db/schema/drizzle graph —
+ * same approach as `api/sites.test.ts`.
+ */
+
+const SITE_A = { id: 'site-a', hostname: 'sitea.example.com', config: { assets: { logo: true } } }
+const SITE_B = { id: 'site-b', hostname: 'siteb.example.com', config: { assets: { logo: true } } }
+const SITE_WILDCARD = { id: 'site-wildcard', hostname: '*', config: { assets: { logo: true } } }
+
+const sitesMappings: Record<string, string> = {
+  [SITE_A.hostname]: SITE_A.id,
+  [SITE_B.hostname]: SITE_B.id,
+  '*': SITE_WILDCARD.id
+}
+const sites: Record<string, any> = {
+  [SITE_A.id]: SITE_A,
+  [SITE_B.id]: SITE_B,
+  [SITE_WILDCARD.id]: SITE_WILDCARD
+}
+
+/** Distinct bytes per site so a response can be attributed to exactly one of them. */
+const assetsBySiteId: Record<string, { mime: string; data: Buffer }> = {
+  [SITE_A.id]: { mime: 'image/png', data: Buffer.from('logo-a') },
+  [SITE_B.id]: { mime: 'image/png', data: Buffer.from('logo-b') },
+  [SITE_WILDCARD.id]: { mime: 'image/png', data: Buffer.from('logo-wildcard') }
+}
+
+async function getSiteByHostname({ hostname }: { hostname: string }) {
+  // -> Mirrors the real `Sites.getSiteByHostname`'s non-strict lookup: exact match, else the '*'
+  //    wildcard mapping.
+  const siteId = sitesMappings[hostname] || sitesMappings['*']
+  return siteId ? sites[siteId] : null
+}
+
+async function getAsset(siteId: string, _kind: string) {
+  return assetsBySiteId[siteId] ?? null
+}
+
+let app: FastifyInstance
+
+before(async () => {
+  ;(globalThis as any).WIKI = {
+    ROOTPATH: process.cwd(),
+    models: {
+      sites: {
+        getSiteByHostname,
+        getSiteById: async () => null,
+        getAsset
+      }
+    }
+  }
+
+  app = fastify()
+  await app.register(siteRoutes)
+  await app.ready()
+})
+
+after(async () => {
+  await app.close()
+  delete (globalThis as any).WIKI
+})
+
+test("resolves site A's own logo when the Host header is site A's hostname", async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/current/logo',
+    headers: { host: SITE_A.hostname }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, 'logo-a')
+})
+
+test("resolves site B's own logo when the Host header is site B's hostname", async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/current/logo',
+    headers: { host: SITE_B.hostname }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, 'logo-b')
+})
+
+test("falls back to the '*' wildcard site when no site is registered for the hostname", async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/current/logo',
+    headers: { host: 'unregistered.example.com' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body, 'logo-wildcard')
+})
+
+test(
+  "a Host header carrying a port still resolves the bare-hostname site, not the '*' wildcard " +
+    "(Fastify's req.hostname already strips the port before this route ever sees it)",
+  async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/current/logo',
+      headers: { host: `${SITE_A.hostname}:3000` }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body, 'logo-a')
+  }
+)
+
+/**
+ * Task 759 (the SVG CSP lockdown): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy`
+ * header being conditioned on `asset.mime === svgMimeType`, and the header asymmetry between the two
+ * response branches — an uploaded asset gets `ETag` + `Cache-Control`, the `replyWithFile` fallback
+ * branch (nobody has uploaded anything for this kind) gets neither.
+ *
+ * Runs its own app + `WIKI` stub, saved/restored around the shared `globalThis.WIKI` the suite above
+ * uses — same pattern `helpers/images.test.ts`'s Sharp-unavailable describe uses for the same reason:
+ * the route handler reads `WIKI` off `globalThis` at request time, so only one stub can be active at
+ * once, and this suite's data (a single site, a mutable asset) doesn't fit the multi-site fixture
+ * above.
+ */
+describe('GET /_site/current/<resource> — caching, ETag and the SVG Content-Security-Policy header', () => {
+  const SITE = { id: 'site-etag', hostname: 'siteetag.example.com', config: { assets: {} as any } }
+
+  let localApp: FastifyInstance
+  let previousWiki: any
+  let rootDir: string
+  /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
+  let currentAsset: { data: Buffer; mime: string } | null = null
+
+  before(async () => {
+    previousWiki = (globalThis as any).WIKI
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
+    // -> Mirrors `SITE_ASSET_FALLBACKS['logo']` in controllers/site.ts exactly, so the real
+    //    `replyWithFile` fallback branch has a real file to stream.
+    await fs.mkdir(path.join(rootDir, 'assets', '_assets'), { recursive: true })
+    await fs.writeFile(
+      path.join(rootDir, 'assets', '_assets', 'logo-wikijs.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>'
+    )
+
+    ;(globalThis as any).WIKI = {
+      ROOTPATH: rootDir,
+      models: {
+        sites: {
+          getSiteByHostname: async () => SITE,
+          getSiteById: async () => null,
+          getAsset: async () => currentAsset
+        }
+      }
+    }
+
+    localApp = fastify()
+    await localApp.register(siteRoutes)
+    await localApp.ready()
+  })
+
+  after(async () => {
+    await localApp.close()
+    await fs.rm(rootDir, { recursive: true, force: true })
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  afterEach(() => {
+    currentAsset = null
+    SITE.config.assets = {}
+  })
+
+  test('an uploaded (non-SVG) asset gets an ETag, "public, no-cache", nosniff, and no CSP header', async () => {
+    SITE.config.assets = { logo: true }
+    currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
+
+    const res = await localApp.inject({
+      method: 'GET',
+      url: '/current/logo',
+      headers: { host: SITE.hostname }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body, 'raw-png-bytes')
+    assert.equal(res.headers['cache-control'], 'public, no-cache')
+    assert.equal(res.headers['x-content-type-options'], 'nosniff')
+    assert.equal(
+      res.headers['content-security-policy'],
+      undefined,
+      'a raster asset must never get the SVG lockdown header'
+    )
+    const expectedEtag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
+    assert.equal(res.headers.etag, expectedEtag)
+  })
+
+  test('an uploaded SVG asset gets the CSP/sandbox lockdown header in addition to the same caching headers', async () => {
+    SITE.config.assets = { logo: true }
+    currentAsset = { data: Buffer.from('<svg><script>alert(1)</script></svg>'), mime: svgMimeType }
+
+    const res = await localApp.inject({
+      method: 'GET',
+      url: '/current/logo',
+      headers: { host: SITE.hostname }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      res.headers['content-security-policy'],
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    )
+    assert.equal(res.headers['cache-control'], 'public, no-cache')
+    assert.ok(res.headers.etag)
+  })
+
+  test('a matching If-None-Match short-circuits to an empty 304, keeping ETag/Cache-Control on the response', async () => {
+    SITE.config.assets = { logo: true }
+    currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
+    const etag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
+
+    const res = await localApp.inject({
+      method: 'GET',
+      url: '/current/logo',
+      headers: { host: SITE.hostname, 'if-none-match': etag }
+    })
+
+    assert.equal(res.statusCode, 304)
+    assert.equal(res.body, '')
+    assert.equal(res.headers.etag, etag)
+    assert.equal(res.headers['cache-control'], 'public, no-cache')
+  })
+
+  test('a stale/mismatched If-None-Match still gets the full 200 response, not a 304', async () => {
+    SITE.config.assets = { logo: true }
+    currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
+
+    const res = await localApp.inject({
+      method: 'GET',
+      url: '/current/logo',
+      headers: { host: SITE.hostname, 'if-none-match': '"stale-etag-from-a-previous-upload"' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body, 'raw-png-bytes')
+  })
+
+  test(
+    'the built-in fallback (nothing uploaded) is served with neither an ETag nor a Cache-Control ' +
+      'header — confirming the asymmetry with the uploaded branch is real, not an oversight this ' +
+      'suite failed to catch',
+    async () => {
+      SITE.config.assets = { logo: false }
+      currentAsset = null
+
+      const res = await localApp.inject({
+        method: 'GET',
+        url: '/current/logo',
+        headers: { host: SITE.hostname }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.match(res.body, /<svg/)
+      assert.equal(res.headers.etag, undefined)
+      assert.equal(res.headers['cache-control'], undefined)
+      assert.equal(res.headers['content-security-policy'], undefined)
+      assert.equal(res.headers['x-content-type-options'], undefined)
+    }
+  )
+})

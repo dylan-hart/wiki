@@ -94,6 +94,16 @@ const isCopyright = computed(() => {
 
 .site-footer-line {
   text-align: center;
+  /*
+    Both `company` and `footerExtra` are free text with no length limit set anywhere they're
+    written (`AdminGeneral.vue`'s inputs carry no `maxlength`) and no truncation logic here --
+    unlike `HeaderNav`'s site title, which sits in a `truncate` cell. A long-but-spaced company name
+    just wraps onto a second line, which is fine, but a single long unbroken token (a pasted URL, a
+    run of digits) has nowhere else to break: Preflight resets the box model but sets no
+    `overflow-wrap`, so without this the footer bar -- which is otherwise exactly `WPageContainer`
+    width -- would push wider than the page instead of wrapping.
+  */
+  overflow-wrap: anywhere;
 }
 
 .site-footer-line a {

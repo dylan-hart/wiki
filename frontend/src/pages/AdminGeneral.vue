@@ -301,7 +301,7 @@
             <blueprint-icon
               class="self-start"
               icon="butterfly"
-              indicator
+              :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
               <div class="flex">
@@ -329,16 +329,21 @@
                 </w-item-section>
               </div>
               <w-toolbar class="bg-header mt-4 rounded text-white" style="height: 64px">
-                <w-btn dense flat v-if="adminStore.currentSiteId">
+                <!--
+                  Keyed off `state.config.id`, not `adminStore.currentSiteId`: the store field flips
+                  the instant a different site is picked, but the title/logoText text below comes from
+                  `state.config`, which only updates once `load()`'s response for the NEW site lands.
+                  Using the store id here showed the new site's image next to the old site's title for
+                  the length of that request. `state.config.id` changes in the exact same assignment as
+                  the text, so the two can never disagree.
+                -->
+                <w-btn dense flat v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img
-                      :src="
-                        `/_site/` + adminStore.currentSiteId + `/logo?` + state.assetTimestamp
-                      " />
+                    <img :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp" />
                   </w-avatar>
                   <img
                     v-else
-                    :src="`/_site/` + adminStore.currentSiteId + `/logo?` + state.assetTimestamp"
+                    :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
                     style="height: 34px" />
                 </w-btn>
                 <w-toolbar-title class="text-h6" v-if="state.config.logoText">{{
@@ -365,7 +370,7 @@
             <blueprint-icon
               class="self-start"
               icon="starfish"
-              indicator
+              :indicator="state.sharpMissing ? '' : null"
               :indicator-text="t(`admin.extensions.requiresSharp`)" />
             <w-item-section>
               <div class="flex">
@@ -394,11 +399,10 @@
               </div>
               <div class="admin-general-favicontabs mt-4">
                 <div>
-                  <w-avatar v-if="adminStore.currentSiteId" size="24px" square>
-                    <img
-                      :src="
-                        `/_site/` + adminStore.currentSiteId + `/favicon?` + state.assetTimestamp
-                      " />
+                  <!-- Same reasoning as the logo preview toolbar above: keyed off `state.config.id`
+                       so this can never show a new site's favicon beside the old site's title. -->
+                  <w-avatar v-if="state.config.id" size="24px" square>
+                    <img :src="`/_site/` + state.config.id + `/favicon?` + state.assetTimestamp" />
                   </w-avatar>
                   <div class="text-caption ml-2">{{ state.config.title }}</div>
                 </div>
@@ -570,6 +574,7 @@ useMeta({
  */
 function defaultConfig() {
   return {
+    id: '',
     hostname: '',
     title: '',
     description: '',
@@ -614,6 +619,10 @@ const state = reactive({
   //    The previews always render: without one they show the default that is served instead.
   hasLogo: false,
   hasFavicon: false,
+  // -> Drives the "requires Sharp" indicator on the logo / favicon uploaders. Starts false rather
+  //    than true so a slow or failed `system/extensions` call understates the warning instead of
+  //    crying wolf while it's still unknown.
+  sharpMissing: false,
   config: defaultConfig()
 })
 
@@ -672,6 +681,21 @@ async function load() {
   state.hasFavicon = resp?.assets?.favicon ?? false
   loading.hide()
   state.loading--
+}
+
+/**
+ * Whether the Sharp extension is usable on this server, which decides whether an uploaded logo /
+ * favicon gets resized and re-encoded or stored as-is. Site-independent, so this runs once on mount
+ * rather than on every `load()` (which re-runs per site switch).
+ */
+async function checkSharpAvailability() {
+  try {
+    const extensions = (await API_CLIENT.get('system/extensions').json()) ?? []
+    const sharp = extensions.find((ext) => ext.key === 'sharp')
+    state.sharpMissing = !sharp?.isInstalled
+  } catch (err) {
+    // -> Leave state.sharpMissing at its default rather than surface a second, unrelated error here.
+  }
 }
 
 /**
@@ -855,6 +879,7 @@ onMounted(() => {
   if (adminStore.currentSiteId) {
     load()
   }
+  checkSharpAvailability()
 })
 </script>
 
