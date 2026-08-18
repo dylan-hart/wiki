@@ -224,6 +224,8 @@
   "admin.editors.blogName": "Blog Editor",
   "admin.editors.channelDescription": "Create discussion channels to collaborate in real-time with your team.",
   "admin.editors.channelName": "Discussion Channels",
+  "admin.editors.codeDescription": "Write raw HTML directly. No preview pane — the source is the render.",
+  "admin.editors.codeName": "Code Editor",
   "admin.editors.configuration": "Configuration",
   "admin.editors.markdown.allowHTML": "Allow HTML",
   "admin.editors.markdown.allowHTMLHint": "Allow HTML tags in content.",

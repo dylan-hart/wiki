@@ -136,6 +136,9 @@ editors:
   asciidoc:
     contentType: html
     config: {}
+  code:
+    contentType: html
+    config: {}
   markdown:
     contentType: markdown
     config:

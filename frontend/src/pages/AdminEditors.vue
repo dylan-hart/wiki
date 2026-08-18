@@ -127,6 +127,7 @@ const state = reactive({
     asciidoc: false,
     blog: false,
     channel: false,
+    code: false,
     markdown: false,
     redirect: true,
     wysiwyg: false
@@ -157,6 +158,11 @@ const editors = reactive([
     icon: 'chat',
     isDisabled: true,
     useRendering: false
+  },
+  {
+    id: 'code',
+    icon: 'html',
+    useRendering: true
   },
   {
     id: 'markdown',
@@ -196,6 +202,7 @@ async function load() {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     const data = resp?.editors
     state.config.asciidoc = data?.asciidoc?.isActive ?? false
+    state.config.code = data?.code?.isActive ?? false
     state.config.markdown = data?.markdown?.isActive ?? false
     state.config.wysiwyg = data?.wysiwyg?.isActive ?? false
   } catch (err) {
@@ -216,6 +223,7 @@ async function save() {
       json: {
         editors: {
           asciidoc: { isActive: state.config.asciidoc },
+          code: { isActive: state.config.code },
           markdown: { isActive: state.config.markdown },
           wysiwyg: { isActive: state.config.wysiwyg }
         }
@@ -230,6 +238,7 @@ async function save() {
       siteStore.$patch({
         editors: {
           asciidoc: state.config.asciidoc,
+          code: state.config.code,
           markdown: state.config.markdown,
           wysiwyg: state.config.wysiwyg
         }

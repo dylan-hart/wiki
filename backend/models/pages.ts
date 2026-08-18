@@ -14,6 +14,7 @@ const EDITOR_CONTENT_TYPES: Record<string, string> = {
   markdown: 'markdown',
   asciidoc: 'asciidoc',
   wysiwyg: 'html',
+  code: 'html',
   redirect: 'redirect'
 }
 

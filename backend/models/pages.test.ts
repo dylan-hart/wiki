@@ -71,6 +71,21 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('createPage stores the code editor content as html, matching EDITOR_CONTENT_TYPES', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/code-page',
+        title: 'Code Page',
+        editor: 'code',
+        content: '<p>Raw HTML</p>'
+      }),
+      actor
+    )
+
+    assert.equal(page.contentType, 'html')
+  })
+
   test('the same path is free again in a different locale', async () => {
     const en = await pagesModel.createPage(
       fixtures.siteId,
