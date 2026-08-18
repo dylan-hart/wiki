@@ -1,0 +1,54 @@
+key: elasticsearch
+title: Elasticsearch
+icon: '/_assets/icons/ultraviolet-search.svg'
+description: 'Elasticsearch is a distributed, RESTful search and analytics engine. Pages are pushed to an index it hosts, and queries run against that index instead of this database.'
+vendor: Elastic
+website: 'https://www.elastic.co/products/elasticsearch'
+props:
+  hosts:
+    type: String
+    title: Host(s)
+    hint: Comma-separated list of Elasticsearch hosts to connect to, including the port, username and password if necessary. (e.g. http://localhost:9200, https://user:pass@es1.example.com:9200)
+    icon: server
+    order: 1
+  verifyTLSCertificate:
+    type: Boolean
+    title: Verify TLS Certificate
+    hint: Reject a connection whose certificate cannot be verified. Turn off only for a self-signed cluster you trust.
+    icon: shield-check
+    default: true
+    order: 2
+  tlsCertPath:
+    type: String
+    title: TLS Certificate Path
+    hint: Absolute path to the TLS certificate on the server, for a cluster with a self-signed or private CA certificate.
+    icon: certificate
+    order: 3
+  indexName:
+    type: String
+    title: Index Name
+    hint: The name of the Elasticsearch index pages are written to and searched against.
+    icon: view-list
+    default: wiki
+    order: 4
+  analyzer:
+    type: String
+    title: Analyzer
+    hint: The default text analyzer Elasticsearch uses to tokenize page content when the index is created.
+    icon: text-recognition
+    default: standard
+    order: 5
+  sniffOnStart:
+    type: Boolean
+    title: Sniff on Start
+    hint: Discover the rest of the cluster's nodes on first connect.
+    icon: radar
+    default: false
+    order: 6
+  sniffInterval:
+    type: Number
+    title: Sniff Interval
+    hint: 'Interval in seconds to check for an updated list of nodes in the cluster. 0 disables it.'
+    icon: timer-outline
+    default: 0
+    order: 7

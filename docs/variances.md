@@ -48,3 +48,37 @@ not change the object's identity at all — it is an ordinary `saveObject` updat
 same as `created`/`updated`. Implementing the literal delete+add would have meant the page briefly
 disappearing from search between the two calls, for no benefit: nothing about this schema's rename
 requires the identity churn 2.5.x's hash-based id forced.
+
+## Task #552 — Elasticsearch module: dropped the `apiVersion` selector
+
+Task #552 listed 2.5.x's eight `definition.yml` props verbatim, including `apiVersion` — a `6.x`/`7.x`
+enum in the version this fork's own history last carried (`git show 10cc2ef4^:server/modules/search/
+elasticsearch/definition.yml`), extended to `6.x`/`7.x`/`8.x` on the upstream 2.x line this fork never
+merged from (`git show main:server/modules/search/elasticsearch/definition.yml` — that `main` is
+requarks/wiki's own 2.x branch, not a branch of this fork). Each value loaded a differently pinned
+`elasticsearchN` package behind a `switch`.
+
+This module targets one client only — the current `@elastic/elasticsearch` major (9.x) — and drops the
+selector and the multi-package `switch` entirely, per the task's own instruction to weigh this against
+CLAUDE.md's rule against legacy fallbacks and deprecated aliases. Nobody adding Elasticsearch support to
+a 3.x install has a 6.x or 7.x cluster this needs to keep working against; carrying three parallel
+client majors behind a switch, for versions of a self-hosted dependency with no upgrade path into this
+fork anyway, is exactly the dead weight that rule exists to prevent. `definition.yml` therefore declares
+the remaining seven props (`hosts`, `verifyTLSCertificate`, `tlsCertPath`, `indexName`, `analyzer`,
+`sniffOnStart`, `sniffInterval`) and `search.ts` builds a single `@elastic/elasticsearch` `Client`
+directly, with no version branch.
+
+## Task #552 — Elasticsearch module: `rebuild()` scopes to the site rather than deleting the whole index
+
+2.5.x's `rebuild()` (`server/modules/search/elasticsearch/engine.js`) drops the entire index
+(`client.indices.delete`) and recreates it before reindexing, which was safe under 2.5.x's single-site
+model: one Wiki.js install, one index, nothing else sharing it.
+
+This repo is multi-site, and nothing stops two sites from being configured to point at the same
+Elasticsearch host and index name — `SearchPagesParams.siteId` exists precisely because a query has to
+stay scoped to one site's pages. Deleting the whole index on a rebuild would silently wipe every other
+site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filtered to
+`{ term: { siteId } }`, then reindexes only that site's pages — recomputing "the whole index of a site"
+(the `SearchModule.rebuild` contract's own wording) without assuming a site owns the whole index. Every
+document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
+explicitly.
