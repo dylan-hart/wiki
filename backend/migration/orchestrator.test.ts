@@ -21,6 +21,8 @@ function contextStub(overrides: Partial<MigrationContext> = {}): MigrationContex
     source: {} as any,
     siteId: 'test-site',
     dryRun: false,
+    provenanceStore: {} as any,
+    updateExisting: false,
     ...overrides
   }
 }

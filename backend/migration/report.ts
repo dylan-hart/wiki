@@ -30,11 +30,13 @@ export interface UnmappableEntry {
  * written to the 3.0 destination; `unmappable` is a record that cannot be written at all, regardless
  * of dry-run vs. live.
  *
- * `wouldSkipExisting` and `conflicts` are always empty today: telling a "would create" apart from a
- * "would skip, already imported" requires the provenance/idempotency tracking Feature 421 task 746
- * owns building — there is no destination lookup here to tell the two apart yet. Every record a phase
- * can classify at all is therefore either `unmappable` or counted into `wouldCreate`, which holds the
- * invariant `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`.
+ * `wouldSkipExisting` is nonzero once a phase's `classify` checks the provenance/idempotency tracking
+ * Feature 421 task 746 built (`../provenance.ts`'s `resolveExisting`/`lookupOrInsert`) — currently the
+ * `users`, `content` (pages only) and `assets` phases; `settings`, `groups`, `pageHistory` and `tags`
+ * still count every record into `wouldCreate` or `unmappable`, having no per-record idempotency rule
+ * of their own yet. `conflicts` is always empty today — no phase has a rule yet for what makes two
+ * records genuinely conflict rather than one simply superseding the other. Either way the invariant
+ * holds: `found === wouldCreate + wouldSkipExisting + conflicts.length + unmappable.length`.
  */
 export interface PhaseReport {
   phase: MigrationPhaseId

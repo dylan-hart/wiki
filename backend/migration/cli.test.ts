@@ -30,6 +30,7 @@ describe('parseMigrationArgs', () => {
       },
       siteId: 'site-1',
       dryRun: false,
+      updateExisting: false,
       only: undefined
     })
   })
@@ -69,6 +70,22 @@ describe('parseMigrationArgs', () => {
       '--dry-run'
     ])
     assert.equal(args.dryRun, true)
+  })
+
+  test('parses --update-existing (Feature 421 task 746)', () => {
+    const args = parseMigrationArgs([
+      '--site-id',
+      'site-1',
+      '--bundle-path',
+      '/bundle',
+      '--update-existing'
+    ])
+    assert.equal(args.updateExisting, true)
+  })
+
+  test('--update-existing defaults to false', () => {
+    const args = parseMigrationArgs(['--site-id', 'site-1', '--bundle-path', '/bundle'])
+    assert.equal(args.updateExisting, false)
   })
 
   test('parses --only into a phase id array', () => {

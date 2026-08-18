@@ -295,6 +295,57 @@ export const locales = pgTable(
   (table) => [index('locales_language_idx').on(table.language)]
 )
 
+// MIGRATION RECORDS -------------------
+/**
+ * Provenance for every destination row a 2.5.x -> 3.0 migration import (`backend/migration/`) has
+ * created, keyed by where it came from and where it landed. This is the entire mechanism a re-run of
+ * the migration CLI uses to tell "already imported" apart from "new" without comparing every field of
+ * every row — see `backend/migration/provenance.ts`'s `lookupOrInsert()`, the helper every importer
+ * phase (Features 414/416/418/420) routes its writes through before creating anything.
+ *
+ * Deliberately one generic table rather than one per entity: every phase writes the same shape, so a
+ * new importer needs no schema change, and `(siteId, sourceSystem, sourceTable, sourceId)` — unique
+ * below — is enough to look up in O(1) regardless of which entity it is.
+ *
+ * A provenance row is written strictly *after* the destination row it describes, since the two are
+ * never in the same table and this CLI does not wrap a whole phase in one transaction (one bad row
+ * would then abort every row after it). That leaves a window where a prior run created the
+ * destination row and then died before writing the matching provenance row here — see
+ * `backend/migration/provenance.ts`'s module doc for the natural-key fallback that reconciles exactly
+ * that case, which is the one place a re-run could otherwise create a duplicate.
+ */
+export const migrationRecords = pgTable(
+  'migrationRecords',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> Which migration tooling/run produced this mapping (e.g. `'wikijs-2.5x'`), not which
+    //    connector kind read it (`postgres` vs `export-bundle`) — two connector kinds reading the
+    //    same 2.5.x install are the same source system for idempotency purposes.
+    sourceSystem: varchar({ length: 255 }).notNull(),
+    // -> The 2.x table this row came from, e.g. `'users'`, `'pages'`, `'tags'`, `'assets'`.
+    sourceTable: varchar({ length: 255 }).notNull(),
+    // -> The 2.x row's id, stored as text: 2.x primary keys are plain integers, but some entities
+    //    (an export bundle's asset files) are identified by a path rather than a numeric id.
+    sourceId: varchar({ length: 255 }).notNull(),
+    // -> The 3.0 table the row landed in, e.g. `'users'`, `'pages'`.
+    destTable: varchar({ length: 255 }).notNull(),
+    destId: uuid().notNull(),
+    importedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('migrationRecords_source_idx').on(
+      table.siteId,
+      table.sourceSystem,
+      table.sourceTable,
+      table.sourceId
+    ),
+    index('migrationRecords_dest_idx').on(table.destTable, table.destId)
+  ]
+)
+
 // NAVIGATION --------------------------
 export const navigation = pgTable(
   'navigation',

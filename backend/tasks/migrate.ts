@@ -25,6 +25,7 @@ import { PostgresSourceConnector } from '../migration/connectors/postgres.ts'
 import { parseMigrationArgs } from '../migration/cli.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
+import { createProvenanceStore } from '../migration/provenance.ts'
 import { formatReportTable, reportsToJson } from '../migration/render.ts'
 import { emptyPhaseReport } from '../migration/report.ts'
 import type { MigrationContext } from '../migration/context.ts'
@@ -111,6 +112,11 @@ async function main(): Promise<void> {
   if (args.dryRun) {
     WIKI.logger.info('Dry run: no destination writes will be made.')
   }
+  if (args.updateExisting) {
+    WIKI.logger.info(
+      'Update-existing: an already-imported row will be updated in place, not skipped.'
+    )
+  }
 
   WIKI.dbManager = dbManager
   // workerMode defaults to false, so this runs syncSchemas() -> checkForLegacyInstall() + migrations
@@ -154,6 +160,10 @@ async function runAgainstDestination(args: ParsedMigrationArgs): Promise<void> {
       source,
       siteId: args.siteId,
       dryRun: args.dryRun,
+      // Feature 421 task 746: idempotent re-runs. `provenanceStore` is built once, here, from the
+      // real destination `db` — never per-phase — so every phase checks the same table.
+      provenanceStore: createProvenanceStore(WIKI.db),
+      updateExisting: args.updateExisting,
       log: (message) => WIKI.logger.info(message)
     }
 

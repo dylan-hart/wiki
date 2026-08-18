@@ -7,7 +7,46 @@ import { settingsPhase } from './settings.ts'
 import { usersPhase } from './users.ts'
 import { MIGRATION_PHASES, MIGRATION_PHASE_IDS } from './index.ts'
 import type { MigrationContext } from '../context.ts'
-import type { SourceConnector, SourceRecord } from '../connector.ts'
+import type { SourceAssetFile, SourceConnector, SourceRecord } from '../connector.ts'
+import type { MigrationRecord, ProvenanceStore } from '../provenance.ts'
+
+/** A `ProvenanceStore` backed by plain arrays — same approach `../provenance.test.ts` uses, so these
+ * phase tests never need a working `db`. `seed.records` pre-populates exact provenance mappings;
+ * `seed.byEmail`/`byPath` pre-populate what a natural-key fallback would find, standing in for a row
+ * that already exists at the destination from a prior (possibly interrupted) run. */
+function fakeProvenanceStore(
+  seed: {
+    records?: MigrationRecord[]
+    byEmail?: Record<string, string>
+    byPath?: Record<string, string>
+  } = {}
+): ProvenanceStore & { records: MigrationRecord[] } {
+  const records = [...(seed.records ?? [])]
+  return {
+    records,
+    async find(key) {
+      return records.find(
+        (r) =>
+          r.siteId === key.siteId &&
+          r.sourceSystem === key.sourceSystem &&
+          r.sourceTable === key.sourceTable &&
+          r.sourceId === key.sourceId
+      )
+    },
+    async record(entry) {
+      records.push({ ...entry, importedAt: new Date() })
+    },
+    async findExistingUserByEmail(email) {
+      return seed.byEmail?.[email]
+    },
+    async findExistingPageByPath(_siteId, _locale, path) {
+      return seed.byPath?.[path]
+    },
+    async findExistingAssetByFolderAndFilename() {
+      return undefined
+    }
+  }
+}
 
 /** Yields `count` bare records — enough for a phase to count, nothing about their shape matters. */
 async function* recordsOf(count: number): AsyncGenerator<SourceRecord> {
@@ -48,8 +87,15 @@ function workingConnector(counts: Partial<Record<keyof SourceConnector, number>>
   } as SourceConnector
 }
 
-function contextWith(source: SourceConnector): MigrationContext {
-  return { db: {} as any, source, siteId: 'test-site', dryRun: false }
+function contextWith(source: SourceConnector, provenanceStore?: ProvenanceStore): MigrationContext {
+  return {
+    db: {} as any,
+    source,
+    siteId: 'test-site',
+    dryRun: false,
+    provenanceStore: provenanceStore ?? fakeProvenanceStore(),
+    updateExisting: false
+  }
 }
 
 describe('migration phases', () => {
@@ -181,5 +227,117 @@ describe('migration phases', () => {
       dryRun: false
     })
     assert.deepEqual(dryRunResult.report, liveResult.report)
+  })
+
+  describe('provenance/idempotency (Feature 421 task 746)', () => {
+    test('usersPhase skips a user already mapped by an exact provenance record', async () => {
+      async function* users(): AsyncGenerator<SourceRecord> {
+        yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
+      }
+      const store = fakeProvenanceStore({
+        records: [
+          {
+            siteId: 'test-site',
+            sourceSystem: 'wikijs-2.5x',
+            sourceTable: 'users',
+            sourceId: '1',
+            destTable: 'users',
+            destId: 'dest-alice',
+            importedAt: new Date()
+          }
+        ]
+      })
+      const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+      const result = await usersPhase.run(contextWith(connector, store))
+      assert.equal(result.status, 'ok')
+      assert.equal(result.report!.wouldCreate, 0)
+      assert.equal(result.report!.wouldSkipExisting, 1)
+    })
+
+    test('usersPhase reconciles the interrupted-run edge case via the email natural-key fallback, and backfills the provenance record', async () => {
+      async function* users(): AsyncGenerator<SourceRecord> {
+        yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
+      }
+      const store = fakeProvenanceStore({
+        byEmail: { 'alice@example.com': 'dest-alice-prior-run' }
+      })
+      const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+      const result = await usersPhase.run(contextWith(connector, store))
+      assert.equal(result.report!.wouldCreate, 0)
+      assert.equal(result.report!.wouldSkipExisting, 1)
+      // The fallback match is backfilled into the provenance store so a later run hits the fast path.
+      assert.equal(store.records.length, 1)
+      assert.equal(store.records[0].destId, 'dest-alice-prior-run')
+      assert.equal(store.records[0].sourceId, '1')
+    })
+
+    test('usersPhase still reports a genuinely new user as wouldCreate', async () => {
+      async function* users(): AsyncGenerator<SourceRecord> {
+        yield { id: 2, email: 'brandnew@example.com', providerKey: 'local' }
+      }
+      const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+      const result = await usersPhase.run(contextWith(connector))
+      assert.equal(result.report!.wouldCreate, 1)
+      assert.equal(result.report!.wouldSkipExisting, 0)
+    })
+
+    test('a dry run does not backfill the provenance record for a natural-key match', async () => {
+      async function* users(): AsyncGenerator<SourceRecord> {
+        yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
+      }
+      const store = fakeProvenanceStore({
+        byEmail: { 'alice@example.com': 'dest-alice-prior-run' }
+      })
+      const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
+      const ctx = { ...contextWith(connector, store), dryRun: true }
+      const result = await usersPhase.run(ctx)
+      assert.equal(result.report!.wouldSkipExisting, 1)
+      assert.equal(store.records.length, 0)
+    })
+
+    test('contentPhase skips a page already mapped by the exact (siteId, locale, path) natural key', async () => {
+      async function* pages(): AsyncGenerator<SourceRecord> {
+        yield { id: 10, path: 'en/getting-started', localeCode: 'en' }
+      }
+      const store = fakeProvenanceStore({ byPath: { 'en/getting-started': 'dest-page-1' } })
+      const connector = {
+        ...stubConnector(),
+        pages,
+        pageHistory: () => recordsOf(0),
+        tags: () => recordsOf(0)
+      }
+      const result = await contentPhase.run(contextWith(connector, store))
+      assert.equal(result.report!.wouldCreate, 0)
+      assert.equal(result.report!.wouldSkipExisting, 1)
+      assert.equal(store.records.length, 1)
+      assert.equal(store.records[0].sourceTable, 'pages')
+    })
+
+    test('assetsPhase skips an asset file already mapped by an exact provenance record', async () => {
+      async function* assets(): AsyncGenerator<SourceAssetFile> {
+        yield {
+          relativePath: 'images/logo.png',
+          filename: 'logo.png',
+          stream: null as any
+        }
+      }
+      const store = fakeProvenanceStore({
+        records: [
+          {
+            siteId: 'test-site',
+            sourceSystem: 'wikijs-2.5x',
+            sourceTable: 'assets',
+            sourceId: 'images/logo.png',
+            destTable: 'assets',
+            destId: 'dest-logo',
+            importedAt: new Date()
+          }
+        ]
+      })
+      const connector = { ...stubConnector(), assets }
+      const result = await assetsPhase.run(contextWith(connector, store))
+      assert.equal(result.report!.wouldCreate, 0)
+      assert.equal(result.report!.wouldSkipExisting, 1)
+    })
   })
 })

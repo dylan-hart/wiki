@@ -11,6 +11,11 @@ export interface ParsedMigrationArgs {
   source: ParsedSource
   siteId: string
   dryRun: boolean
+  /** Feature 421 task 746: when an importer phase finds a source row already mapped to a destination
+   * row (via `../provenance.ts`'s `lookupOrInsert()`), update that row in place instead of leaving it
+   * untouched. Defaults to `false` — a re-run is a safe no-op on already-imported rows unless this is
+   * explicitly passed. */
+  updateExisting: boolean
   /** Absent means "run every phase". Every id is checked against `MIGRATION_PHASE_IDS` here, so a
    * typo is rejected before anything connects to a database. */
   only?: MigrationPhaseId[]
@@ -22,6 +27,7 @@ export interface ParsedMigrationArgs {
 interface RawOptions {
   siteId: string
   dryRun: boolean
+  updateExisting: boolean
   only?: string
   reportFile?: string
   bundlePath?: string
@@ -47,6 +53,11 @@ function buildProgram(): Command {
     .description('Import a Wiki.js 2.5.x installation into this 3.0 instance.')
     .requiredOption('--site-id <id>', 'Destination site ID to import into')
     .option('--dry-run', 'Compute what would change without writing anything', false)
+    .option(
+      '--update-existing',
+      'Update an already-imported row in place instead of skipping it',
+      false
+    )
     .option(
       '--only <phases>',
       `Comma-separated phase id(s) to (re-)run, e.g. "content" or "users,content". One of: ${MIGRATION_PHASE_IDS.join(', ')}.`
@@ -149,6 +160,7 @@ export function parseMigrationArgs(argv: string[]): ParsedMigrationArgs {
     source: resolveSource(opts),
     siteId: opts.siteId,
     dryRun: Boolean(opts.dryRun),
+    updateExisting: Boolean(opts.updateExisting),
     only: parseOnly(opts.only),
     // Omitted entirely (not set to `undefined`) when absent, so a caller can tell "write a report
     // file" apart from "don't" with a plain truthiness check rather than an `in` check.

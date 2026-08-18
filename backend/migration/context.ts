@@ -1,5 +1,6 @@
 import type { WikiDb } from '../core/db.ts'
 import type { SourceConnector } from './connector.ts'
+import type { ProvenanceStore } from './provenance.ts'
 import type { PhaseReport } from './report.ts'
 
 /**
@@ -48,6 +49,18 @@ export interface MigrationContext {
    * (counts of creates/skips/conflicts) is Feature 421 task 744's; this harness only carries the
    * flag through so every phase and the entity generators it calls can see it. */
   dryRun: boolean
+  /** The provenance/idempotency mechanism (Feature 421 task 746) — every phase checks this before
+   * creating a row, via `../provenance.ts`'s `lookupOrInsert()` (or, for a read-only classification
+   * that performs no write yet, `resolveExisting()` directly). Built once from `db` by whoever
+   * constructs this context (`../tasks/migrate.ts` for a real run; a test builds an in-memory fake
+   * instead of a working `db`). */
+  provenanceStore: ProvenanceStore
+  /** The CLI's `--update-existing` flag: when true, a phase that finds an existing mapping updates
+   * the destination row in place instead of leaving it untouched. Defaults to `false` (skip) to match
+   * the flag's own default. Has no observable effect yet on a phase with no real destination write to
+   * perform (Features 414/416/418/420 own that) — see `../provenance.ts`'s `lookupOrInsert()`, which
+   * is what actually branches on it once a phase has a real `create`/`update` to call. */
+  updateExisting: boolean
   /** Optional progress sink; defaults to doing nothing so the harness is usable without a logger. */
   log?: (message: string) => void
 }
