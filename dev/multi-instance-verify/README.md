@@ -184,13 +184,13 @@ scheduler's use of the same mechanism. Log in as an admin on either instance and
 in the editor from both (`:3000` and `:3010`) to get a room open on each.
 
 - **(a) peer handshake.** Open the editor for a page on instance A only (nobody else has it open),
-  type something, then open the *same* page's editor pointed at instance B (`:3010`). B's `join()`
+  type something, then open the _same_ page's editor pointed at instance B (`:3010`). B's `join()`
   asks the cluster first (`peerState()`'s hello/state handshake) rather than reading the page from the
   database a second time — watch instance A's log for nothing unusual (it answers silently) and
   confirm in B's editor that the text you typed on A is already there before you type anything on B.
 - **(b) peer killed mid-handshake.** Same setup, but `kill -9` instance A's process in the instant
   between opening B's editor and A answering (tight in practice — `PEER_STATE_TIMEOUT` is 500ms).
-  B's editor should still open, populated from the *stored* page (whatever was last saved), not hang
+  B's editor should still open, populated from the _stored_ page (whatever was last saved), not hang
   waiting on a reply that is never coming.
 - **(c) chunked update, sender killed mid-burst.** With both instances holding the same room and an
   editor open on each, paste a very large block of text (tens of thousands of characters — big enough
@@ -200,7 +200,7 @@ in the editor from both (`:3000` and `:3010`) to get a room open on each.
   to inspect externally here — the receiving instance's own `collab.partials` map (in-memory, not
   logged) is what would leak if this were broken.
 - **(d) `pageSaved` to a room-less, restarting instance.** Save the page from an instance that has no
-  editor open for it while the *other* instance is mid-restart (killed, not yet back up) — confirm the
+  editor open for it while the _other_ instance is mid-restart (killed, not yet back up) — confirm the
   save completes normally (the notice is fire-and-forget) and, once that instance comes back and its
   own editor is opened for the same page, it reads the newly-saved content correctly.
 
@@ -222,6 +222,65 @@ No code change was needed in `collab.ts` beyond exporting the three constants th
 against, so a copy of `5000` / `10 * 1000` / `500` in the test file could never silently drift from the
 real values — the existing hello/state handshake, timeout fallback, chunk reassembly, and `pageSaved`
 no-op behavior all matched what the module's own comments already document.
+
+## 8. Event-bus delivery guarantees under instance churn (task 708)
+
+`backend/core/db.ts`'s `subscribeToNotifications()`/`notifyViaDB()` relay `WIKI.events.outbound`
+onto the `wiki` NOTIFY channel for every other instance's `WIKI.events.inbound` to pick up. Postgres
+NOTIFY has no persistence: a message published while nobody is LISTENing on that channel is dropped
+by the server, not queued. The two current subscribers are `configSvc.subscribeToEvents()`
+(`reloadConfig` → `loadFromDb()`) and `maintenance.subscribeToEvents()` (`flushCaches`,
+`disconnectWebsockets`).
+
+**What was actually run:** as with §7, no live Postgres or second `node backend` process was
+available in this environment, so verification is the automated suite `backend/core/db.test.ts`
+(`node --test core/db.test.ts` from `backend/`) against a fake `Pool`/`PoolClient`, exercising the
+real `subscribeToNotifications`/`notifyViaDB`/`unsubscribeFromNotifications` code paths — this is
+event-bus wiring and delivery-loss semantics, not SQL, so a mock is the right tool here rather than a
+database. To watch it against two literal processes instead: start both instances as in §§1–3, open
+**Admin → Utilities**, click **Flush Cache** or save any setting on instance A while instance B is
+`kill -9`'d, watch B's log on restart for the unconditional `postBoot()` reload lines (`Loaded page
+rules for N groups [ OK ]`, etc.) regardless of what NOTIFY it missed while down, then repeat with B
+merely disconnected from Postgres briefly (e.g. a firewall rule / container network pause) rather than
+killed, to see the narrower gap described below — B stays up throughout and there is nothing to watch
+externally for that case except the absence of a log line, which is the point.
+
+**Finding.** Two distinct scenarios, with two different outcomes:
+
+- **The instance that missed the event is down or mid-restart** (the scenario the task description
+  names): fully closed already, and closed by construction rather than luck. `index.ts`'s `preBoot()`
+  calls `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
+  `.reloadCache()` unconditionally on every boot, never gated on whether a notification arrived. An
+  instance that missed `reloadConfig` or `flushCaches` while it was down resyncs everything those
+  handlers would have refreshed the moment it comes back up, with no dependency on the missed message
+  at all.
+- **The instance stays up the whole time but loses one specific notification** during its own
+  listener's reconnect window (`helpers/pubsub.ts`'s `connectListener`, task 703's backoff, default
+  3000ms) — this is the residual gap. Neither `reloadConfig` nor `flushCaches` re-checks the DB on any
+  independent timer; a missed one leaves that instance's `WIKI.config` or model caches stale until the
+  next matching event (another settings save, another manual "Flush Cache" click) or its own next
+  restart. Judged low-severity and left as a **documented at-most-once contract** (see the expanded
+  comments on `subscribeToNotifications()` in `core/db.ts` and `createNotifier()` in
+  `helpers/pubsub.ts`) rather than closed with a new interval poller, because:
+  - the window itself is small and self-recovering the moment Postgres is reachable again;
+  - `reloadConfig` is the one of the three actually wired to a real, automatic mutation
+    (`configSvc.saveToDb()`, on every settings save) — so in practice the next unrelated settings save
+    anywhere resyncs it, not just a fix targeted at this exact event;
+  - `flushCaches`/`disconnectWebsockets` are one-shot admin actions with no persisted state of their
+    own to diverge from — an admin who suspects a miss can just click the button again;
+  - a general-purpose periodic full-cache-refresh is a real design decision (interval length, added DB
+    load on every instance, at what count of instances this stops being negligible) that this
+    "verify and document" task should surface rather than quietly bake in as a default.
+  - Separately, and out of scope for this task: `models/groups.ts`/`sites.ts`/`approvals.ts`'s own
+    `createGroup`/`updateGroup`/etc. call `this.reloadCache()` **locally only** — they never emit an
+    outbound event at all, `flushCaches` being the sole (manual) cross-instance path for that data
+    today. That is a pre-existing propagation gap independent of NOTIFY's delivery semantics — it
+    would exist even with a perfectly reliable transport — and is not something this task's scope
+    (event-bus delivery guarantees) covers closing.
+
+No production behavior changed as a result of this task: `core/db.ts`, `core/config.ts`, and
+`core/maintenance.ts` are unchanged apart from the doc comments above. The new coverage is
+`backend/core/db.test.ts`.
 
 ## Bugs found and fixed during this verification (task 704)
 

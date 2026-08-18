@@ -31,6 +31,16 @@ export interface Notifier {
  * Every notification carries its own `catch`, rather than one at the end of the chain: a failure to
  * publish belongs to the message that failed, and must not stop the ones behind it from going out.
  *
+ * **This is genuinely at-most-once, on both ends (task 708, feature 411).** `client()` is read
+ * fresh on every send rather than captured once, which is exactly what makes a send while
+ * disconnected a silent no-op instead of a throw — but there is no buffer behind that check: a
+ * notification sent while `client()` is `null` (nobody currently has a live LISTEN client — the
+ * peer is down, or this side is mid-reconnect) is not queued for the next client that connects, and
+ * `pg_notify` itself never persists a message for a channel with no active listener either way.
+ * "Fire-and-forget" here means forgotten, not delayed, if the send happens to land in that gap. See
+ * `core/db.ts`'s `subscribeToNotifications()` for which of this codebase's subscribers that matters
+ * to, and why the ones that exist today tolerate it.
+ *
  * @param client Read on each send, since the client is opened after this is built and dropped at
  *               shutdown. A notification sent while there is none is discarded.
  * @param label  What these notifications are, for the log line when one cannot be sent

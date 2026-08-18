@@ -198,6 +198,37 @@ export default {
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events
+   *
+   * **Delivery guarantee: at-most-once, not at-least-once (task 708, feature 411).** Postgres
+   * NOTIFY has no persistence — a message published while nobody is LISTENing on `wiki` (the only
+   * other instance down or mid-restart, or this instance's own listener between a dropped
+   * connection and `connectListener`'s reconnect landing, see `helpers/pubsub.ts`) is dropped by
+   * the server for good, not queued for redelivery. `notifyViaDB`/`notifier` (`createNotifier`)
+   * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
+   * live client is a silent no-op, never buffered.
+   *
+   * Both current subscribers below already tolerate a missed notification, but not for the same
+   * reason a naive read of their code might suggest — neither re-checks the DB on a timer:
+   *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler and `maintenance.subscribeToEvents()`'s
+   *    `flushCaches`/`disconnectWebsockets` handlers are purely edge-triggered. A missed one has no
+   *    independent side channel back except another matching event later, or this instance's own
+   *    restart.
+   *  - What actually closes the common case is `index.ts`: `preBoot()` calls
+   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
+   *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
+   *    arrived. So an instance that missed an event while it was down is always fully resynced the
+   *    moment it comes back — that is the scenario the task description calls out, and it is
+   *    closed by construction, not by chance.
+   *  - The one gap this does *not* close is a notification lost during this instance's own brief
+   *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
+   *    matching event or a restart. Judged low-severity (bounded window, and every current event —
+   *    `reloadConfig` on every settings save, `flushCaches`/`disconnectWebsockets` as one-shot admin
+   *    actions with no persisted state of their own to diverge from) and left as a documented
+   *    at-most-once contract rather than closed with a new poller — see
+   *    `dev/multi-instance-verify/README.md` §8 and `core/db.test.ts` for the full writeup and
+   *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
+   *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
+   *    ever redelivers.
    */
   async subscribeToNotifications(): Promise<void> {
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
