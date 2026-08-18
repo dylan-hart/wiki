@@ -12,6 +12,7 @@
     "backend/locales/**",
     "blocks/compiled/**",
     "assets/**",
-    "frontend/dist/**"
+    "frontend/dist/**",
+    "frontend/src/assets/*.generated.js"
   ]
 }

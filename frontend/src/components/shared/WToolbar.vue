@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
- /**
+/**
  * Horizontal bar of controls, used inside headers and card headings.
  *
  * Matches Quasar's toolbar metrics exactly: `min-height: 50px`, `padding: 0 12px`, and crucially

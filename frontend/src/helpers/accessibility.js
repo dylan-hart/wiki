@@ -17,7 +17,7 @@ const tritanopia = {
   secondary: '#02C39A'
 }
 
-export function getAccessibleColor (name, base, cvd) {
+export function getAccessibleColor(name, base, cvd) {
   switch (cvd) {
     case 'protanopia': {
       return protanopia[name] ?? base

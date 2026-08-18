@@ -13,7 +13,13 @@
         :aria-label="'Previous month'"
         @click="shiftMonth(-1)" />
       <div class="text-body2 font-medium">{{ monthLabel }}</div>
-      <w-btn flat dense round icon="mdi:chevron-right" :aria-label="'Next month'" @click="shiftMonth(1)" />
+      <w-btn
+        flat
+        dense
+        round
+        icon="mdi:chevron-right"
+        :aria-label="'Next month'"
+        @click="shiftMonth(1)" />
     </div>
 
     <div class="grid grid-cols-7 gap-0.5" role="grid">

@@ -65,10 +65,36 @@ describe('docs/variances.md', () => {
     assert.match(template, /resolved/i)
   })
 
-  test('ships with no populated entries — this task produces structure only', () => {
+  test('every entry under Entries has all four required fields', () => {
     const entriesStart = content.indexOf('## Entries')
     const entriesSection = content.slice(entriesStart)
-    // No "### " entry headings should exist yet under Entries.
-    assert.doesNotMatch(entriesSection, /\n### /)
+    const headings = [...entriesSection.matchAll(/\n### (.+)/g)].map((m) => m[1])
+    assert.ok(headings.length > 0, 'expected at least one populated entry')
+
+    const entryBodies = entriesSection.split(/\n### .+/).slice(1)
+    assert.strictEqual(entryBodies.length, headings.length)
+    for (const [i, body] of entryBodies.entries()) {
+      assert.match(body, /\*\*What deviates\*\*/, `entry "${headings[i]}" missing What deviates`)
+      assert.match(
+        body,
+        /\*\*Why it'?s justified\*\*/,
+        `entry "${headings[i]}" missing Why it's justified`
+      )
+      assert.match(
+        body,
+        /\*\*Cost of the alternative\*\*/,
+        `entry "${headings[i]}" missing Cost of the alternative`
+      )
+      assert.match(body, /\*\*Resolved when\*\*/, `entry "${headings[i]}" missing Resolved when`)
+    }
+  })
+
+  test('the oxfmt generated-bundles entry names the exact command that defines "current"', () => {
+    const entriesStart = content.indexOf('## Entries')
+    const entriesSection = content.slice(entriesStart)
+    assert.match(entriesSection, /Generated icon\/emoji bundles excluded from oxfmt/)
+    assert.match(entriesSection, /npx oxfmt --check frontend/)
+    assert.match(entriesSection, /icons\.generated\.js/)
+    assert.match(entriesSection, /emoji\.generated\.js/)
   })
 })

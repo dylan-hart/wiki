@@ -1,6 +1,6 @@
 import mitt from 'mitt'
 
-export function initializeEventBus () {
+export function initializeEventBus() {
   const emitter = mitt()
 
   if (import.meta.env.SSR) {

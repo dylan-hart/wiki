@@ -2,7 +2,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-export function initializeExternals (router, store) {
+export function initializeExternals(router, store) {
   if (import.meta.env.SSR) {
     global.WIKI_STATE = {
       page: usePageStore(store),

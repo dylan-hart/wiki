@@ -5,17 +5,17 @@
     self="top right"
     :offset="[0, 10]"
     ref="menuRef">
-    <w-card style="width: 850px;">
+    <w-card style="width: 850px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-choose.svg" left size="sm" />
-        <span>{{t(`admin.users.defaults`)}}</span>
+        <span>{{ t(`admin.users.defaults`) }}</span>
       </w-card-section>
       <w-list padding>
         <w-item>
           <blueprint-icon icon="timezone" />
           <w-item-section>
-            <w-item-label>{{t(`admin.general.defaultTimezone`)}}</w-item-label>
-            <w-item-label caption>{{t(`admin.general.defaultTimezoneHint`)}}</w-item-label>
+            <w-item-label>{{ t(`admin.general.defaultTimezone`) }}</w-item-label>
+            <w-item-label caption>{{ t(`admin.general.defaultTimezoneHint`) }}</w-item-label>
           </w-item-section>
           <w-item-section>
             <w-select
@@ -35,8 +35,8 @@
         <w-item>
           <blueprint-icon icon="calendar" />
           <w-item-section>
-            <w-item-label>{{t(`admin.general.defaultDateFormat`)}}</w-item-label>
-            <w-item-label caption>{{t(`admin.general.defaultDateFormatHint`)}}</w-item-label>
+            <w-item-label>{{ t(`admin.general.defaultDateFormat`) }}</w-item-label>
+            <w-item-label caption>{{ t(`admin.general.defaultDateFormatHint`) }}</w-item-label>
           </w-item-section>
           <w-item-section>
             <w-select
@@ -53,8 +53,8 @@
         <w-item>
           <blueprint-icon icon="clock" />
           <w-item-section>
-            <w-item-label>{{t(`admin.general.defaultTimeFormat`)}}</w-item-label>
-            <w-item-label caption>{{t(`admin.general.defaultTimeFormatHint`)}}</w-item-label>
+            <w-item-label>{{ t(`admin.general.defaultTimeFormat`) }}</w-item-label>
+            <w-item-label caption>{{ t(`admin.general.defaultTimeFormatHint`) }}</w-item-label>
           </w-item-section>
           <w-item-section class="flex-none">
             <w-btn-toggle

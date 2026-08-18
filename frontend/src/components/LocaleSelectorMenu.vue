@@ -5,7 +5,7 @@
     :anchor="props.anchor"
     :self="props.self"
     :offset="props.offset">
-    <w-list padding style="min-width: 200px;">
+    <w-list padding style="min-width: 200px">
       <w-item
         v-for="lang of siteStore.locales.active"
         :key="lang.code"
@@ -17,7 +17,9 @@
             :color="lang.code === commonStore.locale ? `secondary` : `primary`"
             text-color="white"
             size="sm">
-            <div class="text-caption uppercase"><strong>{{ lang.language }}</strong></div>
+            <div class="text-caption uppercase">
+              <strong>{{ lang.language }}</strong>
+            </div>
           </w-avatar>
         </w-item-section>
         <w-item-section>
@@ -51,7 +53,6 @@ const props = defineProps({
     default: () => [0, 0]
   }
 })
-
 
 // STORES
 

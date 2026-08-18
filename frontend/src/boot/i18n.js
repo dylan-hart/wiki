@@ -1,7 +1,7 @@
 import { createI18n } from 'vue-i18n'
 import { useCommonStore } from '@/stores/common'
 
-export function initializeI18n (app, store) {
+export function initializeI18n(app, store) {
   const commonStore = useCommonStore(store)
 
   const i18n = createI18n({
