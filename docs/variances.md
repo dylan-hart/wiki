@@ -1,6 +1,5 @@
 # Variances
 
-<<<<<<< HEAD
 This document records genuine, justified deviations from spec — decisions where the 3.x fork
 intentionally does not reproduce something 2.5.x had, or does not build something a spec called for,
 along with the reasoning. It is not a changelog and does not track resolved CI/lint/type issues;
@@ -220,3 +219,29 @@ matching backend, consistent with the precedent already established for `oxfmt` 
 tooling versions; see that file's "Format Check" step comment). Resolution: a follow-up task should
 reconcile `frontend/package.json`'s `oxlint` pin up to `1.77.0` so all three workspaces genuinely
 share one version, then this entry can be deleted.
+
+## Tajawal has no `latin-ext` subset upstream
+
+**Spec**: Task 715 (Feature 415, "Make code injection and font selection actually apply") requires
+every non-Roboto vendored font family to cover at minimum `latin` + `latin-ext`.
+
+**Deviation**: Tajawal's OFL distribution on Google Fonts (`google/fonts` repo, `ofl/tajawal`, v12)
+ships exactly two subsets: `arabic` and `latin`. There is no `latin-ext` subset at all — requesting
+one (either via the legacy `subset=latin-ext` parameter or the modern `css2` API) silently falls
+back to the plain `latin` file, confirmed by comparing the returned font URL/hash in both cases.
+This is a property of the upstream font project, not a vendoring choice: Tajawal is designed and
+maintained as an Arabic/Latin-basic display face (Arabic being, per the task description, "that
+font's whole purpose"), and its author has never published Central/Eastern European diacritics for
+it. `frontend/public/_assets/fonts/tajawal/tajawal.css` is annotated at each `@font-face` with this
+gap.
+
+**Effect**: text rendered in Tajawal that requires `latin-ext` codepoints (e.g. Polish, Czech,
+Turkish-beyond-basic-Latin, Vietnamese-via-Latin) falls through to the next font in the stack rather
+than rendering in Tajawal — expected, standards-compliant `unicode-range`/font-stack fallback
+behavior, not a rendering bug.
+
+**Not economically fixable**: sourcing or hand-drawing `latin-ext` glyphs for a third-party OFL face
+is out of scope for this fork. The Arabic subset itself is comprehensive (standard Arabic, Arabic
+Supplement, Arabic Extended-A/B, Presentation Forms A/B, Arabic Mathematical Alphabetic Symbols) —
+the gap is specifically and only the Latin side falling one subset short of the general five-family
+minimum.

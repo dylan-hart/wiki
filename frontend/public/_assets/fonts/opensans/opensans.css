@@ -1,0 +1,42 @@
+/* opensans-300 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 300;
+  src: local(''),
+       url('/_assets/fonts/opensans/opensans-all-300.woff2') format('woff2')
+}
+/* opensans-regular - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 400;
+  src: local(''),
+       url('/_assets/fonts/opensans/opensans-all-regular.woff2') format('woff2')
+}
+/* opensans-500 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 500;
+  src: local(''),
+       url('/_assets/fonts/opensans/opensans-all-500.woff2') format('woff2')
+}
+/* opensans-700 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 700;
+  src: local(''),
+       url('/_assets/fonts/opensans/opensans-all-700.woff2') format('woff2')
+}
+/* opensans-800 - vietnamese_latin-ext_latin_greek-ext_greek_cyrillic-ext_cyrillic. Open Sans ships no 900
+   static instance upstream (its variable axis tops out at 800), unlike the other four families here
+   which all go to 900 - see docs/variances.md. */
+@font-face {
+  font-family: 'Open Sans';
+  font-style: normal;
+  font-weight: 800;
+  src: local(''),
+       url('/_assets/fonts/opensans/opensans-all-800.woff2') format('woff2')
+}

@@ -11,15 +11,14 @@
     <title>Wiki.js</title>
     <!--preload-links-->
     <!--
-      The app's only webfont, and self-hosted: Roboto 300-900 as woff2, covering latin, latin-ext,
-      greek, cyrillic and vietnamese. Icon data is inlined at build time by scripts/generate-icons.mjs,
-      so there is no icon webfont to load.
-
-      Declared here rather than imported from a package, which is what `@quasar/extras/roboto-font`
-      used to do from main.js. Bundled CSS is linked after this, so those rules won -- leaving the app
-      on a latin-only woff copy of the same family while these files went unfetched.
+      No webfont is linked statically here any more: which family (if any -- `theme.baseFont` /
+      `theme.contentFont` can both be `'user'`, meaning "no override") is a per-site setting, only
+      known once the site's config has loaded. `helpers/fonts.js`'s `applyFonts()`, called from
+      `App.vue`'s `applyTheme()`, links only the stylesheet(s) actually selected -- self-hosted, from
+      the same `/_assets/fonts/<key>/<key>.css` assets this used to load unconditionally for Roboto
+      alone. Icon data is inlined at build time by scripts/generate-icons.mjs, so there is no icon
+      webfont to load either.
     -->
-    <link href="/_assets/fonts/roboto/roboto.css" rel="stylesheet" />
     <style type="text/css">
       @keyframes initspinner {
         to {
