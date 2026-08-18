@@ -3,11 +3,13 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { flushPromises } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminEditors from './AdminEditors.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 /**
  * Regression coverage for task 489: `AdminEditors.vue` needs a `code` row that is enabled by default
@@ -17,16 +19,29 @@ import { useSiteStore } from '@/stores/site'
  * initial value but missing from `load()`/`save()` would silently reset to off on every page visit
  * and never actually reach the server.
  */
-function mountPage() {
+async function mountPage() {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
   const siteStore = useSiteStore()
 
+  // -> useSiteAdminAccess('site:editors') needs a real route (for its `siteid` param) and a
+  //    permission that satisfies GLOBAL_FALLBACKS['site:editors'], so this mount neither warns on a
+  //    missing router injection nor redirects away mid-test.
+  const userStore = useUserStore()
+  userStore.permissions = ['manage:sites']
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/_admin/:siteid/editors', component: { template: '<div />' } }]
+  })
+  router.push('/_admin/site-1/editors')
+  await router.isReady()
+
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
   const wrapper = mount(AdminEditors, {
-    global: { plugins: [i18n] }
+    global: { plugins: [router, i18n] }
   })
 
   return { wrapper, adminStore, siteStore }
@@ -42,7 +57,7 @@ function mountPage() {
 describe('AdminEditors', () => {
   it('shows the asciidoc editor row without requiring the experimental flag, with an enabled toggle', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await flushPromises()
 
     expect(wrapper.text()).toContain('admin.editors.asciidocName')
@@ -56,7 +71,7 @@ describe('AdminEditors', () => {
       json: () => Promise.resolve({ editors: { asciidoc: { isActive: true } } })
     })
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    const { wrapper, adminStore, siteStore } = mountPage()
+    const { wrapper, adminStore, siteStore } = await mountPage()
     await flushPromises()
 
     expect(wrapper.vm.state.config.asciidoc).toBe(true)
@@ -77,7 +92,7 @@ describe('AdminEditors', () => {
 
   it('shows the code editor row without requiring the experimental flag', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await flushPromises()
 
     expect(wrapper.text()).toContain('admin.editors.codeName')
@@ -89,7 +104,7 @@ describe('AdminEditors', () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ editors: { code: { isActive: true } } })
     })
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     await flushPromises()
 
     expect(wrapper.vm.state.config.code).toBe(true)
@@ -100,7 +115,7 @@ describe('AdminEditors', () => {
       json: () => Promise.resolve({ editors: { code: { isActive: true } } })
     })
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    const { wrapper, adminStore, siteStore } = mountPage()
+    const { wrapper, adminStore, siteStore } = await mountPage()
     await flushPromises()
 
     siteStore.id = adminStore.currentSiteId
@@ -126,7 +141,7 @@ describe('AdminEditors', () => {
    */
   it('never renders api/blog/channel rows, even with the experimental flag enabled', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
-    const { wrapper } = mountPage()
+    const { wrapper } = await mountPage()
     const flagsStore = useFlagsStore()
     flagsStore.experimental = true
     await flushPromises()
