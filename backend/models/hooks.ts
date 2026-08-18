@@ -105,8 +105,12 @@ const hookSelection = {
  *
  * `node:https` rather than `fetch`: a webhook may legitimately point at an endpoint with a
  * self-signed certificate, and per-request TLS options are not expressible through fetch.
+ *
+ * Exported so `api/hooks.ts` can reuse it for `POST /hooks/test` — a synthetic delivery to a URL
+ * that need not belong to any saved webhook (or even be valid yet), so it has no `hookId` to look up
+ * and must not go through `deliver()`, which reads and writes a persisted hook's state.
  */
-function postJson(
+export function postJson(
   url: string,
   body: string,
   { authHeader, acceptUntrusted }: { authHeader?: string | null; acceptUntrusted: boolean }

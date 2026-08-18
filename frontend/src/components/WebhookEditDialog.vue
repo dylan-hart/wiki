@@ -171,6 +171,16 @@
         </w-item>
       </w-form>
       <w-card-actions class="card-actions">
+        <w-btn
+          class="acrylic-btn"
+          flat
+          icon="la:paper-plane"
+          :label="t(`admin.webhooks.testSend`)"
+          color="grey"
+          padding="xs md"
+          :disable="!urlIsValid"
+          :loading="state.isTesting"
+          @click="sendTestEvent" />
         <w-space />
         <w-btn
           class="acrylic-btn"
@@ -235,6 +245,7 @@ const { t } = useI18n()
 
 const state = reactive({
   isLoading: false,
+  isTesting: false,
   /** Event keys the server actually emits. Null until fetched, i.e. assume all of them. */
   emittedEvents: null,
   hook: {
@@ -340,6 +351,9 @@ const hookUrlValidation = [
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
+/** Whether the URL currently typed in passes the same rules the form itself enforces on submit. */
+const urlIsValid = computed(() => hookUrlValidation.every((rule) => rule(state.hook.url) === true))
+
 // METHODS
 
 /** The fields the API accepts — `state` and `lastErrorMessage` are the server's to set, not ours. */
@@ -427,6 +441,35 @@ async function save() {
     })
   }
   state.isLoading = false
+}
+
+/**
+ * Sends a synthetic test delivery to whatever is currently typed into the form -- via
+ * `POST /_api/hooks/test`, which takes the destination directly rather than a hookId, so this works
+ * before the webhook has ever been saved. Never touches `create`/`save`: the outcome is reported in a
+ * toast, not written into `state.hook`.
+ */
+async function sendTestEvent() {
+  state.isTesting = true
+  try {
+    const resp = await API_CLIENT.post('hooks/test', {
+      json: {
+        url: state.hook.url,
+        authHeader: state.hook.authHeader || undefined,
+        acceptUntrusted: state.hook.acceptUntrusted
+      }
+    }).json()
+    notify({
+      type: resp?.ok ? 'positive' : 'negative',
+      message: resp?.message || t('admin.webhooks.testFailed')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, t('admin.webhooks.testFailed'))
+    })
+  }
+  state.isTesting = false
 }
 
 async function fetchEmittedEvents() {

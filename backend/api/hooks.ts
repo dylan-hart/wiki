@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { EMITTED_EVENTS, HOOK_EVENTS } from '../models/hooks.ts'
+import { EMITTED_EVENTS, HOOK_EVENTS, postJson } from '../models/hooks.ts'
 
 interface HookBody {
   name?: string
@@ -7,6 +7,12 @@ interface HookBody {
   url?: string
   includeMetadata?: boolean
   includeContent?: boolean
+  acceptUntrusted?: boolean
+  authHeader?: string
+}
+
+interface HookTestBody {
+  url: string
   acceptUntrusted?: boolean
   authHeader?: string
 }
@@ -204,6 +210,83 @@ async function routes(app: FastifyInstance) {
         limit
       })
       return { total, limit, deliveries }
+    }
+  )
+
+  /**
+   * SEND TEST EVENT
+   */
+  app.post<{ Body: HookTestBody }>(
+    '/test',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Send a synthetic test event to a webhook endpoint',
+        description:
+          'Takes the destination directly in the body rather than a hookId, so it can validate a URL ' +
+          'that is still being typed into the edit form and has never been saved. Never touches the ' +
+          'hooks table — a test delivery is not a real delivery, and must not overwrite a saved ' +
+          "webhook's state or lastErrorMessage.",
+        tags: ['Webhooks'],
+        body: { $ref: 'HookTestInput#' },
+        response: {
+          200: {
+            description:
+              'The test request was attempted (a non-2xx answer or a connection failure is still `ok: false`, not an HTTP error)',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean',
+                description: 'Whether the endpoint answered with a 2xx status.'
+              },
+              statusCode: {
+                type: 'integer',
+                description:
+                  'The HTTP status the endpoint answered with, or 0 on a connection failure.'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const invalid = invalidReason({ url: req.body.url }, { partial: true })
+      if (invalid) {
+        return reply.badRequest(invalid)
+      }
+
+      const body = JSON.stringify({
+        event: 'hook:test',
+        sentAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
+        instance: WIKI.INSTANCE_ID,
+        data: { message: 'This is a test event sent by Wiki.js to verify your webhook endpoint.' }
+      })
+
+      try {
+        const { statusCode } = await postJson(req.body.url, body, {
+          authHeader: req.body.authHeader,
+          acceptUntrusted: req.body.acceptUntrusted ?? false
+        })
+        const ok = statusCode >= 200 && statusCode <= 299
+        return {
+          ok,
+          statusCode,
+          message: ok
+            ? 'The endpoint answered successfully.'
+            : `The endpoint answered with HTTP ${statusCode}.`
+        }
+      } catch (err: any) {
+        return {
+          ok: false,
+          statusCode: 0,
+          message: err.message
+        }
+      }
     }
   )
 

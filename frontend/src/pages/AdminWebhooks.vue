@@ -95,6 +95,16 @@
                 <w-btn
                   class="acrylic-btn mr-2"
                   color="grey"
+                  icon="la:paper-plane"
+                  flat
+                  :loading="state.testingHookId === hook.id"
+                  :aria-label="t(`admin.webhooks.testSend`)"
+                  @click="testHook(hook)">
+                  <w-tooltip>{{ t(`admin.webhooks.testSend`) }}</w-tooltip>
+                </w-btn>
+                <w-btn
+                  class="acrylic-btn mr-2"
+                  color="grey"
                   icon="la:history"
                   flat
                   :aria-label="t(`admin.webhooks.history`)"
@@ -133,6 +143,7 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -162,7 +173,9 @@ useMeta({
 
 const state = reactive({
   hooks: [],
-  loading: 0
+  loading: 0,
+  /** Id of the hook whose row test button is mid-request, or null. Only one row at a time. */
+  testingHookId: null
 })
 
 // METHODS
@@ -203,6 +216,34 @@ function editHook(id) {
   }).onOk(() => {
     load()
   })
+}
+
+/**
+ * Re-validates a saved webhook's endpoint without opening the edit dialog, via the same
+ * `POST /_api/hooks/test` the edit dialog itself calls -- the persisted `url`/`authHeader`/
+ * `acceptUntrusted` pass through the same body shape rather than a second, hookId-based endpoint.
+ */
+async function testHook(hook) {
+  state.testingHookId = hook.id
+  try {
+    const resp = await API_CLIENT.post('hooks/test', {
+      json: {
+        url: hook.url,
+        authHeader: hook.authHeader || undefined,
+        acceptUntrusted: hook.acceptUntrusted
+      }
+    }).json()
+    notify({
+      type: resp?.ok ? 'positive' : 'negative',
+      message: resp?.message || t('admin.webhooks.testFailed')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, t('admin.webhooks.testFailed'))
+    })
+  }
+  state.testingHookId = null
 }
 
 function viewHistory(hook) {

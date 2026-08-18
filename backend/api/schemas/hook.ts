@@ -49,6 +49,31 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * HOOK TEST INPUT - What a test delivery needs, straight from the edit form or a saved webhook
+   */
+  app.addSchema({
+    $id: 'HookTestInput',
+    type: 'object',
+    required: ['url'],
+    properties: {
+      url: {
+        type: 'string',
+        maxLength: 2048,
+        description: 'Where to POST the test event. Must be an http or https address.'
+      },
+      acceptUntrusted: {
+        type: 'boolean',
+        description: 'Skip TLS certificate validation for this endpoint.'
+      },
+      authHeader: {
+        type: 'string',
+        maxLength: 2048,
+        description: 'Sent verbatim as the Authorization header.'
+      }
+    }
+  })
+
+  /**
    * HOOK - A webhook with the outcome of its last delivery
    */
   app.addSchema({

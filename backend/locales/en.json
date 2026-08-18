@@ -1324,6 +1324,8 @@
   "admin.webhooks.stateSuccess": "Healthy",
   "admin.webhooks.stateSuccessHint": "The last webhook trigger completed successfully.",
   "admin.webhooks.subtitle": "Manage webhooks to external services",
+  "admin.webhooks.testFailed": "Failed to send the test event.",
+  "admin.webhooks.testSend": "Send Test Event",
   "admin.webhooks.title": "Webhooks",
   "admin.webhooks.typeAsset": "asset",
   "admin.webhooks.typeComment": "comment",
