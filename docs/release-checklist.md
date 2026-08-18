@@ -207,10 +207,10 @@ N/A to an enforced gate in the same change.
   build versus a continuous alpha build, and what version/Docker-tag a given tag produces. Read it
   first if the question is "does pushing X count as a release" rather than "is this commit ready
   to release."
-- **`RELEASING.md`** (companion document under this Feature, not yet written) — the actual
-  step-by-step runbook for _performing_ a release once this checklist has passed: the git commands
-  to tag, what the release workflow does with that tag, and how to verify the resulting artifacts.
-  This document stops at go/no-go; `RELEASING.md` picks up from there.
+- **[`RELEASING.md`](../RELEASING.md)** — the actual step-by-step runbook for _performing_ a
+  release once this checklist has passed: the git commands to tag, what the release workflow does
+  with that tag, and how to verify the resulting artifacts. This document stops at go/no-go;
+  `RELEASING.md` picks up from there.
 - `.github/workflows/release.yml` — the gated release channel (task #777): the workflow that
   actually enforces item 1 of this checklist on every `vX.Y.Z` tag push, and whose own top-of-file
   comment explains why items 2 and 5 stay manual sign-off rather than becoming workflow steps.

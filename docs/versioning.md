@@ -215,8 +215,8 @@ above stay the way to preview that output before pushing the tag.
   before a maintainer is allowed to push a release tag: CI quality gates green, test suites green,
   `docs/variances.md` current, and the Epic 13 migration tooling run end-to-end against a real
   2.5.x dataset with human sign-off.
-- **`RELEASING.md`** (companion document under this Feature) — the release-manager runbook: the
-  actual step-by-step commands to cut a release once the checklist has passed.
+- **[`RELEASING.md`](../RELEASING.md)** — the release-manager runbook: the actual step-by-step
+  commands to cut a release once the checklist has passed.
 - `.github/workflows/build.yml` — the continuous alpha channel, unchanged by the workflow split.
 - `.github/workflows/release.yml` — the release channel described in this document: the `vX.Y.Z`
   tag trigger, the hard-required quality gate, the semver + `:latest` Docker tags, and the
