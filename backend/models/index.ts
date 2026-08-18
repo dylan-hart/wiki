@@ -8,6 +8,7 @@ import { flags } from './flags.ts'
 import { groups } from './groups.ts'
 import { hooks } from './hooks.ts'
 import { icons } from './icons.ts'
+import { pageImport } from './import.ts'
 import { jobs } from './jobs.ts'
 import { locales } from './locales.ts'
 import { navigation } from './navigation.ts'
@@ -38,6 +39,7 @@ export default {
   groups,
   hooks,
   icons,
+  pageImport,
   jobs,
   locales,
   navigation,

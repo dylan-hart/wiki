@@ -1,6 +1,7 @@
 import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { PageActor, PageInput } from '../models/pages.ts'
+import { MAX_IMPORT_SIZE, SUPPORTED_IMPORT_FORMATS } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import { generatePathHash, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
@@ -176,6 +177,17 @@ async function loadReadablePage(req: FastifyRequest, siteId: string, pageId: str
  * Pages API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> IMPORT PAGE's body is the uploaded file's raw bytes, not a multipart form or JSON — the same
+  //    approach `api/assets.ts` uses for asset uploads. The catch-all only claims content types
+  //    nothing else in this file parses, so the JSON routes above and below are unaffected.
+  app.addContentTypeParser(
+    '*',
+    { parseAs: 'buffer', bodyLimit: MAX_IMPORT_SIZE },
+    (req, body, done) => {
+      done(null, body)
+    }
+  )
+
   /**
    * LIST PAGES
    */
@@ -642,6 +654,78 @@ async function routes(app: FastifyInstance) {
         ok: true,
         message: 'Page created successfully.',
         page
+      }
+    }
+  )
+
+  /**
+   * IMPORT PAGE CONTENT
+   */
+  app.post<{
+    Params: { siteId: string }
+    Querystring: { format: string; path: string; locale?: string }
+  }>(
+    '/sites/:siteId/pages/import',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES, addressed by the path the converted content would be saved to.
+        Checked against that path below, exactly like CREATE PAGE above.
+      */
+      schema: {
+        summary: 'Convert an uploaded file to Markdown',
+        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`format\` says what the bytes are; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        tags: ['Pages'],
+        consumes: ['*/*'],
+        params: siteIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            format: {
+              type: 'string',
+              enum: [...SUPPORTED_IMPORT_FORMATS],
+              description: "The uploaded file's format."
+            },
+            path: {
+              type: 'string',
+              maxLength: 255,
+              pattern: '^/?[a-zA-Z0-9-_/]*$',
+              description:
+                'Where the converted content would be saved. Used only to check permission — nothing is written here.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            }
+          },
+          required: ['format', 'path']
+        },
+        response: {
+          200: { $ref: 'PageImportResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Importing a page requires a logged in user.')
+      }
+      if (!mayOnPage(req, 'write:pages', { path: req.query.path, locale: req.query.locale })) {
+        return reply.forbidden('You are not allowed to write a page here.')
+      }
+      const data = req.body
+      if (!Buffer.isBuffer(data) || data.length < 1) {
+        return reply.badRequest('No file was sent.')
+      }
+      const markdown = await WIKI.models.pageImport.convertToMarkdown({
+        format: req.query.format,
+        data
+      })
+      return {
+        ok: true,
+        message: 'File converted successfully.',
+        markdown
       }
     }
   )

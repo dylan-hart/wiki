@@ -1,0 +1,173 @@
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import type { ExtensionDefinition } from './extensions.ts'
+
+const execFileAsync = promisify(execFile)
+
+/** Whether a real `pandoc` binary is on PATH, for the one test that shells out to it for real. */
+async function hasPandoc(): Promise<boolean> {
+  try {
+    await execFileAsync('pandoc', ['--version'])
+    return true
+  } catch {
+    return false
+  }
+}
+
+// -> Resolved once, at module load (top-level await is fine here — this is ESM), so `describe`'s own
+//    callback can stay synchronous and every `test(...)` call is a plain declarative registration.
+const pandocAvailable = await hasPandoc()
+
+const PANDOC_DEFINITION: ExtensionDefinition = {
+  key: 'pandoc',
+  title: 'Pandoc',
+  description: 'Converts between markup formats.',
+  detect: { type: 'command', value: 'pandoc' },
+  isInstallable: false
+}
+
+/**
+ * `models/import.ts` guards on `WIKI.models.extensions`, exactly the way `models/rendering.ts`'s
+ * `ensureCanRender` guards on Puppeteer — so the extensions model is stubbed here rather than pulled
+ * in for real, and `runPandoc` (the one method that actually shells out) is mocked per test so the
+ * business logic — format validation, size limits, "no usable content", error surfacing — is
+ * verified without a real pandoc binary on the machine running the test. The one test that does need
+ * a real conversion is skipped when pandoc isn't installed, the same way DB-backed suites skip
+ * without `DATABASE_URL` (see `test/db.ts`).
+ */
+describe('page import (pandoc)', () => {
+  let isInstalled: ReturnType<typeof mock.fn>
+  let pageImport: typeof import('./import.ts').pageImport
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        extensions: {
+          getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
+          isInstalled: mock.fn(async () => true)
+        }
+      }
+    }
+    ;({ pageImport } = await import('./import.ts'))
+    isInstalled = (globalThis as any).WIKI.models.extensions.isInstalled
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    isInstalled.mock.resetCalls()
+    isInstalled.mock.mockImplementation(async () => true)
+  })
+
+  test('refuses when pandoc is not installed, same shape as renderPuppeteerMissing', async () => {
+    isInstalled.mock.mockImplementation(async () => false)
+
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'mediawiki', data: Buffer.from('= Hi =') }),
+      (err: any) => {
+        assert.equal(err.name, 'importPandocMissing')
+        assert.equal(err.statusCode, 503)
+        return true
+      }
+    )
+  })
+
+  test('refuses an unsupported format', async () => {
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'wordperfect', data: Buffer.from('nope') }),
+      (err: any) => {
+        assert.equal(err.name, 'importUnsupportedFormat')
+        assert.equal(err.statusCode, 400)
+        assert.match(err.message, /wordperfect/)
+        return true
+      }
+    )
+  })
+
+  test('refuses an empty file', async () => {
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'mediawiki', data: Buffer.alloc(0) }),
+      (err: any) => {
+        assert.equal(err.name, 'importEmptyFile')
+        return true
+      }
+    )
+  })
+
+  test("threads pandoc's own stderr through when the file is not valid input for the declared format", async () => {
+    const runPandoc = mock.method(pageImport as any, 'runPandoc', async () => {
+      throw {
+        name: 'importConversionFailed',
+        statusCode: 400,
+        message:
+          'Pandoc could not convert this file as docx: Malformed docx file, could not be parsed'
+      }
+    })
+
+    try {
+      await assert.rejects(
+        pageImport.convertToMarkdown({ format: 'docx', data: Buffer.from('not a real docx') }),
+        (err: any) => {
+          assert.equal(err.name, 'importConversionFailed')
+          assert.equal(err.statusCode, 400)
+          assert.match(err.message, /Malformed docx file/)
+          return true
+        }
+      )
+    } finally {
+      runPandoc.mock.restore()
+    }
+  })
+
+  test('refuses a conversion that produces no usable content', async () => {
+    const runPandoc = mock.method(pageImport as any, 'runPandoc', async () => '   \n\n  ')
+
+    try {
+      await assert.rejects(
+        pageImport.convertToMarkdown({ format: 'rst', data: Buffer.from('...') }),
+        (err: any) => {
+          assert.equal(err.name, 'importNoContent')
+          assert.equal(err.statusCode, 400)
+          return true
+        }
+      )
+    } finally {
+      runPandoc.mock.restore()
+    }
+  })
+
+  test('returns the converted markdown on success', async () => {
+    const runPandoc = mock.method(
+      pageImport as any,
+      'runPandoc',
+      async () => '# Hello\n\nSome content.\n'
+    )
+
+    try {
+      const markdown = await pageImport.convertToMarkdown({
+        format: 'mediawiki',
+        data: Buffer.from('= Hello =\n\nSome content.')
+      })
+      assert.equal(markdown, '# Hello\n\nSome content.\n')
+    } finally {
+      runPandoc.mock.restore()
+    }
+  })
+
+  test(
+    'converts a real MediaWiki snippet with the real pandoc binary',
+    { skip: !pandocAvailable },
+    async () => {
+      const markdown = await pageImport.convertToMarkdown({
+        format: 'mediawiki',
+        data: Buffer.from("== Hello ==\n\nSome '''bold''' content.\n")
+      })
+      assert.match(markdown, /^#+ Hello/m)
+      assert.match(markdown, /\*\*bold\*\*/)
+    }
+  )
+})
