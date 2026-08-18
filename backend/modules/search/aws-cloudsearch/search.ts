@@ -8,12 +8,19 @@ import {
   DescribeSuggestersCommand,
   IndexDocumentsCommand
 } from '@aws-sdk/client-cloudsearch'
+import {
+  CloudSearchDomainClient,
+  SearchCommand,
+  UploadDocumentsCommand
+} from '@aws-sdk/client-cloudsearch-domain'
 import type {
   RebuildResult,
   SearchIndexablePage,
   SearchModule,
+  SearchOrderBy,
   SearchPagesParams,
-  SearchPagesResult
+  SearchPagesResult,
+  SearchResult
 } from '../../../models/search.ts'
 
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
@@ -104,6 +111,33 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       name: 'publishState',
       type: 'literal',
       options: { facetEnabled: true, searchEnabled: true, returnEnabled: true }
+    },
+    {
+      name: 'updatedAt',
+      type: 'literal',
+      // -> Task #562's own addition (this module's `query()`/hooks), same reasoning task #557 gave for
+      //    adding fields to `azure-search`'s `buildIndexSchema`: an ISO-8601 string sorts
+      //    lexicographically in chronological order, so a plain literal field is enough to satisfy
+      //    `orderBy: 'updatedAt'` — CloudSearch has no dedicated field type this module needs beyond that.
+      options: { returnEnabled: true }
+    },
+    {
+      name: 'icon',
+      type: 'literal',
+      // -> Task #562's own addition. Same reasoning as `id`: carried through purely so `query()` can
+      //    put it on `SearchResult.icon`, never searched or faceted.
+      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
+    },
+    {
+      name: 'hasPassword',
+      type: 'literal',
+      // -> Task #562's own addition. Stored as the literal strings `'true'`/`'false'` — CloudSearch has
+      //    no boolean field type. Routes a document into the public or protected half of the
+      //    `hideProtectedContent` split query (see `runProtectedSplitQuery` below), the same job
+      //    `azure-search`'s own boolean `hasPassword` field does (task #557's design decision #1): an
+      //    external index has no `password IS NULL` to check per-row the way postgres does. Never
+      //    returned to a caller — `query()` only ever filters on it.
+      options: { searchEnabled: false, returnEnabled: false }
     }
   ]
 }
@@ -288,31 +322,416 @@ function defaultAdminClientFactory(config: Record<string, any>): CloudSearchAdmi
   }
 }
 
+/** Maximum documents in one `UploadDocuments` batch — an AWS CloudSearch hard limit. */
+export const MAX_BATCH_DOCUMENTS = 1000
+
+/** Maximum size, in bytes, of one `UploadDocuments` request body — an AWS CloudSearch hard limit. */
+export const MAX_BATCH_BYTES = 5 * 1024 * 1024
+
+/** Maximum size, in bytes, of a single document — an AWS CloudSearch hard limit. */
+export const MAX_DOCUMENT_BYTES = 1024 * 1024
+
+/** One SDF (search document format) entry adding or overwriting a document. */
+export interface SdfAddDocument {
+  type: 'add'
+  id: string
+  fields: Record<string, string | string[]>
+}
+
+/** One SDF entry removing a document. */
+export interface SdfDeleteDocument {
+  type: 'delete'
+  id: string
+}
+
+export type SdfDocument = SdfAddDocument | SdfDeleteDocument
+
+/** A page row turned into the SDF document this module writes to the index. */
+export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
+  return {
+    type: 'add',
+    id: page.id,
+    fields: {
+      path: page.path,
+      locale: page.locale,
+      title: page.title,
+      description: page.description ?? '',
+      content: page.searchContent ?? '',
+      tags: page.tags ?? [],
+      editor: page.editor,
+      publishState: page.publishState,
+      icon: page.icon ?? '',
+      hasPassword: page.password != null ? 'true' : 'false',
+      // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
+      //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
+      updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
+    }
+  }
+}
+
+/**
+ * Groups documents into batches that respect every one of AWS's three real `UploadDocuments` limits —
+ * at most `MAX_BATCH_DOCUMENTS` documents, at most `MAX_BATCH_BYTES` total, each document itself no
+ * larger than `MAX_DOCUMENT_BYTES` — so both the lifecycle hooks below (`indexPage`/`removePage`, which
+ * almost always hand this a single-document array) and `rebuild()` (task #564, which will hand it a
+ * whole site's worth of pages) can share one place that gets the arithmetic right.
+ *
+ * A pure function returning batches rather than a stream: CloudSearch has no per-document upsert call
+ * (`UploadDocumentsCommand` always takes a whole JSON array), so *something* has to chunk any list of
+ * documents before it can be uploaded, and a plain array-in/array-out function is what a test can
+ * exercise with no SDK, network, or stream plumbing involved.
+ *
+ * Byte accounting mirrors 2.5.x's own `aws` engine (`server/modules/search/aws/engine.js`, before this
+ * branch's pluggable rewrite removed it): each batch's running total starts at 2 (the enclosing `[`/`]`
+ * of the JSON array this module uploads) and adds one byte per document after the first for the
+ * separating comma.
+ */
+export function batchDocuments(documents: SdfDocument[]): SdfDocument[][] {
+  const batches: SdfDocument[][] = []
+  let current: SdfDocument[] = []
+  let currentBytes = 2
+
+  for (const doc of documents) {
+    const docBytes = Buffer.byteLength(JSON.stringify(doc))
+    if (docBytes > MAX_DOCUMENT_BYTES) {
+      throw new Error(
+        `${MODULE_KEY}: document "${doc.id}" is ${docBytes} bytes, exceeding AWS CloudSearch's ${MAX_DOCUMENT_BYTES}-byte per-document limit.`
+      )
+    }
+    const additional = docBytes + (current.length > 0 ? 1 : 0)
+    if (
+      current.length > 0 &&
+      (current.length >= MAX_BATCH_DOCUMENTS || currentBytes + additional > MAX_BATCH_BYTES)
+    ) {
+      batches.push(current)
+      current = []
+      currentBytes = 2
+    }
+    currentBytes += docBytes + (current.length > 0 ? 1 : 0)
+    current.push(doc)
+  }
+  if (current.length > 0) {
+    batches.push(current)
+  }
+  return batches
+}
+
+/** Escapes a structured-query string literal: a backslash, then an embedded single quote. */
+function escapeStructuredLiteral(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'")
+}
+
+/**
+ * The free-text part of a `structured`-parser query.
+ *
+ * `matchall` — a real structured-query operator meaning "every document matches" — stands in for an
+ * empty query, the same role `undefined` plays for Azure's `search()` call (`azure-search`'s own
+ * `query()`): with only tags or filters set this is a browse rather than a search, and CloudSearch's
+ * `query` parameter is mandatory even when there is nothing to search for.
+ */
+export function buildStructuredQuery(fields: string[], terms: string): string {
+  const trimmed = terms.trim()
+  if (!trimmed) {
+    return 'matchall'
+  }
+  return `(and (phrase field=${fields.join(',')} '${escapeStructuredLiteral(trimmed)}'))`
+}
+
+function termClause(field: string, value: string): string {
+  return `(term field=${field} '${escapeStructuredLiteral(value)}')`
+}
+
+function prefixClause(field: string, value: string): string {
+  return `(prefix field=${field} '${escapeStructuredLiteral(value)}')`
+}
+
+function orClause(clauses: string[]): string {
+  return clauses.length === 1 ? clauses[0] : `(or ${clauses.join(' ')})`
+}
+
+/** `publishState`/`publicOnly`/`includeDrafts` translated the same way `azure-search`'s `query()` does. */
+function publishStateClauses(
+  publishState: string,
+  publicOnly: boolean,
+  includeDrafts: boolean
+): string[] {
+  const clauses: string[] = []
+  if (publicOnly) {
+    // -> Matches what a page view shows an anonymous reader, so search cannot surface a page that
+    //    could not then be opened
+    clauses.push(termClause('publishState', 'published'))
+  } else if (!includeDrafts) {
+    clauses.push(`(not ${termClause('publishState', 'draft')})`)
+  }
+  if (publishState) {
+    clauses.push(termClause('publishState', publishState))
+  }
+  return clauses
+}
+
+export interface CloudSearchFilterParams {
+  path?: string
+  locales?: string[]
+  tags?: string[]
+  editor?: string
+  publishState?: string
+  publicOnly?: boolean
+  includeDrafts?: boolean
+  /** Route to the public or the protected half of the split query — see `runProtectedSplitQuery`. */
+  hasPassword?: boolean
+}
+
+/**
+ * The `filterQuery` (`fq`) expression for a query — structured-query clauses `and`-joined, one per
+ * active filter, the same shape `azure-search`'s own `buildFilter` builds as an OData `$filter`.
+ *
+ * Deliberately carries no `siteId` clause, unlike `azure-search`'s: that module's index can hold
+ * documents from several sites sharing one Azure service, so every one of its queries scopes by
+ * `siteId`. This module's `CloudSearchQueryClient` is built per site from that site's own stored
+ * `domain`/`endpoint` config (`queryClientFor` below) — talking to a given site's engine already only
+ * ever reaches that site's own CloudSearch domain, so a document-level `siteId` clause would filter
+ * against a value nothing in this schema stores. Matches this task's own literal `fq` spec, which
+ * enumerates `path`/`locale`/`tags`/`editor`/`publishState` and not `siteId`.
+ *
+ * `tags` becomes an `or` of one `term` clause per requested tag: a document matches if any of its tags
+ * is in the requested set — the array-field equivalent of `p.tags @> ...` in postgres (any-of, not
+ * all-of), matching `azure-search`'s `tags/any(...)`.
+ */
+export function buildFilterQuery(params: CloudSearchFilterParams): string | undefined {
+  const clauses: string[] = []
+  if (params.path) {
+    clauses.push(prefixClause('path', params.path))
+  }
+  if (params.locales && params.locales.length > 0) {
+    clauses.push(orClause(params.locales.map((locale) => termClause('locale', locale))))
+  }
+  if (params.tags && params.tags.length > 0) {
+    clauses.push(orClause(params.tags.map((tag) => termClause('tags', tag))))
+  }
+  if (params.editor) {
+    clauses.push(termClause('editor', params.editor))
+  }
+  clauses.push(
+    ...publishStateClauses(
+      params.publishState ?? '',
+      params.publicOnly ?? false,
+      params.includeDrafts ?? false
+    )
+  )
+  if (params.hasPassword !== undefined) {
+    clauses.push(termClause('hasPassword', params.hasPassword ? 'true' : 'false'))
+  }
+  if (clauses.length === 0) {
+    return undefined
+  }
+  return clauses.length === 1 ? clauses[0] : `(and ${clauses.join(' ')})`
+}
+
+/**
+ * `orderBy`/`orderByDirection` translated into CloudSearch's `sort` parameter.
+ *
+ * `relevancy` sorts by `_score`, CloudSearch's own relevance field — matching `azure-search`'s
+ * `search.score()` and the `db` engine's `ts_rank`. Every other value is a plain field name already
+ * shared with `SearchResult`.
+ */
+export function buildSort(orderBy: SearchOrderBy, direction: 'asc' | 'desc'): string {
+  const dir = direction === 'asc' ? 'asc' : 'desc'
+  const field = orderBy === 'relevancy' ? '_score' : orderBy
+  return `${field} ${dir}`
+}
+
+/** Fields the main, unrestricted search matches and highlights against. */
+const FULL_SEARCH_FIELDS = ['title', 'description', 'content']
+
+/** Fields a password-protected page may still be found by — see `runProtectedSplitQuery` below. */
+const PROTECTED_SEARCH_FIELDS = ['title', 'description']
+
+/** Fields `highlight` requests a fragment from — title is excluded, matching `azure-search`'s own choice. */
+const HIGHLIGHT_FIELDS = ['content', 'description']
+
+/**
+ * Markers requested via each highlighted field's `pre_tag`/`post_tag`, in place of CloudSearch's own
+ * default (`<em>`/`</em>`).
+ *
+ * Control characters, same reasoning as `azure-search`'s own `HL_START`/`HL_STOP` and the `db` engine's
+ * `ts_headline` markers: the excerpt is page text that may itself contain anything, and it is
+ * HTML-escaped before these are turned into `<b>` tags. Leaving CloudSearch's own `<em>`/`</em>` as the
+ * markers would mean a page whose text happens to contain the literal string `<em>` gets it turned into
+ * emphasis too.
+ */
+const HL_START = ''
+const HL_STOP = ''
+
+/** The `highlight` request parameter: one fragment each from `content`/`description`, as plain text. */
+function highlightOption(): string {
+  const options: Record<string, { format: 'text'; pre_tag: string; post_tag: string }> = {}
+  for (const field of HIGHLIGHT_FIELDS) {
+    options[field] = { format: 'text', pre_tag: HL_START, post_tag: HL_STOP }
+  }
+  return JSON.stringify(options)
+}
+
+/** `escapeHtml` from the `db`/`azure-search` engines, copied rather than imported: each engine module stays self-contained. */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** The first highlighted fragment found (`content` preferred over `description`), normalized to `<b>`. */
+function normalizeHighlight(highlights: Record<string, string> | undefined): string | null {
+  const fragment = highlights?.content ?? highlights?.description
+  if (!fragment) {
+    return null
+  }
+  // -> Escaped first, so the only markup that survives is the emphasis CloudSearch itself marked
+  return escapeHtml(fragment).replaceAll(HL_START, '<b>').replaceAll(HL_STOP, '</b>')
+}
+
+/** All return-enabled fields, plus the relevance score — CloudSearch's `_all_fields` excludes `_score`. */
+const RETURN_FIELDS = '_all_fields,_score'
+
+/** One field value off a hit — CloudSearch returns every field as an array of strings. */
+function fieldValue(hit: CloudSearchHit, name: string): string {
+  return hit.fields?.[name]?.[0] ?? ''
+}
+
+/** One array-valued field off a hit (`tags`). */
+function fieldValues(hit: CloudSearchHit, name: string): string[] {
+  return hit.fields?.[name] ?? []
+}
+
+/** Compares two rows the way CloudSearch's own `sort` would, for merging two already-sorted result sets. */
+function compareRows(
+  a: CloudSearchHit,
+  b: CloudSearchHit,
+  orderBy: SearchOrderBy,
+  direction: 'asc' | 'desc'
+): number {
+  const factor = direction === 'asc' ? 1 : -1
+  if (orderBy === 'relevancy') {
+    return (Number(fieldValue(a, '_score') || 0) - Number(fieldValue(b, '_score') || 0)) * factor
+  }
+  const av = fieldValue(a, orderBy)
+  const bv = fieldValue(b, orderBy)
+  if (av === bv) {
+    return 0
+  }
+  return (av < bv ? -1 : 1) * factor
+}
+
+/** One request this module ever sends to `SearchCommand` — a narrowed, testable slice of the SDK's own. */
+export interface CloudSearchSearchRequest {
+  query: string
+  filterQuery?: string
+  sort?: string
+  start: number
+  size: number
+  return?: string
+  highlight?: string
+}
+
+/** One document match, as `SearchCommand` reports it back — narrowed to what this module reads. */
+export interface CloudSearchHit {
+  id: string
+  fields?: Record<string, string[]>
+  highlights?: Record<string, string>
+}
+
+/** The subset of a `SearchCommand` response this module reads. */
+export interface CloudSearchSearchResponse {
+  hits: { found: number; hit: CloudSearchHit[] }
+}
+
+/**
+ * The subset of `CloudSearchDomainClient` this module actually calls — document upload plus querying.
+ *
+ * Same reasoning as `CloudSearchAdminClient` above: a fake implementation can record calls and hand
+ * back canned hits with no network involved, and without pulling in the real SDK's command-object
+ * machinery at every call site. `defaultQueryClientFactory` below is what actually constructs
+ * `UploadDocumentsCommand`/`SearchCommand` and calls `CloudSearchDomainClient#send`.
+ */
+export interface CloudSearchQueryClient {
+  uploadDocuments(batch: SdfDocument[]): Promise<void>
+  search(request: CloudSearchSearchRequest): Promise<CloudSearchSearchResponse>
+}
+
+/** Builds the real SDK document/query client from a site's stored `endpoint`/region/credentials config. */
+function defaultQueryClientFactory(config: Record<string, any>): CloudSearchQueryClient {
+  const client = new CloudSearchDomainClient({
+    endpoint: config.endpoint,
+    region: config.region || DEFAULT_REGION,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey
+    }
+  })
+  return {
+    async uploadDocuments(batch) {
+      await client.send(
+        new UploadDocumentsCommand({
+          documents: Buffer.from(JSON.stringify(batch)),
+          contentType: 'application/json'
+        })
+      )
+    },
+    async search(request) {
+      const res = await client.send(
+        new SearchCommand({
+          query: request.query,
+          queryParser: 'structured',
+          filterQuery: request.filterQuery,
+          sort: request.sort,
+          start: request.start,
+          size: request.size,
+          return: request.return,
+          highlight: request.highlight
+        })
+      )
+      const hit = (res.hits?.hit ?? []).map((h) => ({
+        id: h.id!,
+        fields: h.fields as Record<string, string[]> | undefined,
+        highlights: h.highlights as Record<string, string> | undefined
+      }))
+      return { hits: { found: res.hits?.found ?? 0, hit } }
+    }
+  }
+}
+
 /**
  * The `aws-cloudsearch` search module: AWS CloudSearch as an external search engine.
  *
- * This task (#560) provisions the domain's fields, analysis scheme and suggester (`init()`), plus the
- * `definition.yml` and SDK dependencies. The page lifecycle hooks and query adapter are task #562's
- * (`@aws-sdk/client-cloudsearch-domain`, added alongside this module's own dependency, is what that
- * task will use — this one only manages domain configuration, not documents or queries). `rebuild()`
- * is task #564's, same split `azure-search` used across #553/#557/#564.
+ * Task #560 provisioned the domain (`init()`) and the SDK dependencies. This task (#562) is the page
+ * lifecycle — `created`/`updated`/`deleted`/`renamed` keep a CloudSearch domain in step with the
+ * database — plus `query()`, the read side, built on `@aws-sdk/client-cloudsearch-domain`
+ * (`UploadDocumentsCommand`/`SearchCommand`). `rebuild()` stays task #564's, same split `azure-search`
+ * used across #553/#557/#564.
  *
- * Takes an admin client factory rather than talking to the SDK directly, same reason `azure-search`
- * does: it is what lets a test exercise `init()`'s idempotency logic against a fake client with no real
- * AWS domain, network call, or credential involved — there is no local CloudSearch emulator either
+ * Takes both an admin client factory (domain provisioning, task #560) and a query client factory
+ * (documents/queries, this task) rather than talking to the SDK directly, the same reason
+ * `azure-search` takes two: it is what lets a test exercise every hook against a fake client with no
+ * real AWS domain, network call, or credential involved — there is no local CloudSearch emulator either
  * (Feature #381).
  */
 export class AwsCloudSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
+  private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
   /** One client per site: each site's region/credentials can point at a different account. */
   private readonly clients = new Map<string, CloudSearchAdminClient>()
+  private readonly queryClients = new Map<string, CloudSearchQueryClient>()
 
   constructor(
     clientFactory: (
       config: Record<string, any>
-    ) => CloudSearchAdminClient = defaultAdminClientFactory
+    ) => CloudSearchAdminClient = defaultAdminClientFactory,
+    queryClientFactory: (
+      config: Record<string, any>
+    ) => CloudSearchQueryClient = defaultQueryClientFactory
   ) {
     this.clientFactory = clientFactory
+    this.queryClientFactory = queryClientFactory
   }
 
   private clientFor(siteId: string, config: Record<string, any>): CloudSearchAdminClient {
@@ -322,6 +741,30 @@ export class AwsCloudSearchModule implements SearchModule {
       this.clients.set(siteId, client)
     }
     return client
+  }
+
+  private queryClientFor(siteId: string, config: Record<string, any>): CloudSearchQueryClient {
+    let client = this.queryClients.get(siteId)
+    if (!client) {
+      client = this.queryClientFactory(config)
+      this.queryClients.set(siteId, client)
+    }
+    return client
+  }
+
+  /**
+   * The stored config for one site's `aws-cloudsearch` engine (`domain`/`endpoint`/region/credentials).
+   *
+   * Read straight off `WIKI.sites`, the same deliberate deviation `azure-search`'s own `configFor`
+   * documents (task #557's design decision #3): going through `models/search.ts`'s `getEngineConfig`
+   * needs `search.definitions` to already have been populated by `refreshFromDisk()` — a boot-time
+   * precondition this module has no reason to depend on. Every default that matters here is already
+   * applied locally wherever it's used (`region || DEFAULT_REGION` in the client factories above), so
+   * reading the stored value directly is equivalent for this module's purposes and keeps every hook
+   * usable in isolation.
+   */
+  private configFor(siteId: string): Record<string, any> {
+    return (WIKI.sites[siteId]?.config?.search?.engines?.[MODULE_KEY] ?? {}) as Record<string, any>
   }
 
   /**
@@ -376,29 +819,247 @@ export class AwsCloudSearchModule implements SearchModule {
     }
   }
 
-  /** Not yet implemented — the page lifecycle hooks land in task #562. */
-  async created(_page: SearchIndexablePage): Promise<void> {
-    throw new Error(`${MODULE_KEY}: created() is not implemented yet (see task #562).`)
+  /**
+   * Uploads one batch of SDF documents to a site's domain, chunking through `batchDocuments` first —
+   * near-always a single-document array from `indexPage`/`removePage` below, but the same path
+   * `rebuild()` (task #564) will hand a whole site's worth of pages through.
+   */
+  private async uploadBatch(siteId: string, documents: SdfDocument[]): Promise<void> {
+    const client = this.queryClientFor(siteId, this.configFor(siteId))
+    for (const batch of batchDocuments(documents)) {
+      await client.uploadDocuments(batch)
+    }
   }
 
-  /** Not yet implemented — the page lifecycle hooks land in task #562. */
-  async updated(_page: SearchIndexablePage): Promise<void> {
-    throw new Error(`${MODULE_KEY}: updated() is not implemented yet (see task #562).`)
+  /**
+   * Write (or overwrite) one page's document in the index.
+   *
+   * Never throws: a page that saved correctly must not report failure because its index entry could
+   * not be written — the same contract `indexPage` gives `models/search.ts`'s dispatcher in the `db`
+   * and `azure-search` engines. A later `rebuild()` (task #564) puts a missed write right.
+   */
+  private async indexPage(page: SearchIndexablePage): Promise<void> {
+    try {
+      await this.uploadBatch(page.siteId, [toIndexDocument(page)])
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Failed to update the AWS CloudSearch index for page ${page.id}: ${err.message}`
+      )
+    }
   }
 
-  /** Not yet implemented — the page lifecycle hooks land in task #562. */
-  async deleted(_siteId: string, _pageId: string): Promise<void> {
-    throw new Error(`${MODULE_KEY}: deleted() is not implemented yet (see task #562).`)
+  /** Remove one page's document from the index. Never throws — same contract as `indexPage`. */
+  private async removePage(siteId: string, pageId: string): Promise<void> {
+    try {
+      await this.uploadBatch(siteId, [{ type: 'delete', id: pageId }])
+    } catch (err: any) {
+      WIKI.logger.warn(
+        `Failed to remove page ${pageId} from the AWS CloudSearch index: ${err.message}`
+      )
+    }
   }
 
-  /** Not yet implemented — the page lifecycle hooks land in task #562. */
-  async renamed(_siteId: string, _page: SearchIndexablePage, _previousPath: string): Promise<void> {
-    throw new Error(`${MODULE_KEY}: renamed() is not implemented yet (see task #562).`)
+  async created(page: SearchIndexablePage): Promise<void> {
+    await this.indexPage(page)
   }
 
-  /** Not yet implemented — the query adapter lands in task #562. */
-  async query(_params: SearchPagesParams): Promise<SearchPagesResult> {
-    throw new Error(`${MODULE_KEY}: query() is not implemented yet (see task #562).`)
+  async updated(page: SearchIndexablePage): Promise<void> {
+    await this.indexPage(page)
+  }
+
+  async deleted(siteId: string, pageId: string): Promise<void> {
+    await this.removePage(siteId, pageId)
+  }
+
+  /**
+   * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
+   * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
+   * under a new key. Same reasoning `azure-search`'s own `renamed` documents — unlike the `db` engine,
+   * whose `ts` vector never stores the path at all, this module's index does store `path` as a
+   * filterable field, so it does need rewriting here.
+   */
+  async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
+    await this.indexPage(page)
+  }
+
+  /** Runs one search against a site's domain. */
+  private async runQuery(
+    client: CloudSearchQueryClient,
+    request: CloudSearchSearchRequest
+  ): Promise<{ rows: CloudSearchHit[]; count: number }> {
+    const response = await client.search(request)
+    return { rows: response.hits.hit, count: response.hits.found }
+  }
+
+  /**
+   * Full-text search over the pages of a site.
+   *
+   * The text query is optional: with only tags or filters this is a browse rather than a search —
+   * `buildStructuredQuery` returns CloudSearch's `matchall` operator in that case, matching every
+   * document, the same role `undefined` plays for `azure-search`'s `search()` call.
+   *
+   * `hideProtectedContent` is only meaningful with a query: `db`'s and `azure-search`'s own `query()`
+   * gate the same way (`hideProtectedContent && hasQuery`), since with no query there is no body text
+   * to leak in the first place.
+   */
+  async query(params: SearchPagesParams): Promise<SearchPagesResult> {
+    const {
+      siteId,
+      query = '',
+      path = '',
+      locales = [],
+      tags = [],
+      editor = '',
+      publishState = '',
+      orderBy = 'relevancy',
+      orderByDirection = 'desc',
+      offset = 0,
+      limit = 25,
+      publicOnly = false,
+      includeDrafts = false,
+      hideProtectedContent = true,
+      actor
+    } = params
+
+    const terms = query.trim()
+    const hasQuery = terms.length > 0
+    const client = this.queryClientFor(siteId, this.configFor(siteId))
+    const sort = buildSort(orderBy, orderByDirection)
+    const filterParams: CloudSearchFilterParams = {
+      path,
+      locales,
+      tags,
+      editor,
+      publishState,
+      publicOnly,
+      includeDrafts
+    }
+
+    let rows: CloudSearchHit[]
+    let totalHits: number
+
+    if (hasQuery && hideProtectedContent) {
+      const split = await this.runProtectedSplitQuery(
+        client,
+        terms,
+        filterParams,
+        sort,
+        orderBy,
+        orderByDirection,
+        offset,
+        limit
+      )
+      rows = split.rows
+      totalHits = split.totalHits
+    } else {
+      const result = await this.runQuery(client, {
+        query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
+        filterQuery: buildFilterQuery(filterParams),
+        sort,
+        start: offset,
+        size: limit,
+        return: RETURN_FIELDS,
+        highlight: hasQuery ? highlightOption() : undefined
+      })
+      rows = result.rows
+      totalHits = result.count
+    }
+
+    /*
+      Filtered here rather than in the filter query: a page rule can be a regular expression or a set
+      of tags, so the deciding rule is only knowable per row. Search must not be a way around page
+      permissions — a title and an excerpt are content too. Same discipline as the `db`/`azure-search`
+      engines.
+    */
+    const visible = actor
+      ? rows.filter((row) =>
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            path: fieldValue(row, 'path'),
+            locale: fieldValue(row, 'locale'),
+            tags: fieldValues(row, 'tags')
+          })
+        )
+      : rows
+
+    const results: SearchResult[] = visible.map((row) => ({
+      id: row.id,
+      path: fieldValue(row, 'path'),
+      locale: fieldValue(row, 'locale'),
+      title: fieldValue(row, 'title'),
+      description: fieldValue(row, 'description') || null,
+      icon: fieldValue(row, 'icon') || null,
+      tags: fieldValues(row, 'tags'),
+      updatedAt: fieldValue(row, 'updatedAt'),
+      relevancy: Number(fieldValue(row, '_score') || 0),
+      highlight: normalizeHighlight(row.highlights)
+    }))
+
+    return {
+      results,
+      // -> The count CloudSearch reported for both halves of the query, less whatever the rules just
+      //    removed -- not exact when rows are dropped, same caveat the `db`/`azure-search` engines'
+      //    own comments document, but a total that ignored the filtering entirely would promise
+      //    results that don't exist.
+      totalHits: Math.max(0, totalHits - rows.length + visible.length)
+    }
+  }
+
+  /**
+   * The `hideProtectedContent` behavior: a protected page is findable by name, not by what it says.
+   *
+   * Two searches are issued and merged rather than one: the public half runs the ordinary full-text
+   * query (`FULL_SEARCH_FIELDS`, including `content`) restricted to pages with no password
+   * (`hasPassword eq false`); the protected half's query clause targets only `title`/`description`
+   * (`PROTECTED_SEARCH_FIELDS`) and requests no highlight at all, so a protected page surfaces when the
+   * terms are in its title or description — both of which it shows to everyone anyway — but never when
+   * they are only in the text behind the password, and never comes back with an excerpt of that text
+   * either. This is the same shape `azure-search`'s own `runProtectedSplitQuery` gives Azure, and the
+   * same shape `ts_filter(p.ts, '{a,b}')` plus the headline's own `CASE WHEN p.password IS NULL` give
+   * the `db` engine — split across two CloudSearch queries because an external index has no per-row
+   * expression to fall back to.
+   *
+   * Each half is fetched `offset + limit` deep (CloudSearch's own `sort` already puts the right rows in
+   * that range), then the two already-ordered lists are merged with the same comparator CloudSearch's
+   * own `sort` would apply and sliced to the requested page locally.
+   */
+  private async runProtectedSplitQuery(
+    client: CloudSearchQueryClient,
+    terms: string,
+    filterParams: CloudSearchFilterParams,
+    sort: string,
+    orderBy: SearchOrderBy,
+    orderByDirection: 'asc' | 'desc',
+    offset: number,
+    limit: number
+  ): Promise<{ rows: CloudSearchHit[]; totalHits: number }> {
+    const fetchDepth = offset + limit
+    const [publicResult, protectedResult] = await Promise.all([
+      this.runQuery(client, {
+        query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
+        filterQuery: buildFilterQuery({ ...filterParams, hasPassword: false }),
+        sort,
+        start: 0,
+        size: fetchDepth,
+        return: RETURN_FIELDS,
+        highlight: highlightOption()
+      }),
+      this.runQuery(client, {
+        query: buildStructuredQuery(PROTECTED_SEARCH_FIELDS, terms),
+        filterQuery: buildFilterQuery({ ...filterParams, hasPassword: true }),
+        sort,
+        start: 0,
+        size: fetchDepth,
+        return: RETURN_FIELDS
+        // -> No `highlight`: a protected page never shows an excerpt, matching `azure-search`/`db`.
+      })
+    ])
+    const merged = [...publicResult.rows, ...protectedResult.rows].sort((a, b) =>
+      compareRows(a, b, orderBy, orderByDirection)
+    )
+    return {
+      rows: merged.slice(offset, offset + limit),
+      totalHits: publicResult.count + protectedResult.count
+    }
   }
 
   /** Not yet implemented — the bulk rebuild path lands in task #564. */
