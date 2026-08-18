@@ -6,7 +6,7 @@
         <!-- SIDE TOOLBAR -->
         <!-- ------------------------------------------------------- -->
         <w-btn icon="mdi:link-variant-plus" padding="sm sm" flat @click="insertLink">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertLink')
           }}</w-tooltip>
         </w-btn>
@@ -14,54 +14,63 @@
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
         <w-btn icon="mdi:image-plus-outline" padding="sm sm" flat @click="insertAssets">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:code-json" padding="sm sm" flat>
-          <editor-code-block-menu anchor="top right" self="top left" @select="insertCodeBlock" />
-          <w-tooltip anchor="center right" self="center left">{{
+          <editor-code-block-menu
+            :anchor="sideToolbarMenuAnchor"
+            :self="sideToolbarMenuSelf"
+            @select="insertCodeBlock" />
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertCodeBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:table-large-plus" padding="sm sm" flat @click="insertTable">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTable')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:tab-plus" padding="sm sm" flat @click="insertTabset">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTabset')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:toy-brick-plus" padding="sm sm" flat @click="insertBlock">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:book-plus" padding="sm sm" flat @click="insertFootnote">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertFootnote')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:emoticon-plus-outline" padding="sm sm" flat>
-          <editor-emoji-menu anchor="top right" self="top left" @select="insertEmoji" />
-          <w-tooltip anchor="center right" self="center left">{{
+          <editor-emoji-menu
+            :anchor="sideToolbarMenuAnchor"
+            :self="sideToolbarMenuSelf"
+            @select="insertEmoji" />
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertEmoji')
           }}</w-tooltip>
         </w-btn>
         <!-- -> Icons only: what goes in is a `:mdi:home:` shortcode, and the picker's other tab hands
                 back an `img:` URL, which is not something that syntax can say -->
         <w-btn icon="mdi:seed-plus-outline" padding="sm sm" flat>
-          <w-menu anchor="top right" self="top left" content-class="shadow-7">
+          <w-menu
+            :anchor="sideToolbarMenuAnchor"
+            :self="sideToolbarMenuSelf"
+            content-class="shadow-7">
             <icon-picker-dialog no-image @update:model-value="insertIcon" />
           </w-menu>
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertIcon')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:line-scan" padding="sm sm" flat @click="insertHorizontalBar">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertHorizontalBar')
           }}</w-tooltip>
         </w-btn>
@@ -268,7 +277,7 @@
             <strong
               ><em>{{ t('editor.renderPreview') }}</em></strong
             >
-            <w-separator class="ml-4 mr-2" vertical inset />
+            <w-separator class="ms-4 me-2" vertical inset />
             <w-btn
               icon="mdi:arrow-vertical-lock"
               padding="xs sm"
@@ -326,6 +335,7 @@ import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { blockOpeningLine, blockValues, findBlocks } from '@/helpers/markdownBlocks'
 import { findEditableTables } from '@/helpers/markdownTable'
 
@@ -377,6 +387,28 @@ const collabEnabled = computed(
     editorStore.mode === 'edit' &&
     Boolean(pageStore.id)
 )
+
+/*
+  The side toolbar's tooltips and dropdown menus popped OUTWARD, away from the icon column, which
+  `App.vue`'s `applyLocale` always put on the reading-start edge of this editor -- so their `anchor`/
+  `self` used to be hardcoded to the one physical side that had room: `right` of the button. `WTooltip`
+  and `WMenu` place themselves in raw viewport pixels (`composables/anchoredPosition.js`), which knows
+  nothing about `direction`, so under `dir="rtl"` the sidebar itself swaps to the other edge (a plain
+  flex row already follows the inline axis) but a tooltip still anchored `right` would pop away from
+  the editor instead of toward it. `directionalAnchor` mirrors the pair when it is. Read once at
+  setup rather than kept reactive: switching the reader's locale mid-edit is not a case this editor
+  has to survive gracefully.
+*/
+const sideToolbarTooltip = directionalAnchor(
+  document.documentElement.dir,
+  'center right',
+  'center left'
+)
+const sideToolbarTooltipAnchor = sideToolbarTooltip.anchor
+const sideToolbarTooltipSelf = sideToolbarTooltip.self
+const sideToolbarMenu = directionalAnchor(document.documentElement.dir, 'top right', 'top left')
+const sideToolbarMenuAnchor = sideToolbarMenu.anchor
+const sideToolbarMenuSelf = sideToolbarMenu.self
 
 // STATE
 
@@ -1603,7 +1635,11 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
     display: block;
     height: $editor-height;
     position: relative;
-    border-right: 5px solid $primary;
+    /*
+      The seam facing the preview pane, which is the next flex item in `-main` -- always the one
+      after this in reading order, whichever physical side that mirrors to under `dir="rtl"`.
+    */
+    border-inline-end: 5px solid $primary;
     /*
       Monaco writes its measured width in pixels onto its own elements, so this item's automatic
       min-width -- min-content, i.e. whatever Monaco last laid itself out at -- pins it to the full
@@ -1776,10 +1812,15 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
   }
   &-toolbar {
     background-color: $primary;
-    border-left: 60px solid color.adjust($primary, $lightness: -5%);
+    /*
+      Continues the sidebar's own dark stripe up under the top toolbar, so the two read as one band
+      down the reading-start edge. `-inline-start`, not `-left`: the sidebar is the first item in
+      `-main`'s flex row, so it is always the one this toolbar sits beside on that edge, in LTR or RTL.
+    */
+    border-inline-start: 60px solid color.adjust($primary, $lightness: -5%);
     color: #fff;
     height: 32px;
-    // -> Flex so the preview toggle can be pushed to the far right by `w-space`
+    // -> Flex so the preview toggle can be pushed to the far inline-end by `w-space`
     display: flex;
     align-items: center;
   }

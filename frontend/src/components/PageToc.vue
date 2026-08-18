@@ -238,13 +238,17 @@ onBeforeUnmount(() => {
     padding: 0;
     list-style: none;
 
-    /* The rail. Inset top and bottom so it stops level with the first and last label. */
+    /*
+      The rail. Inset top and bottom so it stops level with the first and last label, and on the
+      INLINE-START edge -- the side the depth ramp indents away from -- so it sits under the reader's
+      right hand in RTL rather than staying pinned to the physical left.
+    */
     &::before {
       content: '';
       position: absolute;
       top: 3px;
       bottom: 3px;
-      left: 0;
+      inset-inline-start: 0;
       width: 1px;
       background-color: var(--page-toc-rail);
     }
@@ -253,19 +257,20 @@ onBeforeUnmount(() => {
   &-item {
     position: relative;
     /* Depth is carried as a custom property by the template, so one rule indents every level */
-    padding-left: calc(var(--page-toc-depth) * var(--page-toc-indent));
+    padding-inline-start: calc(var(--page-toc-depth) * var(--page-toc-indent));
   }
 
   /*
-    The active marker, drawn ON the rail rather than beside it: `left: 0` is the item's own border
-    box, which starts at the rail whatever the indentation, so every depth marks the same line.
+    The active marker, drawn ON the rail rather than beside it: `inset-inline-start: 0` is the item's
+    own border box, which starts at the rail whatever the indentation, so every depth marks the same
+    line -- on whichever edge the rail itself is on.
   */
   &-item--active::before {
     content: '';
     position: absolute;
     top: 2px;
     bottom: 2px;
-    left: 0;
+    inset-inline-start: 0;
     width: 2px;
     border-radius: 1px;
     background-color: var(--color-primary);
@@ -273,8 +278,9 @@ onBeforeUnmount(() => {
 
   &-link {
     display: block;
-    /* 9px of gutter, not a caret column: the rail is the only thing to the left of a label */
-    padding: 3px 8px 3px 9px;
+    /* 9px of gutter, not a caret column: the rail is the only thing before a label, on its start side */
+    padding-block: 3px;
+    padding-inline: 9px 8px;
     border-radius: 4px;
     color: inherit;
     font-size: inherit;

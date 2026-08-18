@@ -1,7 +1,14 @@
 <template>
   <div class="page-header flex flex-wrap">
     <!-- PAGE ICON -->
-    <div class="flex-none pl-4 flex items-center">
+    <!--
+      This row is a plain flex row, so under `dir="rtl"` the flex axis itself already reorders the
+      icon, the title column and the actions -- the icon lands beside whichever edge is now the
+      reading start. What would NOT follow along on its own is the gap between them: `ps-4`/`ms-4`/
+      `me-2` (Tailwind's logical spacing utilities) are used in place of `pl-4`/`ml-4`/`mr-2` below so
+      that gap stays on the correct side of each element rather than staying physically left/right.
+    -->
+    <div class="flex-none ps-4 flex items-center">
       <w-btn
         class="rounded"
         v-if="isEditing"
@@ -105,7 +112,7 @@
           and nobody is reading this one — they are passing through it.
         -->
         <w-btn
-          class="ml-4"
+          class="ms-4"
           :class="{ 'is-ringing': state.bellRinging }"
           v-if="userStore.authenticated && !isRedirect"
           flat
@@ -120,7 +127,7 @@
           </w-tooltip>
         </w-btn>
         <w-btn
-          class="ml-4"
+          class="ms-4"
           v-if="siteStore.theme.showPrintBtn"
           flat
           dense
@@ -143,7 +150,7 @@
           one to review.
         -->
         <w-btn
-          class="ml-4"
+          class="ms-4"
           v-if="pageStore.canReview && !isRedirect"
           flat
           dense
@@ -203,9 +210,9 @@
           Whoever else has this page open in an editor. Renders nothing when that is nobody, which is
           also what it renders whenever there is no collaboration session at all.
         -->
-        <collab-presence class="mr-2" />
+        <collab-presence class="me-2" />
         <w-btn
-          class="ml-4 acrylic-btn"
+          class="ms-4 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -222,7 +229,7 @@
       -->
       <template v-if="!editorStore.isActive && userStore.can(`write:pages`)">
         <w-btn
-          class="acrylic-btn ml-4"
+          class="acrylic-btn ms-4"
           flat
           icon="la:edit"
           color="deep-orange-9"
@@ -244,7 +251,7 @@
       -->
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
-          class="acrylic-btn ml-4"
+          class="acrylic-btn ms-4"
           flat
           icon="la:edit"
           color="deep-orange-9"
@@ -263,7 +270,7 @@
       </template>
       <template v-if="editorStore.isActive || editorStore.hasPendingChanges">
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           flat
           icon="la:times"
           color="negative"
@@ -276,7 +283,7 @@
           no-caps
           @click="discardChanges" />
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           v-if="isSuggesting"
           flat
           icon="la:paper-plane"
@@ -287,7 +294,7 @@
           no-caps
           @click="submitSuggestion" />
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           v-else-if="editorStore.mode === `create`"
           flat
           icon="la:check"
@@ -296,7 +303,7 @@
           :aria-label="t(`editor.createPage`)"
           no-caps
           @click="createPage" />
-        <w-btn-group class="ml-2" v-else flat>
+        <w-btn-group class="ms-2" v-else flat>
           <w-btn
             class="acrylic-btn"
             flat

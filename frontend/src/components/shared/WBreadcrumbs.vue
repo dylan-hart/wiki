@@ -9,11 +9,13 @@
             :aria-label="item.ariaLabel"
             :aria-current="idx === items.length - 1 ? 'page' : undefined"
             class="w-breadcrumbs__el relative inline-flex items-center text-inherit no-underline">
+            <!-- -> `me-2`, not `mr-2`: the gap belongs on the icon's trailing side, whichever
+                    physical side that is under the reader's text direction -->
             <w-icon
               v-if="item.icon"
               :name="item.icon"
               class="w-breadcrumbs__el-icon"
-              :class="item.label ? 'mr-2' : ''" />
+              :class="item.label ? 'me-2' : ''" />
             <span v-if="item.label">{{ item.label }}</span>
             <w-tooltip v-if="item.tooltip">{{ item.tooltip }}</w-tooltip>
           </component>
