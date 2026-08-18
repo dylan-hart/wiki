@@ -57,6 +57,7 @@ async function createSite(hostname: string, config: Record<string, any>) {
 
 let siteForUpdate: any
 const updateSiteCalls: Array<{ id: string; patch: Record<string, any> }> = []
+let enabledSiteCount = 1
 
 async function getSiteById({ id }: { id: string }) {
   return id === siteForUpdate?.id ? siteForUpdate : null
@@ -65,6 +66,10 @@ async function getSiteById({ id }: { id: string }) {
 async function updateSite(id: string, patch: Record<string, any>) {
   updateSiteCalls.push({ id, patch })
   return true
+}
+
+async function countEnabledSites() {
+  return enabledSiteCount
 }
 
 before(async () => {
@@ -76,7 +81,8 @@ before(async () => {
         getSiteById,
         isHostnameUnique,
         createSite,
-        updateSite
+        updateSite,
+        countEnabledSites
       }
     }
   }
@@ -263,4 +269,69 @@ test('updating a disabled site still succeeds, so it can be re-enabled', async (
   assert.equal(updateSiteCalls.length, 1)
   assert.equal(updateSiteCalls[0].id, siteForUpdate.id)
   assert.equal(updateSiteCalls[0].patch.isEnabled, true)
+})
+
+/**
+ * Regression coverage for task 691: the DELETE route already refuses to remove the last remaining
+ * site (`countSites() <= 1`); PUT had no equivalent, so an admin could disable the only enabled site
+ * with `isEnabled: false` and leave the wiki with no hostname able to resolve. Mirrors the DELETE
+ * guard's shape — a 409 conflict, `updateSite` never called — but keyed on `countEnabledSites()`
+ * rather than `countSites()`, since a disabled site still exists, it just stops being served.
+ */
+
+test('disabling the only enabled site is refused with a 409 and never reaches updateSite', async () => {
+  updateSiteCalls.length = 0
+  enabledSiteCount = 1
+  siteForUpdate = {
+    id: '55555555-5555-4555-8555-555555555555',
+    hostname: 'only-enabled.example.com',
+    isEnabled: true,
+    config: { title: 'Only Enabled Site' }
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${siteForUpdate.id}`,
+    payload: { isEnabled: false }
+  })
+  assert.equal(res.statusCode, 409)
+  assert.match(res.json().message, /last enabled site/i)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('disabling a site is allowed when another site would remain enabled', async () => {
+  updateSiteCalls.length = 0
+  enabledSiteCount = 2
+  siteForUpdate = {
+    id: '66666666-6666-4666-8666-666666666666',
+    hostname: 'one-of-many.example.com',
+    isEnabled: true,
+    config: { title: 'One Of Many' }
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${siteForUpdate.id}`,
+    payload: { isEnabled: false }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].patch.isEnabled, false)
+})
+
+test('disabling an already-disabled site does not re-check the enabled count (no-op patch, not a conflict)', async () => {
+  updateSiteCalls.length = 0
+  enabledSiteCount = 1
+  siteForUpdate = {
+    id: '77777777-7777-4777-8777-777777777777',
+    hostname: 'already-off.example.com',
+    isEnabled: false,
+    config: { title: 'Already Off' }
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${siteForUpdate.id}`,
+    payload: { isEnabled: false }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
 })

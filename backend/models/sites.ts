@@ -345,6 +345,10 @@ class Sites {
     return WIKI.db.$count(sitesTable)
   }
 
+  async countEnabledSites() {
+    return WIKI.db.$count(sitesTable, eq(sitesTable.isEnabled, true))
+  }
+
   async init(ids: SystemIds): Promise<void> {
     WIKI.logger.info('Inserting default site...')
 
