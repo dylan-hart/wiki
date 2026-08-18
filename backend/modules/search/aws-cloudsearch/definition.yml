@@ -1,0 +1,98 @@
+key: aws-cloudsearch
+title: 'AWS CloudSearch'
+icon: '/_assets/icons/ultraviolet-amazon-web-services.svg'
+description: 'Amazon CloudSearch is a managed service in the AWS Cloud that makes it simple and cost-effective to set up, manage, and scale a search solution for your website or application.'
+vendor: 'Amazon.com, Inc.'
+website: 'https://aws.amazon.com/cloudsearch/'
+props:
+  domain:
+    type: String
+    title: Search Domain
+    default: ''
+    hint: The name of your CloudSearch domain.
+    icon: database
+    order: 1
+  endpoint:
+    type: String
+    title: Document Endpoint
+    default: ''
+    hint: The document endpoint shown on the domain's dashboard in the AWS console.
+    icon: dns
+    order: 2
+  region:
+    type: String
+    title: Region
+    default: us-east-1
+    hint: The AWS datacenter region where the domain was created.
+    icon: geography
+    order: 3
+    enum:
+      - ap-northeast-1|Asia Pacific (Tokyo)
+      - ap-northeast-2|Asia Pacific (Seoul)
+      - ap-southeast-1|Asia Pacific (Singapore)
+      - ap-southeast-2|Asia Pacific (Sydney)
+      - eu-central-1|Europe (Frankfurt)
+      - eu-west-1|Europe (Ireland)
+      - sa-east-1|South America (São Paulo)
+      - us-east-1|US East (N. Virginia)
+      - us-west-1|US West (N. California)
+      - us-west-2|US West (Oregon)
+  accessKeyId:
+    type: String
+    title: Access Key ID
+    default: ''
+    hint: An access key with CloudSearchFullAccess permission on the domain.
+    icon: 3d-touch
+    sensitive: true
+    order: 4
+  secretAccessKey:
+    type: String
+    title: Secret Access Key
+    default: ''
+    hint: The secret access key for the Access Key ID entered above.
+    icon: key
+    sensitive: true
+    order: 5
+  analysisSchemeLang:
+    type: String
+    title: Analysis Scheme Language
+    default: en
+    hint: The language used to analyze indexed content.
+    icon: translation
+    order: 6
+    enum:
+      - ar|Arabic
+      - bg|Bulgarian
+      - ca|Catalan
+      - cs|Czech
+      - da|Danish
+      - de|German
+      - el|Greek
+      - en|English
+      - es|Spanish
+      - eu|Basque
+      - fa|Persian
+      - fi|Finnish
+      - fr|French
+      - ga|Irish
+      - gl|Galician
+      - he|Hebrew
+      - hi|Hindi
+      - hu|Hungarian
+      - hy|Armenian
+      - id|Indonesian
+      - it|Italian
+      - ja|Japanese
+      - ko|Korean
+      - lv|Latvian
+      - mul|Multiple Languages
+      - nl|Dutch
+      - no|Norwegian
+      - pt|Portuguese
+      - ro|Romanian
+      - ru|Russian
+      - sv|Swedish
+      - th|Thai
+      - tr|Turkish
+      - zh-Hans|Chinese (Simplified)
+      - zh-Hant|Chinese (Traditional)

@@ -36,6 +36,8 @@
     "db-up": "drizzle-kit up --dialect=postgresql --out=./db/migrations"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudsearch": "3.1112.0",
+    "@aws-sdk/client-cloudsearch-domain": "3.1112.0",
     "@azure/search-documents": "13.0.0",
     "@fastify/compress": "9.2.0",
     "@fastify/cookie": "11.1.2",
