@@ -57,7 +57,8 @@ declare global {
     scheduler: typeof import('../core/scheduler.ts').default
     models: typeof import('../models/index.ts').default
 
-    // TODO: infer from the `sites` table once db/schema.ts is converted
+    // TODO: type this against `sites`' Drizzle row type (backend/db/schema.ts) instead of `any` --
+    // the table has been a real Drizzle table for a while now, this just hasn't been tightened up
     sites: Record<string, any>
     sitesMappings: Record<string, string>
 

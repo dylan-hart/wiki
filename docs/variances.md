@@ -58,3 +58,44 @@ file — and has been brought current with `npx oxfmt --write`. There is therefo
 exception list for source files: as of this entry, `npx oxfmt --check frontend` (run from the repo
 root) is the exact command that defines "current" for `frontend/`, and it exits clean except for the
 two generated bundles this entry documents.
+
+## TODO/FIXME audit
+
+A full sweep of every `TODO`/`FIXME` marker under `backend/` and `frontend/src/` (`blocks/` has
+none) was run against this file's bar. None qualified as an entry — recorded here so each exclusion
+is reasoned about, not silently dropped, per this feature's acceptance criteria. Re-run the grep
+(`grep -rn -E 'TODO|FIXME' backend/ frontend/src/`) before trusting this list; it drifts.
+
+- **The four bugs feature #422 exists to fix no longer have markers at all.** `sites.ts`'s
+  `req.querystring.strict`, `config.ts`'s `Promise.trim()`, `scheduler.ts`'s cron-parser/`useWorker`
+  mismatch, and `HeaderSearch.vue`'s `popularTags` sort order were all independently fixed, with
+  regression tests, in `c608b179` while standing up this branch's own test infrastructure (feature
+  #424) — their FIXME comments were removed along with the fix. There is nothing left under those
+  four names to exclude; #422's sibling branch fixes the same bugs independently and has not been
+  merged here.
+- **Forward-looking backlog TODOs, already owned by an epic in the roadmap**
+  (`docs/superpowers/specs/2026-08-16-wikijs-3-epic-roadmap-design.md`) — excluded, not deviations:
+  `backend/index.ts:644` (RTL, epic 9), `backend/tasks/simple/update-locales.ts:37` (locale sync
+  for v3, epic 9), `frontend/src/components/AuthLoginPanel.vue:709` (forgot password, epic 5),
+  `frontend/src/components/UserEditOverlay.vue:921` (invalidate 2FA on user edit, epic 5),
+  `frontend/src/components/EditorWysiwyg.vue:480,689` (link insertion / suggestions, epic 1),
+  `frontend/src/pages/AdminBlocks.vue:206` (custom block registration needs an upload endpoint that
+  doesn't exist yet, epic 10), `frontend/src/pages/AdminMail.vue:490` (no SMTP transport to test
+  against yet, epic 8), `frontend/src/components/UploadPendingAssetsDialog.vue:80` (per-page asset
+  folders, epic 6), `frontend/src/components/FileManager.vue:1329` (opening an asset from the file
+  browser, epics 1/2), `frontend/src/components/EditorMarkdown.vue:1278` (a `window.edInstance`
+  debug hook left in during active Monaco/table-editor work, epic 1's parity-and-gap-closing scope).
+- **Vendored, not this repo's debt to carry**: `frontend/src/helpers/monacoTypes.js:492` sits inside
+  code adapted from a third-party MIT-licensed source (`monaco-markdown`, credited in the file's
+  header); its inert commented-out line is upstream's TODO, not ours.
+- **Stale, corrected directly rather than logged as a variance**: `backend/types/global.d.ts`'s
+  `WIKI.sites` field said `any` awaited `db/schema.ts` conversion — `sites` has been a real Drizzle
+  table since `backend/db/schema.ts:622`, so the comment now names the actual remaining gap (nobody
+  has typed the field against the row type yet). `backend/api/pages.ts:67-68` carries the same kind
+  of stale "per-path rules are not implemented" claim, even though `mayOnPage()`/`checkAccess()` a
+  few lines below implement exactly that — left untouched here because it is explicitly owned by
+  sibling task #781, which also has to resolve a live `mayBypassPassword()` discrepancy the stale
+  wording was masking; fixing it here would duplicate that task's work.
+- **Deliberate, currently-justified tradeoffs**: none found. Every marker above is already fixed,
+  backlog, vendored, or a wording correction — none of them deviates from a stated requirement or
+  convention the way this file exists to document, so no entry was added for this pass.
