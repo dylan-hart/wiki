@@ -544,6 +544,7 @@ import {
   pickSiteImage,
   uploadSiteImage
 } from '@/helpers/siteImages'
+import { isValidHostname } from '@/helpers/siteValidation'
 
 import { toMerged } from 'es-toolkit/object'
 
@@ -645,9 +646,7 @@ const uploadConflictBehaviors = [
 ]
 
 const rulesTitle = [(val) => /^[^<>"]+$/.test(val) || t('admin.general.siteTitleInvalidChars')]
-const rulesHostname = [
-  (val) => /^(([a-z0-9.-]+)|([*]{1}))$/.test(val) || t('admin.general.siteHostnameInvalid')
-]
+const rulesHostname = [(val) => isValidHostname(val) || t('admin.sites.hostnameInvalidChars')]
 
 // WATCHERS
 

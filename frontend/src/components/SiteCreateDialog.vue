@@ -67,6 +67,7 @@ import { useI18n } from 'vue-i18n'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { isValidHostname } from '@/helpers/siteValidation'
 import { reactive, ref } from 'vue'
 
 import { useAdminStore } from '../stores/admin'
@@ -110,7 +111,7 @@ const siteNameValidation = [
 ]
 const siteHostnameValidation = [
   (val) => val.length > 0 || t('admin.sites.hostnameMissing'),
-  (val) => /^(\\*)|([a-z0-9\-.:]+)$/.test(val) || t('admin.sites.hostnameInvalidChars')
+  (val) => isValidHostname(val) || t('admin.sites.hostnameInvalidChars')
 ]
 
 // METHODS

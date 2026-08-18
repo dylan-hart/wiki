@@ -359,7 +359,6 @@
   "admin.general.siteDescriptionHint": "Default description when none is provided for a page.",
   "admin.general.siteHostname": "Site Hostname",
   "admin.general.siteHostnameHint": "Hostname this site should respond to. Set * for catch-all / fallback domain.",
-  "admin.general.siteHostnameInvalid": "Invalid Hostname",
   "admin.general.siteInfo": "Site Info",
   "admin.general.siteTitle": "Site Title",
   "admin.general.siteTitleHint": "Displayed in the top bar and appended to all pages meta title.",
