@@ -33,3 +33,18 @@ specific engine. The one literal gap — a public `getActiveEngine(siteId)` reso
 equivalent-but-private `engineFor()` the dispatcher already used internally — was closed by making
 that method public, so a caller that needs the resolved module itself (rather than one of the
 dispatcher's pass-through calls) has a documented entry point matching the task's named API.
+
+## Task #550 — Algolia module: `renamed()` updates in place rather than delete+add
+
+Task #550 described `renamePage` as mapping to a `deleteObject`/`addObject` "objectID swap", matching
+2.5.x's `server/modules/search/algolia/engine.js` (`git show 343d4db0:...`), which derived a page's
+Algolia `objectID` from a hash of its path and locale — a rename therefore changed the hash, so the
+old object had to be deleted and a new one added under the new id.
+
+This schema's `pages.id` is a stable UUID a move never touches (`models/pages.ts`'s `movePage` updates
+the existing row's `path` column in place; the row, and its `id`, survive). Since `search.ts`'s
+`AlgoliaSearchModule` uses `page.id` as the Algolia `objectID` (not a hash of the path), a rename does
+not change the object's identity at all — it is an ordinary `saveObject` update of the same record,
+same as `created`/`updated`. Implementing the literal delete+add would have meant the page briefly
+disappearing from search between the two calls, for no benefit: nothing about this schema's rename
+requires the identity churn 2.5.x's hash-based id forced.
