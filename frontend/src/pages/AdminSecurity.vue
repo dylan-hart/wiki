@@ -266,6 +266,101 @@
             </w-item>
           </template>
         </w-card>
+        <!-- ----------------------- -->
+        <!-- API Rate Limiting -->
+        <!-- ----------------------- -->
+        <w-card class="pb-2 mt-4">
+          <w-card-header>{{ t('admin.security.apiRateLimit') }}</w-card-header>
+          <!--
+            Same red warning-first layout as the authentication rate-limit card above: both say
+            something that decides whether the settings under them do what they look like they do.
+          -->
+          <w-item class="pt-0">
+            <w-item-section>
+              <w-card class="bg-negative text-white rounded" flat>
+                <w-card-section class="items-center" horizontal>
+                  <w-card-section class="flex-none pr-0">
+                    <w-icon name="la:exclamation-triangle" size="lg" />
+                  </w-card-section>
+                  <w-card-section class="text-caption">
+                    <!-- -> With `trustProxy` off behind a proxy every request carries the proxy's
+                         address, so one caller going over the limit takes everybody with them -->
+                    <div v-if="!state.config.trustProxy">
+                      {{ t('admin.security.rateLimitProxyWarn') }}
+                    </div>
+                    <div :class="{ 'mt-1': !state.config.trustProxy }">
+                      {{ t('admin.security.apiRateLimitRecommended') }}
+                    </div>
+                  </w-card-section>
+                </w-card-section>
+              </w-card>
+            </w-item-section>
+          </w-item>
+          <w-item tag="label">
+            <blueprint-icon icon="filtration" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.security.apiRateLimitEnabled`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.security.apiRateLimitEnabledHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.config.apiRateLimitEnabled"
+                :aria-label="t(`admin.security.apiRateLimitEnabled`)" />
+            </w-item-section>
+          </w-item>
+          <template v-if="state.config.apiRateLimitEnabled">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="pin-pad" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.apiRateLimitMax`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.security.apiRateLimitMaxHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section style="flex: 0 0 200px">
+                <w-input
+                  outlined
+                  v-model.number="state.config.apiRateLimitMax"
+                  dense
+                  :suffix="t(`admin.security.apiRateLimitMaxSuffix`)"
+                  :aria-label="t(`admin.security.apiRateLimitMax`)" />
+              </w-item-section>
+            </w-item>
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="timer" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.apiRateLimitWindow`) }}</w-item-label>
+                <w-item-label caption>{{
+                  t(`admin.security.apiRateLimitWindowHint`)
+                }}</w-item-label>
+              </w-item-section>
+              <w-item-section style="flex: 0 0 200px">
+                <w-input
+                  outlined
+                  v-model="state.config.apiRateLimitWindow"
+                  dense
+                  :placeholder="t(`admin.security.durationPlaceholder`)"
+                  :aria-label="t(`admin.security.apiRateLimitWindow`)" />
+              </w-item-section>
+            </w-item>
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="denied" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.apiRateLimitBan`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.security.apiRateLimitBanHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section style="flex: 0 0 200px">
+                <w-input
+                  outlined
+                  v-model="state.config.apiRateLimitBan"
+                  dense
+                  :placeholder="t(`admin.security.durationPlaceholder`)"
+                  :aria-label="t(`admin.security.apiRateLimitBan`)" />
+              </w-item-section>
+            </w-item>
+          </template>
+        </w-card>
       </div>
       <div class="col-span-12 lg:col-span-6">
         <!-- ----------------------- -->
@@ -446,6 +541,10 @@ const state = reactive({
     authRateLimitMax: 10,
     authRateLimitWindow: '5m',
     authRateLimitBan: '15m',
+    apiRateLimitEnabled: true,
+    apiRateLimitMax: 300,
+    apiRateLimitWindow: '5m',
+    apiRateLimitBan: '15m',
     uploadMaxFileSize: 0,
     uploadMaxFiles: 0,
     uploadScanSVG: false

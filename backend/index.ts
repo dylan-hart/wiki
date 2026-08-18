@@ -34,8 +34,8 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { stripPageExtension } from './helpers/common.ts'
-import { limitApiKey } from './helpers/rateLimit.ts'
-import { corsOrigin, parseCspDirectives } from './helpers/security.ts'
+import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
+import { corsOptions, parseCspDirectives } from './helpers/security.ts'
 
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
@@ -335,10 +335,10 @@ async function initHTTPServer() {
       : { policy: 'no-referrer' }
   })
 
-  app.register(fastifyCors, {
-    origin: corsOrigin(security),
-    methods: ['GET', 'HEAD', 'POST', 'OPTIONS']
-  })
+  // -> One global registration rather than a separate policy for `/_api`: see the doc comment on
+  //    `corsOptions()` for why the method list has to cover the full API CRUD surface even though
+  //    this same registration also fronts asset-serving routes like `/_render` and `/_thumb`.
+  app.register(fastifyCors, corsOptions(security))
 
   // ----------------------------------------
   // Public Assets
@@ -554,6 +554,20 @@ async function initHTTPServer() {
     //    not only the ones that remembered to attach a limiter. See helpers/rateLimit.ts for why
     //    this one specifically has no manage:system exemption.
     return limitApiKey(req, reply)
+  })
+
+  // ----------------------------------------
+  // General API Rate Limit
+  // ----------------------------------------
+
+  app.addHook('onRequest', async (req, reply) => {
+    // -> After the API-key hook above, so `req.apiKey` is populated for the key it builds its
+    //    counter from. See `helpers/rateLimit.ts#limitApiRequests` for the key/exemption/double-count
+    //    reasoning.
+    if (!req.url.startsWith('/_api/')) {
+      return
+    }
+    return limitApiRequests(req, reply)
   })
 
   // ----------------------------------------
