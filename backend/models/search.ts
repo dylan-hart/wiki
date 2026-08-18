@@ -440,7 +440,7 @@ class Search {
    * The text search configurations this postgres installation actually has, e.g. `english`, `simple`.
    *
    * Not site-scoped — postgres itself is one installation shared by every site — so this always asks
-   * the `db` module specifically rather than going through `engineFor`. Used by the admin area to
+   * the `db` module specifically rather than going through `getActiveEngine`. Used by the admin area to
    * validate a `dictOverrides` mapping before it's saved, and by `db`'s own indexing, regardless of
    * whether `db` is any given site's active engine: an operator can still configure its dictionaries
    * from the search settings screen even while another engine serves queries.
@@ -463,8 +463,17 @@ class Search {
    * A site that names no engine — every site, until per-site engine selection ships — gets `db`, the
    * one guaranteed to have an implementation. A site that names an engine whose implementation is
    * missing or failed to load also falls back to `db`, rather than search breaking outright for it.
+   *
+   * Public (task #549's `getActiveEngine(siteId)` resolver): `query`/`rebuild`/`created`/`updated`/
+   * `deleted`/`renamed` below already resolve through this and forward straight to it, which is what
+   * keeps every existing caller (`api/pages.ts`, `models/pages.ts`,
+   * `tasks/simple/rebuild-search-index.ts`) off any specific engine implementation — they only ever
+   * call `WIKI.models.search.*`. This is exposed as its own method too, for a caller that genuinely
+   * needs the resolved module itself rather than one of the dispatcher's pass-through calls — e.g. a
+   * future admin action specific to one engine, the way `db.getAvailableDictionaries()` above already
+   * reaches past the dispatcher for a `db`-only capability.
    */
-  private async engineFor(siteId: string): Promise<SearchModule> {
+  async getActiveEngine(siteId: string): Promise<SearchModule> {
     const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const module = (await this.ensureModule(key)) ?? (await this.ensureModule(DB_MODULE))
     if (!module) {
@@ -479,7 +488,7 @@ class Search {
    * Full-text search over the pages of a site. Delegates to the site's configured engine.
    */
   async query(params: SearchPagesParams): Promise<SearchPagesResult> {
-    const engine = await this.engineFor(params.siteId)
+    const engine = await this.getActiveEngine(params.siteId)
     return engine.query(params)
   }
 
@@ -487,31 +496,31 @@ class Search {
    * Recompute the whole search index of a site. Delegates to the site's configured engine.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     return engine.rebuild(siteId)
   }
 
   /** A page was created. Delegates to the page's site's configured engine. */
   async created(page: SearchIndexablePage): Promise<void> {
-    const engine = await this.engineFor(page.siteId)
+    const engine = await this.getActiveEngine(page.siteId)
     await engine.created(page)
   }
 
   /** A page's content or metadata changed. Delegates to the page's site's configured engine. */
   async updated(page: SearchIndexablePage): Promise<void> {
-    const engine = await this.engineFor(page.siteId)
+    const engine = await this.getActiveEngine(page.siteId)
     await engine.updated(page)
   }
 
   /** A page was deleted. Delegates to the site's configured engine. */
   async deleted(siteId: string, pageId: string): Promise<void> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     await engine.deleted(siteId, pageId)
   }
 
   /** A page moved. Delegates to the page's site's configured engine. */
   async renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     await engine.renamed(siteId, page, previousPath)
   }
 }

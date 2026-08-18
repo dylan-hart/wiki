@@ -441,6 +441,78 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
 })
 
 /**
+ * `search.getActiveEngine(siteId)`, task #549: the public resolver every future caller (a new engine
+ * implementation, an admin action that needs the raw module rather than one of the dispatcher's
+ * pass-through methods) can use instead of re-deriving `WIKI.sites[siteId].config.search.engine`
+ * itself. `query()`/`rebuild()`/`created()`/`updated()`/`deleted()`/`renamed()` above already resolve
+ * through the same logic (`engineFor`, folded into this method) — this just gives that resolution a
+ * public name and return value, so it's a resolver in the same sense `WIKI.models.groups.checkAccess`
+ * is: one place every caller asks "what should handle this", rather than a store to write to.
+ */
+describe('search.getActiveEngine()', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('resolves the db module for a site with no engine configured', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    ;(globalThis as any).WIKI.sites['site-default'] = { id: 'site-default', config: {} }
+
+    assert.equal(await search.getActiveEngine('site-default'), dbModule)
+  })
+
+  test('resolves the site’s configured engine over db', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    const { module: customModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    search.modules['custom-engine'] = customModule
+    ;(globalThis as any).WIKI.sites['site-custom'] = {
+      id: 'site-custom',
+      config: { search: { engine: 'custom-engine' } }
+    }
+
+    assert.equal(await search.getActiveEngine('site-custom'), customModule)
+  })
+
+  test('falls back to db when the configured engine has no loaded implementation', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    delete search.modules['missing-engine']
+    ;(globalThis as any).WIKI.sites['site-missing'] = {
+      id: 'site-missing',
+      config: { search: { engine: 'missing-engine' } }
+    }
+
+    assert.equal(await search.getActiveEngine('site-missing'), dbModule)
+  })
+
+  test('throws when neither the configured engine nor db has a loaded implementation', async () => {
+    delete search.modules.db
+    delete search.modules['missing-engine']
+    ;(globalThis as any).WIKI.sites['site-none'] = {
+      id: 'site-none',
+      config: { search: { engine: 'missing-engine' } }
+    }
+
+    await assert.rejects(
+      () => search.getActiveEngine('site-none'),
+      /No search engine implementation is available/
+    )
+  })
+})
+
+/**
  * `search.getSiteEngines()` / `.buildEngineConfig()` / `.validateEngineConfig()` / `.selectEngine()`,
  * task #570: the site-scoped engine picker built on top of `refreshFromDisk()`'s definitions.
  */
