@@ -110,7 +110,11 @@ is reasoned about, not silently dropped, per this feature's acceptance criteria.
   against yet, epic 8), `frontend/src/components/UploadPendingAssetsDialog.vue:80` (per-page asset
   folders, epic 6), `frontend/src/components/FileManager.vue:1329` (opening an asset from the file
   browser, epics 1/2), `frontend/src/components/EditorMarkdown.vue:1278` (a `window.edInstance`
-  debug hook left in during active Monaco/table-editor work, epic 1's parity-and-gap-closing scope).
+  debug hook left in during active Monaco/table-editor work, epic 1's parity-and-gap-closing scope),
+  `frontend/src/layouts/AdminLayout.vue:219` (the storage nav item's status light hardcodes
+  `positive` pending real status, epic 6 — storage sync is 100% unimplemented per the roadmap doc, so
+  there is no status to reflect yet; this one was missed by the first research pass's grep and
+  caught by re-running it for this task, exactly as its own caveat warns will happen).
 - **Vendored, not this repo's debt to carry**: `frontend/src/helpers/monacoTypes.js:492` sits inside
   code adapted from a third-party MIT-licensed source (`monaco-markdown`, credited in the file's
   header); its inert commented-out line is upstream's TODO, not ours.
