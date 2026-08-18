@@ -72,9 +72,9 @@ const routes = [
       { path: 'users/:id?/:section?', component: () => import('@/pages/AdminUsers.vue') },
       // -> System
       { path: 'api', component: () => import('@/pages/AdminApi.vue') },
+      { path: 'cluster', component: () => import('@/pages/AdminCluster.vue') },
       { path: 'extensions', component: () => import('@/pages/AdminExtensions.vue') },
       { path: 'icons', component: () => import('@/pages/AdminIcons.vue') },
-      { path: 'instances', component: () => import('@/pages/AdminInstances.vue') },
       { path: 'mail', component: () => import('@/pages/AdminMail.vue') },
       { path: 'metrics', component: () => import('@/pages/AdminMetrics.vue') },
       { path: 'rendering', component: () => import('@/pages/AdminRendering.vue') },

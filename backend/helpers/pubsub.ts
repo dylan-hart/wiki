@@ -75,7 +75,7 @@ export interface ListenerHandle {
 export interface ListenerOptions {
   /** Pool to (re)connect a dedicated client from. */
   pool: Pool
-  /** `application_name` set on every (re)connection, so `pg_stat_activity` / AdminInstances can name it. */
+  /** `application_name` set on every (re)connection, so `pg_stat_activity` / AdminCluster can name it. */
   applicationName: string
   /** Channel(s) this client LISTENs on, (re-)issued on every (re)connection. */
   channels: string[]

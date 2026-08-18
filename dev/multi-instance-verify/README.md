@@ -12,7 +12,7 @@ test` from `backend/` — see that file's `reapStaleJobs / processJob claim-and-
 `executeOnWorker (real worker pool)` `describe` blocks) already proves the same guarantees
 deterministically, against a real Postgres and a real poolifier worker thread, and is the faster and
 more repeatable way to rerun this verification. This document is for engineers who want to watch it
-happen against two literal `node backend` processes and `pg_stat_activity` / `AdminInstances.vue`,
+happen against two literal `node backend` processes and `pg_stat_activity` / `AdminCluster.vue`,
 or who are debugging a regression these tests don't reproduce.
 
 ## 1. Shared Postgres
@@ -71,7 +71,7 @@ CONFIG_FILE=dev/multi-instance-verify/config.b.yml node backend
 
 Confirm both are visible to each other: log in to either (`http://localhost:3000` or `:3010`,
 `admin@example.com` / `12345678` after the first boot seeds it) as an admin and open
-**Admin → Utilities → Instances** (`AdminInstances.vue`, backed by `GET /_api/system/instances`),
+**Admin → System → Cluster** (`AdminCluster.vue`, backed by `GET /_api/system/cluster`),
 or query directly:
 
 ```sql

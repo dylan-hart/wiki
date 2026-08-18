@@ -11,8 +11,8 @@ export const useAdminStore = defineStore('admin', {
       currentVersion: 'n/a',
       latestVersion: 'n/a',
       activeWorkers: 0,
+      clusterTotal: 0,
       groupsTotal: 0,
-      instancesTotal: 0,
       pagesTotal: 0,
       tagsTotal: 0,
       usersTotal: 0,
@@ -56,8 +56,8 @@ export const useAdminStore = defineStore('admin', {
     async fetchInfo() {
       const resp = await API_CLIENT.get('system/info').json()
       this.info.activeWorkers = resp?.activeWorkers ?? 0
+      this.info.clusterTotal = resp?.clusterTotal ?? 0
       this.info.groupsTotal = resp?.groupsTotal ?? 0
-      this.info.instancesTotal = resp?.instancesTotal ?? 0
       this.info.tagsTotal = resp?.tagsTotal ?? 0
       this.info.usersTotal = resp?.usersTotal ?? 0
       this.info.webhooksTotal = resp?.webhooksTotal ?? 0

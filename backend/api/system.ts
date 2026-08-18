@@ -16,16 +16,16 @@ import type { PurgeTimeframe } from '../models/pageHistory.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * Every instance connected to this database, with how it is using the connection pool.
+ * Every node of this cluster connected to this database, with how it is using the connection pool.
  *
- * There is no instance registry: an instance is only known by the connections it holds, which it
- * labels `Wiki.js - <instance id>:<purpose>`. Two of those purposes hold a listener rather than
- * doing query work, so they are counted apart.
+ * There is no node registry: a node is only known by the connections it holds, which it labels
+ * `Wiki.js - <instance id>:<purpose>`. Two of those purposes hold a listener rather than doing query
+ * work, so they are counted apart.
  *
  * Shared by the list route and the dashboard count, so that the number on the dashboard is the
- * number of rows the instances page shows.
+ * number of rows the cluster page shows.
  */
-async function getInstances(): Promise<Record<string, any>[]> {
+async function getClusterNodes(): Promise<Record<string, any>[]> {
   const instRaw = await WIKI.db.execute(
     sql`SELECT usename, client_addr, application_name, backend_start, state_change FROM pg_stat_activity WHERE datname = ${WIKI.dbManager.dbName} AND application_name LIKE 'Wiki.js%'`
   )
@@ -93,6 +93,10 @@ async function routes(app: FastifyInstance) {
                 description:
                   'Jobs running right now on every instance combined, one worker slot each.'
               },
+              clusterTotal: {
+                type: 'number',
+                description: 'Cluster nodes currently connected to this database.'
+              },
               configFile: {
                 type: 'string'
               },
@@ -113,10 +117,6 @@ async function routes(app: FastifyInstance) {
               },
               httpPort: {
                 type: 'number'
-              },
-              instancesTotal: {
-                type: 'number',
-                description: 'Instances currently connected to this database.'
               },
               isMailConfigured: {
                 type: 'boolean'
@@ -182,6 +182,7 @@ async function routes(app: FastifyInstance) {
     async () => {
       return {
         activeWorkers: await WIKI.models.jobs.countActive(),
+        clusterTotal: (await getClusterNodes()).length,
         configFile: path.join(process.cwd(), 'config.yml'),
         cpuCores: os.cpus().length,
         currentVersion: WIKI.version,
@@ -190,7 +191,6 @@ async function routes(app: FastifyInstance) {
         groupsTotal: await WIKI.db.$count(groupsTable),
         hostname: os.hostname(),
         httpPort: 0,
-        instancesTotal: (await getInstances()).length,
         isApiEnabled: WIKI.config.api.isEnabled === true,
         isMailConfigured: WIKI.config?.mail?.host?.length > 2,
         isMetricsEnabled: WIKI.config.metrics.isEnabled === true,
@@ -835,20 +835,20 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
-   * LIST SYSTEM INSTANCES
+   * LIST CLUSTER NODES
    */
   app.get(
-    '/instances',
+    '/cluster',
     {
       config: {
         permissions: ['manage:system']
       },
       schema: {
-        summary: 'List System Instances',
+        summary: 'List Cluster Nodes',
         tags: ['System'],
         response: {
           200: {
-            description: 'List of all system instances',
+            description: 'List of all cluster nodes',
             type: 'array',
             items: {
               type: 'object',
@@ -883,7 +883,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return getInstances()
+      return getClusterNodes()
     }
   )
 
