@@ -1,0 +1,29 @@
+key: azure-search
+title: 'Azure AI Search'
+icon: '/_assets/icons/ultraviolet-azure.svg'
+description: 'Azure AI Search (formerly Azure Cognitive Search) is Microsoft''s cloud information retrieval platform. Pages are indexed into a managed search index, with relevancy scored by field.'
+vendor: Microsoft Corporation
+website: 'https://azure.microsoft.com/en-us/products/ai-services/ai-search'
+props:
+  serviceName:
+    type: String
+    title: Service Name
+    default: ''
+    hint: The name of your Azure AI Search service (the subdomain before .search.windows.net).
+    icon: website
+    order: 1
+  adminApiKey:
+    type: String
+    title: Admin API Key
+    default: ''
+    hint: An admin key from the service's Keys page in the Azure portal. Needed to create and manage the index.
+    icon: key
+    sensitive: true
+    order: 2
+  indexName:
+    type: String
+    title: Index Name
+    default: wiki
+    hint: Will automatically be created, or updated in place if its schema doesn't already match, on every boot.
+    icon: database
+    order: 3
