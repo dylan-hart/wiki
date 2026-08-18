@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit'
 import { deflateRaw } from 'pako'
 import { DarkMode } from '../shared/theme.js'
+import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
 
 /** The default server, which is the one PlantUML runs for everybody. */
 const DEFAULT_SERVER = 'https://www.plantuml.com/plantuml'
@@ -21,8 +22,9 @@ const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
  * the padding decodes to.
  *
  * The result is about 1.4 characters per character of source, so a very large diagram can outgrow what
- * a server will accept in a URL. That is a limit of this transport, and the way past it is the
- * server's POST endpoint, which is not implemented here.
+ * a server will accept in a URL. That is a limit of this transport this fork has decided to live with
+ * rather than add a server-side POST proxy for -- see `docs/variances.md` -- so `firstUpdated()` below
+ * measures the result and refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
  */
 function encodeForUrl(source) {
   const bytes = deflateRaw(new TextEncoder().encode(source), { level: 9 })
@@ -274,7 +276,20 @@ Bob --> Alice : hi
       }
       return
     }
-    this._src = this._url(source)
+    const url = this._url(source)
+    /*
+      A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
+      diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the
+      browser tries to load the `img` below, surfacing as `_explain()`'s generic "could not be
+      drawn" message with no hint that size is the actual problem. Checking the string's own length
+      here catches it before any request is made, with an explanation the vague network failure
+      never gave.
+    */
+    if (url.length > MAX_DIAGRAM_URL_LENGTH) {
+      this._error = explainUrlTooLarge(url.length)
+      return
+    }
+    this._src = url
   }
 
   render() {
