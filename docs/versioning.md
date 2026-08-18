@@ -108,8 +108,20 @@ ships as `3.1.0`; a breaking schema change (should one become necessary) ships a
 
 ### Docker tags on a release
 
-The release workflow (introduced by the sibling task that splits `build.yml` into the two
-channels — see [See also](#see-also)) pushes:
+`.github/workflows/release.yml` is that workflow: it triggers only on the `vX.Y.Z` tag push
+described above, never on a `scarlett` push (that stays `build.yml`'s job, unchanged). Before it
+pushes anything, it hard-gates on the same typecheck/lint/format/icon-drift/emoji-drift checks
+Feature #423 wires into the continuous channel — every one of those steps must pass or the job
+stops there: no Docker push, no GitHub Release. What it does **not** gate on: the full
+backend/frontend/blocks/e2e test suites (`build.yml`'s own `build` job already ran those against
+the commit a release tag points at) and Epic 13's migration-tooling dry run against a real 2.5.x
+dataset. Both of those are **not CI-enforceable** here — no CI runner has a real 2.5.x dataset to
+migrate, and re-running the full suite a second time on the same commit is not an independent
+check — so they remain **manual sign-off** steps a release manager performs and records in the
+release PR description, per `docs/release-checklist.md` items 2 and 5. `release.yml` carries this
+same note as a code comment at its own top, so it's visible from either side.
+
+It pushes:
 
 - `ghcr.io/requarks/wiki:<version>` — always, exactly matching the pushed tag with the leading `v`
   stripped (e.g. tag `v3.0.1` → image tag `3.0.1`; tag `v3.0.0-rc.1` → image tag `3.0.0-rc.1`).
@@ -192,9 +204,10 @@ commits land in the section their prefix says they should.
 Since no `vX.Y.Z` tag has been pushed yet (see [Channel 2](#channel-2-real-releases) above),
 `--unreleased` today walks the _entire_ history rather than "since the last release" — there is no
 last release. That resolves itself the moment the first tag is pushed; nothing about the config
-needs to change. Wiring this into the release workflow itself (auto-generating GitHub Release notes
-on a tag push) is a separate task under this Feature — this document only covers running the tool
-by hand.
+needs to change. `.github/workflows/release.yml` now wires this in automatically: on a tag push it
+computes the range since the previous `vX.Y.Z` tag (or the whole history, on the first release) and
+uses the generated changelog as the GitHub Release body — this document's "run it by hand" commands
+above stay the way to preview that output before pushing the tag.
 
 ## See also
 
@@ -204,6 +217,8 @@ by hand.
   2.5.x dataset with human sign-off.
 - **`RELEASING.md`** (companion document under this Feature) — the release-manager runbook: the
   actual step-by-step commands to cut a release once the checklist has passed.
-- `.github/workflows/build.yml` — the continuous alpha channel's current, correct implementation.
-  The release channel's workflow is added as a sibling by another task under this Feature and must
-  conform to this document.
+- `.github/workflows/build.yml` — the continuous alpha channel, unchanged by the workflow split.
+- `.github/workflows/release.yml` — the release channel described in this document: the `vX.Y.Z`
+  tag trigger, the hard-required quality gate, the semver + `:latest` Docker tags, and the
+  changelog-driven GitHub Release. Its own top-of-file comment carries the same note as above about
+  what it does and does not gate on.

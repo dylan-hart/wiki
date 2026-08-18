@@ -34,12 +34,16 @@ for exactly what exists today versus what this document anticipates.
 
 ### 1. CI quality gates green
 
-**Owner: Feature #423 ("Stand up CI quality gates").** This item is a single pass/fail read of
-that Feature's CI job for the commit being released — this document does not re-specify what the
-gates check; #423 is the source of truth for that. As of this writing #423 has not landed, so
-there is no CI job to read yet; see [Status of automation](#status-of-automation).
+**Owner: Feature #423 ("Stand up CI quality gates")** for the continuous alpha channel
+(`build.yml`); **enforced independently, today, by `.github/workflows/release.yml`** (task #777)
+for the release channel itself. As of this writing #423 has not landed in `build.yml`, so a
+`scarlett` push still has no typecheck/lint/format/drift job to read — but that no longer matters
+for whether a release can happen: `release.yml` runs the same checks as its own hard gate on every
+`vX.Y.Z` tag push, and a red result there stops the job before the Docker push or GitHub Release
+step, full stop. See [Status of automation](#status-of-automation).
 
-Once #423 lands, confirm **all** of the following are green for the release commit:
+For the release commit, confirm **all** of the following are green (read from the `release.yml`
+run for the pushed tag, once #423 also lands in `build.yml` this is corroborated by that job too):
 
 - [ ] Backend `npm run typecheck` — must be green (zero errors).
 - [ ] `oxlint` — must be green (zero warnings/errors) across all three workspaces
@@ -53,7 +57,13 @@ failure looks unrelated." Fix it, or get it fixed, and re-run.
 
 ### 2. Test suites all green
 
-**Owner: Feature #424 ("Build test infrastructure from zero").**
+**Owner: Feature #424 ("Build test infrastructure from zero").** Note this item is deliberately
+**not** a step in `release.yml` (task #777) even now that the suites exist on this branch: the
+release workflow's own top-of-file comment spells out why — `build.yml`'s `build` job already runs
+all four suites against every `scarlett` push, including the commit a release tag points at, so
+re-running them a second time on the tag push would be an expensive echo of a check that already
+ran, not an independent gate. This item stays a manual "look at the `build.yml` run for the release
+commit" read, recorded in the release PR, not a `release.yml` CI assertion.
 
 **Currently unenforceable.** Per direct inspection of `scarlett` at the time this document was
 written, no test framework exists in any workspace: `backend/package.json`, `frontend/package.json`
@@ -108,8 +118,9 @@ reality. "It was current last release" is not current.
 ### 4. Frontend generated-bundle drift guards passing
 
 Covered under [Item 1](#1-ci-quality-gates-green) (`icons:check` / `emoji:check` are two of the
-gates Feature #423 owns) — listed here only so a reader scanning item numbers for "did we check
-the icon/emoji bundles" finds a direct answer: yes, as part of item 1, not a separate step.
+gates `release.yml` runs, mirroring what Feature #423 owns on the alpha channel) — listed here
+only so a reader scanning item numbers for "did we check the icon/emoji bundles" finds a direct
+answer: yes, as part of item 1, not a separate step.
 
 ### 5. Epic 13 migration tooling exercised end-to-end, with sign-off
 
@@ -176,13 +187,13 @@ human call, not something this checklist should ever try to automate away.
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
 future-tense sections above for present-tense fact:
 
-| Item                   | Owner                           |               Exists on `scarlett` today?               |
-| ---------------------- | ------------------------------- | :-----------------------------------------------------: |
-| 1. CI quality gates    | Feature #423                    | No — no typecheck/lint/format/drift step in `build.yml` |
-| 2. Test suites         | Feature #424                    |         No — no test framework in any workspace         |
-| 3. `docs/variances.md` | Feature #425                    |                No — file does not exist                 |
-| 4. Bundle drift guards | Feature #423 (subset of item 1) |                           No                            |
-| 5. Migration dry-run   | Epic #341 / task #421           |              No — no migration code exists              |
+| Item                   | Owner                    | Exists on `scarlett` today?                                                       |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| 1. CI quality gates    | Feature #423 / task #777 | Partially — enforced in `release.yml` (task #777); still missing from `build.yml` |
+| 2. Test suites         | Feature #424             | No — no test framework in any workspace                                           |
+| 3. `docs/variances.md` | Feature #425             | No — file does not exist                                                          |
+| 4. Bundle drift guards | Feature #423 / task #777 | Partially — same as item 1, `release.yml` only                                    |
+| 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                     |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table
@@ -200,6 +211,8 @@ N/A to an enforced gate in the same change.
   step-by-step runbook for _performing_ a release once this checklist has passed: the git commands
   to tag, what the release workflow does with that tag, and how to verify the resulting artifacts.
   This document stops at go/no-go; `RELEASING.md` picks up from there.
-- `.github/workflows/build.yml` — the workflow this checklist's automatable items will eventually
-  gate, once the release channel described in `docs/versioning.md` is split out (a sibling task
-  under this Feature).
+- `.github/workflows/release.yml` — the gated release channel (task #777): the workflow that
+  actually enforces item 1 of this checklist on every `vX.Y.Z` tag push, and whose own top-of-file
+  comment explains why items 2 and 5 stay manual sign-off rather than becoming workflow steps.
+- `.github/workflows/build.yml` — the continuous alpha channel, unchanged by the split. Item 1 also
+  lands here once Feature #423 wires its own gate into this file.
