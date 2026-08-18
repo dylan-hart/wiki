@@ -58,7 +58,7 @@
               <router-link
                 v-if="item.isPage"
                 class="browse-menu-target"
-                :to="`/${item.path}`"
+                :to="itemPath(item)"
                 @click="menu?.hide()">
                 <w-icon :name="item.icon || `la:file-alt`" size="xs" class="shrink-0 opacity-70" />
                 <span class="truncate">{{ item.title }}</span>
@@ -100,6 +100,8 @@ import { computed, nextTick, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { notify } from '@/composables/notify'
+
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -235,6 +237,18 @@ async function moveTo(path, direction) {
 
 function descend(item) {
   moveTo(item.path, 'forward')
+}
+
+/**
+ * The route to a listed page. Every level of this menu is fetched at `pageStore.locale` (see `load`),
+ * so that is the locale every row in it belongs to, not necessarily the site's primary one.
+ */
+function itemPath(item) {
+  return localizedPagePath(item.path, pageStore.locale, {
+    useLocales: siteStore.useLocales,
+    primary: siteStore.locales.primary,
+    forcePrefix: siteStore.locales.forcePrefix
+  })
 }
 
 function goUp() {

@@ -128,6 +128,7 @@ import { notify } from '@/composables/notify'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import fileTypes from '@/helpers/fileTypes'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 import Tree from '@/components/TreeNav.vue'
 
@@ -215,8 +216,21 @@ const state = reactive({
 
 // COMPUTED
 
+/*
+  The tree this picker browses isn't scoped to a locale, but the link it hands back is inserted into
+  the page currently being edited -- so that page's own locale (`pageStore.locale`) is what the link
+  is prefixed with, same as any other in-content link a reader on that page would follow.
+*/
 const href = computed(() =>
-  state.currentTab === 'page' ? (state.path ? `/${state.path}` : '') : state.url.trim()
+  state.currentTab === 'page'
+    ? state.path
+      ? localizedPagePath(state.path, pageStore.locale, {
+          useLocales: siteStore.useLocales,
+          primary: siteStore.locales.primary,
+          forcePrefix: siteStore.locales.forcePrefix
+        })
+      : ''
+    : state.url.trim()
 )
 
 const canSubmit = computed(() => {

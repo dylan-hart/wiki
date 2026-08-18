@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseLocalePrefix } from './pagePaths.js'
+import { localizedPagePath, parseLocalePrefix, shouldPrefixLocale } from './pagePaths.js'
 
 describe('parseLocalePrefix', () => {
   const codes = ['en', 'fr']
@@ -31,5 +31,59 @@ describe('parseLocalePrefix', () => {
 
   it('returns null with an empty active list', () => {
     expect(parseLocalePrefix('/fr/page', [])).toBeNull()
+  })
+})
+
+describe('localizedPagePath', () => {
+  const siteLocales = { useLocales: true, primary: 'en', forcePrefix: false }
+
+  it('leaves the primary locale unprefixed', () => {
+    expect(localizedPagePath('some/page', 'en', siteLocales)).toBe('/some/page')
+  })
+
+  it('prefixes a non-primary locale', () => {
+    expect(localizedPagePath('some/page', 'fr', siteLocales)).toBe('/fr/some/page')
+  })
+
+  it('never prefixes when the site has only one active locale', () => {
+    expect(localizedPagePath('some/page', 'fr', { useLocales: false, primary: 'en' })).toBe(
+      '/some/page'
+    )
+  })
+
+  it('prefixes the primary locale too when forcePrefix is on', () => {
+    expect(
+      localizedPagePath('some/page', 'en', { useLocales: true, primary: 'en', forcePrefix: true })
+    ).toBe('/en/some/page')
+  })
+
+  it('handles the root path', () => {
+    expect(localizedPagePath('', 'fr', siteLocales)).toBe('/fr/')
+  })
+})
+
+describe('shouldPrefixLocale', () => {
+  it('is false for a single-locale site regardless of forcePrefix', () => {
+    expect(shouldPrefixLocale('en', { useLocales: false, primary: 'en', forcePrefix: true })).toBe(
+      false
+    )
+  })
+
+  it('is false for the primary locale with forcePrefix off', () => {
+    expect(shouldPrefixLocale('en', { useLocales: true, primary: 'en', forcePrefix: false })).toBe(
+      false
+    )
+  })
+
+  it('is true for the primary locale with forcePrefix on', () => {
+    expect(shouldPrefixLocale('en', { useLocales: true, primary: 'en', forcePrefix: true })).toBe(
+      true
+    )
+  })
+
+  it('is true for a non-primary locale regardless of forcePrefix', () => {
+    expect(shouldPrefixLocale('fr', { useLocales: true, primary: 'en', forcePrefix: false })).toBe(
+      true
+    )
   })
 })

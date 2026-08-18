@@ -44,3 +44,72 @@ describe('page store: pageLoad()', () => {
     expect(opts.searchParams).toEqual({ withContent: false, locale: 'fr' })
   })
 })
+
+/** A site with two active locales, `en` primary — the shape `useLocales` and the prefix rule need. */
+function makeMultiLocaleSite({ forcePrefix = false } = {}) {
+  const siteStore = useSiteStore()
+  siteStore.$patch({
+    locales: {
+      primary: 'en',
+      showMenu: true,
+      forcePrefix,
+      active: [
+        { code: 'en', language: 'en', name: 'English', nativeName: 'English' },
+        { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français' }
+      ]
+    }
+  })
+  return siteStore
+}
+
+describe('page store: breadcrumbs', () => {
+  it('leaves the path unprefixed on a single-locale site', () => {
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'en' })
+    expect(pageStore.breadcrumbs.map((b) => b.path)).toEqual(['/foo', '/foo/bar'])
+  })
+
+  it('leaves the primary locale unprefixed on a multi-locale site', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'en' })
+    expect(pageStore.breadcrumbs.map((b) => b.path)).toEqual(['/foo', '/foo/bar'])
+  })
+
+  it('prefixes a non-primary locale on a multi-locale site', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'fr' })
+    expect(pageStore.breadcrumbs.map((b) => b.path)).toEqual(['/fr/foo', '/fr/foo/bar'])
+  })
+
+  it('prefixes the primary locale too when forcePrefix is on', () => {
+    makeMultiLocaleSite({ forcePrefix: true })
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'en' })
+    expect(pageStore.breadcrumbs.map((b) => b.path)).toEqual(['/en/foo', '/en/foo/bar'])
+  })
+})
+
+describe('page store: editorExitPath', () => {
+  it('leaves the primary locale unprefixed on a multi-locale site', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'en' })
+    expect(pageStore.editorExitPath).toBe('/foo/bar')
+  })
+
+  it('prefixes a non-primary locale on a multi-locale site', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'fr' })
+    expect(pageStore.editorExitPath).toBe('/fr/foo/bar')
+  })
+
+  it('keeps the ?redirect=no query after the prefix', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'foo/bar', locale: 'fr', editor: 'redirect' })
+    expect(pageStore.editorExitPath).toBe('/fr/foo/bar?redirect=no')
+  })
+})

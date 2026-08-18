@@ -74,3 +74,44 @@ export function parseLocalePrefix(path, activeLocaleCodes) {
   const rest = '/' + segments.slice(2).join('/')
   return { locale: match, path: rest === '/' ? '/' : rest }
 }
+
+/**
+ * Whether a link addressed at `locale` should carry a locale segment, under a site's locale-prefix
+ * rules.
+ *
+ * Mirrors the decision `localePrefixRedirectTarget` makes server-side, but as a link-building
+ * question rather than a redirect check: the site's PRIMARY locale is left unprefixed and every
+ * other active locale is prefixed, so that a link generated for the common case -- reading the
+ * primary locale -- is not cluttered with a code nobody chose to see. `forcePrefix` turns that off
+ * and prefixes the primary locale too, so every link the site hands out unambiguously names which
+ * translation it points at. A site with only one active locale (`useLocales` false) never prefixes --
+ * there is nothing to disambiguate.
+ *
+ * @param locale The link's own locale -- not necessarily the reader's current one, e.g. a breadcrumb
+ *   built from a page loaded in a locale other than the site's default
+ * @param siteLocales `{ useLocales, primary, forcePrefix }`, the fields of `siteStore` this depends
+ *   on -- taken apart rather than the whole store so this stays a pure function
+ */
+export function shouldPrefixLocale(locale, siteLocales) {
+  if (!siteLocales?.useLocales) {
+    return false
+  }
+  return locale !== siteLocales.primary || Boolean(siteLocales.forcePrefix)
+}
+
+/**
+ * Build an in-app link to a bare page path, prefixed with its locale segment when
+ * `shouldPrefixLocale` calls for one.
+ *
+ * The inverse of `parseLocalePrefix`.
+ *
+ * @param path Bare page path, with no leading slash, as `pageStore.path` / `item.path` / `node.path`
+ *   store it
+ * @param locale The path's own locale -- see `shouldPrefixLocale`
+ * @param siteLocales `{ useLocales, primary, forcePrefix }` -- see `shouldPrefixLocale`
+ * @returns The slash-leading path to link to
+ */
+export function localizedPagePath(path, locale, siteLocales) {
+  const bare = `/${path}`
+  return shouldPrefixLocale(locale, siteLocales) ? `/${locale}${bare}` : bare
+}

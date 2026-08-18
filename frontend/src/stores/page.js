@@ -5,6 +5,7 @@ import { pick } from 'es-toolkit/object'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
+import { localizedPagePath, shouldPrefixLocale } from '@/helpers/pagePaths'
 
 /**
  * The icon a page starts with.
@@ -98,7 +99,13 @@ export const usePageStore = defineStore('page', {
   getters: {
     breadcrumbs: (state) => {
       const siteStore = useSiteStore()
-      const pathPrefix = siteStore.useLocales ? `/${state.locale}` : ''
+      const pathPrefix = shouldPrefixLocale(state.locale, {
+        useLocales: siteStore.useLocales,
+        primary: siteStore.locales.primary,
+        forcePrefix: siteStore.locales.forcePrefix
+      })
+        ? `/${state.locale}`
+        : ''
       return state.path.split('/').reduce((result, value, key) => {
         result.push({
           id: key,
@@ -122,9 +129,19 @@ export const usePageStore = defineStore('page', {
      * Its own path, except for a redirection, which is held on arrival: whoever just wrote down where
      * this page sends people is the one person who does not want to be sent there. `?redirect=no` is
      * what holds it — see `PageRedirect.vue` — and the screen it lands on offers to follow it.
+     *
+     * Carries the page's own locale prefix, same rule as `breadcrumbs` — this is a real navigation
+     * target (`router.replace` lands on it directly), so an unprefixed link to a non-primary-locale
+     * page would round-trip through the locale-detection default and land on the wrong translation.
      */
     editorExitPath: (state) => {
-      return `/${state.path}${state.editor === 'redirect' ? '?redirect=no' : ''}`
+      const siteStore = useSiteStore()
+      const path = localizedPagePath(state.path, state.locale, {
+        useLocales: siteStore.useLocales,
+        primary: siteStore.locales.primary,
+        forcePrefix: siteStore.locales.forcePrefix
+      })
+      return `${path}${state.editor === 'redirect' ? '?redirect=no' : ''}`
     }
   },
   actions: {
