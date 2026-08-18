@@ -59,18 +59,21 @@ const NOTIFY_CHANNEL = 'wiki_collab'
 /**
  * Base64 characters per NOTIFY payload. Postgres refuses a payload over 8000 bytes, and the JSON
  * envelope around the chunk fits comfortably in the slack this leaves.
+ *
+ * Exported so `collab.test.ts` can size its fixtures against the real constant rather than a copy
+ * that could drift from it.
  */
-const RELAY_CHUNK_SIZE = 5000
+export const RELAY_CHUNK_SIZE = 5000
 
 /** How long a half-assembled relay message waits for the rest of its chunks before being dropped. */
-const RELAY_REASSEMBLY_TIMEOUT = 10 * 1000
+export const RELAY_REASSEMBLY_TIMEOUT = 10 * 1000
 
 /**
  * How long a new room waits for a peer to hand over the state it already has, before seeding itself
  * from the stored page. Only paid when this instance does not already have the room open, and skipped
  * entirely when no other instance is running — which is the ordinary case.
  */
-const PEER_STATE_TIMEOUT = 500
+export const PEER_STATE_TIMEOUT = 500
 
 /** How long the "is anyone else running?" answer is trusted before it is looked up again. */
 const PEER_PRESENCE_TTL = 15 * 1000

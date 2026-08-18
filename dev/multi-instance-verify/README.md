@@ -176,6 +176,53 @@ enough that both are likely to sweep within the same second, and watch both inst
 `Found N interrupted job(s)` — exactly one of the two should ever report claiming a given id;
 `SELECT COUNT(*) FROM jobs WHERE id = '<id>'` should read `1`, never `2`.
 
+## 7. Collaborative editing under a departing peer (task 705)
+
+The same two-instance setup (sections 1–3 above) also exercises `backend/core/collab.ts`'s
+cross-instance paths — the LISTEN/NOTIFY relay this module builds on top of, separate from the
+scheduler's use of the same mechanism. Log in as an admin on either instance and open the same page
+in the editor from both (`:3000` and `:3010`) to get a room open on each.
+
+- **(a) peer handshake.** Open the editor for a page on instance A only (nobody else has it open),
+  type something, then open the *same* page's editor pointed at instance B (`:3010`). B's `join()`
+  asks the cluster first (`peerState()`'s hello/state handshake) rather than reading the page from the
+  database a second time — watch instance A's log for nothing unusual (it answers silently) and
+  confirm in B's editor that the text you typed on A is already there before you type anything on B.
+- **(b) peer killed mid-handshake.** Same setup, but `kill -9` instance A's process in the instant
+  between opening B's editor and A answering (tight in practice — `PEER_STATE_TIMEOUT` is 500ms).
+  B's editor should still open, populated from the *stored* page (whatever was last saved), not hang
+  waiting on a reply that is never coming.
+- **(c) chunked update, sender killed mid-burst.** With both instances holding the same room and an
+  editor open on each, paste a very large block of text (tens of thousands of characters — big enough
+  that the resulting Yjs update's base64 exceeds `RELAY_CHUNK_SIZE` = 5000 chars and gets split into
+  several NOTIFYs) into the editor on instance A, then `kill -9` A immediately after. Instance B's
+  editor must not show a corrupted document; `SELECT pg_notify(...)` traffic aside, there is nothing
+  to inspect externally here — the receiving instance's own `collab.partials` map (in-memory, not
+  logged) is what would leak if this were broken.
+- **(d) `pageSaved` to a room-less, restarting instance.** Save the page from an instance that has no
+  editor open for it while the *other* instance is mid-restart (killed, not yet back up) — confirm the
+  save completes normally (the notice is fire-and-forget) and, once that instance comes back and its
+  own editor is opened for the same page, it reads the newly-saved content correctly.
+
+**What was actually run:** no live Postgres or second `node backend` process was available in this
+environment (same constraint task 704 hit), so verification is the automated, DB-free suite
+`backend/core/collab.test.ts` (`npm run test` from `backend/`, or `node --test core/collab.test.ts`)
+instead of the manual procedure above. It exercises all four scenarios directly against the real
+`ensureRoom` / `peerState` / `relay` / `receiveRelay` / `reassemble` / `pageSaved` code paths: two
+independent clones of the exported `collab` object stand in for two instances (same methods,
+independent `rooms`/`partials`/`awaitingState` maps), wired together by overriding `publish` to hand
+an envelope straight to the other clone's `receiveRelay` — which is a faithful model of what NOTIFY
+delivery to a second LISTEN client looks like, since this is all in-memory relay/room bookkeeping with
+no SQL for a mock to be re-describing. `node:test`'s mock timers drive `PEER_STATE_TIMEOUT` (500ms)
+and `RELAY_REASSEMBLY_TIMEOUT` (10s) instantly rather than making the suite slow. The manual procedure
+above is for an engineer who wants to see it against two literal processes, or is chasing a regression
+the automated suite doesn't reproduce.
+
+No code change was needed in `collab.ts` beyond exporting the three constants the test suite checks
+against, so a copy of `5000` / `10 * 1000` / `500` in the test file could never silently drift from the
+real values — the existing hello/state handshake, timeout fallback, chunk reassembly, and `pageSaved`
+no-op behavior all matched what the module's own comments already document.
+
 ## Bugs found and fixed during this verification (task 704)
 
 Both are fixed in `backend/core/scheduler.ts`, with regression coverage in `scheduler.test.ts`:
