@@ -12,7 +12,7 @@ process only ever speaks plain HTTP. That is deliberate, not an oversight to fix
 - Multi-site support resolves which site a request belongs to by **hostname**
   (`WIKI.sitesMappings[req.hostname]`, `backend/index.ts:614`, feeding the `onRequest` hook that sets
   `req.site` for the rest of the request). Serving several hostnames' certificates out of one process
-  means picking the right one per connection *before* the HTTP layer — that's exactly what TLS's SNI
+  means picking the right one per connection _before_ the HTTP layer — that's exactly what TLS's SNI
   extension exists for, and every mainstream reverse proxy (nginx, Traefik, Caddy, HAProxy, a cloud
   load balancer) already does it well, with certificate issuance/rotation (e.g. ACME/Let's Encrypt)
   as a solved, independently-updated concern.
@@ -21,8 +21,8 @@ process only ever speaks plain HTTP. That is deliberate, not an oversight to fix
   option). With it enabled, Fastify reads the client's real IP and protocol from the `X-Forwarded-*`
   headers the proxy sets, instead of seeing the proxy's own loopback connection. This is precisely
   the "proxy terminates TLS, forwards plain HTTP downstream" topology `trustProxy`'s own hint text
-  describes (`admin.security.trustProxyHint` in `backend/locales/en.json`): *"Should be enabled when
-  using a reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."*
+  describes (`admin.security.trustProxyHint` in `backend/locales/en.json`): _"Should be enabled when
+  using a reverse-proxy like nginx, apache, CloudFlare, etc in front of Wiki.js."_
 - The Docker and Helm deployment assets under `dev/` are already built around this shape — they ship
   Wiki.js as a plain-HTTP backend service, not a TLS-terminating edge.
 
