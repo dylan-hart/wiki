@@ -15,6 +15,7 @@ import { useI18n } from 'vue-i18n'
 import { setCssVar } from '@/helpers/cssVars'
 import { stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
+import { useDirection } from '@/composables/direction'
 import { notify } from '@/composables/notify'
 
 import WDialogHost from '@/components/shared/WDialogHost.vue'
@@ -45,6 +46,7 @@ const DevQuickMenu = import.meta.env.DEV
 // DARK MODE
 
 const dark = useDark()
+const direction = useDirection()
 
 // STORES
 
@@ -102,9 +104,14 @@ async function applyLocale(locale) {
     `i18n.locale.value = locale` below, a reader would see the outgoing (or default LTR) layout for as
     long as the strings take to fetch -- exactly the flash `index.html`'s static `lang="en"` needs the
     boot code to correct.
+
+    `direction.set()` rather than a bare `setAttribute()`: this runs on every navigation, not once at
+    boot, so a component mounted across navigations (`PageHeader.vue`'s review-queue menu, via
+    `composables/direction.js`) needs a reactive read of whatever this last resolved to, not a stale
+    one from whenever it happened to first mount.
   */
   const localeInfo = siteStore.locales.active.find((entry) => entry.code === locale)
-  document.documentElement.setAttribute('dir', localeInfo?.isRTL ? 'rtl' : 'ltr')
+  direction.set(Boolean(localeInfo?.isRTL))
   document.documentElement.setAttribute('lang', locale)
 
   if (!i18n.availableLocales.includes(locale)) {

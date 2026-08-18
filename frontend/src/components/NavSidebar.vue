@@ -279,7 +279,13 @@ $sidebar-overlay-max: 1199.98px;
     */
     .w-expansion-item__content {
       position: relative;
-      border-left: 10px solid rgba(255, 255, 255, 0.25);
+      /*
+        Logical, to match the two elbow pseudo-elements below (`inset-inline-start: -10px`): a
+        physical `border-left` here would leave the straight run of the rail on the visual left in
+        RTL while its own elbows had already swapped to the inline-start (visual right) edge --
+        the rule and its turns pointing at two different sides of the same row.
+      */
+      border-inline-start: 10px solid rgba(255, 255, 255, 0.25);
       /*
         And a step DOWN from the sidebar rather than up, which is the one place this parts company with
         `NavEditOverlay`: there the nested rows lift off a near-black panel, here they sit in a coloured

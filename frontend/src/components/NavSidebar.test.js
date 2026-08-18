@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -51,5 +55,27 @@ describe('NavSidebar', () => {
 
     const flippedSidebar = await mountSidebar('right')
     expect(flippedSidebar.classes()).toContain('sidebar-nav--flipped')
+  })
+
+  /**
+   * A static check on the source rather than a rendered assertion, for the reason the file header
+   * above gives: happy-dom cannot resolve a logical property against `direction`, so the only way
+   * left to catch a stray physical declaration sneaking back into this `<style>` block is to grep
+   * for one. Specifically the open-group rail's own border: it sits right next to two pseudo-element
+   * "elbows" that already read `inset-inline-start`, and a `border-left` here would point the
+   * straight run of the rail at a different edge than its own turns once `dir="rtl"` moves them.
+   *
+   * Excludes the `<script>` block's `thumbStyle.right` (the scroll-thumb's position within its own
+   * track, a native-scrollbar convention this custom control is matching -- not a text-direction
+   * concern), which is why this greps the `<style>` block specifically rather than the whole file.
+   */
+  it('keeps the open-group rail on a logical (inline-start) border, not a physical one', () => {
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const source = readFileSync(join(dir, 'NavSidebar.vue'), 'utf-8')
+    const styleBlock = source.slice(source.indexOf('<style'), source.lastIndexOf('</style>'))
+
+    expect(styleBlock).not.toMatch(/border-left\s*:/)
+    expect(styleBlock).not.toMatch(/border-right\s*:/)
+    expect(styleBlock).toMatch(/border-inline-start\s*:\s*10px/)
   })
 })
