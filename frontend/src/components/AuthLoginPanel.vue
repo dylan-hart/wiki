@@ -305,6 +305,7 @@
     <template v-else-if="state.screen === `tfa`">
       <p>{{ t('auth.tfa.subtitle') }}</p>
       <v-otp-input
+        v-if="!state.useRecoveryCode"
         v-model:value="state.securityCode"
         :num-inputs="6"
         :should-auto-focus="true"
@@ -312,6 +313,16 @@
         input-type="number"
         separator=""
         @on-complete="verifyTFA" />
+      <w-input
+        v-else
+        v-model="recoveryCodeInput"
+        outlined
+        autofocus
+        class="mt-2"
+        :label="t(`auth.tfa.recoveryCodeLabel`)"
+        :hint="t(`auth.tfa.recoveryCodeHint`)"
+        placeholder="XXXX-XXXX-XXXX-XXXX"
+        @keyup:enter="verifyTFA" />
       <w-btn
         class="w-full mt-4"
         push
@@ -320,6 +331,15 @@
         no-caps
         icon="la:sign-in-alt"
         @click="verifyTFA" />
+      <w-btn
+        class="w-full mt-2"
+        flat
+        no-caps
+        color="grey"
+        :label="
+          state.useRecoveryCode ? t('auth.tfa.useSecurityCode') : t('auth.tfa.useRecoveryCode')
+        "
+        @click="toggleRecoveryCodeMode" />
     </template>
     <!-- ----------------------------------------------------- -->
     <!-- TFA SETUP SCREEN -->
@@ -359,6 +379,7 @@ import { notify } from '@/composables/notify'
 import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizeError } from '@/helpers/localization'
+import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
 
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -390,6 +411,8 @@ const state = reactive({
   username: '',
   password: '',
   securityCode: '',
+  useRecoveryCode: false,
+  recoveryCode: '',
   continuationToken: '',
   newName: '',
   newEmail: '',
@@ -474,6 +497,14 @@ const passwordStrength = computed(() => {
 
 const canUsePasskeys = computed(() => {
   return browserSupportsWebAuthn()
+})
+
+/** Reformats the recovery code field as the user types, matching the server's display shape. */
+const recoveryCodeInput = computed({
+  get: () => state.recoveryCode,
+  set: (val) => {
+    state.recoveryCode = formatRecoveryCodeInput(val)
+  }
 })
 
 // VALIDATION RULES
@@ -580,12 +611,16 @@ async function handleLoginResponse(resp) {
     }
     case 'provideTfa': {
       state.securityCode = ''
+      state.useRecoveryCode = false
+      state.recoveryCode = ''
       state.screen = 'tfa'
       loading.hide()
       break
     }
     case 'setupTfa': {
       state.securityCode = ''
+      state.useRecoveryCode = false
+      state.recoveryCode = ''
       state.screen = 'tfasetup'
       state.tfaQRImage = resp.tfaQRImage
       loading.hide()
@@ -813,20 +848,28 @@ async function changePwd() {
  * Send the security code for the login this panel is in the middle of.
  *
  * The continuation token is only cleared once the code is accepted: a mistyped one can be entered
- * again, up to the handful of attempts the server allows before it discards the token.
+ * again, up to the handful of attempts the server allows before it discards the token -- and the
+ * same counter (`countTfaFailure` on the backend) applies whether the wrong entry was a 6-digit
+ * TOTP code or a recovery code, since both go through this one call.
+ *
+ * `setup` never combines with a recovery code -- the toggle only renders on the `tfa` screen, never
+ * `tfasetup` -- matching the backend, which refuses a recovery code mid-setup since none exist yet
+ * for a secret that has not been activated.
  *
  * @param setup True on the setup screen, where a correct code also activates the new secret
  * @returns The login response, to be handed to `handleLoginResponse()`
  */
 async function submitTFA(setup) {
-  if (!/^[0-9]{6}$/.test(state.securityCode)) {
+  const isRecoveryCode = !setup && state.useRecoveryCode
+  const code = isRecoveryCode ? state.recoveryCode : state.securityCode
+  if (!isValidTfaCode(code, isRecoveryCode)) {
     throw new Error(t('auth.errors.tfaMissing'))
   }
   const resp = await API_CLIENT.put(`sites/${siteStore.id}/auth/tfa`, {
     json: {
       strategyId: state.selectedStrategyId,
       continuationToken: state.continuationToken,
-      securityCode: state.securityCode,
+      securityCode: code,
       setup
     }
   }).json()
@@ -835,7 +878,15 @@ async function submitTFA(setup) {
   }
   state.continuationToken = ''
   state.securityCode = ''
+  state.recoveryCode = ''
   return resp
+}
+
+/** Switches the `tfa` screen between the 6-digit authenticator field and the recovery code field. */
+function toggleRecoveryCodeMode() {
+  state.useRecoveryCode = !state.useRecoveryCode
+  state.securityCode = ''
+  state.recoveryCode = ''
 }
 
 /**
@@ -853,6 +904,8 @@ async function handleTFAError(err) {
   if (code === 'ERR_INVALID_VALIDATION_TOKEN' || code === 'ERR_EXPIRED_VALIDATION_TOKEN') {
     state.continuationToken = ''
     state.securityCode = ''
+    state.useRecoveryCode = false
+    state.recoveryCode = ''
     state.password = ''
     switchTo('login')
   }

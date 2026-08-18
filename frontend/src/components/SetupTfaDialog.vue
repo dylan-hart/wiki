@@ -11,7 +11,7 @@
           {{ t(`profile.authSetTfaLoading`) }}
         </w-card-section>
       </template>
-      <template v-else>
+      <template v-else-if="state.step === `verify`">
         <w-card-section class="relative text-center">
           <p>{{ t('auth.tfaSetupInstrFirst') }}</p>
           <div style="justify-content: center; display: flex">
@@ -67,6 +67,27 @@
             @click="save" />
         </w-card-actions>
       </template>
+      <!--
+        2FA is already active by this point -- the codes step only shows what `save()` got back and
+        cannot fail the way the code entry above can, so it gets no loading/error handling of its own.
+      -->
+      <template v-else>
+        <w-card-section class="text-center">
+          <p>{{ t('profile.tfaRecoveryCodes') }}</p>
+          <recovery-codes-display
+            v-model:acknowledged="state.acknowledged"
+            :codes="state.recoveryCodes" />
+        </w-card-section>
+        <w-card-actions class="card-actions">
+          <w-space />
+          <w-btn
+            unelevated
+            :label="t(`common.actions.close`)"
+            color="primary"
+            padding="xs md"
+            @click="attemptFinish" />
+        </w-card-actions>
+      </template>
     </w-card>
   </w-dialog>
 </template>
@@ -74,7 +95,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 
-import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { confirm, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
@@ -82,6 +103,7 @@ import { localizeError } from '@/helpers/localization'
 import { computed, onMounted, reactive } from 'vue'
 
 import VOtpInput from 'vue3-otp-input'
+import RecoveryCodesDisplay from '@/components/RecoveryCodesDisplay.vue'
 
 // PROPS
 
@@ -109,10 +131,14 @@ const { t } = useI18n()
 const state = reactive({
   isInit: false,
   isLoading: false,
+  /** `verify` (entering the code) then `codes` (showing the recovery codes issued on activation). */
+  step: 'verify',
   securityCode: '',
   tfaQRImage: '',
   tfaSecret: '',
-  continuationToken: ''
+  continuationToken: '',
+  recoveryCodes: [],
+  acknowledged: false
 })
 
 // COMPUTED
@@ -185,8 +211,13 @@ async function save() {
       type: 'positive',
       message: t('auth.tfaSetupSuccess')
     })
-    state.isLoading = false
-    onDialogOK()
+    if (resp.recoveryCodes?.length > 0) {
+      // -> The one and only time these are ever shown; move to the codes step rather than closing
+      state.recoveryCodes = resp.recoveryCodes
+      state.step = 'codes'
+    } else {
+      onDialogOK()
+    }
   } catch (err) {
     notify({
       type: 'negative',
@@ -194,6 +225,28 @@ async function save() {
     })
   }
   state.isLoading = false
+}
+
+/**
+ * The codes step is the only place these codes are ever shown -- closing before the user copied or
+ * downloaded them throws them away for good, so a close attempt before either happened is confirmed
+ * rather than silent. 2FA is already active on the account by this point either way, hence `onDialogOK`
+ * in both branches: unlike the verify step above, there is no unsaved setup left to discard.
+ */
+function attemptFinish() {
+  if (state.acknowledged) {
+    onDialogOK()
+    return
+  }
+  confirm({
+    title: t('common.actions.confirm'),
+    message: t('profile.tfaRecoveryCodesCloseWarn'),
+    cancel: true,
+    color: 'negative',
+    okLabel: t('common.actions.close')
+  }).onOk(() => {
+    onDialogOK()
+  })
 }
 
 onMounted(() => {

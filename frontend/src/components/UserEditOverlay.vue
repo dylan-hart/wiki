@@ -430,6 +430,43 @@
                   </w-item-section>
                 </w-item>
               </w-card>
+              <w-card class="shadow-1 pb-2 mt-4" v-if="canManage">
+                <w-card-header>{{ t('admin.users.passkeys') }}</w-card-header>
+                <w-card-section class="pt-0">
+                  <w-banner
+                    v-if="state.passkeys.length < 1"
+                    rounded
+                    :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
+                    >{{ t('admin.users.passkeysEmpty') }}</w-banner
+                  >
+                  <w-list v-else bordered separator>
+                    <w-item v-for="pkey of state.passkeys" :key="pkey.id">
+                      <w-item-section avatar>
+                        <w-avatar color="secondary" text-color="white" rounded>
+                          <w-icon name="la:key" />
+                        </w-avatar>
+                      </w-item-section>
+                      <w-item-section>
+                        <strong>{{ pkey.name }}</strong>
+                        <div class="text-caption">{{ pkey.siteHostname }}</div>
+                        <div class="text-caption text-grey-7">
+                          {{ formattedDate(pkey.createdAt) }}
+                        </div>
+                      </w-item-section>
+                      <w-item-section side>
+                        <w-btn
+                          class="acrylic-btn"
+                          flat
+                          icon="la:trash"
+                          :aria-label="t(`common.actions.delete`)"
+                          color="negative"
+                          v-if="canManage"
+                          @click="revokePasskey(pkey)" />
+                      </w-item-section>
+                    </w-item>
+                  </w-list>
+                </w-card-section>
+              </w-card>
             </div>
             <div class="col-span-12 lg:col-span-5">
               <w-card class="shadow-1 pb-2">
@@ -709,6 +746,7 @@ const state = reactive({
   },
   groups: [],
   groupToAdd: null,
+  passkeys: [],
   loading: 0,
   metadataInvalidJSON: false
 })
@@ -785,6 +823,9 @@ async function fetchUser() {
       throw new Error('An unexpected error occured while fetching user details.')
     }
     state.user = user
+    if (canManage.value) {
+      await fetchPasskeys()
+    }
   } catch (err) {
     notify({
       type: 'negative',
@@ -793,6 +834,18 @@ async function fetchUser() {
   }
   loading.hide()
   state.loading--
+}
+
+async function fetchPasskeys() {
+  try {
+    const resp = await API_CLIENT.get(`users/${adminStore.overlayOpts.id}/passkeys`).json()
+    state.passkeys = resp?.passkeys ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, 'An unexpected error occured while fetching passkeys.')
+    })
+  }
 }
 
 function close() {
@@ -917,12 +970,57 @@ function invalidateTFA() {
     cancel: true,
     persistent: true,
     okLabel: t('common.actions.confirm')
-  }).onOk(() => {
-    // TODO: invalidate user 2FA
-    notify({
-      type: 'positive',
-      message: t('admin.users.tfaInvalidateSuccess')
-    })
+  }).onOk(async () => {
+    loading.show()
+    try {
+      await API_CLIENT.post(`users/${adminStore.overlayOpts.id}/tfa/invalidate`, {
+        json: { strategyId: localAuth.value.authId }
+      }).json()
+      localAuth.value = {
+        ...localAuth.value,
+        isTfaSetup: false
+      }
+      notify({
+        type: 'positive',
+        message: t('admin.users.tfaInvalidateSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.users.tfaInvalidateFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
+  })
+}
+
+function revokePasskey(pkey) {
+  confirm({
+    title: t('common.actions.delete'),
+    message: t('admin.users.passkeysRevokeConfirm'),
+    cancel: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      await API_CLIENT.delete(
+        `users/${adminStore.overlayOpts.id}/passkeys/${encodeURIComponent(pkey.id)}`
+      )
+      state.passkeys = state.passkeys.filter((p) => p.id !== pkey.id)
+      notify({
+        type: 'positive',
+        message: t('admin.users.passkeysRevokeSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.users.passkeysRevokeFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+    loading.hide()
   })
 }
 

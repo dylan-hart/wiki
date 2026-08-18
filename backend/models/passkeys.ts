@@ -78,9 +78,13 @@ const insecureOriginExceptions = new Set(['localhost', '127.0.0.1', '[::1]', '::
  *
  * @param origin The `Origin` header, if the client sent one
  * @param hostname The host the request was addressed to, i.e. the RP ID
- * @throws `ERR_PK_INSECURE_ORIGIN` for an origin that does not match, or that is not a secure context
+ * @throws `ERR_PK_ORIGIN_MISMATCH` when the origin disagrees with `hostname` — the case a spoofed or
+ *         degraded `req.hostname` (an unvalidated `X-Forwarded-Host` under `trustProxy`, or a reverse
+ *         proxy that isn't forwarding the real `Host`) produces, since a real browser's `Origin`
+ *         header keeps telling the truth even when the server's idea of its own hostname doesn't
+ * @throws `ERR_PK_INSECURE_ORIGIN` for an origin that doesn't parse, or isn't a secure context
  */
-function resolveOrigin(origin: string | undefined, hostname: string): string {
+export function resolveOrigin(origin: string | undefined, hostname: string): string {
   // -> A client that sends no Origin at all is not a browser doing a WebAuthn ceremony, but it may
   //    still be a legitimate API client driving one, so the canonical https origin is assumed
   if (!origin) {
@@ -93,8 +97,11 @@ function resolveOrigin(origin: string | undefined, hostname: string): string {
   } catch {
     throw new Error('ERR_PK_INSECURE_ORIGIN')
   }
+  // -> Kept distinct from ERR_PK_INSECURE_ORIGIN below: this is the trustProxy/reverse-proxy
+  //    hostname-mismatch shape, not a protocol problem, and the two want different admin-facing
+  //    troubleshooting text (see the security review this came out of, docs/security-reviews/).
   if (parsed.hostname !== hostname) {
-    throw new Error('ERR_PK_INSECURE_ORIGIN')
+    throw new Error('ERR_PK_ORIGIN_MISMATCH')
   }
   if (parsed.protocol !== 'https:' && !insecureOriginExceptions.has(parsed.hostname)) {
     throw new Error('ERR_PK_INSECURE_ORIGIN')
@@ -132,7 +139,8 @@ class Passkeys {
    * @param origin The request's `Origin` header
    * @returns The options to hand the browser, and the challenge to remember for
    *          `finalizeRegistration()`
-   * @throws `ERR_INVALID_USER`, `ERR_PK_HOSTNAME_MISSING` or `ERR_PK_INSECURE_ORIGIN`
+   * @throws `ERR_INVALID_USER`, `ERR_PK_HOSTNAME_MISSING`, `ERR_PK_ORIGIN_MISMATCH` or
+   *         `ERR_PK_INSECURE_ORIGIN`
    */
   async startRegistration({
     userId,
@@ -300,7 +308,7 @@ class Passkeys {
    * the user first, and no lookup that could reveal whether an address has an account.
    *
    * @returns The options to hand the browser, and the challenge to remember for `verifyLogin()`
-   * @throws `ERR_PK_HOSTNAME_MISSING` or `ERR_PK_INSECURE_ORIGIN`
+   * @throws `ERR_PK_HOSTNAME_MISSING`, `ERR_PK_ORIGIN_MISMATCH` or `ERR_PK_INSECURE_ORIGIN`
    */
   async startLogin({ hostname, origin }: { hostname: string; origin?: string }): Promise<{
     authOptions: PublicKeyCredentialRequestOptionsJSON

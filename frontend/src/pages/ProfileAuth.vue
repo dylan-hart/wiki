@@ -89,6 +89,15 @@
                       </w-item-section>
                       <w-item-section>{{ t('profile.authSetTfa') }}</w-item-section>
                     </w-item>
+                    <w-item
+                      v-if="auth.config.isTfaSetup"
+                      clickable
+                      @click="regenerateRecoveryCodes(auth.authId)">
+                      <w-item-section avatar class="!min-w-0 !pr-2">
+                        <w-icon name="la:key" class="text-blue-7" />
+                      </w-item-section>
+                      <w-item-section>{{ t('profile.tfaRecoveryCodesRegenerate') }}</w-item-section>
+                    </w-item>
                     <w-separator class="my-2" />
                     <w-item
                       v-if="auth.config.isPasswordLoginEnabled"
@@ -171,6 +180,7 @@ import { localizeError } from '@/helpers/localization'
 
 import ChangePwdDialog from '@/components/ChangePwdDialog.vue'
 import SetupTfaDialog from '@/components/SetupTfaDialog.vue'
+import RecoveryCodesDialog from '@/components/RecoveryCodesDialog.vue'
 import PasskeyCreateDialog from '@/components/PasskeyCreateDialog.vue'
 
 // I18N
@@ -309,6 +319,42 @@ function setupTfa(strategyId) {
     }
   }).onOk(() => {
     fetchAuthMethods()
+  })
+}
+
+function regenerateRecoveryCodes(strategyId) {
+  confirm({
+    title: t('common.actions.confirm'),
+    message: t('profile.tfaRecoveryCodesRegenerateConfirm'),
+    cancel: true,
+    color: 'negative',
+    okLabel: t('profile.tfaRecoveryCodesRegenerate')
+  }).onOk(async () => {
+    loading.show()
+    try {
+      const resp = await API_CLIENT.post('users/profile/tfa/recovery-codes', {
+        json: {
+          strategyId
+        }
+      }).json()
+      if (!resp?.ok) {
+        throw new Error(localizeError(resp?.message, t))
+      }
+      loading.hide()
+      dialog({
+        component: RecoveryCodesDialog,
+        componentProps: {
+          codes: resp.recoveryCodes
+        }
+      })
+    } catch (err) {
+      loading.hide()
+      notify({
+        type: 'negative',
+        message: t('profile.tfaRecoveryCodesRegenerateFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
   })
 }
 

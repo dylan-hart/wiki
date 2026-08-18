@@ -649,6 +649,11 @@ async function routes(app: FastifyInstance) {
                           type: 'boolean',
                           description:
                             'Whether the account has another way in — a passkey or another linked provider — and may therefore turn password login off.'
+                        },
+                        recoveryCodesRemaining: {
+                          type: 'integer',
+                          description:
+                            '2FA recovery codes still unused. 0 when 2FA is off. Never a code itself — see `/users/profile/tfa/recovery-codes` for that.'
                         }
                       }
                     }
@@ -900,7 +905,13 @@ async function routes(app: FastifyInstance) {
             type: 'object',
             properties: {
               ok: { type: 'boolean' },
-              message: { type: 'string' }
+              message: { type: 'string' },
+              recoveryCodes: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'The fresh recovery codes in plaintext. Only ever returned here, to the user activating 2FA on their own account — only hashes are kept afterwards. Show them once and prompt to save; `POST /users/profile/tfa/recovery-codes` is the only way to see the count remaining again, and regenerating is the only way to get a readable set back.'
+              }
             }
           }
         }
@@ -913,19 +924,19 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        await WIKI.models.users.confirmTfaSetup({
+        const { recoveryCodes } = await WIKI.models.users.confirmTfaSetup({
           userId,
           strategyId: req.body.strategyId,
           continuationToken: req.body.continuationToken,
           securityCode: req.body.securityCode
         })
+        return {
+          ok: true,
+          message: '2FA enabled successfully.',
+          recoveryCodes
+        }
       } catch (err: any) {
         rethrowAsBadRequest(err)
-      }
-
-      return {
-        ok: true,
-        message: '2FA enabled successfully.'
       }
     }
   )
@@ -968,6 +979,119 @@ async function routes(app: FastifyInstance) {
       }
 
       return reply.code(204).send()
+    }
+  )
+
+  /**
+   * VIEW REMAINING RECOVERY CODE COUNT
+   *
+   * Never re-displays a code, used or not — only how many of the original set are still good, so the
+   * profile page can nudge a user running low toward regenerating before they are locked out.
+   *
+   * No route-level permissions: self-scoped by session, same as the rest of `/profile/tfa*`.
+   */
+  app.get<{ Querystring: { strategyId: string } }>(
+    '/profile/tfa/recovery-codes',
+    {
+      schema: {
+        summary: "Get the logged in user's remaining 2FA recovery code count",
+        description:
+          'Never returns a code, used or unused — only how many of the last-issued set are still unused. 400s if 2FA is not active on this strategy, since there is nothing to count.',
+        tags: ['Users'],
+        querystring: {
+          type: 'object',
+          required: ['strategyId'],
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            description: 'Recovery code status',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              total: {
+                type: 'integer',
+                description: 'How many codes the current set was issued with.'
+              },
+              remaining: { type: 'integer', description: 'How many of them are still unused.' }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+      if (!userId) {
+        return reply.unauthorized()
+      }
+
+      try {
+        const { total, remaining } = await WIKI.models.users.getRecoveryCodesStatus(
+          userId,
+          req.query.strategyId
+        )
+        return { ok: true, total, remaining }
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+    }
+  )
+
+  /**
+   * REGENERATE RECOVERY CODES
+   */
+  app.post<{ Body: { strategyId: string } }>(
+    '/profile/tfa/recovery-codes',
+    {
+      schema: {
+        summary: "Regenerate the logged in user's 2FA recovery codes",
+        description:
+          'Invalidates every code from the previous set — used or not — and issues a fresh one. `hadUnusedCodes` reports whether the set just replaced still had unused codes in it, which is the client’s cue to warn the user that codes they saved are being thrown away rather than topped up. 400s if 2FA is not active on this strategy.',
+        tags: ['Users'],
+        body: {
+          type: 'object',
+          required: ['strategyId'],
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            description: 'Fresh recovery codes',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              recoveryCodes: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'The new codes in plaintext. Only ever returned here, once.'
+              },
+              hadUnusedCodes: {
+                type: 'boolean',
+                description: 'Whether the set just replaced still had unused codes in it.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+      if (!userId) {
+        return reply.unauthorized()
+      }
+
+      try {
+        const { recoveryCodes, hadUnusedCodes } = await WIKI.models.users.regenerateRecoveryCodes(
+          userId,
+          req.body.strategyId
+        )
+        return { ok: true, recoveryCodes, hadUnusedCodes }
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
     }
   )
 
@@ -1660,6 +1784,183 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'User password updated successfully.'
+      }
+    }
+  )
+
+  /**
+   * LIST A USER'S PASSKEYS (ADMIN)
+   */
+  app.get<{ Params: { userId: string } }>(
+    '/:userId/passkeys',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "List a user's passkeys",
+        description: 'Never returns key material — the same shape the profile page itself lists.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        response: {
+          200: {
+            description: "The user's passkeys",
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              passkeys: {
+                type: 'array',
+                items: { $ref: 'Passkey#' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+      const passkeys = await WIKI.models.passkeys.list(req.params.userId)
+      return {
+        ok: true,
+        passkeys
+      }
+    }
+  )
+
+  /**
+   * REVOKE A USER'S PASSKEY (ADMIN)
+   */
+  app.delete<{ Params: { userId: string; passkeyId: string } }>(
+    '/:userId/passkeys/:passkeyId',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "Revoke one of a user's passkeys",
+        description:
+          'Only this instance forgets it — the credential itself lives on the user’s device and has to be deleted there too.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            passkeyId: {
+              type: 'string',
+              description: 'The credential ID, as listed by `GET /users/:userId/passkeys`.'
+            }
+          },
+          required: ['userId', 'passkeyId']
+        },
+        response: {
+          204: {
+            description: 'Passkey revoked successfully'
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      if (!(await WIKI.models.passkeys.remove(req.params.userId, req.params.passkeyId))) {
+        return reply.notFound('This user has no passkey with this ID.')
+      }
+      return reply.code(204).send()
+    }
+  )
+
+  /**
+   * INVALIDATE A USER'S 2FA (ADMIN)
+   */
+  app.post<{ Params: { userId: string }; Body: { strategyId: string } }>(
+    '/:userId/tfa/invalidate',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: "Turn off a user's 2FA on an administrator's authority",
+        description:
+          'Unlike `DELETE /users/profile/tfa/:strategyId`, this bypasses the `tfaRequired` / `enforceTfa` enforcement that route refuses to override — the exact override an administrator needs to recover a user locked out of a lost authenticator or device. Clears the stored secret, deactivates 2FA, and discards every recovery code; the user has to set 2FA up again from scratch.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId'],
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            description: '2FA invalidated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      try {
+        await WIKI.models.users.adminInvalidateTfa(req.params.userId, req.body.strategyId)
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+
+      return {
+        ok: true,
+        message: '2FA invalidated successfully.'
       }
     }
   )

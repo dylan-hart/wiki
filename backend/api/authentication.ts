@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
+import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -410,8 +411,9 @@ async function routes(app: FastifyInstance) {
             },
             securityCode: {
               type: 'string',
-              pattern: '^[0-9]{6}$',
-              description: 'The six digits shown by the authenticator app.'
+              pattern: `^([0-9]{6}|${recoveryCodeDisplayPattern})$`,
+              description:
+                'Either the six digits shown by the authenticator app, or one of the account’s recovery codes (`XXXX-XXXX-XXXX-XXXX`). A recovery code cannot answer a `setup` submission — that flow only proves a freshly-generated authenticator secret works, before any recovery codes exist for it.'
             },
             setup: {
               type: 'boolean',
