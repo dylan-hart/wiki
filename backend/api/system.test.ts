@@ -8,6 +8,16 @@ import { registerSchemas as registerFlagsSchema } from './schemas/flags.ts'
 import { registerSchemas as registerSecuritySchema } from './schemas/security.ts'
 import { registerSchemas as registerExtensionSchema } from './schemas/extension.ts'
 
+// `getClusterNodes()` (in system.ts) calls `Temporal.Instant.from()` unconditionally on every row.
+// Node ships `Temporal` as a global from v26 -- but not every environment running this test has
+// that landed yet, and `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is
+// a faithful ponyfill, so install it as the global only when it is genuinely missing. On a runtime
+// that already has native `Temporal` this import is inert.
+if (typeof Temporal === 'undefined') {
+  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
+  ;(globalThis as any).Temporal = TemporalPolyfill
+}
+
 /**
  * Regression test for task 711 (Feature 411): the admin area used to expose this cluster-node
  * listing as `GET /_api/system/instances`, with an `instancesTotal` count on `/_api/system/info` --
