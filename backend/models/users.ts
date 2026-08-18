@@ -1138,18 +1138,20 @@ class Users {
         user = await str.authenticate(context)
       } catch (err: any) {
         /*
-          A form-based module (LDAP) that has just verified the person at its provider, but found no
-          local account for them, has no other way to say so from inside `authenticate()` — so it
-          throws this instead of returning a user. Provisioned through the same find-or-create path a
-          redirect-based provider uses, rather than duplicating it here.
+          A form-based module (LDAP) verifies the person itself and never resolves a local user — it
+          always throws this once verification succeeds, whether or not an account already exists, so
+          every login (not only the one that creates an account) goes through the same find-or-create
+          path a redirect-based provider uses, which is also what re-syncs group membership on every
+          login. `findOrCreateProviderUser()` enforces `registration` itself, and only for the case
+          that actually needs it: an unknown address with no local account. Gating on it *here* as well
+          would refuse a returning user who already has an account the moment `registration` is turned
+          off — the flag means "accepts new users", not "accepts logins" — so it is deliberately not
+          checked again at this outer layer.
         */
         if (strInfo.useForm && err instanceof ProvisionableLoginError) {
           const providerStrategy = await WIKI.models.authentication.getStrategyById(strategyId)
-          if (!providerStrategy?.registration) {
-            WIKI.models.flags.authDebug(
-              `Auto-provisioning for strategy ${strategyId} refused: strategy does not accept new users`
-            )
-            throw new Error('ERR_REGISTRATION_DISABLED')
+          if (!providerStrategy) {
+            throw new Error('ERR_INVALID_STRATEGY')
           }
           user = await this.findOrCreateProviderUser(providerStrategy, err.profile)
         } else {

@@ -1,6 +1,7 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { users } from './users.ts'
+import { ProvisionableLoginError } from './authentication.ts'
 
 /**
  * `updateSession` is the one place a login turns a user row into session state — permissions
@@ -227,5 +228,124 @@ describe('users.syncProviderGroups', () => {
 
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
     assert.deepEqual(unassignUserFromGroup.mock.calls[0].arguments, ['group-reviewers', 'user-1'])
+  })
+})
+
+/**
+ * `login()`'s form-based auto-provisioning branch: a module like LDAP verifies the person itself and,
+ * rather than resolving a local user, always signals "this person is real" by throwing
+ * `ProvisionableLoginError` — whether or not an account already exists for them (see that class's own
+ * doc comment, and `modules/authentication/ldap/authentication.ts`, the module this branch was built
+ * for). What is under test here is `login()`'s own dispatch around that catch: `findOrCreateProviderUser()`
+ * and `afterLoginChecks()` are stubbed so a returning-vs-new-address distinction can be driven directly,
+ * without a database.
+ *
+ * Regression coverage for a real bug this suite caught: `login()` used to refuse *every* form-based
+ * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `registration` flag was off —
+ * including a returning user who already has an account. `registration` means "accepts new users", not
+ * "accepts logins", and `findOrCreateProviderUser()` already enforces it correctly on its own (only for
+ * an address with no existing account) — so `login()` no longer re-checks it before calling in.
+ */
+describe('users.login (form-based provider auto-provisioning)', () => {
+  const strategyId = 'strategy-1'
+
+  function makeProfile(overrides: Partial<any> = {}): any {
+    return { id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace', ...overrides }
+  }
+
+  function installWiki(getStrategyById: () => Promise<any>) {
+    ;(globalThis as any).WIKI = {
+      data: { authentication: [{ key: 'ldap', useForm: true }] },
+      auth: {
+        strategies: {
+          [strategyId]: {
+            module: 'ldap',
+            authenticate: async () => {
+              throw new ProvisionableLoginError(makeProfile())
+            }
+          }
+        }
+      },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: { getStrategyById }
+      }
+    }
+  }
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('a returning provider user is not refused just because the strategy has registration disabled', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+    const fakeUser = { id: 'user-1' }
+    const findOrCreate = t.mock.method(
+      users,
+      'findOrCreateProviderUser' as any,
+      async () => fakeUser
+    )
+    const afterLogin = t.mock.method(users, 'afterLoginChecks', async () => ({
+      authenticated: true,
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    const result = await users.login(
+      { siteId: 'site-1', strategyId, username: 'ada', password: 'pw', ip: '127.0.0.1' },
+      { session: {} }
+    )
+
+    assert.equal(result.authenticated, true)
+    assert.equal(findOrCreate.mock.calls.length, 1)
+    assert.equal(findOrCreate.mock.calls[0].arguments[1].email, 'ada@example.com')
+    assert.equal(afterLogin.mock.calls[0].arguments[0], fakeUser)
+  })
+
+  test('a brand-new address is still refused when the strategy does not accept new users', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => {
+      throw new Error('ERR_REGISTRATION_DISABLED')
+    })
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', password: 'pw', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+
+  test('registration enabled still provisions a brand-new address', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: true, config: {} }))
+    const fakeUser = { id: 'user-2' }
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => fakeUser)
+    const afterLogin = t.mock.method(users, 'afterLoginChecks', async () => ({
+      authenticated: true,
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await users.login(
+      { siteId: 'site-1', strategyId, username: 'ada', password: 'pw', ip: '127.0.0.1' },
+      { session: {} }
+    )
+
+    assert.equal(afterLogin.mock.calls[0].arguments[0], fakeUser)
+  })
+
+  test('a strategy record that no longer exists is reported as ERR_INVALID_STRATEGY', async (t) => {
+    installWiki(async () => null)
+    const findOrCreate = t.mock.method(users, 'findOrCreateProviderUser' as any, async () => ({}))
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', password: 'pw', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+    assert.equal(findOrCreate.mock.calls.length, 0)
   })
 })
