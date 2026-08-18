@@ -48,7 +48,8 @@ async function routes(app: FastifyInstance) {
                 additionalProperties: true
               }
             }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

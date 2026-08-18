@@ -62,7 +62,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of all sites',
             type: 'array',
             items: { $ref: 'Site#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -113,7 +115,8 @@ async function routes(app: FastifyInstance) {
             description: 'Site info',
             type: 'object',
             $ref: 'Site#'
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -196,7 +199,11 @@ async function routes(app: FastifyInstance) {
                 format: 'uuid'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The site could not be created.' }
         }
       }
     },
@@ -388,7 +395,12 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The site could not be updated.' }
         }
       }
     },
@@ -524,7 +536,11 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -597,7 +613,10 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -641,6 +660,16 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Site deleted successfully'
+          },
+          400: {
+            $ref: 'ApiError#',
+            description: 'Site does not exist. (Pre-existing: a 400 rather than a 404.)'
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'This is the last remaining site, or it still holds content.'
           }
         }
       }

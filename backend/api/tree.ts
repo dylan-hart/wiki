@@ -285,7 +285,9 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'BrowseItem#' }
               }
             }
-          }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -393,7 +395,8 @@ async function routes(app: FastifyInstance) {
             description: 'The pages found',
             type: 'array',
             items: { $ref: 'ListedPage#' }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -436,7 +439,8 @@ async function routes(app: FastifyInstance) {
         tags: ['Tree'],
         params: folderIdParam,
         response: {
-          200: { $ref: 'Folder#' }
+          200: { $ref: 'Folder#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -513,7 +517,8 @@ async function routes(app: FastifyInstance) {
               },
               folder: { $ref: 'Folder#' }
             }
-          }
+          },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -583,7 +588,9 @@ async function routes(app: FastifyInstance) {
               },
               folder: { $ref: 'Folder#' }
             }
-          }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -631,7 +638,10 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Folder deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

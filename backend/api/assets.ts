@@ -117,6 +117,14 @@ async function routes(app: FastifyInstance) {
               },
               asset: { $ref: 'Asset#' }
             }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description:
+              'A page or folder already holds this name, or a file does and the conflict behavior is `reject`.'
           }
         }
       }
@@ -176,7 +184,8 @@ async function routes(app: FastifyInstance) {
         tags: ['Assets'],
         params: assetIdParam,
         response: {
-          200: { $ref: 'Asset#' }
+          200: { $ref: 'Asset#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -217,7 +226,8 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -290,7 +300,10 @@ async function routes(app: FastifyInstance) {
               },
               asset: { $ref: 'Asset#' }
             }
-          }
+          },
+          400: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -335,7 +348,9 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Asset deleted successfully'
-          }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },

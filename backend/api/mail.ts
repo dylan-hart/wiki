@@ -47,7 +47,9 @@ async function routes(app: FastifyInstance) {
             description: 'Mail configuration',
             type: 'object',
             $ref: 'MailConfig#'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -103,7 +105,10 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The configuration could not be saved.' }
         }
       }
     },

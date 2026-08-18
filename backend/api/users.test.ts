@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import fastifySwagger from '@fastify/swagger'
 import usersRoutes from './users.ts'
 import { registerSchemas as registerUserSchema } from './schemas/user.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Regression test for the `GET /whoami` response schema gap: with no `response` block, the generated
@@ -34,6 +35,7 @@ before(async () => {
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
   })
 
+  await registerErrorSchema(app)
   await registerUserSchema(app)
   await app.register(usersRoutes)
   await app.ready()

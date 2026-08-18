@@ -88,7 +88,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of site blocks',
             type: 'array',
             items: { $ref: 'Block#' }
-          }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -169,7 +171,11 @@ async function routes(app: FastifyInstance) {
                   'How many block rows were written. A block already in the requested state still counts.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'Failed to write the new block states.' }
         }
       }
     },
@@ -224,7 +230,11 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Block deleted successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The block is built-in and cannot be deleted.' }
         }
       }
     },

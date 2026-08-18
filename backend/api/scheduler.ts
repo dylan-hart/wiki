@@ -24,7 +24,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of scheduled tasks',
             type: 'array',
             items: { $ref: 'SchedulerTask#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -74,7 +76,11 @@ async function routes(app: FastifyInstance) {
                 description: 'The ID of the queued job.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The scheduler could not queue the job.' }
         }
       }
     },
@@ -116,7 +122,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of upcoming jobs',
             type: 'array',
             items: { $ref: 'SchedulerUpcomingJob#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -152,7 +160,10 @@ async function routes(app: FastifyInstance) {
         response: {
           204: {
             description: 'Job cancelled successfully'
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -211,7 +222,9 @@ async function routes(app: FastifyInstance) {
                 items: { $ref: 'SchedulerJob#' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -266,7 +279,12 @@ async function routes(app: FastifyInstance) {
                 description: 'The ID of the newly queued job, not the one it was created from.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The job is still running.' },
+          500: { $ref: 'ApiError#', description: 'The scheduler could not queue the job.' }
         }
       }
     },

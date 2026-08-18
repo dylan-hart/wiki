@@ -77,7 +77,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               isWatching: { type: 'boolean' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
@@ -120,7 +122,8 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               isWatching: { type: 'boolean' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
@@ -163,7 +166,8 @@ async function routes(app: FastifyInstance) {
             description: 'Watched pages',
             type: 'array',
             items: { $ref: 'WatchedPage#' }
-          }
+          },
+          401: { $ref: 'ApiError#' }
         }
       }
     },
