@@ -125,10 +125,10 @@ useMeta({
 //    `editorComponents` registration (Index.vue) -- they were unbacked speculation, visible under the
 //    experimental flag but non-functional even when toggled on. `channel`'s only artifact,
 //    `EditorChannel.vue` (79 lines of Options-API mock data, never imported anywhere reachable), has
-//    been deleted outright. `channel`-style real-time discussion channels are filed as a stretch-goal
-//    Feature under the Comments epic (OpenProject #335) for a future cycle to pick up if it wants to;
-//    `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible near-term epic
-//    home identified and are dropped with no follow-up.
+//    been deleted outright. `channel`-style real-time discussion channels are filed as stretch-goal
+//    Feature #786 under the Comments epic (OpenProject #335) for a future cycle to pick up if it
+//    wants to; `api` (API-docs editor) and `blog` (a series-of-posts editor) had no plausible
+//    near-term epic home identified and are dropped with no follow-up.
 const state = reactive({
   loading: 0,
   config: {
