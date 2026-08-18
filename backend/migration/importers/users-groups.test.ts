@@ -14,6 +14,9 @@ import {
   type UsersGroupsWriter
 } from './users-groups.ts'
 
+const TARGET_ADMIN_GROUP_ID = 'target-admin-group-uuid'
+const TARGET_GUEST_GROUP_ID = 'target-guest-group-uuid'
+
 /** Wraps a plain array as the `AsyncIterable<SourceRecord>` the engine consumes, matching how a
  * real `SourceConnector` generator would be read. */
 async function* iter<T>(items: T[]): AsyncIterable<T> {
@@ -40,6 +43,10 @@ function recordingWriter(): UsersGroupsWriter & { calls: string[] } {
     async insertUserGroup(userId, groupId) {
       calls.push(`insertUserGroup:${userId}:${groupId}`)
       return base.insertUserGroup(userId, groupId)
+    },
+    async assignUserToSystemGroup(userId, groupId) {
+      calls.push(`assignUserToSystemGroup:${userId}:${groupId}`)
+      return base.assignUserToSystemGroup(userId, groupId)
     }
   }
 }
@@ -169,7 +176,8 @@ describe('importUsersAndGroups', () => {
       async insertUser() {
         return { id: crypto.randomUUID() }
       },
-      async insertUserGroup() {}
+      async insertUserGroup() {},
+      async assignUserToSystemGroup() {}
     }
 
     const result = await importUsersAndGroups({
@@ -535,5 +543,189 @@ describe('createDrizzleWriter insertGroup', () => {
     assert.equal(result.id, 'model-written-group-uuid')
     assert.equal(calls.length, 1)
     assert.deepEqual(calls[0], { name: 'Editors', permissions: ['manage:navigation'], rules: [] })
+  })
+})
+
+/**
+ * Coverage for Task 731: system-row exclusion and admin/guest membership remapping.
+ */
+describe('system-row exclusion (Task 731)', () => {
+  test('a source group flagged isSystem is skipped without ever calling convertGroup', async () => {
+    let convertCalls = 0
+    const convertGroup = (source: { name?: unknown }) => {
+      convertCalls++
+      return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
+    }
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([
+          { id: 1, name: 'Administrators', isSystem: true },
+          { id: 3, name: 'Editors', isSystem: false }
+        ]),
+        users: iter([]),
+        userGroups: iter([])
+      },
+      writer: createDryRunWriter(),
+      convertGroup
+    })
+
+    assert.equal(result.groups.skipped, 1)
+    assert.equal(result.groups.created, 1)
+    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.match(result.groups.records[0].message ?? '', /system group/)
+  })
+
+  test('a source user flagged isSystem is skipped without ever calling convertUser', async () => {
+    let convertCalls = 0
+    const convertUser = (source: { email?: unknown; name?: unknown }) => {
+      convertCalls++
+      return {
+        status: 'created',
+        row: { email: String(source.email), name: String(source.name) } as NewUserRow
+      } as const
+    }
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([]),
+        users: iter([
+          { id: 1, email: 'admin@example.com', name: 'Administrator', isSystem: true },
+          { id: 2, email: 'guest@example.com', name: 'Guest', isSystem: true },
+          { id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }
+        ]),
+        userGroups: iter([])
+      },
+      writer: createDryRunWriter(),
+      convertUser
+    })
+
+    assert.equal(result.users.skipped, 2)
+    assert.equal(result.users.created, 1)
+    assert.equal(convertCalls, 1) // -> neither system row reached convertUser at all
+    for (const rec of result.users.records) {
+      if (rec.status === 'skipped') {
+        assert.match(rec.message ?? '', /system user/)
+      }
+    }
+  })
+
+  test(
+    'an ordinary user who was only in the source Administrators group ends up assigned to the ' +
+      "target's real admin group id",
+    async () => {
+      const writer = recordingWriter()
+
+      const result = await importUsersAndGroups({
+        source: {
+          // The source Administrators (id 1) and Guests (id 2) groups themselves are never even
+          // part of this feed — a real SourceConnector wouldn't yield them once isSystem rows are
+          // excluded upstream, and the engine must not depend on seeing them to do the remap.
+          groups: iter([]),
+          users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
+          userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
+        },
+        writer,
+        convertUser: passthroughConvertUser,
+        systemGroupIds: { admin: TARGET_ADMIN_GROUP_ID, guest: TARGET_GUEST_GROUP_ID }
+      })
+
+      assert.equal(result.userGroups.created, 1)
+      assert.equal(result.userGroups.skipped, 0)
+      assert.equal(result.userGroups.records[0].targetId, TARGET_ADMIN_GROUP_ID)
+      assert.match(result.userGroups.records[0].message ?? '', /remapped/)
+
+      // The remap must go through assignUserToSystemGroup (-> Groups.assignUserToGroup on the real
+      // writer), never a raw insertUserGroup call, for this membership.
+      assert.ok(writer.calls.some((call) => call.startsWith('assignUserToSystemGroup:')))
+      assert.ok(!writer.calls.some((call) => call.startsWith('insertUserGroup:')))
+    }
+  )
+
+  test('an ordinary user in the source Guests group is remapped onto the target guest group id', async () => {
+    const writer = recordingWriter()
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([]),
+        users: iter([{ id: 11, email: 'bob@example.com', name: 'Bob', isSystem: false }]),
+        userGroups: iter([{ id: 101, userId: 11, groupId: 2 }])
+      },
+      writer,
+      convertUser: passthroughConvertUser,
+      systemGroupIds: { admin: TARGET_ADMIN_GROUP_ID, guest: TARGET_GUEST_GROUP_ID }
+    })
+
+    assert.equal(result.userGroups.created, 1)
+    assert.equal(result.userGroups.records[0].targetId, TARGET_GUEST_GROUP_ID)
+  })
+
+  test('without systemGroupIds supplied, a membership pointing at the source system group is still just skipped (pre-731 behavior)', async () => {
+    const writer = createDryRunWriter()
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([]),
+        users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
+        userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
+      },
+      writer,
+      convertUser: passthroughConvertUser
+      // -> no systemGroupIds
+    })
+
+    assert.equal(result.userGroups.skipped, 1)
+    assert.equal(result.userGroups.created, 0)
+  })
+
+  test('an ordinary group with the same numeric id as a source system group is unaffected — real resolution wins over the remap fallback', async () => {
+    const writer = recordingWriter()
+
+    const result = await importUsersAndGroups({
+      source: {
+        // Group id 1 here is a genuine, non-system, created group — not the source's Administrators.
+        groups: iter([{ id: 1, name: 'Editors', isSystem: false }]),
+        users: iter([{ id: 10, email: 'alice@example.com', name: 'Alice', isSystem: false }]),
+        userGroups: iter([{ id: 100, userId: 10, groupId: 1 }])
+      },
+      writer,
+      convertGroup: passthroughConvertGroup,
+      convertUser: passthroughConvertUser,
+      systemGroupIds: { admin: TARGET_ADMIN_GROUP_ID, guest: TARGET_GUEST_GROUP_ID }
+    })
+
+    assert.equal(result.userGroups.created, 1)
+    assert.notEqual(result.userGroups.records[0].targetId, TARGET_ADMIN_GROUP_ID)
+    assert.ok(writer.calls.some((call) => call.startsWith('insertUserGroup:')))
+    assert.ok(!writer.calls.some((call) => call.startsWith('assignUserToSystemGroup:')))
+  })
+
+  test('createDrizzleWriter.assignUserToSystemGroup delegates to Groups.assignUserToGroup(groupId, userId)', async () => {
+    const previous = (globalThis as any).WIKI
+    const calls: any[] = []
+    ;(globalThis as any).WIKI = {
+      models: {
+        groups: {
+          async assignUserToGroup(groupId: string, userId: string) {
+            calls.push({ groupId, userId })
+            return true
+          }
+        }
+      }
+    }
+    try {
+      const explodingDb = {
+        insert() {
+          throw new Error('assignUserToSystemGroup must not call db.insert directly')
+        }
+      } as any
+      const writer = createDrizzleWriter(explodingDb)
+
+      await writer.assignUserToSystemGroup('user-uuid', 'group-uuid')
+
+      assert.deepEqual(calls, [{ groupId: 'group-uuid', userId: 'user-uuid' }])
+    } finally {
+      ;(globalThis as any).WIKI = previous
+    }
   })
 })
