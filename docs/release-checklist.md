@@ -12,10 +12,11 @@ performs and records). Do not mark an item done from memory — for CI items, lo
 for the commit being released; for manual items, do the step and write down what you found, not
 what you expect to find.
 
-None of this checklist runs itself yet. Sibling Features under this same Feature
+Not every item below runs itself yet. Sibling Features under this same Feature
 (#426, "Release readiness process and documentation") are what wire the CI-checkable items into
-an actual gate on the release workflow; see [Status of automation](#status-of-automation) below
-for exactly what exists today versus what this document anticipates.
+an actual gate on the release workflow, and most already have: see
+[Status of automation](#status-of-automation) below for exactly what is enforced today versus what
+this document still anticipates.
 
 ## How to use this checklist
 
@@ -57,40 +58,42 @@ failure looks unrelated." Fix it, or get it fixed, and re-run.
 
 ### 2. Test suites all green
 
-**Owner: Feature #424 ("Build test infrastructure from zero").** Note this item is deliberately
-**not** a step in `release.yml` (task #777) even now that the suites exist on this branch: the
-release workflow's own top-of-file comment spells out why — `build.yml`'s `build` job already runs
-all four suites against every `scarlett` push, including the commit a release tag points at, so
-re-running them a second time on the tag push would be an expensive echo of a check that already
-ran, not an independent gate. This item stays a manual "look at the `build.yml` run for the release
-commit" read, recorded in the release PR, not a `release.yml` CI assertion.
+**Owner: Feature #424 ("Build test infrastructure from zero").** This item is deliberately **not**
+a step in `release.yml` (task #777) even though the suites exist and run in CI today: the release
+workflow's own top-of-file comment spells out why — `build.yml`'s `build` job already runs all
+four suites (backend, frontend, blocks, e2e) against every `scarlett` push, including the commit a
+release tag points at, so re-running them a second time on the tag push would be an expensive echo
+of a check that already ran, not an independent gate. This item therefore stays a manual "look at
+the `build.yml` run for the release commit" read, recorded in the release PR, not a `release.yml`
+CI assertion.
 
-**Currently unenforceable.** Per direct inspection of `scarlett` at the time this document was
-written, no test framework exists in any workspace: `backend/package.json`, `frontend/package.json`
-and `blocks/package.json` have no `test` script, there are no `*.test.*` files anywhere in the
-tree, and `.github/workflows/build.yml` has no test step. There is nothing to run and nothing to
-be green, so this item cannot be evaluated as Pass or Fail today.
+**Enforceable today.** Feature #424 has landed on this branch: every workspace has a real test
+suite wired into `build.yml` as a required step, run in this order, each one gating the steps after
+it (a failure stops the job before the Docker build):
 
-**Until #424 lands**, this item is marked:
+- [ ] Backend test suite (`backend/`, `npm run test` — `node --test`) — must be green.
+- [ ] Frontend test suite (`frontend/`, `npm run test` — Vitest) — must be green.
+- [ ] Blocks test suite (`blocks/`, `npm run test` — Vitest) — must be green.
+- [ ] End-to-end smoke suite (`e2e/`, `npm test` — Playwright) — must be green.
 
-> **N/A — no test suite exists yet (Feature #424 not landed).**
+For the release commit, read the `build.yml` run for that exact commit on `scarlett` (the commit
+the release tag points at) and confirm all four "Run ... Tests" steps passed. Do not infer this
+from a different commit's run, and do not mark this item Pass on the strength of "tests usually
+pass" — look at the actual run.
 
-recorded explicitly in the filled-in checklist (per [How to use this checklist](#how-to-use-this-checklist)
-step 5), not silently dropped from the list. A release manager releasing before #424 lands is
-knowingly shipping without automated test coverage as a gate — that is a real, visible fact about
-the release, not an absence that should read as "nothing to see here."
+Do not partially apply this item — e.g. treat "backend tests are green but the e2e suite was
+skipped/cancelled" as a full Pass. A skipped or cancelled leg is a Fail for this item, named
+specifically, not folded silently into a Pass.
 
-**Once #424 lands**, this item stops being N/A and becomes a real gate:
+**Degraded-mode fallback.** If a release is ever cut against a commit that predates Feature #424
+landing (e.g. a hotfix branched from before test infrastructure existed), this item cannot be
+evaluated and must be marked, explicitly, in the filled-in checklist:
 
-- [ ] Backend test suite (`backend/`, `npm run test`) — must be green.
-- [ ] Frontend test suite (`frontend/`, `npm run test`) — must be green.
-- [ ] Blocks test suite (`blocks/`, `npm run test`) — must be green.
-- [ ] End-to-end smoke suite (`e2e/`, `npm run test`), if by that point it is wired into CI for
-      the release commit — must be green.
+> **N/A — no test suite exists on this commit (Feature #424 not present).**
 
-Do not partially apply this item once suites exist — e.g. treat "backend tests are green but
-frontend has no suite yet" as still N/A-with-reason for the missing piece, named specifically,
-not folded silently into a Pass.
+recorded per [How to use this checklist](#how-to-use-this-checklist) step 5, not silently dropped
+from the list — that is a real, visible fact about that release, not an absence that should read as
+"nothing to see here."
 
 ### 3. `docs/variances.md` reviewed and current
 
@@ -187,13 +190,13 @@ human call, not something this checklist should ever try to automate away.
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
 future-tense sections above for present-tense fact:
 
-| Item                   | Owner                    | Exists on `scarlett` today?                                                       |
-| ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| 1. CI quality gates    | Feature #423 / task #777 | Partially — enforced in `release.yml` (task #777); still missing from `build.yml` |
-| 2. Test suites         | Feature #424             | No — no test framework in any workspace                                           |
-| 3. `docs/variances.md` | Feature #425             | No — file does not exist                                                          |
-| 4. Bundle drift guards | Feature #423 / task #777 | Partially — same as item 1, `release.yml` only                                    |
-| 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                     |
+| Item                   | Owner                    | Exists on `scarlett` today?                                                              |
+| ---------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
+| 1. CI quality gates    | Feature #423 / task #777 | Partially — enforced in `release.yml` (task #777); still missing from `build.yml`        |
+| 2. Test suites         | Feature #424             | Yes — all four suites (backend/frontend/blocks/e2e) run as required steps in `build.yml` |
+| 3. `docs/variances.md` | Feature #425             | No — file does not exist                                                                 |
+| 4. Bundle drift guards | Feature #423 / task #777 | Partially — same as item 1, `release.yml` only                                           |
+| 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                            |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table
