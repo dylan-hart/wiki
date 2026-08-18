@@ -6,6 +6,7 @@ import {
   groups as groupsTable,
   pageEditSubmissions as submissionsTable,
   pages as pagesTable,
+  userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
 
@@ -87,6 +88,16 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   /** Unified diff against the page as it stood when the suggestion was made. */
   patch: string
 }
+
+/**
+ * The outcome of `approveSubmission`.
+ *
+ * `'not-found'` covers what the boolean used to: no such submission, or its page is gone.
+ * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
+ * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
+ * rather than the write silently going ahead over whatever changed in between.
+ */
+export type ApproveSubmissionResult = { ok: true } | { ok: false; reason: 'not-found' | 'stale' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -346,7 +357,20 @@ class Approvals {
    * Everything asking whether a page takes a suggestion asks this, which is why the check lives here
    * rather than at either route.
    *
-   * @returns The first matching rule, or null when the page takes no suggestions from them
+   * Unlike group page rules (`helpers/pageRules.ts`), approval rules carry no most-specific-wins
+   * precedence and no ALLOW/DENY/FORCEALLOW distinction — the model is purely additive, and
+   * `getRules`'s alphabetical order exists only to make the admin list legible, not to rank rules
+   * against each other (`canReviewPage`/`getReviewableSubmissions` OR every enabled matching rule
+   * together, and the create-rule API description says as much). This method's single-rule `.find()`
+   * is therefore a shortcut for a yes/no answer, not a pick among several candidates: WHICH rule it
+   * lands on among several that all match is an accident of `rulesCache`'s sort order, and every
+   * caller today only asks `Boolean(rule)` — none reads `.id`, `.name` or any other field off the
+   * result. If a future caller ever does read the returned rule's identity for something (which
+   * group it names, what its own name is, ...), that is the bug this comment exists to flag: nothing
+   * here promises the "first" match is the "right" one when more than one rule covers a page for the
+   * same groups.
+   *
+   * @returns A matching rule, or null when no enabled rule lets them suggest here
    */
   async findSubmitRule(
     siteId: string,
@@ -497,6 +521,10 @@ class Approvals {
    * different parts of the same page both applicable later. A logged in author has one open suggestion
    * per page and this replaces it; a guest has no identity to match on, so each submission is its own.
    *
+   * Notifies the page's reviewers once this is safely stored, but only when it is a genuinely NEW
+   * submission -- not when an author's still-open suggestion is replaced via the `onConflictDoUpdate`
+   * path below. See `notifyReviewersOfSubmission` for why a resubmission stays silent.
+   *
    * @param baseContent The page source the suggestion was made against
    * @returns The stored suggestion
    */
@@ -529,6 +557,16 @@ class Approvals {
       updatedAt: new Date()
     }
 
+    /*
+      Read before the write, not derived from it: postgres's own `INSERT ... ON CONFLICT DO UPDATE
+      ... RETURNING` gives back the row either way, with nothing in what drizzle exposes here to say
+      which branch was taken. A guest has no identity to have an existing row under, so this is only
+      worth asking for a logged in author -- and only they can ever reach the update branch below.
+    */
+    const hadOpenSubmission = authorId
+      ? Boolean(await this.getOwnSubmission(page.id, authorId))
+      : false
+
     const rows = authorId
       ? await WIKI.db
           .insert(submissionsTable)
@@ -551,6 +589,11 @@ class Approvals {
     WIKI.logger.debug(
       `Stored an edit suggestion for page ${page.id} from ${authorId ?? `guest <${guestEmail}>`}`
     )
+
+    if (!hadOpenSubmission) {
+      await this.notifyReviewersOfSubmission(siteId, page, stored.id)
+    }
+
     return {
       id: stored.id,
       content: stored.content,
@@ -558,6 +601,109 @@ class Approvals {
       createdAt: stored.createdAt,
       updatedAt: stored.updatedAt
     }
+  }
+
+  /**
+   * The reviewer group ids of every enabled rule that matches this page, unioned across rules.
+   *
+   * The same rules `getReviewableSubmissions` filters by, read from the other direction: that method
+   * starts from a reviewer's own groups and asks which submissions they cover; this starts from a page
+   * and asks which groups cover it, so their members can be resolved and told. `getRules` is the same
+   * in-memory cache either way, so this costs nothing beyond the loop.
+   */
+  private async reviewerGroupIdsForPage(
+    siteId: string,
+    page: ApprovalPageMatch
+  ): Promise<string[]> {
+    const rules = await this.getRules(siteId)
+    const groupIds = new Set<string>()
+    for (const rule of rules) {
+      if (rule.isEnabled && this.matchesPage(rule, page)) {
+        for (const id of rule.reviewerGroups) {
+          groupIds.add(id)
+        }
+      }
+    }
+    return [...groupIds]
+  }
+
+  /**
+   * Every user who should be told a suggestion is waiting on this page: the members of every enabled
+   * rule's `reviewerGroups` that matches it, deduplicated across both overlapping rules and overlapping
+   * group membership.
+   *
+   * Deliberately not widened by `reviewsAll` (`manage:system` or `review:pages`): neither of those is a
+   * group membership a recipient list could be built from -- whoever holds that access sees the page's
+   * queue whenever they look, whether or not they were named in a rule and told about this particular
+   * entry.
+   */
+  async resolveReviewers(siteId: string, page: ApprovalPageMatch): Promise<string[]> {
+    const groupIds = await this.reviewerGroupIdsForPage(siteId, page)
+    if (groupIds.length < 1) {
+      return []
+    }
+    const rows = await WIKI.db
+      .selectDistinct({ id: usersTable.id })
+      .from(userGroupsTable)
+      .innerJoin(usersTable, eq(usersTable.id, userGroupsTable.userId))
+      .where(inArray(userGroupsTable.groupId, groupIds))
+    return rows.map((row: any) => row.id)
+  }
+
+  /**
+   * Tell this page's reviewers that a suggestion is waiting on them.
+   *
+   * Called once from `saveSubmission`, for a genuinely NEW submission only -- never for a
+   * resubmission that lands on the `onConflictDoUpdate` path, i.e. an author replacing their own
+   * still-open suggestion. That row was already in reviewers' queues; revising its content does not
+   * put it there a second time, and whoever opens it sees the latest content regardless of when it was
+   * last edited. The alternative -- re-notifying on every save -- would mean a reviewer hearing about
+   * the same pending item once per keystroke-save an author makes while iterating, for no new fact
+   * ("something is waiting on you") a first notification did not already establish. So: notify on
+   * insert, stay silent on update.
+   *
+   * Never throws: the submission is already safely stored by the time this runs, and a reviewer not
+   * being told about it is a real loss but must never turn a successful submit into a failed request.
+   */
+  private async notifyReviewersOfSubmission(
+    siteId: string,
+    page: ApprovalPageMatch,
+    submissionId: string
+  ): Promise<void> {
+    try {
+      const reviewerIds = await this.resolveReviewers(siteId, page)
+      if (reviewerIds.length < 1) {
+        return
+      }
+      await this.sendSubmissionNotification(siteId, page, submissionId, reviewerIds)
+    } catch (err: any) {
+      WIKI.logger.warn(`Failed to notify reviewers of submission ${submissionId}: ${err.message}`)
+    }
+  }
+
+  /**
+   * The actual delivery, stubbed.
+   *
+   * Feature 375 ("Page watching: real notification delivery") is what is building the transport this
+   * belongs behind -- a mail send, or a queued job that records a pending notification the way its own
+   * `notifyPageWatchers` task does for watched pages -- and it had not landed a reusable send primitive
+   * as of this task. The call site and reviewer resolution above are already correct; only this
+   * function's body needs replacing once that primitive exists, which is why it is factored out on its
+   * own rather than inlined into `notifyReviewersOfSubmission`.
+   *
+   * TODO(#375): send the actual notification once Feature 375 exposes a delivery primitive
+   * (e.g. `WIKI.mail.send()` or an equivalent queued job) and call it here instead of logging.
+   */
+  private async sendSubmissionNotification(
+    siteId: string,
+    page: ApprovalPageMatch,
+    submissionId: string,
+    reviewerIds: string[]
+  ): Promise<void> {
+    WIKI.logger.debug(
+      `Would notify ${reviewerIds.length} reviewer(s) of submission ${submissionId} on ` +
+        `${page.path} (site ${siteId})`
+    )
   }
 
   /**
@@ -684,7 +830,17 @@ class Approvals {
    * other save, with the reviewer recorded as the author: they are the one putting it on the page, and
    * a guest submitter has no account to attribute it to.
    *
-   * @returns False when there is no such submission
+   * Re-checks the submission's `baseHash` against the page's current content immediately before
+   * writing, not just when the reviewer's `GET .../submissions/:id` computed `isStale` for display --
+   * that read and this write are two different moments, and the page can move between them: another
+   * reviewer accepting a different suggestion on the same page, or the author saving straight to the
+   * page while the review sat open. Refusing with `'stale'` rather than writing over it is what lets
+   * the caller reload the diff and have the reviewer reconcile it instead of silently discarding
+   * whatever changed underneath.
+   *
+   * @returns `{ ok: false, reason: 'not-found' }` when there is no such submission (or its page is
+   *   gone), `{ ok: false, reason: 'stale' }` when the page moved since `baseHash`, `{ ok: true }`
+   *   once the write has happened and the suggestion is closed out.
    */
   async approveSubmission({
     siteId,
@@ -699,15 +855,19 @@ class Approvals {
     /** The rendered HTML. Rendered here instead when the caller has none, which needs an extension. */
     render?: string
     actor: { id: string; permissions: string[] }
-  }): Promise<boolean> {
+  }): Promise<ApproveSubmissionResult> {
     const rows = await WIKI.db
-      .select({ id: submissionsTable.id, pageId: submissionsTable.pageId })
+      .select({
+        id: submissionsTable.id,
+        pageId: submissionsTable.pageId,
+        baseHash: submissionsTable.baseHash
+      })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
       .limit(1)
     const submission = rows[0]
     if (!submission) {
-      return false
+      return { ok: false, reason: 'not-found' }
     }
 
     const page = await WIKI.models.pages.getPage({
@@ -716,7 +876,14 @@ class Approvals {
       withContent: true
     })
     if (!page) {
-      return false
+      return { ok: false, reason: 'not-found' }
+    }
+
+    const currentHash = createHash('sha256')
+      .update(page.content ?? '')
+      .digest('hex')
+    if (currentHash !== submission.baseHash) {
+      return { ok: false, reason: 'stale' }
     }
 
     /*
@@ -746,7 +913,7 @@ class Approvals {
 
     await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return true
+    return { ok: true }
   }
 
   /**
