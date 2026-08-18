@@ -36,6 +36,13 @@
         <blueprint-icon icon="advance" />
         <w-item-section class="pr-2">New Redirection</w-item-section>
       </w-item>
+      <!-- -> Gated on the Pandoc extension being installed, not on an editor toggle: it doesn't
+              author its own format, it converts into the markdown editor's, so there is nothing
+              here for a site to turn off independently of Pandoc itself -->
+      <w-item clickable @click="openImport" v-if="siteStore.extensionsStatus.pandoc">
+        <blueprint-icon icon="new-document" />
+        <w-item-section class="pr-2">{{ t('pages.import.menuLabel') }}</w-item-section>
+      </w-item>
       <template v-if="props.hideAssetBtn === false">
         <w-separator class="my-2" inset />
         <w-item clickable @click="openFileManager">
@@ -55,9 +62,13 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
+
+import ImportPageDialog from '@/components/ImportPageDialog.vue'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -112,4 +123,28 @@ function openFileManager() {
 function newFolder() {
   emit('newFolder')
 }
+
+function openImport() {
+  dialog({
+    component: ImportPageDialog,
+    componentProps: {
+      basePath: props.basePath
+    }
+  }).onOk(async ({ content, title }) => {
+    loading.show()
+    emit('newPage')
+    await pageStore.pageCreate({ editor: 'markdown', basePath: props.basePath, title, content })
+    loading.hide()
+  })
+}
+
+// MOUNTED
+
+onMounted(() => {
+  // -> Whether Pandoc is installed doesn't come with `editors` above -- that's per-site config,
+  //    this is a system-wide tool this instance may not have at all -- so it's asked separately here
+  //    rather than at every app boot. `fetchExtensionsStatus` caches its answer, so mounting this
+  //    menu again elsewhere on the page costs nothing further.
+  siteStore.fetchExtensionsStatus()
+})
 </script>

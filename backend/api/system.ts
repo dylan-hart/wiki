@@ -569,6 +569,43 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * EXTENSIONS STATUS
+   */
+  app.get(
+    '/extensions/status',
+    {
+      /*
+        No route-level `permissions`, unlike LIST EXTENSIONS above: this is the lightweight presence
+        check a feature gated on an extension asks before showing itself — e.g. the page-import menu
+        item (task 668) asking whether Pandoc is installed — and every caller who could see that menu,
+        not just `manage:system` admins, needs an answer. It carries none of the admin-only detail
+        the full listing does (description, website, install eligibility), only whether each key is
+        installed, so there is nothing here worth gating.
+      */
+      config: {
+        publicAccess: true
+      },
+      schema: {
+        summary: 'Check whether optional extensions are installed',
+        description:
+          'A minimal presence check for every declared extension: no description, website or install eligibility, just whether each key is installed — enough for a feature that needs one to decide whether to offer itself.',
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Extension key to whether it is installed',
+            type: 'object',
+            additionalProperties: { type: 'boolean' }
+          }
+        }
+      }
+    },
+    async () => {
+      const extensions = await WIKI.models.extensions.getExtensions()
+      return Object.fromEntries(extensions.map((ext) => [ext.key, ext.isInstalled]))
+    }
+  )
+
+  /**
    * INSTALL EXTENSION
    */
   app.post<{ Params: { extensionKey: string } }>(
