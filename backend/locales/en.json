@@ -329,6 +329,7 @@
   "admin.general.footerExtra": "Additional Footer Text",
   "admin.general.footerExtraHint": "Optionally add more content to the footer, such as additional copyright terms or mandatory regulatory info.",
   "admin.general.general": "General",
+  "admin.general.hostnameChangedWarning": "Saved. This site's hostname changed, so this browser tab will stop resolving to it -- navigate to {hostname} to keep administering it.",
   "admin.general.imageUploadInvalidType": "Only SVG, PNG, JPG, WEBP and GIF images can be used.",
   "admin.general.logo": "Logo",
   "admin.general.logoClearFailed": "Failed to clear the site logo.",

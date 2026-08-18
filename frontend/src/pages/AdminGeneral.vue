@@ -545,6 +545,7 @@ import {
   uploadSiteImage
 } from '@/helpers/siteImages'
 import { isValidHostname } from '@/helpers/siteValidation'
+import { hostnameRenamedAway } from '@/helpers/siteRename'
 
 import { toMerged } from 'es-toolkit/object'
 
@@ -648,6 +649,13 @@ const uploadConflictBehaviors = [
 const rulesTitle = [(val) => /^[^<>"]+$/.test(val) || t('admin.general.siteTitleInvalidChars')]
 const rulesHostname = [(val) => isValidHostname(val) || t('admin.sites.hostnameInvalidChars')]
 
+/**
+ * The hostname this site was serving as of the last successful `load()`. Not reactive on purpose --
+ * it exists only for `save()` to diff against, never rendered, so a plain closure variable is enough
+ * and avoids it showing up as unrelated Vue reactivity.
+ */
+let loadedHostname = ''
+
 // WATCHERS
 
 watch(
@@ -669,6 +677,9 @@ async function load() {
   })
   state.hasLogo = resp?.assets?.logo ?? false
   state.hasFavicon = resp?.assets?.favicon ?? false
+  // -> The hostname this site was actually serving as of this load, so save() can tell a real
+  //    rename apart from every other field change. See the comment in save() for why that matters.
+  loadedHostname = resp?.hostname ?? ''
   loading.hide()
   state.loading--
 }
@@ -731,9 +742,33 @@ async function save() {
       message: t('admin.general.saveSuccess')
     })
     await adminStore.fetchSites()
+    // -> Decision, so it doesn't silently regress: when the admin is editing the very site
+    //    currently serving their browser tab, the old code unconditionally re-resolved
+    //    `siteStore` from `window.location.hostname`. That is correct for every field EXCEPT
+    //    hostname itself -- `updateSite()` calls `reloadCache()` synchronously, so the instant the
+    //    PUT above resolves, the OLD hostname no longer maps to this site at all. Re-resolving it
+    //    then either mis-loads whatever other site (if any) claims that hostname next, or throws --
+    //    either way `siteStore` ends up mismatched or blank with no warning to the admin.
+    //
+    //    There is no client-side fix that "just follows" a hostname rename: the browser's address
+    //    bar still says the old hostname, and a `window.location` navigation to the new one is a
+    //    guess about DNS/reverse-proxy config this code has no way to confirm. So: skip the stale
+    //    reload and tell the admin instead. The admin API itself is host-agnostic (every other
+    //    admin action here is addressed by siteId, not hostname), so nothing else on this screen
+    //    breaks -- only page-serving under the old hostname stops working, and only once they
+    //    navigate away from it.
     if (adminStore.currentSiteId === siteStore.id) {
-      siteStore.loadSite(window.location.hostname)
+      if (hostnameRenamedAway(loadedHostname, state.config.hostname)) {
+        notify({
+          type: 'warning',
+          message: t('admin.general.hostnameChangedWarning', { hostname: state.config.hostname }),
+          timeout: 0
+        })
+      } else {
+        siteStore.loadSite(window.location.hostname)
+      }
     }
+    loadedHostname = state.config.hostname ?? ''
   } catch (err) {
     notify({
       type: 'negative',
