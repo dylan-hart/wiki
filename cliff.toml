@@ -1,0 +1,77 @@
+# git-cliff configuration — generates CHANGELOG.md from Conventional Commit history.
+#
+# Run locally: see the "Generating a changelog" section in docs/versioning.md. In short,
+# `git-cliff --unreleased` (from the repo root, with the git-cliff binary on PATH) previews the
+# section for commits since the last `vX.Y.Z` release tag; `git-cliff -o CHANGELOG.md` writes the
+# full file. See https://git-cliff.org/docs/configuration for the schema this file follows.
+#
+# Categorization mirrors upstream 2.5.x's GitHub Release convention: commits are grouped into
+# Features / Bug Fixes / Refactors / Chores, in that order, each entry referencing its short commit
+# hash. This task delivers the generator and its config only — wiring it into a release workflow
+# (auto-generating GitHub Release notes on a tag push) is a separate task under the same Feature.
+
+[changelog]
+# Tera template rendered once per release (or once for the whole run in `--unreleased` mode).
+header = """
+# Changelog\n
+All notable changes to this project are documented in this file.\n
+"""
+body = """
+{% if version %}\
+    ## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+            {{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](<REPO>/commit/{{ commit.id }}))
+    {% endfor %}
+{% endfor %}
+"""
+trim = true
+# Emit a heading even for a range with zero matching commits, so `--unreleased` right after a
+# release still prints something explicit rather than silently nothing.
+render_always = true
+footer = ""
+postprocessors = [
+  { pattern = '<REPO>', replace = "https://github.com/requarks/wiki" },
+]
+
+[git]
+# Commits must parse as `type[(scope)][!]: description` to be considered at all — this is what
+# drops the pre-Conventional-Commits history (plain "Update README.md", "Merge branch ..." messages
+# from the pre-fork upstream log) without needing to special-case it.
+conventional_commits = true
+filter_unconventional = true
+require_conventional = false
+split_commits = false
+commit_preprocessors = [
+  # Turn a trailing `(#123)` PR-number suffix into a markdown link to the PR.
+  { pattern = '\((#[0-9]+)\)$', replace = "([${1}](<REPO>/pull/${1}))" },
+]
+protect_breaking_commits = false
+
+# Four groups, matching the New Features / Bug Fixes / Refactors / Chores sections upstream's
+# 2.5.x GitHub Releases use. `<!-- N -->` prefixes are stripped by the template (`striptags`) and
+# exist only to force group render order, since `group_by` otherwise sorts alphabetically.
+# Everything that isn't feat/fix/refactor — docs, ci, chore, test, style, build, and this repo's
+# `misc`/`mics` (a recurring typo in the older upstream history) / `dev` types alike — folds into
+# Chores: the same non-user-facing bucket upstream's own convention uses for that catch-all.
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Bug Fixes" },
+  { message = "^refactor", group = "<!-- 2 -->Refactors" },
+  { message = "^(docs|ci|chore|misc|mics|dev|style|test|build)", group = "<!-- 3 -->Chores" },
+]
+# Anything conventional-looking but outside the five known types above (there are none in this
+# repo's history today, see docs/versioning.md's companion changelog test) is dropped rather than
+# printed under a raw, unreviewed heading.
+filter_commits = true
+link_parsers = []
+use_branch_tags = false
+topo_order = false
+topo_order_commits = true
+sort_commits = "oldest"
+recurse_submodules = false

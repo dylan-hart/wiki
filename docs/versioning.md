@@ -149,6 +149,53 @@ open decision for whoever implements the workflow split (companion task under th
 not resolved here, and not something CI should infer on its own from the latest git tag without a
 maintainer decision, since that would silently change what an alpha version number means.
 
+## Generating a changelog
+
+Commit history is written as [Conventional Commits](https://www.conventionalcommits.org/)
+(`feat:`, `fix:`, `docs:`, `ci:`, ...) throughout this fork's own history, and
+[git-cliff](https://git-cliff.org/) — a single static binary, no npm dependency in any of the
+three workspaces — turns that into a categorized changelog. Its config lives at the repo root,
+`cliff.toml`.
+
+**Install** (once, on a release manager's machine — this is a dev-machine tool, not something CI or
+either app workspace depends on):
+
+```sh
+brew install git-cliff       # macOS
+# or download a prebuilt binary from https://github.com/orhun/git-cliff/releases
+```
+
+**Run**, from the repo root:
+
+```sh
+git-cliff --unreleased                       # preview: commits since the last vX.Y.Z tag
+git-cliff --unreleased --tag v3.0.0           # preview, labeling the range as the upcoming v3.0.0
+git-cliff -o CHANGELOG.md                     # write the full changelog (every tagged release + unreleased)
+```
+
+`cliff.toml` groups commits into four sections, in this order, mirroring upstream 2.5.x's GitHub
+Release convention (New Features / Bug Fixes / Refactors / Chores):
+
+| Group         | Conventional Commit types                                            |
+| ------------- | ---------------------------------------------------------------------- |
+| **Features**  | `feat`                                                                |
+| **Bug Fixes** | `fix`                                                                 |
+| **Refactors** | `refactor`                                                            |
+| **Chores**    | `docs`, `ci`, `chore`, `test`, `style`, `build`, `misc`/`mics`, `dev` |
+
+Each entry links to its commit. A commit that doesn't parse as `type[(scope)]: description` at all
+(pre-fork upstream history has plenty — plain "Update README.md", merge commits) is dropped rather
+than shown unclassified; `backend/test/changelog.test.ts` runs the tool against this repo's actual
+history and asserts the four sections come out non-empty, in order, and that this fork's own recent
+commits land in the section their prefix says they should.
+
+Since no `vX.Y.Z` tag has been pushed yet (see [Channel 2](#channel-2-real-releases) above),
+`--unreleased` today walks the *entire* history rather than "since the last release" — there is no
+last release. That resolves itself the moment the first tag is pushed; nothing about the config
+needs to change. Wiring this into the release workflow itself (auto-generating GitHub Release notes
+on a tag push) is a separate task under this Feature — this document only covers running the tool
+by hand.
+
 ## See also
 
 - **Pre-release checklist** (companion document under this Feature) — the concrete gate that must
