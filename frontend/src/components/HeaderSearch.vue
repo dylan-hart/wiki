@@ -174,13 +174,7 @@ const searchPanelIsShown = computed(() => {
 })
 
 const popularTags = computed(() => {
-  /*
-    FIXME: this sorts tags ASCENDING by usage, which is almost certainly not what was meant.
-    `['usageCount', 'desc']` was passed where lodash expects the list of KEYS to sort by, so it read
-    as "order by usageCount, then by a property named desc" -- both ascending. Carried across
-    unchanged, with the orders now written out, because fixing it is a behaviour change.
-  */
-  return orderBy(siteStore.tags, ['usageCount', 'desc'], ['asc', 'asc']).map((t) => t.tag)
+  return orderBy(siteStore.tags, ['usageCount'], ['desc']).map((t) => t.tag)
 })
 
 // WATCHERS

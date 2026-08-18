@@ -1,0 +1,9 @@
+# Backend config for the Playwright e2e suite (see CLAUDE.md's "Testing (e2e)" section).
+#
+# playwright.config.js points the backend at this file via CONFIG_FILE and starts it with
+# DATABASE_URL set, which overrides every db.* connection field base.yml would otherwise supply --
+# except db.schema, which still comes from base.yml's default ('wiki'). That is why there is no
+# db: block here: one would either duplicate what DATABASE_URL already carries or, worse, drift
+# from it silently.
+port: 3000
+dataPath: ./data/e2e-test

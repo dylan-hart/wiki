@@ -1,0 +1,115 @@
+import { expect } from '@playwright/test'
+
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../playwright.config.js'
+
+export { ADMIN_EMAIL, ADMIN_PASSWORD }
+
+/**
+ * A short, collision-resistant suffix for path/hostname values a spec creates -- so re-running the
+ * suite against a database that already has last run's pages and sites in it (anything short of a
+ * brand new container) doesn't collide with them. Time-based rather than random: readable in a
+ * failure screenshot/trace, and still unique enough for a suite that runs one worker at a time.
+ */
+export function uniqueSlug() {
+  return Date.now().toString(36)
+}
+
+/**
+ * Flow 1's login, factored out because flow 2 and flow 3 both need an authenticated admin before
+ * their own flow starts. Drives the real login form -- see `AuthLoginPanel.vue` -- rather than
+ * seeding a session cookie directly, so every spec exercises the same login path flow 1 asserts on.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function loginAsAdmin(page) {
+  await page.goto('/login')
+  await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
+  await page.getByLabel('Password').fill(ADMIN_PASSWORD)
+  await page.getByRole('button', { name: 'Log In', exact: true }).click()
+  await expect(page.locator('.account-avbtn')).toBeVisible()
+}
+
+/**
+ * Asserts the authenticated shell is on screen: the account menu button that only renders for
+ * `userStore.authenticated` (`HeaderNav.vue`), and no "Login" link standing in for it.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function expectAuthenticatedShell(page) {
+  await expect(page.locator('.account-avbtn')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Login' })).toHaveCount(0)
+}
+
+/**
+ * Asserts the page shows the guest/logged-out shell: a "Login" link, and no account menu.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function expectGuestShell(page) {
+  await expect(page.getByRole('link', { name: 'Login' })).toBeVisible()
+  await expect(page.locator('.account-avbtn')).toHaveCount(0)
+}
+
+/**
+ * Flow 2's core: create a page at `path` in the markdown editor, type `body` into it, and publish
+ * it through the real save dialog -- shared between `page-publish.spec.js` (which IS flow 2) and
+ * `multi-site.spec.js` (which needs a real published page on each site to prove they don't share
+ * one, without re-narrating how the editor is driven).
+ *
+ * Leaves `page` on the new page's own URL, rendered -- not the editor -- once it resolves.
+ *
+ * `origin`, when given, makes the create-page navigation absolute -- required for
+ * `multi-site.spec.js`'s second site, whose hostname differs from `playwright.config.js`'s
+ * `baseURL`: a bare `page.goto('/_create/...')` resolves against that `baseURL` regardless of
+ * which origin `page` is currently showing, which would silently create the page back on the
+ * default site instead of the one this call is meant to be exercising.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {{ path: string, title: string, body: string, origin?: string }} args
+ */
+export async function createAndPublishPage(page, { path, title, body, origin = '' }) {
+  await page.goto(`${origin}/_create/markdown?path=${path}`)
+
+  // -> The page title: a `contenteditable="plaintext-only"` span (`PageHeader.vue`), not an
+  //    <input> -- but one with `aria-label="Title"`, which is what gives a contenteditable region
+  //    an accessible textbox role in the first place, so `getByLabel` resolves it like a real form
+  //    field. Driven with real keystrokes rather than `.fill()`: `.fill()` sets `textContent`
+  //    directly and fires one synthetic `input` event, which this non-standard contenteditable
+  //    value handles inconsistently under load -- typing (and blurring, which is what commits the
+  //    field's tidied value in `onEditableBlur`) is what an author actually does, and is reliable
+  //    where `.fill()` was seen to flake under the full suite's slightly different timing.
+  const titleField = page.getByLabel('Title', { exact: true })
+  await titleField.click()
+  await page.keyboard.type(title)
+  await titleField.blur()
+
+  // -> Monaco mounts into `.editor-markdown-editor` asynchronously (it is a lazy chunk -- see
+  //    `EditorMarkdown.vue`), and clicking the container before it has actually rendered its own
+  //    focusable surface is a click with nothing under it to focus: keystrokes then have nowhere to
+  //    go but wherever focus already was, which is how a title fill was seen landing in the content
+  //    editor instead. Waiting for Monaco's own `.monaco-editor` root makes the click land on a
+  //    real, focusable editor rather than racing its mount.
+  await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
+  await page.locator('.editor-markdown-editor').click()
+  await page.keyboard.type(body)
+
+  // -> `EditorMarkdown.vue` syncs Monaco's content into `pageStore.content` on a 500ms debounce
+  //    (`onDidChangeModelContent`) -- clicking "Create Page" before it fires would save an empty
+  //    page. Waiting on the debounced render landing in the DOM is a real signal that the sync
+  //    happened, not a fixed sleep guessed at.
+  await expect(page.locator('.editor-markdown-preview-content')).toContainText(body)
+
+  await page.getByRole('button', { name: 'Create Page' }).click()
+
+  // -> Non-home pages go through the save dialog (`TreeBrowserDialog.vue`, `mode: 'savePage'`). Its
+  //    path field auto-slugs from the title on every keystroke until the path field itself gets
+  //    focused (`onPathFocus` sets `pathDirty`) -- so without this, the dialog would silently save
+  //    under a title-derived path instead of the one this test asked for and asserts against below.
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Path Name').fill(path)
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+
+  // -> `pageSave` replaces the route with the page's real path once the create request resolves
+  //    (`stores/page.js`), so this is the save completing, not a fixed wait.
+  await expect(page).toHaveURL(new RegExp(`/${path}$`))
+}

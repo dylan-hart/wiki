@@ -146,6 +146,7 @@ npm run dev              # nodemon, restarts on any backend file change
 npm run start            # plain node
 npm run typecheck        # tsc — type check only, never emits
 npm run typecheck:watch
+npm run test             # node --test — see Testing (backend) below
 npm run db-generate      # drizzle-kit generate — after editing db/schema.ts
 npm run db-up            # drizzle-kit up
 
@@ -366,6 +367,64 @@ Consequences worth knowing:
     columns), `Temporal.Instant.from(str)` for postgres-format strings (what raw `db.execute()`
     returns), and `new Date(instant.epochMilliseconds)` going back the other way.
 
+### Testing (backend)
+
+`backend/`'s test runner is Node's built-in **`node:test`**, run via `npm run test` (→ `node --test
+'**/*.test.ts'`). No extra framework — this follows the same no-build-step, native-TS-stripping
+approach as everything else in `backend/`: `node --test` type-strips `.ts` test files exactly like
+`node backend` does, so a test file is written and run the same way as the code it tests, with no
+separate transpile or worker config.
+
+- **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
+  `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
+  already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
+  oxlint and oxfmt cover them the same way. `test/` itself is the one exception, reserved for shared
+  fixture code that is not itself a `*.test.ts` — see below.
+- **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
+  logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
+  `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
+  database) are the reference examples. Reach for a real Postgres instance when the thing under test
+  *is* SQL orchestration that a mock of the query builder would mostly just be re-describing rather
+  than verifying — a `models/` write path that inserts, checks a constraint, and coordinates a couple
+  of tables (`models/pages.test.ts`'s create/update/move/delete is the example: path-collision checks,
+  a locale-scoped uniqueness constraint, the page/tree/history tables staying in step) is squarely
+  this case, not the rare exception the join/upsert framing might suggest.
+- **DB-backed fixture: `test/db.ts`.** `hasTestDatabase()` gates a suite on `DATABASE_URL` being set —
+  wrap the whole `describe` in `{ skip: !hasTestDatabase() }` rather than asserting inside each test,
+  so an unset `DATABASE_URL` reports as skipped and CI/local runs without one still pass with nothing
+  DB-backed even attempted. `setupTestDb()` (call from `before()`) connects, creates a fresh,
+  randomly-named schema, runs the real migrations from `db/migrations/` into it, installs a minimal
+  `WIKI` global scoped to just what a model needs (`db`, a silent `logger`, `sites`, `config`,
+  `models`, plus the `cache`/`events` stubs below), and seeds one site/user/group — returned as
+  `{ db, siteId, userId, groupId }`. `teardownTestDb()` (call from `after()`) drops that schema and
+  closes the pool.
+  - **A schema per call, not `public`.** `node --test` runs matched files concurrently by default, and
+    every DB-backed suite points at the same `DATABASE_URL` — sharing one schema means two suites'
+    setup racing each other. A fresh schema per `setupTestDb()` call is what makes "no leaking state
+    between runs" hold even when another suite is running against the same physical database at the
+    same time, and dropping it in `teardownTestDb()` is what keeps a long-lived shared instance (the
+    `.devcontainer` postgres, or a container reused across several local invocations) from
+    accumulating one abandoned schema per run.
+  - A throwaway instance to point `DATABASE_URL` at: `docker run --rm -d --name wiki-test-db -p
+    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17`, then
+    `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
+    `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
+    `.devcontainer`'s, is always the caller's choice to make.
+- **Mocking convention: `test/mocks.ts`.** `WIKI.cache` and `WIKI.events` exist for cross-request and
+  cross-instance concerns that almost no model-layer test is actually exercising — `createCacheStub()`
+  / `createEventsStub()` build the smallest object satisfying the methods a code path under test
+  actually calls (`node:test`'s `mock.fn()`, so a test that DOES care can assert
+  `cache.set.mock.calls` directly), rather than reaching for the real `NodeCache`/`Emittery` instances
+  the app boots with. `setupTestDb()` installs both onto its `WIKI` unconditionally, since building
+  them costs nothing and a model gaining a `WIKI.cache`/`WIKI.events` touch later should not need this
+  fixture rewritten to cope. Follow the same pattern for any other `WIKI` member a future model test
+  needs present but does not care about.
+- **Use `node:assert/strict`**, not a third-party assertion library. `describe`/`test` (or `it`) both
+  come from `node:test` itself.
+- Keep the pure-unit majority of the suite fast: it's meant to run on every change, not just in CI. A
+  DB-backed test is slower by nature — gate it behind `DATABASE_URL` as above rather than letting the
+  default `npm run test` require Postgres to pass at all.
+
 ### Frontend patterns
 
 - **Templates are plain HTML.** A handful of pre-3.x leftovers are still `<template lang="pug">` —
@@ -381,6 +440,244 @@ Consequences worth knowing:
 - State lives in Pinia option stores. For utilities and dates use `es-toolkit` and `Temporal` — see
   [Utilities and dates](#utilities-and-dates); the `lodash-es` and `luxon` still present in older
   files are on their way out.
+
+### Testing (frontend)
+
+`frontend/`'s test runner is **Vitest** + **`@vue/test-utils`**, run via `npm run test` (→ `vitest
+run`). Config is `vitest.config.js`, deliberately separate from `vite.config.js` — that file also
+wires up the twemoji-assets plugin (does a real filesystem copy in `writeBundle` and throws unless
+the `twemoji-assets` tarball dependency is resolvable) and `vite-plugin-vue-devtools`, and reads
+`../config.yml` at import time for the dev proxy port, none of which a unit test needs or wants
+paying the cost of on every run.
+
+What IS mirrored from `vite.config.js`, because component code has to resolve exactly the way it
+does in the real build, not because it was convenient to share:
+
+- the **`@` alias**, `vue()`'s `isCustomElement` rule for `<iconify-icon>`, and
+  `transformAssetUrls` — every component compiles the same way under test as it does in the app;
+- the **Tailwind plugin** — component markup is full of Tailwind utility classes;
+- the **SCSS `additionalData` injection** (`css.preprocessorOptions.scss`) — several SFCs' `<style
+  lang="scss">` blocks reach for a bare `$primary` / `$grey-9` / ... (`PageToc.vue` is the test
+  suite's proof case), which only resolves under test if the same `@use '@/css/_theme.scss' as *;
+  @use '@/css/_palette.scss' as *;` runs here. Miss this and such a component doesn't fail its
+  assertion — it fails to even *compile* with a Sass "undefined variable" error, which wastes time
+  chasing the wrong problem. `test.css: true` in the Vitest `test` block is required alongside it:
+  Vitest stubs out CSS processing by default (a `<style>` import resolves to `{}` and nothing is
+  actually run through Sass), which would silently skip the very thing being verified.
+- **`vue()`'s template `compilerOptions.comments: false`** — deliberately *not* mirrored from
+  `vite.config.js`, and load-bearing rather than optional. `@vitejs/plugin-vue` preserves
+  template-level comments in dev mode (matching vue-loader's old behaviour) but strips them for
+  `vite build`. Several SFCs — `WCheckbox.vue` among them — open with an explanatory HTML comment as
+  a template-level *sibling* of their root element, not a child of it: left in, the component
+  compiles to a two-node Fragment root instead of a single element. Vue itself handles that fine at
+  runtime, but `@vue/test-utils` resolves `wrapper.element` (and therefore `.attributes()`,
+  `.classes()`, `.find()` off the wrapper root, ...) from the component's single root node, and
+  falls back to the test's own mount container when there isn't one — silently, with no error — so
+  every one of those reads the wrong element. Forcing `comments: false` reproduces the single-root
+  shape these components actually ship with in production, which is what a test should be verifying
+  against.
+
+- **File convention: co-located `*.test.js`**, matching the backend's `*.test.ts` convention — a test
+  lives next to the file it covers (`components/shared/WBtn.vue` → `components/shared/WBtn.test.js`),
+  not in a mirrored `test/` tree. `test/` itself is reserved for the harness's own shared fixture code
+  (`test/setup.js`, `test/mocks.js`), matching what `backend/test/` reserves `test/` for.
+- **The two ambient globals, `API_CLIENT` and `EVENT_BUS`** (see [Frontend
+  patterns](#frontend-patterns)), exist nowhere outside `boot/*` — a component or store reading either
+  as a bare global would throw `ReferenceError` under test without a stand-in. `test/setup.js`
+  rebuilds both **before every test**: `EVENT_BUS` is a real `mitt()` instance (cheap, and a test can
+  subscribe to it directly to assert an emit), while `API_CLIENT` is `test/mocks.js`'s
+  `createApiClientStub()` — a `vi.fn()` per HTTP method shaped after `ky`'s chainable
+  `.get(url).json()` surface, so store code needs no test-only branch to call it. A test overrides a
+  call directly: `API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(payload) })`, or
+  `API_CLIENT.post.mockImplementationOnce(() => { throw new Error('network') })` for the rejection
+  path every store call is wrapped in a `try`/`catch` for. Rebuilding per-test rather than per-file
+  is deliberate: both would otherwise leak mock call history and event listeners into the next test
+  in the same file.
+- **The `w-*` shared library is registered globally in `test/setup.js`**, via
+  `config.global.components = { ...sharedComponents }` (`components/shared/index.js`'s own exported
+  map — the same one `boot/components.js` uses) — so a component under test that uses `<w-icon>` /
+  `<w-btn>` / ... resolves them exactly as the real app does, with no per-test import list to keep in
+  sync as components are added.
+- **`Temporal` polyfill**: loaded eagerly in `test/setup.js` when the global is absent, the same way
+  `boot/temporal.js` lazily polyfills it for pre-Temporal Safari — this sandbox's Node 25.9 lacks it
+  natively (engines requires >=26), same environment note as the backend's testing section.
+- Prefer mounting the real component over shallow-rendering or over-mocking — `WChip.test.js` /
+  `WBtn.test.js` / `WCheckbox.test.js` and `stores/user.test.js` (permission checks, guest/profile
+  state transitions, `logout()`'s `API_CLIENT`/`EVENT_BUS` round-trip, `Temporal`-backed date
+  formatting) are the reference examples of testing real behaviour end-to-end through the harness
+  rather than merely asserting Vitest boots.
+
+### Testing (blocks)
+
+`blocks/`'s test runner is **Vitest**, run via `npm run test` (→ `vitest run`). Config is
+`blocks/vitest.config.js` — deliberately minimal, no plugin stack to mirror the way frontend's does:
+a block has no build-time template compilation (`rollup.config.mjs` bundles plain ESM, it doesn't
+transform it) and no app framework around it, so a test loads `component.js` exactly as the browser
+would.
+
+- **`environment: 'jsdom'`**, not `happy-dom` (frontend's choice). A block's whole surface under test
+  *is* its shadow DOM — attribute reflection, light-DOM content read out of `this.textContent` /
+  `querySelector`, Lit's `adoptedStyleSheets`-or-injected-`<style>` fallback — and jsdom's coverage of
+  that is the more complete of the two emulators. Verified directly rather than assumed: a
+  `MutationObserver`-driven dark-mode toggle (see below) round-trips correctly under jsdom with no
+  workarounds. If a future block's test needs something jsdom doesn't emulate, the task spec's
+  documented fallback is `@web/test-runner` (runs in a real browser, no DOM emulation at all) — not a
+  different DOM emulator.
+- **File convention: co-located `component.test.js`**, matching the `*.test.ts` / `*.test.js`
+  convention in `backend/` and `frontend/` — `block-gallery/component.js` →
+  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `*/component.test.js`
+  accordingly.
+- **Mounting pattern** — a block reads its content from the *light* DOM (the markdown body becomes its
+  children before Lit ever renders), so a test builds that shape directly rather than passing props:
+  ```js
+  const el = document.createElement('block-gallery')
+  el.textContent = '/photos/one.jpg\n/photos/two.jpg'
+  document.body.appendChild(el)
+  await el.updateComplete
+  el.shadowRoot.querySelector('.tile') // → assert against the shadow tree
+  ```
+  Reactive `@property`-declared fields (`thumbnailSize`, `fit`, `unlockAspectRatio`, ...) can be set
+  directly as JS properties (`el.thumbnailSize = 240`) rather than through attribute strings — simpler
+  than reconstructing Lit's attribute-name-casing and converter rules, and exercises the same
+  reactive-update path `render()` runs against either way.
+- **Dark mode**, since every block depends on it (`blocks/shared/theme.js`'s `DarkMode` controller —
+  see the file header comment there): toggle `document.body.classList` between `body--dark` and
+  nothing, and assert the host's `dark` attribute follows. The controller reacts through a
+  `MutationObserver` callback, which runs as a microtask in jsdom same as a real browser — awaiting
+  one `queueMicrotask` tick plus the block's own `updateComplete` is enough to observe the change; no
+  fake timers or polling needed. `block-gallery/component.test.js`'s `describe('dark mode', ...)`
+  block is the reference case — a template worth copying verbatim into the next block's suite, since
+  the controller's behavior (not any one block's use of it) is what's actually being locked down.
+- **Not (yet) linted**: unlike `backend/` and `frontend/`, `blocks/` carries no `oxlint` devDependency
+  or `.oxlintrc.json` of its own — out of scope for this task, which is about test infrastructure, not
+  introducing linting to a workspace that has never had it. `npx oxlint` was run once here anyway (ad
+  hoc, no persistent config) purely to confirm the new test file itself is clean; it downloaded a
+  fresh `oxlint` binary and reported zero findings against the default ruleset.
+
+### Testing (e2e)
+
+`e2e/`'s test runner is **Playwright** (`@playwright/test`), run via `npm test` (→ `playwright
+test`). It is its own top-level workspace, not folded into `backend/`, `frontend/` or `blocks/`,
+because none of those own it at runtime — a spec drives a real browser against the fully-built,
+production-shaped stack (`node backend` from the repo root, serving `frontend/`'s `vite build`
+output out of `assets/`), which is a different thing from any one workspace's unit tests, not a
+superset of one of them.
+
+- **Boots the real thing, not a dev proxy.** `playwright.config.js`'s `webServer` runs `node
+  backend` (`cwd: '..'` — `index.ts` refuses to boot from anywhere else) against `CONFIG_FILE:
+  'e2e/config.e2e.yml'` and a `DATABASE_URL` the caller supplies. There is no dev-mode Vite proxy in
+  this picture: `assets/` has to already be a real `frontend/`/`vite build` output (`npm run build`
+  in `frontend/`, same as CI's own build step), or the specs fail on missing chrome, not a
+  Playwright config problem — building it is deliberately left to the caller rather than triggered
+  by this config, so a stale build shows up as broken specs against a bundle it wasn't meant to
+  test, not a silent pass.
+- **`DATABASE_URL` is required, checked before `webServer` ever spawns.** `playwright.config.js`
+  throws a one-line, actionable error if it is unset, rather than letting a misconfigured run fail
+  as the `webServer` boot timeout it would otherwise surface as — "fails meaningfully, not just a
+  timeout" is the task's own bar, and a missing env var is the single most likely way to trip it. A
+  throwaway container works the same way `backend/`'s DB-backed tests document (`test/db.ts`):
+  `docker run --rm -d --name wiki-e2e-db -p 56002:5432 -e POSTGRES_PASSWORD=postgres -e
+  POSTGRES_DB=postgres postgres:17`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
+  npm test`. In CI, a fresh `postgres:17` service container per run is what makes "seeded test
+  database" true on every invocation, not just the first.
+- **The seed IS the app's own first-run path**, not a fixture this suite maintains separately: an
+  empty database has no `settings` row, so `core/config.ts`'s `initDbValues()` runs exactly as it
+  would for a real fresh install — a default (catch-all `*`) site, the standard groups, and the
+  admin account (`ADMIN_EMAIL`/`ADMIN_PASS`, defaulted to `admin@example.com` / `12345678` — the
+  same default documented at the top of this file). `playwright.config.js` sets `ADMIN_PASS`
+  explicitly (exported as `ADMIN_PASSWORD` alongside `ADMIN_EMAIL`, for specs to import rather than
+  re-hardcode) specifically so `mustChangePwd` seeds `false` — left unset, `models/users.ts`'s
+  `init()` seeds it `true`, and flow 1's login would land on the change-password screen instead of
+  the authenticated shell it exists to prove renders.
+- **Port defaults to `:3000`**, matching the task's literal "backend on :3000" boot shape and what a
+  clean CI environment has free. `E2E_PORT` overrides it (both the backend's `WIKI_PORT` and the
+  config's `baseURL`) purely as a local escape hatch for a developer machine where something else
+  already holds :3000 — the override lives in `playwright.config.js`, not `config.e2e.yml`, so the
+  on-disk default stays the one the spec describes.
+- **Viewport is pinned** (`1280×800`) rather than left to the `chromium` project's device default:
+  the markdown editor's preview pane, which `helpers/admin.js`'s `createAndPublishPage` waits on as
+  its signal that typed content has synced to the store, only renders above a 1024px-wide viewport
+  (`EditorMarkdown.vue`'s `useMinWidth(1024)`).
+- **File convention**: specs are `tests/*.spec.js`, one per flow — `auth.spec.js` (flow 1),
+  `page-publish.spec.js` (flow 2), `multi-site.spec.js` (flow 3) — and `helpers/admin.js` holds what
+  more than one of them needs (`loginAsAdmin`, `createAndPublishPage`,
+  `expectAuthenticatedShell`/`expectGuestShell`, `uniqueSlug` for collision-free paths/hostnames
+  across repeated runs against a database that already has a prior run's data in it).
+- **Monaco is a real, asynchronously-mounted editor, not a `<textarea>`.** `createAndPublishPage`
+  waits for `.editor-markdown-editor .monaco-editor` before clicking into it — clicking the
+  container before Monaco has rendered a focusable surface under it is a click with nothing to
+  focus, which was seen landing keystrokes in the wrong field entirely under load. Typed content
+  syncs to `pageStore.content` on a 500ms debounce (`EditorMarkdown.vue`'s
+  `onDidChangeModelContent`); the helper waits for that content to land in the rendered preview pane
+  before saving; clicking "Create Page" any earlier saves an empty page.
+- **The page title is a `contenteditable="plaintext-only"` element, not an `<input>`** — but one
+  with `aria-label="Title"`, which is what gives a contenteditable region an accessible textbox role
+  at all, so `getByLabel('Title', { exact: true })` resolves it like a real form field. Driven with
+  real keystrokes (`page.keyboard.type`) followed by an explicit `.blur()`, not `.fill()`: `.fill()`
+  sets `textContent` directly and fires one synthetic `input` event, which this non-standard
+  contenteditable value was seen handling inconsistently under the full suite's timing; typing (and
+  blurring, which is what commits the field's tidied value in `onEditableBlur`) is what an author
+  actually does.
+- **The save dialog's path field must be explicitly filled**, even when the desired path was already
+  in the URL that opened the editor: `TreeBrowserDialog.vue`'s path field auto-slugs from the title
+  on every keystroke until the path field itself is focused (`onPathFocus` sets `pathDirty`) — left
+  alone, the dialog silently saves under a title-derived path instead of the one the test asked for.
+- **Multi-site (flow 3) resolves the second site by hostname, not a UI switcher** — there isn't one
+  yet; a Wiki.js 3.x site is addressed by the request's `Host` header
+  (`WIKI.sitesMappings[req.hostname]`, `index.ts`), so "switching sites" here means navigating the
+  browser to a different hostname. `*.localhost` resolves to the loopback address without any
+  `/etc/hosts` entry (RFC 6761, honoured by Chromium and every major OS resolver), which is what
+  lets the spec reach a freshly-created site (`e2e-site-<slug>.localhost`) by just navigating to it.
+  What "scopes content/permissions correctly" is asserted to mean, absent a 2.5.x spec to port from:
+  a page created on one site does not exist on the other (separate page trees), and the login
+  session from one site is not honoured on the other's hostname (the session cookie is host-only —
+  `index.ts`'s `fastifySession` sets no `domain` — so switching sites really does mean logging in
+  again, not carrying a session across them). Asserted together off one page load
+  (`${siteBOrigin}/${knownPageFromSiteA}`) rather than off the site's bare root: an unauthenticated
+  visitor to a *pageless* site's root gets redirected straight to `/login` by `Index.vue`'s route
+  watcher, which is real behavior but would make a root-based guest-shell assertion race that
+  client-side redirect instead of asserting on a stable page.
+- **CI wiring**: this suite runs as part of `.github/workflows/build.yml`'s `build` job now (task
+  762), not only from its own `e2e.yml` — see "Testing (CI)" below for why, and why `e2e.yml`'s own
+  `push: branches: [scarlett]` trigger was removed rather than left to run the same suite twice.
+
+### Testing (CI)
+
+`.github/workflows/build.yml`'s single `build` job runs every workspace's test suite — `backend/`,
+`frontend/`, `blocks/`, then the Playwright suite documented above — as ordinary steps, all placed
+**before** the Docker login/build/push steps at the bottom of the job. A failing step fails the job
+outright (GitHub Actions' default `continue-on-error: false`), so a broken test blocks the image
+from ever being built or pushed the same way a broken `npm run build` already did — there was no
+dedicated "test job" to add this to, so the steps went into the existing one, per the task's own
+either/or.
+
+- **One job, not two-plus-`needs:`.** Splitting build/test into separate jobs would mean either
+  re-installing everything in the test job (paying `npm ci`/`vite build` twice) or shuttling the
+  built `assets/`/`blocks/compiled`/`backend/node_modules` between jobs via `actions/upload-artifact`
+  — both slower and more moving parts than steps that already share one runner's filesystem and one
+  `npm ci` per workspace.
+- **The Playwright leg reuses the build that's already there, not a second one.** `e2e/`'s
+  `playwright.config.js` boots `node backend` against `frontend/`'s `assets/` output (see "Testing
+  (e2e)" above) — both already produced by the "Build Assets" and "Install Backend Dependencies"
+  steps earlier in the same job, so this leg is exactly the "against a build of the stack" the task
+  asked for without an extra `npm run build`. The Docker image itself is never rebuilt for this
+  leg's sake: it is not built at all until every test step above — including this one — has already
+  passed, so there is exactly one `docker/build-push-action` invocation per run, staged and pushed
+  once, not staged once for testing and rebuilt again to push.
+- **One `postgres:17` service container, shared by every leg that needs a real database.** Declared
+  at the job level (not per-step), with `DATABASE_URL` set as a job-level `env:` so it's visible to
+  the backend test step (turning on task 756's DB-backed model suites, skipped locally without a
+  database) and the Playwright step (its own required `DATABASE_URL`, per "Testing (e2e)" above)
+  alike, without redeclaring it twice. The two don't collide: the model tests carve out their own
+  randomly-named schema per file (`backend/test/db.ts`) while Playwright seeds the default schema
+  through the app's real first-run path, and by the time Playwright's `webServer` starts, every
+  backend test file that touched the database has already finished and been cleaned up (sequential
+  steps in one job).
+- **`e2e.yml`'s own `push: branches: [scarlett]` trigger was deleted**, not left in alongside this —
+  that push event now runs the Playwright suite from *this* job already, and gaining nothing back
+  for a second install-browsers-and-run-the-suite pass on the same commit contradicts the "CI runtime
+  stays reasonable" bar the task set for itself. `e2e.yml` still runs standalone on `pull_request`
+  and `workflow_dispatch`, which `build.yml`'s push-only trigger doesn't cover.
 
 ### Icons
 
