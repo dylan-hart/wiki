@@ -1,4 +1,6 @@
 import bcrypt from 'bcryptjs'
+import { eq } from 'drizzle-orm'
+import { isEqual } from 'es-toolkit/predicate'
 import { nanoid } from 'nanoid'
 import { v4 as uuid } from 'uuid'
 import type { WikiDb } from '../../core/db.ts'
@@ -92,14 +94,72 @@ import type { SourceRecord } from '../connector.ts'
  *   `guestsGroupId` (not `groupGuestId`). This module still takes no `WIKI` dependency (same
  *   testability goal as `localStrategyId` above) -- the future #421 CLI is the caller that resolves
  *   `systemGroupIds` from those real locations before invoking `importUsersAndGroups()`.
+ *
+ * Task 732 adds idempotent re-run safety — running this engine a second time against the same (or a
+ * corrected partial) source feed must not duplicate `groups`/`users` rows, per feature #421's runbook.
+ *
+ * - **Detection rule**: before writing a `created` conversion outcome, `importGroups()`/`importUsers()`
+ *   now ask the writer whether a matching row already exists on the target — by `name` for groups, by
+ *   `email` for users (`UsersGroupsWriter.findGroupByName()` / `findUserByEmail()`). Both are already
+ *   unique/natural keys on the target side (groups have no other identity; `users.email` has a unique
+ *   constraint), so this is exactly the "pragmatic option absent a persisted source-id-to-target-id
+ *   record" the task calls for.
+ * - **No separate persisted id-mapping was added.** The task explicitly asks whether one is worth
+ *   adding (a table or JSON artifact) so a second run can reuse prior target ids instead of re-deriving
+ *   them. It isn't, here: `findGroupByName()`/`findUserByEmail()` already return the target row's own
+ *   primary key directly from the data that would otherwise populate a separate mapping — a dedicated
+ *   artifact would just be a second, independently-driftable copy of information the `groups`/`users`
+ *   tables already hold under a reliable natural key. (A future entity that lacks one — e.g. pages,
+ *   addressed by a `path` that can be renamed after import — would not have this luxury and might
+ *   genuinely need a persisted map; that's out of this task's scope.) Either way, the *value* the task
+ *   asks for — a second run reusing prior target ids for `userGroups` translation rather than
+ *   re-deriving them from scratch — is delivered: `importGroups()`/`importUsers()` populate `idMap`
+ *   from the existing row's id whenever one is found, exactly as they would from a fresh `insert*()`
+ *   call, so `importUserGroups()` downstream cannot tell the difference.
+ * - **Three outcomes, not two.** `RecordStatus` gains `'existing'` (already present, and the freshly
+ *   converted candidate matches what's already there — nothing written) and `'diverged'` (already
+ *   present, but the candidate now differs from the stored row — also nothing written; see below).
+ *   Both add their own counter to `EntityImportSummary`, alongside the pre-existing `created` /
+ *   `skipped` / `conflicted` / `flagged`, so a dry-run report can distinguish "these are brand new"
+ *   from "these were already imported" from "these need administrator attention because the source
+ *   changed" without parsing free-text messages.
+ * - **The no-overwrite decision, made explicit**: a `'diverged'` record is *never* written over the
+ *   existing target row. If it were, a second run could silently discard an administrator's own in-3.0
+ *   edits to an already-imported group (e.g. permissions they tightened after the first import) — the
+ *   exact data-loss bug the task description calls out by name. The engine's job on a re-run is to
+ *   detect and report divergence, not resolve it; resolving it is an administrator decision (there is
+ *   no way to know, from the source and target rows alone, whether the target changed because an admin
+ *   edited it in 3.0, or because the source changed and the target is now stale) that a later Feature
+ *   414 task or the #421 CLI's report can surface, not silently automate.
+ * - **Comparison specifics** (`sameGroupContent()`/`sameUserContent()` below), to avoid false
+ *   positives from fields that are expected to vary between runs rather than signal a real change:
+ *   permissions are compared as sets (2.x's flat array has no meaningful order); rule content is
+ *   compared with each rule's `id` stripped first, since `convertPageRule()` mints a fresh uuid on
+ *   *every* conversion by design (Task 730) — comparing ids verbatim would report every unchanged
+ *   group as diverged, on every single re-run. A user's `auth` blob (containing a freshly-salted
+ *   bcrypt hash on every conversion, for both the local-carryover and provider-fallback paths) is not
+ *   compared at all — only `name` is, since re-hashing the same password is expected to look different
+ *   every run and is not itself evidence the source user changed.
  */
 
 // ---------------------------------------------------------------------------
 // Result shape — the contract feature #421's CLI and dry-run report read.
 // ---------------------------------------------------------------------------
 
-/** Outcome of attempting to write one source record. */
-export type RecordStatus = 'created' | 'skipped' | 'conflicted' | 'flagged'
+/** Outcome of attempting to write one source record.
+ *
+ * `existing` and `diverged` (Task 732) are both re-run outcomes: the record was NOT written because a
+ * matching row (by name for a group, by email for a user) already exists on the target. `existing`
+ * means the freshly-converted candidate matches what's already there; `diverged` means it doesn't —
+ * see the module doc's Task 732 paragraph for why the engine reports divergence rather than resolving
+ * it by overwriting. */
+export type RecordStatus =
+  | 'created'
+  | 'skipped'
+  | 'conflicted'
+  | 'flagged'
+  | 'existing'
+  | 'diverged'
 
 /** Per-record detail, always present regardless of outcome so a dry-run report can list every row. */
 export interface RecordResult {
@@ -114,12 +174,15 @@ export interface RecordResult {
   message?: string
 }
 
-/** Aggregate counts plus the per-record detail list for one entity (`groups`, `users`, or `userGroups`). */
+/** Aggregate counts plus the per-record detail list for one entity (`groups`, `users`, or `userGroups`).
+ * `existing`/`diverged` are the two re-run outcomes Task 732 adds — see `RecordStatus`. */
 export interface EntityImportSummary {
   created: number
   skipped: number
   conflicted: number
   flagged: number
+  existing: number
+  diverged: number
   records: RecordResult[]
 }
 
@@ -169,7 +232,15 @@ export interface SystemGroupIds {
 }
 
 function emptySummary(): EntityImportSummary {
-  return { created: 0, skipped: 0, conflicted: 0, flagged: 0, records: [] }
+  return {
+    created: 0,
+    skipped: 0,
+    conflicted: 0,
+    flagged: 0,
+    existing: 0,
+    diverged: 0,
+    records: []
+  }
 }
 
 function record(summary: EntityImportSummary, result: RecordResult): void {
@@ -522,6 +593,22 @@ export function createProviderFallbackUserConverter(
 // swap in a dry-run writer that never touches Postgres at all.
 // ---------------------------------------------------------------------------
 
+/** The subset of an already-imported group's stored state that Task 732's re-run detection needs to
+ * decide `existing` vs `diverged` — see `sameGroupContent()`. */
+export interface ExistingGroupRecord {
+  id: string
+  permissions: string[]
+  rules: GroupRule[]
+}
+
+/** The subset of an already-imported user's stored state Task 732 compares against — just `name`; see
+ * the module doc's Task 732 paragraph for why `auth` (a freshly-salted hash on every conversion) is
+ * deliberately excluded. */
+export interface ExistingUserRecord {
+  id: string
+  name: string
+}
+
 export interface UsersGroupsWriter {
   insertGroup(row: NewGroupRow): Promise<{ id: string }>
   insertUser(row: NewUserRow): Promise<{ id: string }>
@@ -533,6 +620,12 @@ export interface UsersGroupsWriter {
    * `onConflictDoNothing()`, both of which matter for a system group in a way they don't for a fresh,
    * just-created ordinary group. */
   assignUserToSystemGroup(userId: string, groupId: string): Promise<void>
+  /** Task 732 re-run detection: looks up a previously-imported group by its 3.0 name — the natural key
+   * `createGroupConverter()` writes into, and the one this task matches on absent a persisted
+   * source-id-to-target-id record (see the module doc). `undefined` when no such group exists yet. */
+  findGroupByName(name: string): Promise<ExistingGroupRecord | undefined>
+  /** Same rationale as `findGroupByName()`, keyed on `email` — already unique on `users`. */
+  findUserByEmail(email: string): Promise<ExistingUserRecord | undefined>
 }
 
 /** Real writer, backed by Drizzle. Any insert failure (e.g. `users.email`'s unique constraint) is
@@ -564,6 +657,22 @@ export function createDrizzleWriter(db: WikiDb): UsersGroupsWriter {
     },
     async assignUserToSystemGroup(userId, groupId) {
       await WIKI.models.groups.assignUserToGroup(groupId, userId)
+    },
+    async findGroupByName(name) {
+      const [row] = await db
+        .select({
+          id: groupsTable.id,
+          permissions: groupsTable.permissions,
+          rules: groupsTable.rules
+        })
+        .from(groupsTable)
+        .where(eq(groupsTable.name, name))
+        .limit(1)
+      return row as ExistingGroupRecord | undefined
+    },
+    async findUserByEmail(email) {
+      const existing = await WIKI.models.users.getByEmail(email)
+      return existing ? { id: existing.id, name: existing.name } : undefined
     }
   }
 }
@@ -583,6 +692,15 @@ export function createDryRunWriter(): UsersGroupsWriter {
     },
     async assignUserToSystemGroup() {
       // Same rationale as insertUserGroup() above -- nothing is actually written in a dry run.
+    },
+    async findGroupByName() {
+      // A dry run never writes anything, so it has nothing to have found on a prior invocation either
+      // -- every record looks brand new. Callers exercising Task 732's re-run detection in a test
+      // supply their own writer (or a stateful in-memory one) instead; see users-groups.test.ts.
+      return undefined
+    },
+    async findUserByEmail() {
+      return undefined
     }
   }
 }
@@ -621,6 +739,40 @@ function readSourceId(source: SourceRecord, column: string): number | undefined 
   return Number.isInteger(n) ? n : undefined
 }
 
+/** Task 732: whether a freshly-converted group candidate matches an already-imported group's stored
+ * `permissions`/`rules`, for deciding `existing` vs `diverged`.
+ *
+ * `permissions` is compared as a set — 2.x's flat array carries no meaningful order, so a reordering
+ * alone must not read as a change. `rules` is compared with each rule's `id` stripped first:
+ * `convertPageRule()` mints a fresh uuid on every single conversion (Task 730, by design, since a 2.x
+ * rule carries no id worth preserving), so comparing ids verbatim would report every unchanged group as
+ * diverged on every re-run — exactly the false positive this task exists to avoid. */
+function sameGroupContent(candidate: NewGroupRow, existing: ExistingGroupRecord): boolean {
+  const candidatePermissions = [...((candidate.permissions ?? []) as string[])].sort()
+  const existingPermissions = [...existing.permissions].sort()
+  if (!isEqual(candidatePermissions, existingPermissions)) {
+    return false
+  }
+
+  const candidateRules = (candidate.rules ?? []) as GroupRule[]
+  if (candidateRules.length !== existing.rules.length) {
+    return false
+  }
+  const stripId = ({ id: _id, ...rest }: GroupRule) => rest
+  return candidateRules.every((rule, index) =>
+    isEqual(stripId(rule), stripId(existing.rules[index]))
+  )
+}
+
+/** Task 732: whether a freshly-converted user candidate matches an already-imported user's stored
+ * state. Only `name` is compared — `auth` contains a freshly-salted bcrypt hash on every single
+ * conversion (both the local-carryover and provider-fallback paths hash a value on every call), so
+ * comparing it would report every unchanged user as diverged on every re-run, the same false-positive
+ * shape `sameGroupContent()` avoids for rule ids. */
+function sameUserContent(candidate: NewUserRow, existing: ExistingUserRecord): boolean {
+  return candidate.name === existing.name
+}
+
 async function importGroups(
   source: AsyncIterable<SourceRecord>,
   convert: GroupConverter,
@@ -653,6 +805,26 @@ async function importGroups(
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
+      continue
+    }
+
+    // Task 732: a matching group already on the target (by name) means this record was already
+    // imported by a prior run -- reuse its id for idMap rather than inserting a duplicate, and never
+    // overwrite it even when the source has since changed (see the module doc's no-overwrite policy).
+    const existingGroup = await writer.findGroupByName(outcome.row.name)
+    if (existingGroup) {
+      idMap.set(sourceId, existingGroup.id)
+      const unchanged = sameGroupContent(outcome.row, existingGroup)
+      record(summary, {
+        sourceId,
+        targetId: existingGroup.id,
+        status: unchanged ? 'existing' : 'diverged',
+        message: unchanged
+          ? 'already imported (matched by name); left unchanged'
+          : "already imported (matched by name), but the source's permissions/rules now differ from " +
+            'the stored group; left unchanged rather than overwriting a possible in-3.0 edit -- see ' +
+            'module doc Task 732'
+      })
       continue
     }
 
@@ -705,6 +877,27 @@ async function importUsers(
     const outcome = await convert(sourceRecord)
     if (outcome.status !== 'created') {
       record(summary, { sourceId, status: outcome.status, message: outcome.message })
+      continue
+    }
+
+    // Task 732: a matching user already on the target (by email, already unique) means this record
+    // was already imported by a prior run -- reuse its id rather than inserting a duplicate (which
+    // would hit users.email's unique constraint anyway), and never overwrite it. A providerFallback
+    // flag is only meaningful for an account genuinely created just now, so it's deliberately not
+    // re-raised here -- an already-imported account was already reported once, on the run that made it.
+    const existingUser = await writer.findUserByEmail(outcome.row.email)
+    if (existingUser) {
+      idMap.set(sourceId, existingUser.id)
+      const unchanged = sameUserContent(outcome.row, existingUser)
+      record(summary, {
+        sourceId,
+        targetId: existingUser.id,
+        status: unchanged ? 'existing' : 'diverged',
+        message: unchanged
+          ? 'already imported (matched by email); left unchanged'
+          : "already imported (matched by email), but the source's name now differs from the stored " +
+            'user; left unchanged rather than overwriting a possible in-3.0 edit -- see module doc Task 732'
+      })
       continue
     }
 
