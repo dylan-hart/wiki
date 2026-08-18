@@ -125,6 +125,24 @@
         @click="viewPageSource">
         <w-tooltip anchor="center left" self="center right">Page Source</w-tooltip>
       </w-btn>
+      <!--
+        Gated on `read:pages` -- the same permission the page view itself already required to get this
+        far -- plus the Puppeteer extension actually being installed: `extensionsStatus` (fetched below)
+        answers that the same way `PageNewMenu`'s import item does for Pandoc.
+      -->
+      <w-btn
+        class="h-12 page-actions-export-pdf-btn"
+        v-if="canExportPdf"
+        flat
+        icon="la:file-pdf"
+        :color="editorStore.isActive ? `white` : `grey`"
+        :loading="exportingPdf"
+        :aria-label="t(`pages.export.action`)"
+        @click="exportPdf">
+        <w-tooltip anchor="center left" self="center right">{{
+          t('pages.export.action')
+        }}</w-tooltip>
+      </w-btn>
     </template>
     <!-- -> `hasPageActions` takes the rule with it: a separator over a button that opens nothing is a
             line drawn for its own sake -->
@@ -225,12 +243,14 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { fileSave } from 'browser-fs-access'
 
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -261,9 +281,34 @@ const menuPendingAssets = ref(null)
 
 // DATA
 
+/**
+ * Whether an export request is in flight -- a browser launch plus a full page render, several
+ * seconds even on a fast page, so the button needs to say so rather than sit inert.
+ */
+const exportingPdf = ref(false)
+
+/**
+ * How long the client gives the export request, in milliseconds -- past `ky`'s own 10s default,
+ * which is well under what a browser launch plus navigation plus settling plus `page.pdf()` can take.
+ * Not exact: `models/pdfExport.ts`'s own timeouts (navigation 30s + block-settle 15s + PDF 30s) sum to
+ * 75s worst case, so this rounds up past that rather than matching it precisely.
+ */
+const EXPORT_TIMEOUT = 90 * 1000
+
 // COMPUTED
 
 const hasPendingAssets = computed(() => editorStore.pendingAssets?.length > 0)
+
+/**
+ * Whether the Export to PDF button should show at all: `read:pages` on this page -- the same
+ * permission the page view itself already required to reach here -- and the Puppeteer extension
+ * actually being installed, without which the export endpoint answers 503. `extensionsStatus` is
+ * fetched once on mount and cached by the store, the same way `PageNewMenu` gates its import item on
+ * Pandoc.
+ */
+const canExportPdf = computed(
+  () => userStore.can('read:pages') && Boolean(siteStore.extensionsStatus.puppeteer)
+)
 
 /**
  * Whether the page this rail is for is a redirection — one being read, edited or created alike, since
@@ -395,6 +440,58 @@ function removePendingAsset(item) {
     menuPendingAssets.value.hide()
   }
 }
+
+/**
+ * Ask the server to render this page's live view to PDF and save the result -- a binary response,
+ * so `.blob()` rather than `.json()`; `ky` still parses a non-2xx body as JSON into `err.data` first
+ * (see `helpers/apiError.js`), which is what lets the catch below tell a missing extension apart from
+ * anything else going wrong.
+ */
+async function exportPdf() {
+  exportingPdf.value = true
+  try {
+    const blob = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export/pdf`, {
+      timeout: EXPORT_TIMEOUT
+    }).blob()
+    // -> Named after the page, the same way `PageHistoryOverlay`'s version download is: the last path
+    //    segment, falling back to the title, then to a plain default for the (pathless) home page
+    const slug = pageStore.path?.split('/').at(-1) || pageStore.title || 'page'
+    await fileSave(blob, {
+      fileName: `${slug}.pdf`,
+      extensions: ['.pdf']
+    })
+  } catch (err) {
+    // -> Dismissing the save picker is not a failure
+    if (err.name === 'AbortError') {
+      return
+    }
+    // -> Same error name `models/pdfExport.ts`'s `ensureCanExport` throws (mirroring
+    //    `renderPuppeteerMissing` on the render queue) -- told apart from a generic failure so the
+    //    reader knows whether reloading will help or an administrator needs to install something
+    if (err?.data?.error === 'exportPuppeteerMissing') {
+      notify({
+        type: 'negative',
+        message: t('pages.export.puppeteerMissing')
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: t('pages.export.failed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  } finally {
+    exportingPdf.value = false
+  }
+}
+
+// MOUNTED
+
+onMounted(() => {
+  // -> Cached by the store, so mounting this rail repeatedly (e.g. one instance per page navigated
+  //    to) only asks the server once -- see `fetchExtensionsStatus`
+  siteStore.fetchExtensionsStatus()
+})
 </script>
 
 <style lang="scss">
