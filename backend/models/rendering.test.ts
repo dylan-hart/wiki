@@ -18,7 +18,7 @@ import type { BlockDefinition } from './blocks.ts'
 const DIAGRAM_BLOCKS: BlockDefinition[] = [
   {
     block: 'diagram',
-    name: 'Diagram',
+    name: 'Mermaid',
     description: 'Draws a Mermaid diagram.',
     icon: 'workflow',
     props: [

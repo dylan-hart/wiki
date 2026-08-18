@@ -81,8 +81,9 @@ describe('block-plantuml', () => {
     const error = el.shadowRoot.querySelector('.error')
     expect(error).not.toBeNull()
     expect(error.textContent).toContain('too large')
-    expect(error.textContent).toContain('Mermaid')
-    expect(error.textContent).toContain('Diagram block')
+    // -> Points at the block by the name the picker shows it under (see block-diagram's `static
+    //    definition.name`), not the generic "Diagram" the picker no longer calls it
+    expect(error.textContent).toContain('Mermaid block')
     // -> No request should ever have been attempted for a diagram refused before it was drawn
     expect(el.shadowRoot.querySelector('img')).toBeNull()
   })

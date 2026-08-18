@@ -11,8 +11,8 @@
  *
  * A diagram whose encoded URL would exceed this is past what GET-encoding can reliably deliver --
  * failing as a broken image with no explanation is the thing this guard exists to prevent. The
- * escape hatch is the Diagram block (`block-diagram`, Mermaid): it renders entirely client-side, so
- * it has no URL to size-limit in the first place.
+ * escape hatch is the Mermaid block (`block-diagram`): it renders entirely client-side, so it has
+ * no URL to size-limit in the first place.
  */
 export const MAX_DIAGRAM_URL_LENGTH = 8000
 
@@ -26,7 +26,7 @@ export function explainUrlTooLarge(length) {
     `This diagram is too large to draw: its encoded source is ${length.toLocaleString()} characters, ` +
     `over the ${MAX_DIAGRAM_URL_LENGTH.toLocaleString()}-character limit this block enforces for a ` +
     'GET request (many servers and reverse proxies refuse a URL past a similar length). Simplify the ' +
-    'diagram, or, if it can be expressed as one, redraw it as a Mermaid diagram with the Diagram ' +
-    'block instead -- it renders entirely in the browser and has no URL-size limit to hit.'
+    'diagram, or, if it can be expressed as one, redraw it with the Mermaid block instead -- it ' +
+    'renders entirely in the browser and has no URL-size limit to hit.'
   )
 }

@@ -34,9 +34,11 @@ the most common default ceilings an author is likely to sit behind — nginx's
 `large_client_header_buffers` default leaves headroom past 8k, and IIS/most CDNs draw their own line
 in the same neighbourhood — while remaining generous for the diagrams this transport is meant for.
 
-The documented workaround for a diagram that hits the limit is to redraw it as a Mermaid diagram
-with the Diagram block (`block-diagram`), which renders entirely client-side via `mermaid` and has
-no URL to size at all. This is not a hypothetical escape hatch invented for this entry: Kroki's own
-`mermaid` type is already one of `block-kroki`'s supported diagram types, and `block-diagram` already
-exists in this repo specifically as the URL-free alternative, so the guard's error message can point
-at working, already-shipped functionality rather than a future feature.
+The documented workaround for a diagram that hits the limit is to redraw it with the Mermaid block
+(`block-diagram` — renamed from the picker's generic "Diagram" to "Mermaid" in Task 490, so it reads
+as the engine it draws with rather than a catch-all next to Kroki's and PlantUML's own engine-named
+entries), which renders entirely client-side via `mermaid` and has no URL to size at all. This is
+not a hypothetical escape hatch invented for this entry: Kroki's own `mermaid` type is already one
+of `block-kroki`'s supported diagram types, and `block-diagram` already exists in this repo
+specifically as the URL-free alternative, so the guard's error message can point at working,
+already-shipped functionality rather than a future feature.

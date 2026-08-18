@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
+import { BlockDiagramElement } from './component.js'
+import { BlockKrokiElement } from '../block-kroki/component.js'
+import { BlockPlantumlElement } from '../block-plantuml/component.js'
 
 /*
   jsdom implements no SVG layout at all -- `getBBox`, `getComputedTextLength` and the rest of
@@ -38,6 +41,45 @@ async function mountDiagram(body = '', attrs = {}) {
 }
 
 const VALID_SOURCE = 'flowchart LR\n  A[Start] --> B{Ready?}'
+
+/**
+ * The block picker's catalog (`BlockPickerOverlay.vue`) lists this block next to `block-kroki` and
+ * `block-plantuml` with nothing but `name`, `description` and `icon` to tell someone who does not
+ * already know which engine they want apart. "Diagram" as a *name* reads as a generic catch-all
+ * sitting beside two engine-specific ones — Mermaid drawing exactly one family of diagram syntax is
+ * no more "the" diagram block than Kroki (dozens of engines) or PlantUML is — even though the
+ * description already says "Mermaid". Naming it after its engine, the same way its two neighbours
+ * are named after theirs, is what actually removes the ambiguity for a first-time reader.
+ */
+describe('static definition', () => {
+  it("names the block after the engine it draws, not the generic word 'Diagram'", () => {
+    expect(BlockDiagramElement.definition.name).toBe('Mermaid')
+  })
+
+  it('is not confusable with its two sibling diagram blocks in the picker', () => {
+    const names = [
+      BlockDiagramElement.definition.name,
+      BlockKrokiElement.definition.name,
+      BlockPlantumlElement.definition.name
+    ]
+    // -> Every name distinct, and none of them a bare, generic "Diagram"
+    expect(new Set(names).size).toBe(names.length)
+    expect(names).not.toContain('Diagram')
+  })
+
+  it('uses a distinct icon from its two sibling diagram blocks', () => {
+    const icons = [
+      BlockDiagramElement.definition.icon,
+      BlockKrokiElement.definition.icon,
+      BlockPlantumlElement.definition.icon
+    ]
+    expect(new Set(icons).size).toBe(icons.length)
+  })
+
+  it("names Mermaid by name in its own description too, matching Kroki's and PlantUML's pattern of naming their own engine", () => {
+    expect(BlockDiagramElement.definition.description).toContain('Mermaid')
+  })
+})
 
 describe('block-diagram', () => {
   afterEach(() => {

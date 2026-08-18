@@ -60,3 +60,34 @@ describe('BlockPickerOverlay', () => {
     expect(wrapper.find('.block-picker-output').text()).not.toContain('server=')
   })
 })
+
+/**
+ * `blocks` is computed straight off `state.isEnabled` with no other gate, so a block the site has
+ * switched off must never appear as a card at all -- not just unselected, but literally absent, since
+ * a card is the only way to select or insert one. This is also what rules out the "stale, insertable
+ * entry" the task asks about: the picker fetches the block list fresh every time it mounts (see
+ * `onMounted`), and a component instance is torn down and rebuilt each time the overlay dialog closes
+ * and reopens (`MainOverlayDialog.vue`'s `<component :is>` unmounts it the moment
+ * `siteStore.overlay` stops naming it) -- so a block disabled after the picker was last open is
+ * simply never in the list the next mount fetches, and nothing here can hold a reference to it.
+ */
+describe('the isEnabled filter', () => {
+  const DISABLED = { ...BLOCK, id: 'block-2', block: 'diagram', name: 'Mermaid', isEnabled: false }
+  const ENABLED = { ...BLOCK, id: 'block-1', isEnabled: true }
+
+  it('never lists a block disabled for the current site', async () => {
+    const wrapper = await mountPicker([ENABLED, DISABLED])
+
+    const cards = wrapper.findAll('.block-picker-card')
+    expect(cards).toHaveLength(1)
+    expect(wrapper.text()).toContain('Kroki')
+    expect(wrapper.text()).not.toContain('Mermaid')
+  })
+
+  it('leaves nothing selectable when every block on the site is disabled', async () => {
+    const wrapper = await mountPicker([DISABLED])
+
+    expect(wrapper.findAll('.block-picker-card')).toHaveLength(0)
+    expect(wrapper.find('.block-picker-output').exists()).toBe(false)
+  })
+})
