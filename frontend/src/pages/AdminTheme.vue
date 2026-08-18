@@ -86,6 +86,26 @@
                 </div>
               </w-item-section>
               <w-item-section side>
+                <span
+                  tabindex="0"
+                  class="cvd-preview-swatch"
+                  :style="`background-color: ` + cvdPreviewColor(cl) + `;`">
+                  <w-tooltip>{{
+                    t(`admin.theme.cvdPreviewHint`, {
+                      cvd: t(`profile.cvd` + startCase(userStore.cvd))
+                    })
+                  }}</w-tooltip>
+                </span>
+              </w-item-section>
+              <w-item-section v-if="contrastWarning(cl)" side>
+                <span tabindex="0" class="inline-flex">
+                  <w-icon name="la:exclamation-triangle" color="negative" size="sm" />
+                  <w-tooltip>{{
+                    t(`admin.theme.contrastWarning`, { ratio: contrastWarningRatio(cl) })
+                  }}</w-tooltip>
+                </span>
+              </w-item-section>
+              <w-item-section side>
                 <w-btn
                   class="mr-2"
                   :key="`btnpick-` + cl"
@@ -335,6 +355,9 @@ import { loading } from '@/composables/loading'
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
+
+import { contrastRatio, getAccessibleColor, WCAG_AA_CONTRAST } from '@/helpers/accessibility'
 
 import { toMerged } from 'es-toolkit/object'
 import { startCase } from 'es-toolkit/string'
@@ -345,6 +368,7 @@ import UtilCodeEditor from '../components/UtilCodeEditor.vue'
 const adminStore = useAdminStore()
 const flagStore = useFlagsStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -389,6 +413,17 @@ const state = reactive({
 })
 
 const colorKeys = ['primary', 'secondary', 'accent', 'header', 'sidebar']
+
+/**
+ * The two page backgrounds `colorPrimary`'s own contrast is checked against below -- `body.body--dark`
+ * swaps the page surface to `--color-dark-3` (see `css/tailwind.css`), so which one applies depends on
+ * the config being edited, not the admin's own current appearance.
+ */
+const PAGE_BG_LIGHT = '#ffffff'
+const PAGE_BG_DARK = '#1e232a'
+
+/** The site header and sidebar both draw their nav text in white (`HeaderNav.vue`, `NavSidebar.vue`). */
+const CHROME_TEXT_COLOR = '#ffffff'
 
 const widthOptions = [
   { label: 'Full Width', value: 'full' },
@@ -675,6 +710,44 @@ watch(
 
 // METHODS
 
+/**
+ * How `cl`'s currently configured color would render under the admin's OWN `userStore.cvd` setting
+ * -- a live preview, not a check against the site's chosen color, so it stays useful for an admin
+ * who has a CVD themselves even before they touch anything.
+ */
+function cvdPreviewColor(cl) {
+  return getAccessibleColor(cl, state.config[`color` + startCase(cl)], userStore.cvd)
+}
+
+/**
+ * The foreground/background pair that actually matters for `cl`, or null when this color isn't
+ * checked at all (only `primary`/`header`/`sidebar` are, per this task's scope -- `secondary` and
+ * `accent` have no single fixed pairing to check against).
+ */
+function contrastPairFor(cl) {
+  const base = state.config[`color` + startCase(cl)]
+  if (!base) {
+    return null
+  }
+  if (cl === 'header' || cl === 'sidebar') {
+    return { fg: CHROME_TEXT_COLOR, bg: base }
+  }
+  if (cl === 'primary') {
+    return { fg: base, bg: state.config.dark ? PAGE_BG_DARK : PAGE_BG_LIGHT }
+  }
+  return null
+}
+
+function contrastWarning(cl) {
+  const pair = contrastPairFor(cl)
+  return pair ? contrastRatio(pair.fg, pair.bg) < WCAG_AA_CONTRAST : false
+}
+
+function contrastWarningRatio(cl) {
+  const pair = contrastPairFor(cl)
+  return pair ? `${contrastRatio(pair.fg, pair.bg).toFixed(1)}:1` : ''
+}
+
 function resetColors() {
   state.config.dark = false
   state.config.colorPrimary = '#1976D2'
@@ -771,5 +844,15 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.cvd-preview-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgb(0 0 0 / 0.2);
+}
+</style>
 
 <!-- -> The `.admin-theme-cm` rules that were here framed the old editor; UtilCodeEditor draws its own -->
