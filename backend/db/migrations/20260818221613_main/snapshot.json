@@ -1,9 +1,11 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "3f4f61f2-0433-43c5-bd6e-45e99f0f2342",
+  "id": "09144ff6-58bd-4f31-9cfc-fd8405341d78",
   "prevIds": [
-    "58755532-e250-4797-ad17-31a8fd8b241a"
+    "2ca29fb2-75c4-4cb0-bc66-05f3b6da0066",
+    "58755532-e250-4797-ad17-31a8fd8b241a",
+    "5c1187a9-cda4-4cfb-9cf6-5335847b0331"
   ],
   "ddl": [
     {
@@ -44,6 +46,24 @@
         "scheduled"
       ],
       "name": "pagePublishState",
+      "entityType": "enums",
+      "schema": "public"
+    },
+    {
+      "values": [
+        "page",
+        "asset"
+      ],
+      "name": "syncContentType",
+      "entityType": "enums",
+      "schema": "public"
+    },
+    {
+      "values": [
+        "push",
+        "pull"
+      ],
+      "name": "syncDirection",
       "entityType": "enums",
       "schema": "public"
     },
@@ -108,6 +128,12 @@
     {
       "isRlsEnabled": false,
       "name": "comments",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "contentSyncState",
       "entityType": "tables",
       "schema": "public"
     },
@@ -664,19 +690,6 @@
       "table": "assets"
     },
     {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "storageInfo",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "assets"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -1143,6 +1156,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "comments"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "syncContentType",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "contentType",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "contentId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "targetId",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "syncDirection",
+      "typeSchema": "public",
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lastDirection",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "targetRef",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lastSyncedAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lastError",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "createdAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updatedAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "contentSyncState"
     },
     {
       "type": "uuid",
@@ -3553,6 +3696,45 @@
       "table": "storage"
     },
     {
+      "type": "varchar(32)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'push'",
+      "generated": null,
+      "identity": null,
+      "name": "syncMode",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "storage"
+    },
+    {
+      "type": "varchar(32)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scheduleOverride",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "storage"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lastTickAt",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "storage"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
@@ -4364,6 +4546,69 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "comments"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "targetId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "contentType",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "contentId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "contentSyncState_target_content_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "contentType",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "contentId",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "contentSyncState_content_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "contentSyncState"
     },
     {
       "nameExplicit": true,
@@ -5410,6 +5655,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "targetId"
+      ],
+      "schemaTo": "public",
+      "tableTo": "storage",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "contentSyncState_targetId_storage_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "contentSyncState"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "prefix"
       ],
       "schemaTo": "public",
@@ -5933,6 +6195,16 @@
       "name": "comments_pkey",
       "schema": "public",
       "table": "comments",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "contentSyncState_pkey",
+      "schema": "public",
+      "table": "contentSyncState",
       "entityType": "pks"
     },
     {
