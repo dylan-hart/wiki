@@ -259,8 +259,9 @@ const isWideViewport = useMinWidth(SIDEBAR_OVERLAY_BELOW)
 
 /**
  * The phone boundary — the `sm` breakpoint from `css/tailwind.css`, and a different question from the one
- * above: that one is about the LAYOUT (has the drawer got a column of its own), this one is about the
- * DEVICE (is there a pointer, and room for an authoring control). See `showEditNav`.
+ * above: that one is about the LAYOUT (has the drawer got a column of its own), this one is about whether
+ * there is ROOM for an authoring control at all -- a width-based proxy, deliberately, not a literal
+ * pointer-capability query. See `showEditNav` for why.
  */
 const isAtLeastSm = useMinWidth(600)
 
@@ -350,8 +351,25 @@ const showSidebarActions = computed(() => siteStore.locales.showMenu || canBrows
 
   And not on a phone, whatever the permission: rearranging a navigation tree is drag-and-drop work in a
   full-screen overlay, and the sidebar it hangs off is itself a panel the reader has just opened over the
-  page. Same call as the page header's authoring actions, at the same breakpoint -- an editing control
-  that needs a pointer is not offered on a screen that has none.
+  page -- there is no room left for a second overlay stacked on top of it, and dragging small nested
+  targets accurately is poor UX on a touchscreen regardless of room.
+
+  `isAtLeastSm` (viewport width, not a device-capability query) is a deliberate proxy for that, not an
+  oversight: it is the same `sm` breakpoint `HeaderNav` and `PageHeader` already use to tell a phone
+  layout from a desktop one, so this reuses a boundary the rest of the app is already built and tested
+  against rather than introducing a second, untested way to ask the same question. A real
+  `matchMedia('(any-pointer: fine)')` check was considered and rejected: it would be wrong in both
+  directions that matter here -- it stays true on a touch-primary 2-in-1 laptop merely because a
+  trackpad is also present (so it would not actually catch the touchscreen case this guards against),
+  and it goes false on a touch-only tablet that is plenty wide enough to fit the overlay, whose drag
+  library (`sortablejs-vue3`) handles touch input fine on its own. Width is what actually decides
+  whether the overlay fits, which is the more load-bearing of the two reasons above -- read this as a
+  layout-room gate with a touch-UX rationale attached, not a literal pointer-capability check.
+
+  (Also NOT "the same call as the page header's authoring actions", despite an earlier version of this
+  comment claiming that: `PageHeader`'s own Edit button is gated on `write:pages` alone, at no
+  breakpoint at all -- editing a page's content works fine at phone width, so nothing there needed this
+  gate to begin with.)
 */
 const showEditNav = computed(() => {
   return userStore.authenticated && userStore.can('manage:navigation') && isAtLeastSm.value

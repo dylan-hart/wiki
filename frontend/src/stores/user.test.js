@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useUserStore } from './user.js'
+import { useSiteStore } from './site.js'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -184,6 +185,59 @@ describe('user store: logout()', () => {
     expect(store.authenticated).toBe(false)
     // -> No response to read a redirect from: falls back to the app root rather than throwing
     expect(received).toEqual([{ redirect: '/' }])
+  })
+
+  /*
+    Task 468 (feature 362): `NavSidebar.vue`'s watcher only refetches the sidebar menu when the page
+    it lands on carries a DIFFERENT `navigationId` than the one it just left -- true most of the time,
+    but not when App.vue's `logout` handler routes the reader to a redirect target that happens to
+    share the same `navigationId` as the page they were just reading (the site's default menu is the
+    common case). The watcher then never fires, and the sidebar built while authenticated -- including
+    any `visibilityGroups`-restricted item this reader could see a moment ago -- stays on screen after
+    the session has ended. `logout()` forces the refetch itself, unconditionally, rather than relying
+    on the watcher's own diffing.
+  */
+  it('forces a navigation refetch against the now-anonymous session, regardless of whether the destination shares the same navigationId', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    // -> The sidebar the reader was looking at when they logged out
+    siteStore.nav.currentId = 'nav-1'
+    siteStore.nav.items = [
+      { id: 'restricted', type: 'link', label: 'Restricted', target: '/secret' }
+    ]
+    store.applyProfile({ authenticated: true, id: 'abc-123', permissions: [] })
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ redirect: '/some-page' })
+    })
+    // -> The re-fetched menu, now built against the guest session: the restricted item is gone
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'public', type: 'link', label: 'Public', target: '/' }])
+    })
+
+    await store.logout()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual([
+      { id: 'public', type: 'link', label: 'Public', target: '/' }
+    ])
+  })
+
+  it('does not attempt a navigation refetch when no sidebar menu was ever loaded', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    siteStore.nav.currentId = null
+    store.applyProfile({ authenticated: true, id: 'abc-123', permissions: [] })
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ redirect: '/' })
+    })
+
+    await store.logout()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
   })
 })
 

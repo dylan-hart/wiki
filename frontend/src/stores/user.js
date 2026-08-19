@@ -150,6 +150,18 @@ export const useUserStore = defineStore('user', {
         console.warn(err)
       }
       this.setToGuest()
+      /*
+        NavSidebar.vue's watcher only re-fetches the sidebar menu when the page it lands on carries a
+        DIFFERENT navigationId than the one it just left. A logout redirect target commonly shares the
+        same navigationId as the page just left (the site's default menu, say), so that watcher never
+        fires -- and the menu stays on screen built against the session that just ended, restricted
+        items included. Forced here instead, unconditionally, so the sidebar reflects the guest this
+        reader now is regardless of where the redirect lands them. Nothing to refresh if no sidebar
+        menu was ever loaded in the first place.
+      */
+      if (siteStore.nav.currentId) {
+        await siteStore.fetchNavigation(siteStore.nav.currentId)
+      }
       EVENT_BUS.emit('logout', { redirect })
     },
     setToGuest() {
