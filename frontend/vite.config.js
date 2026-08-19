@@ -152,6 +152,12 @@ export default defineConfig(({ mode }) => {
       },
       target: 'es2022'
     },
+    // -> Monaco's editor worker does a relative `import()` for its findSectionHeaders feature; Vite's
+    //    default production worker format (IIFE) is bundled and loaded from a `blob:` URL, which can't
+    //    resolve a relative specifier (`blob:` isn't a hierarchical scheme). ES module workers can.
+    worker: {
+      format: 'es'
+    },
     plugins: [
       vue({
         template: {
