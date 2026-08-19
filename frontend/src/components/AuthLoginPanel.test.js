@@ -352,7 +352,15 @@ describe('AuthLoginPanel forgot password', () => {
    * already surfaces correctly.
    */
   it('shows the backend message on failure instead of a generic ky error', async () => {
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+    // -> Not LOCAL_STRATEGY: its allowForgotPassword is false (that's the point of the fixture
+    //    elsewhere in this file), which would hide the very button this test needs to click.
+    const forgotPasswordAllowedStrategy = {
+      ...LOCAL_STRATEGY,
+      activeStrategy: { ...LOCAL_STRATEGY.activeStrategy, allowForgotPassword: true }
+    }
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([forgotPasswordAllowedStrategy])
+    })
     const rateLimitError = Object.assign(new Error('Request failed with status code 429'), {
       data: { message: 'Too many attempts. Try again in 5 minute(s).' }
     })
