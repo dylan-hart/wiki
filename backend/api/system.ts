@@ -1,5 +1,7 @@
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
 import { filesize } from 'filesize'
 import { isNil } from 'es-toolkit/predicate'
 import { gte, sql } from 'drizzle-orm'
@@ -13,6 +15,7 @@ import {
 import maintenance from '../core/maintenance.ts'
 import { purgeTimeframes } from '../models/pageHistory.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
+import { JOB_STATES } from '../models/jobs.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -68,10 +71,25 @@ export async function getClusterNodes(): Promise<Record<string, any>[]> {
   return Object.values(insts)
 }
 
+/** How large an uploaded content archive may be — a whole site's worth of asset bytes, not one image. */
+const importUploadLimit = 500 * 1024 * 1024
+
 /**
  * System API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> An import upload is the raw archive rather than a multipart form, same reasoning and same
+  //    pattern as `PUT /sites/:siteId/images/:kind`: one file, no fields, no dependency to add.
+  //    Registered inside this plugin, so every other route keeps rejecting this body outright. The
+  //    accepted types cover what a browser reports for a `.tar.gz` across platforms.
+  app.addContentTypeParser(
+    ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
+    { parseAs: 'buffer', bodyLimit: importUploadLimit },
+    (req, body, done) => {
+      done(null, body)
+    }
+  )
+
   /**
    * SYSTEM INFO
    */
@@ -1181,6 +1199,384 @@ async function routes(app: FastifyInstance) {
         latest: WIKI.config.update.version,
         latestDate: WIKI.config.update.versionDate
       }
+    }
+  )
+
+  /**
+   * EXPORT CONTENT
+   */
+  app.post<{ Body: { siteId: string } }>(
+    '/export',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: "Export a site's content",
+        description:
+          'Queues a background job that serializes the pages, tree, assets (with their stored bytes) and groups into a single tarball under `<dataPath>/exports/`. Mirrors `POST /extensions/:key/install`: a large site can take a while to serialize, so allow the request a correspondingly long timeout even though the response itself only says the job was queued — poll the scheduler view for completion, then call the download route below.',
+        tags: ['System'],
+        body: {
+          type: 'object',
+          required: ['siteId'],
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Export queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description:
+                  'ID of the queued job. Pass it to the download route once it completes.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const added = await WIKI.scheduler.addJob({
+        task: 'exportContent',
+        payload: { siteId: req.body.siteId }
+      })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the export.')
+      }
+      return {
+        ok: true,
+        message: 'Content export queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * DOWNLOAD CONTENT EXPORT
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/export/:jobId/download',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Download a finished content export',
+        description:
+          "404s when no such export job exists (or its file has already been cleaned up), 409 when the job exists but has not completed yet. The file is deleted once it has finished streaming, so a job's tarball can only be downloaded once — queue a fresh export for another copy.",
+        tags: ['System'],
+        params: {
+          type: 'object',
+          required: ['jobId'],
+          properties: {
+            jobId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'The tarball',
+            content: {
+              'application/gzip': {
+                schema: {
+                  type: 'string',
+                  format: 'binary'
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      if (!entry || entry.task !== 'exportContent') {
+        return reply.notFound('No such export job.')
+      }
+      if (entry.state !== 'completed') {
+        return reply.conflict('This export has not finished yet.')
+      }
+
+      const result = entry.result as { filePath: string; fileSize: number } | null
+      if (!result?.filePath) {
+        return reply.notFound('This export left no file behind.')
+      }
+
+      let stat
+      try {
+        stat = await fsp.stat(result.filePath)
+      } catch {
+        return reply.notFound('This export file is no longer available.')
+      }
+
+      const stream = fs.createReadStream(result.filePath)
+      // -> Best-effort cleanup once the bytes are actually on the wire, not before: deleting on the
+      //    happy path here is what keeps a downloaded export from sitting in `<dataPath>/exports/`
+      //    until `purgeExports` gets to it on its own schedule.
+      stream.on('close', () => {
+        WIKI.models.export.deleteExport(result.filePath).catch(() => {})
+      })
+
+      reply.header('Content-Disposition', `attachment; filename="export-${entry.id}.tar.gz"`)
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('Content-Length', stat.size)
+      return reply.type('application/gzip').send(stream)
+    }
+  )
+
+  /**
+   * IMPORT CONTENT
+   */
+  app.post<{ Querystring: { targetSiteId: string } }>(
+    '/import',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Import content into a site',
+        description:
+          "The body is the raw archive produced by `POST /export`'s download, not a multipart form — send the file itself with its `Content-Type`. At most " +
+          `${importUploadLimit / 1024 / 1024} MB. Queues a background job, mirroring \`POST /export\`: reading a whole archive back apart and restoring it is not something a request thread should be blocked on, so the response only confirms the job was queued — poll the scheduler view for completion.\n\n` +
+          "**This replaces the target site's content, it does not merge with it.** Every page, tree entry (folder/page/asset) and asset already on `targetSiteId` is deleted before the archive's own are restored — an import puts the site back to exactly what the archive describes. Groups are the one exception: being global rather than site-scoped, each imported group updates one already on this instance if its id matches, or is added as a new one otherwise, rather than the whole `groups` table being replaced. The target site's own config, hostname and enabled state are left untouched — only pages, tree entries, assets and groups are restored. Every restored page's and asset's author/creator/owner is rewritten to the account performing the import, since accounts are not part of the archive, and every restored page/tree entry/asset gets a freshly generated id rather than reusing the one it had in the archive — that id space is instance-wide, not per-site, so reusing it would collide with the source site's own rows the moment that site still exists in the same database (restoring onto a *different* site than the one exported, or restoring a backup while the original is still around, are both ordinary uses of this). Groups are the one exception, matched by id on purpose.\n\nThe restore runs inside a single database transaction: a failure partway through — a malformed archive, a constraint violation — leaves the target site exactly as it was, never half-restored. An archive whose format version this instance does not recognize is refused outright before anything is touched, the same way.",
+        tags: ['System'],
+        consumes: ['application/gzip', 'application/x-gzip', 'application/octet-stream'],
+        querystring: {
+          type: 'object',
+          required: ['targetSiteId'],
+          properties: {
+            targetSiteId: {
+              type: 'string',
+              format: 'uuid',
+              description: 'The site whose content is replaced by this archive.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Import queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description: 'ID of the queued job.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const data = req.body
+      if (!Buffer.isBuffer(data) || data.length < 1) {
+        return reply.badRequest('No archive was sent.')
+      }
+      // -> The declared content type got the request this far; the gzip magic number is a cheap
+      //    sanity check before saving it to disk at all. The archive's actual structure and format
+      //    version are validated inside the queued job, which is where it is really read apart.
+      if (data[0] !== 0x1f || data[1] !== 0x8b) {
+        return reply.badRequest('Not a gzip archive, whatever the request said it was.')
+      }
+
+      const targetSite = await WIKI.models.sites.getSiteById({ id: req.query.targetSiteId })
+      if (!targetSite) {
+        return reply.notFound('Target site does not exist.')
+      }
+
+      const filePath = await WIKI.models.import.saveUpload(data)
+      const added = await WIKI.scheduler.addJob({
+        task: 'importContent',
+        payload: {
+          filePath,
+          targetSiteId: req.query.targetSiteId,
+          importedById: req.session.user!.id
+        }
+      })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the import.')
+      }
+      return {
+        ok: true,
+        message: 'Content import queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * SCAN FOR PAGE PROBLEMS
+   */
+  app.post(
+    '/pages/scan',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Scan for page problems',
+        description:
+          'Queues a background job that runs four integrity checks across every site: pages whose stored hash has drifted from their path, tree entries and pages that have diverged from each other, duplicate (site, locale, path) tuples, and page relations pointing at a page that no longer exists. Runs in the background — a full scan is not instant on a large wiki — and only reports; nothing is repaired automatically. Poll `GET /pages/scan/:jobId` for the result.',
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Scan queued successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              id: {
+                type: 'string',
+                format: 'uuid',
+                description: 'ID of the queued job. Pass it to the status route below.'
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const added = await WIKI.scheduler.addJob({ task: 'scanPageProblems' })
+      if (!added?.id) {
+        return reply.internalServerError('The scheduler could not queue the scan.')
+      }
+      return {
+        ok: true,
+        message: 'Page problems scan queued successfully.',
+        id: added.id
+      }
+    }
+  )
+
+  /**
+   * GET PAGE PROBLEMS SCAN RESULT
+   */
+  app.get<{ Params: { jobId: string } }>(
+    '/pages/scan/:jobId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Get a page problems scan job',
+        description:
+          "The job's current state, and its report once `state` is `completed`. 404s when no such scan job exists.",
+        tags: ['System'],
+        params: {
+          type: 'object',
+          properties: {
+            jobId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['jobId']
+        },
+        response: {
+          200: {
+            description: 'Scan job state and, once completed, its report',
+            type: 'object',
+            properties: {
+              state: {
+                type: 'string',
+                enum: ['queued', ...JOB_STATES],
+                description:
+                  '`queued` while still waiting to be picked up — it has not reached job history yet.'
+              },
+              result: {
+                type: 'object',
+                nullable: true,
+                description: 'Null until the job has completed.',
+                properties: {
+                  hashDrift: {
+                    type: 'object',
+                    description:
+                      'Pages whose stored hash no longer matches generatePathHash(path).',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  treeDivergence: {
+                    type: 'object',
+                    description:
+                      'Tree entries and pages that have diverged from each other, matched by id.',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  duplicatePaths: {
+                    type: 'object',
+                    description: 'Groups of pages sharing the same (siteId, locale, path).',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  brokenRelations: {
+                    type: 'object',
+                    description: 'Page relations pointing at a page that no longer exists.',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  scannedAt: {
+                    type: 'string',
+                    format: 'date-time'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const entry = await WIKI.models.jobs.getHistoryEntry(req.params.jobId)
+      if (entry) {
+        if (entry.task !== 'scanPageProblems') {
+          return reply.notFound('No such scan job.')
+        }
+        return {
+          state: entry.state,
+          result: entry.result ?? null
+        }
+      }
+
+      // -> Not in history yet: it may simply not have been picked up off the queue by any instance
+      //    yet, which is not the same as not existing (see `Jobs#getPendingEntry`)
+      const pending = await WIKI.models.jobs.getPendingEntry(req.params.jobId)
+      if (!pending || pending.task !== 'scanPageProblems') {
+        return reply.notFound('No such scan job.')
+      }
+      return { state: 'queued', result: null }
     }
   )
 }

@@ -368,7 +368,11 @@ export const jobHistory = pgTable(
     executedBy: varchar({ length: 255 }),
     createdAt: timestamp().notNull(),
     startedAt: timestamp().notNull().defaultNow(),
-    completedAt: timestamp()
+    completedAt: timestamp(),
+    // -> Whatever a task chose to hand back, e.g. `exportContent`'s `{ filePath, fileSize }` — set via
+    //    `models/jobs.ts#setResult`, which is how a follow-up route (the export download) finds what a
+    //    background job produced without the two coupling to anything more specific than a job id.
+    result: jsonb()
   },
   (table) => [
     // -> `models/hooks.ts#getDeliveryHistory()` filters this generic table by

@@ -1,0 +1,1 @@
+ALTER TABLE "jobHistory" ADD COLUMN "result" jsonb;

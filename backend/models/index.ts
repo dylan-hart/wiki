@@ -7,17 +7,20 @@ import { blocks } from './blocks.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
+import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
 import { groups } from './groups.ts'
 import { hooks } from './hooks.ts'
 import { icons } from './icons.ts'
 import { pageImport } from './import.ts'
+import { importModel as siteImportModel } from './siteImport.ts'
 import { jobs } from './jobs.ts'
 import { locales } from './locales.ts'
 import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
+import { pageProblems } from './pageProblems.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
 import { pageWatching } from './pageWatching.ts'
@@ -45,17 +48,20 @@ export default {
   commentProviders,
   comments,
   contentSync,
+  export: exportModel,
   extensions,
   flags,
   groups,
   hooks,
   icons,
   pageImport,
+  import: siteImportModel,
   jobs,
   locales,
   mail,
   navigation,
   pageHistory,
+  pageProblems,
   pages,
   pageWatchEvents,
   pageWatching,

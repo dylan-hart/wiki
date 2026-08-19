@@ -188,7 +188,12 @@ class ApiKeys {
 
     WIKI.config.auth = { ...previousAuth, certs: generateSigningCertificates() }
     // -> Propagates as `reloadConfig`, which is how the other instances pick up the new public key
-    //    rather than going on trusting tokens this one has just disowned
+    //    rather than going on trusting tokens this one has just disowned. Unlike the session secret
+    //    (see the FIXME in `index.ts`), this needs no restart: `verify()` below reads
+    //    `WIKI.config.auth.certs.public` fresh on every call rather than a value handed to a plugin at
+    //    boot, so `reloadConfig`'s `loadFromDb()` is enough on its own. Verified live across a real
+    //    two-instance setup for task 589 — a second instance picked up the new `generatedAt` within a
+    //    second of this call, with no restart.
     if (!(await WIKI.configSvc.saveToDb(['auth']))) {
       WIKI.config.auth = previousAuth
       return null
@@ -311,6 +316,10 @@ class ApiKeys {
    * anything about — it stopped working because the certificates moved, and the row is what tells its
    * owner they have to reissue it. A key that is both revoked and invalidated goes: revoking is the
    * decision, and this deletes what was decided about.
+   *
+   * Needs none of `core/maintenance.ts`'s HA handling either, for the same reason `pageHistory.purge`
+   * doesn't: nothing here lives outside the row, so a `DELETE` is immediately the same fact on every
+   * instance's next query. Verified against a real two-instance setup for task 589.
    *
    * @returns How many keys were deleted
    */

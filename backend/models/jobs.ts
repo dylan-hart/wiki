@@ -41,6 +41,20 @@ export const JOB_SCHEDULE_SEED = [
     cron: '10 * * * *',
     type: 'system'
   },
+  // -> Sweeps expired site-backup archives/uploads off disk — see
+  //    `tasks/simple/purge-exports.ts` / `models/export.ts` and
+  //    `tasks/simple/purge-imports.ts` / `models/siteImport.ts`. Offset five minutes apart, both
+  //    ahead of the midnight housekeeping jobs below.
+  {
+    task: 'purgeExports',
+    cron: '15 0 * * *',
+    type: 'system'
+  },
+  {
+    task: 'purgeImports',
+    cron: '20 0 * * *',
+    type: 'system'
+  },
   {
     task: 'updateLocales',
     cron: '0 0 * * *',
@@ -234,6 +248,30 @@ class Jobs {
       .where(eq(jobHistoryTable.id, id))
       .limit(1)
     return results[0] ?? null
+  }
+
+  /**
+   * A single pending-queue entry, or null if no such job is waiting.
+   *
+   * A job just queued with `addJob` lives here, not in `jobHistory`, until some instance picks it
+   * up — a caller polling for a result by id needs both, since the gap between the two can be a
+   * poll interval wide.
+   */
+  async getPendingEntry(id: string) {
+    const results = await WIKI.db.select().from(jobsTable).where(eq(jobsTable.id, id)).limit(1)
+    return results[0] ?? null
+  }
+
+  /**
+   * Record what a task produced, keyed by its own job id.
+   *
+   * The generic escape hatch a task uses to hand something back to whoever queued it — `payload` is
+   * what a task was given, this is what it made. `exportContent` is the first user: it stores
+   * `{ filePath, fileSize }` here so the download route can find the tarball without either side
+   * knowing anything more specific about the other.
+   */
+  async setResult(id: string, result: Record<string, any>): Promise<void> {
+    await WIKI.db.update(jobHistoryTable).set({ result }).where(eq(jobHistoryTable.id, id))
   }
 
   /**

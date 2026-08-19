@@ -1,0 +1,282 @@
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import zlib from 'node:zlib'
+import { finished } from 'node:stream/promises'
+import { extract } from 'tar-stream'
+import { v4 as uuid } from 'uuid'
+import { eq } from 'drizzle-orm'
+import {
+  assets as assetsTable,
+  groups as groupsTable,
+  pages as pagesTable,
+  sites as sitesTable,
+  tree as treeTable
+} from '../db/schema.ts'
+import { EXPORT_FORMAT_VERSION } from './export.ts'
+
+/** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
+const IMPORT_TTL_SECONDS = 24 * 60 * 60
+
+export interface ImportResult {
+  pages: number
+  tree: number
+  assets: number
+  groups: number
+}
+
+/**
+ * Read a gzipped tarball fully into memory as `{ entryName: bytes }`.
+ *
+ * Buffering every entry rather than streaming each one against the database as it arrives: the JSON
+ * entries need to be parsed and validated *before* anything is written (see `importSite`), and the
+ * binary asset entries are headed for a single transaction together with everything else, so nothing
+ * here can be applied incrementally as it is read regardless.
+ */
+async function readArchive(filePath: string): Promise<Record<string, Buffer>> {
+  const entries: Record<string, Buffer> = {}
+  const extractor = extract()
+  extractor.on('entry', (header, stream, next) => {
+    const chunks: Buffer[] = []
+    stream.on('data', (chunk) => chunks.push(chunk))
+    stream.on('end', () => {
+      entries[header.name] = Buffer.concat(chunks)
+      next()
+    })
+    stream.resume()
+  })
+
+  fs.createReadStream(filePath).pipe(zlib.createGunzip()).pipe(extractor)
+  await finished(extractor)
+  return entries
+}
+
+/** Read and parse one JSON entry, or fail with a message naming what was missing/malformed. */
+function readJson<T>(entries: Record<string, Buffer>, name: string): T {
+  const buf = entries[name]
+  if (!buf) {
+    throw new Error(`Malformed import archive: missing ${name}.`)
+  }
+  try {
+    return JSON.parse(buf.toString('utf8')) as T
+  } catch {
+    throw new Error(`Malformed import archive: ${name} is not valid JSON.`)
+  }
+}
+
+/**
+ * Content import model
+ *
+ * The mirror image of `models/export.ts`: reads back a tarball `exportSite` produced and restores it
+ * into a target site, for the "Import content" system utility. Structure and version are checked
+ * before anything is opened against the database, and the restore itself runs inside a single
+ * transaction, so a mid-import failure — a malformed row, a constraint violation, the process dying —
+ * leaves the target site exactly as it was rather than half-restored.
+ *
+ * Two things the export cannot carry are resolved here, deliberately and not as a fallback for a case
+ * that "shouldn't occur":
+ *
+ * - **Site content is replaced, not merged.** Every existing page, tree entry and asset belonging to
+ *   the target site is deleted before the imported ones are inserted. Pages and tree entries are
+ *   matched by path/locale with no natural merge order, so "restore" is defined as putting the site
+ *   back to exactly what the archive describes, not layering it on top of whatever is already there.
+ * - **Pages, tree entries and assets get fresh ids, unlike groups.** `pages.id`/`tree.id`/`assets.id`
+ *   are one global primary-key space, not scoped per site, so re-using the archive's own ids would
+ *   collide with the source site's rows the moment it still exists in the same database — restoring a
+ *   backup while the original site is still around, or duplicating one site's content into another,
+ *   are both ordinary uses of this, not edge cases. A page's and an asset's tree entry share its id
+ *   (see below), so the new id is generated once per page/asset and carried through to its tree row
+ *   rather than each row picking its own.
+ * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets, groups are global rather
+ *   than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore one
+ *   site's export would take every other site's access model with it. An imported group updates one
+ *   already on this instance when its id matches (the ordinary case: restoring a backup onto the same
+ *   instance that produced it) or is inserted as a new one when it does not (importing onto a
+ *   different instance).
+ * - **Authorship cannot travel with the content**, since accounts are not part of the export — every
+ *   imported page's and asset's author/creator/owner columns are rewritten to the account performing
+ *   the import.
+ * - **The target site's own config, hostname and enabled state are left untouched.** `site.json` is
+ *   validated as present (it is part of the archive's structure) but its contents are not applied —
+ *   only pages, tree entries, assets and groups are what this restores.
+ */
+class ImportModel {
+  /** `<dataPath>/imports` — created on first use, same as the export/icon/asset caches. */
+  get importsPath(): string {
+    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath, 'imports')
+  }
+
+  /**
+   * Save an uploaded archive to `<dataPath>/imports/`, returning the path the queued job reads it
+   * back from.
+   */
+  async saveUpload(data: Buffer): Promise<string> {
+    await fsp.mkdir(this.importsPath, { recursive: true })
+    const filePath = path.join(this.importsPath, `${uuid()}.tar.gz`)
+    await fsp.writeFile(filePath, data)
+    return filePath
+  }
+
+  /**
+   * Delete one uploaded archive. Best-effort and idempotent — called once the import task is done
+   * with it (success or failure alike, unlike an export's tarball, which is a downloadable product
+   * rather than a working file).
+   */
+  async deleteUpload(filePath: string): Promise<void> {
+    await fsp.unlink(filePath).catch(() => {})
+  }
+
+  /**
+   * Sweep `<dataPath>/imports/` of anything older than the TTL — an upload whose job never ran to
+   * completion to clean up after itself (a crash mid-import). Safe to call when the directory does
+   * not exist yet.
+   *
+   * @returns How many files were removed
+   */
+  async purgeExpired(): Promise<number> {
+    let files: string[]
+    try {
+      files = await fsp.readdir(this.importsPath)
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        return 0
+      }
+      throw err
+    }
+
+    const cutoff = Temporal.Now.instant().subtract({ seconds: IMPORT_TTL_SECONDS })
+    let purged = 0
+    for (const entry of files) {
+      const entryPath = path.join(this.importsPath, entry)
+      const stat = await fsp.stat(entryPath)
+      if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
+        await fsp.unlink(entryPath)
+        purged++
+      }
+    }
+    return purged
+  }
+
+  /**
+   * Restore a tarball produced by `exportModel.exportSite` into `targetSiteId`.
+   *
+   * @param filePath Path to the uploaded archive, as returned by `saveUpload`.
+   * @param targetSiteId The site pages/tree/assets are restored into. Must already exist.
+   * @param importedById The account performing the import — every restored page/asset's
+   *   author/creator/owner columns are rewritten to this id, since accounts are not part of the
+   *   archive.
+   * @returns How many rows of each kind were restored, which the caller (`importContent`'s task)
+   *   records on the job's history row via `WIKI.models.jobs.setResult`.
+   */
+  async importSite(
+    filePath: string,
+    targetSiteId: string,
+    importedById: string
+  ): Promise<ImportResult> {
+    const entries = await readArchive(filePath)
+
+    // -> Structure and version are validated in full before a single query runs against the
+    //    database — an archive this code does not recognize is refused outright, never restored
+    //    best-effort. `readJson` itself is what enforces every entry's mere presence.
+    const manifest = readJson<{ formatVersion?: number }>(entries, 'manifest.json')
+    if (manifest.formatVersion !== EXPORT_FORMAT_VERSION) {
+      throw new Error(
+        `Unsupported import archive version ${manifest.formatVersion ?? '(none)'} — this instance can only restore version ${EXPORT_FORMAT_VERSION} archives.`
+      )
+    }
+    // -> Validated for presence, deliberately unused: the target site's own config/hostname/enabled
+    //    state are not part of what an import restores (see the class-level doc comment).
+    readJson<Record<string, any>>(entries, 'site.json')
+    const pageRows = readJson<Record<string, any>[]>(entries, 'pages.json')
+    const treeRows = readJson<Record<string, any>[]>(entries, 'tree.json')
+    const groupRows = readJson<Record<string, any>[]>(entries, 'groups.json')
+    const assetManifest = readJson<Record<string, any>[]>(entries, 'assets/manifest.json')
+
+    const targetSiteRows = await WIKI.db
+      .select({ id: sitesTable.id })
+      .from(sitesTable)
+      .where(eq(sitesTable.id, targetSiteId))
+      .limit(1)
+    if (!targetSiteRows[0]) {
+      throw new Error(`Target site ${targetSiteId} does not exist.`)
+    }
+
+    // -> Fresh ids for pages and assets, computed up front so a tree entry can be matched to the
+    //    same new id its page/asset just got — see the class-level doc comment.
+    const pageIdMap = new Map<string, string>(pageRows.map((row) => [row.id, uuid()]))
+    const assetIdMap = new Map<string, string>(assetManifest.map((row) => [row.id, uuid()]))
+
+    const mappedPageRows = pageRows.map((row) => ({
+      ...row,
+      id: pageIdMap.get(row.id),
+      siteId: targetSiteId,
+      authorId: importedById,
+      creatorId: importedById,
+      ownerId: importedById
+    }))
+
+    const mappedAssetRows = assetManifest.map((meta) => ({
+      ...meta,
+      id: assetIdMap.get(meta.id),
+      data: entries[`assets/${meta.id}.data`] ?? null,
+      preview: entries[`assets/${meta.id}.preview`] ?? null,
+      siteId: targetSiteId,
+      authorId: importedById
+    }))
+
+    const mappedTreeRows = treeRows.map((row) => {
+      // -> A folder has no page/asset counterpart to stay in step with, so it simply gets a new id
+      //    of its own; a page's or asset's tree entry must resolve to the exact id that row just got
+      const newId =
+        row.type === 'page'
+          ? pageIdMap.get(row.id)
+          : row.type === 'asset'
+            ? assetIdMap.get(row.id)
+            : uuid()
+      if (!newId) {
+        throw new Error(
+          `Malformed import archive: tree entry ${row.id} (${row.type}) has no matching entry in ${row.type === 'page' ? 'pages.json' : 'assets/manifest.json'}.`
+        )
+      }
+      return { ...row, id: newId, siteId: targetSiteId }
+    })
+
+    await WIKI.db.transaction(async (tx) => {
+      // -> Site content is replaced outright — see the class-level doc comment. Deleted before
+      //    anything is inserted, all three scoped to the target site alone.
+      await tx.delete(assetsTable).where(eq(assetsTable.siteId, targetSiteId))
+      await tx.delete(treeTable).where(eq(treeTable.siteId, targetSiteId))
+      await tx.delete(pagesTable).where(eq(pagesTable.siteId, targetSiteId))
+
+      // -> Groups are global, so they are upserted by id rather than replaced wholesale — see the
+      //    class-level doc comment.
+      for (const group of groupRows) {
+        await tx
+          .insert(groupsTable)
+          .values(group as any)
+          .onConflictDoUpdate({ target: groupsTable.id, set: group as any })
+      }
+
+      if (mappedPageRows.length > 0) {
+        await tx.insert(pagesTable).values(mappedPageRows as any)
+      }
+
+      if (mappedTreeRows.length > 0) {
+        await tx.insert(treeTable).values(mappedTreeRows as any)
+      }
+
+      if (mappedAssetRows.length > 0) {
+        await tx.insert(assetsTable).values(mappedAssetRows as any)
+      }
+    })
+
+    return {
+      pages: mappedPageRows.length,
+      tree: mappedTreeRows.length,
+      assets: mappedAssetRows.length,
+      groups: groupRows.length
+    }
+  }
+}
+
+export const importModel = new ImportModel()

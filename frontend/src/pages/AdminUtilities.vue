@@ -89,7 +89,7 @@
                 flat
                 icon="la:arrow-circle-right"
                 color="primary"
-                disabled
+                @click="pickImportFile"
                 :label="t(`common.actions.proceed`)" />
             </w-item-section>
           </w-item>
@@ -185,18 +185,58 @@
                 flat
                 icon="la:arrow-circle-right"
                 color="primary"
-                disabled
+                :loading="state.isScanning"
+                :aria-label="t(`admin.utilities.scanPageProblems`)"
+                @click="scanPageProblems"
                 :label="t(`common.actions.proceed`)" />
             </w-item-section>
           </w-item>
         </w-list>
       </w-card>
+      <!--
+        Inline rather than a dialog or the scheduler's history view: the value of this scan is the
+        list of what it found, and an admin reviewing that wants it beside the button that ran it, not
+        behind another click.
+      -->
+      <w-card v-if="state.scanReport" class="mt-4">
+        <w-card-section>
+          <div class="text-subtitle1">{{ t('admin.utilities.scanPageProblemsResults') }}</div>
+          <div class="text-caption text-grey">
+            {{ t('admin.utilities.scanPageProblemsScannedAt', { date: scanReportScannedAt }) }}
+          </div>
+        </w-card-section>
+        <w-separator />
+        <div v-if="!scanReportHasProblems" class="p-4 text-center text-grey">
+          {{ t('admin.utilities.scanPageProblemsNone') }}
+        </div>
+        <w-list v-else separator>
+          <w-expansion-item
+            v-for="check of scanChecks"
+            :key="check.key"
+            v-show="check.entries.length > 0"
+            :label="`${check.label} (${check.entries.length})`">
+            <w-list dense separator class="pl-4">
+              <w-item v-for="(entry, idx) of check.entries" :key="idx">
+                <w-item-section>
+                  <w-item-label class="font-robotomono">{{ check.format(entry) }}</w-item-label>
+                </w-item-section>
+              </w-item>
+            </w-list>
+          </w-expansion-item>
+        </w-list>
+      </w-card>
     </div>
+    <input
+      type="file"
+      ref="importFileIpt"
+      accept=".gz,.tgz,application/gzip"
+      @change="importFileSelected"
+      style="display: none" />
   </w-page>
 </template>
 
 <script setup>
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
@@ -224,8 +264,13 @@ useMeta({
 // DATA
 
 const state = reactive({
-  purgeHistoryTimeframe: '1y'
+  purgeHistoryTimeframe: '1y',
+  isScanning: false,
+  /** The last completed scan's report, or null before one has run. See `scanPageProblems`. */
+  scanReport: null
 })
+
+const importFileIpt = ref(null)
 
 // COMPUTED
 
@@ -237,6 +282,64 @@ const purgeHistoryTimeframes = computed(() => [
   { value: '1y', label: t('admin.utitilies.purgeHistoryYear', 1, { count: 1 }) },
   { value: '2y', label: t('admin.utitilies.purgeHistoryYear', 2, { count: 2 }) }
 ])
+
+const scanReportScannedAt = computed(() => {
+  if (!state.scanReport?.scannedAt) {
+    return ''
+  }
+  return Temporal.Instant.from(state.scanReport.scannedAt).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  })
+})
+
+/**
+ * The report's four checks, each with its entries rendered as one readable line — a raw dump of
+ * every field would be harder to scan than the sentence a human would write about it.
+ */
+const scanChecks = computed(() => {
+  if (!state.scanReport) {
+    return []
+  }
+  return [
+    {
+      key: 'hashDrift',
+      label: t('admin.utilities.scanPageProblemsHashDrift'),
+      entries: state.scanReport.hashDrift.entries,
+      format: (e) => `/${e.path} — stored ${e.storedHash}, expected ${e.expectedHash}`
+    },
+    {
+      key: 'treeDivergence',
+      label: t('admin.utilities.scanPageProblemsTreeDivergence'),
+      entries: state.scanReport.treeDivergence.entries,
+      format: (e) =>
+        e.direction === 'orphanTreeEntry'
+          ? t('admin.utilities.scanPageProblemsOrphanTreeEntry', { path: e.path })
+          : t('admin.utilities.scanPageProblemsOrphanPageRow', { path: e.path })
+    },
+    {
+      key: 'duplicatePaths',
+      label: t('admin.utilities.scanPageProblemsDuplicatePaths'),
+      entries: state.scanReport.duplicatePaths.entries,
+      format: (e) => `/${e.path} (${e.locale}) — ${e.pageIds.length} pages: ${e.pageIds.join(', ')}`
+    },
+    {
+      key: 'brokenRelations',
+      label: t('admin.utilities.scanPageProblemsBrokenRelations'),
+      entries: state.scanReport.brokenRelations.entries,
+      format: (e) => `/${e.path} → ${e.target}`
+    }
+  ]
+})
+
+const scanReportHasProblems = computed(() =>
+  scanChecks.value.some((check) => check.entries.length > 0)
+)
 
 // METHODS
 
@@ -437,6 +540,69 @@ function purgeRevokedKeys() {
 }
 
 /**
+ * Open the file picker for a content archive to import. The actual upload happens in
+ * {@link importFileSelected} once a file has been chosen, so this only ever triggers the native
+ * dialog.
+ */
+function pickImportFile() {
+  importFileIpt.value.click()
+}
+
+/**
+ * Confirm, then upload the picked archive and queue its restore into the current site.
+ *
+ * Confirmed and coloured as a destruction, matching `purgeHistory`/`invalidApiCertificates`: unlike
+ * those, this one names the site by hostname, since what it is about to overwrite is not obvious from
+ * the button alone. The body is the raw file (not a multipart form), same pattern `FileManager.vue`
+ * uses to upload an asset.
+ */
+function importFileSelected() {
+  const file = importFileIpt.value.files?.[0]
+  if (!file) {
+    return
+  }
+
+  confirm({
+    title: t('admin.utilities.import'),
+    message: t('admin.utilities.importConfirm', { site: siteStore.hostname }),
+    caption: t('admin.utilities.importConfirmWarn'),
+    cancel: true,
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.proceed')
+  })
+    .onOk(async () => {
+      loading.show()
+      try {
+        const resp = await API_CLIENT.post('system/import', {
+          searchParams: { targetSiteId: siteStore.id },
+          headers: {
+            'content-type': file.type || 'application/gzip'
+          },
+          body: file
+        }).json()
+        if (!resp?.ok) {
+          throw new Error(resp?.message || 'An unexpected error occured.')
+        }
+        notify({
+          type: 'positive',
+          message: t('admin.utilities.importSuccess')
+        })
+      } catch (err) {
+        notify({
+          type: 'negative',
+          message: t('admin.utilities.importFailed'),
+          caption: apiErrorMessage(err)
+        })
+      }
+      loading.hide()
+    })
+    .onDismiss(() => {
+      importFileIpt.value.value = null
+    })
+}
+
+/**
  * Throw away everything the wiki has cached off the database — files, icons, and the site, group and
  * locale state read on every request. Not confirmed: nothing is lost and nothing stops working, the
  * next request simply pays for the refill.
@@ -460,6 +626,45 @@ async function flushCache() {
     })
   }
   loading.hide()
+}
+
+/** How long to wait between polls of a running scan job. */
+const SCAN_POLL_INTERVAL_MS = 1500
+
+/**
+ * Queue a page problems scan and poll its job until it finishes, then show the report inline (see the
+ * template) rather than just a toast — a scan's whole value is the list of what it found.
+ *
+ * Not confirmed: this only reads, nothing it does is destructive.
+ */
+async function scanPageProblems() {
+  state.isScanning = true
+  state.scanReport = null
+  try {
+    const queued = await API_CLIENT.post('system/pages/scan').json()
+    if (!queued?.ok || !queued?.id) {
+      throw new Error(queued?.message || 'An unexpected error occured.')
+    }
+
+    let job
+    do {
+      await new Promise((resolve) => setTimeout(resolve, SCAN_POLL_INTERVAL_MS))
+      job = await API_CLIENT.get(`system/pages/scan/${queued.id}`).json()
+    } while (job.state === 'queued' || job.state === 'active')
+
+    if (job.state !== 'completed' || !job.result) {
+      throw new Error(t('admin.utilities.scanPageProblemsFailed'))
+    }
+
+    state.scanReport = job.result
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.utilities.scanPageProblemsFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.isScanning = false
 }
 </script>
 
