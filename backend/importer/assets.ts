@@ -179,7 +179,9 @@ export interface WriteImportedAssetOptions {
  *   trusted from the source's own `kind`/`mime` columns (see `resolveKindAndMime`).
  * - `preview` is regenerated via `makeImageThumbnail` for an image-kind asset, since 2.x never stored
  *   one of its own to carry over.
- * - `storageInfo` is left null: it is populated by the storage layer post-import, not by this writer.
+ * - Storage-target dispatch (mirroring the asset out to whichever targets a site has configured) is
+ *   not this writer's concern either — `models/storage.ts`'s own dispatch/sync path picks it up from
+ *   the `assets` row this leaves behind, the same way it does for a live upload.
  *
  * An `authorId` that does not resolve to a user task 414 already imported (including a null one) falls
  * back to `systemIds.userAdminId` and is recorded on `summary` rather than failing the item.

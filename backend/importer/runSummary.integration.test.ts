@@ -1,106 +1,64 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import { inArray } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { migrate } from 'drizzle-orm/node-postgres/migrator'
-import { Pool } from 'pg'
-import { assets as assetsTable, sites as sitesTable, users as usersTable } from '../db/schema.ts'
-import { tree } from '../models/tree.ts'
-import { users } from '../models/users.ts'
+import { assets as assetsTable } from '../db/schema.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import type { SystemIds } from '../models/types.ts'
 import type { SourceAssetRecord } from './assets.ts'
 import { applyAssets, createImportRunSummary, validateAssets } from './runSummary.ts'
 
 /**
- * Integration coverage for `applyAssets`, run against a throwaway Postgres — same setup as
- * `assets.test.ts`/`assetBatch.test.ts`, on the `wiki-test-db-758` container started by hand for this
- * task (never in this file: the test assumes it is already running, and does not manage its
- * lifecycle).
+ * Integration coverage for `applyAssets`, run against the shared DB-backed test fixture (see
+ * `test/db.ts`), gated on `hasTestDatabase()` like every other DB-backed suite in this repo rather
+ * than assuming a hand-started container is already listening on a hardcoded port.
  *
  * The point of this file is narrower than re-testing `importAssetsInBatches` itself (already covered
  * by `assetBatch.test.ts`): it confirms `applyAssets` folds a real write run into the exact same
  * `ImportRunSummary` shape — same field names, same counts — that `validateAssets`'s dry run produces
  * for the identical input, which is this task's whole point.
  */
-const PORT = 55758
+describe('applyAssets', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let siteId: string
+  let systemIds: SystemIds
 
-let pool: Pool
-let db: ReturnType<typeof drizzle>
-let siteId: string
-let systemIds: SystemIds
-
-before(async () => {
-  pool = new Pool({
-    host: '127.0.0.1',
-    port: PORT,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'postgres'
-  })
-  db = drizzle({ client: pool })
-
-  await db.execute('CREATE EXTENSION IF NOT EXISTS ltree')
-  await db.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-  await migrate(db, {
-    migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
-    migrationsSchema: 'public',
-    migrationsTable: 'migrations'
+  before(async () => {
+    fixtures = await setupTestDb()
+    siteId = fixtures.siteId
+    systemIds = {
+      groupAdminId: randomUUID(),
+      groupUserId: randomUUID(),
+      groupGuestId: randomUUID(),
+      siteId,
+      authModuleId: randomUUID(),
+      userAdminId: fixtures.userId,
+      userGuestId: randomUUID()
+    }
   })
 
-  ;(global as any).WIKI = {
-    db,
-    logger: { debug() {}, info() {}, warn() {}, error() {} },
-    models: { tree, users },
-    sites: {}
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function baseRecord(overrides: Partial<SourceAssetRecord> = {}): SourceAssetRecord {
+    const filename = overrides.filename ?? 'photo.png'
+    return {
+      sourceId: filename,
+      filename,
+      ext: '.png',
+      mime: 'image/png',
+      fileSize: 4,
+      data: Buffer.from('data'),
+      folderPath: '',
+      authorId: null,
+      siteId,
+      createdAt: new Date('2020-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2020-01-01T00:00:00.000Z'),
+      ...overrides
+    }
   }
 
-  const insertedSite = await db
-    .insert(sitesTable)
-    .values({ hostname: 'test.local', isEnabled: true, config: { locales: { primary: 'en' } } })
-    .returning()
-  siteId = insertedSite[0].id
-  ;(global as any).WIKI.sites[siteId] = { config: { locales: { primary: 'en' } } }
-
-  const insertedUsers = await db
-    .insert(usersTable)
-    .values([{ email: 'admin@example.com', name: 'Administrator' }])
-    .returning()
-  systemIds = {
-    groupAdminId: randomUUID(),
-    groupUserId: randomUUID(),
-    groupGuestId: randomUUID(),
-    siteId,
-    authModuleId: randomUUID(),
-    userAdminId: insertedUsers[0].id,
-    userGuestId: randomUUID()
-  }
-})
-
-after(async () => {
-  await pool.end()
-})
-
-function baseRecord(overrides: Partial<SourceAssetRecord> = {}): SourceAssetRecord {
-  const filename = overrides.filename ?? 'photo.png'
-  return {
-    sourceId: filename,
-    filename,
-    ext: '.png',
-    mime: 'image/png',
-    fileSize: 4,
-    data: Buffer.from('data'),
-    folderPath: '',
-    authorId: null,
-    siteId,
-    createdAt: new Date('2020-01-01T00:00:00.000Z'),
-    updatedAt: new Date('2020-01-01T00:00:00.000Z'),
-    ...overrides
-  }
-}
-
-describe('applyAssets', () => {
   test('writes for real and folds counts into the shared ImportRunSummary shape', async () => {
     const run = createImportRunSummary('apply')
     await applyAssets(
@@ -117,7 +75,7 @@ describe('applyAssets', () => {
     assert.equal(run.assets.failed, 0)
     assert.equal(run.assets.byteTotal, 30)
 
-    const rows = await db
+    const rows = await fixtures.db
       .select()
       .from(assetsTable)
       .where(inArray(assetsTable.fileName, ['apply-1.png', 'apply-2.png']))

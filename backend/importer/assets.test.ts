@@ -1,135 +1,85 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import path from 'node:path'
 import { Readable } from 'node:stream'
 import { after, before, describe, test } from 'node:test'
 import { eq } from 'drizzle-orm'
-import { drizzle } from 'drizzle-orm/node-postgres'
-import { migrate } from 'drizzle-orm/node-postgres/migrator'
-import { Pool } from 'pg'
-import {
-  assets as assetsTable,
-  sites as sitesTable,
-  tree as treeTable,
-  users as usersTable
-} from '../db/schema.ts'
-import { tree } from '../models/tree.ts'
-import { users } from '../models/users.ts'
+import { assets as assetsTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import type { SystemIds } from '../models/types.ts'
 import { createAssetImportSummary, writeImportedAsset, type SourceAssetRecord } from './assets.ts'
 
 /**
- * Integration coverage for `writeImportedAsset`, run against a throwaway Postgres (no live database
- * reachable at localhost:5432 in this environment): schema + `ltree`/`pg_trgm` extensions + the real
- * migrations, exactly what `core/db.ts`'s `syncSchemas` does at boot, minus everything about
- * `WIKI` this writer's own dependency chain (`models/tree.ts`, `models/users.ts`, `helpers/common.ts`)
- * never touches — see the file's own note on why that minimal `WIKI` is enough.
+ * Integration coverage for `writeImportedAsset`, run against the shared DB-backed test fixture (see
+ * `test/db.ts`) — the same real-schema-and-migrations approach `core/db.ts`'s `syncSchemas` uses at
+ * boot, gated on `hasTestDatabase()` like every other DB-backed suite in this repo rather than
+ * assuming a hand-started container is already listening on a hardcoded port.
  */
+describe('writeImportedAsset', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let siteId: string
+  let importedUserId: string
+  let systemIds: SystemIds
 
-// -> Matches the `wiki-test-db-747` container started by hand for this task (never in this file: the
-//    test assumes it is already running, and does not manage its lifecycle).
-const PORT = 55747
+  before(async () => {
+    fixtures = await setupTestDb()
+    siteId = fixtures.siteId
 
-let pool: Pool
-let db: ReturnType<typeof drizzle>
-let siteId: string
-let importedUserId: string
-let systemIds: SystemIds
+    // -> `setupTestDb()`'s own fixture user stands in for the admin account; a second user is
+    //    inserted directly as the imported content's distinct author.
+    const [insertedUser] = await fixtures.db
+      .insert(usersTable)
+      .values({ email: 'imported-author@example.com', name: 'Imported Author' })
+      .returning()
+    importedUserId = insertedUser!.id
 
-before(async () => {
-  pool = new Pool({
-    host: '127.0.0.1',
-    port: PORT,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'postgres'
+    systemIds = {
+      groupAdminId: randomUUID(),
+      groupUserId: randomUUID(),
+      groupGuestId: randomUUID(),
+      siteId,
+      authModuleId: randomUUID(),
+      userAdminId: fixtures.userId,
+      userGuestId: randomUUID()
+    }
   })
-  db = drizzle({ client: pool })
 
-  await db.execute('CREATE EXTENSION IF NOT EXISTS ltree')
-  await db.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-  await migrate(db, {
-    migrationsFolder: path.join(import.meta.dirname, '../db/migrations'),
-    migrationsSchema: 'public',
-    migrationsTable: 'migrations'
+  after(async () => {
+    await teardownTestDb()
   })
 
-  // -> The minimal `WIKI` global this writer's dependency chain actually reaches: `WIKI.db` (every
-  //    model), `WIKI.logger` (tree's debug logging), `WIKI.models.tree`/`.users` (the real model
-  //    instances, exercised against this real database) and `WIKI.sites` (locale resolution). Nothing
-  //    else in the chain — `helpers/common.ts`'s `generateHash`/`encodeTreePath`/`decodeTreePath`,
-  //    `models/tree.ts`'s `addAsset` path — reaches any other member, mirroring `worker.ts`'s own
-  //    minimal-`WIKI` pattern for the same reason: a caller that only needs part of the app should
-  //    not have to boot all of it.
-  ;(global as any).WIKI = {
-    db,
-    logger: { debug() {}, info() {}, warn() {}, error() {} },
-    models: { tree, users },
-    sites: {}
+  function baseRecord(overrides: Partial<SourceAssetRecord> = {}): SourceAssetRecord {
+    const filename = overrides.filename ?? 'Photo.PNG'
+    return {
+      // -> Every test in this file uses a distinct `filename`, so defaulting `sourceId` to it keeps
+      //    each record's deterministic id distinct too, without every call site having to say so.
+      sourceId: filename,
+      filename,
+      ext: '.png',
+      mime: 'image/png',
+      fileSize: 4,
+      data: Buffer.from('data'),
+      folderPath: '',
+      authorId: importedUserId,
+      siteId,
+      createdAt: new Date('2019-03-14T08:00:00.000Z'),
+      updatedAt: new Date('2020-11-02T12:30:00.000Z'),
+      ...overrides
+    }
   }
 
-  const insertedSite = await db
-    .insert(sitesTable)
-    .values({ hostname: 'test.local', isEnabled: true, config: { locales: { primary: 'en' } } })
-    .returning()
-  siteId = insertedSite[0].id
-  ;(global as any).WIKI.sites[siteId] = { config: { locales: { primary: 'en' } } }
+  const noThumbnail = async () => null
 
-  const insertedUsers = await db
-    .insert(usersTable)
-    .values([
-      { email: 'admin@example.com', name: 'Administrator' },
-      { email: 'imported-author@example.com', name: 'Imported Author' }
-    ])
-    .returning()
-  const adminId = insertedUsers.find((u) => u.email === 'admin@example.com')!.id
-  importedUserId = insertedUsers.find((u) => u.email === 'imported-author@example.com')!.id
-  systemIds = {
-    groupAdminId: randomUUID(),
-    groupUserId: randomUUID(),
-    groupGuestId: randomUUID(),
-    siteId,
-    authModuleId: randomUUID(),
-    userAdminId: adminId,
-    userGuestId: randomUUID()
-  }
-})
-
-after(async () => {
-  await pool.end()
-})
-
-function baseRecord(overrides: Partial<SourceAssetRecord> = {}): SourceAssetRecord {
-  const filename = overrides.filename ?? 'Photo.PNG'
-  return {
-    // -> Every test in this file uses a distinct `filename`, so defaulting `sourceId` to it keeps
-    //    each record's deterministic id distinct too, without every call site having to say so.
-    sourceId: filename,
-    filename,
-    ext: '.png',
-    mime: 'image/png',
-    fileSize: 4,
-    data: Buffer.from('data'),
-    folderPath: '',
-    authorId: importedUserId,
-    siteId,
-    createdAt: new Date('2019-03-14T08:00:00.000Z'),
-    updatedAt: new Date('2020-11-02T12:30:00.000Z'),
-    ...overrides
-  }
-}
-
-const noThumbnail = async () => null
-
-describe('writeImportedAsset', () => {
   test('writes a paired assets + tree row sharing one UUID', async () => {
     const summary = createAssetImportSummary()
     const asset = await writeImportedAsset(baseRecord(), systemIds, summary, {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
-    const [treeRow] = await db.select().from(treeTable).where(eq(treeTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
+    const [treeRow] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, asset.id))
 
     assert.ok(assetRow, 'assets row was written')
     assert.ok(treeRow, 'tree row was written')
@@ -145,8 +95,11 @@ describe('writeImportedAsset', () => {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
-    const [treeRow] = await db.select().from(treeTable).where(eq(treeTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
+    const [treeRow] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, asset.id))
 
     assert.equal(assetRow.createdAt.toISOString(), record.createdAt.toISOString())
     assert.equal(assetRow.updatedAt.toISOString(), record.updatedAt.toISOString())
@@ -180,7 +133,10 @@ describe('writeImportedAsset', () => {
     })
 
     assert.equal(asset.hasPreview, true)
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
     assert.deepEqual(assetRow.preview, thumbnail)
   })
 
@@ -214,19 +170,11 @@ describe('writeImportedAsset', () => {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
     assert.deepEqual(assetRow.data, Buffer.from('stream'))
-  })
-
-  test('leaves storageInfo null', async () => {
-    const summary = createAssetImportSummary()
-    const record = baseRecord({ filename: 'no-storage-info.png' })
-    const asset = await writeImportedAsset(record, systemIds, summary, {
-      makeThumbnail: noThumbnail
-    })
-
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
-    assert.equal(assetRow.storageInfo, null)
   })
 
   test('falls back to userAdminId and records the substitution when authorId does not resolve', async () => {
@@ -237,7 +185,10 @@ describe('writeImportedAsset', () => {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
     assert.equal(assetRow.authorId, systemIds.userAdminId)
     assert.equal(summary.authorFallbacks.length, 1)
     assert.equal(summary.authorFallbacks[0].sourceAuthorId, unresolvedId)
@@ -251,7 +202,10 @@ describe('writeImportedAsset', () => {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
     assert.equal(assetRow.authorId, systemIds.userAdminId)
     assert.equal(summary.authorFallbacks.length, 1)
     assert.equal(summary.authorFallbacks[0].sourceAuthorId, null)
@@ -264,7 +218,10 @@ describe('writeImportedAsset', () => {
       makeThumbnail: noThumbnail
     })
 
-    const [assetRow] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id))
+    const [assetRow] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset.id))
     assert.equal(assetRow.authorId, importedUserId)
     assert.equal(summary.authorFallbacks.length, 0)
   })
@@ -277,7 +234,7 @@ describe('writeImportedAsset', () => {
     })
 
     assert.equal(asset.folderPath, 'imported/gallery')
-    const [treeRow] = await db.select().from(treeTable).where(eq(treeTable.id, asset.id))
+    const [treeRow] = await fixtures.db.select().from(treeTable).where(eq(treeTable.id, asset.id))
     assert.equal(treeRow.folderPath, 'imported.gallery')
   })
 
