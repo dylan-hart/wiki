@@ -22,11 +22,15 @@ db:
   pass: postgres
   db: postgres
   schema: wiki
+  # -> This is the Postgres connection's own TLS setting, not application-level TLS for the wiki
+  #    itself — Wiki.js never terminates HTTPS; see docs/tls-termination.md.
   ssl: false
 
   # Optional
   # -> Uncomment lines you need below and set `auto` to false
   # -> Full list of accepted options: https://nodejs.org/api/tls.html#tls_tls_createsecurecontext_options
+  # -> Same scope note as `ssl` above: these configure the encrypted connection to Postgres, not
+  #    the wiki's own HTTP(S) listener.
   sslOptions:
     auto: true
     # rejectUnauthorized: false

@@ -273,26 +273,35 @@ export const groups = pgTable('groups', {
 
 // HOOKS -------------------------------
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
-export const hooks = pgTable('hooks', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  // -> Event keys such as `page:create`, matched against what the server emits
-  events: text()
-    .array()
-    .notNull()
-    .default(sql`ARRAY[]::text[]`),
-  url: text().notNull(),
-  includeMetadata: boolean().notNull().default(true),
-  includeContent: boolean().notNull().default(false),
-  acceptUntrusted: boolean().notNull().default(false),
-  // -> Sent verbatim as the Authorization header, so it holds whatever secret the remote expects
-  authHeader: text(),
-  // -> Outcome of the most recent delivery, which is what the admin list shows
-  state: hookStateEnum().notNull().default('pending'),
-  lastErrorMessage: text(),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const hooks = pgTable(
+  'hooks',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    // -> Event keys such as `page:create`, matched against what the server emits
+    events: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    url: text().notNull(),
+    includeMetadata: boolean().notNull().default(true),
+    includeContent: boolean().notNull().default(false),
+    acceptUntrusted: boolean().notNull().default(false),
+    // -> Sent verbatim as the Authorization header, so it holds whatever secret the remote expects
+    authHeader: text(),
+    // -> Outcome of the most recent delivery, which is what the admin list shows
+    state: hookStateEnum().notNull().default('pending'),
+    lastErrorMessage: text(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+    // -> Null means "all sites" — an instance-wide subscription, which is what every hook was before
+    //    this column existed and stays the default for a new one. Set, it narrows delivery to events
+    //    from that one site; an event with no site of its own (`user:join`/`login`/`logout`) only
+    //    ever reaches a null-site hook, since there is no site for a scoped one to match against.
+    siteId: uuid().references(() => sites.id)
+  },
+  (table) => [index('hooks_siteId_idx').on(table.siteId)]
+)
 
 // ICONS -------------------------------
 // -> An Iconify icon set the wiki draws icons from, e.g. `mdi`. Adding one makes its icons

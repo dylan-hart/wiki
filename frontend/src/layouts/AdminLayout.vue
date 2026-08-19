@@ -374,16 +374,6 @@
               </w-item-section>
               <w-item-section>{{ t('admin.security.title') }}</w-item-section>
             </w-item>
-            <w-item
-              to="/_admin/ssl"
-              active-class="bg-primary text-white"
-              disabled
-              v-if="flagsStore.experimental">
-              <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-security-ssl.svg" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.ssl.title') }}</w-item-section>
-            </w-item>
             <w-item to="/_admin/system" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-processor.svg" />

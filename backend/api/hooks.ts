@@ -9,6 +9,7 @@ interface HookBody {
   includeContent?: boolean
   acceptUntrusted?: boolean
   authHeader?: string
+  siteId?: string | null
 }
 
 /**
@@ -202,7 +203,8 @@ async function routes(app: FastifyInstance) {
         includeMetadata: req.body.includeMetadata,
         includeContent: req.body.includeContent,
         acceptUntrusted: req.body.acceptUntrusted,
-        authHeader: req.body.authHeader
+        authHeader: req.body.authHeader,
+        siteId: req.body.siteId
       })
 
       return {
@@ -274,7 +276,8 @@ async function routes(app: FastifyInstance) {
         'includeMetadata',
         'includeContent',
         'acceptUntrusted',
-        'authHeader'
+        'authHeader',
+        'siteId'
       ] as const) {
         if (req.body[field] !== undefined) {
           patch[field] = req.body[field]

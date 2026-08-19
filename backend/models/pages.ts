@@ -650,14 +650,18 @@ class Pages {
     //    change this, and why it doesn't apply yet.
 
     await WIKI.models.search.created(page)
-    await WIKI.models.hooks.emit('page:create', {
-      id: page.id,
-      path: page.path,
-      locale,
-      siteId,
-      authorId: actor.id,
-      metadata: { title: page.title, description: page.description, editor }
-    })
+    await WIKI.models.hooks.emit(
+      'page:create',
+      {
+        id: page.id,
+        path: page.path,
+        locale,
+        siteId,
+        authorId: actor.id,
+        metadata: { title: page.title, description: page.description, editor }
+      },
+      siteId
+    )
     await WIKI.models.storage.dispatch('page:create', {
       id: page.id,
       path: page.path,
@@ -832,14 +836,18 @@ class Pages {
     }
 
     await WIKI.models.search.updated(rawUpdated)
-    await WIKI.models.hooks.emit('page:edit', {
-      id,
-      path: updated.path,
-      locale: updated.locale,
-      siteId,
-      authorId: actor.id,
-      metadata: { title: updated.title, description: updated.description }
-    })
+    await WIKI.models.hooks.emit(
+      'page:edit',
+      {
+        id,
+        path: updated.path,
+        locale: updated.locale,
+        siteId,
+        authorId: actor.id,
+        metadata: { title: updated.title, description: updated.description }
+      },
+      siteId
+    )
     await WIKI.models.storage.dispatch('page:edit', {
       id,
       path: updated.path,
@@ -942,14 +950,18 @@ class Pages {
     )
 
     await WIKI.models.search.renamed(siteId, rawMoved, page.path)
-    await WIKI.models.hooks.emit('page:rename', {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      siteId,
-      authorId: actor.id
-    })
+    await WIKI.models.hooks.emit(
+      'page:rename',
+      {
+        id,
+        path: moved.path,
+        previousPath: page.path,
+        locale: moved.locale,
+        siteId,
+        authorId: actor.id
+      },
+      siteId
+    )
     await WIKI.models.storage.dispatch('page:rename', {
       id,
       path: moved.path,
@@ -992,13 +1004,17 @@ class Pages {
     await WIKI.models.navigation.deleteNavForEntries([id])
 
     await WIKI.models.search.deleted(siteId, id)
-    await WIKI.models.hooks.emit('page:delete', {
-      id,
-      path: page.path,
-      locale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
+    await WIKI.models.hooks.emit(
+      'page:delete',
+      {
+        id,
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        authorId: actor.id
+      },
+      siteId
+    )
     await WIKI.models.storage.dispatch('page:delete', {
       id,
       path: page.path,
@@ -1056,13 +1072,17 @@ class Pages {
     for (const entry of entries) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
       await WIKI.models.search.deleted(siteId, entry.id)
-      await WIKI.models.hooks.emit('page:delete', {
-        id: entry.id,
-        path,
-        locale: entry.locale,
-        siteId,
-        authorId: actor.id
-      })
+      await WIKI.models.hooks.emit(
+        'page:delete',
+        {
+          id: entry.id,
+          path,
+          locale: entry.locale,
+          siteId,
+          authorId: actor.id
+        },
+        siteId
+      )
       await WIKI.models.storage.dispatch('page:delete', {
         id: entry.id,
         path,
