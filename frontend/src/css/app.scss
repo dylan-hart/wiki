@@ -3,3 +3,16 @@
 @use 'page-contents';
 
 @import 'v-network-graph/lib/style.css';
+/*
+  KaTeX's own stylesheet, loaded globally rather than per-block: `renderers/markdown.js` resolves
+  `$…$`/`$$…$$` TeX authoring straight to literal KaTeX markup at render time (see its `texMathHtml`),
+  so the classes that markup carries (`.katex`, `.katex-display`, ...) have to exist wherever a
+  rendered page can be read -- not only inside `block-katex`'s own shadow root, which is where this
+  same stylesheet already lives for the fenced-code form. Unlike that block's copy, this one does not
+  need its fonts pre-inlined as data URIs: `block-katex`'s CSS is loaded outside Vite's own build (a
+  static file under `/_blocks/`, built by `blocks/`'s own rollup config), where a relative `url()`
+  would not resolve at all -- this file goes through Vite's normal CSS pipeline instead, which already
+  rewrites every asset `url()` it finds and copies what it points at into the build output, exactly as
+  it does for every other library's stylesheet.
+*/
+@import 'katex/dist/katex.min.css';

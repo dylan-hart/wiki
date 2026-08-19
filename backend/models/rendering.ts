@@ -168,6 +168,20 @@ const BASE_ALLOWED_TAGS = [
   // -> Inline SVG, which an author may well paste in. Structure and shapes only: `script`,
   //    `foreignObject` and the SMIL animation tags are all left out, since each of them is a way to
   //    get script or arbitrary markup back in through a picture.
+  //
+  //    Not for MathJax: `block-mathjax` typesets to SVG (liteAdaptor + a local per-formula glyph
+  //    cache, `<use xlink:href="#MJX-…">` referencing `<path>`s in its own `<defs>`) entirely inside
+  //    its Lit shadow root, in `firstUpdated()` -- a browser lifecycle hook, run at view time. What
+  //    gets sanitised and stored is the fenced source inside the inert `<block-mathjax>` custom
+  //    element, never the drawing; see `blockAllowances` below for why a block's markup is inert
+  //    either way. Task 629 audited this on the assumption an inlining path existed or was coming and
+  //    found neither: unlike `block-katex`, whose *literal* `$…$`/`$$…$$` sibling syntax now resolves
+  //    to real KaTeX MathML at render time (Task 624, see the MathML block above), nothing resolves
+  //    MathJax SVG server-side or at render time. `xlink:href`, `focusable` and `role` are therefore
+  //    deliberately absent from `SVG_ATTRIBUTES` below -- there is nothing for them to protect yet. A
+  //    future task that inlines `block-mathjax`'s drawing into stored HTML (mirroring `inlineIcons()`
+  //    for `<iconify-icon>`) would need to add them there, alongside `<defs>`/`<path>` id-and-d pairs,
+  //    which are already covered.
   'svg',
   'circle',
   'clipPath',
@@ -252,10 +266,31 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   th: ['colspan', 'rowspan', 'align', 'scope'],
   track: ['src', 'kind', 'srclang', 'label', 'default'],
   video: ['controls', 'loop', 'muted', 'poster', 'preload', 'src', 'width', 'height'],
-  // -> MathML carries its meaning in attributes, and none of them are executable
+  // -> MathML carries its meaning in attributes, and none of them are executable. `mover`,
+  //    `munder` and `mi` were unreached until inline `$…$`/`$$…$$` TeX authoring
+  //    (`renderers/markdown.js`) started landing literal KaTeX MathML in stored pages -- KaTeX's own
+  //    `\vec`, `\overline`, `\underline`, `\binom` and Greek/variable-style commands all write one of
+  //    these, and without the entries below the sanitiser silently dropped them, leaving the
+  //    (visually hidden, screen-reader-only) MathML copy of the formula missing the marking that says
+  //    an accent or a variant applies.
+  //
+  //    Task 629 re-audited this list against real mhchem (`\ce{}`/`\pu{}`) output specifically,
+  //    since chemical notation reaches for MathML shapes a plain formula does not -- `mpadded` and
+  //    `mphantom` nested for the isotope-coefficient overlap, `mo[stretchy][minsize]` for a reaction
+  //    arrow, `mstyle[scriptlevel][displaystyle]` around a unit fraction. All of it already round-trips
+  //    through `sanitize()` untouched (see `rendering.test.ts`'s `\ce{}`/`\pu{}` tests, captured from a
+  //    real `katex.renderToString` + `katex/contrib/mhchem` run) -- nothing below needed adding for it.
+  //    mhchem itself is not wired into the literal `$…$` path today (only plain `katex` is imported in
+  //    `renderers/markdown.js`, so `\ce{}` there throws "Undefined control sequence" and falls to the
+  //    error panel), so this is confirmed coverage for if/when that changes, not a currently-live path.
   math: ['xmlns', 'display'],
   annotation: ['encoding'],
+  mi: ['mathvariant'],
+  mfrac: ['linethickness'],
   mo: ['stretchy', 'fence', 'separator', 'lspace', 'rspace', 'minsize', 'maxsize'],
+  mover: ['accent'],
+  munder: ['accentunder'],
+  munderover: ['accent', 'accentunder'],
   mspace: ['width', 'height', 'depth'],
   mstyle: ['scriptlevel', 'displaystyle', 'mathcolor', 'mathvariant'],
   mpadded: ['width', 'height', 'depth', 'lspace', 'voffset'],
@@ -379,6 +414,24 @@ class Rendering {
    *
    * Child blocks are exempt, having no switch of their own: a tab is part of the tabs it sits in,
    * and is gated by `unwrapOrphanedChildBlocks` once the parent's fate is known.
+   *
+   * Task 631 verified this generically for `block-katex`/`block-mathjax` specifically, since Feature
+   * 366 ("Math Rendering Parity & Engine Selection") originally framed per-site engine choice as
+   * "switching" one on and the other off. Confirmed both halves end to end
+   * (`rendering-block-toggle.test.ts`): disabling `katex` for a site strips `<block-katex>` from a
+   * page's stored render the next time it goes through `postProcess` (a save, or `storeRender` off
+   * the back of `drainQueue`) exactly like any other disabled block — unwrapped, not deleted, so the
+   * fenced TeX source is left behind as visible text rather than vanishing or lingering as an
+   * unstyled custom element. But "switching engines" only ever means the site's enabled-block set;
+   * nothing here rewrites markup. A page already authored with `::block-katex` is unaffected by
+   * enabling `mathjax` alongside disabling `katex` — it still degrades to inert code, it does not
+   * become `::block-mathjax`. That is accepted as expected behaviour, not a gap: this function's job
+   * is "what may a stored page carry", not "keep pages current with an admin's block configuration",
+   * and rewriting one block's markup into another's is content authorship, not sanitisation — the
+   * same reason `postProcess` never rewrites `::block-diagram` into `::block-plantuml` either. A
+   * migration path (find pages containing `<block-katex>` for a site, offer to rewrite them to
+   * `<block-mathjax>` with equivalent props) is a real feature but a distinct, opt-in one; scope it as
+   * its own task if automatic migration is ever actually wanted; nothing here blocks building it.
    */
   private blockAllowances(enabledBlocks: Set<string>): {
     tags: string[]

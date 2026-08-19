@@ -16,11 +16,24 @@ beforeAll(async () => {
  * Appends a `<block-katex>` carrying `source` inside a fenced code block, the way the wiki's own
  * markdown renderer leaves a fence's contents — exactly as typed, undoing markdown's own escaping.
  */
-async function mountKatex(source) {
+async function mountKatexFenced(source) {
   const el = document.createElement('block-katex')
   const pre = document.createElement('pre')
   pre.textContent = source
   el.appendChild(pre)
+  document.body.appendChild(el)
+  await el.updateComplete
+  return el
+}
+
+/**
+ * Appends a `<block-katex>` carrying `source` as its light-DOM body directly (the way the wiki's own
+ * markdown renderer leaves it for an unfenced call — see block-gallery's component.test.js for the
+ * precedent), exercising `firstUpdated()`'s `fence ?? this` fallback for a call with no `<pre>` at all.
+ */
+async function mountKatexUnfenced(source) {
+  const el = document.createElement('block-katex')
+  el.textContent = source
   document.body.appendChild(el)
   await el.updateComplete
   return el
@@ -38,7 +51,7 @@ describe('block-katex', () => {
     rather than throwing out of the component.
   */
   it('typesets a valid formula into the shadow tree with no error shown', async () => {
-    const el = await mountKatex('x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}')
+    const el = await mountKatexFenced('x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}')
 
     expect(el.shadowRoot.querySelector('.error')).toBeNull()
     const drawing = el.shadowRoot.querySelector('.drawing')
@@ -49,19 +62,50 @@ describe('block-katex', () => {
     expect(drawing.querySelector('.katex-html')).not.toBeNull()
   })
 
-  it('typesets a chemical equation through the mhchem macros', async () => {
-    const el = await mountKatex('\\ce{CO2 + C -> 2 CO}')
+  it('typesets a chemical equation through the mhchem macros, from a fenced body', async () => {
+    const el = await mountKatexFenced('\\ce{CO2 + C -> 2 CO}')
 
     expect(el.shadowRoot.querySelector('.error')).toBeNull()
     expect(el.shadowRoot.querySelector('.drawing .katex')).not.toBeNull()
   })
 
   it('shows an error panel, not a thrown exception, for a formula KaTeX cannot parse', async () => {
-    const el = await mountKatex('\\frac{1}{')
+    const el = await mountKatexFenced('\\frac{1}{')
 
     const error = el.shadowRoot.querySelector('.error')
     expect(error).not.toBeNull()
     expect(error.textContent).toContain('This formula could not be typeset')
     expect(el.shadowRoot.querySelector('.drawing')).toBeNull()
+  })
+
+  /*
+    Feature 366 / Task 634 audited block-katex's extension surface against 2.5.x's actual KaTeX
+    renderer (server/modules/rendering/markdown-katex/renderer.js, pre-3.x). 2.5.x never loaded any
+    KaTeX contrib module — it vendored its own mhchem.js (a straight port of MathJax's mhchem.js,
+    the same lineage KaTeX's own `katex/contrib/mhchem` was later built from) to implement \ce and
+    \pu, plus a custom \tripledash macro contrib/mhchem also carries. `katex/contrib/mhchem` is
+    therefore a strict, better-maintained replacement for what 2.5.x had — not a subset of it. The
+    other four contrib modules KaTeX ships (auto-render, copy-tex, mathtex-script-type,
+    render-a11y-string) are DOM/UX integrations, not TeX-syntax extensions, 2.5.x used none of them,
+    and none would add a construct this block currently rejects. See docs/variances.md for the full
+    audit and the resulting KaTeX/MathJax TeX-subset compatibility table.
+  */
+  it('typesets mhchem, the one extension 2.5.x also carried, from an unfenced body', async () => {
+    const el = await mountKatexUnfenced(String.raw`\ce{CO2 + C -> 2 CO}`)
+
+    expect(el.shadowRoot.querySelector('.error')).toBeNull()
+    expect(el.shadowRoot.querySelector('.drawing .katex')).not.toBeNull()
+  })
+
+  /*
+    \bbox is one of the constructs the docs/variances.md compatibility table records as
+    MathJax-only: KaTeX has no bbox extension (contrib or built-in) at the pinned katex version, so
+    the same source that typesets in block-mathjax reaches this block's error panel instead. Pinned
+    here as the concrete, runnable form of that table entry.
+  */
+  it('KNOWN ENGINE LIMIT: \\bbox is not a KaTeX construct — see docs/variances.md', async () => {
+    const el = await mountKatexUnfenced(String.raw`\bbox[red]{x+y}`)
+
+    expect(el.shadowRoot.querySelector('.error')).not.toBeNull()
   })
 })

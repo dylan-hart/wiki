@@ -260,14 +260,17 @@ import { load } from 'js-yaml'
  * take their server/language settings as block props on the page, not from site-wide config. Locks
  * the keys gone so they cannot silently reappear.
  *
- * `latexEngine` is deliberately left alone here: it's real (if currently inert) config surface that
- * Feature 366 ("Math Rendering Parity & Engine Selection") owns the future of, so this task's edit —
- * and this test — must not touch it. The second assertion pins that boundary.
+ * `latexEngine` was originally left alone here, out of scope for task 476's own kroki/plantuml
+ * cleanup and deferred to whichever task actually owned its future (Feature 366, "Math Rendering
+ * Parity & Engine Selection"). That task has since made its call -- see `base.test.ts`'s "base.yml
+ * editors.markdown.config has no latexEngine key" and its own extensive `docs/variances.md` entry --
+ * and removed it too, superseded by `block-katex`/`block-mathjax`'s own per-site `isEnabled` toggles.
+ * Reflected here rather than left asserting the pre-Feature-366 boundary.
  */
 
 const rootPath = path.resolve(import.meta.dirname, '../..')
 
-test('base.yml no longer carries the dead kroki/plantuml markdown editor config keys', async () => {
+test('base.yml no longer carries the dead kroki/plantuml/latexEngine markdown editor config keys', async () => {
   const raw = await readFile(path.join(rootPath, 'backend/base.yml'), 'utf8')
   const parsed = load(raw) as any
   const markdownConfig = parsed.editors.markdown.config
@@ -282,13 +285,10 @@ test('base.yml no longer carries the dead kroki/plantuml markdown editor config 
     false,
     'base.yml should no longer define editors.markdown.config.plantuml'
   )
-
-  // -> Scope guard: task 476 removes kroki/plantuml only. latexEngine belongs to Feature 366/task 618
-  // and must still be present, untouched, on this branch.
   assert.equal(
     'latexEngine' in markdownConfig,
-    true,
-    'latexEngine is out of scope for this task and must remain'
+    false,
+    'latexEngine is dead too (superseded by block-katex/block-mathjax per-site isEnabled) -- see base.test.ts'
   )
 })
 

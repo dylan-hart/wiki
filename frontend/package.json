@@ -52,6 +52,7 @@
     "highlight.js": "11.11.1",
     "iconify-icon": "3.0.2",
     "js-cookie": "3.0.8",
+    "katex": "0.18.4",
     "ky": "2.0.2",
     "lowlight": "3.3.0",
     "markdown-it": "15.0.0",

@@ -17,8 +17,13 @@
   and whatever classes an author attaches through `markdown-it-attrs` (`id`, `class` and `target` are
   the ones the renderer allows through).
 
-  Maths and diagrams are not in that list: they are blocks now -- `block-mathjax`, `block-diagram`,
-  `block-plantuml` -- and a block styles itself inside its own shadow root, which nothing here reaches.
+  Diagrams are not in that list: they are blocks -- `block-diagram`, `block-plantuml` -- and a block
+  styles itself inside its own shadow root, which nothing here reaches. Maths mostly follows the same
+  rule (`block-katex`, `block-mathjax`), but `$…$`/`$$…$$` TeX authored inline is the one exception:
+  `renderers/markdown.js` resolves it to literal KaTeX markup at render time, landing it right here in
+  the light DOM alongside everything else this file styles -- see `.tex-math-error` below for the one
+  piece of it this file actually owns; the formula's own look comes from KaTeX's stylesheet, imported
+  globally in `app.scss`.
 
   The measurements follow what the documentation platforms have converged on -- 16px body text, headings
   at 600 with far more space above than below, ruled h1/h2, tinted code, a table headed by a dark bar
@@ -1243,6 +1248,28 @@
     border-color: var(--content-rule-strong);
     background-color: var(--content-surface-alt);
     color: var(--content-ink-muted);
+  }
+
+  /*
+    A `$…$`/`$$…$$` formula that failed to typeset, or was left empty -- `renderers/markdown.js`'s
+    `texMathError`. The same "say why, don't vanish" treatment `block-katex`/`block-mathjax` give a
+    bad fence, carried over to a syntax that has no shadow root of its own to draw it in: a dashed
+    panel in the negative hue, `pre-wrap` so KaTeX's own multi-line parse errors stay readable.
+  */
+  .tex-math-error {
+    display: inline-block;
+    color: var(--content-danger);
+    background-color: var(--content-danger-wash);
+    border: 1px dashed var(--content-danger);
+    border-radius: 5px;
+    padding: 0.1em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  .tex-math-error--display {
+    display: block;
+    padding: 1rem;
+    margin-bottom: 16px;
   }
 
   /* -- highlight.js tokens ------------------------------------------------------ */
