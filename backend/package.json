@@ -97,6 +97,7 @@
     "sanitize-html": "2.17.6",
     "semver": "7.8.5",
     "simple-git": "3.36.0",
+    "ssh2-sftp-client": "12.1.1",
     "tar": "7.5.22",
     "uuid": "14.0.1",
     "y-protocols": "1.0.7",
@@ -115,6 +116,8 @@
     "@types/s3rver": "3.7.4",
     "@types/sanitize-html": "2.16.1",
     "@types/semver": "7.8.0",
+    "@types/ssh2": "1.15.5",
+    "@types/ssh2-sftp-client": "9.0.6",
     "@types/ws": "8.18.1",
     "aws-sdk-client-mock": "4.1.0",
     "drizzle-kit": "1.0.0-rc.4",
@@ -123,6 +126,7 @@
     "oxfmt": "0.62.0",
     "oxlint": "1.77.0",
     "s3rver": "3.7.1",
+    "ssh2": "1.17.0",
     "typescript": "7.0.2"
   },
   "optionalDependencies": {
