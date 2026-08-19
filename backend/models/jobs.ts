@@ -53,6 +53,16 @@ export const JOB_SCHEDULE_SEED = [
     task: 'storageSyncTick',
     cron: '* * * * *',
     type: 'system'
+  },
+  // -> Enumerates every site's storage targets and, for each enabled disk target with
+  //    `config.createDailyBackups` on, archives it into `_daily` and prunes entries older than a
+  //    month. Runs once a day, offset from the other daily entries above (which all land at
+  //    midnight) so it is not competing with them for the same tick. See
+  //    `tasks/simple/storage-daily-backup.ts`.
+  {
+    task: 'storageDailyBackup',
+    cron: '30 2 * * *',
+    type: 'system'
   }
 ] as const
 

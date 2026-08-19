@@ -1,8 +1,11 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { getFileExtension, storage, SYNC_SHAPED_ACTIONS } from './storage.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { StorageTarget } from './storage.ts'
 
 // -> `refreshFromDisk()` reads real files under `modules/storage`, so the only setup needed is a
@@ -50,6 +53,24 @@ test('refreshFromDisk reads sync-mode config from each definition.yml', () => {
   assert.equal(disk.schedule, false)
 })
 
+test('the db module has a storage.ts implementation, so its purge action is offered', () => {
+  const db = storage.getDefinition('db')!
+  assert.equal(db.hasImplementation, true)
+  assert.deepEqual(
+    db.actions.map((action) => action.handler),
+    ['purge']
+  )
+})
+
+test('the disk module has a storage.ts implementation, so its dump/backup/importAll actions are offered', () => {
+  const disk = storage.getDefinition('disk')!
+  assert.equal(disk.hasImplementation, true)
+  assert.deepEqual(
+    disk.actions.map((action) => action.handler),
+    ['dump', 'backup', 'importAll']
+  )
+})
+
 /** Builds a minimal target for the given module, as `getSiteTargets` would shape one. */
 function makeTarget(moduleKey: string): StorageTarget {
   const definition = storage.getDefinition(moduleKey)!
@@ -84,57 +105,126 @@ function makeTarget(moduleKey: string): StorageTarget {
   }
 }
 
-test("validateTarget rejects a sync mode outside the module's supportedModes", () => {
+test("validateTarget rejects a sync mode outside the module's supportedModes", async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'teleport' } })
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    sync: { mode: 'teleport' }
+  })
   assert.match(invalid ?? '', /not a valid sync mode/)
 })
 
-test('validateTarget accepts a sync mode change for a multi-mode module', () => {
+test('validateTarget accepts a sync mode change for a multi-mode module', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
+  const invalid = await storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
   assert.equal(invalid, null)
 })
 
-test('validateTarget rejects a sync mode change for a single-mode module', () => {
+test('validateTarget rejects a sync mode change for a single-mode module', async () => {
   const target = makeTarget('disk')
-  const invalid = storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
+  const invalid = await storage.validateTarget(target, { id: target.id, sync: { mode: 'push' } })
   assert.match(invalid ?? '', /does not support changing/)
 })
 
-test('validateTarget rejects a malformed scheduleOverride', () => {
+test('validateTarget rejects a malformed scheduleOverride', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'not-a-duration' }
   })
   assert.match(invalid ?? '', /not a valid ISO-8601 duration/)
 })
 
-test('validateTarget rejects a scheduleOverride on an event-only module', () => {
+test('validateTarget rejects a scheduleOverride on an event-only module', async () => {
   const target = makeTarget('disk')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'PT10M' }
   })
   assert.match(invalid ?? '', /does not sync on a schedule/)
 })
 
-test('validateTarget accepts a valid scheduleOverride on a scheduled module', () => {
+test('validateTarget accepts a valid scheduleOverride on a scheduled module', async () => {
   const target = makeTarget('git')
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: 'PT10M' }
   })
   assert.equal(invalid, null)
 })
 
-test('validateTarget accepts clearing a scheduleOverride', () => {
+test('validateTarget accepts clearing a scheduleOverride', async () => {
   const target = makeTarget('git')
   target.sync.scheduleOverride = 'PT10M'
-  const invalid = storage.validateTarget(target, {
+  const invalid = await storage.validateTarget(target, {
     id: target.id,
     sync: { scheduleOverride: null }
+  })
+  assert.equal(invalid, null)
+})
+
+// ---------------------------------------------------------------------------------------------
+// validateTarget() -- disk module's deep `validateConfig` hook (see `StorageModule.validateConfig`)
+// ---------------------------------------------------------------------------------------------
+
+test('validateTarget rejects enabling the disk target with a relative path', async () => {
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    isEnabled: true,
+    config: { path: 'relative/path' }
+  })
+  assert.match(invalid ?? '', /not an absolute path/)
+})
+
+test('validateTarget rejects enabling the disk target with a path that does not exist', async () => {
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    isEnabled: true,
+    config: { path: path.join(os.tmpdir(), `wiki-disk-validate-missing-${Date.now()}`) }
+  })
+  assert.match(invalid ?? '', /does not exist/)
+})
+
+test('validateTarget accepts enabling the disk target with an absolute, existing, writable path', async () => {
+  const target = makeTarget('disk')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-disk-validate-'))
+  try {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      isEnabled: true,
+      config: { path: dir }
+    })
+    assert.equal(invalid, null)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('validateTarget rejects saving disk config with a path that is a file, not a directory', async () => {
+  const target = makeTarget('disk')
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-disk-validate-'))
+  const filePath = path.join(dir, 'not-a-dir')
+  await fs.writeFile(filePath, 'x')
+  try {
+    const invalid = await storage.validateTarget(target, {
+      id: target.id,
+      config: { path: filePath }
+    })
+    assert.match(invalid ?? '', /not a directory/)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('validateTarget skips the deep disk path check when neither config nor isEnabled changes', async () => {
+  // -> `makeTarget`'s disk target has no `path` configured at all -- if the deep check ran here, it
+  //    would reject. It must not run for a patch that touches neither `config` nor `isEnabled`.
+  const target = makeTarget('disk')
+  const invalid = await storage.validateTarget(target, {
+    id: target.id,
+    sync: { mode: undefined }
   })
   assert.equal(invalid, null)
 })
@@ -196,6 +286,25 @@ function fakeDispatchDeps(rows: object[]) {
   } as unknown as WikiGlobal
   return jobs
 }
+
+// ---------------------------------------------------------------------------------------------
+// getSiteTargets()
+// ---------------------------------------------------------------------------------------------
+
+test('getSiteTargets threads the siteId argument onto every target it returns', async () => {
+  fakeDispatchDeps([makeRow('git'), makeRow('disk')])
+  const targets = await storage.getSiteTargets('site-1')
+  assert.ok(targets.length >= 2, 'expected at least the git and disk targets')
+  for (const target of targets) {
+    assert.equal(target.siteId, 'site-1')
+  }
+})
+
+test('getSiteTargetById returns a target whose siteId matches the site it was fetched for', async () => {
+  fakeDispatchDeps([makeRow('git')])
+  const target = await storage.getSiteTargetById('site-1', 'target-git')
+  assert.equal(target?.siteId, 'site-1')
+})
 
 test('dispatch skips a pull-only target even when it covers the content type', async () => {
   const jobs = fakeDispatchDeps([makeRow('git', { activeTypes: ['pages'], syncMode: 'pull' })])
@@ -440,9 +549,14 @@ test('tickScheduledSyncs logs and skips a target with an unparseable schedule ov
 const silentLogger = { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} }
 
 describe('storage / validateConfig, validateTarget (pure, real s3 definition read from disk)', () => {
+  let previousWiki: WikiGlobal
+
   before(async () => {
     // -> A plain `fs.readdir`/`fs.readFile` under `modules/storage`, no database — the one thing it
     //    needs from `WIKI` is `SERVERPATH` pointed at this checkout's real `backend/` directory.
+    // -> Captured here, not at describe-body-eval time: `describe()` bodies run during test
+    //    collection, before the file-level `before()` above has set `global.WIKI` at all.
+    previousWiki = global.WIKI
     ;(globalThis as any).WIKI = {
       SERVERPATH: path.join(import.meta.dirname, '..'),
       logger: silentLogger
@@ -451,7 +565,10 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
   })
 
   after(() => {
-    delete (globalThis as any).WIKI
+    // -> Restores the file-level `WIKI` (set in the top-level `before()` above) rather than deleting
+    //    it outright -- the bare `runDailyBackups` tests below this describe run against that same
+    //    global and need it back in place, not gone.
+    global.WIKI = previousWiki
   })
 
   test('the s3 definition loaded for real, with its declared props intact', () => {
@@ -498,7 +615,7 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
     )
   })
 
-  test('validateTarget rejects an unknown content type', () => {
+  test('validateTarget rejects an unknown content type', async () => {
     const definition = storage.getDefinition('s3')!
     const target = {
       id: 't1',
@@ -508,14 +625,14 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
       contentTypes: { activeTypes: [], largeThreshold: '5MB' },
       setup: undefined
     } as any
-    const invalid = storage.validateTarget(target, {
+    const invalid = await storage.validateTarget(target, {
       id: 't1',
       contentTypes: { activeTypes: ['videos'] }
     })
     assert.match(invalid ?? '', /"videos" is not a valid content type/)
   })
 
-  test('validateTarget rejects a malformed largeThreshold', () => {
+  test('validateTarget rejects a malformed largeThreshold', async () => {
     const target = {
       id: 't1',
       siteId: 'site-1',
@@ -524,14 +641,14 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
       contentTypes: { activeTypes: [], largeThreshold: '5MB' },
       setup: undefined
     } as any
-    const invalid = storage.validateTarget(target, {
+    const invalid = await storage.validateTarget(target, {
       id: 't1',
       contentTypes: { largeThreshold: 'huge' }
     })
     assert.match(invalid ?? '', /"huge" is not a valid size threshold/)
   })
 
-  test('validateTarget accepts enabling an s3 target directly — it declares no setup process to gate on', () => {
+  test('validateTarget accepts enabling an s3 target directly — it declares no setup process to gate on', async () => {
     const target = {
       id: 't1',
       siteId: 'site-1',
@@ -540,7 +657,7 @@ describe('storage / validateConfig, validateTarget (pure, real s3 definition rea
       contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' },
       setup: undefined
     } as any
-    assert.equal(storage.validateTarget(target, { id: 't1', isEnabled: true }), null)
+    assert.equal(await storage.validateTarget(target, { id: 't1', isEnabled: true }), null)
   })
 })
 
@@ -652,4 +769,191 @@ describe('storage: getFileExtension', () => {
     assert.equal(getFileExtension('redirect'), 'txt')
     assert.equal(getFileExtension('something-unknown'), 'txt')
   })
+})
+
+// ---------------------------------------------------------------------------------------------
+// runDailyBackups()
+// ---------------------------------------------------------------------------------------------
+
+/** Builds a raw `storage` row for the `disk` module, with `config.createDailyBackups` settable. */
+function makeDiskRow(
+  siteId: string,
+  overrides: { isEnabled?: boolean; createDailyBackups?: boolean } = {}
+) {
+  return {
+    id: `target-disk-${siteId}`,
+    siteId,
+    module: 'disk',
+    isEnabled: overrides.isEnabled ?? true,
+    contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+    assetDelivery: { streaming: false, directAccess: false },
+    versioning: { enabled: false },
+    syncMode: storage.getDefinition('disk')!.defaultMode,
+    scheduleOverride: null,
+    config: { path: '/tmp/whatever', createDailyBackups: overrides.createDailyBackups ?? false },
+    state: {}
+  }
+}
+
+/**
+ * Points `WIKI.db` at fakes answering both queries `runDailyBackups()` makes: the sites list (via
+ * `.from(sitesTable)`), and each site's storage rows in turn (via `getSiteTargets` -> `getTargets` ->
+ * `.from(storageTable).where(...)`) — matched by call order rather than by inspecting the drizzle
+ * `where()` expression, since `runDailyBackups()` is known to query one site right after another, in
+ * the same order `sites` lists them.
+ */
+function fakeDailyBackupDeps(sites: { id: string }[], rowsPerSite: object[][]) {
+  const warnings: string[] = []
+  let call = 0
+  global.WIKI = {
+    ...global.WIKI,
+    db: {
+      select: () => ({
+        from: (table: any) => {
+          if (table === sitesTable) {
+            return Promise.resolve(sites)
+          }
+          const rows = rowsPerSite[call] ?? []
+          call++
+          return { where: () => Promise.resolve(rows) }
+        }
+      })
+    },
+    logger: { ...global.WIKI.logger, warn: (msg: string) => warnings.push(msg) }
+  } as unknown as WikiGlobal
+  return { warnings }
+}
+
+/**
+ * Swaps `storage.modules['disk']` for a fake `dailyBackup` implementation for the duration of `fn`,
+ * bypassing `ensureModule()`'s real dynamic import (and therefore the real filesystem) entirely --
+ * `ensureModule()` returns whatever already sits in `this.modules[key]` before it ever consults a
+ * definition or imports anything, so pre-seeding the cache is enough. Restores whatever was cached
+ * before (nothing, on a fresh `storage` instance) afterwards, even if `fn` throws.
+ */
+async function withFakeDiskModule(
+  dailyBackup: (target: StorageTarget) => Promise<void>,
+  fn: () => Promise<void>
+): Promise<void> {
+  const original = storage.modules.disk
+  storage.modules.disk = { dailyBackup }
+  try {
+    await fn()
+  } finally {
+    if (original) {
+      storage.modules.disk = original
+    } else {
+      delete storage.modules.disk
+    }
+  }
+}
+
+test('runDailyBackups skips a disabled disk target even when createDailyBackups is on', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [[makeDiskRow('site-1', { isEnabled: false, createDailyBackups: true })]]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 0, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls, [])
+})
+
+test('runDailyBackups skips an enabled disk target whose createDailyBackups is off', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [[makeDiskRow('site-1', { isEnabled: true, createDailyBackups: false })]]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 0, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls, [])
+})
+
+test('runDailyBackups runs dailyBackup for every enabled disk target with createDailyBackups on, across sites', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }, { id: 'site-2' }],
+    [
+      [makeDiskRow('site-1', { isEnabled: true, createDailyBackups: true })],
+      [makeDiskRow('site-2', { isEnabled: true, createDailyBackups: true })]
+    ]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 2, failed: 0 })
+    }
+  )
+  assert.deepEqual(calls.sort(), ['site-1', 'site-2'])
+})
+
+test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [
+      [
+        {
+          id: 'target-db-site-1',
+          siteId: 'site-1',
+          module: 'db',
+          isEnabled: true,
+          contentTypes: { activeTypes: [], largeThreshold: '5MB' },
+          assetDelivery: { streaming: false, directAccess: false },
+          versioning: { enabled: false },
+          syncMode: storage.getDefinition('db')!.defaultMode,
+          scheduleOverride: null,
+          // -> `db` has no `createDailyBackups` prop at all, but even if a config blob somehow had
+          //    one set, the db module declares no `dailyBackup` handler -- nothing to call
+          config: { createDailyBackups: true },
+          state: {}
+        }
+      ]
+    ]
+  )
+  const result = await storage.runDailyBackups()
+  assert.deepEqual(result, { ran: 0, failed: 0 })
+})
+
+test('runDailyBackups logs and continues past a target whose dailyBackup throws, without failing the others', async () => {
+  const { warnings } = fakeDailyBackupDeps(
+    [{ id: 'site-1' }, { id: 'site-2' }],
+    [
+      [makeDiskRow('site-1', { isEnabled: true, createDailyBackups: true })],
+      [makeDiskRow('site-2', { isEnabled: true, createDailyBackups: true })]
+    ]
+  )
+  const calls: string[] = []
+  await withFakeDiskModule(
+    async (target) => {
+      calls.push(target.siteId)
+      if (target.siteId === 'site-1') {
+        throw new Error('disk full')
+      }
+    },
+    async () => {
+      const result = await storage.runDailyBackups()
+      assert.deepEqual(result, { ran: 1, failed: 1 })
+    }
+  )
+  assert.deepEqual(calls.sort(), ['site-1', 'site-2'])
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /disk full/)
 })

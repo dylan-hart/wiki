@@ -15,6 +15,14 @@ test('JOB_SCHEDULE_SEED registers storageSyncTick on a short, valid cron', () =>
   assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
 })
 
+test('JOB_SCHEDULE_SEED registers storageDailyBackup on a valid daily cron', () => {
+  const entry = JOB_SCHEDULE_SEED.find((e) => e.task === 'storageDailyBackup')
+  assert.ok(entry, 'expected a storageDailyBackup entry in the schedule seed')
+  assert.equal(entry!.type, 'system')
+  // -> A standard 5-field cron expression, e.g. "30 2 * * *" (once a day)
+  assert.match(entry!.cron, /^(\S+\s+){4}\S+$/)
+})
+
 test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
   const tasks = JOB_SCHEDULE_SEED.map((e) => e.task)
   assert.deepEqual(
@@ -23,6 +31,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'checkVersion',
       'cleanJobHistory',
       'purgeRateLimits',
+      'storageDailyBackup',
       'storageSyncTick',
       'updateLocales'
     ].sort()

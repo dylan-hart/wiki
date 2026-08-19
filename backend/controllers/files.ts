@@ -62,11 +62,14 @@ async function routes(app: FastifyInstance) {
       return reply.code(304).send()
     }
 
-    const content = await WIKI.models.assets.readContent(asset)
+    const content = await WIKI.models.assets.readContent(asset, site.id)
     if (!content) {
       // -> The path resolved to a row that is no longer there, so the resolution was a stale one
       WIKI.models.assets.forgetPath(site.id, asset.folderPath, asset.fileName)
       return reply.notFound('File not found')
+    }
+    if ('redirectUrl' in content) {
+      return reply.redirect(content.redirectUrl, 302)
     }
 
     if (WIKI.config.security?.forceAssetDownload || !INLINE_EXTS.has(asset.fileExt)) {

@@ -50,8 +50,12 @@ export function getContentTypeFromExtension(ext: string): string | null {
 /**
  * The module every site stores its content in, and the only one that is guaranteed to work: assets
  * and pages live in the wiki database. It cannot be disabled, as that would leave content nowhere.
+ *
+ * Exported for `models/assets.ts`'s `readContent()`, which resolves this target specifically to read
+ * its `assetDelivery` settings — disk and db are the only implemented targets, and content still
+ * physically lives in the assets table either way, so the db target is what governs serving.
  */
-const DB_MODULE = 'db'
+export const DB_MODULE = 'db'
 
 /** An ISO-8601 duration such as `PT5M` or `P1DT12H`, requiring at least one date or time component. */
 const ISO_DURATION_PATTERN = /^P(?!$)(\d+Y)?(\d+M)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
@@ -242,6 +246,13 @@ export interface StorageTargetInput {
 /**
  * What a module implementation is expected to export, once any of them do.
  *
+ * Every handler here — `setup`, `setupDestroy`, the content-dispatch handlers, and any custom
+ * `[handler]` an action names — receives the *full* `StorageTarget`, never a bare id. That target
+ * includes `siteId`, which is therefore the one reliable way for a handler to learn which site's
+ * pages/assets/tree rows it is scoped to: nothing else is passed alongside it. `executeAction()`,
+ * `runSetup()` and `destroySetup()` all already fetch the target via `getSiteTargetById()` before
+ * calling in, so a handler never has to ask the model for it again.
+ *
  * The content-dispatch handlers below are called by the `dispatchStorage` task — never directly —
  * one per write-path event this target's `contentTypes.activeTypes` covers; see `Storage.dispatch()`
  * and `STORAGE_HANDLERS` for how an event picks its handler. Named to mirror 2.5.x's storage module
@@ -252,10 +263,20 @@ export interface StorageTargetInput {
  * JSON-serializable rather than carrying content through the job table.
  */
 export interface StorageModule {
+  /**
+   * Extra, module-specific config validation beyond what `Storage.validateConfig()`'s generic
+   * type/enum check can do from the props declaration alone — e.g. the disk module confirming its
+   * `path` prop is an absolute, existing, writable directory rather than merely a non-empty string.
+   * Called by `validateTarget()`, with the config the patch being validated would result in — see
+   * that method's doc for exactly when.
+   *
+   * @returns The reason it is invalid, or null when it is fine
+   */
+  validateConfig?: (config: Record<string, any>, target: StorageTarget) => Promise<string | null>
   /** Advance a multi-step setup process, returning what the admin area should do next. */
-  setup?: (targetId: string, state: Record<string, any>) => Promise<Record<string, any>>
+  setup?: (target: StorageTarget, state: Record<string, any>) => Promise<Record<string, any>>
   /** Undo whatever `setup` configured, so that it can be started over. */
-  setupDestroy?: (targetId: string) => Promise<void>
+  setupDestroy?: (target: StorageTarget) => Promise<void>
   /** A page was created. */
   created?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** A page's content, title or metadata changed. */
@@ -270,6 +291,22 @@ export interface StorageModule {
   assetRenamed?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
   /** An asset was deleted. */
   assetDeleted?: (target: StorageTarget, data: Record<string, any>) => Promise<void>
+  /**
+   * A direct URL to an asset's bytes on this target — e.g. a signed S3 URL — that lets a reader fetch
+   * the file straight from the target instead of proxying it through this instance.
+   *
+   * Checked by `models/assets.ts`'s `readContent()` before it falls into its own disk-cache/database
+   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on and the
+   * module's definition declares `assetDelivery.isDirectAccessSupported`. Neither `disk` nor `db`
+   * implements this — a local disk path and a database row are not URLs anything else can fetch — so
+   * the hook stays unexercised until a module that has a URL of its own (S3, a CDN) implements it.
+   *
+   * @returns The URL to redirect the request to, or null/undefined to fall through to the normal path
+   */
+  getDirectUrl?: (
+    asset: { id: string; updatedAt: Date; fileName: string },
+    target: StorageTarget
+  ) => Promise<string | null | undefined>
   /** Handlers named by the definition's actions. */
   [handler: string]: any
 }
@@ -602,9 +639,15 @@ class Storage {
   /**
    * Check a target patch against what its module supports.
    *
+   * Async because of its last step: a module-specific deep check (see `StorageModule.validateConfig`)
+   * runs whenever the patch touches `config` or is turning the target on, which means loading the
+   * module (`ensureModule()`) and, for one like disk, hitting the filesystem. Skipped for any other
+   * patch — a sync-mode or schedule change re-validating an unrelated config on every save would be
+   * pure overhead.
+   *
    * @returns The reason it is invalid, or null when it is fine
    */
-  validateTarget(target: StorageTarget, patch: StorageTargetInput): string | null {
+  async validateTarget(target: StorageTarget, patch: StorageTargetInput): Promise<string | null> {
     const definition = this.getDefinition(target.module)!
     if (patch.isEnabled === false && target.module === DB_MODULE) {
       return 'The database storage target cannot be disabled, as content would have nowhere to live.'
@@ -645,7 +688,22 @@ class Storage {
         return `"${patch.sync.scheduleOverride}" is not a valid ISO-8601 duration.`
       }
     }
-    return this.validateConfig(target.module, patch.config)
+    const configInvalid = this.validateConfig(target.module, patch.config)
+    if (configInvalid) {
+      return configInvalid
+    }
+
+    if (patch.config !== undefined || patch.isEnabled === true) {
+      const mod = await this.ensureModule(target.module)
+      if (mod?.validateConfig) {
+        const effectiveConfig = this.buildConfig(target.module, patch.config ?? {}, target.config)
+        const deepInvalid = await mod.validateConfig(effectiveConfig, target)
+        if (deepInvalid) {
+          return deepInvalid
+        }
+      }
+    }
+    return null
   }
 
   /**
@@ -874,6 +932,54 @@ class Storage {
   }
 
   /**
+   * Run the `dailyBackup` handler for every enabled target, across every site, whose module declares
+   * one and whose `config.createDailyBackups` is on -- the scheduled counterpart to `dispatch()`'s
+   * write-path syncs, run by the `storageDailyBackup` task on the cron entry `models/jobs.ts` seeds
+   * for it.
+   *
+   * Only the `disk` module implements `dailyBackup` today (see `modules/storage/disk/storage.ts`),
+   * but the check here is deliberately generic: any target whose module exports a `dailyBackup`
+   * handler and whose config opts in is run, no matter which module. A target is skipped, not run,
+   * when:
+   *  - it is disabled (`isEnabled` false) -- a target an admin turned off should not keep backing up;
+   *  - `config.createDailyBackups` is not exactly `true` -- the whole point of the prop;
+   *  - its module has no `dailyBackup` handler -- nothing to call.
+   *
+   * A single target's failure (e.g. its path became unwritable) is logged and does not stop the rest,
+   * for the same reason `tickScheduledSyncs()` isolates its own per-target loop: one bad target must
+   * not turn into every other site's backup silently not running tonight.
+   *
+   * @returns How many targets' backups ran successfully, and how many failed
+   */
+  async runDailyBackups(): Promise<{ ran: number; failed: number }> {
+    const sites = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    let ran = 0
+    let failed = 0
+    for (const site of sites) {
+      const targets = await this.getSiteTargets(site.id)
+      for (const target of targets) {
+        if (!target.isEnabled || target.config.createDailyBackups !== true) {
+          continue
+        }
+        const mod = await this.ensureModule(target.module)
+        if (!mod || typeof mod.dailyBackup !== 'function') {
+          continue
+        }
+        try {
+          await mod.dailyBackup(target)
+          ran++
+        } catch (err: any) {
+          failed++
+          WIKI.logger.warn(
+            `Daily backup failed for storage target ${target.title} (site ${site.id}): ${err.message}`
+          )
+        }
+      }
+    }
+    return { ran, failed }
+  }
+
+  /**
    * Ensure a module's implementation is loaded
    *
    * @returns The implementation, or null when the module has none or it failed to load
@@ -924,7 +1030,7 @@ class Storage {
     if (!mod?.setup) {
       throw new Error(`The ${target.title} storage module has no setup process.`)
     }
-    return mod.setup(target.id, state)
+    return mod.setup(target, state)
   }
 
   /**
@@ -937,7 +1043,7 @@ class Storage {
     if (!mod?.setupDestroy) {
       throw new Error(`The ${target.title} storage module has no setup process.`)
     }
-    await mod.setupDestroy(target.id)
+    await mod.setupDestroy(target)
   }
 }
 
