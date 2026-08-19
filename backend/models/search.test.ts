@@ -24,7 +24,7 @@ describe('search "did you mean" suggestions (DB-backed)', { skip: !hasTestDataba
     fixtures = await setupTestDb()
     ;({ pages: pagesModel } = await import('./pages.ts'))
     ;({ search: searchModel } = await import('./search.ts'))
-    actor = { id: fixtures.userId, permissions: ['manage:system'] }
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
 
     await pagesModel.createPage(
       fixtures.siteId,

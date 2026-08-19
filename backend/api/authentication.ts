@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
  * How long a redirect login may take before its callback is refused.
@@ -36,6 +36,118 @@ function loginErrorUrl(redirect: string, code: string): string {
     params.set('redirect', redirect)
   }
   return `/login?${params.toString()}`
+}
+
+/**
+ * Carries the redirect a failed callback should land on, alongside the error code — thrown by
+ * `matchCallbackFlow()` and caught at each callback route's top level, so neither has to repeat the
+ * flow-validation logic to get an error redirect right.
+ */
+class CallbackFlowError extends Error {
+  redirect: string
+  code: string
+
+  constructor(redirect: string, code: string) {
+    super(code)
+    this.redirect = redirect
+    this.code = code
+  }
+}
+
+/**
+ * Check an incoming callback against the flow this session started, and consume it — shared by the
+ * GET and POST `/auth/:strategyId/callback` routes, which differ only in where `state` and the
+ * provider's own error (if any) travel: query string parameters for every OAuth2/OIDC-shaped
+ * provider, form fields for SAML. See `AuthFlow.state` in `models/authentication.ts` for how each
+ * protocol threads `state` through in the first place.
+ *
+ * @throws `CallbackFlowError` — `ERR_LOGIN_EXPIRED` for a callback with no matching, unexpired flow
+ *         behind it; `ERR_LOGIN_FAILED` when the provider itself reported an error
+ */
+function matchCallbackFlow(
+  req: FastifyRequest,
+  strategyId: string,
+  state: string | undefined,
+  error?: string,
+  errorDescription?: string
+): { flow: NonNullable<FastifyRequest['session']['authFlow']>; redirect: string } {
+  const flow = req.session.authFlow
+  const redirect = flow?.redirect ?? '/'
+  /*
+    Everything about the answer is checked against the flow this session started. A callback that
+    arrives with no flow behind it, for another strategy, with a different `state`, or long after the
+    login began is not this session's login — and is refused without anything being spent further.
+  */
+  if (
+    !flow ||
+    flow.strategyId !== strategyId ||
+    !state ||
+    state !== flow.state ||
+    Temporal.Instant.compare(
+      Temporal.Instant.from(flow.startedAt).add({ minutes: AUTH_FLOW_MINUTES }),
+      Temporal.Now.instant()
+    ) < 0
+  ) {
+    WIKI.models.flags.authDebug(
+      `Callback for strategy ${strategyId} from ${req.ip} did not match this session's login`
+    )
+    req.session.authFlow = undefined
+    throw new CallbackFlowError(redirect, 'ERR_LOGIN_EXPIRED')
+  }
+  // -> Spent, whatever happens next: one callback per login
+  req.session.authFlow = undefined
+
+  if (error) {
+    WIKI.models.flags.authDebug(
+      `Provider refused the login for strategy ${flow.strategyId}: ${error} ${errorDescription ?? ''}`
+    )
+    throw new CallbackFlowError(redirect, 'ERR_LOGIN_FAILED')
+  }
+
+  return { flow, redirect }
+}
+
+/**
+ * The rest of a callback once its flow has checked out: resolve the profile through the module, then
+ * find-or-create and log the account in. Shared by the GET and POST callback routes, which differ only
+ * in what they have to hand the module's `profile()` — an authorization `code` and full querystring
+ * for GET, the parsed form `body` for POST.
+ */
+async function finishProviderLogin(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  flow: NonNullable<FastifyRequest['session']['authFlow']>,
+  redirect: string,
+  extra: { code?: string; ticket?: string; body?: Record<string, any>; currentUrl: string }
+) {
+  const strategy = await WIKI.models.authentication.getStrategyById(flow.strategyId)
+  const instance = WIKI.auth.strategies[flow.strategyId] as any
+  if (!strategy?.isEnabled || typeof instance?.profile !== 'function') {
+    return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
+  }
+
+  try {
+    const profile = await instance.profile({
+      redirectUri: callbackUrl(req, strategy.id),
+      state: flow.state,
+      nonce: flow.nonce,
+      codeVerifier: flow.codeVerifier,
+      currentUrl: extra.currentUrl,
+      code: extra.code,
+      ticket: extra.ticket,
+      body: extra.body
+    })
+    const result = await WIKI.models.users.loginWithProvider(
+      { siteId: flow.siteId, strategy, profile, ip: req.ip },
+      req
+    )
+    return reply.redirect(result.redirect || redirect)
+  } catch (err: any) {
+    WIKI.models.flags.authDebug(
+      `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
+    )
+    return reply.redirect(loginErrorUrl(redirect, err.message))
+  }
 }
 
 /**
@@ -617,7 +729,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Start a login at an identity provider',
         description:
-          'Answers with a redirect to the provider, for a strategy whose module signs users in there rather than through a form — OpenID Connect, Google, GitHub. The `state`, `nonce` and PKCE verifier that tie the answer back to this browser are generated here and kept on the session; the browser is never trusted with any of them.\n\nOpened by following the link, not by fetching it: what comes back is a page at the provider.',
+          'Answers with a redirect to the provider, for a strategy whose module signs users in there rather than through a form — OpenID Connect, Google, GitHub. The `state`, `nonce` and PKCE verifier that tie the answer back to this browser are generated here and kept on the session; the browser is never trusted with any of them.\n\nOpened by following the link, not by fetching it: what comes back is a page at the provider, or — for a module whose provider needs its AuthnRequest sent as a form POST rather than a redirect, e.g. a SAML strategy configured for the HTTP-POST binding — a self-submitting HTML form addressed to it.',
         tags: ['Authentication'],
         params: {
           type: 'object',
@@ -639,6 +751,10 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
+          200: {
+            description: 'A self-submitting form addressed to the identity provider',
+            type: 'string'
+          },
           302: { description: 'Redirect to the identity provider', type: 'null' },
           404: { $ref: 'ApiError#', description: 'No such strategy, or it is disabled.' }
         }
@@ -665,7 +781,7 @@ async function routes(app: FastifyInstance) {
       req.session.authFlow = flow
 
       try {
-        const url = await instance.authorizationUrl({
+        const authorization = await instance.authorizationUrl({
           redirectUri: callbackUrl(req, strategy.id),
           state: flow.state,
           nonce: flow.nonce,
@@ -674,7 +790,11 @@ async function routes(app: FastifyInstance) {
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
         )
-        return reply.redirect(url)
+        // -> A module answers with a URL to redirect to, or — see `SamlAuthorizationResult` — an HTML
+        //    page with a form that submits itself, for a provider whose request has to travel as a POST
+        return typeof authorization === 'string'
+          ? reply.redirect(authorization)
+          : reply.type('text/html').send(authorization.html)
       } catch (err: any) {
         WIKI.logger.warn(`Could not start a login at ${strategy.module}: ${err.message}`)
         return reply.redirect(loginErrorUrl(flow.redirect, err.message))
@@ -687,7 +807,14 @@ async function routes(app: FastifyInstance) {
    */
   app.get<{
     Params: { strategyId: string }
-    Querystring: { code?: string; state?: string; error?: string; error_description?: string }
+    Querystring: {
+      code?: string
+      /** CAS's equivalent of `code` — see `AuthFlowCallback.ticket` in `models/authentication.ts`. */
+      ticket?: string
+      state?: string
+      error?: string
+      error_description?: string
+    }
   }>(
     '/auth/:strategyId/callback',
     {
@@ -714,65 +841,91 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const flow = req.session.authFlow
-      const redirect = flow?.redirect ?? '/'
-      /*
-        Everything about the answer is checked against the flow this session started. A callback that
-        arrives with no flow behind it, for another strategy, with a different `state`, or long after
-        the login began is not this session's login — and is refused without the code being spent.
-      */
-      if (
-        !flow ||
-        flow.strategyId !== req.params.strategyId ||
-        !req.query.state ||
-        req.query.state !== flow.state ||
-        Temporal.Instant.compare(
-          Temporal.Instant.from(flow.startedAt).add({ minutes: AUTH_FLOW_MINUTES }),
-          Temporal.Now.instant()
-        ) < 0
-      ) {
-        WIKI.models.flags.authDebug(
-          `Callback for strategy ${req.params.strategyId} from ${req.ip} did not match this session's login`
-        )
-        req.session.authFlow = undefined
-        return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_EXPIRED'))
-      }
-      // -> Spent, whatever happens next: one callback per login
-      req.session.authFlow = undefined
-
-      if (req.query.error) {
-        WIKI.models.flags.authDebug(
-          `Provider refused the login for strategy ${flow.strategyId}: ${req.query.error} ${req.query.error_description ?? ''}`
-        )
-        return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
-      }
-
-      const strategy = await WIKI.models.authentication.getStrategyById(flow.strategyId)
-      const instance = WIKI.auth.strategies[flow.strategyId] as any
-      if (!strategy?.isEnabled || typeof instance?.profile !== 'function') {
-        return reply.redirect(loginErrorUrl(redirect, 'ERR_LOGIN_FAILED'))
-      }
-
+      let flow: NonNullable<FastifyRequest['session']['authFlow']>
+      let redirect: string
       try {
-        const profile = await instance.profile({
-          redirectUri: callbackUrl(req, strategy.id),
-          state: flow.state,
-          nonce: flow.nonce,
-          codeVerifier: flow.codeVerifier,
-          currentUrl: `${callbackUrl(req, strategy.id)}?${new URLSearchParams(req.query as Record<string, string>).toString()}`,
-          code: req.query.code
-        })
-        const result = await WIKI.models.users.loginWithProvider(
-          { siteId: flow.siteId, strategy, profile, ip: req.ip },
-          req
-        )
-        return reply.redirect(result.redirect || redirect)
+        ;({ flow, redirect } = matchCallbackFlow(
+          req,
+          req.params.strategyId,
+          req.query.state,
+          req.query.error,
+          req.query.error_description
+        ))
       } catch (err: any) {
-        WIKI.models.flags.authDebug(
-          `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
-        )
-        return reply.redirect(loginErrorUrl(redirect, err.message))
+        if (err instanceof CallbackFlowError) {
+          return reply.redirect(loginErrorUrl(err.redirect, err.code))
+        }
+        throw err
       }
+
+      return finishProviderLogin(req, reply, flow, redirect, {
+        code: req.query.code,
+        ticket: req.query.ticket,
+        currentUrl: `${callbackUrl(req, req.params.strategyId)}?${new URLSearchParams(req.query as Record<string, string>).toString()}`
+      })
+    }
+  )
+
+  /**
+   * FINISH A REDIRECT LOGIN (FORM POST)
+   *
+   * The POST counterpart of the callback above, for a provider that answers with a form submission
+   * rather than a redirect. SAML is the reason this exists: its response is delivered as a browser POST
+   * carrying `SAMLResponse` and `RelayState` — see `AuthFlow.state` in `models/authentication.ts` for
+   * why `RelayState` is where `state` travels for SAML specifically, and why CAS needs no equivalent
+   * route at all.
+   */
+  app.post<{
+    Params: { strategyId: string }
+    Body: { SAMLResponse?: string; RelayState?: string }
+  }>(
+    '/auth/:strategyId/callback',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> A callback is a password check by another name: whatever it carries decides who is logged in
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Finish a login at an identity provider (form POST)',
+        description:
+          'Where a provider that answers with a browser form POST — SAML — sends the browser back, `SAMLResponse` and `RelayState` included. Otherwise identical to the GET callback: the same flow-matching, expiry and `state` checks apply, with `state` read from `RelayState` here instead of a query parameter.',
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            strategyId: { type: 'string', format: 'uuid' }
+          },
+          required: ['strategyId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            SAMLResponse: { type: 'string' },
+            RelayState: { type: 'string' }
+          }
+        },
+        response: {
+          302: { description: 'Redirect back into the wiki', type: 'null' }
+        }
+      }
+    },
+    async (req, reply) => {
+      let flow: NonNullable<FastifyRequest['session']['authFlow']>
+      let redirect: string
+      try {
+        ;({ flow, redirect } = matchCallbackFlow(req, req.params.strategyId, req.body?.RelayState))
+      } catch (err: any) {
+        if (err instanceof CallbackFlowError) {
+          return reply.redirect(loginErrorUrl(err.redirect, err.code))
+        }
+        throw err
+      }
+
+      return finishProviderLogin(req, reply, flow, redirect, {
+        body: req.body,
+        currentUrl: callbackUrl(req, req.params.strategyId)
+      })
     }
   )
 

@@ -1,0 +1,68 @@
+key: cas
+title: CAS
+description: Sign in through a CAS (Central Authentication Service) server — CAS 1.0 or CAS 3.0.
+author: requarks.io
+logo: https://static.requarks.io/logo/cas.svg
+icon: /_assets/icons/ultraviolet-key.svg
+color: teal-8
+vendor: 'Apereo Foundation'
+website: 'https://apereo.github.io/cas/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  baseUrl:
+    type: String
+    title: Wiki Base URL
+    hint: (optional) This wiki's own public base URL. Kept for parity with earlier versions' configuration; not read by this module — the callback URL registered with the CAS server (shown on this strategy's own page in the admin area) is already built per-request, so no separate base URL is needed here.
+    icon: internet
+    default: ''
+    order: 1
+  casUrl:
+    type: String
+    title: CAS Server URL
+    hint: The CAS server's own base URL, including its context path, e.g. https://cas.example.com/cas.
+    icon: internet
+    default: ''
+    order: 2
+  casVersion:
+    type: String
+    title: CAS Version
+    hint: CAS 1.0 answers with only a bare username and reports no attributes at all; CAS 3.0 additionally reports attributes, which the mappings below read from.
+    icon: fingerprint-scan
+    enum:
+      - CAS3.0|CAS 3.0
+      - CAS1.0|CAS 1.0
+    default: 'CAS3.0'
+    order: 3
+  uniqueIdAttribute:
+    type: String
+    title: Unique ID Attribute
+    hint: (optional) The CAS attribute holding the user's unique identifier. Falls back to the CAS username when left empty, or when the attribute is absent from what CAS reports.
+    icon: fingerprint-scan
+    default: ''
+    order: 4
+  emailAttribute:
+    type: String
+    title: Email Attribute
+    hint: The CAS attribute holding the user's email address. Only available under CAS 3.0 — CAS 1.0 reports no attributes at all, so a CAS 1.0 strategy has no address to match or create an account by.
+    icon: envelope
+    default: 'mail'
+    order: 5
+    if:
+      - { key: 'casVersion', eq: 'CAS3.0' }
+  displayNameAttribute:
+    type: String
+    title: Display Name Attribute
+    hint: (optional) The CAS attribute holding the user's display name. Only available under CAS 3.0. Falls back to the CAS username when left empty, or when the attribute is absent from what CAS reports.
+    icon: person
+    default: 'displayName'
+    order: 6
+    if:
+      - { key: 'casVersion', eq: 'CAS3.0' }
+refs:
+  serviceUrl:
+    title: Service URL
+    hint: Register this as an allowed service with the CAS server above (a pattern match covering it is fine — the actual value this module sends is this URL plus a `?state=` parameter that changes on every login attempt).
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'

@@ -19,6 +19,7 @@ import {
   isRecoveryCodeShape,
   normalizeRecoveryCode
 } from '../helpers/recoveryCodes.ts'
+import { ProvisionableLoginError } from './authentication.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
 
@@ -1370,10 +1371,29 @@ class Users {
       try {
         user = await str.authenticate(context)
       } catch (err: any) {
-        WIKI.models.flags.authDebug(
-          `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
-        )
-        throw err
+        /*
+          A form-based module (LDAP) verifies the person itself and never resolves a local user — it
+          always throws this once verification succeeds, whether or not an account already exists, so
+          every login (not only the one that creates an account) goes through the same find-or-create
+          path a redirect-based provider uses, which is also what re-syncs group membership on every
+          login. `findOrCreateProviderUser()` enforces `registration` itself, and only for the case
+          that actually needs it: an unknown address with no local account. Gating on it *here* as well
+          would refuse a returning user who already has an account the moment `registration` is turned
+          off — the flag means "accepts new users", not "accepts logins" — so it is deliberately not
+          checked again at this outer layer.
+        */
+        if (strInfo.useForm && err instanceof ProvisionableLoginError) {
+          const providerStrategy = await WIKI.models.authentication.getStrategyById(strategyId)
+          if (!providerStrategy) {
+            throw new Error('ERR_INVALID_STRATEGY')
+          }
+          user = await this.findOrCreateProviderUser(providerStrategy, err.profile)
+        } else {
+          WIKI.models.flags.authDebug(
+            `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
+          )
+          throw err
+        }
       }
 
       // Perform post-login checks
@@ -1423,6 +1443,38 @@ class Users {
     },
     req: any
   ): Promise<AfterLoginResult> {
+    const user = await this.findOrCreateProviderUser(strategy, profile)
+
+    /*
+      Neither 2FA nor a password change is asked for: both are the local strategy's, and this user has
+      just proved who they are somewhere else — where whatever second factor that provider enforces has
+      already been satisfied.
+    */
+    return this.afterLoginChecks(
+      user,
+      strategy.id,
+      { ip, siteId },
+      { skipTFA: true, skipChangePwd: true },
+      req
+    )
+  }
+
+  /**
+   * Find the account an identity provider's profile belongs to, creating and linking one if the
+   * strategy accepts new users — and syncing group membership either way.
+   *
+   * The account-creation half of what used to be `loginWithProvider()` alone, factored out because
+   * `login()`'s auto-provisioning branch (a form-based module like LDAP, whose `authenticate()` found
+   * no local match and threw `ProvisionableLoginError`) needs exactly the same find-or-create rules
+   * rather than a second copy of them.
+   *
+   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_LOGIN_FAILED`,
+   *         `ERR_INACTIVE_USER`
+   */
+  private async findOrCreateProviderUser(
+    strategy: AuthStrategy,
+    profile: ProviderProfile
+  ): Promise<any> {
     const email = profile.email.toLowerCase().trim()
     let user = await this.getByEmail(email)
 
@@ -1486,17 +1538,75 @@ class Users {
       .set({ auth, updatedAt: sql`now()` })
       .where(eq(usersTable.id, user.id))
 
-    /*
-      Neither 2FA nor a password change is asked for: both are the local strategy's, and this user has
-      just proved who they are somewhere else — where whatever second factor that provider enforces has
-      already been satisfied.
-    */
-    return this.afterLoginChecks(
-      user,
-      strategy.id,
-      { ip, siteId },
-      { skipTFA: true, skipChangePwd: true },
-      req
+    // -> Every login, not only the one that created the account: a group added or removed at the
+    //    provider since the last login has to show up here too.
+    if (strategy.config?.mapGroups && profile.groups) {
+      await this.syncProviderGroups(user, strategy, profile.groups)
+    }
+
+    return user
+  }
+
+  /**
+   * Reconcile a user's wiki group membership with the groups an identity provider just reported for
+   * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
+   * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
+   *
+   * Two memberships are never touched by this, regardless of what was reported:
+   *
+   *   - the guests group, which is anonymous access itself rather than something a provider can grant
+   *     or take away from a real account;
+   *   - any group still named in the strategy's own `autoEnrollGroups` — an administrator put that
+   *     grant there directly, and a provider that has simply stopped mentioning the group should not
+   *     silently undo it.
+   *
+   * Group names are matched case-insensitively and trimmed, since that is how directory group names are
+   * routinely typed inconsistently.
+   *
+   * @param user The account to sync, at minimum `{ id }`
+   * @param reportedGroups Group names as the provider reported them for this login
+   */
+  async syncProviderGroups(
+    user: { id: string },
+    strategy: AuthStrategy,
+    reportedGroups: string[]
+  ): Promise<void> {
+    const guestsGroupId = WIKI.data.systemIds.guestsGroupId
+    const protectedFromRemoval = new Set([guestsGroupId, ...(strategy.autoEnrollGroups ?? [])])
+
+    const reportedNames = new Set(
+      reportedGroups.map((name) => name.trim().toLowerCase()).filter(Boolean)
+    )
+    const allGroups = await WIKI.models.groups.getAllGroups()
+    const matchedGroupIds = new Set(
+      allGroups
+        .filter(
+          (g: any) => g.id !== guestsGroupId && reportedNames.has(g.name.trim().toLowerCase())
+        )
+        .map((g: any) => g.id)
+    )
+
+    const currentGroupIds = await this.getUserGroupIds(user.id)
+    const currentSet = new Set(currentGroupIds)
+
+    const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
+    const toRemove = currentGroupIds.filter(
+      (id) => !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
+    )
+
+    if (toAdd.length < 1 && toRemove.length < 1) {
+      return
+    }
+
+    for (const groupId of toAdd) {
+      await WIKI.models.groups.assignUserToGroup(groupId, user.id)
+    }
+    for (const groupId of toRemove) {
+      await WIKI.models.groups.unassignUserFromGroup(groupId, user.id)
+    }
+
+    WIKI.models.flags.authDebug(
+      `Synced provider groups for user ${user.id} via strategy ${strategy.id}: +${toAdd.length} / -${toRemove.length}`
     )
   }
 

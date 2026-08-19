@@ -1,0 +1,158 @@
+key: ldap
+title: LDAP / Active Directory
+description: Authenticate against an LDAP directory or Active Directory domain, with an existing account looked up by the username and password entered on the wiki's own login form.
+author: requarks.io
+logo: https://static.requarks.io/logo/active-directory.svg
+icon: /_assets/icons/ultraviolet-windows8.svg
+color: blue-9
+vendor: 'Microsoft Corporation'
+website: 'https://www.microsoft.com/windowsserver'
+isAvailable: true
+useForm: true
+usernameType: username
+props:
+  url:
+    type: String
+    title: LDAP URL
+    hint: (e.g. ldap://serverhost:389 or ldaps://serverhost:636)
+    icon: internet
+    default: 'ldap://serverhost:389'
+    order: 1
+  bindDn:
+    type: String
+    title: Admin Bind DN
+    hint: The distinguished name (DN) of the account used to search the directory.
+    icon: key
+    default: ''
+    order: 2
+  bindCredentials:
+    type: String
+    title: Admin Bind Credentials
+    hint: The password of the account used above for binding.
+    icon: password
+    sensitive: true
+    default: ''
+    order: 3
+  searchBase:
+    type: String
+    title: Search Base
+    hint: The base DN from which to search for users.
+    icon: dns
+    default: 'o=users,o=example.com'
+    order: 4
+  searchFilter:
+    type: String
+    title: Search Filter
+    hint: The query used to match a username. `{{username}}` must be present and is interpolated with what the person typed when signing in.
+    icon: search
+    default: '(uid={{username}})'
+    order: 5
+  tlsEnabled:
+    type: Boolean
+    title: Use TLS
+    hint: Connect over TLS. Required for `ldaps://` URLs; optional for a StartTLS-capable `ldap://` server.
+    icon: secure
+    default: false
+    order: 6
+  verifyTLSCertificate:
+    type: Boolean
+    title: Verify TLS Certificate
+    hint: Turn off only for a server whose certificate cannot be validated against a trusted CA — doing so accepts any certificate the server presents.
+    icon: security-ssl
+    default: true
+    order: 7
+    if:
+      - { key: 'tlsEnabled', eq: true }
+  tlsCertPath:
+    type: String
+    title: TLS Certificate Path
+    hint: (optional) Absolute path on the server to a CA certificate to trust, in addition to the system's own trust store.
+    icon: symlink-directory
+    default: ''
+    order: 8
+    if:
+      - { key: 'tlsEnabled', eq: true }
+  mappingUID:
+    type: String
+    title: Unique ID Field Mapping
+    hint: The attribute holding the user's unique identifier. Usually "uid" or "sAMAccountName".
+    icon: fingerprint-scan
+    default: 'uid'
+    order: 20
+  mappingEmail:
+    type: String
+    title: Email Field Mapping
+    hint: The attribute holding the user's email address. Usually "mail".
+    icon: envelope
+    default: 'mail'
+    order: 21
+  mappingDisplayName:
+    type: String
+    title: Display Name Field Mapping
+    hint: The attribute holding the user's display name. Usually "displayName" or "cn".
+    icon: person
+    default: 'displayName'
+    order: 22
+  mappingPicture:
+    type: String
+    title: Avatar Picture Field Mapping
+    hint: The attribute holding the user's avatar picture. Usually "jpegPhoto" or "thumbnailPhoto".
+    icon: profile-picture
+    default: 'jpegPhoto'
+    order: 23
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the directory groups reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: multiple-25
+    default: false
+    order: 24
+  groupSearchBase:
+    type: String
+    title: Group Search Base
+    hint: The base DN from which to search for groups.
+    icon: dns
+    default: ''
+    order: 25
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupSearchFilter:
+    type: String
+    title: Group Search Filter
+    hint: The query used to match a user's groups. `{{dn}}` is interpolated with the value named by Group DN Property below. `(member={{dn}})` works for most directories.
+    icon: search
+    default: '(member={{dn}})'
+    order: 26
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupSearchScope:
+    type: String
+    title: Group Search Scope
+    hint: How far from the Group Search Base to search. Subtree searches every level beneath it; Base searches only the base DN itself; One Level searches the base DN and the level directly beneath it.
+    icon: filtration
+    enum:
+      - sub|Subtree
+      - base|Base
+      - one|One Level
+    default: 'sub'
+    order: 27
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupDnProperty:
+    type: String
+    title: Group DN Property
+    hint: The user attribute whose value fills in `{{dn}}` above. "dn" (the default) uses the user entry's own distinguished name.
+    icon: rename
+    default: 'dn'
+    order: 28
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupNameField:
+    type: String
+    title: Group Name Field
+    hint: The attribute on a matched group entry holding its name, matched against a wiki group of the same name. Usually "cn".
+    icon: rename
+    default: 'cn'
+    order: 29
+    if:
+      - { key: 'mapGroups', eq: true }

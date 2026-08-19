@@ -1,0 +1,221 @@
+key: saml
+title: SAML 2.0
+description: Sign in through any SAML 2.0 identity provider — Okta, Azure AD, ADFS, Shibboleth, and others.
+author: requarks.io
+logo: https://static.requarks.io/logo/saml.svg
+icon: /_assets/icons/ultraviolet-saml.svg
+color: indigo-9
+vendor: 'OASIS'
+website: 'https://docs.oasis-open.org/security/saml/v2.0/'
+isAvailable: true
+useForm: false
+usernameType: email
+props:
+  entryPoint:
+    type: String
+    title: Identity Provider SSO URL
+    hint: Where the browser is sent to sign in — the identity provider's SSO endpoint.
+    icon: internet
+    default: ''
+    order: 1
+  issuer:
+    type: String
+    title: Issuer / Entity ID
+    hint: This wiki's own identifier, as registered with the identity provider.
+    icon: fingerprint-scan
+    default: ''
+    order: 2
+  audience:
+    type: String
+    title: Audience
+    hint: (optional) The audience value expected inside the assertion's `AudienceRestriction`. Left empty, audience is not checked at all — leave it empty only if the identity provider does not set one.
+    icon: flag-filled
+    default: ''
+    order: 3
+  cert:
+    type: String
+    title: Identity Provider Certificate
+    hint: The identity provider's signing certificate, PEM-encoded. Paste more than one, separated by a `|`, during a certificate rotation.
+    icon: secure
+    multiline: true
+    default: ''
+    order: 4
+  privateKey:
+    type: String
+    title: Service Provider Private Key
+    hint: (optional) This wiki's own private key, PEM-encoded — signs outgoing AuthnRequests. Leave empty to send unsigned requests.
+    icon: lock
+    multiline: true
+    sensitive: true
+    default: ''
+    order: 5
+  decryptionPvk:
+    type: String
+    title: Assertion Decryption Key
+    hint: (optional) This wiki's own private key, PEM-encoded, matching the certificate the identity provider encrypts assertions against. Leave empty if the identity provider does not encrypt assertions.
+    icon: key
+    multiline: true
+    sensitive: true
+    default: ''
+    order: 6
+  signatureAlgorithm:
+    type: String
+    title: Signature Algorithm
+    hint: Used to sign outgoing AuthnRequests.
+    icon: security-ssl
+    enum:
+      - sha1|SHA-1
+      - sha256|SHA-256
+      - sha512|SHA-512
+    default: 'sha256'
+    order: 7
+  digestAlgorithm:
+    type: String
+    title: Digest Algorithm
+    hint: Used to sign outgoing AuthnRequests.
+    icon: security-ssl
+    enum:
+      - sha1|SHA-1
+      - sha256|SHA-256
+      - sha512|SHA-512
+    default: 'sha256'
+    order: 8
+  identifierFormat:
+    type: String
+    title: NameID Format
+    hint: (optional) The `NameID` format requested of the identity provider, e.g. `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`. Left empty, none is requested.
+    icon: rename
+    default: ''
+    order: 9
+  wantAssertionsSigned:
+    type: Boolean
+    title: Require Signed Assertions
+    hint: Refuse a response whose assertion is not itself signed, even if the response envelope is.
+    icon: security-ssl
+    default: true
+    order: 10
+  acceptedClockSkewMs:
+    type: Number
+    title: Accepted Clock Skew (ms)
+    hint: How far apart this server's and the identity provider's clocks may be before an assertion just inside its validity window is refused anyway. `-1` disables the check entirely — not recommended.
+    icon: clock
+    default: 0
+    order: 11
+  disableRequestedAuthnContext:
+    type: Boolean
+    title: Disable Requested Authn Context
+    hint: Omit the `RequestedAuthnContext` element from the AuthnRequest entirely, rather than requesting the context below.
+    icon: security-ssl
+    default: false
+    order: 12
+  authnContext:
+    type: String
+    title: Authn Context
+    hint: (optional) One or more authentication context class references to request, comma-separated. Defaults to password authentication when left empty.
+    icon: security-ssl
+    default: ''
+    order: 13
+    if:
+      - { key: 'disableRequestedAuthnContext', eq: false }
+  racComparison:
+    type: String
+    title: Authn Context Comparison
+    hint: How strictly the identity provider must match the requested authn context.
+    icon: filtration
+    enum:
+      - exact|Exact
+      - minimum|Minimum
+      - maximum|Maximum
+      - better|Better
+    default: 'exact'
+    order: 14
+    if:
+      - { key: 'disableRequestedAuthnContext', eq: false }
+  forceAuthn:
+    type: Boolean
+    title: Force Re-authentication
+    hint: Require the identity provider to prompt for credentials again, even if the person already has a session there.
+    icon: security-ssl
+    default: false
+    order: 15
+  passive:
+    type: Boolean
+    title: Passive
+    hint: Ask the identity provider not to interact with the user at all — it may only silently succeed or fail. Rarely wanted on an interactive login button.
+    icon: info-popup
+    default: false
+    order: 16
+  providerName:
+    type: String
+    title: Provider Name
+    hint: (optional) A human-readable name for this wiki, shown to the person by some identity providers during sign-in.
+    icon: rename
+    default: ''
+    order: 17
+  skipRequestCompression:
+    type: Boolean
+    title: Skip Request Compression
+    hint: Send the AuthnRequest uncompressed. Some identity providers are strict about this; most accept the default DEFLATE-compressed form.
+    icon: tune
+    default: false
+    order: 18
+  authnRequestBinding:
+    type: String
+    title: Authn Request Binding
+    hint: How the AuthnRequest itself is sent to the identity provider. HTTP-POST auto-submits a form; HTTP-Redirect appends it to the SSO URL's query string.
+    icon: internet
+    enum:
+      - HTTP-POST|HTTP-POST
+      - HTTP-Redirect|HTTP-Redirect
+    default: 'HTTP-POST'
+    order: 19
+  mappingUID:
+    type: String
+    title: Unique ID Claim Mapping
+    hint: The claim (attribute URI or name) holding the user's unique identifier. Falls back to the assertion's `NameID` when left empty.
+    icon: fingerprint-scan
+    default: ''
+    order: 20
+  mappingEmail:
+    type: String
+    title: Email Claim Mapping
+    hint: The claim holding the user's email address. Falls back to the assertion's `NameID` when left empty.
+    icon: envelope
+    default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress'
+    order: 21
+  mappingDisplayName:
+    type: String
+    title: Display Name Claim Mapping
+    hint: The claim holding the user's display name.
+    icon: person
+    default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'
+    order: 22
+  mappingPicture:
+    type: String
+    title: Avatar Picture Claim Mapping
+    hint: (optional) The claim holding a URL to the user's avatar picture.
+    icon: image
+    default: ''
+    order: 23
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: user-groups
+    default: false
+    order: 24
+  mappingGroups:
+    type: String
+    title: Groups Claim Mapping
+    hint: The claim holding the user's group memberships. A SAML claim with several values is repeated as several `AttributeValue` elements, not comma-joined.
+    icon: user-groups
+    default: 'http://schemas.xmlsoap.org/claims/Group'
+    order: 25
+    if:
+      - { key: 'mapGroups', eq: true }
+refs:
+  acsUrl:
+    title: Assertion Consumer Service (ACS) URL
+    hint: Register this as the ACS URL (sometimes called the reply URL or single sign-on URL) at the identity provider.
+    icon: back
+    value: '{host}/_api/auth/{id}/callback'
