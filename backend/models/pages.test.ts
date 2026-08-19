@@ -262,6 +262,62 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(deleted, false)
   })
 
+  /**
+   * Task #561's dispatcher wiring: `createPage`/`updatePage` already called `WIKI.models.search`
+   * (as `indexPage`, previously), but `movePage`/`deletePage` called nothing at all — "silent no-ops
+   * that only work by accident under Postgres" per the task. This spies on the dispatcher itself
+   * (`WIKI.models.search`, the same singleton `models/search.ts` exports) rather than asserting on
+   * search results, so it catches a hook that stops being called regardless of what the `db` engine
+   * does or does not need to do about it.
+   */
+  test('createPage/updatePage/movePage/deletePage each call the search dispatcher', async () => {
+    const calls: string[] = []
+    const searchModel = (globalThis as any).WIKI.models.search
+    searchModel.created = async (page: any) => {
+      calls.push(`created:${page.path}`)
+    }
+    searchModel.updated = async (page: any) => {
+      calls.push(`updated:${page.path}`)
+    }
+    searchModel.renamed = async (_siteId: string, page: any, previousPath: string) => {
+      calls.push(`renamed:${previousPath}->${page.path}`)
+    }
+    searchModel.deleted = async (_siteId: string, pageId: string) => {
+      calls.push(`deleted:${pageId}`)
+    }
+
+    try {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/search-hooks' }),
+        actor
+      )
+      await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated Title' }, actor)
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'docs/search-hooks-moved' },
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      assert.equal(moved!.path, 'docs/search-hooks-moved')
+      assert.deepEqual(calls, [
+        'created:docs/search-hooks',
+        'updated:docs/search-hooks',
+        'renamed:docs/search-hooks->docs/search-hooks-moved',
+        `deleted:${page.id}`
+      ])
+    } finally {
+      // -> Restores the real prototype methods rather than reassigning them: these spies shadow them
+      //    as own properties, so deleting those is enough for lookup to fall back through
+      delete searchModel.created
+      delete searchModel.updated
+      delete searchModel.renamed
+      delete searchModel.deleted
+    }
+  })
+
   describe('listPagesForSitemap', () => {
     /**
      * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is

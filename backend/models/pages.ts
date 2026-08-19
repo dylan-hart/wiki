@@ -649,7 +649,7 @@ class Pages {
     //    nothing to resolve. See that method's own comment for the one case (restore) that would
     //    change this, and why it doesn't apply yet.
 
-    await WIKI.models.search.indexPage(page.id, locale)
+    await WIKI.models.search.created(page)
     await WIKI.models.hooks.emit('page:create', {
       id: page.id,
       path: page.path,
@@ -790,7 +790,15 @@ class Pages {
     //    every save, so the patch alone would report a change to all of them
     const changedFields = WIKI.models.pageHistory.changedFields(existing, values)
 
-    await WIKI.db.update(pagesTable).set(values).where(eq(pagesTable.id, id))
+    // -> `.returning()` gets the raw row for free off the same write: `WIKI.models.search.updated`
+    //    wants the full `pages` row (`SearchIndexablePage`), not the flattened `Page` shape `getPage`
+    //    below produces
+    const rawRows = await WIKI.db
+      .update(pagesTable)
+      .set(values)
+      .where(eq(pagesTable.id, id))
+      .returning()
+    const rawUpdated = rawRows[0]!
 
     const updated = (await this.getPage({ siteId, id })) as Page
 
@@ -823,7 +831,7 @@ class Pages {
         .where(eq(treeTable.id, id))
     }
 
-    await WIKI.models.search.indexPage(id, updated.locale)
+    await WIKI.models.search.updated(rawUpdated)
     await WIKI.models.hooks.emit('page:edit', {
       id,
       path: updated.path,
@@ -879,7 +887,9 @@ class Pages {
       }
     }
 
-    await WIKI.db
+    // -> `.returning()` gets the raw row for free off the same write, which is what
+    //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
+    const rawMovedRows = await WIKI.db
       .update(pagesTable)
       .set({
         path: newPath,
@@ -889,6 +899,8 @@ class Pages {
         updatedAt: sql`now()`
       })
       .where(eq(pagesTable.id, id))
+      .returning()
+    const rawMoved = rawMovedRows[0]!
 
     // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
     //    dropping and re-adding would create the destination folders but leave the old ones counted
@@ -929,6 +941,7 @@ class Pages {
       changedFields
     )
 
+    await WIKI.models.search.renamed(siteId, rawMoved, page.path)
     await WIKI.models.hooks.emit('page:rename', {
       id,
       path: moved.path,
@@ -978,6 +991,7 @@ class Pages {
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
 
+    await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', {
       id,
       path: page.path,
@@ -1109,11 +1123,11 @@ class Pages {
       .update(pagesTable)
       .set({ render, toc, searchContent: text, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
-      .returning({ locale: pagesTable.locale })
+      .returning()
 
     // -> Nothing was updated when the page went while it sat in the queue
     if (updated[0]) {
-      await WIKI.models.search.indexPage(id, updated[0].locale)
+      await WIKI.models.search.updated(updated[0])
     }
   }
 

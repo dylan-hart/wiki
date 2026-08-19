@@ -362,7 +362,7 @@ async function routes(app: FastifyInstance) {
         accessActor,
         PAGE_PASSWORD_BYPASS_ROLES
       )
-      return WIKI.models.search.searchPages({
+      return WIKI.models.search.query({
         siteId: req.params.siteId,
         query: req.query.query,
         path: req.query.path,

@@ -190,6 +190,13 @@ class Sites {
             },
             analytics: {
               providers: {}
+            },
+            search: {
+              engine: 'db',
+              config: {
+                termHighlighting: false,
+                dictOverrides: {}
+              }
             }
           },
           config
@@ -235,7 +242,10 @@ class Sites {
     if (patch.config) {
       // -> Config is a JSONB blob, so it must be read and merged rather than partially assigned.
       // Arrays are replaced rather than merged index-wise, otherwise removing an entry (e.g. a page
-      // extension) would leave the original value in place.
+      // extension) would leave the original value in place. `dictOverrides` (search config) is the
+      // object equivalent of that same problem -- a locale -> dictionary map with no fixed keys, where
+      // removing an entry must actually remove it rather than leave it merged back in from the
+      // previous value -- so it is replaced wholesale by key name, the same way an array is.
       const current = await WIKI.db
         .select({ config: sitesTable.config })
         .from(sitesTable)
@@ -246,7 +256,8 @@ class Sites {
       values.config = mergeWith(
         current[0].config as Record<string, any>,
         patch.config,
-        (_targetValue, sourceValue) => (Array.isArray(sourceValue) ? sourceValue : undefined)
+        (_targetValue, sourceValue, key) =>
+          Array.isArray(sourceValue) || key === 'dictOverrides' ? sourceValue : undefined
       )
     }
     if (Object.keys(values).length < 1) {
@@ -459,6 +470,13 @@ class Sites {
         },
         analytics: {
           providers: {}
+        },
+        search: {
+          engine: 'db',
+          config: {
+            termHighlighting: false,
+            dictOverrides: {}
+          }
         }
       }
     })

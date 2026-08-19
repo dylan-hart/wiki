@@ -240,7 +240,12 @@ function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts')
   global.WIKI = {
     IS_DEBUG: false,
     ROOTPATH: process.cwd(),
-    SERVERPATH: path.join(process.cwd(), 'backend'),
+    // -> Derived from this file's own location (`backend/test/db.ts`), not `process.cwd()`: every
+    //    workspace's tests run with `backend/` as the cwd already (`npm test` from `backend/`, per
+    //    CLAUDE.md), so `path.join(process.cwd(), 'backend')` pointed at a `backend/backend` that does
+    //    not exist. Invisible until a DB-backed suite actually hit disk-based module loading —
+    //    `WIKI.models.search.ensureModule()`'s `hasImplementation()` check — which is what surfaced it.
+    SERVERPATH: path.join(import.meta.dirname, '..'),
     INSTANCE_ID: 'test',
     // -> Not `Temporal.Now.instant()`: nothing under test reads `startedAt`, and this file otherwise
     //    has no reason to depend on the runtime actually having native `Temporal` support.

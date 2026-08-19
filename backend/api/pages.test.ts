@@ -407,9 +407,9 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
           isWatching: async () => false
         },
         search: {
-          searchPages: async (params: any) => {
+          query: async (params: any) => {
             searchPagesCalls.push(params)
-            return { results: [], totalHits: 0 }
+            return { results: [], totalHits: 0, suggestion: null }
           }
         },
         comments: {
@@ -535,7 +535,10 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
     assert.equal(res.statusCode, 200)
     assert.deepEqual(participantInfoCalls, [PAGE_ID])
     const body = res.json()
-    assert.deepEqual(body.viewer.activeEditors, { count: 2, names: ['Ada Lovelace', 'Grace Hopper'] })
+    assert.deepEqual(body.viewer.activeEditors, {
+      count: 2,
+      names: ['Ada Lovelace', 'Grace Hopper']
+    })
   })
 
   test('GET page never asks collab for participants, and answers zero, on a site with collaborativeEditing off', async () => {

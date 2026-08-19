@@ -97,13 +97,14 @@
 </template>
 
 <script setup>
-import { onMounted, reactive } from 'vue'
+import { onMounted, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 
+import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 import UtilCodeEditor from '@/components/UtilCodeEditor.vue'
@@ -111,6 +112,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 
 // STORES
 
+const adminStore = useAdminStore()
 const siteStore = useSiteStore()
 
 // I18N
@@ -136,13 +138,23 @@ const state = reactive({
   }
 })
 
+// WATCHERS
+
+watch(
+  () => adminStore.currentSiteId,
+  () => {
+    loading.show()
+    load()
+  }
+)
+
 // METHODS
 
 async function load() {
   state.loading++
   loading.show()
   try {
-    const resp = await API_CLIENT.get('system/search').json()
+    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}/search`).json()
     state.config = {
       termHighlighting: resp?.termHighlighting === true,
       dictOverrides: JSON.stringify(resp?.dictOverrides ?? {}, null, 2)
@@ -183,7 +195,7 @@ async function save() {
       }
     }
 
-    const resp = await API_CLIENT.put('system/search', {
+    const resp = await API_CLIENT.patch(`sites/${adminStore.currentSiteId}/search`, {
       json: {
         termHighlighting: state.config.termHighlighting,
         dictOverrides
@@ -210,7 +222,7 @@ async function save() {
 async function rebuild() {
   state.rebuildLoading = true
   try {
-    const resp = await API_CLIENT.post('system/search/rebuild').json()
+    const resp = await API_CLIENT.post(`sites/${adminStore.currentSiteId}/search/rebuild`).json()
     if (!resp?.ok) {
       throw new Error(resp?.message || 'An unexpected error occured.')
     }
@@ -231,7 +243,9 @@ async function rebuild() {
 // MOUNTED
 
 onMounted(async () => {
-  load()
+  if (adminStore.currentSiteId) {
+    await load()
+  }
 })
 </script>
 
