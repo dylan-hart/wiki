@@ -102,15 +102,16 @@
             <w-select
               v-model="state.hook.siteId"
               outlined
+              dense
               :options="siteOptions"
-              map-options
-              emit-value
               option-value="id"
               option-label="title"
+              emit-value
+              map-options
               options-dense
-              dense
               hide-bottom-space
-              :label="t(`admin.webhooks.scope`)" />
+              :label="t(`admin.webhooks.site`)" />
+            <w-item-label caption>{{ t(`admin.webhooks.siteHint`) }}</w-item-label>
           </w-item-section>
         </w-item>
         <w-item>
@@ -188,6 +189,16 @@
         </w-item>
       </w-form>
       <w-card-actions class="card-actions">
+        <w-btn
+          class="acrylic-btn"
+          flat
+          icon="la:paper-plane"
+          :label="t(`admin.webhooks.testSend`)"
+          color="grey"
+          padding="xs md"
+          :disable="!urlIsValid"
+          :loading="state.isTesting"
+          @click="sendTestEvent" />
         <w-space />
         <w-btn
           class="acrylic-btn"
@@ -245,18 +256,19 @@ defineEmits([...dialogComponentEmits])
 
 const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogComponent()
 
-// STORES
-
-const adminStore = useAdminStore()
-
 // I18N
 
 const { t } = useI18n()
+
+// STORES
+
+const adminStore = useAdminStore()
 
 // DATA
 
 const state = reactive({
   isLoading: false,
+  isTesting: false,
   /** Event keys the server actually emits. Null until fetched, i.e. assume all of them. */
   emittedEvents: null,
   hook: {
@@ -269,7 +281,7 @@ const state = reactive({
     includeContent: false,
     state: 'pending',
     lastErrorMessage: '',
-    // -> Null means "all sites", the default for a new webhook
+    // -> Null means "fires for every site" -- the default, and today's only behavior
     siteId: null
   }
 })
@@ -348,9 +360,10 @@ const events = computed(() =>
   }))
 )
 
-/** "All sites" (null) first, then every site the instance has, for the scope picker. */
+/** `All sites` (null, the default) followed by every site, sourced the same way `AdminLayout.vue`'s
+ *  own site picker is: straight off `adminStore.sites`. */
 const siteOptions = computed(() => [
-  { id: null, title: t('admin.webhooks.scopeAllSites') },
+  { id: null, title: t('admin.webhooks.siteAll') },
   ...adminStore.sites
 ])
 
@@ -370,6 +383,9 @@ const hookUrlValidation = [
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
+/** Whether the URL currently typed in passes the same rules the form itself enforces on submit. */
+const urlIsValid = computed(() => hookUrlValidation.every((rule) => rule(state.hook.url) === true))
+
 // METHODS
 
 /** The fields the API accepts — `state` and `lastErrorMessage` are the server's to set, not ours. */
@@ -382,7 +398,7 @@ function writableFields() {
     includeContent: state.hook.includeContent,
     acceptUntrusted: state.hook.acceptUntrusted,
     authHeader: state.hook.authHeader ?? '',
-    siteId: state.hook.siteId
+    siteId: state.hook.siteId ?? null
   }
 }
 
@@ -458,6 +474,35 @@ async function save() {
     })
   }
   state.isLoading = false
+}
+
+/**
+ * Sends a synthetic test delivery to whatever is currently typed into the form -- via
+ * `POST /_api/hooks/test`, which takes the destination directly rather than a hookId, so this works
+ * before the webhook has ever been saved. Never touches `create`/`save`: the outcome is reported in a
+ * toast, not written into `state.hook`.
+ */
+async function sendTestEvent() {
+  state.isTesting = true
+  try {
+    const resp = await API_CLIENT.post('hooks/test', {
+      json: {
+        url: state.hook.url,
+        authHeader: state.hook.authHeader || undefined,
+        acceptUntrusted: state.hook.acceptUntrusted
+      }
+    }).json()
+    notify({
+      type: resp?.ok ? 'positive' : 'negative',
+      message: resp?.message || t('admin.webhooks.testFailed')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: apiErrorMessage(err, t('admin.webhooks.testFailed'))
+    })
+  }
+  state.isTesting = false
 }
 
 async function fetchEmittedEvents() {

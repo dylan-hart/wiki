@@ -1,0 +1,1 @@
+ALTER TABLE "hooks" DROP CONSTRAINT "hooks_siteId_sites_id_fkey", ADD CONSTRAINT "hooks_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE SET NULL;

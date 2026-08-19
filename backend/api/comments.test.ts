@@ -338,10 +338,10 @@ describe('page-scoped comment routes', () => {
     return record
   }
 
-  const emittedEvents: { event: string; data: Record<string, any> }[] = []
+  const emittedEvents: { event: string; siteId: string | null; data: Record<string, any> }[] = []
 
-  async function emit(event: string, data: Record<string, any> = {}) {
-    emittedEvents.push({ event, data })
+  async function emit(event: string, siteId: string | null, data: Record<string, any> = {}) {
+    emittedEvents.push({ event, siteId, data })
     return 1
   }
 
@@ -488,7 +488,11 @@ describe('page-scoped comment routes', () => {
       url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
       headers: { 'x-test-permissions': 'read:pages,write:comments' },
       remoteAddress: '203.0.113.7',
-      payload: { content: 'Hello from a guest', guestName: 'Casey', guestEmail: 'casey@example.com' }
+      payload: {
+        content: 'Hello from a guest',
+        guestName: 'Casey',
+        guestEmail: 'casey@example.com'
+      }
     })
     assert.equal(res.statusCode, 200)
     const body = res.json()
@@ -657,10 +661,13 @@ describe('page-scoped comment routes', () => {
     })
 
     test(`${method}: 404 when the comment exists but on a different page`, async () => {
-      const res = await send(`/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${OTHER_PAGE_COMMENT_ID}`, {
-        'x-test-user-id': 'author-1',
-        'x-test-permissions': 'read:pages,read:comments'
-      })
+      const res = await send(
+        `/sites/${SITE_ID}/pages/${PAGE_ID}/comments/${OTHER_PAGE_COMMENT_ID}`,
+        {
+          'x-test-user-id': 'author-1',
+          'x-test-permissions': 'read:pages,read:comments'
+        }
+      )
       assert.equal(res.statusCode, 404)
     })
 

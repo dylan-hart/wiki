@@ -294,11 +294,14 @@ export const hooks = pgTable(
     lastErrorMessage: text(),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
-    // -> Null means "all sites" — an instance-wide subscription, which is what every hook was before
-    //    this column existed and stays the default for a new one. Set, it narrows delivery to events
-    //    from that one site; an event with no site of its own (`user:join`/`login`/`logout`) only
-    //    ever reaches a null-site hook, since there is no site for a scoped one to match against.
-    siteId: uuid().references(() => sites.id)
+    // -> Null means "fires for every site" -- today's behavior, and what every hook created before
+    //    this column existed keeps meaning with no backfill. `set null` on delete rather than
+    //    restricting it or cascading: a webhook scoped to a site that goes away reverts to firing
+    //    instance-wide instead of taking the row down with the site or blocking the site's deletion —
+    //    unlike `blocks`/`storage`/`siteAssets`/content, which `sites.deleteSite()` cleans up
+    //    explicitly (or, for content, deliberately blocks the delete on), a hook is not site-owned
+    //    content and has no reason to disappear or block anything just because its scope did.
+    siteId: uuid().references(() => sites.id, { onDelete: 'set null' })
   },
   (table) => [index('hooks_siteId_idx').on(table.siteId)]
 )
@@ -350,21 +353,36 @@ export const jobHistoryStateEnum = pgEnum('jobHistoryState', [
   'failed',
   'interrupted'
 ])
-export const jobHistory = pgTable('jobHistory', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  state: jobHistoryStateEnum().notNull(),
-  useWorker: boolean().notNull().default(false),
-  wasScheduled: boolean().notNull().default(false),
-  payload: jsonb(),
-  attempt: integer().notNull().default(1),
-  maxRetries: integer().notNull().default(0),
-  lastErrorMessage: text(),
-  executedBy: varchar({ length: 255 }),
-  createdAt: timestamp().notNull(),
-  startedAt: timestamp().notNull().defaultNow(),
-  completedAt: timestamp()
-})
+export const jobHistory = pgTable(
+  'jobHistory',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    state: jobHistoryStateEnum().notNull(),
+    useWorker: boolean().notNull().default(false),
+    wasScheduled: boolean().notNull().default(false),
+    payload: jsonb(),
+    attempt: integer().notNull().default(1),
+    maxRetries: integer().notNull().default(0),
+    lastErrorMessage: text(),
+    executedBy: varchar({ length: 255 }),
+    createdAt: timestamp().notNull(),
+    startedAt: timestamp().notNull().defaultNow(),
+    completedAt: timestamp()
+  },
+  (table) => [
+    // -> `models/hooks.ts#getDeliveryHistory()` filters this generic table by
+    //    `task = 'dispatchWebhook'` and the `hookId` embedded in `payload`, which has no usable index
+    //    today: a plain btree on `payload` covers containment queries, not a `->>'hookId'` text
+    //    extraction, and indexing every row's payload would size the index to the whole table for a
+    //    lookup only one task ever makes. A partial expression index scoped to that one task keeps it
+    //    small and keeps `jobHistory` itself generic — no `hookId` column on a table every other task
+    //    also writes to.
+    index('jobHistory_dispatchWebhook_hookId_idx')
+      .on(sql`(payload ->> 'hookId')`)
+      .where(sql`${table.task} = 'dispatchWebhook'`)
+  ]
+)
 
 // JOB SCHEDULE ------------------------
 export const jobSchedule = pgTable('jobSchedule', {

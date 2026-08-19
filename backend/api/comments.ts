@@ -149,6 +149,7 @@ async function emitCommentEvent(
   }
   await WIKI.models.hooks.emit(
     event,
+    comment.siteId,
     event === 'comment:delete'
       ? base
       : {

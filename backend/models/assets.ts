@@ -327,18 +327,14 @@ class Assets {
       throw err
     }
 
-    WIKI.models.hooks.emit(
-      'asset:upload',
-      {
-        id: entry.id,
-        fileName: storedName,
-        folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
-        siteId,
-        authorId,
-        metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
-      },
-      siteId
-    )
+    WIKI.models.hooks.emit('asset:upload', siteId, {
+      id: entry.id,
+      fileName: storedName,
+      folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
+      siteId,
+      authorId,
+      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+    })
     WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
       fileName: storedName,
@@ -427,18 +423,14 @@ class Assets {
     this.forgetPath(siteId, folderPath, fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit(
-      'asset:edit',
-      {
-        id,
-        fileName,
-        folderPath,
-        siteId,
-        authorId,
-        metadata: { fileSize: data.length, mimeType, kind }
-      },
-      siteId
-    )
+    WIKI.models.hooks.emit('asset:edit', siteId, {
+      id,
+      fileName,
+      folderPath,
+      siteId,
+      authorId,
+      metadata: { fileSize: data.length, mimeType, kind }
+    })
     WIKI.models.storage.dispatch('asset:edit', {
       id,
       fileName,
@@ -1042,17 +1034,13 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, safeName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit(
-      'asset:rename',
-      {
-        id,
-        fileName: safeName,
-        previousFileName: asset.fileName,
-        folderPath: asset.folderPath,
-        siteId
-      },
+    WIKI.models.hooks.emit('asset:rename', siteId, {
+      id,
+      fileName: safeName,
+      previousFileName: asset.fileName,
+      folderPath: asset.folderPath,
       siteId
-    )
+    })
     WIKI.models.storage.dispatch('asset:rename', {
       id,
       fileName: safeName,
@@ -1082,16 +1070,12 @@ class Assets {
     this.forgetPath(siteId, asset.folderPath, asset.fileName)
     await this.dropCachedContent([id])
 
-    WIKI.models.hooks.emit(
-      'asset:delete',
-      {
-        id,
-        fileName: asset.fileName,
-        folderPath: asset.folderPath,
-        siteId
-      },
+    WIKI.models.hooks.emit('asset:delete', siteId, {
+      id,
+      fileName: asset.fileName,
+      folderPath: asset.folderPath,
       siteId
-    )
+    })
     WIKI.models.storage.dispatch('asset:delete', {
       id,
       fileName: asset.fileName,
@@ -1128,16 +1112,12 @@ class Assets {
     // -> One per file, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each file, not about the folder it happened to sit in
     for (const entry of entries) {
-      await WIKI.models.hooks.emit(
-        'asset:delete',
-        {
-          id: entry.id,
-          fileName: entry.fileName,
-          folderPath: entry.folderPath,
-          siteId
-        },
+      await WIKI.models.hooks.emit('asset:delete', siteId, {
+        id: entry.id,
+        fileName: entry.fileName,
+        folderPath: entry.folderPath,
         siteId
-      )
+      })
       const row = deletedById.get(entry.id)
       await WIKI.models.storage.dispatch('asset:delete', {
         id: entry.id,

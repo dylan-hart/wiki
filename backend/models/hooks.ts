@@ -1,7 +1,10 @@
 import http from 'node:http'
 import https from 'node:https'
-import { hooks as hooksTable } from '../db/schema.ts'
-import { and, desc, eq, isNull, or, sql } from 'drizzle-orm'
+import { hooks as hooksTable, jobHistory as jobHistoryTable } from '../db/schema.ts'
+import { and, count, desc, eq, sql } from 'drizzle-orm'
+import { durationToSeconds } from '../helpers/common.ts'
+import type { JobState } from './jobs.ts'
+import type { RateLimitPolicy } from './rateLimits.ts'
 
 /**
  * The events a webhook can subscribe to, as offered by the admin area.
@@ -68,12 +71,63 @@ export interface Hook {
   lastErrorMessage: string | null
   createdAt: Date
   updatedAt: Date
-  // -> Null means "all sites" — see the column comment in `db/schema.ts`
+  /** Which site this webhook fires for. Null means every site -- see `emit()`. */
   siteId: string | null
+}
+
+/** One recorded attempt to deliver an event to a webhook. */
+export interface HookDelivery {
+  event: string
+  state: JobState
+  attempt: number
+  maxRetries: number
+  lastErrorMessage: string | null
+  startedAt: Date
+  completedAt: Date | null
+}
+
+/** One page of a webhook's delivery history, with the total matching the filter. */
+export interface HookDeliveryPage {
+  total: number
+  deliveries: HookDelivery[]
 }
 
 /** How long a remote endpoint has to answer before the delivery counts as failed. */
 const DELIVERY_TIMEOUT = 15000
+
+/**
+ * Defaults for the per-webhook delivery rate limit, used until an operator configures their own and
+ * whenever a stored value is missing or unusable. Sixty a minute is far more than any of the events
+ * this fires on legitimately produces in a burst, and is what stands between one busy hook and either
+ * the remote endpoint or the shared job queue being flooded by it.
+ */
+const WEBHOOK_RATE_LIMIT_DEFAULTS: RateLimitPolicy = {
+  max: 60,
+  windowSeconds: 60,
+  banSeconds: 60
+}
+
+/**
+ * The configured policy for `emit()`'s per-hook rate limit.
+ *
+ * Same fallback shape as `helpers/rateLimit.ts#authPolicy()`: every field falls back on its own, and
+ * the two durations are stored as an operator wrote them (`1m`, `5m`) rather than as raw seconds.
+ */
+function webhookRateLimitPolicy(): RateLimitPolicy {
+  const scheduler = WIKI.config.scheduler ?? {}
+  const max = Number(scheduler.webhookRateLimitMax)
+  return {
+    max: Number.isFinite(max) && max > 0 ? Math.floor(max) : WEBHOOK_RATE_LIMIT_DEFAULTS.max,
+    windowSeconds: durationToSeconds(
+      scheduler.webhookRateLimitWindow,
+      WEBHOOK_RATE_LIMIT_DEFAULTS.windowSeconds
+    ),
+    banSeconds: durationToSeconds(
+      scheduler.webhookRateLimitBan,
+      WEBHOOK_RATE_LIMIT_DEFAULTS.banSeconds
+    )
+  }
+}
 
 const hookSelection = {
   id: hooksTable.id,
@@ -96,8 +150,12 @@ const hookSelection = {
  *
  * `node:https` rather than `fetch`: a webhook may legitimately point at an endpoint with a
  * self-signed certificate, and per-request TLS options are not expressible through fetch.
+ *
+ * Exported so `api/hooks.ts` can reuse it for `POST /hooks/test` — a synthetic delivery to a URL
+ * that need not belong to any saved webhook (or even be valid yet), so it has no `hookId` to look up
+ * and must not go through `deliver()`, which reads and writes a persisted hook's state.
  */
-function postJson(
+export function postJson(
   url: string,
   body: string,
   { authHeader, acceptUntrusted }: { authHeader?: string | null; acceptUntrusted: boolean }
@@ -171,6 +229,56 @@ class Hooks {
   }
 
   /**
+   * A webhook's delivery history, most recently started first.
+   *
+   * Backed by `jobHistory` — `deliver()` runs as the `dispatchWebhook` task and every attempt is
+   * already recorded there, so this reads that log rather than keeping a second one. Paginated the
+   * same way `models/jobs.ts#getHistory()` paginates: `total` counts every matching row, `deliveries`
+   * is capped at `limit`, so a caller can tell it is looking at a truncated view.
+   *
+   * Retention is `jobHistory`'s own — `scheduler.historyExpiration` (~25h by default), purged by the
+   * same `cleanJobHistory` task as every other job. Deliberately not given its own longer-lived
+   * retention: the durable signal for "is this webhook healthy" is `hooks.state` /
+   * `hooks.lastErrorMessage`, which this table has nothing to do with and which never expires. This
+   * history is recent-attempts diagnostics on top of that — a window onto the last day or so of
+   * retries — not an audit log, so the shared retention is the right default. A longer-lived history
+   * would need its own config knob and cleanup path (not a reason to duplicate this table); revisit
+   * if that diagnostic window in practice proves too short.
+   *
+   * @param hookId Which webhook's deliveries to return
+   * @param limit Caps the rows returned
+   */
+  async getDeliveryHistory(
+    hookId: string,
+    { limit = 100 }: { limit?: number } = {}
+  ): Promise<HookDeliveryPage> {
+    const where = and(
+      eq(jobHistoryTable.task, 'dispatchWebhook'),
+      sql`${jobHistoryTable.payload} ->> 'hookId' = ${hookId}`
+    )
+    const totals = await WIKI.db.select({ total: count() }).from(jobHistoryTable).where(where)
+    const deliveries = await WIKI.db
+      .select({
+        event: sql<string>`${jobHistoryTable.payload} ->> 'event'`,
+        state: jobHistoryTable.state,
+        attempt: jobHistoryTable.attempt,
+        maxRetries: jobHistoryTable.maxRetries,
+        lastErrorMessage: jobHistoryTable.lastErrorMessage,
+        startedAt: jobHistoryTable.startedAt,
+        completedAt: jobHistoryTable.completedAt
+      })
+      .from(jobHistoryTable)
+      .where(where)
+      .orderBy(desc(jobHistoryTable.startedAt))
+      .limit(limit)
+
+    return {
+      total: totals[0]?.total ?? 0,
+      deliveries
+    }
+  }
+
+  /**
    * Create a webhook. It starts out pending: no event has reached it yet.
    *
    * @returns The new webhook's ID
@@ -196,8 +304,8 @@ class Hooks {
         includeContent: values.includeContent ?? false,
         acceptUntrusted: values.acceptUntrusted ?? false,
         authHeader: values.authHeader ?? null,
-        siteId: values.siteId ?? null,
-        state: 'pending'
+        state: 'pending',
+        siteId: values.siteId ?? null
       })
       .returning({ id: hooksTable.id })
     return result[0].id
@@ -237,23 +345,26 @@ class Hooks {
    * Safe to call from anywhere, including request handlers: it only writes jobs, and it never throws
    * — a webhook problem must not fail the action that triggered it.
    *
+   * @param siteId Which site the event happened on, or `null` for an event with no site context
+   *                (`user:join`/`user:login`/`user:logout` — users are global entities). A hook
+   *                scoped to one site (`hooks.siteId` set) only fires for that exact site; a hook
+   *                scoped to every site (`hooks.siteId` null) always fires. This means a site-scoped
+   *                hook deliberately does NOT receive a `siteId: null` event: "no site context" is not
+   *                a wildcard match against a specific site, the same way a site-scoped API key's
+   *                permissions don't extend to an action that has no page/site context either.
    * @param data Event-specific payload. `metadata` and `content` are stripped per webhook, according
    *             to what each one asked for.
-   * @param siteId The site the event happened on, or null for an event with no natural site
-   *               (`user:join`/`login`/`logout`). A hook scoped to a specific site only matches an
-   *               event whose `siteId` is that same site; a site-null hook matches every event
-   *               regardless of `siteId`, which is what keeps "all sites" the default behavior.
    * @returns How many deliveries were queued
    */
   async emit(
     event: HookEvent,
-    data: Record<string, any> = {},
-    siteId: string | null = null
+    siteId: string | null,
+    data: Record<string, any> = {}
   ): Promise<number> {
     try {
-      const siteCondition = siteId
-        ? or(isNull(hooksTable.siteId), eq(hooksTable.siteId, siteId))
-        : isNull(hooksTable.siteId)
+      const siteFilter = siteId
+        ? sql`(${hooksTable.siteId} IS NULL OR ${hooksTable.siteId} = ${siteId})`
+        : sql`${hooksTable.siteId} IS NULL`
       const subscribed = await WIKI.db
         .select({
           id: hooksTable.id,
@@ -261,10 +372,22 @@ class Hooks {
           includeContent: hooksTable.includeContent
         })
         .from(hooksTable)
-        .where(and(sql`${event} = ANY(${hooksTable.events})`, siteCondition))
+        .where(and(sql`${event} = ANY(${hooksTable.events})`, siteFilter))
 
+      const policy = webhookRateLimitPolicy()
       let queued = 0
       for (const hook of subscribed) {
+        const verdict = await WIKI.models.rateLimits.consume(`webhook:${hook.id}`, policy)
+        if (!verdict.allowed) {
+          // -> Admission decision, not a delivery outcome: the hook's persisted `state` describes
+          //    what happened to an attempted delivery (pending/success/error), and this delivery was
+          //    never attempted. A warn line is the only trace of it, same as the queueing failure
+          //    below.
+          WIKI.logger.warn(
+            `Webhook ${hook.id} is over its delivery rate limit (${verdict.hits}/${policy.max} in the current window); skipping delivery of ${event}.`
+          )
+          continue
+        }
         const { metadata, content, ...rest } = data
         const payload = {
           ...rest,
