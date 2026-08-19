@@ -1,0 +1,227 @@
+import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import { after, before, beforeEach, describe, test } from 'node:test'
+import { connectListener } from './pubsub.ts'
+
+/**
+ * Regression coverage for `connectListener` (task 703): none of the three dedicated LISTEN/NOTIFY
+ * `PoolClient`s this app holds via `pool.connect()` (the event bus, the scheduler, collaborative
+ * editing) used to register an `.on('error', ...)` handler. node-postgres does not supervise a
+ * checked-out client the way it does pool-routed queries, so an unhandled `'error'` on one throws on
+ * the client's own `EventEmitter` and crashes the process — a connection reset or a Postgres restart
+ * becoming a full instance death. `connectListener` is the shared fix: it attaches the error handler,
+ * drops the stale client, and reconnects + re-LISTENs on a short backoff.
+ *
+ * A fake `Pool`/`PoolClient` pair stands in for postgres throughout — this is pure client-lifecycle
+ * logic with no SQL orchestration worth a real database for.
+ */
+
+/** Minimal `PoolClient` fake: an EventEmitter plus the handful of methods `connectListener` calls. */
+class FakeClient extends EventEmitter {
+  released = false
+  releasedWithErr: any
+  queries: string[] = []
+  async query(text: string): Promise<any> {
+    this.queries.push(text)
+    return { rows: [] }
+  }
+  release(err?: any): void {
+    this.released = true
+    this.releasedWithErr = err
+  }
+}
+
+/** Minimal `Pool` fake: `connect()` either resolves with a queued client or rejects with a queued error. */
+class FakePool {
+  private queue: Array<{ client?: FakeClient; error?: Error }> = []
+  connectCalls = 0
+  clients: FakeClient[] = []
+  queueClient(client: FakeClient): void {
+    this.queue.push({ client })
+  }
+  queueError(error: Error): void {
+    this.queue.push({ error })
+  }
+  async connect(): Promise<FakeClient> {
+    this.connectCalls++
+    const next = this.queue.shift()
+    if (!next) {
+      throw new Error('FakePool.connect() called with nothing queued')
+    }
+    if (next.error) {
+      throw next.error
+    }
+    this.clients.push(next.client!)
+    return next.client!
+  }
+}
+
+let previousWiki: any
+let warnings: string[]
+
+before(() => {
+  previousWiki = (globalThis as any).WIKI
+})
+
+beforeEach(() => {
+  warnings = []
+  ;(globalThis as any).WIKI = {
+    logger: {
+      warn: (msg: string) => {
+        warnings.push(msg)
+      },
+      info: () => {},
+      debug: () => {}
+    }
+  }
+})
+
+after(() => {
+  ;(globalThis as any).WIKI = previousWiki
+})
+
+describe('connectListener', () => {
+  test('connects, sets application_name, LISTENs every channel, and stores the client', async () => {
+    const pool = new FakePool()
+    const client = new FakeClient()
+    pool.queueClient(client)
+
+    let stored: FakeClient | null = null
+    const notifications: any[] = []
+
+    const handle = await connectListener({
+      pool: pool as any,
+      applicationName: 'Wiki.js - test:EVENTS',
+      channels: ['wiki', 'wiki_collab'],
+      label: 'test listener',
+      onNotification: (msg) => notifications.push(msg),
+      getClient: () => stored as any,
+      setClient: (c) => {
+        stored = c as any
+      }
+    })
+
+    assert.equal(stored, client)
+    assert.deepEqual(client.queries, [
+      "SET application_name = 'Wiki.js - test:EVENTS'",
+      'LISTEN wiki',
+      'LISTEN wiki_collab'
+    ])
+
+    client.emit('notification', { channel: 'wiki', payload: '{"a":1}' })
+    assert.deepEqual(notifications, [{ channel: 'wiki', payload: '{"a":1}' }])
+
+    await handle.close()
+  })
+
+  test('on error: logs a warning, drops the client, and reconnects with the same LISTENs', async () => {
+    const pool = new FakePool()
+    const firstClient = new FakeClient()
+    const secondClient = new FakeClient()
+    pool.queueClient(firstClient)
+    pool.queueClient(secondClient)
+
+    let stored: FakeClient | null = null
+    const handle = await connectListener({
+      pool: pool as any,
+      applicationName: 'Wiki.js - test:SCHEDULER',
+      channels: ['scheduler'],
+      label: 'scheduler',
+      onNotification: () => {},
+      getClient: () => stored as any,
+      setClient: (c) => {
+        stored = c as any
+      },
+      retryDelayMs: 1
+    })
+    assert.equal(stored, firstClient)
+
+    firstClient.emit('error', new Error('connection reset'))
+    // -> setClient(null) happens synchronously inside the error handler
+    assert.equal(stored, null)
+    assert.ok(warnings.some((w) => w.includes('connection reset')))
+
+    // -> Reconnecting is async (a fresh `pool.connect()` + queries); wait for it to land
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    assert.equal(stored, secondClient)
+    assert.deepEqual(secondClient.queries, [
+      "SET application_name = 'Wiki.js - test:SCHEDULER'",
+      'LISTEN scheduler'
+    ])
+    assert.equal(pool.connectCalls, 2)
+
+    await handle.close()
+  })
+
+  test('reconnect backs off and retries when pool.connect() keeps failing', async () => {
+    const pool = new FakePool()
+    const initialClient = new FakeClient()
+    pool.queueClient(initialClient)
+    pool.queueError(new Error('ECONNREFUSED'))
+    pool.queueError(new Error('ECONNREFUSED'))
+    const recoveredClient = new FakeClient()
+    pool.queueClient(recoveredClient)
+
+    let stored: FakeClient | null = null
+    const handle = await connectListener({
+      pool: pool as any,
+      applicationName: 'Wiki.js - test:COLLAB',
+      channels: ['wiki_collab'],
+      label: 'collaboration relay',
+      onNotification: () => {},
+      getClient: () => stored as any,
+      setClient: (c) => {
+        stored = c as any
+      },
+      retryDelayMs: 1
+    })
+    assert.equal(stored, initialClient)
+
+    initialClient.emit('error', new Error('connection reset'))
+    assert.equal(stored, null)
+
+    // -> Two failed retries plus the eventual success, each separated by the 1ms backoff
+    await new Promise((resolve) => setTimeout(resolve, 30))
+
+    assert.equal(stored, recoveredClient)
+    assert.equal(pool.connectCalls, 4) // initial + 2 failures + 1 success
+    assert.ok(
+      warnings.filter((w) => w.includes('Failed to (re)connect')).length >= 2,
+      'expected at least two retry warnings'
+    )
+
+    await handle.close()
+  })
+
+  test('close() releases the client and stops further reconnects', async () => {
+    const pool = new FakePool()
+    const client = new FakeClient()
+    pool.queueClient(client)
+
+    let stored: FakeClient | null = null
+    const handle = await connectListener({
+      pool: pool as any,
+      applicationName: 'Wiki.js - test:EVENTS',
+      channels: ['wiki'],
+      label: 'test listener',
+      onNotification: () => {},
+      getClient: () => stored as any,
+      setClient: (c) => {
+        stored = c as any
+      }
+    })
+
+    await handle.close()
+
+    assert.equal(client.released, true)
+    assert.equal(client.releasedWithErr, true)
+    assert.equal(stored, null)
+
+    // -> An error arriving after close() must not trigger a reconnect
+    const connectCallsBeforeLateError = pool.connectCalls
+    client.emit('error', new Error('late error after shutdown'))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(pool.connectCalls, connectCallsBeforeLateError)
+  })
+})

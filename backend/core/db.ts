@@ -12,7 +12,7 @@ import semver from 'semver'
 import { relations } from '../db/relations.ts'
 import { flags } from '../models/flags.ts'
 import { createDeferred } from '../helpers/common.ts'
-import { createNotifier } from '../helpers/pubsub.ts'
+import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import maintenance from './maintenance.ts'
 // import migrationSource from '../db/migrator-source.js'
 
@@ -82,6 +82,7 @@ export type WikiDb = ReturnType<typeof createDb>
 export default {
   pool: null as Pool | null,
   pubsubClient: null as PoolClient | null,
+  listenerHandle: null as ListenerHandle | null,
   config: null as PoolConfig | null,
   dbName: null as string | null | undefined,
   VERSION: null as string | null,
@@ -197,29 +198,69 @@ export default {
   },
   /**
    * Subscribe to database LISTEN / NOTIFY for multi-instances events
+   *
+   * **Delivery guarantee: at-most-once, not at-least-once (task 708, feature 411).** Postgres
+   * NOTIFY has no persistence — a message published while nobody is LISTENing on `wiki` (the only
+   * other instance down or mid-restart, or this instance's own listener between a dropped
+   * connection and `connectListener`'s reconnect landing, see `helpers/pubsub.ts`) is dropped by
+   * the server for good, not queued for redelivery. `notifyViaDB`/`notifier` (`createNotifier`)
+   * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
+   * live client is a silent no-op, never buffered.
+   *
+   * Both current subscribers below already tolerate a missed notification, but not for the same
+   * reason a naive read of their code might suggest — neither re-checks the DB on a timer:
+   *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler and `maintenance.subscribeToEvents()`'s
+   *    `flushCaches`/`disconnectWebsockets` handlers are purely edge-triggered. A missed one has no
+   *    independent side channel back except another matching event later, or this instance's own
+   *    restart.
+   *  - What actually closes the common case is `index.ts`: `preBoot()` calls
+   *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
+   *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
+   *    arrived. So an instance that missed an event while it was down is always fully resynced the
+   *    moment it comes back — that is the scenario the task description calls out, and it is
+   *    closed by construction, not by chance.
+   *  - The one gap this does *not* close is a notification lost during this instance's own brief
+   *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
+   *    matching event or a restart. Judged low-severity (bounded window, and every current event —
+   *    `reloadConfig` on every settings save, `flushCaches`/`disconnectWebsockets` as one-shot admin
+   *    actions with no persisted state of their own to diverge from) and left as a documented
+   *    at-most-once contract rather than closed with a new poller — see
+   *    `dev/multi-instance-verify/README.md` §8 and `core/db.test.ts` for the full writeup and
+   *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
+   *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
+   *    ever redelivers.
    */
   async subscribeToNotifications(): Promise<void> {
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:EVENTS`
-    this.pubsubClient = await this.pool!.connect()
-    await this.pubsubClient.query(`SET application_name = '${connectionAppName}'`)
 
-    // -> Outbound events handling
-
-    await this.pubsubClient.query('LISTEN wiki')
-    this.pubsubClient.on('notification', (msg) => {
-      if (msg.channel !== 'wiki') {
-        return
-      }
-      try {
-        const decoded = JSON.parse(msg.payload!)
-        if ('event' in decoded && decoded.source !== WIKI.INSTANCE_ID) {
-          WIKI.logger.info(
-            `Received event ${decoded.event} from instance ${decoded.source}: [ OK ]`
-          )
-          WIKI.events.inbound.emit(decoded.event, decoded.value)
+    // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
+    //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
+    //    an unhandled 'error' and taking the process down with it.
+    this.listenerHandle = await connectListener({
+      pool: this.pool!,
+      applicationName: connectionAppName,
+      channels: ['wiki'],
+      label: 'event bus',
+      onNotification: (msg) => {
+        if (msg.channel !== 'wiki') {
+          return
         }
-      } catch {}
+        try {
+          const decoded = JSON.parse(msg.payload!)
+          if ('event' in decoded && decoded.source !== WIKI.INSTANCE_ID) {
+            WIKI.logger.info(
+              `Received event ${decoded.event} from instance ${decoded.source}: [ OK ]`
+            )
+            WIKI.events.inbound.emit(decoded.event, decoded.value)
+          }
+        } catch {}
+      },
+      getClient: () => this.pubsubClient,
+      setClient: (client) => {
+        this.pubsubClient = client
+      }
     })
+
     // -> Cast because `onAny` types the event as every pair the map allows plus Emittery's own meta
     //    events, and this listener is written to the one shape they have in common
     WIKI.events.outbound.onAny(this.notifyViaDB as any)
@@ -237,13 +278,14 @@ export default {
    * Unsubscribe from database LISTEN / NOTIFY
    */
   async unsubscribeFromNotifications(): Promise<void> {
-    if (this.pubsubClient) {
+    if (this.listenerHandle) {
       WIKI.events.outbound.offAny(this.notifyViaDB as any)
       WIKI.events.inbound.clearListeners()
       // -> Whatever the last events queued goes out before the client goes: releasing it from under a
       //    notification in flight would fail that one for no reason
       await notifier.drained()
-      this.pubsubClient.release(true)
+      await this.listenerHandle.close()
+      this.listenerHandle = null
     }
   },
   /**

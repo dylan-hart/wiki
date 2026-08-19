@@ -310,16 +310,16 @@
               </w-item-section>
               <w-item-section>{{ t('admin.icons.title') }}</w-item-section>
             </w-item>
-            <w-item to="/_admin/instances" active-class="bg-primary text-white">
+            <w-item to="/_admin/cluster" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-network.svg" />
               </w-item-section>
-              <w-item-section>{{ t('admin.instances.title') }}</w-item-section>
+              <w-item-section>{{ t('admin.cluster.title') }}</w-item-section>
               <w-item-section side>
                 <w-badge
                   color="dark-3"
-                  :label="adminStore.info.instancesTotal"
-                  :class="countBadgeClass(adminStore.info.instancesTotal)" />
+                  :label="adminStore.info.clusterTotal"
+                  :class="countBadgeClass(adminStore.info.clusterTotal)" />
               </w-item-section>
             </w-item>
             <w-item to="/_admin/mail" active-class="bg-primary text-white">

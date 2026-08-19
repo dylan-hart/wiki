@@ -1,11 +1,11 @@
-import { DynamicThreadPool } from 'poolifier'
+import { DynamicThreadPool, FixedThreadPool } from 'poolifier'
 import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { CronExpressionParser } from 'cron-parser'
 import { v4 as uuid } from 'uuid'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
-import { createNotifier } from '../helpers/pubsub.ts'
+import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import { camelCase } from 'es-toolkit/string'
 import { remove } from 'es-toolkit/array'
 import {
@@ -69,8 +69,9 @@ export interface AddJobOptions {
 }
 
 export default {
-  workerPool: null as DynamicThreadPool<any, boolean> | null,
+  workerPool: null as DynamicThreadPool<any, boolean> | FixedThreadPool<any, boolean> | null,
   pubsubClient: null as PoolClient | null,
+  listenerHandle: null as ListenerHandle | null,
   maxWorkers: 1,
   activeWorkers: 0,
   pollingRef: null as NodeJS.Timeout | null,
@@ -86,16 +87,24 @@ export default {
       this.maxWorkers = 1
     }
     WIKI.logger.info(`Initializing Worker Pool (Limit: ${this.maxWorkers})...`)
-    this.workerPool = new DynamicThreadPool(
-      1,
-      this.maxWorkers,
-      path.join(WIKI.SERVERPATH, 'worker.ts'),
-      {
-        errorHandler: (err: Error) => WIKI.logger.warn(err),
-        exitHandler: () => WIKI.logger.debug('A worker has gone offline.'),
-        onlineHandler: () => WIKI.logger.debug('New worker is online.')
-      }
-    )
+    const workerFile = path.join(WIKI.SERVERPATH, 'worker.ts')
+    const poolOptions = {
+      errorHandler: (err: Error) => WIKI.logger.warn(err),
+      exitHandler: () => WIKI.logger.debug('A worker has gone offline.'),
+      onlineHandler: () => WIKI.logger.debug('New worker is online.')
+    }
+    /*
+      `DynamicThreadPool` refuses a minimum equal to its maximum (poolifier 5.x: "Use a fixed pool
+      instead"). `maxWorkers` lands on exactly 1 whenever `scheduler.workers` is explicitly set to 1,
+      or 'auto' on a single-CPU host/container — both real deployment shapes, not edge cases — so
+      always going through `DynamicThreadPool(1, maxWorkers, ...)` crashed `init()` (and therefore
+      boot) on any of them. A single-worker instance has nothing to scale between anyway, so it gets a
+      `FixedThreadPool` of exactly one instead.
+    */
+    this.workerPool =
+      this.maxWorkers === 1
+        ? new FixedThreadPool(1, workerFile, poolOptions)
+        : new DynamicThreadPool(1, this.maxWorkers, workerFile, poolOptions)
     this.tasks = {}
     for (const f of await fs.readdir(path.join(WIKI.SERVERPATH, 'tasks/simple'))) {
       const taskName = camelCase(f.replace(/\.[jt]s$/, ''))
@@ -107,43 +116,51 @@ export default {
     WIKI.logger.info('Starting Scheduler...')
 
     const connectionAppName = `Wiki.js - ${WIKI.INSTANCE_ID}:SCHEDULER`
-    this.pubsubClient = await WIKI.dbManager.pool!.connect()
-    await this.pubsubClient!.query(`SET application_name = '${connectionAppName}'`)
 
-    // -> Outbound events handling
-
-    await this.pubsubClient!.query('LISTEN scheduler')
-    this.pubsubClient!.on('notification', async (msg) => {
-      if (msg.channel !== 'scheduler') {
-        return
-      }
-      try {
-        const decoded = JSON.parse(msg.payload!)
-        switch (decoded?.event) {
-          case 'newJob': {
-            // -> No counting here: `processJob` accounts for the jobs it actually claims, and
-            //    counting this call as a worker as well would hide one slot for its duration
-            if (this.activeWorkers < this.maxWorkers) {
-              await this.processJob()
-            }
-            break
-          }
-          case 'jobCompleted': {
-            const jobPromise = this.completionPromises.find((p) => p.id === decoded.id)
-            if (jobPromise) {
-              if (decoded.state === 'success') {
-                jobPromise.resolve()
-              } else {
-                jobPromise.reject(new Error(decoded.errorMessage))
-              }
-              setTimeout(() => {
-                remove(this.completionPromises, (p) => p.id === decoded.id)
-              })
-            }
-            break
-          }
+    // -> `connectListener` attaches the 'error' handler this client needs (see helpers/pubsub.ts):
+    //    on a dropped connection it re-connects and re-LISTENs on its own, rather than throwing on
+    //    an unhandled 'error' and taking the process down with it.
+    this.listenerHandle = await connectListener({
+      pool: WIKI.dbManager.pool!,
+      applicationName: connectionAppName,
+      channels: ['scheduler'],
+      label: 'scheduler',
+      onNotification: async (msg) => {
+        if (msg.channel !== 'scheduler') {
+          return
         }
-      } catch {}
+        try {
+          const decoded = JSON.parse(msg.payload!)
+          switch (decoded?.event) {
+            case 'newJob': {
+              // -> No counting here: `processJob` accounts for the jobs it actually claims, and
+              //    counting this call as a worker as well would hide one slot for its duration
+              if (this.activeWorkers < this.maxWorkers) {
+                await this.processJob()
+              }
+              break
+            }
+            case 'jobCompleted': {
+              const jobPromise = this.completionPromises.find((p) => p.id === decoded.id)
+              if (jobPromise) {
+                if (decoded.state === 'success') {
+                  jobPromise.resolve()
+                } else {
+                  jobPromise.reject(new Error(decoded.errorMessage))
+                }
+                setTimeout(() => {
+                  remove(this.completionPromises, (p) => p.id === decoded.id)
+                })
+              }
+              break
+            }
+          }
+        } catch {}
+      },
+      getClient: () => this.pubsubClient,
+      setClient: (client) => {
+        this.pubsubClient = client
+      }
     })
 
     // -> Start scheduled jobs check
@@ -317,7 +334,18 @@ export default {
             })
             .onConflictDoUpdate({
               target: jobHistoryTable.id,
-              set: { state: 'active', executedBy: WIKI.INSTANCE_ID, startedAt: sql`now()` }
+              // -> A reclaim (this row already exists — the common case right after `reapStaleJobs`
+              //    has interrupted it) must also refresh `attempt`, not just the run-state columns.
+              //    Left out, a job whose worker/process keeps dying before `runJob` ever gets to
+              //    record anything has `attempt` frozen at its very first claim forever, so
+              //    `reapStaleJobs`'s `attempt > maxRetries` cutoff never trips and the job is
+              //    requeued indefinitely instead of eventually being abandoned.
+              set: {
+                state: 'active',
+                executedBy: WIKI.INSTANCE_ID,
+                startedAt: sql`now()`,
+                attempt: job.retries + 1
+              }
             })
         }
         return claimed
@@ -566,6 +594,11 @@ export default {
     clearInterval(this.scheduledRef!)
     clearInterval(this.pollingRef!)
     await this.workerPool!.destroy()
+    if (this.listenerHandle) {
+      await notifier.drained()
+      await this.listenerHandle.close()
+      this.listenerHandle = null
+    }
     WIKI.logger.info('Scheduler: [ STOPPED ]')
   }
 }

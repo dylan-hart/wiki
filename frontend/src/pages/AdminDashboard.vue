@@ -224,8 +224,8 @@
           <w-card-section class="admin-dashboard-card">
             <img src="/_assets/icons/fluent-network.svg" />
             <div>
-              <strong>{{ t('admin.instances.title') }}</strong>
-              <span>{{ adminStore.info.instancesTotal }}</span>
+              <strong>{{ t('admin.cluster.title') }}</strong>
+              <span>{{ adminStore.info.clusterTotal }}</span>
             </div>
           </w-card-section>
           <w-separator />
@@ -236,7 +236,7 @@
               icon="la:server"
               :label="t(`common.actions.view`)"
               :disable="!userStore.can(`manage:system`)"
-              to="/_admin/instances" />
+              to="/_admin/cluster" />
           </w-card-actions>
         </w-card>
       </div>

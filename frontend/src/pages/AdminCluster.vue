@@ -7,9 +7,9 @@
           src="/_assets/icons/fluent-network-animated.svg" />
       </div>
       <div class="min-w-0 flex-1 pl-4">
-        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.instances.title') }}</div>
+        <div class="text-h5 text-primary animated fadeInLeft">{{ t('admin.cluster.title') }}</div>
         <div class="text-subtitle1 text-grey animated fadeInLeft wait-p2s">
-          {{ t('admin.instances.subtitle') }}
+          {{ t('admin.cluster.subtitle') }}
         </div>
       </div>
       <div class="flex-none flex">
@@ -19,7 +19,7 @@
           flat
           color="grey"
           :aria-label="t(`common.actions.viewDocs`)"
-          :href="siteStore.docsBase + `/admin/instances`"
+          :href="siteStore.docsBase + `/admin/cluster`"
           target="_blank">
           <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
@@ -39,8 +39,8 @@
     <div class="p-4 gap-4">
       <w-card>
         <w-table
-          :rows="state.instances"
-          :columns="instancesHeaders"
+          :rows="state.nodes"
+          :columns="nodesHeaders"
           row-key="name"
           flat
           :loading="state.loading > 0">
@@ -118,17 +118,17 @@ const { t } = useI18n()
 // META
 
 useMeta({
-  title: t('admin.instances.title')
+  title: t('admin.cluster.title')
 })
 
 // DATA
 
 const state = reactive({
-  instances: [],
+  nodes: [],
   loading: 0
 })
 
-const instancesHeaders = [
+const nodesHeaders = [
   {
     align: 'center',
     field: 'id',
@@ -144,21 +144,21 @@ const instancesHeaders = [
     sortable: true
   },
   {
-    label: t('admin.instances.activeConnections'),
+    label: t('admin.cluster.activeConnections'),
     align: 'left',
     field: 'activeConnections',
     name: 'cons',
     sortable: true
   },
   {
-    label: t('admin.instances.activeListeners'),
+    label: t('admin.cluster.activeListeners'),
     align: 'left',
     field: 'activeListeners',
     name: 'subs',
     sortable: true
   },
   {
-    label: t('admin.instances.firstSeen'),
+    label: t('admin.cluster.firstSeen'),
     align: 'left',
     field: 'dbFirstSeen',
     name: 'firstseen',
@@ -166,7 +166,7 @@ const instancesHeaders = [
     format: relativeDate
   },
   {
-    label: t('admin.instances.lastSeen'),
+    label: t('admin.cluster.lastSeen'),
     align: 'left',
     field: 'dbLastSeen',
     name: 'lastseen',
@@ -198,11 +198,11 @@ function humanizeDate(val) {
 async function load() {
   state.loading++
   try {
-    state.instances = await API_CLIENT.get('system/instances').json()
+    state.nodes = await API_CLIENT.get('system/cluster').json()
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load list of instances.',
+      message: 'Failed to load list of cluster nodes.',
       caption: err.message
     })
   }
