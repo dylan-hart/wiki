@@ -349,6 +349,7 @@ import {
   findBlocks,
   hasEditableParams
 } from '@/helpers/markdownBlocks'
+import { resolveWordMarkup } from '@/helpers/markdownMarkup'
 import { findEditableTables } from '@/helpers/markdownTable'
 
 import EditorCodeBlockMenu from '@/components/EditorCodeBlockMenu.vue'
@@ -969,24 +970,45 @@ async function toggleMarkup({ start, end }) {
   }
 
   const edits = []
+  // -> Cursor position to land on after the edit, one per null-word edit below (OpenProject #800).
+  //    Parallel to `edits` only in that both grow together; passed to `executeEdits` as-is only
+  //    when every edit in this call needed one, so a mixed multi-cursor batch (some selections
+  //    landing on a real word, others not) falls back to Monaco's own default cursor placement
+  //    rather than silently dropping the cursors this array doesn't know about.
+  const cursors = []
 
   for (const selection of editor.getSelections()) {
     const selectedText = editor.getModel().getValueInRange(selection)
     if (!selectedText) {
       const wordObj = editor.getModel().getWordAtPosition(selection.getPosition())
-      const wordRange = new Range(
-        selection.startLineNumber,
-        wordObj.startColumn,
-        selection.endLineNumber,
-        wordObj.endColumn
-      )
-      if (wordObj.word.startsWith(start) && wordObj.word.endsWith(end)) {
-        edits.push({
-          range: wordRange,
-          text: wordObj.word.substring(start.length, wordObj.word.length - end.length)
-        })
+      const { text, atCursor } = resolveWordMarkup({ start, end, word: wordObj?.word ?? null })
+      if (atCursor) {
+        // No word under the cursor -- empty line/document, or adjacent to non-word markup with
+        // nothing inside it. Insert the empty markers at the cursor and land the caret between
+        // them, so the author can type straight into them instead of hitting a TypeError.
+        const cursorRange = new Range(
+          selection.startLineNumber,
+          selection.startColumn,
+          selection.endLineNumber,
+          selection.endColumn
+        )
+        edits.push({ range: cursorRange, text })
+        cursors.push(
+          new monaco.Selection(
+            selection.startLineNumber,
+            selection.startColumn + start.length,
+            selection.startLineNumber,
+            selection.startColumn + start.length
+          )
+        )
       } else {
-        edits.push({ range: wordRange, text: `${start}${wordObj.word}${end}` })
+        const wordRange = new Range(
+          selection.startLineNumber,
+          wordObj.startColumn,
+          selection.endLineNumber,
+          wordObj.endColumn
+        )
+        edits.push({ range: wordRange, text })
       }
     } else if (selectedText.startsWith(start) && selectedText.endsWith(end)) {
       edits.push({
@@ -998,7 +1020,7 @@ async function toggleMarkup({ start, end }) {
     }
   }
 
-  editor.executeEdits('', edits)
+  editor.executeEdits('', edits, cursors.length === edits.length ? cursors : undefined)
 }
 
 /**
