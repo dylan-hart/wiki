@@ -788,9 +788,18 @@ function nextFootnoteLabel(text) {
 /**
  * A footnote: the marker where the cursor is, and the note itself at the foot of the source.
  *
- * Both halves in one edit, because either alone is broken — a marker with no note renders as literal
- * text, and a note nothing refers to renders as nothing at all. The cursor ends on the note, since
- * writing it is what the author was about to do; the marker is already where they left it.
+ * Both halves in one `executeEdits` call, because either alone is broken — a marker with no note
+ * renders as literal text, and a note nothing refers to renders as nothing at all — and one call is
+ * one undo step, so a single Ctrl+Z removes both rather than leaving the other stranded.
+ *
+ * The two edit ranges are computed from the same pre-edit snapshot, which collides them into one
+ * when the cursor sits exactly at the document's end: that is where `insertFootnote` itself always
+ * leaves the cursor afterwards (see below), so it is also where the cursor already is on every
+ * repeated click with no typing in between. Two edits at an identical range would otherwise be
+ * inserted concatenated with no separation — `[^1][^1]: ` instead of a properly delimited marker and
+ * note. Detected explicitly as `cursorAtEnd` and folded into one edit instead of two, so the ranges
+ * never collide to begin with. The cursor ends on the note, since writing it is what the author was
+ * about to do; the marker is already where they left it.
  */
 function insertFootnote() {
   const model = editor.getModel()
@@ -798,21 +807,40 @@ function insertFootnote() {
   const cursor = editor.getPosition()
   const lastLine = model.getLineCount()
   const lastLineLength = model.getLineContent(lastLine).length
-  // -> On a line of its own at the end, one blank line clear of whatever the page ends with
-  const lead = lastLineLength > 0 ? `\n\n` : ``
+  const cursorAtEnd = cursor.lineNumber === lastLine && cursor.column === lastLineLength + 1
 
-  editor.executeEdits('', [
-    {
-      range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
-      text: `[^${label}]`,
-      forceMoveMarkers: true
-    },
-    {
-      range: new Range(lastLine, lastLineLength + 1, lastLine, lastLineLength + 1),
-      text: `${lead}[^${label}]: `,
-      forceMoveMarkers: true
-    }
-  ])
+  const marker = `[^${label}]`
+  /*
+    -> On a line of its own at the end, one blank line clear of whatever the page ends with. When the
+       cursor is at that end, the marker itself is what the line will end with once inserted, so the
+       gap is always needed there even if the line was empty beforehand.
+  */
+  const lead = cursorAtEnd || lastLineLength > 0 ? `\n\n` : ``
+  const note = `${lead}[^${label}]: `
+
+  editor.executeEdits(
+    '',
+    cursorAtEnd
+      ? [
+          {
+            range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
+            text: `${marker}${note}`,
+            forceMoveMarkers: true
+          }
+        ]
+      : [
+          {
+            range: new Range(cursor.lineNumber, cursor.column, cursor.lineNumber, cursor.column),
+            text: marker,
+            forceMoveMarkers: true
+          },
+          {
+            range: new Range(lastLine, lastLineLength + 1, lastLine, lastLineLength + 1),
+            text: note,
+            forceMoveMarkers: true
+          }
+        ]
+  )
 
   const noteLine = model.getLineCount()
   editor.setPosition({ lineNumber: noteLine, column: model.getLineContent(noteLine).length + 1 })
