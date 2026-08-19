@@ -312,7 +312,7 @@ function mapStagedPageToInput(
 
   return {
     input,
-    actor: { id: staged.creatorId, permissions: actorPermissions },
+    actor: { id: staged.creatorId, groupIds: [], permissions: actorPermissions },
     queueRerender: canQueue,
     warnings
   }
