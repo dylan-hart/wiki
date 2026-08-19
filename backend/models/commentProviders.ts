@@ -148,7 +148,14 @@ class CommentProviders {
   ): Promise<void> {
     const definitions: CommentProviderDefinition[] = []
     try {
-      for (const dir of await fs.readdir(modulesPath)) {
+      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
+      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
+      //    -- one such file would abort the whole scan and silently lose every real provider.
+      const commentEntries = await fs.readdir(modulesPath, { withFileTypes: true })
+      const commentDirs = commentEntries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+      for (const dir of commentDirs) {
         const raw = await fs.readFile(path.join(modulesPath, dir, 'definition.yml'), 'utf8')
         const parsed = load(raw) as Record<string, any>
         // -> The directory name is the key, as it is for every other module type

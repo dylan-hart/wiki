@@ -339,7 +339,14 @@ class Storage {
     const storagePath = path.join(WIKI.SERVERPATH, 'modules/storage')
     const definitions: StorageDefinition[] = []
     try {
-      for (const dir of await fs.readdir(storagePath)) {
+      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
+      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
+      //    -- one such file would abort the whole scan and silently lose every real module.
+      const storageEntries = await fs.readdir(storagePath, { withFileTypes: true })
+      const storageDirs = storageEntries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+      for (const dir of storageDirs) {
         const raw = await fs.readFile(path.join(storagePath, dir, 'definition.yml'), 'utf8')
         const parsed = load(raw) as Record<string, any>
         // -> The directory name is the key, as it is for every other module type

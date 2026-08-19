@@ -154,7 +154,15 @@ class Extensions {
     const extensionsPath = path.join(WIKI.SERVERPATH, 'modules/extensions')
     const definitions: ExtensionDefinition[] = []
     try {
-      for (const dir of await fs.readdir(extensionsPath)) {
+      // -> Filtered to directories only: this listing also contains loose per-module test files
+      //    (e.g. `definitions.test.ts`) sitting alongside the module directories, which have no
+      //    `definition.yml` of their own to read -- and since this loop has no per-entry try/catch,
+      //    one such file previously aborted the whole scan, silently losing every real extension.
+      const extensionEntries = await fs.readdir(extensionsPath, { withFileTypes: true })
+      const extensionDirs = extensionEntries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+      for (const dir of extensionDirs) {
         const raw = await fs.readFile(path.join(extensionsPath, dir, 'definition.yml'), 'utf8')
         const parsed = load(raw) as ExtensionDefinition
         // -> The directory name is the key, as it is for every other module type

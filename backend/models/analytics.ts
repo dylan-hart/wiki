@@ -43,8 +43,16 @@ class Analytics {
 
   async refreshFromDisk(): Promise<void> {
     try {
-      // -> Fetch definitions from disk
-      const analyticsDirs = await fs.readdir(path.join(WIKI.SERVERPATH, 'modules/analytics'))
+      // -> Fetch definitions from disk. Filtered to directories only: a loose per-module test file
+      //    sitting alongside the module directories has no `definition.yml` of its own, and this
+      //    loop has no per-entry try/catch -- one such file would abort the whole scan and silently
+      //    lose every real module.
+      const analyticsEntries = await fs.readdir(path.join(WIKI.SERVERPATH, 'modules/analytics'), {
+        withFileTypes: true
+      })
+      const analyticsDirs = analyticsEntries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
       WIKI.data.analytics = []
       for (const dir of analyticsDirs) {
         const def = await fs.readFile(

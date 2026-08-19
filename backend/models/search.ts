@@ -251,7 +251,14 @@ class Search {
     const searchPath = path.join(WIKI.SERVERPATH, 'modules/search')
     const definitions: SearchEngineDefinition[] = []
     try {
-      for (const dir of await fs.readdir(searchPath)) {
+      // -> Filtered to directories only: a loose per-module test file sitting alongside the module
+      //    directories has no `definition.yml` of its own, and this loop has no per-entry try/catch
+      //    -- one such file would abort the whole scan and silently lose every real engine.
+      const searchEntries = await fs.readdir(searchPath, { withFileTypes: true })
+      const searchDirs = searchEntries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+      for (const dir of searchDirs) {
         const raw = await fs.readFile(path.join(searchPath, dir, 'definition.yml'), 'utf8')
         const parsed = load(raw) as Record<string, any>
         // -> The directory name is the key, as it is for every other module type
