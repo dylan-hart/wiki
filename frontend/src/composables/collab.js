@@ -1,6 +1,5 @@
 import { watch } from 'vue'
 
-import { MonacoBinding } from 'y-monaco'
 import { WebsocketProvider } from 'y-websocket'
 import * as Y from 'yjs'
 
@@ -28,6 +27,20 @@ import { useUserStore } from '@/stores/user'
 
 /** How long to wait for the first sync before giving up and letting the author type offline. */
 const SYNC_TIMEOUT = 5000
+
+/**
+ * Ceiling on `y-websocket`'s own reconnect backoff (`WebsocketProvider`'s `maxBackoffTime`).
+ *
+ * `WebsocketProvider` never gives up retrying on its own -- a dropped socket schedules another
+ * attempt forever, doubling the delay each miss (100ms, 200ms, 400ms, ...) until it hits this
+ * ceiling, then holding there. Left unset, the library's own default is the same 2500ms pinned here;
+ * pinning it explicitly is so a `y-websocket` upgrade changing that default can't silently change how
+ * quickly a real outage (a wifi drop, a restarted backend instance) recovers once connectivity
+ * returns, out from under this file. 2500ms keeps that worst case well under `SYNC_TIMEOUT`'s 5000ms
+ * budget for the *first* connection, and is frequent enough that a reconnect is never the reason a
+ * multi-second outage feels longer than it was.
+ */
+const RECONNECT_MAX_BACKOFF = 2500
 
 /**
  * How long after someone's last change they still count as typing.
@@ -94,6 +107,25 @@ export function isCollabActive() {
 }
 
 /**
+ * What a `collabStore.status` change means for the editor it gates -- whether to (re)bind it to the
+ * shared document, and whether it may still be typed in.
+ *
+ * Pulled out as its own pure function specifically so the read-only guard can be tested on its own,
+ * without mounting the (Monaco-backed) `EditorMarkdown.vue`: `hasSynced` is the guard
+ * `stores/collab.js`'s own doc comment describes -- "the editor must not lock itself again" over a
+ * reconnect's trip back through `connecting` -- made explicit here rather than left as an accident of
+ * the caller never being told to re-lock. Only the very first sync is worth waiting for; every status
+ * after that, including a mid-session `disconnected`, releases the editor and keeps it released.
+ */
+export function collabStatusEffects(status, hasSynced) {
+  return {
+    shouldBindEditor: status === 'connected',
+    readOnly: !hasSynced && status === 'connecting',
+    notifyDenied: status === 'denied'
+  }
+}
+
+/**
  * Open a session on a page.
  *
  * Returns without waiting for the socket: the editor stays usable throughout, and the store's status
@@ -117,7 +149,8 @@ export function startCollabSession({ siteId, pageId }) {
   provider = new WebsocketProvider(
     `${protocol}//${window.location.host}/_collab`,
     `${siteId}/${pageId}`,
-    doc
+    doc,
+    { maxBackoffTime: RECONNECT_MAX_BACKOFF }
   )
 
   collabStore.$patch({
@@ -240,20 +273,25 @@ export function startCollabSession({ siteId, pageId }) {
 }
 
 /**
- * Hand the Monaco model over to the session.
+ * Hand an editor over to the session.
  *
- * Called once the document has synced, and not before: the binding starts by making the model say
- * what the document says, and a document that has not synced yet says nothing at all.
+ * Called once the document has synced, and not before: a binding built before that would start by
+ * making the editor say whatever an empty document says.
+ *
+ * Takes a factory rather than the editor itself, because Monaco and TipTap bind to a Yjs document in
+ * incompatible ways: `y-monaco`'s `MonacoBinding` is a constructor this file could call given the
+ * model, while TipTap's `@tiptap/extension-collaboration` binds itself as an extension configured
+ * with the document, and owns its own lifecycle from there rather than handing back an object. What
+ * every binding needs is the same regardless -- the shared `ytext` and the live `awareness` -- so
+ * `createBinding(ytext, awareness)` receives exactly those two and returns whatever should be torn
+ * down when the session ends (anything with a `destroy()` method), or a falsy value if there is
+ * nothing left for this session to own.
  */
-export function bindCollabEditor(editor) {
+export function bindCollabEditor(createBinding) {
   if (!doc || binding) {
     return
   }
-  const model = editor.getModel()
-  if (!model) {
-    return
-  }
-  binding = new MonacoBinding(doc.getText('content'), model, new Set([editor]), provider.awareness)
+  binding = createBinding(doc.getText('content'), provider.awareness) || null
 }
 
 /** Close the session and put everything back the way an ordinary editor leaves it. */

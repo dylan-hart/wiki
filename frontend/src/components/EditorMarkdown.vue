@@ -320,7 +320,12 @@ import {
 } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { bindCollabEditor, startCollabSession, stopCollabSession } from '@/composables/collab'
+import {
+  bindCollabEditor,
+  collabStatusEffects,
+  startCollabSession,
+  stopCollabSession
+} from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
@@ -353,6 +358,7 @@ import { enhanceRenderedContent } from '@/helpers/renderedContent'
 import { debounce } from 'es-toolkit/function'
 import * as monaco from 'monaco-editor'
 import { Position, Range } from 'monaco-editor'
+import { MonacoBinding } from 'y-monaco'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
 // STORES
@@ -1573,13 +1579,18 @@ onMounted(async () => {
     watch(
       () => collabStore.status,
       (status) => {
-        if (status === 'connected') {
-          bindCollabEditor(editor)
+        const effects = collabStatusEffects(status, collabStore.hasSynced)
+        if (effects.shouldBindEditor) {
+          bindCollabEditor((ytext, awareness) => {
+            const model = editor.getModel()
+            if (!model) {
+              return null
+            }
+            return new MonacoBinding(ytext, model, new Set([editor]), awareness)
+          })
         }
-        if (status !== 'connecting') {
-          editor.updateOptions({ readOnly: false })
-        }
-        if (status === 'denied') {
+        editor.updateOptions({ readOnly: effects.readOnly })
+        if (effects.notifyDenied) {
           notify({
             type: 'warning',
             message: t('editor.collab.notAllowed')

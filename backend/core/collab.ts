@@ -47,7 +47,11 @@ import type { WebSocket } from 'ws'
  * seed is made *deterministic*: it is built in a scratch document pinned to client id 0, and two seeds
  * of identical text therefore produce byte-identical operations, which merge as one. That is also what
  * lets a client reconnect after a network blip and push back the edits it made while it was away — its
- * local copy of the seed is the same seed a freshly created room builds.
+ * local copy of the seed is the same seed a freshly created room builds, and it is what makes it safe
+ * for {@link receiveRelay}'s `state` case to merge a `peerState` reply that arrives after
+ * {@link PEER_STATE_TIMEOUT} straight into an already-fallen-back room rather than discard it: the
+ * seed portion of the peer's state is byte-identical to this instance's own, so `Y.applyUpdate` treats
+ * it as already known and only the peer's genuinely new edits land.
  */
 
 /** y-websocket message types. The values are that protocol's, not ours. */
@@ -60,18 +64,47 @@ const NOTIFY_CHANNEL = 'wiki_collab'
  * Base64 characters per NOTIFY payload. Postgres refuses a payload over 8000 bytes, and the JSON
  * envelope around the chunk fits comfortably in the slack this leaves.
  *
- * Exported so `collab.test.ts` can size its fixtures against the real constant rather than a copy
- * that could drift from it.
+ * Checked against the worst case (task 478's load test): every optional field populated (`to`, `m`,
+ * `c`, `n`), `i`/`to` at their real length (a 10-character `nanoid`, see `WIKI.INSTANCE_ID` in
+ * `index.ts`), `r` a full 36-character page uuid, and `t` at its longest value (`'awareness'`, 9
+ * characters) — `JSON.stringify` on that envelope costs ~140 bytes before `p` is even added, so a
+ * 5000-character `p` lands the whole envelope at ~5140 bytes: **~2860 bytes of slack (36%) under the
+ * 8000-byte cap**, room enough that this constant could grow to ~7860 before it would need revisiting.
+ * No change made — the margin was already comfortable — but see `core/collab.test.ts` for a test that
+ * pins this down, so a future field added to {@link RelayEnvelope} gets caught if it ever erodes it.
+ * Exported for that test, which checks the real constant rather than a hardcoded copy of it.
  */
 export const RELAY_CHUNK_SIZE = 5000
 
-/** How long a half-assembled relay message waits for the rest of its chunks before being dropped. */
+/**
+ * How long a half-assembled relay message waits for the rest of its chunks before being dropped.
+ * Exported for `core/collab.test.ts`, which verifies a partial's cleanup against the real constant
+ * rather than a hardcoded copy of it.
+ */
 export const RELAY_REASSEMBLY_TIMEOUT = 10 * 1000
 
 /**
  * How long a new room waits for a peer to hand over the state it already has, before seeding itself
  * from the stored page. Only paid when this instance does not already have the room open, and skipped
  * entirely when no other instance is running — which is the ordinary case.
+ *
+ * **Not reliably enough for a multi-megabyte document, and left that way on purpose.** Task 478's load
+ * test measured a real `hello`/`state` round trip — three peers replying at once, each chunking a
+ * ~3.6MB update over real (if same-box) postgres NOTIFY — at ~495ms even on an otherwise idle local
+ * database, i.e. already at the edge of this budget with zero network latency between app and db and
+ * no other load on either. Real deployments add both, so a sufficiently large page routinely misses
+ * this window. Scaling the constant to cover it is not a good trade: this timeout is paid on *every*
+ * cold room-open when a peer instance exists but does not happen to have this particular page open
+ * already (the common case — most pages are not all being edited on every instance at once), so
+ * lengthening it to comfortably fit a rare multi-megabyte document would add real, constant latency to
+ * every ordinary page's editor opening.
+ *
+ * What makes this an accepted limitation rather than a data-loss bug is {@link receiveRelay}'s `state`
+ * case: a peer's reply that arrives after this timeout has already fired and the room has fallen back
+ * to {@link buildSeed} is not discarded, it is merged straight into the room the moment it lands — see
+ * that function's doc comment for why that merge is safe. So a large document's cold start briefly
+ * shows the stored copy while the peer's fuller state is still in flight, then catches up on its own;
+ * nothing is permanently lost, only momentarily behind.
  */
 export const PEER_STATE_TIMEOUT = 500
 
@@ -165,7 +198,7 @@ function toBytes(data: unknown): Uint8Array {
  * Built in a scratch document whose client id is pinned to 0, so that the bytes depend on nothing but
  * the page — see the note at the top of this file on why that matters.
  */
-function buildSeed(page: {
+export function buildSeed(page: {
   content?: string | null
   title?: string | null
   description?: string | null
@@ -709,15 +742,26 @@ export default {
       }
       case 'state': {
         const waiting = this.awaitingState.get(envelope.r)
-        if (!waiting) {
-          // -> Too late to be adopted, and merging it now is exactly the duplication this handshake
-          //    exists to avoid. See the note at the top of this file.
-          WIKI.logger.debug(
-            `Ignoring a late collaboration state for page ${envelope.r} from instance ${envelope.i}`
-          )
-          return
+        if (waiting) {
+          waiting(Buffer.from(envelope.p ?? '', 'base64'))
+          break
         }
-        waiting(Buffer.from(envelope.p ?? '', 'base64'))
+        /*
+          Too late for peerState() to hand it to — that call already timed out and this instance's room,
+          if it opened one, seeded itself from the stored page instead. That is not the end of the
+          story: the peer's state can still be merged straight into the room, and doing so is safe
+          rather than the duplication a naive merge of two independent seeds would risk, precisely
+          because of the client-id-0 trick described at the top of this file — this instance's own
+          buildSeed() output and the seed folded into the peer's state are byte-identical, so Y.applyUpdate
+          treats that part as already-known and only the peer's genuinely new operations (edits this
+          instance never saw while the handshake was still in flight) land. Skipped when there is no
+          room to catch up: either this instance never opened one, or it already closed again, and
+          either way there is nothing here for the update to join.
+        */
+        const room = this.rooms.get(envelope.r)
+        if (room && envelope.p) {
+          Y.applyUpdate(room.doc, Buffer.from(envelope.p, 'base64'), RELAYED)
+        }
         break
       }
       case 'update': {

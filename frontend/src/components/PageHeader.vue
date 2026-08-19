@@ -200,6 +200,21 @@
       </template>
       <template v-if="editorStore.isActive">
         <!--
+          Persistent, not a toast: `EditorMarkdown.vue` already toasts the terminal `denied` status
+          once, but a `disconnected` socket can sit retrying for a good while (a flaky wifi, a proxy
+          hiccup) and edits keep being made and kept locally the whole time -- something to glance at
+          on and off, not a message that has to be caught in the few seconds it was on screen.
+          Clears itself the moment `collabStore.status` moves off `disconnected`, reconnected or not.
+        -->
+        <div
+          v-if="collabStore.status === 'disconnected'"
+          class="collab-disconnected mr-2 flex items-center gap-1 text-warning"
+          role="status"
+          aria-live="polite">
+          <w-icon name="mdi:wifi-off" size="18px" />
+          <span class="text-caption">{{ t('editor.collab.disconnected') }}</span>
+        </div>
+        <!--
           Whoever else has this page open in an editor. Renders nothing when that is nobody, which is
           also what it renders whenever there is no collaboration session at all.
         -->
@@ -337,6 +352,7 @@ import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 
+import { useCollabStore } from '@/stores/collab'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
@@ -355,6 +371,7 @@ const BELL_RING_MS = 700
 
 // STORES
 
+const collabStore = useCollabStore()
 const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()

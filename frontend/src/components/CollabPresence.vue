@@ -1,57 +1,74 @@
 <template>
   <!--
-    Nothing at all when you are on your own, which is the ordinary case: a single bubble of your own
-    face says nothing you did not already know, and the header has better uses for the space.
+    The root has to stay a single element for `class="mr-2"` fallthrough from `PageHeader.vue` to
+    still land on `.collab-presence` (see `inheritAttrs: false` below) -- so the always-present
+    announcement region below is a sibling INSIDE it, not a sibling of it. It contributes no box of
+    its own (an empty div around a single `position: absolute` child collapses to 0x0), so it changes
+    nothing about the "nothing at all when alone" layout the group div below still governs.
   -->
-  <div
-    v-if="collabStore.people.length > 1"
-    class="collab-presence"
-    role="group"
-    :aria-label="t('editor.collab.participants')">
+  <div>
     <!--
-      The bubble is wrapped rather than styled alone because it has to clip the avatar to a circle,
-      and a ring rippling outwards from something that clips its own children would be cut off at the
-      edge it is supposed to leave.
+      Screen-reader-only, and deliberately always in the DOM rather than appearing along with its
+      first announcement -- a live region has to already exist for assistive tech to pick up a change
+      inside it; one that appears with its text already filled in is not reliably announced. See
+      `announcement` for what fires it and, as importantly, what does not.
+    -->
+    <span class="sr-only" role="status" aria-live="polite">{{ announcement }}</span>
+    <!--
+      Nothing at all when you are on your own, which is the ordinary case: a single bubble of your own
+      face says nothing you did not already know, and the header has better uses for the space.
     -->
     <div
-      v-for="person of visible"
-      :key="person.id"
-      class="collab-presence-person"
-      :class="{ 'is-typing': person.typing }">
-      <span
-        class="collab-presence-wave"
-        :style="{ borderColor: person.color }"
-        aria-hidden="true" />
-      <div class="collab-presence-bubble" :style="{ backgroundColor: person.color }">
-        <!--
-          No `alt`: the name is already on the group's label and in the tooltip, and an avatar that
-          fails to load should fall back to the coloured circle rather than to the person's name in
-          plain text across the header.
-        -->
-        <img v-if="person.hasAvatar" :src="`/_user/${person.id}/avatar`" alt="" />
-        <span v-else>{{ initials(person.name) }}</span>
+      v-if="collabStore.people.length > 1"
+      v-bind="$attrs"
+      class="collab-presence"
+      role="group"
+      :aria-label="t('editor.collab.participants')">
+      <!--
+        The bubble is wrapped rather than styled alone because it has to clip the avatar to a circle,
+        and a ring rippling outwards from something that clips its own children would be cut off at the
+        edge it is supposed to leave.
+      -->
+      <div
+        v-for="person of visible"
+        :key="person.id"
+        class="collab-presence-person"
+        :class="{ 'is-typing': person.typing }">
+        <span
+          class="collab-presence-wave"
+          :style="{ borderColor: person.color }"
+          aria-hidden="true" />
+        <div class="collab-presence-bubble" :style="{ backgroundColor: person.color }">
+          <!--
+            No `alt`: the name is already on the group's label and in the tooltip, and an avatar that
+            fails to load should fall back to the coloured circle rather than to the person's name in
+            plain text across the header.
+          -->
+          <img v-if="person.hasAvatar" :src="`/_user/${person.id}/avatar`" alt="" />
+          <span v-else>{{ initials(person.name) }}</span>
+        </div>
+        <w-tooltip>
+          {{ personLabel(person) }}
+        </w-tooltip>
       </div>
-      <w-tooltip>
-        {{ personLabel(person) }}
-      </w-tooltip>
-    </div>
-    <!--
-      The count pulses on behalf of whoever it is standing in for, so that someone typing out of sight
-      is not simply invisible.
-    -->
-    <div
-      v-if="overflow > 0"
-      class="collab-presence-person collab-presence-person--overflow"
-      :class="{ 'is-typing': overflowTyping }">
-      <span class="collab-presence-wave" aria-hidden="true" />
-      <div class="collab-presence-bubble collab-presence-overflow">+{{ overflow }}</div>
-      <w-tooltip>{{ overflowNames }}</w-tooltip>
+      <!--
+        The count pulses on behalf of whoever it is standing in for, so that someone typing out of sight
+        is not simply invisible.
+      -->
+      <div
+        v-if="overflow > 0"
+        class="collab-presence-person collab-presence-person--overflow"
+        :class="{ 'is-typing': overflowTyping }">
+        <span class="collab-presence-wave" aria-hidden="true" />
+        <div class="collab-presence-bubble collab-presence-overflow">+{{ overflow }}</div>
+        <w-tooltip>{{ overflowNames }}</w-tooltip>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useCollabStore } from '@/stores/collab'
@@ -63,6 +80,8 @@ import { useCollabStore } from '@/stores/collab'
  * site having the feature off, the editor being anything other than markdown, and an edit being
  * suggested rather than made.
  */
+
+defineOptions({ inheritAttrs: false })
 
 const collabStore = useCollabStore()
 
@@ -76,6 +95,35 @@ const hidden = computed(() => collabStore.people.slice(MAX_VISIBLE))
 const overflow = computed(() => hidden.value.length)
 const overflowTyping = computed(() => hidden.value.some((person) => person.typing))
 const overflowNames = computed(() => hidden.value.map(personLabel).join(', '))
+
+/**
+ * The `aria-live` text: fires `editor.collab.editingWithYou` the moment somebody OTHER than the
+ * reader first shows up among `collabStore.people` -- i.e. off the deduplicated person, not off the
+ * raw `participants` list, so a second tab from someone already on-screen says nothing new.
+ *
+ * One-directional on purpose. There is no string for someone LEAVING -- `editingWithYou` reads as a
+ * presence, not an absence, and coining new copy for it is a bigger call than this task's -- so a
+ * departure stays visually obvious (their face leaves the row) but silent for a screen-reader user.
+ * That is a real, considered trade, not an oversight: arriving is the moment someone needs to be told
+ * "you are not alone in this document any more"; leaving mid-edit is lower-stakes, and announcing it
+ * on every drop of a merely flaky connection (see the `disconnected` indicator in `PageHeader.vue`)
+ * would be noise closer to what a `disconnected`-triggered departure already looks like without help.
+ */
+const announcement = ref('')
+let knownIds = new Set(nonSelfIds())
+
+function nonSelfIds() {
+  return collabStore.people.filter((person) => !person.isSelf).map((person) => person.id)
+}
+
+watch(nonSelfIds, (ids) => {
+  const joinedId = ids.find((id) => !knownIds.has(id))
+  if (joinedId) {
+    const person = collabStore.people.find((candidate) => candidate.id === joinedId)
+    announcement.value = t('editor.collab.editingWithYou', { name: person.name })
+  }
+  knownIds = new Set(ids)
+})
 
 /** A participant's name, or `You` for the reader's own face. */
 function personLabel(person) {

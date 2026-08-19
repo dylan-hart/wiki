@@ -81,7 +81,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, shallowRef } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
@@ -128,11 +128,6 @@ const siteStore = useSiteStore()
 const { t } = useI18n()
 
 // STATE
-
-const state = reactive({
-  // editor: null,
-  ydoc: null
-})
 
 let editor = null
 
@@ -652,19 +647,38 @@ const menuBar = [
 
 // METHODS
 
+/*
+ * Live collaboration: deferred, not wired.
+ *
+ * Task 485 (feature 367) decided this stays deferred rather than being wired onto
+ * `composables/collab.js`'s session (`startCollabSession`/`bindCollabEditor`) via TipTap's real
+ * `@tiptap/extension-collaboration` + `@tiptap/extension-collaboration-cursor`, for two concrete,
+ * checkable reasons rather than a guess:
+ *
+ *  - This component has no caller. `pages/Index.vue`'s `wysiwyg` async-component loader is commented
+ *    out, and `EditorWysiwyg.vue` is not imported anywhere else in `src/` -- re-enabling that loader
+ *    is explicitly the sibling Editor Selection feature's job, not this one's. Wiring collaboration
+ *    into a component nothing mounts would be untestable end to end: there is no live editor to bind
+ *    to, sync against a peer, or watch survive a reconnect, which is what every other room in this
+ *    feature was actually proven against.
+ *  - Its own dependencies are not installed. Every `@tiptap/*` import below (`@tiptap/vue-3`,
+ *    `@tiptap/starter-kit`, etc.) is absent from `package.json`/`node_modules` -- this component does
+ *    not build today even without collaboration. Adding `@tiptap/extension-collaboration` on top
+ *    would be a second unused, unverifiable dependency stacked on the first.
+ *
+ * What *did* ship here regardless, per the task's explicit instruction to do so either way: the dead
+ * `Y.Doc`/`IndexeddbPersistence`/`WebsocketProvider` stub that used to sit in `init()` below is
+ * removed, and `composables/collab.js`'s `bindCollabEditor` no longer hardcodes `y-monaco`'s
+ * `MonacoBinding` -- it now takes a factory, so whichever editor eventually re-enables this component
+ * can hand it a TipTap `Collaboration`-extension binding without another refactor first. See
+ * `bindCollabEditor`'s doc comment in `composables/collab.js`.
+ */
+
 function init() {
   // -> Setup Editor View
   editorStore.$patch({
     hideSideNav: false
   })
-
-  // -> Init Live Collab
-  // this.ydoc = new Y.Doc()
-
-  /* eslint-disable no-unused-vars */
-  // const dbProvider = new IndexeddbPersistence('example-document', this.ydoc)
-  // const wsProvider = new WebsocketProvider('ws://127.0.0.1:1234', 'example-document', this.ydoc)
-  /* eslint-enable no-unused-vars */
 
   // -> Initialize TipTap
   editor = useEditor({
@@ -687,9 +701,6 @@ function init() {
         lowlight
       }),
       Color,
-      // Collaboration.configure({
-      //   document: this.ydoc
-      // }),
       FontFamily,
       Highlight.configure({
         multicolor: true

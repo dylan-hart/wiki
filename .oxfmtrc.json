@@ -11,6 +11,7 @@
     "backend/db/migrations/**",
     "backend/locales/**",
     "blocks/compiled/**",
+    "frontend/src/assets/icons.generated.js",
     "assets/**",
     "frontend/dist/**",
     "frontend/src/assets/*.generated.js",
