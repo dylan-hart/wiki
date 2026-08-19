@@ -60,6 +60,13 @@ export const useSiteStore = defineStore('site', {
     description: '',
     logoText: true,
     /**
+     * Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is
+     * installed. Instance-wide, not something a site configures, so the export UI reads this to hide
+     * or disable the PDF option with an explanatory tooltip rather than offering a control that would
+     * always 503.
+     */
+    pdfExportAvailable: false,
+    /**
      * The extensions this site's content is written in, lowercase and without the dot. A path ending
      * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
      * router acts on for links inside pages and the server acts on for requests that reach it.
@@ -202,6 +209,7 @@ export const useSiteStore = defineStore('site', {
         title: siteInfo.title,
         description: siteInfo.description,
         logoText: siteInfo.logoText,
+        pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,

@@ -45,6 +45,9 @@ async function getSiteByHostname({
 
 let app: FastifyInstance
 
+/** Toggled per-test to drive `WIKI.models.rendering.isAvailable()`'s stubbed answer. */
+let renderingAvailable = true
+
 /**
  * Regression coverage for `manage:theme`: `GroupEditOverlay.vue` and `AdminLayout.vue` present it as
  * a working permission, but `PUT /sites/:siteId` used to gate on `manage:sites` only, so a group
@@ -123,6 +126,9 @@ before(async () => {
       },
       locales: {
         getLocales: async () => [{ code: 'en' }]
+      },
+      rendering: {
+        isAvailable: async () => renderingAvailable
       }
     },
     logger: { warn: () => {} }
@@ -584,4 +590,29 @@ test('userPermissions returns an empty array for an anonymous caller', async () 
   })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json(), [])
+})
+
+/**
+ * Task 500: `pdfExportAvailable` surfaces `WIKI.models.rendering.isAvailable()` (whether the
+ * Puppeteer extension is installed) on the same payload `siteStore.loadSite` already fetches, so the
+ * frontend can gate the PDF export option without a second round trip.
+ */
+test('pdfExportAvailable reflects the rendering model when the extension is installed', async () => {
+  renderingAvailable = true
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().pdfExportAvailable, true)
+})
+
+test('pdfExportAvailable reflects the rendering model when the extension is not installed', async () => {
+  renderingAvailable = false
+  const res = await app.inject({
+    method: 'GET',
+    url: '/somehost.example.com'
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().pdfExportAvailable, false)
 })

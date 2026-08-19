@@ -52,6 +52,9 @@ before(async () => {
       sites: {
         getSiteByHostname,
         getSiteById: async () => null
+      },
+      rendering: {
+        isAvailable: async () => true
       }
     }
   }
