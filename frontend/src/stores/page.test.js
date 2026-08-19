@@ -118,6 +118,109 @@ describe('page store: pageSave() concurrency', () => {
   })
 })
 
+describe('page store: pageSave() reads the live editor first (OpenProject #806)', () => {
+  it('flushes editorStore.contentFlusher before building the save body, replacing a stale content/render pair', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      // -> What the store would still hold if the debounced sync from `EditorMarkdown.vue` had not
+      //    caught up yet -- the dead `blob:` URL a pasted image is inserted as before its upload lands
+      content: '![pasted](blob:http://localhost/abc123)',
+      render: '<p><img src="blob:http://localhost/abc123"></p>'
+    })
+    // -> Stands in for `EditorMarkdown.vue` registering `flushEditorContent` while mounted
+    editorStore.contentFlusher = () => {
+      pageStore.content = '![pasted](/assets/pasted.png)'
+      pageStore.render = '<p><img src="/assets/pasted.png"></p>'
+    }
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    const [, opts] = API_CLIENT.patch.mock.calls[0]
+    expect(opts.json.content).toBe('![pasted](/assets/pasted.png)')
+    expect(opts.json.render).toBe('<p><img src="/assets/pasted.png"></p>')
+    expect(opts.json.content).not.toContain('blob:')
+    expect(opts.json.render).not.toContain('blob:')
+  })
+
+  it('leaves content/render exactly as stored when no editor is mounted (contentFlusher unset)', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: 'stored content',
+      render: '<p>stored content</p>'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    const [, opts] = API_CLIENT.patch.mock.calls[0]
+    expect(opts.json.content).toBe('stored content')
+    expect(opts.json.render).toBe('<p>stored content</p>')
+  })
+
+  it('does not force contentLoaded from the flush, so a page whose source was withheld still drops content', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: false,
+      updatedAt: '2026-01-01T00:00:00.000Z'
+    })
+    // -> Even a flush that writes something must not be trusted to also mean "loaded" -- see the
+    //    guard in `pageSave()`
+    editorStore.contentFlusher = () => {
+      pageStore.content = 'should never be sent'
+    }
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    const [, opts] = API_CLIENT.patch.mock.calls[0]
+    expect(Object.hasOwn(opts.json, 'content')).toBe(false)
+  })
+})
+
 describe('page store: viewer.activeEditors (task 546)', () => {
   it('applyViewerState() carries activeEditors onto the store as-is', () => {
     const pageStore = usePageStore()

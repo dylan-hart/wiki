@@ -42,6 +42,20 @@ export const useEditorStore = defineStore('editor', {
     ignoreRouteChange: false,
     pendingAssets: [],
     /**
+     * A synchronous read-through into the mounted editor's own live content, set by the editor
+     * component (`EditorMarkdown.vue`) on mount and cleared on unmount. Null whenever no editor is
+     * mounted -- a scripted `pageSave()` call, for instance.
+     *
+     * `pageStore.pageSave()` calls this before building its save payload rather than trusting
+     * `content`/`render` as this store already has them: the editor only syncs those in on a 500ms
+     * debounce (see `EditorMarkdown.vue`'s `onDidChangeModelContent` handler), so a save issued right
+     * after an edit -- pasting an image and saving immediately, before that debounce has fired, is what
+     * surfaced this (OpenProject #806) -- could otherwise read a stale pair and send a dead `blob:` URL
+     * to the server. Deliberately a bare function reference rather than an action: what it does is
+     * entirely the mounted editor's own business, not this store's.
+     */
+    contentFlusher: null,
+    /**
      * The page as the server now has it, when a save was refused because somebody else saved first.
      *
      * Set by `pageSave()` in `stores/page.js` on a 409 reply, whose body is `{ updatedAt, title,

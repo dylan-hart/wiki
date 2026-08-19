@@ -1323,6 +1323,23 @@ function reloadEditorContent({ replacements = [] } = {}) {
 }
 
 /**
+ * Copy the editor's current text into the store right now, rather than on the usual 500ms debounce.
+ *
+ * Shared by the change handler below, on every debounced edit, and by `editorStore.contentFlusher`,
+ * which `pageSave()` calls synchronously before it reads `content` -- see the call site there for why
+ * a save can otherwise land inside that debounce window. Deliberately leaves `contentLoaded` and
+ * `lastChangeTimestamp` alone: those describe an actual edit having happened, which is true every time
+ * the change handler below calls this, but is not true of a save that runs this on a page nobody has
+ * touched since it loaded -- `pageSave()`'s own guard is what a wrongly-forced `contentLoaded` would
+ * defeat.
+ */
+function flushEditorContent() {
+  const value = editor.getValue()
+  pageStore.content = value
+  processContent(value)
+}
+
+/**
  * Puts up the resolution dialog once `pageSave()` has flagged a save the server refused because
  * somebody else saved first (`editorStore.saveConflict`, the page snapshot the 409 came back with --
  * see `stores/page.js`).
@@ -1568,13 +1585,10 @@ onMounted(async () => {
       editorStore.$patch({
         lastChangeTimestamp: Temporal.Now.instant()
       })
-      pageStore.$patch({
-        content: editor.getValue(),
-        // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-        //    the guard in `pageSave`
-        contentLoaded: true
-      })
-      processContent(pageStore.content)
+      // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+      //    the guard in `pageSave`
+      pageStore.contentLoaded = true
+      flushEditorContent()
     }, 500)
   )
 
@@ -1710,6 +1724,9 @@ onMounted(async () => {
   EVENT_BUS.on('insertTable', insertTableClb)
   EVENT_BUS.on('insertBlock', insertBlockClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
+
+  // -> See `flushEditorContent` and `pageSave()` in `stores/page.js` for why this exists
+  editorStore.contentFlusher = flushEditorContent
 })
 
 onBeforeUnmount(() => {
@@ -1720,6 +1737,11 @@ onBeforeUnmount(() => {
   pasteCaptureNode?.removeEventListener('paste', onEditorPaste, true)
   monacoRef.value?.removeEventListener('dragover', onEditorDragOver)
   monacoRef.value?.removeEventListener('drop', onEditorDrop)
+  // -> Only clear it if it is still this instance's -- guards against a second mount's registration
+  //    being torn down by the first's unmount in whatever order they settle in
+  if (editorStore.contentFlusher === flushEditorContent) {
+    editorStore.contentFlusher = null
+  }
   // -> Registered against the markdown language, not this editor, so nothing else takes it down
   tableLensProvider?.dispose()
   blockLensProvider?.dispose()

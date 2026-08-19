@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import { usePageStore } from '@/stores/page'
+import { useEditorStore } from '@/stores/editor'
 import WBtn from '@/components/shared/WBtn.vue'
 
 /**
@@ -47,6 +48,7 @@ let fakeModel
 let cursorPosition
 const fakeEditor = {
   getModel: vi.fn(() => fakeModel),
+  getValue: vi.fn(() => fakeModel.getValue()),
   getPosition: vi.fn(() => cursorPosition),
   setPosition: vi.fn((pos) => {
     cursorPosition = pos
@@ -203,5 +205,54 @@ describe('EditorMarkdown insertFootnote (OpenProject #803)', () => {
     // -> Both notes exist, each on its own line, each still resolvable to its marker.
     expect(value).toContain('[^1]: ')
     expect(value).toContain('[^2]: ')
+  })
+})
+
+/*
+  `pageStore.pageSave()` (`stores/page.js`) calls `editorStore.contentFlusher()` immediately before
+  reading `content`/`render`, rather than trusting whatever the debounced `onDidChangeModelContent`
+  handler below has synced so far -- see that call site for why (OpenProject #806: a pasted image's
+  `blob:` URL rewrite, applied straight to the Monaco model, could otherwise still be sitting in that
+  500ms debounce window when a save fires). These two tests are the component-side half of that fix:
+  proof the mounted editor actually registers something on `editorStore.contentFlusher`, and clears it
+  again on unmount -- the store-level tests in `stores/page.test.js` only prove `pageSave()` calls
+  whatever is registered, not that this component is the thing registering it.
+*/
+describe('EditorMarkdown content flusher (OpenProject #806)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('registers a synchronous flusher on mount that reads the live editor value straight into the store', async () => {
+    const { pageStore } = await mountEditor('Some text.')
+    const editorStore = useEditorStore()
+
+    expect(typeof editorStore.contentFlusher).toBe('function')
+
+    // -> Applied straight to the fake model, the same way `reloadEditorContent`'s `executeEdits` call
+    //    rewrites a pending asset's blob URL -- and, like that edit, not yet synced into the store by
+    //    the debounced change handler (`onDidChangeModelContent` is mocked out in this harness, so it
+    //    never fires at all here; the point is only that the flusher does not depend on it having
+    //    fired).
+    fakeModel.applyEdit({
+      range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
+      text: 'PASTED '
+    })
+    expect(pageStore.content).not.toContain('PASTED')
+
+    editorStore.contentFlusher()
+
+    expect(pageStore.content).toBe(fakeModel.getValue())
+    expect(pageStore.content).toContain('PASTED')
+  })
+
+  it('clears the flusher on unmount, so a save with no editor mounted does not call a disposed one', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const editorStore = useEditorStore()
+    expect(editorStore.contentFlusher).not.toBeNull()
+
+    wrapper.unmount()
+
+    expect(editorStore.contentFlusher).toBeNull()
   })
 })
