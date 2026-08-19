@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminLocale from './AdminLocale.vue'
 import { useAdminStore } from '@/stores/admin'
+import { useUserStore } from '@/stores/user'
 
 /**
  * Coverage indicator on the 'Active Locales' w-item loop (task 696). Each row must surface
@@ -20,11 +22,22 @@ const LOCALES = [
   { code: 'am', name: 'Amharic', nativeName: 'አማርኛ', language: 'am', completeness: 12 }
 ]
 
-function mountPage() {
+async function mountPage() {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   // -> onMounted() only calls load() when a site is already selected
   adminStore.currentSiteId = 'site-1'
+  // -> `manage:sites` satisfies `useSiteAdminAccess('site:locale')`'s GLOBAL_FALLBACKS check on its
+  //    own, skipping its site-scoped fetchSitePermissions() redirect-on-denial path entirely.
+  const userStore = useUserStore()
+  userStore.permissions = ['manage:sites']
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/_admin/:siteid/locale', component: { template: '<div />' } }]
+  })
+  router.push('/_admin/site-1/locale')
+  await router.isReady()
 
   const i18n = createI18n({
     legacy: false,
@@ -51,13 +64,13 @@ function mountPage() {
   })
 
   return mount(AdminLocale, {
-    global: { plugins: [i18n] }
+    global: { plugins: [router, i18n] }
   })
 }
 
 describe('AdminLocale: per-row completeness indicator', () => {
   it('renders a progress bar and percentage label for each locale, matching its completeness', async () => {
-    const wrapper = mountPage()
+    const wrapper = await mountPage()
     await flushPromises()
 
     const bars = wrapper.findAll('.locale-completeness')
@@ -75,7 +88,7 @@ describe('AdminLocale: per-row completeness indicator', () => {
   })
 
   it('mutes the indicator for an under-translated locale, and does not for a well-covered one', async () => {
-    const wrapper = mountPage()
+    const wrapper = await mountPage()
     await flushPromises()
 
     const labels = wrapper.findAll('.locale-completeness-label')
@@ -87,7 +100,7 @@ describe('AdminLocale: per-row completeness indicator', () => {
   })
 
   it('surfaces the completeness percentage via a title/tooltip using the new i18n caption', async () => {
-    const wrapper = mountPage()
+    const wrapper = await mountPage()
     await flushPromises()
 
     const rows = wrapper.findAll('.locale-completeness')

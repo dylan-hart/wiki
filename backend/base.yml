@@ -151,6 +151,10 @@ editors:
       typographer: false
       underline: false
       tabWidth: 2
+      # `kroki` and `plantuml` toggles used to live here, but nothing has read them since diagram
+      # rendering moved to the Blocks system: block-kroki and block-plantuml take their server/
+      # language settings as per-block props on the page itself, not from site-wide editor config.
+      # Removed as dead config surface rather than left as an inert toggle nobody wires up.
       latexEngine: katex
       multimdTable: true
   wysiwyg:

@@ -326,7 +326,14 @@ import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
 import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
-import { blockOpeningLine, blockValues, findBlocks } from '@/helpers/markdownBlocks'
+import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
+import { resolveEditorFontSize, resolveInitialPreviewShown } from '@/helpers/editorUserSettings'
+import {
+  blockOpeningLine,
+  blockValues,
+  findBlocks,
+  hasEditableParams
+} from '@/helpers/markdownBlocks'
 import { findEditableTables } from '@/helpers/markdownTable'
 
 import EditorCodeBlockMenu from '@/components/EditorCodeBlockMenu.vue'
@@ -452,8 +459,11 @@ const isAtLeastMd = useMinWidth(1024)
 
 const state = reactive({
   /*
-    Read once, as a DEFAULT rather than a binding: past this first value the pane is the author's to open
-    and close, and a bound one would slam it shut the moment a window was dragged narrower mid-edit.
+    A width-based placeholder until `onMounted` has this user's saved preference (or the lack of one)
+    back from `fetchUserSettings` and resolves the real starting value through
+    `resolveInitialPreviewShown`. Either way it is read once, as a DEFAULT rather than a binding: past
+    that first value the pane is the author's to open and close, and a bound one would slam it shut the
+    moment a window was dragged narrower mid-edit.
   */
   previewShown: isAtLeastMd.value,
   previewScrollSync: true
@@ -1155,23 +1165,13 @@ function insertFilesAsAssets(files) {
   insertAtCursor({ content: markup.join('\n') })
 }
 
-/** Whether a paste or drop is carrying files, as opposed to text. */
-function hasFiles(transfer) {
-  return (transfer?.files?.length ?? 0) > 0
-}
-
 /*
-  Pasting a file inserts it; pasting anything else is left alone.
-
-  Text wins when both are on the clipboard. Copying from a spreadsheet or a design tool puts a bitmap
-  there ALONGSIDE the text, and an editor that answered those pastes with a screenshot would be
-  infuriating -- so the image is only taken when there is no text to prefer.
+  Pasting a file inserts it; pasting anything else is left alone. See `shouldClaimPaste` for the
+  text-wins-over-an-accompanying-image decision -- pulled out to `helpers/editorFileTransfer.js` so it
+  is unit-testable without a real clipboard event.
 */
 function onEditorPaste(event) {
-  if (!hasFiles(event.clipboardData)) {
-    return
-  }
-  if ((event.clipboardData.getData('text/plain') ?? '').trim().length > 0) {
+  if (!shouldClaimPaste(event.clipboardData)) {
     return
   }
   /*
@@ -1187,10 +1187,10 @@ function onEditorPaste(event) {
 /*
   A drop has to be claimed twice: `dragover` is what tells the browser this is a valid target -- without
   it there is no drop at all, just the browser navigating away to the file -- and `drop` is where it
-  arrives.
+  arrives. See `shouldAcceptDrag` for why this cannot just check `hasFiles`.
 */
 function onEditorDragOver(event) {
-  if (!hasFiles(event.dataTransfer) && !(event.dataTransfer?.types ?? []).includes('Files')) {
+  if (!shouldAcceptDrag(event.dataTransfer)) {
     return
   }
   event.preventDefault()
@@ -1303,6 +1303,20 @@ onMounted(async () => {
   // -> Awaited here so it is settled well before the first preview render at the end of this hook
   await loadSiteBlocks()
 
+  /*
+    This user's saved Markdown editor preferences -- font size and whether the preview pane opens --
+    read before Monaco is created so both apply from the first paint. A user who has never saved any
+    (or a request that fails) gets an empty object back, which `resolveEditorFontSize` /
+    `resolveInitialPreviewShown` treat as "no preference", not as an error to surface.
+  */
+  let userSettings = {}
+  try {
+    userSettings = (await editorStore.fetchUserSettings('markdown')) ?? {}
+  } catch (err) {
+    console.warn(`Could not read Markdown editor settings: ${err.message}`)
+  }
+  state.previewShown = resolveInitialPreviewShown(userSettings, isAtLeastMd.value)
+
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
   // -> Define Monaco Theme
@@ -1330,7 +1344,7 @@ onMounted(async () => {
     automaticLayout: true,
     cursorBlinking: 'blink',
     // cursorSmoothCaretAnimation: true,
-    fontSize: 16,
+    fontSize: resolveEditorFontSize(userSettings),
     formatOnType: true,
     language: 'markdown',
     lineNumbersMinChars: 4,
@@ -1341,9 +1355,6 @@ onMounted(async () => {
     value: pageStore.content,
     wordWrap: 'on'
   })
-
-  // TODO: For debugging, remove at some point...
-  window.edInstance = editor
 
   /*
     "Edit Table" over every table in the page, which opens the table editor on that table.
@@ -1389,7 +1400,7 @@ onMounted(async () => {
     provideCodeLenses(model) {
       return {
         lenses: findBlocks(model.getValue())
-          .filter((found) => blockDefinition(found.block)?.props?.length > 0)
+          .filter((found) => hasEditableParams(blockDefinition(found.block)))
           .map((found) => ({
             range: new Range(found.line, 1, found.line, 1),
             command: {
@@ -1606,31 +1617,6 @@ onMounted(async () => {
   EVENT_BUS.on('insertTable', insertTableClb)
   EVENT_BUS.on('insertBlock', insertBlockClb)
   EVENT_BUS.on('reloadEditorContent', reloadEditorContent)
-
-  // this.$root.$on('editorInsert', opts => {
-  //   switch (opts.kind) {
-  //     case 'IMAGE':
-  //       let img = `![${opts.text}](${opts.path})`
-  //       if (opts.align && opts.align !== '') {
-  //         img += `{.align-${opts.align}}`
-  //       }
-  //       this.insertAtCursor({
-  //         content: img
-  //       })
-  //       break
-  //     case 'BINARY':
-  //       this.insertAtCursor({
-  //         content: `[${opts.text}](${opts.path})`
-  //       })
-  //       break
-  //     case 'DIAGRAM':
-  //       const selStartLine = this.cm.getCursor('from').line
-  //       const selEndLine = this.cm.getCursor('to').line + 1
-  //       this.cm.doc.replaceSelection('```diagram\n' + opts.text + '\n```\n', 'start')
-  //       this.processMarkers(selStartLine, selEndLine)
-  //       break
-  //   }
-  // })
 })
 
 onBeforeUnmount(() => {
@@ -1651,13 +1637,6 @@ onBeforeUnmount(() => {
     editor.dispose()
   }
 })
-
-function notImplemented() {
-  notify({
-    type: 'negative',
-    message: 'Not implemented'
-  })
-}
 </script>
 
 <style lang="scss">

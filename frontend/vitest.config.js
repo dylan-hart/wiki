@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url'
  * What IS shared, because a component under test needs it to resolve the same way it does in the
  * app, not because it is convenient to share:
  *   - the `@` alias — every component imports through it;
+ *   - the `markdown-it/lib/token.mjs` alias — `MarkdownRenderer` (and anything that imports it)
+ *     resolves nothing without it; see the comment on the alias itself;
  *   - the `vue()` plugin's `isCustomElement` rule for `<iconify-icon>`, and `transformAssetUrls`,
  *     for parity with how the app's own SFCs compile;
  *   - the Tailwind plugin — component markup is full of Tailwind utility classes;
@@ -56,6 +58,13 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      /*
+        Mirrors the same shim in `vite.config.js` (see the comment there and in
+        `src/renderers/modules/markdown-it-token.js`): `markdown-it-mdc` still imports the
+        `markdown-it/lib/token.mjs` subpath that markdown-it 15 removed. `MarkdownRenderer`
+        (`src/renderers/markdown.js`) pulls that plugin in, so any test importing it -- directly or
+        through a component -- fails to even resolve without this.
+      */
       'markdown-it/lib/token.mjs': fileURLToPath(
         new URL('./src/renderers/modules/markdown-it-token.js', import.meta.url)
       )

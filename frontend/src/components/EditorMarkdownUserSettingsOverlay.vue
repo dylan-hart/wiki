@@ -167,7 +167,7 @@ async function save() {
     }
     notify({
       type: 'positive',
-      message: t('admin.editors.markdown.saveSuccess')
+      message: t('editor.settings.saveSuccess')
     })
     close()
   } catch (err) {
