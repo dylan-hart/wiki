@@ -1,0 +1,195 @@
+name: Release
+
+# The gated release channel — see docs/versioning.md, "Channel 2: real releases". Triggered ONLY by
+# a maintainer pushing a `vX.Y.Z[-PRERELEASE]` git tag, never by a push to `scarlett`, a merge, or a
+# green CI run on the continuous alpha channel (`build.yml`, left completely untouched by this
+# file). Every step below through the Docker publish is a hard, fail-closed gate: a GitHub Actions
+# job stops at the first failing step, so nothing after a failure runs, and in particular neither
+# the Docker push nor the GitHub Release creation happen on a red run.
+#
+# What this workflow deliberately does NOT check, and why that's not an oversight:
+#   - The backend/frontend/blocks/e2e test suites. `build.yml`'s own `build` job already runs all
+#     four on every push to `scarlett`, including the commit a release tag points at (a release tag
+#     is pushed against a commit that has already gone through that pipeline) — re-running the full
+#     Postgres + Playwright suite a second time here would just be an expensive echo of a check that
+#     already happened, not an independent gate.
+#   - Epic 13's migration tooling exercised against a real 2.5.x dataset. No CI runner has access to
+#     a real department's 2.5.x data, and faking it with a fixture would defeat the point of the
+#     check (docs/release-checklist.md, item 5, spells this out in full).
+# Both remain manual sign-off steps, performed by a named human and recorded in the release PR
+# description (docs/release-checklist.md, items 2 and 5) — they are NOT CI-enforceable here and this
+# workflow makes no attempt to assert them. A release manager who tags without having actually done
+# those manual steps has skipped the checklist, not tripped a gate that would have caught it; that
+# is a process/checklist enforcement problem, not something this YAML file can fix.
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history + tags: both the "previous release tag" lookup below and git-cliff's own
+          # changelog generation need to see every commit and every prior vX.Y.Z tag, not just the
+          # tag that was pushed.
+          fetch-depth: 0
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v7
+        with:
+          node-version: 26.x
+
+      # --- Hard-required quality gates ------------------------------------------------------
+      # The same typecheck/lint/format/icon-drift checks task #423 wires into build.yml's
+      # push-to-scarlett job, duplicated here as this workflow's own independent gate rather than
+      # shared via `uses:`/`needs:` (which only works between jobs in the same workflow run): a
+      # release tag must never publish on a failure here even if the scarlett-push run for this
+      # exact commit is stale, was skipped, or #423 hasn't landed in build.yml at all yet. Every
+      # step in this section runs before the Docker login/build/push below on purpose — a failure
+      # anywhere in this section stops the job and nothing below it ever runs.
+      - name: Install Backend Dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Backend Typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Backend Lint
+        working-directory: backend
+        run: npx oxlint
+
+      - name: Install Frontend Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # See quality gate rationale in build.yml (task #423): both check scripts diff the committed
+      # generated bundle against what source + already-`npm ci`-installed data packages produce
+      # right now — a build-time literal-reference scan, no network call, safe on a cold runner.
+      - name: Frontend Icons Check
+        working-directory: frontend
+        run: npm run icons:check
+
+      - name: Frontend Emoji Check
+        working-directory: frontend
+        run: npm run emoji:check
+
+      - name: Frontend Lint
+        working-directory: frontend
+        run: npx oxlint
+
+      - name: Install Blocks Dependencies
+        working-directory: blocks
+        run: npm ci
+
+      - name: Blocks Lint
+        working-directory: blocks
+        run: npx oxlint
+
+      # Run from backend's own already-installed, version-pinned oxfmt rather than a bare
+      # `npx oxfmt`, which would resolve whatever `latest` happens to be at run time — see
+      # quality.yml's (task #423) own comment for the full reasoning. The root .oxfmtrc.json is
+      # picked up automatically since oxfmt searches upward from each target path.
+      - name: Format Check
+        run: npx --prefix backend oxfmt --check backend frontend blocks
+
+      # --- Version derivation, per docs/versioning.md "Docker tags on a release" -------------
+      - name: Derive release version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" == *-* ]]; then
+            STABLE=false
+          else
+            STABLE=true
+          fi
+          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
+
+          # ghcr.io/requarks/wiki:<version> always; ghcr.io/requarks/wiki:latest only rewritten on
+          # a stable (non-prerelease) tag — an -rc.N/-alpha.N/-beta.N tag must never move :latest.
+          {
+            echo "tags<<TAGS_EOF"
+            echo "ghcr.io/requarks/wiki:$VERSION"
+            if [ "$STABLE" = "true" ]; then
+              echo "ghcr.io/requarks/wiki:latest"
+            fi
+            echo "TAGS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set Version
+        env:
+          REL_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          yq -iP '.version = strenv(REL_VERSION)' backend/package.json -o json
+          yq -iP '.version = strenv(REL_VERSION)' frontend/package.json -o json
+
+      - name: Build Assets
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build Blocks
+        working-directory: blocks
+        run: npm run build
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: dev/build/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.version.outputs.tags }}
+
+      # --- Changelog + GitHub Release ---------------------------------------------------------
+      - name: Determine previous release tag
+        id: prev_tag
+        run: |
+          # Newest vX.Y.Z(-prerelease) tag other than the one just pushed, so the changelog covers
+          # exactly the range since the last release — matches docs/versioning.md's "Generating a
+          # changelog" section. When there is no previous tag (this is the first release), leave
+          # `spec` empty: git-cliff then walks the whole history up to this tag, the same "no last
+          # release" behavior that document describes for `--unreleased` today.
+          PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -v -x "$GITHUB_REF_NAME" | head -n1)"
+          if [ -n "$PREV_TAG" ]; then
+            echo "spec=${PREV_TAG}..${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "spec=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # cliff.toml (task #774) groups commits into Features/Bug Fixes/Refactors/Chores. Runs
+      # against exactly the commit range determined above via the repo-root config, matching
+      # `git-cliff --config cliff.toml <range>` from docs/versioning.md.
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: ${{ steps.prev_tag.outputs.spec }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.content }}
+          prerelease: ${{ steps.version.outputs.stable != 'true' }}
