@@ -127,7 +127,6 @@ function loadAdmin() {
   color: $grey-9;
   height: 100vh;
   border: 1px solid #eee;
-  border-radius: 25px !important;
 
   &-bg {
     position: absolute;
