@@ -4,7 +4,16 @@ const routes = [
   {
     path: '/login',
     component: () => import('@/layouts/AuthLayout.vue'),
-    children: [{ path: '', component: () => import('@/pages/Login.vue') }]
+    children: [
+      { path: '', component: () => import('@/pages/Login.vue') },
+      /*
+        Where `mail.ts`'s forgot-password email points (`buildLink('/login/reset-password/:token')`).
+        Same page as plain `/login` -- `AuthLoginPanel.vue` reads the token straight off
+        `window.location.pathname` in its mount logic and switches itself to the reset screen, so this
+        route exists only to stop the path from falling through to the wiki-page catch-all below.
+      */
+      { path: 'reset-password/:token', component: () => import('@/pages/Login.vue') }
+    ]
   },
   {
     path: '/a/:alias',

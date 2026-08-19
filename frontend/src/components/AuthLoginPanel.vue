@@ -133,7 +133,7 @@
       <w-form ref="forgotForm" @submit="forgotPassword">
         <w-input
           ref="forgotEmailIpt"
-          v-model="state.username"
+          v-model="state.forgotEmail"
           outlined
           :rules="userEmailValidation"
           lazy-rules="ondemand"
@@ -157,6 +157,61 @@
         flat
         color="primary"
         :label="t(`auth.forgotPasswordCancel`)"
+        no-caps
+        icon="la:arrow-circle-left"
+        @click="switchTo(`login`)" />
+    </template>
+    <!-- ----------------------------------------------------- -->
+    <!-- RESET PASSWORD SCREEN -->
+    <!-- ----------------------------------------------------- -->
+    <template v-else-if="state.screen === `reset`">
+      <p>{{ t('auth.resetPassword.subtitle') }}</p>
+      <w-form ref="resetPasswordForm" @submit="resetPassword">
+        <w-input
+          ref="resetNewPwdIpt"
+          v-model="state.newPassword"
+          outlined
+          :label="t(`auth.fields.password`)"
+          type="password"
+          autocomplete="new-password"
+          :rules="userPasswordValidation"
+          hide-bottom-space
+          lazy-rules="ondemand">
+          <template #append>
+            <w-badge
+              v-show="state.newPassword"
+              :color="passwordStrength.color"
+              :label="passwordStrength.label" />
+          </template>
+          <template #prepend><w-icon name="la:key" /></template>
+        </w-input>
+        <w-input
+          class="mt-2"
+          v-model="state.newPasswordVerify"
+          outlined
+          :label="t(`auth.fields.verifyPassword`)"
+          type="password"
+          autocomplete="new-password"
+          :rules="userPasswordVerifyValidation"
+          hide-bottom-space
+          lazy-rules="ondemand">
+          <template #prepend><w-icon name="la:key" /></template>
+        </w-input>
+        <w-btn
+          class="w-full mt-2"
+          type="submit"
+          push
+          color="primary"
+          :label="t(`auth.resetPassword.proceed`)"
+          no-caps
+          icon="la:sync-alt" />
+      </w-form>
+      <w-separator class="my-4" />
+      <w-btn
+        class="acrylic-btn w-full"
+        flat
+        color="primary"
+        :label="t(`auth.switchToLogin.link`)"
         no-caps
         icon="la:arrow-circle-left"
         @click="switchTo(`login`)" />
@@ -229,6 +284,24 @@
           no-caps
           icon="la:user-plus" />
       </w-form>
+      <w-separator class="my-4" />
+      <w-btn
+        class="acrylic-btn w-full"
+        flat
+        color="primary"
+        :label="t(`auth.switchToLogin.link`)"
+        no-caps
+        icon="la:arrow-circle-left"
+        @click="switchTo(`login`)" />
+    </template>
+    <!-- ----------------------------------------------------- -->
+    <!-- REGISTER CHECK EMAIL SCREEN -->
+    <!-- ----------------------------------------------------- -->
+    <template v-else-if="state.screen === `registerCheckEmail`">
+      <div class="flex flex-col items-center text-center">
+        <w-icon name="la:envelope-open-text" size="48px" color="primary" class="mb-4" />
+        <p>{{ t('auth.registerCheckEmail') }}</p>
+      </div>
       <w-separator class="my-4" />
       <w-btn
         class="acrylic-btn w-full"
@@ -418,6 +491,8 @@ const state = reactive({
   newEmail: '',
   newPassword: '',
   newPasswordVerify: '',
+  forgotEmail: '',
+  resetToken: '',
   isTFAShown: false,
   isTFASetupShown: false,
   tfaQRImage: ''
@@ -430,10 +505,12 @@ const forgotEmailIpt = ref(null)
 const registerNameIpt = ref(null)
 const changePwdCurrentIpt = ref(null)
 const changePwdNewPwdIpt = ref(null)
+const resetNewPwdIpt = ref(null)
 const loginForm = ref(null)
 const forgotForm = ref(null)
 const registerForm = ref(null)
 const changePwdForm = ref(null)
+const resetPasswordForm = ref(null)
 
 // COMPUTED
 
@@ -555,6 +632,13 @@ function switchTo(screen) {
       state.screen = 'register'
       nextTick(() => {
         registerNameIpt.value.focus()
+      })
+      break
+    }
+    case 'reset': {
+      state.screen = 'reset'
+      nextTick(() => {
+        resetNewPwdIpt.value.focus()
       })
       break
     }
@@ -734,77 +818,88 @@ async function loginWithPasskey() {
 
 /**
  * FORGOT PASSWORD
+ *
+ * Always shows the same generic message, whatever the backend actually did behind it -- an unknown
+ * address, a strategy with resets turned off and a real match all answer the same 200. Branching this
+ * on the response would turn the form into exactly the account-enumeration oracle it exists to avoid
+ * being (see `POST /sites/:siteId/auth/forgotPassword`'s doc comment in `backend/api/authentication.ts`).
  */
 async function forgotPassword() {
+  loading.show({
+    message: t('auth.forgotPasswordLoading')
+  })
   try {
     const isFormValid = await forgotForm.value.validate(true)
     if (!isFormValid) {
       throw new Error(t('auth.errors.forgotPassword'))
     }
-    // TODO: Implement forgot password
+    await API_CLIENT.post(`sites/${siteStore.id}/auth/forgotPassword`, {
+      json: {
+        strategyId: state.selectedStrategyId,
+        email: state.forgotEmail
+      }
+    }).json()
+    state.forgotEmail = ''
     notify({
-      type: 'negative',
-      message: 'Not implemented yet.'
+      type: 'positive',
+      message: t('auth.forgotPasswordSuccess')
     })
+    switchTo('login')
   } catch (err) {
     notify({
       type: 'negative',
       message: err.message
     })
+  } finally {
+    loading.hide()
   }
 }
 
 /**
  * REGISTER
+ *
+ * `nextAction: 'verify'` means the strategy requires email validation: the account was created
+ * unverified and a link was mailed to it, so this shows a "check your email" screen instead of
+ * calling `handleLoginResponse()` -- there is no session to establish yet. Any other `nextAction`
+ * (validation off) is a login exactly like every other successful auth attempt, so it's handed to
+ * the same response handler the rest of this panel uses.
  */
 async function register() {
+  loading.show({
+    message: t('auth.registering')
+  })
   try {
     const isFormValid = await registerForm.value.validate(true)
     if (!isFormValid) {
       throw new Error(t('auth.errors.register'))
     }
-    const resp = await APOLLO_CLIENT.mutate({
-      mutation: `
-        mutation(
-          $email: String!
-          $password: String!
-          $name: String!
-          ) {
-          register(
-            email: $email
-            password: $password
-            name: $name
-            ) {
-            operation {
-              succeeded
-              message
-            }
-            jwt
-            nextAction
-            continuationToken
-            redirect
-            tfaQRImage
-          }
-        }
-      `,
-      variables: {
+    const resp = await API_CLIENT.post(`sites/${siteStore.id}/auth/register`, {
+      json: {
+        strategyId: state.selectedStrategyId,
+        name: state.newName,
         email: state.newEmail,
-        password: state.newPassword,
-        name: state.newName
-      }
-    })
-    if (resp.data?.register?.operation?.succeeded) {
+        password: state.newPassword
+      },
+      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+    }).json()
+    if (resp.ok) {
       state.password = ''
       state.newPassword = ''
       state.newPasswordVerify = ''
-      await handleLoginResponse(resp.data.register)
+      if (resp.nextAction === 'verify') {
+        state.screen = 'registerCheckEmail'
+        loading.hide()
+      } else {
+        await handleLoginResponse(resp)
+      }
     } else {
-      throw new Error(resp.data?.register?.operation?.message || t('auth.errors.registerError'))
+      throw new Error(resp.message || 'ERR_REGISTRATION_FAILED')
     }
   } catch (err) {
+    loading.hide()
     notify({
       type: 'negative',
-      message: err.message
+      message: localizeError(apiErrorMessage(err), t)
     })
   }
 }
@@ -835,6 +930,49 @@ async function changePwd() {
       await handleLoginResponse(resp)
     } else {
       throw new Error(resp.message || 'ERR_CHANGE_PASSWORD_FAILED')
+    }
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: localizeError(apiErrorMessage(err), t)
+    })
+  }
+}
+
+/**
+ * RESET PASSWORD
+ *
+ * Where the token `detectResetToken()` (below) picks up off a forgot-password email link is spent:
+ * exchanged for a new password. `resetPassword()` on the backend always finishes with the same
+ * `afterLoginChecks()` every other successful auth attempt goes through -- an active 2FA still has to
+ * be cleared first (`nextAction: 'provideTfa'`), but there is no "changed, now please sign in manually"
+ * outcome for this route to ever answer, so -- like `changePwd()` above -- every success is simply
+ * handed to `handleLoginResponse()` rather than branched here.
+ */
+async function resetPassword() {
+  try {
+    const isFormValid = await resetPasswordForm.value.validate(true)
+    if (!isFormValid) {
+      throw new Error(t('auth.errors.resetPassword'))
+    }
+    const resp = await API_CLIENT.put(`sites/${siteStore.id}/auth/resetPassword`, {
+      json: {
+        strategyId: state.selectedStrategyId,
+        token: state.resetToken,
+        newPassword: state.newPassword
+      },
+      throwHttpErrors: (statusNumber) => statusNumber > 400 // Don't throw for 400
+    }).json()
+    if (resp.ok) {
+      state.newPassword = ''
+      state.newPasswordVerify = ''
+      notify({
+        type: 'positive',
+        message: t('auth.resetPassword.success')
+      })
+      await handleLoginResponse(resp)
+    } else {
+      throw new Error(resp.message || 'ERR_RESET_PASSWORD_FAILED')
     }
   } catch (err) {
     notify({
@@ -946,6 +1084,8 @@ async function finishSetupTFA() {
 onMounted(async () => {
   await fetchStrategies()
   reportRedirectLoginError()
+  reportVerifiedSuccess()
+  detectResetToken()
 })
 
 /**
@@ -973,5 +1113,45 @@ function reportRedirectLoginError() {
     '',
     `${window.location.pathname}${query ? `?${query}` : ''}`
   )
+}
+
+/**
+ * Say a mailed verification link succeeded.
+ *
+ * `GET /auth/verify/:token` redirects here with `?verified=true` on success -- taken out of the
+ * address bar afterwards for the same reason as `error` above: a reload should not repeat the toast.
+ */
+function reportVerifiedSuccess() {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('verified') !== 'true') {
+    return
+  }
+  notify({
+    type: 'positive',
+    message: t('auth.verifySuccess')
+  })
+  params.delete('verified')
+  const query = params.toString()
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${window.location.pathname}${query ? `?${query}` : ''}`
+  )
+}
+
+/**
+ * Pick up a password-reset token off the URL and switch straight to the reset screen.
+ *
+ * `mail.ts`'s forgot-password email points at `/login/reset-password/:token` -- a path segment
+ * rather than a query string, so this reads `window.location.pathname` rather than following
+ * `reportVerifiedSuccess()`'s `URLSearchParams` pattern above.
+ */
+function detectResetToken() {
+  const match = window.location.pathname.match(/^\/login\/reset-password\/([^/]+)\/?$/)
+  if (!match) {
+    return
+  }
+  state.resetToken = decodeURIComponent(match[1])
+  switchTo('reset')
 }
 </script>

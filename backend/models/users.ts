@@ -304,6 +304,21 @@ export interface AfterLoginResult {
 }
 
 /**
+ * What `register()` returns: an `AfterLoginResult` when `emailValidation` is off and registration
+ * signs the user straight in, or a bare `{ nextAction: 'verify' }` when a confirmation email was sent
+ * instead and nothing about the session has changed. `redirect` is the one field `AfterLoginResult`
+ * always carries that a pending verification has none of, so it is optional here rather than repeating
+ * the whole shape as a union.
+ */
+export interface RegisterResult {
+  authenticated?: boolean
+  nextAction: string
+  continuationToken?: string
+  tfaQRImage?: string
+  redirect?: string
+}
+
+/**
  * Users model
  */
 class Users {
@@ -1610,6 +1625,119 @@ class Users {
     )
   }
 
+  /**
+   * Self-registration through a form-based strategy, mirroring `loginWithProvider()`'s checks for
+   * whether the strategy accepts new users and who by.
+   *
+   * When the strategy's `emailValidation` config is on (the local strategy's default), the account is
+   * created unverified and a `verify`-kind token is emailed instead of logging the user in --
+   * `GET /auth/verify/:token` is what turns `isVerified` on. With `emailValidation` off, this ends in
+   * exactly the `afterLoginChecks()` call `loginWithProvider()` makes, so registration signs the user
+   * straight in like every other successful auth path.
+   *
+   * An address stuck unverified -- its verification email lost, or never arrived -- is not a dead
+   * end: registering again with the same address resends the link rather than refusing with
+   * `ERR_EMAIL_ALREADY_EXISTS`, since nobody else could have claimed that address in the meantime (an
+   * unverified account cannot log in). The submitted `name` and `password` are ignored on that path --
+   * only the address that already exists is trusted -- so registering an address that is not yours but
+   * still pending cannot be used to overwrite whatever password it was originally set up with. A
+   * verified account, or one on a strategy with `emailValidation` off, always refuses as a duplicate.
+   *
+   * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
+   *         `ERR_EMAIL_NOT_ALLOWED`
+   */
+  async register(
+    {
+      siteId,
+      strategyId,
+      name,
+      email,
+      password,
+      ip
+    }: {
+      siteId: string
+      strategyId: string
+      name: string
+      email: string
+      password: string
+      ip?: string
+    },
+    req: any
+  ): Promise<RegisterResult> {
+    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    if (!strategy || !strategy.isEnabled) {
+      WIKI.models.flags.authDebug(`Registration attempt against unknown strategy ${strategyId}`)
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    if (!strategy.registration) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} does not accept new users`
+      )
+      throw new Error('ERR_REGISTRATION_DISABLED')
+    }
+
+    const normalizedEmail = email.toLowerCase().trim()
+    const requiresVerification = Boolean(strategy.config?.emailValidation)
+    const existing = await this.getByEmail(normalizedEmail)
+
+    if (existing) {
+      if (existing.isVerified || !requiresVerification) {
+        throw new Error('ERR_EMAIL_ALREADY_EXISTS')
+      }
+      WIKI.models.flags.authDebug(
+        `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
+      )
+      const token = await this.generateToken({ kind: 'verify', userId: existing.id })
+      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      return { nextAction: 'verify' }
+    }
+
+    if (strategy.allowedEmailRegex) {
+      let allowed = false
+      try {
+        allowed = new RegExp(strategy.allowedEmailRegex).test(normalizedEmail)
+      } catch (err: any) {
+        // -> A pattern that will not compile allows nobody, rather than everybody
+        WIKI.logger.warn(
+          `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
+        )
+      }
+      if (!allowed) {
+        throw new Error('ERR_EMAIL_NOT_ALLOWED')
+      }
+    }
+
+    const userId = await this.createUser({
+      name,
+      email: normalizedEmail,
+      password,
+      groups: strategy.autoEnrollGroups ?? [],
+      isVerified: !requiresVerification
+    })
+    WIKI.models.flags.authDebug(
+      `Registered user ${userId} <${normalizedEmail}> via ${strategy.module} strategy ${strategy.id}, verification ${requiresVerification ? 'required' : 'not required'}`
+    )
+
+    if (requiresVerification) {
+      const token = await this.generateToken({ kind: 'verify', userId })
+      await WIKI.models.mail.sendVerifyEmail({ to: normalizedEmail, name, token })
+      return { nextAction: 'verify' }
+    }
+
+    const user = await this.getById(userId)
+    if (!user) {
+      throw new Error('ERR_REGISTRATION_FAILED')
+    }
+    return this.afterLoginChecks(
+      user,
+      strategy.id,
+      { ip, siteId },
+      { skipTFA: true, skipChangePwd: true },
+      req
+    )
+  }
+
   async afterLoginChecks(
     user: any,
     strategyId: string,
@@ -2026,6 +2154,114 @@ class Users {
     } else {
       throw new Error('ERR_INVALID_USER')
     }
+  }
+
+  /**
+   * Request a password reset link by email.
+   *
+   * Never throws and never reports which of its checks failed: an unknown/disabled strategy, one
+   * with `allowForgotPassword` off, an email matching no account, and an account that has no password
+   * under this strategy (e.g. provider-only) are all silently a no-op. `api/authentication.ts`'s route
+   * answers the same generic success either way, which is what actually closes the
+   * email-enumeration hole -- this method just makes sure there is nothing here (a thrown `ERR_`, a
+   * different return shape) for that route to leak by accident.
+   */
+  async forgotPassword({
+    strategyId,
+    email
+  }: {
+    strategyId: string
+    email: string
+  }): Promise<void> {
+    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+    if (!strategy?.isEnabled || strategy.config?.allowForgotPassword !== true) {
+      WIKI.models.flags.authDebug(
+        `Forgot-password request against strategy ${strategyId}, which does not allow resets`
+      )
+      return
+    }
+
+    const user = await this.getByEmail(email.toLowerCase().trim())
+    const auth = (user?.auth ?? {}) as Record<string, any>
+    if (!user || !auth[strategyId]?.password) {
+      WIKI.models.flags.authDebug(
+        `Forgot-password request for an address with no matching local account under strategy ${strategyId}`
+      )
+      return
+    }
+
+    const token = await this.generateToken({
+      kind: 'resetPwd',
+      userId: user.id,
+      meta: { strategyId }
+    })
+    await WIKI.models.mail.sendForgotPassword({ to: user.email, name: user.name, token })
+    WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
+  }
+
+  /**
+   * Finish a password reset from the `forgotPassword()` email link.
+   *
+   * Signs the user straight in on success, exactly like every other token-continuation flow in this
+   * file (`loginChangePassword()`, `loginTFA()`, `register()` with `emailValidation` off) -- there is
+   * no separate "now log in again" step, since possessing a working reset token already proves control
+   * of the account's email address.
+   *
+   * Deliberately NOT `skipTFA`, though: unlike `loginChangePassword()`'s continuation token (only
+   * reachable after a login attempt has already cleared 2FA earlier in the same flow), a reset token
+   * is minted straight from an email address with no password or 2FA code involved at all. Skipping TFA
+   * here would let anyone with access to the mailbox alone sign all the way in on an account that has
+   * 2FA active; `afterLoginChecks()` still asks for a code first when it does.
+   *
+   * @throws `ERR_PASSWORD_TOO_SHORT`, `ERR_INVALID_STRATEGY`, `ERR_INVALID_USER`, plus whatever
+   *         `validateToken()` raises for a token that is unknown or expired
+   */
+  async resetPassword(
+    {
+      strategyId,
+      siteId,
+      token,
+      newPassword,
+      ip
+    }: {
+      strategyId: string
+      siteId: string
+      token: string
+      newPassword: string
+      ip?: string
+    },
+    req: any
+  ): Promise<AfterLoginResult> {
+    if (!newPassword || newPassword.length < 8) {
+      throw new Error('ERR_PASSWORD_TOO_SHORT')
+    }
+    const { user, strategyId: expectedStrategyId } = await this.validateToken({
+      kind: 'resetPwd',
+      token
+    })
+
+    if (strategyId !== expectedStrategyId) {
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+    if (!user || !user.auth?.[strategyId]) {
+      throw new Error('ERR_INVALID_USER')
+    }
+
+    user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
+    user.auth[strategyId].mustChangePwd = false
+    await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+
+    try {
+      await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })
+    } catch (err: any) {
+      // -> The password change already succeeded; a failed notice email must not turn this into a
+      //    failed reset
+      WIKI.logger.warn(
+        `Failed to send the password-reset-confirmed notice to ${user.email}: ${err.message}`
+      )
+    }
+
+    return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
   updateSession(user: any, req: any): void {

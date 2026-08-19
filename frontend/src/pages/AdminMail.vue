@@ -486,13 +486,30 @@ function editTemplate(tmplId) {
   })
 }
 
-function sendTest() {
-  // TODO: the backend has no SMTP transport yet, so there is nothing to send the test email with.
-  // Only the mail configuration itself is wired up (GET / PUT /_api/mail/config).
-  notify({
-    type: 'warning',
-    message: t('admin.mail.sendTestUnavailable')
-  })
+async function sendTest() {
+  if (state.testLoading) {
+    return
+  }
+
+  state.testLoading = true
+  try {
+    const resp = await API_CLIENT.post('mail/test', {
+      json: { recipientEmail: state.testEmail || '' }
+    }).json()
+    if (!resp?.ok) {
+      throw new Error(resp?.message || 'An unexpected error occured.')
+    }
+    notify({
+      type: 'positive',
+      message: t('admin.mail.sendTestSuccess')
+    })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: err.message
+    })
+  }
+  state.testLoading = false
 }
 
 // MOUNTED

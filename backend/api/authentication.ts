@@ -386,6 +386,95 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * SELF-REGISTER
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { strategyId: string; name: string; email: string; password: string }
+  }>(
+    '/sites/:siteId/auth/register',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Same reasoning as login: a form anyone can submit is what this endpoint is attacked with
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Register a new account',
+        description:
+          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt.",
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'name', 'email', 'password'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            name: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              maxLength: 255
+            },
+            password: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthLoginResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const result = await WIKI.models.users.register(
+          {
+            siteId: req.params.siteId,
+            strategyId: req.body.strategyId,
+            name: req.body.name,
+            email: req.body.email,
+            password: req.body.password,
+            ip: req.ip
+          },
+          req
+        )
+        return {
+          ok: true,
+          ...result
+        }
+      } catch (err: any) {
+        if (err.message.startsWith('ERR_')) {
+          return reply.badRequest(err.message)
+        } else {
+          // -> An unexpected failure, reported to the client as a generic one, matching the login route
+          WIKI.logger.debug(err)
+          WIKI.models.flags.authDebug(`Registration failed unexpectedly: ${err.message}`)
+          return reply.badRequest('ERR_REGISTRATION_FAILED')
+        }
+      }
+    }
+  )
+
+  /**
    * CHANGE PASSWORD
    */
   app.put<{
@@ -467,6 +556,174 @@ async function routes(app: FastifyInstance) {
           WIKI.logger.debug(err)
           WIKI.models.flags.authDebug(`Password change from login failed: ${err.message}`)
           return reply.badRequest('ERR_CHANGE_PASSWORD_FAILED')
+        }
+      }
+    }
+  )
+
+  /**
+   * REQUEST A PASSWORD RESET
+   *
+   * Always answers the same generic success, whatever `forgotPassword()` did behind it -- an unknown
+   * strategy, one with password resets turned off, an address matching no account, and an address that
+   * does match are all indistinguishable from the outside. Anything but that fixed shape would make
+   * this endpoint an oracle for which addresses have accounts, which is the one thing a "forgot
+   * password" form must never leak.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { strategyId: string; email: string }
+  }>(
+    '/sites/:siteId/auth/forgotPassword',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Guessing addresses is what this endpoint is attacked with; see `helpers/rateLimit.ts`
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Request a password reset email',
+        description:
+          "Always answers the same generic success, regardless of whether `email` matches an account or the strategy allows resets at all -- so this can never be used to test whether an address has an account. When it does match, and the strategy's `allowForgotPassword` setting is on, a link is mailed to it pointing at `PUT /sites/:siteId/auth/resetPassword`.",
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'email'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            email: {
+              type: 'string',
+              format: 'email',
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthForgotPasswordResult#' }
+        }
+      }
+    },
+    async (req) => {
+      try {
+        await WIKI.models.users.forgotPassword({
+          strategyId: req.body.strategyId,
+          email: req.body.email
+        })
+      } catch (err: any) {
+        // -> Swallowed rather than reported: even an unexpected failure here must not produce a
+        //    response distinguishable from the success case, or it becomes the oracle this route
+        //    exists to avoid being.
+        WIKI.logger.debug(err)
+        WIKI.models.flags.authDebug(`Forgot-password request failed unexpectedly: ${err.message}`)
+      }
+      return {
+        ok: true,
+        message: 'If that address matches an account, a password reset link has been sent to it.'
+      }
+    }
+  )
+
+  /**
+   * RESET PASSWORD
+   *
+   * Where the link mailed by `forgotPassword` above points. Unlike that request step, failures here
+   * are reported normally -- a bad or expired token, or too short a password -- since none of them
+   * reveal whether any particular address has an account.
+   */
+  app.put<{
+    Params: { siteId: string }
+    Body: { strategyId: string; token: string; newPassword: string }
+  }>(
+    '/sites/:siteId/auth/resetPassword',
+    {
+      config: {
+        publicAccess: true
+      },
+      // -> Guessing is what this endpoint is attacked with; see `helpers/rateLimit.ts`
+      onRequest: limitAuthAttempts,
+      schema: {
+        summary: 'Finish a password reset from the forgot-password email',
+        description:
+          'Sets the new password and, on success, logs the account straight in -- like every other token-continuation flow in this file -- except that 2FA is still required first when the account has it active, since a mailed reset token alone never proves a second factor was checked.',
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['strategyId', 'token', 'newPassword'],
+          properties: {
+            strategyId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            token: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255
+            },
+            newPassword: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 255
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'AuthLoginResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const result = await WIKI.models.users.resetPassword(
+          {
+            siteId: req.params.siteId,
+            strategyId: req.body.strategyId,
+            token: req.body.token,
+            newPassword: req.body.newPassword,
+            ip: req.ip
+          },
+          req
+        )
+        if (!result) {
+          throw new Error('Unexpected empty reset password response.')
+        }
+        if (result?.authenticated) {
+          req.session.authenticated = true
+        }
+        return {
+          ok: true,
+          ...result
+        }
+      } catch (err: any) {
+        if (err.message.startsWith('ERR_')) {
+          WIKI.models.flags.authDebug(`Password reset rejected: ${err.message}`)
+          return reply.badRequest(err.message)
+        } else {
+          WIKI.logger.debug(err)
+          WIKI.models.flags.authDebug(`Password reset failed unexpectedly: ${err.message}`)
+          return reply.badRequest('ERR_RESET_PASSWORD_FAILED')
         }
       }
     }
@@ -926,6 +1183,53 @@ async function routes(app: FastifyInstance) {
         body: req.body,
         currentUrl: callbackUrl(req, req.params.strategyId)
       })
+    }
+  )
+
+  /**
+   * VERIFY EMAIL ADDRESS
+   */
+  app.get<{ Params: { token: string } }>(
+    '/auth/verify/:token',
+    {
+      config: {
+        publicAccess: true
+      },
+      schema: {
+        summary: 'Verify an email address from a self-registration link',
+        description:
+          'Where the link mailed by `POST /sites/:siteId/auth/register` points. Marks the account verified and redirects to the login screen — carrying `verified=true` on success, or an error code the same way a provider login redirect does, on an invalid or expired token.',
+        tags: ['Authentication'],
+        params: {
+          type: 'object',
+          properties: {
+            token: {
+              type: 'string'
+            }
+          },
+          required: ['token']
+        },
+        response: {
+          302: { description: 'Redirect to the login screen', type: 'null' }
+        }
+      }
+    },
+    async (req, reply) => {
+      try {
+        const { user } = await WIKI.models.users.validateToken({
+          kind: 'verify',
+          token: req.params.token
+        })
+        if (!user) {
+          return reply.redirect(loginErrorUrl('/', 'ERR_INVALID_VALIDATION_TOKEN'))
+        }
+        await WIKI.models.users.updateUser(user.id, { isVerified: true })
+        WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> verified their email address`)
+        return reply.redirect('/login?verified=true')
+      } catch (err: any) {
+        WIKI.models.flags.authDebug(`Email verification failed: ${err.message}`)
+        return reply.redirect(loginErrorUrl('/', err.message))
+      }
     }
   )
 

@@ -17,9 +17,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       nextAction: {
         type: 'string',
-        enum: ['redirect', 'changePassword', 'provideTfa', 'setupTfa'],
+        enum: ['redirect', 'changePassword', 'provideTfa', 'setupTfa', 'verify'],
         description:
-          'What the client has to do to finish. Anything other than `redirect` means the attempt is not a login yet and has to be continued with `continuationToken`.'
+          'What the client has to do to finish. Anything other than `redirect` means the attempt is not a login yet. `verify` means a confirmation email was sent instead of a `continuationToken` — nothing to continue until that link is followed.'
       },
       continuationToken: {
         type: 'string',
@@ -39,6 +39,23 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       redirect: {
         type: 'string',
         description: 'Where to send the user once logged in. A path within this wiki, or a URL.'
+      }
+    }
+  })
+
+  /**
+   * AUTH FORGOT PASSWORD RESULT - Always the same generic success, whatever `forgotPassword()` did or
+   * didn't do behind it. See `POST /sites/:siteId/auth/forgotPassword`'s description for why.
+   */
+  app.addSchema({
+    $id: 'AuthForgotPasswordResult',
+    type: 'object',
+    properties: {
+      ok: {
+        type: 'boolean'
+      },
+      message: {
+        type: 'string'
       }
     }
   })
