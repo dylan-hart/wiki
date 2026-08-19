@@ -43,6 +43,18 @@ import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'
 
+// -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
+//    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
+//    codebase assumes otherwise, per this repo's own CLAUDE.md. `@js-temporal/polyfill` is already a
+//    dependency for exactly this gap, but until now it was only ever installed inside individual test
+//    files' own local guards, never on the real boot path — so every real `node backend` start throws
+//    `ReferenceError: Temporal is not defined` the moment `WIKI.startedAt` below is assembled. Installed
+//    here, before anything else runs, once native support actually lands this becomes a no-op.
+if (typeof Temporal === 'undefined') {
+  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
+  ;(globalThis as any).Temporal = TemporalPolyfill
+}
+
 const nanoid = customAlphabet('1234567890abcdef', 10)
 
 /**

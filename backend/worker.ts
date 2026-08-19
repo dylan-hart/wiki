@@ -5,6 +5,16 @@ import configSvc from './core/config.ts'
 import logger from './core/logger.ts'
 import dbManager from './core/db.ts'
 
+// -> Same gap as index.ts's own guard (see the comment there): `Temporal` is not yet a real native
+//    global on any currently-shipping Node 26.x build. A worker thread does not share `globalThis`
+//    with the main thread that spawned it, so index.ts installing the polyfill there does not help
+//    here — any task under tasks/workers/ that touches `Temporal` (e.g. purge-uploads.ts) needs its
+//    own copy installed before it can run.
+if (typeof Temporal === 'undefined') {
+  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
+  ;(globalThis as any).Temporal = TemporalPolyfill
+}
+
 // ----------------------------------------
 // Init Minimal Core
 // ----------------------------------------
