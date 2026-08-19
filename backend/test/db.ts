@@ -18,7 +18,7 @@
  * is the first — that need entries in the tree beyond what `setupTestDb()` provides.
  *
  * Installs a minimal `WIKI` global alongside it — `db`, a quiet `logger`, `sites`, `config`, `models`,
- * plus the `cache`/`events` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
+ * plus the `cache`/`events`/`scheduler` stubs from `./mocks.ts`. Safe to do once per test file: `node --test`
  * isolates each matched file into its own process by default, so this global does not leak into any
  * other file's run.
  */
@@ -38,7 +38,7 @@ import {
 import { encodeTreePath } from '../helpers/common.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { NavigationMode } from '../models/navigation.ts'
-import { createCacheStub, createEventsStub } from './mocks.ts'
+import { createCacheStub, createEventsStub, createSchedulerStub } from './mocks.ts'
 
 /** Same list `core/db.ts` installs before migrating — the schema depends on both. */
 const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm']
@@ -255,6 +255,7 @@ function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts')
     logger: createSilentLogger(),
     cache: createCacheStub(),
     events: createEventsStub(),
+    scheduler: createSchedulerStub(),
     sites: {},
     sitesMappings: {},
     models

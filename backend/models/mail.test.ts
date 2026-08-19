@@ -362,4 +362,174 @@ describe('mail template senders', () => {
     const msg = sendCalls[0]
     assert.equal(msg.to, 'ada@example.com')
   })
+
+  test('sendPageWatchNotification links to the page path with no locale segment', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+  })
+
+  test('sendPageWatchNotification summarises an edit as "edited: <fields>"', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      action: 'updated',
+      changedFields: ['title', 'content'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /Bob/)
+    assert.match(msg.text, /edited: title, content/)
+    assert.match(msg.html, /edited: title, content/)
+  })
+
+  test('sendPageWatchNotification for a delete has no changed fields to list', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: 'Old Page', path: 'old-page' },
+      action: 'deleted',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.subject, /deleted/)
+    // -> No field summary to append when nothing changed about the page's content
+    assert.doesNotMatch(msg.text, /deleted:/)
+    assert.match(msg.text, /\(deleted\)/)
+  })
+
+  test('sendPageWatchNotification escapes an untrusted page title and actor name in the HTML body', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      page: { title: '<script>alert(1)</script>', path: 'evil-page' },
+      action: 'updated',
+      changedFields: [],
+      actorName: '<img src=x>'
+    })
+    const msg = sendCalls[0]
+    assert.doesNotMatch(msg.html, /<script>/)
+    assert.doesNotMatch(msg.html, /<img/)
+    assert.match(msg.html, /&lt;script&gt;/)
+    // -> The plain-text alternative needs no escaping: it is never parsed as markup
+    assert.match(msg.text, /<script>alert\(1\)<\/script>/)
+  })
+
+  describe('sendPageWatchDigest', () => {
+    test('one item reads as one line, reusing the same per-event content as a single notification', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        items: [
+          {
+            page: { title: 'Getting Started', path: 'docs/getting-started' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.equal(msg.to, 'ada@example.com')
+      assert.match(msg.text, /Bob/)
+      assert.match(msg.text, /edited: title/)
+      assert.match(msg.html, /edited: title/)
+      assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    })
+
+    test('several items each contribute their own line, in the given order', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        items: [
+          {
+            page: { title: 'Page One', path: 'page-one' },
+            action: 'updated',
+            changedFields: ['content'],
+            actorName: 'Bob'
+          },
+          {
+            page: { title: 'Page Two', path: 'page-two' },
+            action: 'moved',
+            changedFields: [],
+            actorName: 'Carol'
+          },
+          {
+            page: { title: 'Page Three', path: 'page-three' },
+            action: 'deleted',
+            changedFields: [],
+            actorName: 'Dave'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.text, /Page One/)
+      assert.match(msg.text, /Page Two/)
+      assert.match(msg.text, /Page Three/)
+      // -> Order preserved: "Page One" precedes "Page Two" precedes "Page Three" in the rendered text
+      const [i1, i2, i3] = ['Page One', 'Page Two', 'Page Three'].map((needle) =>
+        msg.text.indexOf(needle)
+      )
+      assert.ok(i1 < i2 && i2 < i3)
+      // -> Three distinct <li> lines in the HTML body, one per item
+      assert.equal((msg.html.match(/<li>/g) ?? []).length, 3)
+    })
+
+    test('subject counts the items and pluralizes correctly', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        items: [
+          {
+            page: { title: 'Solo Page', path: 'solo-page' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      assert.match(sendCalls[0].subject, /^1 update on pages/)
+
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        items: [
+          {
+            page: { title: 'A', path: 'a' },
+            action: 'updated',
+            changedFields: [],
+            actorName: 'Bob'
+          },
+          {
+            page: { title: 'B', path: 'b' },
+            action: 'updated',
+            changedFields: [],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      assert.match(sendCalls[1].subject, /^2 updates on pages/)
+    })
+
+    test('escapes an untrusted page title in the HTML body but not the plain-text alternative', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        items: [
+          {
+            page: { title: '<script>alert(1)</script>', path: 'evil-page' },
+            action: 'updated',
+            changedFields: [],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.doesNotMatch(msg.html, /<script>/)
+      assert.match(msg.html, /&lt;script&gt;/)
+      assert.match(msg.text, /<script>alert\(1\)<\/script>/)
+    })
+  })
 })

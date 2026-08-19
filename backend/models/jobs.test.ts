@@ -31,6 +31,7 @@ test('JOB_SCHEDULE_SEED still registers every pre-existing system task', () => {
       'checkVersion',
       'cleanJobHistory',
       'purgeRateLimits',
+      'sendWatchDigests',
       'storageDailyBackup',
       'storageSyncTick',
       'updateLocales'

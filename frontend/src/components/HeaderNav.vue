@@ -83,6 +83,20 @@
             color="amber"
             to="/_inbox"
             :aria-label="t(`inbox.title`)">
+            <!--
+              Same `floating` badge shape `PageActionsCol`'s pending-assets button uses, on the one
+              button here that is reachable from every page (`HeaderNav` is shared by `MainLayout`,
+              `ProfileLayout` and `InboxLayout`) -- see `unreadNotifications` for where the count comes
+              from and how it stays current.
+            -->
+            <w-badge
+              v-if="unreadNotifications > 0"
+              rounded
+              floating
+              color="negative"
+              text-color="white">
+              <strong>{{ unreadNotifications }}</strong>
+            </w-badge>
             <w-tooltip>{{ t('inbox.title') }}</w-tooltip>
           </w-btn>
           <w-btn
@@ -178,6 +192,12 @@ const searchRow = ref(null)
 /** Whether the phone search row is down. Never consulted above the breakpoint. */
 const searchRowIsOpen = ref(false)
 
+/**
+ * How many unread page-watch notifications (task 535) the caller has on this site, badged on the
+ * inbox button above. `0` (never shown) for a guest, who has nothing to be notified about.
+ */
+const unreadNotifications = ref(0)
+
 // COMPUTED
 
 /**
@@ -211,17 +231,45 @@ watch(
   }
 )
 
+/*
+  Logging in/out changes whose notifications (if anyone's) are being counted -- refetched rather than
+  left at whatever the previous session's count was, which would otherwise flash a stranger's badge
+  for a moment after a fresh login, or a signed-out reader's own leftover count after logout.
+*/
+watch(() => userStore.authenticated, loadUnreadNotifications, { immediate: true })
+
 // MOUNTED
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
+  // -> Emitted by `InboxWatching.vue` after marking a notification read, since that page has no
+  //    reference of its own to the header the badge lives in.
+  EVENT_BUS.on('notificationsChanged', loadUnreadNotifications)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  EVENT_BUS.off('notificationsChanged', loadUnreadNotifications)
 })
 
 // METHODS
+
+/**
+ * Refresh the badge count. Silent on failure -- a stale or missing badge is not worth a toast over,
+ * and this can run on every login/logout before the rest of the app has finished settling in.
+ */
+async function loadUnreadNotifications() {
+  if (!userStore.authenticated || !siteStore.id) {
+    unreadNotifications.value = 0
+    return
+  }
+  try {
+    const resp = await API_CLIENT.get(`sites/${siteStore.id}/notifications/unread-count`).json()
+    unreadNotifications.value = resp?.count ?? 0
+  } catch {
+    // -> Left at whatever it last was; see this function's own comment.
+  }
+}
 
 /*
   Ctrl+K below 600px, where the field is not mounted and so cannot claim the shortcut itself: this

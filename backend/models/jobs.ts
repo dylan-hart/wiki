@@ -63,6 +63,15 @@ export const JOB_SCHEDULE_SEED = [
     task: 'storageDailyBackup',
     cron: '30 2 * * *',
     type: 'system'
+  },
+  // -> Once daily, not clustered with the midnight housekeeping jobs above: a digest is a
+  //    reader-facing send, so it runs at a time someone is more plausibly about to check mail
+  //    rather than in the middle of the night in every timezone at once. See
+  //    `tasks/simple/send-watch-digests.ts` for why this can't just run inline off a page change.
+  {
+    task: 'sendWatchDigests',
+    cron: '0 8 * * *',
+    type: 'system'
   }
 ] as const
 

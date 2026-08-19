@@ -696,6 +696,16 @@ export const pageEditSubmissions = pgTable(
  *
  * `siteId` is carried alongside `pageId` rather than reached through the page, since every query here
  * is scoped to one site: the watch list belongs to an inbox, and an inbox belongs to a site.
+ *
+ * The four `notify*` columns are the delivery preference for THIS watch, and every one of them is
+ * nullable with no default: null means "this watcher never set it," not "off." That distinction
+ * matters because the effective default lives in code (`models/pageWatching.ts#DEFAULT_PREFERENCE`),
+ * documented once in `api/watching.ts`'s schema, rather than duplicated as a column default here —
+ * a column default can only be revisited with a migration, a code default can be revisited by
+ * changing an instance's mind about which delivery mode is safe before mail is even configured.
+ * Per-watch rather than a single per-user row: nothing about wanting an immediate ping on the page
+ * one's job depends on says anything about wanting the same for a page glanced at once, so the
+ * preference travels with the watch, not the person.
  */
 export const pageWatching = pgTable(
   'pageWatching',
@@ -710,13 +720,106 @@ export const pageWatching = pgTable(
       .references(() => sites.id),
     userId: uuid()
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' })
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** `immediate` | `digest`, or null for "use the instance default." */
+    notifyMode: varchar({ length: 16 }),
+    notifyOnEdited: boolean(),
+    notifyOnMoved: boolean(),
+    notifyOnDeleted: boolean()
   },
   (table) => [
     // -> Covers the site scoping too, being the leading column: this is the inbox's own query
     index('pageWatching_user_site_idx').on(table.userId, table.siteId),
     // -> Watching a page twice is watching it once, so the second attempt is a no-op rather than a row
     uniqueIndex('pageWatching_page_user_idx').on(table.pageId, table.userId)
+  ]
+)
+
+// PAGE WATCH EVENTS -------------------
+/**
+ * A notification owed to one watcher about one change, waiting to be delivered.
+ *
+ * Written by the background job `notifyPageWatchers` queues after a page save, move or delete (see
+ * `models/pages.ts#notifyWatchers`) — never inline in the request, so a page with many watchers costs
+ * the save nothing beyond the one job it queues. `deliveredAt` is null until whatever eventually sends
+ * the notification (mail, in the first instance) marks it done; a row is the unit of "pending" rather
+ * than a boolean column, so a wiki that never delivers a batch simply accumulates rows instead of
+ * losing track of which watcher was owed what.
+ *
+ * `pageId` is not a foreign key, for the same reason `pageHistory.pageId` isn't: the job that writes
+ * this row runs after the request that queued it, and for a delete that request has by then already
+ * removed the page — and with it, through `pageWatching.pageId`'s cascade, the very watch list this
+ * row was resolved from. The row has to be able to outlive both.
+ *
+ * `actorId`, `changedFields`, `pageTitle` and `pagePath` are captured at write time rather than
+ * looked up when a notification is finally sent, for the same reason `pageId` isn't a foreign key:
+ * the page (and, for a delete, the `pageHistory` row it might otherwise be read from) can already be
+ * gone by the time delivery happens, whether that's this task's immediate send or the digest job's
+ * later one — and unlike `actorId`/`changedFields`, `pageTitle`/`pagePath` have nowhere else to be
+ * re-read from at all once that happens, since a deleted page's row is gone, not merely unreachable
+ * through a broken foreign key. `actorId` is nullable and `set null` on account deletion, matching
+ * `pageHistory.authorId` — a notification about who changed a page should not be the reason that
+ * account can never be deleted.
+ *
+ * `notifyMode` is likewise captured here rather than re-read from `pageWatching` at delivery time:
+ * that table is exactly what a delete's cascade removes (see above), so the digest job has no row
+ * left to ask "was this one digest or immediate?" by the time it runs — the answer `listWatchers`
+ * already resolved when this row was written is the only copy that survives.
+ *
+ * `readAt` (task 535) is deliberately a second, independent nullable timestamp rather than a repurposed
+ * `deliveredAt`: they answer different questions that can disagree in either direction. `deliveredAt`
+ * means "mail went out for this row" — set by `notify-page-watchers.ts` / `send-watch-digests.ts` and
+ * read by the digest job to decide what still needs sending — and is set on a row nobody has looked at
+ * in the app yet. `readAt` means "this user has seen it in the in-app inbox," which can happen before
+ * any mail goes out at all (an `immediate` send that is still in flight, or a `digest` row that will
+ * not mail for up to a day) or might never happen even after mail sends successfully. Collapsing the two
+ * would make the in-app inbox mark something delivered without ever sending it (`send-watch-digests.ts`
+ * would then skip a real email for a row a reader only glanced at) or leave the inbox unable to
+ * distinguish "not sent yet" from "sent but not read" — both of which are genuinely different states a
+ * future admin view might one day want to tell apart.
+ */
+export const pageWatchEvents = pgTable(
+  'pageWatchEvents',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /** `created` never appears here — see `notifyWatchers`: nobody can watch a page before it exists. */
+    action: varchar({ length: 16 }).notNull(),
+    /** Which fields the change touched, for the same reason `pageHistory.changedFields` records it. */
+    changedFields: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    createdAt: timestamp().notNull().defaultNow(),
+    deliveredAt: timestamp(),
+    /** When the recipient saw this in the in-app inbox — null until then. See this table's own comment. */
+    readAt: timestamp(),
+    pageId: uuid().notNull(),
+    /** The page's title as of this change — see this table's own doc comment for why it's captured here. */
+    pageTitle: text().notNull(),
+    /** The page's path as of this change, for the same reason `pageTitle` is captured here. */
+    pagePath: text().notNull(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    userId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    /** `immediate` | `digest`, resolved and captured at write time — see this table's doc comment. */
+    notifyMode: varchar({ length: 16 }).notNull()
+  },
+  (table) => [
+    // -> "This user's undelivered digest notifications, oldest first" -- the digest job's own query.
+    //    `notifyMode` leads after `userId` since that job filters on it before ordering by age.
+    index('pageWatchEvents_pending_idx')
+      .on(table.userId, table.notifyMode, table.createdAt)
+      .where(sql`"deliveredAt" IS NULL`),
+    index('pageWatchEvents_pageId_idx').on(table.pageId),
+    // -> "This user's unread in-app notifications, newest first" -- the in-app inbox's own query
+    //    (`pageWatchEvents.listForUser`), scoped to a site the same way `pageWatching_user_site_idx` is.
+    index('pageWatchEvents_unread_idx')
+      .on(table.userId, table.siteId, table.createdAt)
+      .where(sql`"readAt" IS NULL`)
   ]
 )
 

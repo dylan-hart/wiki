@@ -1,4 +1,5 @@
 import { actorFrom, mayOnPage, unlockedFor } from './pages.ts'
+import type { WatchNotifyPreference } from '../models/pageWatching.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -56,7 +57,7 @@ async function routes(app: FastifyInstance) {
   /**
    * WATCH A PAGE
    */
-  app.put<{ Params: { siteId: string; pageId: string } }>(
+  app.put<{ Params: { siteId: string; pageId: string }; Body: WatchNotifyPreference | undefined }>(
     '/sites/:siteId/pages/:pageId/watch',
     {
       /*
@@ -66,16 +67,18 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Watch a page',
         description:
-          'Records that the caller wants to hear about changes to this page. Watching a page already watched changes nothing and still answers 200, so the button can be pressed twice without it meaning anything different.',
+          'Records that the caller wants to hear about changes to this page. Watching a page already watched changes nothing and still answers 200, so the button can be pressed twice without it meaning anything different — including a preference in the body of a repeat call is therefore also a no-op; use PATCH on this same route to change the preference of a watch that already exists.',
         tags: ['Pages'],
         params: pageParams,
+        body: { $ref: 'WatchPreferenceInput#' },
         response: {
           200: {
             description: 'The page is being watched',
             type: 'object',
             properties: {
               ok: { type: 'boolean' },
-              isWatching: { type: 'boolean' }
+              isWatching: { type: 'boolean' },
+              preference: { $ref: 'WatchPreference#' }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -95,9 +98,55 @@ async function routes(app: FastifyInstance) {
       await WIKI.models.pageWatching.watch({
         siteId: req.params.siteId,
         pageId: page.id,
-        userId
+        userId,
+        ...req.body
       })
-      return { ok: true, isWatching: true }
+      const preference = await WIKI.models.pageWatching.getPreference(page.id, userId)
+      return { ok: true, isWatching: true, preference }
+    }
+  )
+
+  /**
+   * SET A WATCH'S DELIVERY PREFERENCE
+   */
+  app.patch<{ Params: { siteId: string; pageId: string }; Body: WatchNotifyPreference }>(
+    '/sites/:siteId/pages/:pageId/watch',
+    {
+      // -> Same gate as WATCH/UNWATCH above: readable is the test, and it is per page
+      schema: {
+        summary: "Change a watch's delivery preference",
+        description:
+          'Sets how the caller wants to hear about changes to a page they are already watching. Fields left out of the body are left as they were. There is nothing to set a preference ON for a page the caller is not watching, so this answers 404 rather than creating a watch as a side effect — call PUT first.',
+        tags: ['Pages'],
+        params: pageParams,
+        body: { $ref: 'WatchPreferenceInput#' },
+        response: {
+          200: {
+            description: 'The preference now in effect for this watch',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              preference: { $ref: 'WatchPreference#' }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = watcherOf(req, reply)
+      if (!userId) {
+        return reply
+      }
+      const existed = await WIKI.models.pageWatching.setPreference({
+        pageId: req.params.pageId,
+        userId,
+        ...req.body
+      })
+      if (!existed) {
+        return reply.notFound('You are not watching this page.')
+      }
+      const preference = await WIKI.models.pageWatching.getPreference(req.params.pageId, userId)
+      return { ok: true, preference }
     }
   )
 

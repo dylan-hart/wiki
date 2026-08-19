@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
+import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -8,6 +9,35 @@ export interface MailMessage {
   subject: string
   html: string
   text: string
+}
+
+/** Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`). */
+const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
+  updated: 'edited',
+  moved: 'moved',
+  deleted: 'deleted'
+}
+
+/**
+ * Escape the four HTML metacharacters, for values that land in a template's HTML body but did not
+ * come from this file — a page title or a display name is content a wiki editor chose, not a
+ * constant this module wrote, so it is escaped the same way `models/search.ts`'s own `escapeHtml`
+ * treats a search highlight.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+/** One page-watch change, described the same way whether it stands alone or sits inside a digest. */
+export interface WatchEventItem {
+  page: { title: string; path: string }
+  action: PageWatchNotifiableAction
+  changedFields: string[]
+  actorName: string
 }
 
 /**
@@ -41,11 +71,11 @@ export function classifyMailError(err: any): 'connection' | 'auth' | 'send' | 'u
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
  * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
  * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
- * and test-email (the admin "Send Test Email" action). Templates are plain inline HTML/text pairs —
- * building a DB-backed, admin-editable template system is explicitly out of scope here.
- * `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area section are unwired UI
- * for that unbuilt system, gated behind `flagStore.experimental` on the frontend; there is no
- * `db/schema.ts` table to back them, and none is added by this change.
+ * test-email (the admin "Send Test Email" action), and the page-watch notification. Templates are
+ * plain inline HTML/text pairs — building a DB-backed, admin-editable template system is explicitly
+ * out of scope here. `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area
+ * section are unwired UI for that unbuilt system, gated behind `flagStore.experimental` on the
+ * frontend; there is no `db/schema.ts` table to back them, and none is added by this change.
  *
  * `getTransporter()` re-reads `WIKI.config.mail` on every call (it is called once per `send()`) and
  * rebuilds the transporter whenever the resulting options differ from the last build, compared by a
@@ -245,6 +275,93 @@ class MailModel {
       subject: 'Wiki.js Test Email',
       text: `This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.\n\n${baseURLText}`,
       html: `<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p><p>${baseURLHtml}</p>`
+    })
+  }
+
+  /**
+   * The content one page-watch change contributes to an email — a single line describing who did
+   * what to which page, with the summary and a link back to it. The shared building block behind
+   * both `sendPageWatchNotification` (one change, sent alone) and `sendPageWatchDigest` (several
+   * changes, one per line): the digest job composes its email out of exactly this per-event content
+   * rather than re-deriving the phrasing, so the two templates can never drift apart on how a change
+   * is described.
+   *
+   * Every value here — page title/path, `changedFields`, `actorName` — is expected to be exactly
+   * what was captured on the `pageWatchEvents` row when the change was recorded, not looked up now:
+   * by the time either template actually sends, a `deleted` page (and the `pageWatching` row a
+   * watcher's preference came from) can already be gone, same reasoning as
+   * `db/schema.ts#pageWatchEvents`'s own comment.
+   *
+   * @param page.path Used verbatim as `models/pageWatching.ts#WatchedPage`'s own link does
+   *   (`InboxWatching.vue`'s `router.push('/' + page.path)`) — the wiki's page route has no locale
+   *   segment, so the caller passes no locale here either.
+   */
+  private renderWatchEventLine({ page, action, changedFields, actorName }: WatchEventItem): {
+    text: string
+    html: string
+  } {
+    const label = WATCH_ACTION_LABELS[action]
+    const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
+    const link = this.buildLink(`/${page.path}`)
+    const safeTitle = escapeHtml(page.title)
+    const safeActor = escapeHtml(actorName)
+    const safeSummary = escapeHtml(summary)
+    return {
+      text: `${actorName} ${label} "${page.title}" (${summary}) — ${link}`,
+      html: `${safeActor} ${label} <strong>${safeTitle}</strong> (${safeSummary}) — <a href="${link}">${link}</a>`
+    }
+  }
+
+  /**
+   * Immediate page-watch notification, sent by `tasks/simple/notify-page-watchers.ts` for one
+   * watcher whose preference is `immediate` (see `models/pageWatching.ts#WatchNotifyMode`). One email
+   * per change per watcher — `sendPageWatchDigest` is what batches several changes into one message
+   * for a `digest`-mode watcher instead, built from the same `renderWatchEventLine` content.
+   */
+  async sendPageWatchNotification({
+    to,
+    page,
+    action,
+    changedFields,
+    actorName
+  }: {
+    to: string
+    page: { title: string; path: string }
+    action: PageWatchNotifiableAction
+    changedFields: string[]
+    actorName: string
+  }): Promise<void> {
+    const label = WATCH_ACTION_LABELS[action]
+    const line = this.renderWatchEventLine({ page, action, changedFields, actorName })
+    await this.send({
+      to,
+      subject: `Page ${label}: ${page.title}`,
+      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
+      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+    })
+  }
+
+  /**
+   * Digest notification, sent by `tasks/simple/send-watch-digests.ts` for a `digest`-mode watcher's
+   * accumulated pending changes, batched across every page they watch into a single email — one line
+   * per change, built from the same `renderWatchEventLine` content `sendPageWatchNotification` sends
+   * alone, so the two templates read consistently without duplicating how a change is phrased.
+   *
+   * @param items At least one — the caller (the digest job) is what turns "no pending events this
+   *   cycle" into skipping the send entirely, not this method turning an empty list into an empty
+   *   email. Order is preserved as given (the caller's own chronological order).
+   */
+  async sendPageWatchDigest({ to, items }: { to: string; items: WatchEventItem[] }): Promise<void> {
+    const lines = items.map((item) => this.renderWatchEventLine(item))
+    const count = items.length
+    const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
+    const text = lines.map((line) => `- ${line.text}`).join('\n')
+    const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
+    await this.send({
+      to,
+      subject,
+      text: `${text}\n\nYou are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.`,
+      html: `${html}<p>You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.</p>`
     })
   }
 }

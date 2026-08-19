@@ -331,6 +331,55 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * WATCH PREFERENCE - The resolved delivery preference on one watch, every field settled
+   */
+  app.addSchema({
+    $id: 'WatchPreference',
+    type: 'object',
+    properties: {
+      notifyMode: {
+        type: 'string',
+        enum: ['immediate', 'digest'],
+        description:
+          '`immediate` sends a mail as soon as a change is recorded; `digest` batches changes for a later, periodic send. Defaults to `digest` for a watch nobody has set this on: an instance can start collecting watches before outbound mail (see AdminMail) is even configured, and `digest` fails safe there — it queues instead of attempting a send against a transporter that may not exist. Once mail is confirmed working, a watcher (or an admin, later) can opt into `immediate`.'
+      },
+      notifyOnEdited: {
+        type: 'boolean',
+        description: 'Notify when the page is edited. Defaults to true.'
+      },
+      notifyOnMoved: {
+        type: 'boolean',
+        description: 'Notify when the page is renamed or moved. Defaults to true.'
+      },
+      notifyOnDeleted: {
+        type: 'boolean',
+        description: 'Notify when the page is deleted. Defaults to true.'
+      }
+    }
+  })
+
+  /**
+   * WATCH PREFERENCE INPUT - The same fields, all optional: only what is sent is changed
+   *
+   * `type` includes `null` alongside `object` because `PUT .../watch`'s body is itself optional
+   * (re-watching needs no preference at all) — Fastify still runs body validation against whatever
+   * `req.body` resolves to when a request carries no payload, which is `null`, not `undefined`.
+   */
+  app.addSchema({
+    $id: 'WatchPreferenceInput',
+    type: ['object', 'null'],
+    description:
+      'A field left out of the body is left exactly as stored — this is a partial update, not a replace, so adjusting one preference never requires first reading the other three back.',
+    properties: {
+      notifyMode: { type: 'string', enum: ['immediate', 'digest'] },
+      notifyOnEdited: { type: 'boolean' },
+      notifyOnMoved: { type: 'boolean' },
+      notifyOnDeleted: { type: 'boolean' }
+    },
+    additionalProperties: false
+  })
+
+  /**
    * WATCHED PAGE - A page somebody asked to be told about, as their inbox lists it
    */
   app.addSchema({
@@ -352,7 +401,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         format: 'date-time',
         description: 'When the caller started watching it.'
-      }
+      },
+      preference: { $ref: 'WatchPreference#' }
     }
   })
 

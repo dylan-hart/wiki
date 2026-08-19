@@ -19,6 +19,7 @@ import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
 import { pageHistory } from './pageHistory.ts'
 import { pages } from './pages.ts'
+import { pageWatchEvents } from './pageWatchEvents.ts'
 import { pageWatching } from './pageWatching.ts'
 import { passkeys } from './passkeys.ts'
 import { pdfExport } from './pdfExport.ts'
@@ -56,6 +57,7 @@ export default {
   navigation,
   pageHistory,
   pages,
+  pageWatchEvents,
   pageWatching,
   passkeys,
   pdfExport,
