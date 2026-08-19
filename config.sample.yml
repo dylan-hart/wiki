@@ -101,6 +101,16 @@ scheduler:
   workers: auto
 
 # ---------------------------------------------------------------------
+# Automatic Updates
+# ---------------------------------------------------------------------
+
+update:
+  # Whether the daily scheduled job is allowed to pull the latest locale
+  # strings from https://github.com/requarks/wiki-locales. Set to false
+  # to disable automatic locale syncing (e.g. offline instances).
+  locales: true
+
+# ---------------------------------------------------------------------
 # Dev Mode
 # ---------------------------------------------------------------------
 # Settings when running in dev mode only

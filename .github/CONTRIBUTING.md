@@ -24,6 +24,30 @@ Any code change should be submitted as a pull request. The description should ex
 The bigger the pull request, the longer it will take to review and merge. Try to break down large pull requests in smaller chunks that are easier to review and merge.
 It is also always helpful to have some context for your pull request. What was the purpose? Why does it matter to you?
 
+## Locale strings and translation sync
+
+Wiki.js's locale pipeline is split across two independent, deliberately non-overlapping paths —
+easy to conflate, so the split is spelled out here:
+
+- **Upload (maintainer-only, source strings out).** `localazy.json` + the [Localazy
+  CLI](https://localazy.com/docs/cli) push `backend/locales/en.json` — the base-language source
+  strings — to the [Localazy project](https://localazy.com/) so translators can work on them. Only
+  a maintainer with project credentials runs this (`npx @localazy/cli upload`); it is not wired
+  into CI, a boot sequence, or a scheduled task. Run it after adding or changing English UI
+  strings.
+- **Download / runtime sync (translations in).** The running app never talks to Localazy. Instead,
+  `backend/tasks/simple/update-locales.ts` — a daily cron job (`updateLocales` in
+  `backend/models/jobs.ts`) — pulls locale files directly from
+  [`requarks/wiki-locales`](https://github.com/requarks/wiki-locales), a public, Wiki.js-3.x-specific
+  mirror of the same Localazy project. That repo is refreshed from Localazy hourly, so it is
+  current within a day of any translation activity, and pulling from it needs no Localazy account
+  or credentials at runtime — only an outbound HTTPS request.
+
+`localazy.json`'s `download` block is not part of that runtime path; it exists only so a maintainer
+can preview incoming translations locally with the CLI. Do not wire it into a boot sequence or
+scheduled task — that job belongs to `update-locales.ts`, and duplicating it would just be two
+sources of truth for the same data.
+
 ## Requesting new features / enhancements
 
 Use the feature request board to submit new ideas and vote on which ideas should be integrated first.

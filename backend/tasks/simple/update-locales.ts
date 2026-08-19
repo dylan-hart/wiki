@@ -1,4 +1,6 @@
 import { setTimeout } from 'node:timers/promises'
+import { sql } from 'drizzle-orm'
+import { locales as localesTable } from '../../db/schema.ts'
 
 export async function task(): Promise<void> {
   if (WIKI.config.update?.locales === false) {
@@ -34,25 +36,34 @@ export async function task(): Promise<void> {
 
       WIKI.logger.debug(`Fetching updates for language ${langFilename}...`)
 
-      // TODO: Adapt for v3
-      // const strings = await fetch(`https://github.com/requarks/wiki-locales/raw/main/locales/${langFilename}.json`).then(r => r.json())
-      // if (strings) {
-      //   await WIKI.db.knex('locales').insert({
-      //     code: langFilename,
-      //     name: lang.name,
-      //     nativeName: lang.localizedName,
-      //     language: lang.language,
-      //     region: lang.region,
-      //     script: lang.script,
-      //     isRTL: lang.isRtl,
-      //     strings
-      //   }).onConflict('code').merge({
-      //     strings,
-      //     updatedAt: new Date()
-      //   })
-      // }
+      const stringsResp = await fetch(
+        `https://raw.githubusercontent.com/requarks/wiki-locales/main/locales/${langFilename}.json`
+      )
+      const strings = stringsResp.ok ? await stringsResp.json() : null
 
-      WIKI.logger.debug(`Updated strings for language ${langFilename}.`)
+      if (strings) {
+        await WIKI.db
+          .insert(localesTable)
+          .values({
+            code: langFilename,
+            name: lang.name,
+            nativeName: lang.localizedName,
+            language: lang.language,
+            region: lang.region ?? '',
+            script: lang.script ?? '',
+            isRTL: lang.isRtl,
+            strings
+          })
+          .onConflictDoUpdate({
+            target: localesTable.code,
+            set: { strings, updatedAt: sql`now()` }
+          })
+        WIKI.logger.debug(`Updated strings for language ${langFilename}.`)
+      } else {
+        WIKI.logger.warn(
+          `No strings file found for language ${langFilename} on wiki-locales. [ SKIPPED ]`
+        )
+      }
 
       await setTimeout(100)
     }

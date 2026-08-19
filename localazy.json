@@ -1,13 +1,15 @@
 {
+  "$comment": "Maintainer-only tool: pushes en.json source-string changes up to the Localazy project for translators (`npx @localazy/cli upload`). This is NOT the runtime/production sync path — the running app never invokes the Localazy CLI. `download` here exists for a maintainer to preview translations locally; it is not wired into any boot or scheduled task. The actual runtime sync is backend/tasks/simple/update-locales.ts, which pulls directly from requarks/wiki-locales (a live, Wiki.js-3.x-specific mirror of this Localazy project, refreshed hourly) on a daily cron with no Localazy account required. See CONTRIBUTING.md for the full rationale.",
+
   "upload": {
-    "folder": "server/locales",
+    "folder": "backend/locales",
     "files": "en.json",
     "type": "json"
   },
 
   "download": {
-    "folder": "server/locales",
+    "folder": "backend/locales",
     "files": "${lang}.json",
-    "metadataFileJs": "metadata.mjs"
+    "metadataFileJs": "metadata.js"
   }
 }
