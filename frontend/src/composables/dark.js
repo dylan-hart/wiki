@@ -19,10 +19,41 @@ const active = ref(
   typeof document !== 'undefined' && document.body.classList.contains('body--dark')
 )
 
+/**
+ * Suppresses every CSS transition for one frame while the theme class flips.
+ *
+ * Without this, a control whose color is driven by a `transition-colors` (or similar) utility
+ * animates from its light-mode color to its dark-mode one instead of switching instantly -- visible
+ * in the Administration Area, where several controls use exactly that utility. `tailwind.css`'s
+ * `.theme-transition-suppress` rule forces `transition: none !important` on every element while this
+ * class is present on `<html>`; adding it, flipping the class synchronously, then removing it on the
+ * next animation frame means the flip itself paints with transitions off, and every transition is
+ * back to normal by the very next change.
+ */
+function withoutTransitions(fn) {
+  const root = document.documentElement
+  root.classList.add('theme-transition-suppress')
+  fn()
+
+  /*
+   * Load-bearing: forces a synchronous style recalc so the browser commits the new colors WHILE
+   * transitions are still off. `requestAnimationFrame` callbacks run BEFORE style recalc/paint for
+   * that frame, so without this read the suppress class could already be gone by the time the browser
+   * actually resolves the new styles -- which would let the fade play anyway.
+   */
+  void getComputedStyle(document.body).transitionDuration
+
+  requestAnimationFrame(() => {
+    root.classList.remove('theme-transition-suppress')
+  })
+}
+
 function apply(value) {
-  active.value = value === true
-  document.body.classList.toggle('body--dark', active.value)
-  document.body.classList.toggle('body--light', !active.value)
+  withoutTransitions(() => {
+    active.value = value === true
+    document.body.classList.toggle('body--dark', active.value)
+    document.body.classList.toggle('body--light', !active.value)
+  })
 }
 
 export function useDark() {

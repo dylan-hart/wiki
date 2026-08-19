@@ -60,6 +60,23 @@
 @custom-variant dark (&:where(body.body--dark, body.body--dark *));
 
 /*
+  Suppresses every transition for one frame while `composables/dark.js` flips the `body--dark` class,
+  so a control styled with a `transition-colors` (or similar) utility switches color instantly on a
+  theme toggle instead of visibly fading -- Tailwind's transition utilities carry no `!important`, so
+  this beats them regardless of layer order. `dark.js` is the only place this class is ever toggled.
+
+  Deliberately scoped to `transition`, not `animation`: `dark.js`'s `apply()` also runs on every page
+  load (`App.vue` seeds the theme from the user's/site's preference on boot), and killing `animation`
+  would restart any loading spinner/skeleton mid-flight from frame 0 the moment this class clears.
+*/
+html.theme-transition-suppress,
+html.theme-transition-suppress *,
+html.theme-transition-suppress *::before,
+html.theme-transition-suppress *::after {
+  transition: none !important;
+}
+
+/*
   Brand colors indirect through `--q-*` custom properties rather than being literal values. The app
   recolors itself at runtime (per-site theme + the accessible-color / colour-vision-deficiency
   remapping in `stores/user.js`) by writing those properties on :root, so the indirection is what
