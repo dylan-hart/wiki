@@ -55,6 +55,9 @@ export const DEFAULT_DICTIONARIES: Record<string, string> = {
 /** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
 export const FALLBACK_DICTIONARY = 'simple'
 
+/** This module's own key, i.e. the directory name of its `definition.yml`. */
+const MODULE_KEY = 'db'
+
 /**
  * Markers `ts_headline` wraps a matched term in.
  *
@@ -86,11 +89,13 @@ function escapeHtml(value: string): string {
  * is why the mapping is configurable — using the wrong stemmer for a language quietly degrades results
  * rather than failing.
  *
- * `termHighlighting`/`dictOverrides` are read through `models/search.ts`'s `getConfig(siteId)` rather
- * than duplicated here: they are per-site settings the admin area edits through the same
- * `/sites/:siteId/search` endpoint regardless of which engine that site has active (a future engine
- * with its own highlighting could read `termHighlighting` too), so the dispatcher stays the one place
- * that reads `WIKI.sites[siteId].config.search.config`.
+ * `dictOverrides` is read through `models/search.ts`'s `getConfig(siteId)` rather than duplicated
+ * here: it is a per-site setting the admin area edits through the same `/sites/:siteId/search`
+ * endpoint regardless of which engine that site has active, so the dispatcher stays the one place that
+ * reads `WIKI.sites[siteId].config.search.config`. `termHighlighting` is different: it is this
+ * module's own declared prop (`definition.yml`), edited through the generic per-engine config form and
+ * saved to `WIKI.sites[siteId].config.search.engines.db`, so it's read back the same way, through
+ * `search.getEngineConfig(siteId, MODULE_KEY)`.
  */
 class DbSearchModule implements SearchModule {
   /** Nothing to connect: this module runs queries straight through `WIKI.db`, already open at boot. */
@@ -276,7 +281,7 @@ class DbSearchModule implements SearchModule {
       updatedAt: sql`p."updatedAt" ${direction}`
     }[effectiveOrderBy]
 
-    const { termHighlighting } = search.getConfig(siteId)
+    const { termHighlighting } = search.getEngineConfig(siteId, MODULE_KEY)
     const headline = sql`ts_headline(${dict}, coalesce(p."searchContent", ''), ${tsQuery},
       ${`StartSel=${HL_START},StopSel=${HL_STOP},MaxWords=25,MinWords=10,MaxFragments=1`})`
     /*

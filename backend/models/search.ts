@@ -14,8 +14,15 @@ import type { pages as pagesTable } from '../db/schema.ts'
  */
 const DB_MODULE = 'db'
 
+/**
+ * `dictOverrides` only: `termHighlighting` used to live here too (task #563), but task #574 folded it
+ * into the `db` engine's own per-engine config (`site.config.search.engines.db.termHighlighting`,
+ * `getEngineConfig()` below) since it is already expressed as a normal boolean prop on `db`'s
+ * `definition.yml` and edited through the same generic engine-picker form as any other engine's props.
+ * `dictOverrides` cannot follow it there — it is a free-form locale -> dictionary map, not a scalar
+ * `parseModuleProps` can validate — so it keeps its own bucket and its own admin-area editor.
+ */
 export interface SearchConfig {
-  termHighlighting: boolean
   dictOverrides: Record<string, string>
 }
 
@@ -106,6 +113,38 @@ export interface SearchPagesParams {
   hideProtectedContent?: boolean
 }
 
+/**
+ * A search engine, for a site's engine picker: the module definition plus how the site has it set up.
+ *
+ * Mirrors `StorageTarget` (`models/storage.ts`), with one structural difference: a site has exactly
+ * one *active* engine (`isSelected`) rather than several independently-enabled targets, so there is no
+ * `id`/`isEnabled` pair here — `key` plus `isSelected` is all a picker needs.
+ */
+export interface SearchEngine {
+  key: string
+  title: string
+  description: string
+  icon?: string
+  logo?: string
+  vendor: string
+  website: string
+  props: Record<string, ModuleProp>
+  hasImplementation: boolean
+  isSelected: boolean
+  config: Record<string, any>
+  /**
+   * The `db` engine's dictionary override map and what postgres actually has installed, task #574.
+   *
+   * Not populated by `getSiteEngines()` itself — calling `getAvailableDictionaries()` for every
+   * engine on every listing would load and query the `db` module even when it is not selected, for a
+   * value only the `db` panel ever reads. `api/search.ts` attaches both onto the `db` entry after
+   * calling `getSiteEngines()`, which is also why they are optional here: every other engine's entry
+   * carries neither.
+   */
+  dictOverrides?: Record<string, string>
+  availableDictionaries?: string[]
+}
+
 /** A search engine module, as declared by its `definition.yml`. */
 export interface SearchEngineDefinition {
   key: string
@@ -172,9 +211,12 @@ export interface SearchModule {
  * `WIKI.sites[siteId]?.config?.search?.engine` and loaded through `ensureModule()`. `query`, `rebuild`,
  * `created`, `updated`, `deleted` and `renamed` below all just resolve the engine and call through.
  *
- * `getConfig()` is the one exception: `termHighlighting`/`dictOverrides` are per-site settings the admin
- * area edits regardless of which engine that site has active (any engine's headline generation could
- * honour `termHighlighting`), so they stay read here rather than moving into a specific module.
+ * `getConfig()` is the one exception: `dictOverrides` is a per-site setting the admin area edits
+ * regardless of which engine that site has active, so it stays read here rather than moving into a
+ * specific module -- `dictOverrides` only makes sense for `db` today, but nothing stops a future
+ * engine's admin panel from reading it too. `termHighlighting` used to live alongside it here, but task
+ * #574 folded it into `db`'s own per-engine config (`getEngineConfig()` below) since, unlike
+ * `dictOverrides`, it is a plain boolean the generic props system already expresses and edits.
  */
 class Search {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -272,17 +314,153 @@ class Search {
   }
 
   /**
-   * A site's search configuration, with the shape the API and the admin area expect.
+   * Every installed search engine, for a site's engine picker.
+   *
+   * Driven by `this.definitions` rather than by anything stored, the same way
+   * `Storage.getSiteTargets()` is driven by its own definitions: an engine dropped from disk without a
+   * restart is simply absent, rather than half-present with no metadata behind it.
+   */
+  async getSiteEngines(siteId: string): Promise<SearchEngine[]> {
+    const selected = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+    const engines: SearchEngine[] = []
+    for (const definition of this.definitions) {
+      engines.push({
+        key: definition.key,
+        title: definition.title,
+        description: definition.description,
+        icon: definition.icon,
+        logo: definition.logo,
+        vendor: definition.vendor,
+        website: definition.website,
+        props: definition.props,
+        hasImplementation: await this.hasImplementation(definition.key),
+        isSelected: definition.key === selected,
+        config: this.getEngineConfig(siteId, definition.key)
+      })
+    }
+    return engines
+  }
+
+  /**
+   * The stored config values for one engine on one site, completed with that engine's declared
+   * defaults -- the single-engine version of what `getSiteEngines()` builds for every entry.
+   *
+   * The `db` module calls this directly (rather than through `WIKI.models.search`, which it already
+   * bypasses by importing the `search` singleton) to read its own `termHighlighting`, so that the value
+   * a `PUT .../search/engines/db` save writes is the exact same one a query reads back -- see the
+   * `SearchEngine.dictOverrides`/`availableDictionaries` doc comment for why `dictOverrides` could not
+   * follow the same path.
+   */
+  getEngineConfig(siteId: string, key: string): Record<string, any> {
+    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    return this.buildEngineConfig(key, {}, stored)
+  }
+
+  /**
+   * Merge incoming config values for one engine onto what is already stored for it, keeping only what
+   * the engine declares.
+   *
+   * Same shape as `Storage.buildConfig`, kept as its own method rather than shared: a search engine is
+   * a per-site *selection*, not a set of independently-enabled rows, so config for an engine that
+   * isn't currently active still needs somewhere to live -- under its own key in
+   * `site.config.search.engines` -- so that switching back to it does not lose what was entered.
+   */
+  buildEngineConfig(
+    key: string,
+    incoming: Record<string, any> = {},
+    existing: Record<string, any> = {}
+  ): Record<string, any> {
+    const props = this.getDefinition(key)?.props ?? {}
+    const config: Record<string, any> = {}
+    for (const [propKey, prop] of Object.entries(props)) {
+      const current = existing[propKey] !== undefined ? existing[propKey] : prop.default
+      config[propKey] =
+        prop.readOnly || incoming[propKey] === undefined ? current : incoming[propKey]
+    }
+    return config
+  }
+
+  /**
+   * Check incoming config values for one engine against what it declares.
+   *
+   * Unlike `Storage.validateConfig` -- which silently drops a key a module no longer declares, so that
+   * losing a prop can never make the admin area unable to save -- an unknown key here is refused: the
+   * engine picker only ever sends what the engine's own props currently list, so an unrecognized key
+   * means the request is stale or wrong, not that a prop was removed server-side.
+   *
+   * @returns The reason it is invalid, or null when it is fine
+   */
+  validateEngineConfig(key: string, incoming: Record<string, any> = {}): string | null {
+    const definition = this.getDefinition(key)
+    const props = definition?.props ?? {}
+    for (const [propKey, value] of Object.entries(incoming)) {
+      const prop = props[propKey]
+      if (!prop) {
+        return `"${propKey}" is not a config value ${definition?.title ?? key} accepts.`
+      }
+      if (prop.readOnly || value === undefined) {
+        continue
+      }
+      if (prop.enum) {
+        // -> Enum entries are declared as `value` or `value|label`
+        const allowed = prop.enum.map((entry) => entry.split('|')[0])
+        if (!allowed.includes(`${value}`)) {
+          return `"${value}" is not a valid value for ${prop.title}.`
+        }
+        continue
+      }
+      switch (prop.type) {
+        case 'boolean':
+          if (typeof value !== 'boolean') {
+            return `${prop.title} must be true or false.`
+          }
+          break
+        case 'number':
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return `${prop.title} must be a number.`
+          }
+          break
+        default:
+          if (typeof value !== 'string') {
+            return `${prop.title} must be a string.`
+          }
+      }
+    }
+    return null
+  }
+
+  /**
+   * Select a site's active search engine and save its config.
+   *
+   * Caller validates first (`validateEngineConfig`): only the declared props survive into what gets
+   * stored, keyed under the engine so a later switch back to it starts from what was last saved rather
+   * than from the engine's bare defaults.
+   *
+   * @returns Whether the site was written
+   */
+  async selectEngine(
+    siteId: string,
+    key: string,
+    incoming: Record<string, any> = {}
+  ): Promise<boolean> {
+    const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
+    const config = this.buildEngineConfig(key, incoming, stored)
+    return WIKI.models.sites.updateSite(siteId, {
+      config: { search: { engine: key, engines: { [key]: config } } }
+    })
+  }
+
+  /**
+   * A site's dictionary override map, with the shape the API and the admin area expect.
    *
    * Read off `WIKI.sites[siteId].config.search.config` -- a sibling of `search.engine`, seeded by
-   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: these settings apply to
+   * `models/sites.ts`'s per-site defaults -- rather than `WIKI.config.search`: this setting applies to
    * one site, not the instance, the same way `dictOverrides` (a locale mapping) only ever made sense
    * per site once more than one could each run their own engine.
    */
   getConfig(siteId: string): SearchConfig {
     const config = WIKI.sites[siteId]?.config?.search?.config as Partial<SearchConfig> | undefined
     return {
-      termHighlighting: config?.termHighlighting === true,
       dictOverrides: (config?.dictOverrides ?? {}) as Record<string, string>
     }
   }

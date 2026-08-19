@@ -82,7 +82,8 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('a password-protected page matches on title but withholds its highlight', async () => {
     WIKI.sites[fixtures.siteId]!.config.search = {
       engine: 'db',
-      config: { termHighlighting: true, dictOverrides: {} }
+      engines: { db: { termHighlighting: true } },
+      config: { dictOverrides: {} }
     }
     await pagesModel.createPage(
       fixtures.siteId,
