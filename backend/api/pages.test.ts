@@ -13,6 +13,8 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes from './pages.ts'
+import { resolvePageRule } from '../helpers/pageRules.ts'
+import type { GroupRule } from '../models/groups.ts'
 
 /**
  * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
@@ -1148,5 +1150,143 @@ describe('POST /sites/:siteId/pages/import', () => {
     })
     assert.equal(res.statusCode, 400)
     assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+})
+
+/**
+ * Regression test for `GET .../pages/alias/:alias` (feature 357, task 446).
+ *
+ * `Pages.getPathFromAlias()` used to select only `{ id, path }`, so this route's
+ * `mayOnPage(req, 'read:pages', { path: target.path })` never saw a locale or any tags — a
+ * locale- or tag-scoped page rule could never be evaluated for a page reached through its alias,
+ * only a path-based one, silently. Fixed by selecting `locale`/`tags` too (`models/pages.ts`) and
+ * threading both through into the `mayOnPage` call (`api/pages.ts`).
+ *
+ * `WIKI.models.groups.checkAccess` is wired to the real `resolvePageRule` from `helpers/pageRules.ts`
+ * rather than a canned true/false, so a passing test here proves the actual rule-matching mechanism
+ * sees the tags this route now passes through — not just that some stub was called with the right
+ * shape. `WIKI.models.pages.getPathFromAlias` is stubbed to stand in for the (separately, DB-backed,
+ * tested in `models/pages.test.ts`) fixed model method.
+ */
+describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page rule (task 446)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  // -> Tagged both 'public' (generally readable) and 'confidential' (specifically restricted), so the
+  //    two rules below only disagree because of the tags this route now passes through.
+  const ALIAS_TARGET = {
+    id: 'page-1',
+    path: 'engineering/roadmap',
+    locale: 'en',
+    tags: ['public', 'confidential']
+  }
+
+  let app: FastifyInstance
+  let rules: GroupRule[]
+
+  /** Grants read access to anything tagged 'public' — the baseline, page-context-independent ALLOW. */
+  const allowPublic: GroupRule = {
+    id: 'allow-public',
+    name: 'Allow public',
+    roles: ['read:pages'],
+    match: 'TAG',
+    mode: 'ALLOW',
+    path: 'public',
+    locales: [],
+    sites: []
+  }
+
+  /** Same specificity and match type as `allowPublic` (both TAG), so only the mode tiebreak decides. */
+  const denyConfidential: GroupRule = {
+    id: 'deny-confidential',
+    name: 'Deny confidential',
+    roles: ['read:pages'],
+    match: 'TAG',
+    mode: 'DENY',
+    path: 'confidential',
+    locales: [],
+    sites: []
+  }
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPathFromAlias: async () => ALIAS_TARGET
+        },
+        groups: {
+          actorForRequest: () => ({ groupIds: ['fixture-group'], permissions: [] }),
+          // -> The real rule-matching engine, not a stub answer — see file header.
+          checkAccess: (_actor: unknown, permission: string, page: { path: string }) => {
+            const rule = resolvePageRule(rules, permission, page)
+            return rule ? rule.mode !== 'DENY' : false
+          }
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
+    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes
+    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    rules = []
+  })
+
+  test('an alias-resolved read is allowed when only a TAG rule grants it', async () => {
+    // -> Baseline: with no DENY in play, the tags the route now passes through are what let this
+    //    TAG-scoped ALLOW rule fire at all (it cannot match without them).
+    rules = [allowPublic]
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/alias/roadmap-alias`
+    })
+
+    assert.equal(res.statusCode, 200)
+    // -> The response schema publishes `id`/`path`/`locale` — `tags` is for the permission check
+    //    only and is not part of the wire response.
+    assert.deepEqual(res.json(), { id: 'page-1', path: 'engineering/roadmap', locale: 'en' })
+  })
+
+  test('a TAG-scoped DENY rule is honored on an alias-resolved read', async () => {
+    // -> Both rules match this page (tagged 'public' AND 'confidential'); equal specificity and match
+    //    type means the DENY wins the tiebreak. Reachable only because the route now threads
+    //    `target.tags` into `mayOnPage` — before the fix, neither TAG rule could ever match at all,
+    //    since `page.tags` was always empty.
+    rules = [allowPublic, denyConfidential]
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/alias/roadmap-alias`
+    })
+
+    // -> Resolving an alias the caller may not read answers 404, identically to an alias that does
+    //    not exist at all — see the route's own comment.
+    assert.equal(res.statusCode, 404)
   })
 })

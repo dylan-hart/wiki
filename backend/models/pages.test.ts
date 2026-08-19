@@ -364,4 +364,37 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       assert.ok(!listed.some((p) => p.path === 'sitemap/no-rules'))
     })
   })
+
+  /*
+    Feature 357, task 446: `getPathFromAlias` used to select only `{ id, path }`, so the
+    alias-resolution route's `mayOnPage(req, 'read:pages', { path: target.path })` never saw a
+    locale or any tags — a locale- or tag-scoped page rule could never be evaluated for a page
+    reached through its alias, only a path-based one, silently. This proves the select now carries
+    both fields through, which is what api/pages.ts's alias route threads into `mayOnPage`.
+  */
+  test('getPathFromAlias resolves locale and tags along with id and path', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/alias-target',
+        alias: 'alias-target',
+        locale: 'en',
+        tags: ['confidential', 'roadmap']
+      }),
+      actor
+    )
+
+    const resolved = await pagesModel.getPathFromAlias(fixtures.siteId, 'alias-target')
+
+    assert.ok(resolved)
+    assert.equal(resolved!.id, page.id)
+    assert.equal(resolved!.path, 'docs/alias-target')
+    assert.equal(resolved!.locale, 'en')
+    assert.deepEqual(resolved!.tags, ['confidential', 'roadmap'])
+  })
+
+  test('getPathFromAlias returns null for an alias nobody uses', async () => {
+    const resolved = await pagesModel.getPathFromAlias(fixtures.siteId, 'no-such-alias')
+    assert.equal(resolved, null)
+  })
 })

@@ -710,7 +710,10 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
       }
-      // -> Against where the page is going: there is no page to ask about yet
+      // -> Against where the page is going: there is no page to ask about yet, and specifically no
+      //    `tags` (feature 357, task 446 audit) — a page being created has none until it is saved,
+      //    so there is nothing for a tag-scoped rule to match on here. `locale` is known up front
+      //    from the request body and is passed.
       if (!mayOnPage(req, 'write:pages', { path: req.body.path, locale: req.body.locale })) {
         return reply.forbidden('You are not allowed to create a page here.')
       }
@@ -1410,8 +1413,15 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('No page uses this alias.')
       }
       // -> Resolving an alias tells the caller a page exists and where it is, which is only theirs
-      //    to know if they may read it
-      if (!mayOnPage(req, 'read:pages', { path: target.path })) {
+      //    to know if they may read it. Locale and tags come along too, so a locale- or tag-scoped
+      //    rule is evaluated here exactly as it would be for the same page reached by its own path.
+      if (
+        !mayOnPage(req, 'read:pages', {
+          path: target.path,
+          locale: target.locale,
+          tags: target.tags
+        })
+      ) {
         return reply.notFound('No page uses this alias.')
       }
       return target
