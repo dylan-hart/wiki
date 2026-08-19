@@ -1,0 +1,752 @@
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mock } from 'node:test'
+import {
+  AzureSearchModule,
+  buildFilter,
+  buildIndexSchema,
+  buildOrderBy,
+  REBUILD_BATCH_SIZE,
+  toIndexDocument,
+  type AzureSearchIndexClient,
+  type AzureSearchQueryClient,
+  type AzureSearchRow,
+  type RebuildPageSource
+} from './search.ts'
+import defaultAzureSearchModule from './search.ts'
+import type { SearchIndex } from '@azure/search-documents'
+import type { SearchIndexablePage } from '../../../models/search.ts'
+
+/**
+ * Minimal stand-in for `Date.prototype.toTemporalInstant()`, which `toIndexDocument` calls to build
+ * the document's `updatedAt` field.
+ *
+ * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
+ * v25.9.0, which doesn't expose it yet (same environment gap `core/scheduler.test.ts` stubs around).
+ * `toISOString()` already gives millisecond precision with a `Z` suffix, so it's an exact stand-in for
+ * what `toTemporalInstant().toString({ smallestUnit: 'millisecond' })` produces. Guarded so it's a
+ * no-op on a runtime where the native method already exists.
+ */
+if (typeof (Date.prototype as any).toTemporalInstant !== 'function') {
+  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+    const iso = this.toISOString()
+    return { toString: () => iso }
+  }
+}
+
+/**
+ * `init()` is task #553's scope — the SDK dependency, `definition.yml`, and idempotent index
+ * provisioning. The page-lifecycle hooks, `query()` translation helpers and the split-query merge are
+ * task #557's. Neither talks to the network: there is no local Azure AI Search emulator (see Feature
+ * #381's description), so every suite here builds a fake client that records what it was called with
+ * and resolves/returns canned data, the same way a real one would.
+ *
+ * A stub `WIKI.logger` is required because several hooks log — the same reason `test/mocks.ts` exists
+ * for model-layer tests, just inlined here rather than imported, since this suite needs nothing else
+ * off the `WIKI` global besides `sites` (per-site engine config) and `models.groups.checkAccess`
+ * (page-permission filtering in `query()`).
+ */
+;(globalThis as any).WIKI = {
+  logger: { info: mock.fn(), warn: mock.fn() },
+  sites: {
+    'site-1': {
+      config: {
+        search: {
+          engines: {
+            'azure-search': { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
+          }
+        }
+      }
+    }
+  },
+  models: {
+    groups: {
+      checkAccess: () => true
+    }
+  }
+}
+
+function fakeClient(): AzureSearchIndexClient & { calls: SearchIndex[] } {
+  const calls: SearchIndex[] = []
+  return {
+    calls,
+    async createOrUpdateIndex(index: SearchIndex) {
+      calls.push(index)
+      return index
+    }
+  }
+}
+
+interface FakeSearchCall {
+  searchText: string | undefined
+  options: Record<string, any>
+}
+
+/**
+ * A fake `AzureSearchQueryClient`. `search()` is scripted per call via `results` (a queue, drained in
+ * FIFO order) so a test exercising the protected-content split can hand back a different row set to
+ * each of the two queries `runProtectedSplitQuery` issues.
+ */
+function fakeQueryClient(
+  results: { count?: number; rows: AzureSearchRow[] }[] = [{ count: 0, rows: [] }]
+): AzureSearchQueryClient & {
+  merged: Record<string, any>[]
+  deleted: { keyName: string; keyValues: string[] }[]
+  searches: FakeSearchCall[]
+} {
+  const queue = [...results]
+  const merged: Record<string, any>[] = []
+  const deleted: { keyName: string; keyValues: string[] }[] = []
+  const searches: FakeSearchCall[] = []
+  return {
+    merged,
+    deleted,
+    searches,
+    async mergeOrUploadDocuments(documents) {
+      merged.push(...documents)
+    },
+    async deleteDocuments(keyName, keyValues) {
+      deleted.push({ keyName, keyValues })
+    },
+    async search(searchText, options) {
+      searches.push({ searchText, options })
+      const next = queue.shift() ?? { count: 0, rows: [] }
+      return {
+        count: next.count,
+        results: (async function* () {
+          for (const row of next.rows) {
+            yield row
+          }
+        })()
+      }
+    }
+  }
+}
+
+function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage {
+  return {
+    id: 'p1',
+    siteId: 'site-1',
+    locale: 'en',
+    path: 'docs/kangaroo',
+    hash: 'h',
+    alias: null,
+    title: 'The Wandering Kangaroo',
+    description: 'A page about kangaroos',
+    icon: 'mdi:file',
+    publishState: 'published',
+    publishStartDate: null,
+    publishEndDate: null,
+    config: {},
+    relations: [],
+    content: '# Hello',
+    render: null,
+    searchContent: 'Hello kangaroo content',
+    tags: ['animals'],
+    toc: null,
+    editor: 'markdown',
+    contentType: 'markdown',
+    isBrowsable: true,
+    isSearchable: true,
+    isSearchableComputed: true,
+    password: null,
+    ratingScore: 0,
+    ratingCount: new Date('2024-01-01T00:00:00Z'),
+    scripts: {},
+    historyData: {},
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-02T03:04:05.678Z'),
+    authorId: 'u1',
+    creatorId: 'u1',
+    ownerId: 'u1',
+    ...overrides
+  } as any as SearchIndexablePage
+}
+
+describe('azure-search module: buildIndexSchema', () => {
+  const schema = buildIndexSchema('wiki')
+
+  test('declares one field per name, with no duplicates', () => {
+    const names = schema.fields.map((f) => f.name)
+    assert.equal(new Set(names).size, names.length)
+    assert.deepEqual(names.sort(), [
+      'content',
+      'description',
+      'editor',
+      'hasPassword',
+      'icon',
+      'id',
+      'locale',
+      'path',
+      'publishState',
+      'siteId',
+      'tags',
+      'title',
+      'updatedAt'
+    ])
+  })
+
+  test('path is both filterable (startswith) and searchable (search.ismatch)', () => {
+    const field = schema.fields.find((f) => f.name === 'path')!
+    assert.equal((field as any).filterable, true)
+    assert.equal((field as any).searchable, true)
+  })
+
+  test('hasPassword is a filterable boolean, for routing the protected-content split query', () => {
+    const field = schema.fields.find((f) => f.name === 'hasPassword')!
+    assert.equal(field.type, 'Edm.Boolean')
+    assert.equal((field as any).filterable, true)
+  })
+
+  test('id is the searchable, filterable-off key field', () => {
+    const id = schema.fields.find((f) => f.name === 'id')!
+    assert.equal((id as any).key, true)
+    assert.equal((id as any).searchable, false)
+  })
+
+  test('siteId, locale and path are filterable', () => {
+    for (const name of ['siteId', 'locale', 'path']) {
+      const field = schema.fields.find((f) => f.name === name)!
+      assert.equal((field as any).filterable, true, `${name} should be filterable`)
+    }
+  })
+
+  test('title, description and content are searchable', () => {
+    for (const name of ['title', 'description', 'content']) {
+      const field = schema.fields.find((f) => f.name === name)!
+      assert.equal((field as any).searchable, true, `${name} should be searchable`)
+    }
+  })
+
+  test('tags is a filterable, facetable string collection', () => {
+    const tags = schema.fields.find((f) => f.name === 'tags')!
+    assert.equal(tags.type, 'Collection(Edm.String)')
+    assert.equal((tags as any).filterable, true)
+    assert.equal((tags as any).facetable, true)
+  })
+
+  test('editor and publishState are filterable', () => {
+    for (const name of ['editor', 'publishState']) {
+      const field = schema.fields.find((f) => f.name === name)!
+      assert.equal((field as any).filterable, true, `${name} should be filterable`)
+    }
+  })
+
+  test('updatedAt is a filterable, sortable date', () => {
+    const updatedAt = schema.fields.find((f) => f.name === 'updatedAt')!
+    assert.equal(updatedAt.type, 'Edm.DateTimeOffset')
+    assert.equal((updatedAt as any).filterable, true)
+    assert.equal((updatedAt as any).sortable, true)
+  })
+
+  test("weights title above description above content, matching 2.5.x's 4/3/1 scoring", () => {
+    assert.equal(schema.scoringProfiles?.length, 1)
+    const profile = schema.scoringProfiles![0]!
+    assert.equal(profile.textWeights?.weights.title, 4)
+    assert.equal(profile.textWeights?.weights.description, 3)
+    assert.equal(profile.textWeights?.weights.content, 1)
+    assert.equal(schema.defaultScoringProfile, profile.name)
+  })
+
+  test('is a pure function of the index name: same name in, identical schema out', () => {
+    assert.deepEqual(buildIndexSchema('wiki'), buildIndexSchema('wiki'))
+  })
+})
+
+describe('azure-search module: init()', () => {
+  test('provisions the index through createOrUpdateIndex', async () => {
+    const client = fakeClient()
+    const azureSearch = new AzureSearchModule(() => client)
+
+    await azureSearch.init('site-1', { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' })
+
+    assert.equal(client.calls.length, 1)
+    assert.equal(client.calls[0]!.name, 'wiki')
+  })
+
+  test('defaults the index name to "wiki" when unset', async () => {
+    const client = fakeClient()
+    const azureSearch = new AzureSearchModule(() => client)
+
+    await azureSearch.init('site-1', { serviceName: 'demo', adminApiKey: 'key' })
+
+    assert.equal(client.calls[0]!.name, 'wiki')
+  })
+
+  test('is idempotent: calling init() twice sends the identical schema both times, and neither call throws', async () => {
+    const client = fakeClient()
+    const azureSearch = new AzureSearchModule(() => client)
+    const config = { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
+
+    await assert.doesNotReject(azureSearch.init('site-1', config))
+    await assert.doesNotReject(azureSearch.init('site-1', config))
+
+    assert.equal(client.calls.length, 2)
+    // -> No duplicate-field or conflicting-schema drift between the two create-or-update calls
+    assert.deepEqual(client.calls[0], client.calls[1])
+    const names = client.calls[1]!.fields.map((f) => f.name)
+    assert.equal(new Set(names).size, names.length)
+  })
+
+  test('reuses one client per site across repeated init() calls rather than reconnecting each time', async () => {
+    const client = fakeClient()
+    let factoryCalls = 0
+    const azureSearch = new AzureSearchModule(() => {
+      factoryCalls++
+      return client
+    })
+    const config = { serviceName: 'demo', adminApiKey: 'key', indexName: 'wiki' }
+
+    await azureSearch.init('site-1', config)
+    await azureSearch.init('site-1', config)
+
+    assert.equal(factoryCalls, 1)
+  })
+
+  test('builds a distinct client per site', async () => {
+    const clientsBySite = new Map<string, ReturnType<typeof fakeClient>>()
+    const azureSearch = new AzureSearchModule((config) => {
+      const client = fakeClient()
+      clientsBySite.set(config.serviceName, client)
+      return client
+    })
+
+    await azureSearch.init('site-1', {
+      serviceName: 'svc-a',
+      adminApiKey: 'key',
+      indexName: 'wiki'
+    })
+    await azureSearch.init('site-2', {
+      serviceName: 'svc-b',
+      adminApiKey: 'key',
+      indexName: 'wiki'
+    })
+
+    assert.equal(clientsBySite.get('svc-a')!.calls.length, 1)
+    assert.equal(clientsBySite.get('svc-b')!.calls.length, 1)
+  })
+})
+
+describe('azure-search module: toIndexDocument', () => {
+  test('maps a page row onto the index document shape', () => {
+    const doc = toIndexDocument(page())
+    assert.equal(doc.id, 'p1')
+    assert.equal(doc.siteId, 'site-1')
+    assert.equal(doc.path, 'docs/kangaroo')
+    assert.equal(doc.title, 'The Wandering Kangaroo')
+    assert.equal(doc.content, 'Hello kangaroo content')
+    assert.deepEqual(doc.tags, ['animals'])
+    assert.equal(doc.hasPassword, false)
+    assert.equal(doc.updatedAt, '2024-01-02T03:04:05.678Z')
+  })
+
+  test('hasPassword is true for a password-protected page', () => {
+    const doc = toIndexDocument(page({ password: 'secret' }))
+    assert.equal(doc.hasPassword, true)
+  })
+
+  test('falls back to empty strings for null description/icon and empty content/tags', () => {
+    const doc = toIndexDocument(
+      page({ description: null, icon: null, searchContent: null, tags: [] })
+    )
+    assert.equal(doc.description, '')
+    assert.equal(doc.icon, '')
+    assert.equal(doc.content, '')
+    assert.deepEqual(doc.tags, [])
+  })
+})
+
+describe('azure-search module: buildFilter', () => {
+  test('always scopes to the site', () => {
+    assert.equal(
+      buildFilter({ siteId: 'site-1' }),
+      `siteId eq 'site-1' and publishState ne 'draft'`
+    )
+  })
+
+  test('a plain path becomes a startswith filter', () => {
+    const filter = buildFilter({ siteId: 'site-1', path: 'docs/' })
+    assert.match(filter, /startswith\(path, 'docs\/'\)/)
+  })
+
+  test('a wildcard path becomes a search.ismatch filter', () => {
+    const filter = buildFilter({ siteId: 'site-1', path: 'docs/*' })
+    assert.match(filter, /search\.ismatch\('docs\/\*', 'path', 'full', 'any'\)/)
+  })
+
+  test('locales become a search.in filter', () => {
+    const filter = buildFilter({ siteId: 'site-1', locales: ['en', 'fr'] })
+    assert.match(filter, /search\.in\(locale, 'en\|fr', '\|'\)/)
+  })
+
+  test('tags become tags/any(t: search.in(t, ...))', () => {
+    const filter = buildFilter({ siteId: 'site-1', tags: ['a', 'b'] })
+    assert.match(filter, /tags\/any\(t: search\.in\(t, 'a\|b', '\|'\)\)/)
+  })
+
+  test('editor becomes an eq filter', () => {
+    const filter = buildFilter({ siteId: 'site-1', editor: 'markdown' })
+    assert.match(filter, /editor eq 'markdown'/)
+  })
+
+  test('publicOnly restricts to published, overriding the default draft exclusion', () => {
+    const filter = buildFilter({ siteId: 'site-1', publicOnly: true })
+    assert.match(filter, /publishState eq 'published'/)
+    assert.doesNotMatch(filter, /ne 'draft'/)
+  })
+
+  test('includeDrafts drops the default draft exclusion', () => {
+    const filter = buildFilter({ siteId: 'site-1', includeDrafts: true })
+    assert.doesNotMatch(filter, /publishState/)
+  })
+
+  test('an explicit publishState is ANDed alongside the draft exclusion', () => {
+    const filter = buildFilter({ siteId: 'site-1', publishState: 'published' })
+    assert.match(filter, /publishState ne 'draft' and publishState eq 'published'/)
+  })
+
+  test('hasPassword becomes a boolean eq filter when set', () => {
+    assert.match(buildFilter({ siteId: 'site-1', hasPassword: true }), /hasPassword eq true/)
+    assert.match(buildFilter({ siteId: 'site-1', hasPassword: false }), /hasPassword eq false/)
+  })
+
+  test('a single quote in a value is escaped by doubling it', () => {
+    const filter = buildFilter({ siteId: 'site-1', editor: "o'brien" })
+    assert.match(filter, /editor eq 'o''brien'/)
+  })
+})
+
+describe('azure-search module: buildOrderBy', () => {
+  test('relevancy maps to search.score()', () => {
+    assert.deepEqual(buildOrderBy('relevancy', 'desc'), ['search.score() desc'])
+    assert.deepEqual(buildOrderBy('relevancy', 'asc'), ['search.score() asc'])
+  })
+
+  test('title and updatedAt map to themselves', () => {
+    assert.deepEqual(buildOrderBy('title', 'asc'), ['title asc'])
+    assert.deepEqual(buildOrderBy('updatedAt', 'desc'), ['updatedAt desc'])
+  })
+})
+
+describe('azure-search module: created/updated/deleted/renamed', () => {
+  test('created() merges the page document into the index', async () => {
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.created(page())
+
+    assert.equal(client.merged.length, 1)
+    assert.equal(client.merged[0]!.id, 'p1')
+  })
+
+  test('updated() merges the page document into the index', async () => {
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.updated(page({ title: 'New Title' }))
+
+    assert.equal(client.merged[0]!.title, 'New Title')
+  })
+
+  test('renamed() reindexes under the new path, ignoring previousPath (the document key is id)', async () => {
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.renamed('site-1', page({ path: 'docs/new-path' }), 'docs/old-path')
+
+    assert.equal(client.merged[0]!.path, 'docs/new-path')
+  })
+
+  test('deleted() removes the document by id', async () => {
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.deleted('site-1', 'p1')
+
+    assert.deepEqual(client.deleted, [{ keyName: 'id', keyValues: ['p1'] }])
+  })
+
+  test('created() never throws when the client rejects -- logs and continues', async () => {
+    const client = fakeQueryClient()
+    client.mergeOrUploadDocuments = async () => {
+      throw new Error('boom')
+    }
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await assert.doesNotReject(azureSearch.created(page()))
+  })
+
+  test('deleted() never throws when the client rejects -- logs and continues', async () => {
+    const client = fakeQueryClient()
+    client.deleteDocuments = async () => {
+      throw new Error('boom')
+    }
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await assert.doesNotReject(azureSearch.deleted('site-1', 'p1'))
+  })
+})
+
+describe('azure-search module: query()', () => {
+  function row(overrides: Partial<AzureSearchRow['document']> = {}, score = 1): AzureSearchRow {
+    return {
+      document: {
+        id: 'p1',
+        siteId: 'site-1',
+        locale: 'en',
+        path: 'docs/kangaroo',
+        title: 'The Wandering Kangaroo',
+        description: 'A page about kangaroos',
+        icon: 'mdi:file',
+        tags: ['animals'],
+        updatedAt: '2024-01-02T03:04:05.678Z',
+        hasPassword: false,
+        ...overrides
+      },
+      score,
+      // -> The pre/post tags requested from Azure are control characters, not its default `<em>`/
+      //    `</em>` -- see the doc comment on `HL_START`/`HL_STOP` in `search.ts` for why.
+      highlights: { content: ['a kangaroo hops'] }
+    }
+  }
+
+  test('translates offset/limit into skip/top for a plain query', async () => {
+    const client = fakeQueryClient([{ count: 1, rows: [row()] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      offset: 10,
+      limit: 5,
+      hideProtectedContent: false
+    })
+
+    assert.equal(client.searches.length, 1)
+    assert.equal(client.searches[0]!.options.skip, 10)
+    assert.equal(client.searches[0]!.options.top, 5)
+  })
+
+  test('returns the exact SearchPagesResult shape', async () => {
+    const client = fakeQueryClient([{ count: 1, rows: [row()] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      hideProtectedContent: false
+    })
+
+    assert.deepEqual(Object.keys(result).sort(), ['results', 'suggestion', 'totalHits'])
+    assert.equal(result.totalHits, 1)
+    assert.equal(result.results.length, 1)
+    assert.deepEqual(Object.keys(result.results[0]!).sort(), [
+      'description',
+      'highlight',
+      'icon',
+      'id',
+      'locale',
+      'path',
+      'relevancy',
+      'tags',
+      'title',
+      'updatedAt'
+    ])
+  })
+
+  test('normalizes a highlighted fragment into <b>, HTML-escaping the rest of the text first', async () => {
+    // -> Azure wraps a match in whatever `highlightPreTag`/`highlightPostTag` were requested -- here,
+    //    the control characters `search.ts` configures instead of Azure's own `<em>`/`</em>` default,
+    //    specifically so a literal "<em>" in the page's own text can never be mistaken for one.
+    const withHighlight = row()
+    withHighlight.highlights = { content: ['a <script> tag & a kangaroo hop'] }
+    const client = fakeQueryClient([{ count: 1, rows: [withHighlight] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results[0]!.highlight, 'a &lt;script&gt; tag &amp; a <b>kangaroo</b> hop')
+  })
+
+  test('a query with no text matches everything (search=undefined) and skips highlighting', async () => {
+    const client = fakeQueryClient([{ count: 1, rows: [row({}, 0)] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.query({ siteId: 'site-1' })
+
+    assert.equal(client.searches[0]!.searchText, undefined)
+    assert.equal(client.searches[0]!.options.highlightFields, undefined)
+  })
+
+  test('drops a row checkAccess denies, and adjusts totalHits accordingly', async () => {
+    const client = fakeQueryClient([
+      { count: 2, rows: [row(), row({ id: 'p2', path: 'docs/other' }, 0.5)] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) =>
+      p.path !== 'docs/kangaroo'
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      actor,
+      hideProtectedContent: false
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0]!.id, 'p2')
+    assert.equal(result.totalHits, 1)
+    WIKI.models.groups.checkAccess = () => true
+  })
+
+  test('hideProtectedContent issues a title/description-only search for protected rows and merges it in', async () => {
+    const publicRow = row({ id: 'pub', hasPassword: false }, 2)
+    const protectedRow = row({ id: 'prot', title: 'Vault Secrets', hasPassword: true }, 1)
+    protectedRow.highlights = undefined
+    const client = fakeQueryClient([
+      { count: 1, rows: [publicRow] },
+      { count: 1, rows: [protectedRow] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    const result = await azureSearch.query({
+      siteId: 'site-1',
+      query: 'secrets',
+      hideProtectedContent: true
+    })
+
+    assert.equal(client.searches.length, 2)
+    // -> Public half: full-content search fields, restricted to pages with no password
+    assert.deepEqual(client.searches[0]!.options.searchFields, ['title', 'description', 'content'])
+    assert.match(client.searches[0]!.options.filter, /hasPassword eq false/)
+    // -> Protected half: title/description only, restricted to pages with a password, no highlights
+    assert.deepEqual(client.searches[1]!.options.searchFields, ['title', 'description'])
+    assert.match(client.searches[1]!.options.filter, /hasPassword eq true/)
+    assert.equal(client.searches[1]!.options.highlightFields, undefined)
+
+    assert.equal(result.results.length, 2)
+    assert.equal(result.totalHits, 2)
+    const protectedResult = result.results.find((r) => r.id === 'prot')!
+    assert.equal(protectedResult.title, 'Vault Secrets')
+    // -> Found by title, but never carries an excerpt of the body behind the password
+    assert.equal(protectedResult.highlight, null)
+  })
+
+  test('hideProtectedContent is skipped without a query, since there is no body text to leak', async () => {
+    const client = fakeQueryClient([{ count: 0, rows: [] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.query({ siteId: 'site-1', hideProtectedContent: true })
+
+    assert.equal(client.searches.length, 1)
+  })
+
+  test('hideProtectedContent: false runs a single unrestricted query even with protected pages', async () => {
+    const client = fakeQueryClient([{ count: 1, rows: [row({ hasPassword: true })] }])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+
+    await azureSearch.query({ siteId: 'site-1', query: 'kangaroo', hideProtectedContent: false })
+
+    assert.equal(client.searches.length, 1)
+    assert.doesNotMatch(client.searches[0]!.options.filter, /hasPassword/)
+  })
+})
+
+/**
+ * A fake `RebuildPageSource`: pages supplied per locale, sliced by whatever `offset`/`limit`
+ * `rebuild()` actually passes — records every call so a test can assert the pagination loop walked
+ * the full set in the batches it should have, rather than only checking the final tally.
+ */
+function fakePageSource(
+  pagesByLocale: Record<string, SearchIndexablePage[]>
+): RebuildPageSource & { calls: { locale: string; offset: number; limit: number }[] } {
+  const calls: { locale: string; offset: number; limit: number }[] = []
+  return {
+    calls,
+    async locales() {
+      return Object.keys(pagesByLocale)
+    },
+    async pageBatch(_siteId, locale, offset, limit) {
+      calls.push({ locale, offset, limit })
+      return (pagesByLocale[locale] ?? []).slice(offset, offset + limit)
+    }
+  }
+}
+
+describe('azure-search module: rebuild()', () => {
+  test('streams every locale through mergeOrUploadDocuments and reports a per-locale RebuildResult', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({
+      en: [page({ id: 'en-1' }), page({ id: 'en-2' })],
+      fr: [page({ id: 'fr-1', locale: 'fr' })]
+    })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.equal(result.pages, 3)
+    assert.deepEqual(result.locales, [
+      { locale: 'en', pages: 2 },
+      { locale: 'fr', pages: 1 }
+    ])
+    // -> No `dictionary` on either entry: this engine has no such concept (see `RebuildResult`'s own
+    //    doc comment in `models/search.ts`).
+    assert.ok(result.locales.every((l) => !('dictionary' in l)))
+  })
+
+  test('uploads the exact documents toIndexDocument would build for each page', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [page({ id: 'en-1' })] })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    await azureSearch.rebuild('site-1')
+
+    assert.equal(client.merged.length, 1)
+    assert.deepEqual(client.merged[0], toIndexDocument(page({ id: 'en-1' })))
+  })
+
+  test('paginates a locale larger than one batch, walking every row exactly once', async () => {
+    const client = fakeQueryClient()
+    const enPages = Array.from({ length: REBUILD_BATCH_SIZE + 3 }, (_, i) =>
+      page({ id: `en-${i}` })
+    )
+    const source = fakePageSource({ en: enPages })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.equal(result.pages, REBUILD_BATCH_SIZE + 3)
+    assert.equal(result.locales[0]!.pages, REBUILD_BATCH_SIZE + 3)
+    // -> Two `pageBatch` calls (a full batch, then the 3-row remainder) and two matching
+    //    `mergeOrUploadDocuments` calls -- the working set never grows past one batch.
+    assert.deepEqual(
+      source.calls.map((c) => c.offset),
+      [0, REBUILD_BATCH_SIZE]
+    )
+    assert.equal(client.merged.length, REBUILD_BATCH_SIZE + 3)
+    const ids = new Set(client.merged.map((d) => d.id))
+    assert.equal(ids.size, REBUILD_BATCH_SIZE + 3)
+  })
+
+  test('a locale with no pages contributes zero and no upload call', async () => {
+    const client = fakeQueryClient()
+    const source = fakePageSource({ en: [] })
+    const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+    const result = await azureSearch.rebuild('site-1')
+
+    assert.deepEqual(result, { pages: 0, locales: [{ locale: 'en', pages: 0 }] })
+    assert.equal(client.merged.length, 0)
+  })
+})
+
+describe('azure-search module: default export', () => {
+  test('is an AzureSearchModule instance', () => {
+    assert.ok(defaultAzureSearchModule instanceof AzureSearchModule)
+  })
+})

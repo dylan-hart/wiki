@@ -26,10 +26,17 @@ export interface SearchConfig {
   dictOverrides: Record<string, string>
 }
 
-/** What a rebuild did, per locale, so the caller can report something concrete. */
+/**
+ * What a rebuild did, per locale, so the caller can report something concrete.
+ *
+ * `dictionary` is optional: it names the postgres text-search dictionary the `db` engine chose for
+ * that locale, a concept with no equivalent in an external index. `azure-search` and `aws-cloudsearch`
+ * (task #564) report `pages` per locale like every engine, but omit `dictionary` entirely rather than
+ * inventing a value for a thing they don't have.
+ */
 export interface RebuildResult {
   pages: number
-  locales: { locale: string; dictionary: string; pages: number }[]
+  locales: { locale: string; dictionary?: string; pages: number }[]
 }
 
 export const SEARCH_ORDER_BY = ['relevancy', 'title', 'updatedAt'] as const
