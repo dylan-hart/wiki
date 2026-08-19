@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --force",
-    "build": "NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 vite build --emptyOutDir",
+    "build": "cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 vite build --emptyOutDir",
     "ncu": "ncu -i",
     "ncu-u": "ncu -u",
     "icons": "node scripts/generate-icons.mjs",
@@ -95,6 +95,7 @@
     "@iconify-json/mdi": "1.2.3",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.11",
+    "cross-env": "10.1.0",
     "happy-dom": "20.11.2",
     "js-yaml": "5.2.3",
     "npm-check-updates": "23.0.0",
