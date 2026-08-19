@@ -366,6 +366,10 @@
               <w-td :props="props">
                 <!-- Only withheld while the scheduler still owes the job an automatic attempt -->
                 <!-- (`attempt` counts from 1, `maxRetries` is how many *extra* attempts it gets) -->
+                <!-- `reapStaleJobs` (backend/core/scheduler.ts) requeues an interrupted job under -->
+                <!-- the exact same rule it fails one under, so both states are withheld the same -->
+                <!-- way -- `failed` alone would leave the button live on a job the scheduler is -->
+                <!-- about to retry on its own. -->
                 <w-btn
                   class="acrylic-btn px-2"
                   v-if="props.row.state !== `active`"
@@ -375,7 +379,8 @@
                   :aria-label="t(`admin.scheduler.retryJob`)"
                   @click="retryJob(props.row.id)"
                   :disable="
-                    props.row.state === `failed` && props.row.attempt <= props.row.maxRetries
+                    (props.row.state === `failed` || props.row.state === `interrupted`) &&
+                    props.row.attempt <= props.row.maxRetries
                   ">
                   <w-tooltip anchor="center left" self="center right">{{
                     t('admin.scheduler.retryJob')

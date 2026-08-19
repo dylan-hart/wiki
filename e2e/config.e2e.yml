@@ -7,3 +7,13 @@
 # from it silently.
 port: 3000
 dataPath: ./data/e2e-test
+scheduler:
+  # -> Lowered from base.yml's 300s so `scheduler.spec.js` (task 581) can observe a real
+  #    `reapStaleJobs` sweep -- an `active` history row planted with an old `startedAt` -- without
+  #    a multi-minute wait. `pollingCheck` (job claiming) is left at its 5s default; only the
+  #    schedule-replan/reap interval is sped up.
+  scheduledCheck: 5
+  # -> Lowered from base.yml's 3600s to the same end: short enough that a deliberately-backdated
+  #    `active` row reads as stale within the test's own polling window, long enough that no
+  #    genuinely-running seeded task (checkVersion, purgeRateLimits, ...) is ever mistaken for one.
+  staleJobTimeout: 20
