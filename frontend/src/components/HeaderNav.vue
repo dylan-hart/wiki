@@ -44,10 +44,8 @@
         <template v-else>
           <w-btn
             v-if="userStore.can(`write:pages`)"
-            class="ml-4"
+            class="ml-4 header-nav-btn"
             flat
-            round
-            dense
             icon="la:plus-circle"
             color="blue-4"
             aria-label="Create New Page">
@@ -63,10 +61,8 @@
           -->
           <w-btn
             v-if="userStore.can(`write:assets`) || userStore.can(`write:pages`)"
-            class="ml-4"
+            class="ml-4 header-nav-btn"
             flat
-            round
-            dense
             icon="la:folder-open"
             color="positive"
             aria-label="File Manager"
@@ -75,10 +71,8 @@
           </w-btn>
           <w-btn
             v-if="userStore.authenticated"
-            class="ml-4"
+            class="ml-4 header-nav-btn"
             flat
-            round
-            dense
             icon="mdi:inbox-full"
             color="amber"
             to="/_inbox"
@@ -101,10 +95,8 @@
           </w-btn>
           <w-btn
             v-if="userStore.can(`access:admin`)"
-            class="ml-4"
+            class="ml-4 header-nav-btn"
             flat
-            round
-            dense
             icon="la:tools"
             color="pink"
             to="/_admin"

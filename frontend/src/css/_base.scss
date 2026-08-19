@@ -208,6 +208,40 @@ body::-webkit-scrollbar-thumb {
   }
 }
 
+// The site header's five icon buttons (new page / file manager / inbox / admin / account, in
+// `HeaderNav.vue` and `AccountMenu.vue`) -- a toolbar band, not a floating action, so the small
+// circular hit area `round` gives every other icon button reads wrong here: too little of the 64px
+// band actually lights up on hover, and what does is too faint against the header's dark background.
+//
+// The shape itself needs no rule of its own: the caller drops `round` (and the now-inert `dense`,
+// since both of its effects are overridden below anyway) and keeps just `flat`, which falls back to
+// WBtn's default `rounded-[3px]` -- the same square-ish corner the markdown editor's own toolbar
+// buttons draw. `min-height` and `padding` are what's left, and both need `!important` because WBtn
+// sets them as inline styles (a JS-computed `style` binding beats any class regardless of layer); see
+// `EditorMarkdown.vue`'s own toolbar for the same fight against the same two properties.
+.w-btn.header-nav-btn {
+  min-height: 64px !important;
+  padding: 0 16px !important;
+}
+
+// Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the
+// `hover:bg-current/10` utility WBtn carries for its flat variant without an `!important` of its own
+// -- see `.w-btn.acrylic-btn` above for the same trick. Gated on `(hover: hover)` so a touch tap
+// doesn't leave the fill stuck on afterwards.
+@media (hover: hover) {
+  .w-btn.header-nav-btn:hover {
+    background-color: color-mix(in srgb, currentcolor 20%, transparent);
+  }
+
+  // The account button dims its own icon to 60% white (`.account-avbtn` below) rather than taking a
+  // `color` prop, so mixing off `currentcolor` at the same 20% as the other four nets a fill only
+  // ~12% opaque (0.6 x 20%) -- raised here so all five read as equally visible on hover, not just the
+  // four with an opaque color.
+  .w-btn.account-avbtn.header-nav-btn:hover {
+    background-color: color-mix(in srgb, currentcolor 34%, transparent);
+  }
+}
+
 // ------------------------------------------------------------------
 // ICONS
 // ------------------------------------------------------------------
