@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, exists, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import type { WikiDbOrTx } from '../core/db.ts'
 import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
 import {
   CustomError,
@@ -578,8 +579,8 @@ class Tree {
   /**
    * A single folder by ID, or null if the ID is not a folder
    */
-  async getFolderById(id: string): Promise<TreeRow | null> {
-    const results = await WIKI.db
+  async getFolderById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+    const results = await db
       .select()
       .from(treeTable)
       .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder')))
@@ -649,16 +650,21 @@ class Tree {
     path,
     locale,
     siteId,
-    createIfMissing = false
+    createIfMissing = false,
+    db = WIKI.db
   }: {
     id?: string | null
     path?: string | null
     locale?: string
     siteId?: string
     createIfMissing?: boolean
+    /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
+     *  transaction here so a folder it has to create is rolled back along with everything else in
+     *  the batch, rather than surviving as an orphan when a later item in the batch fails. */
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id)
+      const folder = await this.getFolderById(id, db)
       if (!folder) {
         throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
       }
@@ -666,7 +672,7 @@ class Tree {
     }
 
     const { folderPath, fileName } = splitPath(encodeTreePath(path))
-    const results = await WIKI.db
+    const results = await db
       .select()
       .from(treeTable)
       .where(
@@ -690,7 +696,8 @@ class Tree {
       pathName: fileName,
       title: fileName,
       locale: locale!,
-      siteId: siteId!
+      siteId: siteId!,
+      db
     })
   }
 
@@ -708,7 +715,8 @@ class Tree {
     pathName,
     title,
     locale,
-    siteId
+    siteId,
+    db = WIKI.db
   }: {
     parentId?: string | null
     parentPath?: string | null
@@ -716,6 +724,7 @@ class Tree {
     title: string
     locale: string
     siteId: string
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     // -> A folder name is a segment of every page path under it, so it is normalized the same way a
     //    page path is before it is held to what a segment may contain
@@ -734,7 +743,7 @@ class Tree {
     let path = encodeTreePath(parentPath)
     let effectiveLocale = locale
     if (parentId) {
-      const parent = await this.getFolderById(parentId)
+      const parent = await this.getFolderById(parentId, db)
       if (!parent) {
         throw new CustomError('treeInvalidParent', 'The parent folder does not exist.', 404)
       }
@@ -746,7 +755,7 @@ class Tree {
     // -> A page here is not in the way: a folder alongside it is how `/guide` gets to be both a page
     //    and the way into `/guide/…`. An asset is, since it is served at that URL itself — the same
     //    rule `resolveName` applies coming the other way.
-    const existing = await WIKI.db
+    const existing = await db
       .select({ type: treeTable.type })
       .from(treeTable)
       .where(
@@ -777,7 +786,7 @@ class Tree {
         folderPath: parts.slice(0, i).join('.'),
         fileName: parts[i]
       }))
-      const found = await WIKI.db
+      const found = await db
         .select({ folderPath: treeTable.folderPath, fileName: treeTable.fileName })
         .from(treeTable)
         .where(
@@ -810,7 +819,7 @@ class Tree {
         const ancestorFullPath = ancestor.folderPath
           ? `${decodeTreePath(ancestor.folderPath)}/${ancestor.fileName}`
           : ancestor.fileName
-        await WIKI.db.insert(treeTable).values({
+        await db.insert(treeTable).values({
           folderPath: ancestor.folderPath,
           fileName: ancestor.fileName,
           type: 'folder',
@@ -820,12 +829,12 @@ class Tree {
           siteId,
           meta: { children: 0 }
         })
-        await this.countTowardsFolderAt(siteId, ancestor.folderPath, 1)
+        await this.countTowardsFolderAt(siteId, ancestor.folderPath, 1, db)
       }
     }
 
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
-    const inserted = await WIKI.db
+    const inserted = await db
       .insert(treeTable)
       .values({
         folderPath: path,
@@ -839,7 +848,7 @@ class Tree {
       })
       .returning()
 
-    await this.countTowardsFolderAt(siteId, path, 1)
+    await this.countTowardsFolderAt(siteId, path, 1, db)
 
     WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
     return inserted[0] as TreeRow
@@ -1112,7 +1121,8 @@ class Tree {
     locale,
     siteId,
     tags = [],
-    meta = {}
+    meta = {},
+    db = WIKI.db
   }: {
     id?: string
     parentId?: string | null
@@ -1123,6 +1133,10 @@ class Tree {
     siteId: string
     tags?: string[]
     meta?: Record<string, any>
+    /** Runs the folder resolution and the entry insert against this instead of the ambient
+     *  `WIKI.db` — a batch import passes its own transaction so this asset's tree row shares fate
+     *  with the `assets` row written alongside it. */
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     return this.addEntry({
       id,
@@ -1139,7 +1153,8 @@ class Tree {
       //    is written takes the next free `name-1.ext`: the assets model settled the collisions it
       //    could see, and a file that appeared since must not fail on something the uploader did not
       //    choose and cannot see
-      onConflict: 'suffix'
+      onConflict: 'suffix',
+      db
     })
   }
 
@@ -1229,7 +1244,8 @@ class Tree {
     tags,
     meta,
     navigationId,
-    onConflict
+    onConflict,
+    db = WIKI.db
   }: {
     id?: string
     type: Exclude<TreeItemType, 'folder'>
@@ -1243,6 +1259,7 @@ class Tree {
     meta: Record<string, any>
     navigationId?: string
     onConflict: 'error' | 'suffix'
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     const folder =
       parentId || parentPath
@@ -1251,17 +1268,18 @@ class Tree {
             path: parentPath,
             locale,
             siteId,
-            createIfMissing: true
+            createIfMissing: true,
+            db
           })
         : null
     const path = folder ? childPathOf(folder) : ''
 
-    const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict })
+    const name = await this.resolveName({ siteId, locale, path, type, fileName, onConflict, db })
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
 
     WIKI.logger.debug(`Adding ${type} ${fullPath} to tree...`)
 
-    const inserted = await WIKI.db
+    const inserted = await db
       .insert(treeTable)
       .values({
         ...(id ? { id } : {}),
@@ -1280,7 +1298,7 @@ class Tree {
       })
       .returning()
 
-    await this.countTowardsFolderAt(siteId, path, 1)
+    await this.countTowardsFolderAt(siteId, path, 1, db)
 
     return inserted[0] as TreeRow
   }
@@ -1305,7 +1323,8 @@ class Tree {
     path,
     type,
     fileName,
-    onConflict
+    onConflict,
+    db = WIKI.db
   }: {
     siteId: string
     locale: string
@@ -1313,10 +1332,11 @@ class Tree {
     type: Exclude<TreeItemType, 'folder'>
     fileName: string
     onConflict: 'error' | 'suffix'
+    db?: WikiDbOrTx
   }): Promise<string> {
     const taken = async (name: string) =>
       (
-        await WIKI.db
+        await db
           .select({ id: treeTable.id })
           .from(treeTable)
           .where(
@@ -1367,12 +1387,17 @@ class Tree {
    *
    * An empty path is the site root, which is not a folder and has nothing to count.
    */
-  private async countTowardsFolderAt(siteId: string, path: string, delta: number): Promise<void> {
+  private async countTowardsFolderAt(
+    siteId: string,
+    path: string,
+    delta: number,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<void> {
     if (!path) {
       return
     }
     const location = splitPath(path)
-    await WIKI.db
+    await db
       .update(treeTable)
       .set({
         meta: sql`jsonb_set(${treeTable.meta}, '{children}', to_jsonb(GREATEST(0, COALESCE((${treeTable.meta}->>'children')::int, 0) + ${delta})))`

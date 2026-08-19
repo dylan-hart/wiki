@@ -146,7 +146,12 @@ function extensionOf(fileName: string): string {
   return path.extname(fileName).replace(/^\./, '').toLowerCase()
 }
 
-function kindOf(mimeType: string, fileExt: string): AssetKind {
+/**
+ * Exported so the migration importer (`backend/importer/assets.ts`) can classify an asset the exact
+ * same way a live upload does, rather than trusting a 2.x source's own `kind`/`mime` columns — which
+ * may disagree with what this MIME database says after years of drift between the two.
+ */
+export function kindOf(mimeType: string, fileExt: string): AssetKind {
   if (mimeType.startsWith('image/')) {
     return 'image'
   }
