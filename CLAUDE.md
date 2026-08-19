@@ -223,10 +223,17 @@ Conventions established during the conversion, worth following in new code:
 - **Per-route Fastify generics** for request shapes: `app.get<{ Params: { siteId: string } }>(...)`.
   The JSON Schema stays as-is for validation and OpenAPI; the generic is what types `req.params`,
   `req.body` and `req.query`.
-- **Pre-existing bugs are preserved, not fixed.** Where the type checker exposed already-broken code,
-  it was left behaving identically behind a narrow cast plus a `FIXME:` comment explaining the real
-  fix. A migration should not silently change runtime behavior. Search `FIXME:` under `backend/` for
-  the list — they are genuine open bugs, not type-checker noise.
+- **Pre-existing bugs are preserved, not fixed** was the rule during the initial TypeScript
+  conversion: where the type checker exposed already-broken code, it was left behaving identically
+  behind a narrow cast plus a `FIXME:` comment explaining the real fix, so the migration itself
+  wouldn't silently change runtime behavior. All four bugs that convention originally flagged
+  (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
+  `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
+  removed with them — `backend/` currently carries none (`grep -rn 'FIXME:' backend/` comes back
+  empty; see `docs/variances.md`'s "TODO/FIXME audit" section for the full account). If a future
+  migration or refactor turns up another pre-existing bug outside its scope, follow the same
+  pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
+  rather than changing runtime behavior inline.
 
 ## Conventions
 
