@@ -1020,6 +1020,10 @@ class Pages {
    * Each one is recorded as deleted first, exactly as deleting a single page does. `pageHistory`
    * carries no foreign key back to `pages` precisely so that it outlives the row, which is what makes
    * a folder deleted by mistake recoverable.
+   *
+   * Also drops each one from the search index, same as `deletePage` — a postgres-backed index has no
+   * separate state to clean up, since a deleted row simply stops matching its own query, but an
+   * external engine (Elasticsearch, Algolia, ...) keeps a stale entry forever unless told to drop it.
    */
   async deleteOrphaned(siteId: string, entries: DeletedEntry[], actor: PageActor): Promise<void> {
     if (entries.length < 1) {
@@ -1051,6 +1055,7 @@ class Pages {
     //    wiki has to hear about each page, not about the folder it happened to sit in
     for (const entry of entries) {
       const path = entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
+      await WIKI.models.search.deleted(siteId, entry.id)
       await WIKI.models.hooks.emit('page:delete', {
         id: entry.id,
         path,

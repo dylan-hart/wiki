@@ -321,7 +321,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Select a site's active search engine",
         description:
-          "Makes the named engine the one queries and indexing dispatch to, and saves its config. Values are validated against what the engine's `definition.yml` declares; an unrecognized key or a value of the wrong type is refused, and nothing is written. Config for an engine that is not selected is kept, so switching back to it later starts from what was last saved rather than from its bare defaults.",
+          "Makes the named engine the one queries and indexing dispatch to, and saves its config. Values are validated against what the engine's `definition.yml` declares; an unrecognized key, a value of the wrong type, a `required` prop left empty (e.g. Algolia's `apiKey`, Elasticsearch's `hosts`), or a value that fails a declared `pattern` (e.g. Elasticsearch's `hosts` shape) is refused, and nothing is written. Required/pattern checks run against the config that would actually end up stored -- incoming values merged onto what is already saved for this engine on this site -- so a value saved on an earlier request does not need to be resent just to keep validating. Config for an engine that is not selected is kept, so switching back to it later starts from what was last saved rather than from its bare defaults.",
         tags: ['Search'],
         params: {
           type: 'object',
@@ -372,7 +372,11 @@ async function routes(app: FastifyInstance) {
         return reply.notFound(`Search engine "${req.params.key}" does not exist.`)
       }
 
-      const invalid = WIKI.models.search.validateEngineConfig(req.params.key, req.body.config)
+      const invalid = WIKI.models.search.validateEngineConfig(
+        req.params.key,
+        req.body.config,
+        WIKI.models.search.getEngineConfig(req.params.siteId, req.params.key)
+      )
       if (invalid) {
         return reply.badRequest(invalid)
       }

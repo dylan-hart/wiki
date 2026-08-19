@@ -96,74 +96,13 @@
             }}</w-banner>
           </w-card-section>
           <!--
-            Ported from `AdminStorage.vue`'s config editor block (lines ~407-461 there): boolean ->
-            toggle, `enum` -> select or button-group (per `enumDisplay`), `sensitive` -> password
-            input, `readOnly` -> disabled, `if` -> conditional visibility against sibling values.
-            `selectedEngine.config` is the `buildConfigEditor()`-built editable structure (see below),
-            not the raw stored values -- mutating `cfg.value` here is what `payloadFor()` reads back.
-
-            Follow-up, out of this task's scope: this block plus `buildConfigEditor()` /
-            `inputTypeFor()` / `configIfCheck()` / `payloadFor()` below are a close port of
-            `AdminStorage.vue`'s copies, not a shared implementation -- worth factoring into a
-            `frontend/src/components/` component so the two admin pages don't carry two copies that
-            can drift. Deferred here because `AdminStorage.vue` has no test coverage to refactor it
-            against safely within this task's time box; kept behavior-identical for the field types
-            both pages share in the meantime.
+            Generic per-prop config form, shared with `AdminStorage.vue`'s own module config editor
+            (task #556) -- see `ModuleConfigForm.vue`. `selectedEngine.config` is the
+            `buildConfigEditor()`-built editable structure (see below), not the raw stored values --
+            mutating a field's `.value` there, which this component does in place, is what
+            `buildConfigPayload()` in `save()` below reads back.
           -->
-          <template v-for="(cfg, cfgKey, idx) in selectedEngine.config" :key="cfgKey">
-            <template v-if="configIfCheck(cfg.if)">
-              <w-separator class="my-2" inset v-if="idx > 0" />
-              <w-item v-if="cfg.type === `boolean`" tag="label">
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section avatar>
-                  <w-toggle v-model="cfg.value" :aria-label="cfg.title" :disable="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-              <w-item v-else>
-                <blueprint-icon :icon="cfg.icon" :hue-rotate="cfg.readOnly ? -45 : 0" />
-                <w-item-section>
-                  <w-item-label>{{ cfg.title }}</w-item-label>
-                  <w-item-label caption>{{ cfg.hint }}</w-item-label>
-                </w-item-section>
-                <w-item-section
-                  :style="cfg.type === `number` ? `flex: 0 0 150px;` : ``"
-                  :class="{ 'col-auto': cfg.enum && cfg.enumDisplay === `buttons` }">
-                  <w-btn-toggle
-                    v-if="cfg.enum && cfg.enumDisplay === `buttons`"
-                    v-model="cfg.value"
-                    push
-                    glossy
-                    no-caps
-                    toggle-color="primary"
-                    :options="cfg.enum"
-                    :disable="cfg.readOnly" />
-                  <w-select
-                    v-else-if="cfg.enum"
-                    outlined
-                    v-model="cfg.value"
-                    :options="cfg.enum"
-                    emit-value
-                    map-options
-                    dense
-                    options-dense
-                    :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
-                  <w-input
-                    v-else
-                    outlined
-                    v-model="cfg.value"
-                    dense
-                    :type="inputTypeFor(cfg)"
-                    :aria-label="cfg.title"
-                    :disable="cfg.readOnly" />
-                </w-item-section>
-              </w-item>
-            </template>
-          </template>
+          <module-config-form :config="selectedEngine.config" />
           <!--
             Postgres-specific override, task #574: `dictOverrides` is a locale -> text search
             dictionary map with no fixed set of keys, so `parseModuleProps` cannot express it as a
@@ -212,7 +151,9 @@ import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
 import UtilCodeEditor from '@/components/UtilCodeEditor.vue'
+import ModuleConfigForm from '@/components/ModuleConfigForm.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { buildConfigEditor, buildConfigPayload } from '@/helpers/moduleConfig'
 
 // CONSTANTS
 
@@ -272,45 +213,6 @@ watch(
 )
 
 // METHODS
-
-/**
- * Turn an engine's declared props and stored config into the shape the config form renders,
- * expanding `value|label` enum entries into options. Ported from `AdminStorage.vue`'s
- * `buildConfigEditor()` -- see the follow-up note in the template above.
- */
-function buildConfigEditor(props, values) {
-  const config = {}
-  for (const [key, prop] of Object.entries(props ?? {})) {
-    config[key] = {
-      ...prop,
-      value: values?.[key] ?? prop.default,
-      ...(prop.enum && {
-        enum: prop.enum.map((entry) => {
-          const [value, label] = entry.split('|')
-          return { value, label: label ?? value }
-        })
-      })
-    }
-  }
-  return config
-}
-
-function inputTypeFor(cfg) {
-  if (cfg.multiline) {
-    return 'textarea'
-  }
-  if (cfg.sensitive) {
-    return 'password'
-  }
-  return cfg.type === 'number' ? 'number' : 'text'
-}
-
-function configIfCheck(ifs) {
-  if (!ifs || ifs.length < 1) {
-    return true
-  }
-  return ifs.every((s) => selectedEngine.value?.config[s.key]?.value === s.eq)
-}
 
 /**
  * Apply a freshly-fetched engine list, choosing what stays selected. Each engine's raw `config`
@@ -375,19 +277,13 @@ async function refresh() {
 }
 
 /**
- * A search engine's editable config, as the API expects it -- read-only props are left out, since the
- * server keeps whatever is stored for them and sending them back would be pretending they can be set.
- * Mirrors `AdminStorage.vue`'s `payloadFor()`.
+ * A search engine's editable config, as the API expects it. Thin wrapper over the shared
+ * `buildConfigPayload()` (`@/helpers/moduleConfig.js`) -- `AdminStorage.vue`'s own payload for a
+ * target wraps the same reduction alongside target-only fields, which is why the shared helper stops
+ * at the plain config object rather than this `{ config }` shape.
  */
 function payloadFor(engine) {
-  const config = {}
-  for (const [key, cfg] of Object.entries(engine.config ?? {})) {
-    if (cfg.readOnly) {
-      continue
-    }
-    config[key] = cfg.type === 'number' ? Number(cfg.value) : cfg.value
-  }
-  return { config }
+  return { config: buildConfigPayload(engine.config) }
 }
 
 /**

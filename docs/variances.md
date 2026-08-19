@@ -732,3 +732,83 @@ assumed at real request-size limits, or that a real trial resource's authenticat
 configuration round-trips correctly end to end. Confirming this is a one-time manual pass against a
 real trial Azure AI Search resource and a real trial AWS CloudSearch domain, not a check anyone can
 re-run in CI or before merging a future change to either module.
+
+## Task #549 — search engine abstraction layer: no `search` db table
+
+Task #549 (Feature #380, Elasticsearch and Algolia providers) specified a `search` db table modeled
+on `db/schema.ts`'s `storage` table (`id`, `module`, `isEnabled`, `config` jsonb, `siteId` FK, unique
+on `(siteId, module)`), with a `WIKI.models.search.getActiveEngine(siteId)` resolver reading it.
+
+By the time this task ran, Feature #379 (pluggable search architecture) and Feature #382 (admin
+engine picker/config UI) had already landed the same abstraction on this branch, but through a
+different, already-fully-wired shape: one active engine per site, selected and configured under
+`site.config.search` (`engine` + `engines.<key>`) on the existing `sites.config` jsonb column,
+edited through a real `/sites/:siteId/search` API and `AdminSearch.vue` engine-picker UI, both with
+their own test coverage. This fits search's actual semantics better than the `storage` table's shape
+it was modeled on: `storage` supports several independently-enabled targets per site, `search` has
+exactly one active engine per site, so a `(siteId, module, isEnabled)` uniqueness scheme would model
+a constraint (mutual exclusivity) that a single `engine` key already expresses directly and that the
+existing config-diffing/prop-validation/admin-UI plumbing is already built and tested around.
+
+Rebuilding storage as a separate table would mean discarding that already-verified plumbing (API
+routes, admin UI, `getSiteEngines()`/`buildEngineConfig()`/`validateEngineConfig()`/`selectEngine()`
+and their tests) to reintroduce a shape the codebase deliberately moved away from, for no behavior
+gain — a bare regression risk with no user-facing benefit.
+
+What task #549's core intent already has, unchanged in shape: a `SearchModule` interface every engine
+implements (`models/search.ts`), the postgres logic refactored into one such implementation with zero
+behavior change (`modules/search/db/search.ts`), and every existing caller (`api/pages.ts`,
+`models/pages.ts`, `tasks/simple/rebuild-search-index.ts`) going through the dispatcher rather than a
+specific engine. The one literal gap — a public `getActiveEngine(siteId)` resolver, as opposed to the
+equivalent-but-private `engineFor()` the dispatcher already used internally — was closed by making
+that method public, so a caller that needs the resolved module itself (rather than one of the
+dispatcher's pass-through calls) has a documented entry point matching the task's named API.
+
+## Task #550 — Algolia module: `renamed()` updates in place rather than delete+add
+
+Task #550 described `renamePage` as mapping to a `deleteObject`/`addObject` "objectID swap", matching
+2.5.x's `server/modules/search/algolia/engine.js` (`git show 343d4db0:...`), which derived a page's
+Algolia `objectID` from a hash of its path and locale — a rename therefore changed the hash, so the
+old object had to be deleted and a new one added under the new id.
+
+This schema's `pages.id` is a stable UUID a move never touches (`models/pages.ts`'s `movePage` updates
+the existing row's `path` column in place; the row, and its `id`, survive). Since `search.ts`'s
+`AlgoliaSearchModule` uses `page.id` as the Algolia `objectID` (not a hash of the path), a rename does
+not change the object's identity at all — it is an ordinary `saveObject` update of the same record,
+same as `created`/`updated`. Implementing the literal delete+add would have meant the page briefly
+disappearing from search between the two calls, for no benefit: nothing about this schema's rename
+requires the identity churn 2.5.x's hash-based id forced.
+
+## Task #552 — Elasticsearch module: dropped the `apiVersion` selector
+
+Task #552 listed 2.5.x's eight `definition.yml` props verbatim, including `apiVersion` — a `6.x`/`7.x`
+enum in the version this fork's own history last carried (`git show 10cc2ef4^:server/modules/search/
+elasticsearch/definition.yml`), extended to `6.x`/`7.x`/`8.x` on the upstream 2.x line this fork never
+merged from (`git show main:server/modules/search/elasticsearch/definition.yml` — that `main` is
+requarks/wiki's own 2.x branch, not a branch of this fork). Each value loaded a differently pinned
+`elasticsearchN` package behind a `switch`.
+
+This module targets one client only — the current `@elastic/elasticsearch` major (9.x) — and drops the
+selector and the multi-package `switch` entirely, per the task's own instruction to weigh this against
+CLAUDE.md's rule against legacy fallbacks and deprecated aliases. Nobody adding Elasticsearch support to
+a 3.x install has a 6.x or 7.x cluster this needs to keep working against; carrying three parallel
+client majors behind a switch, for versions of a self-hosted dependency with no upgrade path into this
+fork anyway, is exactly the dead weight that rule exists to prevent. `definition.yml` therefore declares
+the remaining seven props (`hosts`, `verifyTLSCertificate`, `tlsCertPath`, `indexName`, `analyzer`,
+`sniffOnStart`, `sniffInterval`) and `search.ts` builds a single `@elastic/elasticsearch` `Client`
+directly, with no version branch.
+
+## Task #552 — Elasticsearch module: `rebuild()` scopes to the site rather than deleting the whole index
+
+2.5.x's `rebuild()` (`server/modules/search/elasticsearch/engine.js`) drops the entire index
+(`client.indices.delete`) and recreates it before reindexing, which was safe under 2.5.x's single-site
+model: one Wiki.js install, one index, nothing else sharing it.
+
+This repo is multi-site, and nothing stops two sites from being configured to point at the same
+Elasticsearch host and index name — `SearchPagesParams.siteId` exists precisely because a query has to
+stay scoped to one site's pages. Deleting the whole index on a rebuild would silently wipe every other
+site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filtered to
+`{ term: { siteId } }`, then reindexes only that site's pages — recomputing "the whole index of a site"
+(the `SearchModule.rebuild` contract's own wording) without assuming a site owns the whole index. Every
+document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
+explicitly.

@@ -301,6 +301,10 @@ export interface ModulePropDefinition {
   multiline?: boolean
   sensitive?: boolean
   readOnly?: boolean
+  /** Must resolve to a non-empty value (after merging with what is already stored) to validate. */
+  required?: boolean
+  /** A regular expression (as a string) the value must match to validate, when non-empty. */
+  pattern?: string
   icon?: string
   order?: number
   if?: unknown[]
@@ -318,6 +322,10 @@ export interface ModuleProp {
   sensitive: boolean
   /** Shown but not editable — the module declares something this server cannot currently change. */
   readOnly: boolean
+  /** See `ModulePropDefinition.required`. */
+  required: boolean
+  /** See `ModulePropDefinition.pattern`. Empty string when the module declares none. */
+  pattern: string
   icon: string
   order: number
   if: unknown[]
@@ -341,6 +349,8 @@ export function parseModuleProps(
       multiline: def.multiline || false,
       sensitive: def.sensitive || false,
       readOnly: def.readOnly || false,
+      required: def.required || false,
+      pattern: def.pattern || '',
       icon: def.icon || 'rename',
       order: def.order || 100,
       if: def.if ?? []

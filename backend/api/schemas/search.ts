@@ -34,7 +34,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'object',
         additionalProperties: true,
         description:
-          'The engine configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to.'
+          "The engine configuration, declared in its `definition.yml`: each entry carries a `type`, `title`, `hint`, `default` and the display hints the admin area renders a control from. A `readOnly` prop is shown but cannot be changed, and is silently kept at its stored value when written to. A `required` prop (e.g. Algolia's `apiKey`, Elasticsearch's `hosts`) must resolve to a non-empty value to select this engine; a `pattern` prop must additionally match that regular expression once non-empty."
       },
       hasImplementation: {
         type: 'boolean',

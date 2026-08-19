@@ -1,0 +1,29 @@
+key: algolia
+title: Algolia
+icon: '/_assets/icons/ultraviolet-search.svg'
+description: 'Algolia is a hosted search-as-a-service platform. Pages are pushed to an index it hosts, and queries run against that index instead of this database.'
+vendor: Algolia
+website: 'https://www.algolia.com'
+props:
+  appId:
+    type: String
+    title: Application ID
+    hint: Your Algolia Application ID, found under API Keys in the Algolia dashboard.
+    icon: identifier
+    required: true
+    order: 1
+  apiKey:
+    type: String
+    title: Admin API Key
+    hint: Your Algolia Admin API Key, found under API Keys. Needs write access to create/update objects and edit the index configuration.
+    icon: key
+    sensitive: true
+    required: true
+    order: 2
+  indexName:
+    type: String
+    title: Index Name
+    hint: The name of the Algolia index pages are written to and searched against.
+    icon: view-list
+    default: wiki
+    order: 3

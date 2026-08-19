@@ -27,6 +27,8 @@ function fakeProp(overrides: Partial<ModuleProp> = {}): ModuleProp {
     multiline: false,
     sensitive: false,
     readOnly: false,
+    required: false,
+    pattern: '',
     icon: 'text-box-search',
     order: 100,
     if: [],
@@ -135,6 +137,8 @@ describe('SearchEngineDefinition', () => {
           multiline: false,
           sensitive: false,
           readOnly: false,
+          required: false,
+          pattern: '',
           icon: 'text-box-search',
           order: 100,
           if: []
@@ -441,6 +445,78 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
 })
 
 /**
+ * `search.getActiveEngine(siteId)`, task #549: the public resolver every future caller (a new engine
+ * implementation, an admin action that needs the raw module rather than one of the dispatcher's
+ * pass-through methods) can use instead of re-deriving `WIKI.sites[siteId].config.search.engine`
+ * itself. `query()`/`rebuild()`/`created()`/`updated()`/`deleted()`/`renamed()` above already resolve
+ * through the same logic (`engineFor`, folded into this method) — this just gives that resolution a
+ * public name and return value, so it's a resolver in the same sense `WIKI.models.groups.checkAccess`
+ * is: one place every caller asks "what should handle this", rather than a store to write to.
+ */
+describe('search.getActiveEngine()', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('resolves the db module for a site with no engine configured', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    ;(globalThis as any).WIKI.sites['site-default'] = { id: 'site-default', config: {} }
+
+    assert.equal(await search.getActiveEngine('site-default'), dbModule)
+  })
+
+  test('resolves the site’s configured engine over db', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    const { module: customModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    search.modules['custom-engine'] = customModule
+    ;(globalThis as any).WIKI.sites['site-custom'] = {
+      id: 'site-custom',
+      config: { search: { engine: 'custom-engine' } }
+    }
+
+    assert.equal(await search.getActiveEngine('site-custom'), customModule)
+  })
+
+  test('falls back to db when the configured engine has no loaded implementation', async () => {
+    const { module: dbModule } = makeFakeSearchModule()
+    search.modules.db = dbModule
+    delete search.modules['missing-engine']
+    ;(globalThis as any).WIKI.sites['site-missing'] = {
+      id: 'site-missing',
+      config: { search: { engine: 'missing-engine' } }
+    }
+
+    assert.equal(await search.getActiveEngine('site-missing'), dbModule)
+  })
+
+  test('throws when neither the configured engine nor db has a loaded implementation', async () => {
+    delete search.modules.db
+    delete search.modules['missing-engine']
+    ;(globalThis as any).WIKI.sites['site-none'] = {
+      id: 'site-none',
+      config: { search: { engine: 'missing-engine' } }
+    }
+
+    await assert.rejects(
+      () => search.getActiveEngine('site-none'),
+      /No search engine implementation is available/
+    )
+  })
+})
+
+/**
  * `search.getSiteEngines()` / `.buildEngineConfig()` / `.validateEngineConfig()` / `.selectEngine()`,
  * task #570: the site-scoped engine picker built on top of `refreshFromDisk()`'s definitions.
  */
@@ -482,6 +558,35 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     }
   }
 
+  /**
+   * A third, distinct fixture (task #556): a required prop left empty must be refused, and a
+   * shaped prop must match its declared `pattern` -- neither `dbDefinition` nor `customDefinition`
+   * declares either, so a dedicated engine keeps those two fixtures' existing tests undisturbed.
+   */
+  const strictDefinition: SearchEngineDefinition = {
+    key: 'strict-engine',
+    title: 'Strict Engine',
+    description: 'A fake external engine with a required field and a shaped field.',
+    vendor: 'Test',
+    website: 'https://example.com',
+    props: {
+      apiKey: fakeProp({
+        default: '',
+        type: 'string',
+        title: 'API Key',
+        required: true,
+        icon: 'key'
+      }),
+      hosts: fakeProp({
+        default: '',
+        type: 'string',
+        title: 'Host(s)',
+        pattern: '^https?://[\\w.-]+(:\\d+)?$',
+        icon: 'server'
+      })
+    }
+  }
+
   before(() => {
     previousWiki = (globalThis as any).WIKI
     ;(globalThis as any).WIKI = {
@@ -489,7 +594,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
       logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
     }
     previousDefinitions = search.definitions
-    search.definitions = [dbDefinition, customDefinition]
+    search.definitions = [dbDefinition, customDefinition, strictDefinition]
   })
 
   after(() => {
@@ -508,7 +613,7 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
 
       assert.deepEqual(
         engines.map((e) => e.key),
-        ['db', 'custom-engine']
+        ['db', 'custom-engine', 'strict-engine']
       )
       assert.equal(engines.find((e) => e.key === 'db')!.isSelected, false)
       assert.equal(engines.find((e) => e.key === 'custom-engine')!.isSelected, true)
@@ -637,6 +742,45 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
     test('rejects a wrong-typed boolean prop', () => {
       const message = search.validateEngineConfig('db', { termHighlighting: 'yes' })
       assert.match(message!, /Term Highlighting must be true or false/)
+    })
+
+    test('rejects a required prop left empty, naming the engine', () => {
+      const message = search.validateEngineConfig('strict-engine', { hosts: 'http://x:1' })
+      assert.match(message!, /API Key is required/)
+      assert.match(message!, /Strict Engine/)
+    })
+
+    test('accepts a required prop that was already stored, without it being resent', () => {
+      assert.equal(
+        search.validateEngineConfig(
+          'strict-engine',
+          { hosts: 'http://x:1' },
+          { apiKey: 'stored-key' }
+        ),
+        null
+      )
+    })
+
+    test('rejects a value that fails the declared pattern', () => {
+      const message = search.validateEngineConfig('strict-engine', {
+        apiKey: 'k',
+        hosts: 'not-a-url'
+      })
+      assert.match(message!, /Host\(s\) is not valid for Strict Engine/)
+    })
+
+    test('accepts a value that matches the declared pattern', () => {
+      assert.equal(
+        search.validateEngineConfig('strict-engine', { apiKey: 'k', hosts: 'http://x:1' }),
+        null
+      )
+    })
+
+    test('does not flag a required prop that is merely absent from the effective config’s defaults when it has no default and nothing stored', () => {
+      // -> Same case as the first test above, restated: `hosts` has no `required: true`, so an
+      //    empty default is fine for it even though it also has a `pattern` -- patterns are only
+      //    checked once a value is non-empty.
+      assert.equal(search.validateEngineConfig('strict-engine', { apiKey: 'k' }), null)
     })
   })
 

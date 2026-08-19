@@ -1,0 +1,45 @@
+# Elasticsearch service for local/CI smoke testing of the Elasticsearch search module
+# (`backend/modules/search/elasticsearch/`).
+#
+# Not part of the app's own runtime stack -- unlike `.devcontainer/docker-compose.yml`'s postgres,
+# which the backend depends on to boot at all, nothing under `backend/` ever talks to Elasticsearch
+# unless a site's `config.search.engine` is explicitly set to `elasticsearch`. This file exists purely
+# so `backend/modules/search/elasticsearch/search.smoke.test.ts` (gated on `ELASTICSEARCH_TEST_URL`,
+# same pattern as `backend/test/db.ts`'s `DATABASE_URL` gate) has a real cluster to index into and
+# query, on demand:
+#
+#   docker compose -f dev/docker-compose.search-test.yml up -d --wait
+#   ELASTICSEARCH_TEST_URL=http://127.0.0.1:59200 \
+#     node --test modules/search/elasticsearch/search.smoke.test.ts   # from backend/
+#   docker compose -f dev/docker-compose.search-test.yml down -v
+#
+# Security is disabled and the port is bound to loopback only -- this is a throwaway single-node
+# cluster for a test run, never a deployment target.
+#
+# Image tag: Elasticsearch has no separate LTS line the way Node or Postgres does, so this repo's
+# Currency standard ("latest stable, falling back from LTS when there isn't one") means the latest
+# stable release on the major this repo's client already targets. `backend/package.json` pins
+# `@elastic/elasticsearch` to `9.5.0` (see that module's own class doc comment for why 9.x is the only
+# major supported at all), and `9.5.1` is the latest 9.x server release as of this file's writing --
+# keep the two in step when either is next bumped.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.5.1
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      xpack.security.http.ssl.enabled: 'false'
+      xpack.security.transport.ssl.enabled: 'false'
+      ES_JAVA_OPTS: '-Xms512m -Xmx512m'
+    ports:
+      - '127.0.0.1:59200:9200'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'curl -sf http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow || exit 1'
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 40

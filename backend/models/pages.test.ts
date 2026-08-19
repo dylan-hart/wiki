@@ -318,6 +318,51 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     }
   })
 
+  /**
+   * `deleteOrphaned` is the other page-deletion path — pages left behind by a deleted folder
+   * (`api/tree.ts`'s `deleteFolder` route) — and unlike `deletePage` it called nothing on the search
+   * dispatcher at all: postgres's own index disappears for free with the row, but an external engine
+   * (Elasticsearch, Algolia, ...) keeps a stale entry forever unless told to drop it. Task #554.
+   */
+  test('deleteOrphaned calls the search dispatcher for every page it removes', async () => {
+    const calls: string[] = []
+    const searchModel = (globalThis as any).WIKI.models.search
+    searchModel.deleted = async (_siteId: string, pageId: string) => {
+      calls.push(pageId)
+    }
+
+    try {
+      const pageA = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/orphan-folder/one' }),
+        actor
+      )
+      const pageB = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/orphan-folder/two', title: 'Two' }),
+        actor
+      )
+
+      await pagesModel.deleteOrphaned(
+        fixtures.siteId,
+        [
+          { id: pageA.id, folderPath: 'docs/orphan-folder', fileName: 'one', locale: 'en' },
+          { id: pageB.id, folderPath: 'docs/orphan-folder', fileName: 'two', locale: 'en' }
+        ],
+        actor
+      )
+
+      assert.deepEqual(new Set(calls), new Set([pageA.id, pageB.id]))
+
+      const fetchedA = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageA.id })
+      const fetchedB = await pagesModel.getPage({ siteId: fixtures.siteId, id: pageB.id })
+      assert.equal(fetchedA, null)
+      assert.equal(fetchedB, null)
+    } finally {
+      delete searchModel.deleted
+    }
+  })
+
   describe('listPagesForSitemap', () => {
     /**
      * `fixtures.groupId` stands in for the guests group here: `WIKI.data.systemIds.guestsGroupId` is

@@ -395,9 +395,24 @@ class Search {
    * engine picker only ever sends what the engine's own props currently list, so an unrecognized key
    * means the request is stale or wrong, not that a prop was removed server-side.
    *
+   * Beyond the per-key type/enum check above, a `required` prop (e.g. Algolia's `apiKey`, Elasticsearch's
+   * `hosts`) and a `pattern` prop (e.g. Elasticsearch's `hosts` shape) are checked against the
+   * *effective* config -- `incoming` merged onto `existing`, the same merge `buildEngineConfig` does for
+   * what actually gets saved -- rather than against `incoming` alone. Two things fall out of that: an
+   * engine switch that sends no config at all is still refused if a required field was genuinely never
+   * filled in (its default is empty, and empty stays empty through the merge), and a value saved on an
+   * earlier request does not need to be resent on every later save just to keep validating.
+   *
+   * @param existing What is already stored for this engine on the site making the request, task #556 --
+   *   omit it (e.g. for a plain type/enum check with no site in play) to validate `incoming` as if
+   *   nothing were stored yet.
    * @returns The reason it is invalid, or null when it is fine
    */
-  validateEngineConfig(key: string, incoming: Record<string, any> = {}): string | null {
+  validateEngineConfig(
+    key: string,
+    incoming: Record<string, any> = {},
+    existing: Record<string, any> = {}
+  ): string | null {
     const definition = this.getDefinition(key)
     const props = definition?.props ?? {}
     for (const [propKey, value] of Object.entries(incoming)) {
@@ -431,6 +446,22 @@ class Search {
           if (typeof value !== 'string') {
             return `${prop.title} must be a string.`
           }
+      }
+    }
+
+    const effective = this.buildEngineConfig(key, incoming, existing)
+    for (const [propKey, prop] of Object.entries(props)) {
+      const value = effective[propKey]
+      if (prop.required && (value === undefined || value === null || value === '')) {
+        return `${prop.title} is required for ${definition?.title ?? key}.`
+      }
+      if (
+        prop.pattern &&
+        typeof value === 'string' &&
+        value !== '' &&
+        !new RegExp(prop.pattern).test(value)
+      ) {
+        return `${prop.title} is not valid for ${definition?.title ?? key}.`
       }
     }
     return null
@@ -476,7 +507,7 @@ class Search {
    * The text search configurations this postgres installation actually has, e.g. `english`, `simple`.
    *
    * Not site-scoped — postgres itself is one installation shared by every site — so this always asks
-   * the `db` module specifically rather than going through `engineFor`. Used by the admin area to
+   * the `db` module specifically rather than going through `getActiveEngine`. Used by the admin area to
    * validate a `dictOverrides` mapping before it's saved, and by `db`'s own indexing, regardless of
    * whether `db` is any given site's active engine: an operator can still configure its dictionaries
    * from the search settings screen even while another engine serves queries.
@@ -499,8 +530,17 @@ class Search {
    * A site that names no engine — every site, until per-site engine selection ships — gets `db`, the
    * one guaranteed to have an implementation. A site that names an engine whose implementation is
    * missing or failed to load also falls back to `db`, rather than search breaking outright for it.
+   *
+   * Public (task #549's `getActiveEngine(siteId)` resolver): `query`/`rebuild`/`created`/`updated`/
+   * `deleted`/`renamed` below already resolve through this and forward straight to it, which is what
+   * keeps every existing caller (`api/pages.ts`, `models/pages.ts`,
+   * `tasks/simple/rebuild-search-index.ts`) off any specific engine implementation — they only ever
+   * call `WIKI.models.search.*`. This is exposed as its own method too, for a caller that genuinely
+   * needs the resolved module itself rather than one of the dispatcher's pass-through calls — e.g. a
+   * future admin action specific to one engine, the way `db.getAvailableDictionaries()` above already
+   * reaches past the dispatcher for a `db`-only capability.
    */
-  private async engineFor(siteId: string): Promise<SearchModule> {
+  async getActiveEngine(siteId: string): Promise<SearchModule> {
     const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
     const module = (await this.ensureModule(key)) ?? (await this.ensureModule(DB_MODULE))
     if (!module) {
@@ -515,7 +555,7 @@ class Search {
    * Full-text search over the pages of a site. Delegates to the site's configured engine.
    */
   async query(params: SearchPagesParams): Promise<SearchPagesResult> {
-    const engine = await this.engineFor(params.siteId)
+    const engine = await this.getActiveEngine(params.siteId)
     return engine.query(params)
   }
 
@@ -523,31 +563,31 @@ class Search {
    * Recompute the whole search index of a site. Delegates to the site's configured engine.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     return engine.rebuild(siteId)
   }
 
   /** A page was created. Delegates to the page's site's configured engine. */
   async created(page: SearchIndexablePage): Promise<void> {
-    const engine = await this.engineFor(page.siteId)
+    const engine = await this.getActiveEngine(page.siteId)
     await engine.created(page)
   }
 
   /** A page's content or metadata changed. Delegates to the page's site's configured engine. */
   async updated(page: SearchIndexablePage): Promise<void> {
-    const engine = await this.engineFor(page.siteId)
+    const engine = await this.getActiveEngine(page.siteId)
     await engine.updated(page)
   }
 
   /** A page was deleted. Delegates to the site's configured engine. */
   async deleted(siteId: string, pageId: string): Promise<void> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     await engine.deleted(siteId, pageId)
   }
 
   /** A page moved. Delegates to the page's site's configured engine. */
   async renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void> {
-    const engine = await this.engineFor(siteId)
+    const engine = await this.getActiveEngine(siteId)
     await engine.renamed(siteId, page, previousPath)
   }
 }
