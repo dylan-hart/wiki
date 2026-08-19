@@ -114,6 +114,16 @@ export default {
         : new DynamicThreadPool(1, this.maxWorkers, workerFile, poolOptions)
     this.tasks = {}
     for (const f of await fs.readdir(path.join(WIKI.SERVERPATH, 'tasks/simple'))) {
+      // -> `tasks/simple/` carries this repo's usual co-located `*.test.ts` files
+      //    (send-watch-digests.test.ts, update-locales.test.ts) alongside the real task modules.
+      //    Without this filter, `readdir` returns those too, and the unconditional `import()`
+      //    below executes their `node:test` suites live as a side effect of every boot -- caught
+      //    only now, running this loop for the first time against a real filesystem listing rather
+      //    than a fake WIKI in a unit test. `[^.]+\.[jt]s$` requires no dot before the extension,
+      //    so `name.ts`/`name.js` match but `name.test.ts` does not.
+      if (!/^[^.]+\.[jt]s$/.test(f)) {
+        continue
+      }
       const taskName = camelCase(f.replace(/\.[jt]s$/, ''))
       // -> Unlike `workerFile` above (a plain OS path, which is what both poolifier's own
       //    pre-flight `existsSync()` check and `new Worker()` itself expect), dynamic `import()`
