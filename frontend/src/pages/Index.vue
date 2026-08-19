@@ -181,6 +181,10 @@
                 </div>
               </div>
             </template>
+            <template v-if="siteStore.features.comments && pageStore.allowComments">
+              <w-separator class="my-6" />
+              <page-comments />
+            </template>
           </div>
           <!--
             Inside the scrolling column, and last: this is the bottom of the PAGE, so it is reached by
@@ -359,6 +363,7 @@ import { useUserStore } from '@/stores/user'
 import FooterNav from '@/components/FooterNav.vue'
 import LoadingGeneric from '@/components/LoadingGeneric.vue'
 import PageActionsCol from '@/components/PageActionsCol.vue'
+import PageComments from '@/components/PageComments.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PageRedirect from '@/components/PageRedirect.vue'
 import PageTags from '@/components/PageTags.vue'
