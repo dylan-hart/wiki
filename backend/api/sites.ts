@@ -135,8 +135,33 @@ export async function buildSitePayload(site: {
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
-    pdfExportAvailable: await WIKI.models.rendering.isAvailable()
+    pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
+    blocksConfig: await blocksConfigFor(site.id)
   }
+}
+
+/**
+ * The site's per-block config, keyed by block tag, for a reader's browser.
+ *
+ * Built from `getSiteBlocks` rather than a route of its own: `GET /sites/:siteId/blocks` (see
+ * `mayListBlocks` in `api/blocks.ts`) is gated to authors and administrators, and a page reader is
+ * neither. This travels instead on the site-info response every reader's browser already fetches
+ * publicly, so a block like `block-map` can resolve its site-wide config (a tile server URL, an API
+ * key) without ever calling the gated route.
+ *
+ * Only a block that is both enabled and declares at least one `config` field is included: a disabled
+ * block's config must never reach a reader's browser, and a block with nothing configurable would
+ * only add an empty object to every page's payload for no reader to use.
+ */
+async function blocksConfigFor(siteId: string): Promise<Record<string, object>> {
+  const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
+  const blocksConfig: Record<string, object> = {}
+  for (const block of siteBlocks) {
+    if (block.isEnabled && block.configFields.length > 0) {
+      blocksConfig[block.block] = block.config ?? {}
+    }
+  }
+  return blocksConfig
 }
 
 /**

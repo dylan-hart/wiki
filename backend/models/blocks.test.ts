@@ -1,9 +1,9 @@
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { blockCode as blockCodeTable, blocks as blocksTable } from '../db/schema.ts'
-import { blocks } from './blocks.ts'
+import type { BlockDefinition } from './blocks.ts'
 
 /**
  * `getSiteBlocks()`, `getCustomBlockCode()` and `deleteCustomBlock()` are all SQL orchestration over
@@ -204,6 +204,7 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     assert.equal(created.isEnabled, true)
     assert.equal(created.template, 'Starter body')
     assert.deepEqual(created.props, [{ name: 'title', type: 'string' }])
+    assert.deepEqual(created.configFields, [])
     // -> No override extracted for this upload, so it falls back the same way `getSiteBlocks()` does
     assert.equal(created.elementTag, 'block-fresh-widget')
 
@@ -259,60 +260,242 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
 })
 
 /**
- * `setBlocksState` is what the admin "Content Blocks" page's Apply button calls, and it is the only
- * writer of the `blocks.config` JSONB column — which is where a site-wide default (e.g. the Kroki or
- * PlantUML "Server" field) is stored. `WIKI.db` is stubbed rather than pointed at a real Postgres:
- * the logic under test is which `.set()` payload gets built per state entry, not Drizzle's own
- * query-building, and stubbing keeps this a fast, DB-less unit test.
+ * `getSiteBlocks` attaches `configFields` from the in-memory manifest (`this.definitions`), the same
+ * way it already attaches `props` and `template` — never from the row, since it describes the
+ * installed code rather than the site's own copy of it. This suite runs against a real row so it
+ * proves the merge, not just the shape of the return value.
  */
-describe('blocks.setBlocksState', () => {
-  let sets: Array<{ values: any; where: any }>
+describe('blocks.getSiteBlocks configFields (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let blocksModel: typeof import('./blocks.ts').blocks
 
-  beforeEach(() => {
-    sets = []
-    ;(globalThis as any).WIKI = {
-      db: {
-        update: () => ({
-          set: (values: any) => ({
-            where: async (where: any) => {
-              sets.push({ values, where })
-              return { rowCount: 1 }
-            }
-          })
-        })
-      }
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ blocks: blocksModel } = await import('./blocks.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('configFields is read from the manifest definition, keyed by block, not from the row', async () => {
+    const definition: BlockDefinition = {
+      block: 'map',
+      name: 'Map',
+      description: 'Shows a location on a map.',
+      icon: 'geography',
+      props: [{ name: 'lat', type: 'number', required: true }],
+      config: [
+        {
+          name: 'tileServerUrl',
+          type: 'string',
+          label: 'Tile Server URL',
+          default: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+        },
+        { name: 'apiKey', type: 'string', label: 'API Key' }
+      ]
     }
-  })
+    blocksModel.definitions = [definition]
 
-  test('writes isEnabled alone when no config is given', async () => {
-    const changed = await blocks.setBlocksState('site-1', [{ id: 'block-1', isEnabled: true }])
-    assert.equal(changed, 1)
-    assert.deepEqual(sets[0].values, { isEnabled: true })
-  })
-
-  test('writes config alongside isEnabled when the caller provides one', async () => {
-    await blocks.setBlocksState('site-1', [
-      { id: 'block-1', isEnabled: true, config: { server: 'https://kroki.example.com' } }
-    ])
-    assert.deepEqual(sets[0].values, {
+    await fixtures.db.insert(blocksTable).values({
+      siteId: fixtures.siteId,
+      block: 'map',
+      name: 'Map',
+      description: 'Shows a location on a map.',
+      icon: 'geography',
       isEnabled: true,
-      config: { server: 'https://kroki.example.com' }
+      isCustom: false,
+      config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
     })
+
+    const result = await blocksModel.getSiteBlocks(fixtures.siteId)
+    const mapBlock = result.find((b) => b.block === 'map')
+
+    assert.ok(mapBlock)
+    assert.deepEqual(mapBlock!.configFields, definition.config)
+    // -> The site's own admin-set values live on `config` (the row), untouched by `configFields`
+    assert.deepEqual(mapBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 
-  test('writes an empty config object as-is, clearing a previously-set value', async () => {
-    await blocks.setBlocksState('site-1', [{ id: 'block-1', isEnabled: false, config: {} }])
-    assert.deepEqual(sets[0].values, { isEnabled: false, config: {} })
+  test('a custom block, having no manifest entry, reports an empty configFields', async () => {
+    blocksModel.definitions = []
+
+    await fixtures.db.insert(blocksTable).values({
+      siteId: fixtures.siteId,
+      block: 'custom-thing',
+      name: 'Custom Thing',
+      description: 'A custom block.',
+      icon: 'cube',
+      isEnabled: true,
+      isCustom: true,
+      config: {}
+    })
+
+    const result = await blocksModel.getSiteBlocks(fixtures.siteId)
+    const custom = result.find((b) => b.block === 'custom-thing')
+
+    assert.ok(custom)
+    assert.deepEqual(custom!.configFields, [])
+  })
+})
+
+/**
+ * `setBlocksState` writes `config` alongside `isEnabled`, sanitised against the block's declared
+ * `config` fields (from the manifest, keyed by the row's `block`, not by anything in the request
+ * body — see the comment on `sanitizeConfig` for why a stale key is stripped rather than kept). A
+ * custom block, having no manifest declaration, is the one case that bypasses sanitization entirely.
+ */
+describe('blocks.setBlocksState (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let blocksModel: typeof import('./blocks.ts').blocks
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ blocks: blocksModel } = await import('./blocks.ts'))
   })
 
-  test('one row written per state entry, even when several share isEnabled', async () => {
-    const changed = await blocks.setBlocksState('site-1', [
-      { id: 'block-1', isEnabled: true, config: { server: 'https://a.example.com' } },
-      { id: 'block-2', isEnabled: true, config: { server: 'https://b.example.com' } }
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('writes config, stripping keys the block no longer declares', async () => {
+    blocksModel.definitions = [
+      {
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        config: [{ name: 'tileServerUrl', type: 'string' }]
+      }
+    ]
+
+    const [row] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        isEnabled: true,
+        isCustom: false,
+        config: {}
+      })
+      .returning({ id: blocksTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      {
+        id: row!.id,
+        isEnabled: true,
+        config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png', staleKey: 'gone' }
+      }
     ])
-    assert.equal(changed, 2)
-    assert.equal(sets.length, 2)
-    assert.deepEqual(sets[0].values.config, { server: 'https://a.example.com' })
-    assert.deepEqual(sets[1].values.config, { server: 'https://b.example.com' })
+
+    assert.equal(updated, 1)
+    const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+      (b) => b.id === row!.id
+    )
+    assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
+  })
+
+  test('a custom block config is written as-is, not sanitized against any declared field', async () => {
+    blocksModel.definitions = []
+
+    const [row] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'custom-widget',
+        name: 'Custom Widget',
+        description: 'A custom block',
+        icon: 'mdi:cube',
+        isEnabled: true,
+        isCustom: true,
+        config: {}
+      })
+      .returning({ id: blocksTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      { id: row!.id, isEnabled: true, config: { anything: 'goes', another: 1 } }
+    ])
+
+    assert.equal(updated, 1)
+    const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+      (b) => b.id === row!.id
+    )
+    assert.deepEqual(siteBlock!.config, { anything: 'goes', another: 1 })
+  })
+
+  test('a block already in its target isEnabled/config state still counts toward updated', async () => {
+    blocksModel.definitions = [
+      {
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        config: [{ name: 'tileServerUrl', type: 'string' }]
+      }
+    ]
+
+    const [row] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        isEnabled: true,
+        isCustom: false,
+        config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+      })
+      .returning({ id: blocksTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      {
+        id: row!.id,
+        isEnabled: true,
+        config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+      }
+    ])
+
+    assert.equal(updated, 1)
+  })
+
+  test('a state with no config only writes isEnabled, leaving the row config untouched', async () => {
+    blocksModel.definitions = [
+      {
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        config: [{ name: 'tileServerUrl', type: 'string' }]
+      }
+    ]
+
+    const [row] = await fixtures.db
+      .insert(blocksTable)
+      .values({
+        siteId: fixtures.siteId,
+        block: 'map',
+        name: 'Map',
+        description: 'Shows a location on a map.',
+        icon: 'geography',
+        isEnabled: false,
+        isCustom: false,
+        config: { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' }
+      })
+      .returning({ id: blocksTable.id })
+
+    const updated = await blocksModel.setBlocksState(fixtures.siteId, [
+      { id: row!.id, isEnabled: true }
+    ])
+
+    assert.equal(updated, 1)
+    const [siteBlock] = (await blocksModel.getSiteBlocks(fixtures.siteId)).filter(
+      (b) => b.id === row!.id
+    )
+    assert.equal(siteBlock!.isEnabled, true)
+    assert.deepEqual(siteBlock!.config, { tileServerUrl: 'https://example.test/{z}/{x}/{y}.png' })
   })
 })

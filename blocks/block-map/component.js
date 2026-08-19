@@ -4,6 +4,31 @@ import { LitElement, html, css, unsafeCSS } from 'lit'
 import * as L from 'leaflet/dist/leaflet-src.esm.js'
 import leafletCss from 'leaflet/dist/leaflet.css'
 import { DarkMode } from '../shared/theme.js'
+import { getBlockConfig } from '../shared/config.js'
+
+/** The tile server used when neither a site admin nor the page author has set one. */
+const DEFAULT_TILE_SERVER_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+
+/**
+ * The tile server URL and API key actually in effect, in order of precedence: a site admin's config
+ * (`static definition.config`, set once for the whole site) beats an author's own `tileServerUrl` /
+ * `apiKey` prop on this one instance (`static definition.props`), which beats the built-in OSM
+ * default. The admin wins because they are the one accountable for the site's tile bill and terms of
+ * service; a page author who has not touched either field gets exactly that default.
+ *
+ * A pure function, kept apart from `firstUpdated` so the precedence itself — the actual point of
+ * this task — is directly testable without mounting Leaflet.
+ *
+ * @param {{ tileServerUrl?: string, apiKey?: string }} siteConfig From `getBlockConfig('map')`.
+ * @param {{ tileServerUrl?: string, apiKey?: string }} props This instance's own prop values.
+ * @returns {{ tileServerUrl: string, apiKey: string }}
+ */
+export function resolveTileSettings(siteConfig, props) {
+  return {
+    tileServerUrl: siteConfig.tileServerUrl || props.tileServerUrl || DEFAULT_TILE_SERVER_URL,
+    apiKey: siteConfig.apiKey || props.apiKey || ''
+  }
+}
 
 /**
  * The marker, drawn rather than fetched.
@@ -74,6 +99,38 @@ export class BlockMapElement extends LitElement {
         options: ['auto', 'light', 'dark'],
         hint: 'auto follows the light or dark theme the reader is using.',
         default: 'auto'
+      },
+      {
+        name: 'tileServerUrl',
+        type: 'string',
+        label: 'Tile Server URL',
+        hint: "Overrides the default OpenStreetMap tiles for this map only. A site-wide tile server, set in this block's admin config, takes precedence over this."
+      },
+      {
+        name: 'apiKey',
+        type: 'string',
+        label: 'API Key',
+        hint: "Only needed for tile providers that require one. A site-wide key, set in this block's admin config, takes precedence over this."
+      }
+    ],
+    /**
+     * Site-level fields an admin sets once for the whole site, as opposed to `props` above, which an
+     * author sets per use in the editor. Same field names as the `tileServerUrl` / `apiKey` props
+     * above on purpose — see `resolveTileSettings`, which is what decides between them.
+     */
+    config: [
+      {
+        name: 'tileServerUrl',
+        type: 'string',
+        label: 'Tile Server URL',
+        hint: 'Must contain {z}/{x}/{y} placeholders. Defaults to the public OpenStreetMap tile server.',
+        default: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+      },
+      {
+        name: 'apiKey',
+        type: 'string',
+        label: 'API Key',
+        hint: 'Only needed for tile providers that require one.'
       }
     ]
   }
@@ -217,6 +274,20 @@ export class BlockMapElement extends LitElement {
        */
       theme: { type: String },
 
+      /**
+       * Overrides the default OpenStreetMap tiles for this one map. A site-wide tile server set in
+       * this block's admin config takes precedence — see `resolveTileSettings`.
+       * @type {string}
+       */
+      tileServerUrl: { type: String },
+
+      /**
+       * A tile provider's API key for this one map. A site-wide key set in this block's admin config
+       * takes precedence — see `resolveTileSettings`.
+       * @type {string}
+       */
+      apiKey: { type: String },
+
       // Internal Properties
       _error: { state: true }
     }
@@ -230,6 +301,8 @@ export class BlockMapElement extends LitElement {
     this.height = 400
     this.label = ''
     this.theme = 'auto'
+    this.tileServerUrl = ''
+    this.apiKey = ''
     this._error = ''
     this._map = null
     /*
@@ -239,7 +312,14 @@ export class BlockMapElement extends LitElement {
     this._darkMode = new DarkMode(this, { attribute: false })
   }
 
-  firstUpdated() {
+  /*
+    Async rather than `connectedCallback`/`willUpdate`: creating the Leaflet map needs the `.map`
+    container element, which only exists once `render()` has run once, i.e. once `firstUpdated` is
+    called. Lit does not await a lifecycle callback's return value, but by the time this one is
+    invoked the container is already in the DOM, so awaiting the site config fetch inside it just
+    delays the tile layer being added, not the element's own render.
+  */
+  async firstUpdated() {
     const lat = Number(this.lat)
     const lon = Number(this.lon)
     if (
@@ -254,6 +334,18 @@ export class BlockMapElement extends LitElement {
     }
 
     const container = this.renderRoot.querySelector('.map')
+    // -> Site config beats this instance's own prop, which beats the built-in default; see
+    //    `resolveTileSettings`.
+    const siteConfig = await getBlockConfig('map')
+    // -> A reader may have already navigated away by the time the fetch resolves
+    if (!this.isConnected) {
+      return
+    }
+    const { tileServerUrl, apiKey } = resolveTileSettings(siteConfig, {
+      tileServerUrl: this.tileServerUrl,
+      apiKey: this.apiKey
+    })
+
     this._map = L.map(container, {
       center: [lat, lon],
       zoom: Math.min(Math.max(Number(this.zoom) || 13, 1), 19),
@@ -264,9 +356,13 @@ export class BlockMapElement extends LitElement {
     this._map.on('click', () => this._map.scrollWheelZoom.enable())
     this._map.on('mouseout', () => this._map.scrollWheelZoom.disable())
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer(tileServerUrl, {
       maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      // -> Leaflet's own URL templating fills in any `{apiKey}` placeholder a tile server URL
+      //    contains from this option, the same way it fills in `{z}`/`{x}`/`{y}`. A provider whose
+      //    URL needs no key simply has no such placeholder, and this option goes unused.
+      apiKey
     }).addTo(this._map)
 
     const marker = L.marker([lat, lon], {

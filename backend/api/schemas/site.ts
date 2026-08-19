@@ -24,6 +24,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Whether this instance can render a page to PDF — i.e. whether the Puppeteer extension is installed (`WIKI.models.rendering.isAvailable()`). Instance-wide, not a per-site setting: lets the PDF export control hide or disable itself with an explanatory tooltip instead of offering a button that always fails.'
       },
+      blocksConfig: {
+        type: 'object',
+        description:
+          "This site's per-block config, keyed by block tag, for a block that is enabled AND declares at least one config field. Never includes a disabled block or one with nothing configurable — see `blocksConfigFor` in api/sites.ts. Lets a reader's browser resolve a block's site-wide config (e.g. block-map's tile server URL) without the manage:sites-gated GET /sites/:siteId/blocks route.",
+        additionalProperties: {
+          type: 'object',
+          additionalProperties: true
+        }
+      },
       title: {
         type: 'string'
       },

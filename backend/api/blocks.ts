@@ -242,7 +242,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Enable or disable site blocks',
         description:
-          'Only the blocks listed are affected; any others keep their current state. A state entry may also carry a `config` object, written to that block\'s per-site config as-is (e.g. the "Server" field block-kroki and block-plantuml offer) — omit it to leave a block\'s config untouched.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
+          'Only the blocks listed are affected; any others keep their current state. A state may also carry a `config` object of site-level values for that block (e.g. the "Server" field block-kroki and block-plantuml offer) — omitted, its row keeps whatever config it already has; given, for a built-in block it is sanitized against the block\'s declared `config` fields (stale keys stripped) and replaces the row wholesale, while a custom block (no declared fields) is written as-is.\n\nRequires `manage:sites`, or `site:blocks` on this site.',
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -273,7 +273,9 @@ async function routes(app: FastifyInstance) {
                   },
                   config: {
                     type: 'object',
-                    additionalProperties: true
+                    additionalProperties: true,
+                    description:
+                      "Site-level config values for this block. For a built-in block, sanitized against its declared `config` fields on write — keys it doesn't declare are stripped; a custom block has no declared fields and is written as-is. Omit to leave the row's existing config untouched."
                   }
                 }
               }

@@ -96,3 +96,22 @@ export function blockPropsFilled(block, values) {
     .filter((prop) => prop.required)
     .every((prop) => String(values[prop.name] ?? '').length > 0)
 }
+
+/**
+ * The values to seed a block's "Configure" form with: whatever the site has already saved, falling
+ * back to each field's own default where it never has.
+ *
+ * Mirrors how `BlockPickerOverlay`'s `select()` seeds a block's per-use props from `prop.default` —
+ * same idea, applied to the admin-set `configFields` instead of the author-set `props`.
+ *
+ * @param {{ config?: Record<string, unknown>, configFields?: Array }} block A block as the API describes it.
+ * @returns {Record<string, unknown>} Values by config field name.
+ */
+export function seedConfigValues(block) {
+  return Object.fromEntries(
+    (block.configFields ?? []).map((field) => [
+      field.name,
+      (block.config ?? {})[field.name] ?? field.default ?? ''
+    ])
+  )
+}

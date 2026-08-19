@@ -194,6 +194,8 @@
   "admin.auth.vendorWebsite": "Website",
   "admin.blocks.add": "Add Block",
   "admin.blocks.builtin": "Built-in",
+  "admin.blocks.configure": "Configure",
+  "admin.blocks.configureTitle": "Configure {blockName}",
   "admin.blocks.custom": "Custom",
   "admin.blocks.delete": "Delete Block",
   "admin.blocks.deleteConfirm": "Are you sure you want to delete the custom block {blockName}?",

@@ -26,6 +26,13 @@ export interface BlockDefinition {
   icon: string
   props?: BlockProp[]
   /**
+   * Site-level fields an admin sets once for the whole site, as opposed to `props`, which an author
+   * sets per use in the editor. Same shape as `props`, reused rather than duplicated: a tile server
+   * URL or an API key is exactly the same kind of field, just filled in by a different person in a
+   * different place (the admin area's block config, not the editor's block picker).
+   */
+  config?: BlockProp[]
+  /**
    * A block that only ever appears inside another one, such as a single tab of a set of tabs.
    *
    * It is never registered for a site: not something to insert on its own, and not something to
@@ -47,6 +54,7 @@ export interface SiteBlock {
   isEnabled: boolean
   isCustom: boolean
   config: Record<string, any>
+  configFields: BlockProp[]
   props: BlockProp[]
   template: string
   /** The custom element name this block renders as. `block-{block}` unless overridden. */
@@ -280,13 +288,16 @@ class Blocks {
       .where(eq(blocksTable.siteId, siteId))
       .orderBy(blocksTable.isCustom, blocksTable.name)
     /*
-      A built-in block's `props`/`template` come from the manifest rather than the row: they describe
-      the component's own attributes, so they belong to the installed code and not to a site's copy of
-      it. Reading them here means an updated block's props are correct the moment it is deployed, with
-      nothing to migrate.
+      A built-in block's `props`/`configFields`/`template` come from the manifest rather than the row:
+      they describe the component's own attributes, so they belong to the installed code and not to a
+      site's copy of it. Reading them here means an updated block's fields are correct the moment it is
+      deployed, with nothing to migrate.
 
       A custom block has no manifest entry — it is not installed code, it is what was uploaded — so it
-      sources the same two things from its own row instead, written when it was uploaded/edited.
+      sources `props`/`template`/`elementTag` from its own row instead, written when it was
+      uploaded/edited, and reports no `configFields` at all: the admin-config-field-schema concept only
+      applies to a block with a manifest to declare one, so a custom block's `config` is written as
+      given (see `sanitizeConfig()` below).
     */
     type RawRow = SiteBlock & {
       customProps: BlockProp[]
@@ -299,6 +310,7 @@ class Blocks {
           return {
             ...row,
             props: customProps ?? [],
+            configFields: [],
             template: customTemplate ?? '',
             elementTag: customElementTag || `block-${row.block}`
           }
@@ -307,6 +319,7 @@ class Blocks {
         return {
           ...row,
           props: definition?.props ?? [],
+          configFields: definition?.config ?? [],
           template: definition?.template ?? '',
           elementTag: `block-${row.block}`
         }
@@ -334,19 +347,53 @@ class Blocks {
   }
 
   /**
-   * Enable or disable blocks in bulk, and write each one's per-site `config` when the caller gives
-   * one — e.g. the "Server" field the admin area offers Kroki and PlantUML, so every author on this
-   * site gets that default instead of the component's own hardcoded one.
+   * Strip a config object down to the keys a block still declares.
    *
-   * One row per state entry, not batched by `isEnabled` the way this used to be: a batch only works
-   * when every row in it gets the same `.set()` values, and `config` differs per block. The list here
-   * is a handful of rows at most (the built-in blocks plus any custom ones), so there is nothing to
-   * gain from batching that is worth the loss of per-row values.
+   * `blockKey` is looked up from the row rather than trusted from the request body, since the point
+   * of this pass is that the caller cannot assert its way past it: a block's `config` field list can
+   * change shape between deploys (a field renamed, or dropped entirely), and without this a key left
+   * over from a previous shape would sit in the row forever — nothing else ever removes it, and the
+   * admin form generated from the current `configFields` has no way to show or clear a key it no
+   * longer knows about.
+   *
+   * A custom block is passed through untouched: it has no manifest declaration to check `config`
+   * against in the first place (see `getSiteBlocks()`'s `configFields: []` for the same reason), so
+   * there is nothing here to strip it down to.
+   *
+   * Deliberately loose beyond that: values are written as given, with no per-field type check against
+   * `BlockProp.type`. This mirrors how page-authored `props` are already trusted — `blockAllowances()`
+   * in `models/rendering.ts` allow-lists an embedded block's attributes by name only, taking whatever
+   * string value came with them — so `config` is held to the same standard as the sibling data an
+   * admin's site-level form and an author's page-level markup both ultimately feed into the same
+   * component. This is a deliberate choice for new code, not a preserved pre-existing gap: revisit it
+   * if a block ever needs a config value trusted for more than passing through to its own component
+   * (e.g. interpolated into a URL fetched server-side).
+   */
+  private sanitizeConfig(
+    block: { key: string; isCustom: boolean } | undefined,
+    config: Record<string, any>
+  ): Record<string, any> {
+    if (!block || block.isCustom) {
+      return config
+    }
+    const definition = this.definitions.find((d) => d.block === block.key)
+    const declared = new Set((definition?.config ?? []).map((field) => field.name))
+    return Object.fromEntries(Object.entries(config).filter(([key]) => declared.has(key)))
+  }
+
+  /**
+   * Enable or disable blocks in bulk, optionally updating each one's site-level `config`.
+   *
+   * A state with no `config` writes only `isEnabled`, leaving the row's existing config untouched —
+   * batched with `inArray`. A state that does carry `config` needs its own `UPDATE`, since a differing
+   * JSONB value per row cannot be expressed as one batched write; that config is sanitized first via
+   * `sanitizeConfig`, keyed by the row's own `block`/`isCustom` (fetched up front, since the request
+   * only carries the row id).
    *
    * `config` is left untouched, not cleared, when the caller omits it for a state entry — an empty
    * object `{}` is a deliberate "clear whatever was set", not the same as "say nothing about it".
    *
-   * @param states Block IDs with their desired state, and optionally a config to write with it
+   * @param states Block IDs with their desired state, and optionally a new site-level config
    * @returns The number of block rows written — a block already in the requested state still counts
    */
   async setBlocksState(
@@ -354,16 +401,49 @@ class Blocks {
     states: { id: string; isEnabled: boolean; config?: Record<string, any> }[]
   ): Promise<number> {
     let changed = 0
-    for (const state of states) {
-      const values =
-        state.config === undefined
-          ? { isEnabled: state.isEnabled }
-          : { isEnabled: state.isEnabled, config: state.config }
-      const result = await WIKI.db
-        .update(blocksTable)
-        .set(values)
-        .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, state.id)))
-      changed += result.rowCount ?? 0
+
+    const ids = states.map((s) => s.id)
+    const rows =
+      ids.length > 0
+        ? await WIKI.db
+            .select({
+              id: blocksTable.id,
+              block: blocksTable.block,
+              isCustom: blocksTable.isCustom
+            })
+            .from(blocksTable)
+            .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, ids)))
+        : []
+    const blockById = new Map(
+      rows.map((row) => [row.id, { key: row.block, isCustom: row.isCustom }])
+    )
+
+    for (const isEnabled of [true, false]) {
+      const group = states.filter((s) => s.isEnabled === isEnabled)
+      if (group.length < 1) {
+        continue
+      }
+
+      const withoutConfig = group.filter((s) => s.config === undefined).map((s) => s.id)
+      if (withoutConfig.length > 0) {
+        const result = await WIKI.db
+          .update(blocksTable)
+          .set({ isEnabled })
+          .where(and(eq(blocksTable.siteId, siteId), inArray(blocksTable.id, withoutConfig)))
+        changed += result.rowCount ?? 0
+      }
+
+      for (const state of group) {
+        if (state.config === undefined) {
+          continue
+        }
+        const config = this.sanitizeConfig(blockById.get(state.id), state.config)
+        const result = await WIKI.db
+          .update(blocksTable)
+          .set({ isEnabled, config })
+          .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.id, state.id)))
+        changed += result.rowCount ?? 0
+      }
     }
     return changed
   }
@@ -461,6 +541,7 @@ class Blocks {
         isEnabled: row!.isEnabled,
         isCustom: row!.isCustom,
         config: row!.config as Record<string, any>,
+        configFields: [],
         props: (row!.props as BlockProp[]) ?? [],
         template: row!.template,
         elementTag: row!.elementTag || `block-${row!.block}`
