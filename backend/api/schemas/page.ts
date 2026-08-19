@@ -469,6 +469,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         format: 'date-time',
         description: 'RFC 3339 Date Time'
       },
+      locale: {
+        type: 'string',
+        description:
+          'The locale the page was in at the time, which is not necessarily its locale now.'
+      },
       path: {
         type: 'string',
         description: 'Where the page was at the time, which is not necessarily where it is now.'
@@ -523,5 +528,18 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         }
       }
     ]
+  })
+
+  /**
+   * PAGE HISTORY RECOVER RESPONSE - A deleted page, recreated from one of its versions
+   */
+  app.addSchema({
+    $id: 'PageHistoryRecoverResponse',
+    type: 'object',
+    properties: {
+      ok: { type: 'boolean' },
+      message: { type: 'string' },
+      page: { $ref: 'Page#' }
+    }
   })
 }

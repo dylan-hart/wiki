@@ -1397,6 +1397,129 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * DELETED PAGES (RECOVERABLE)
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/pages/deleted',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and `read:history` is a
+        page permission granted by a rule. Checked per row below instead, against the path and locale
+        each deletion happened at — a caller sees only the deletions they could have read the history
+        of; the rest are left out rather than answered as a whole-list 403.
+      */
+      schema: {
+        summary: 'List recoverable deletions',
+        description:
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule.',
+        tags: ['Pages'],
+        params: siteIdParam,
+        response: {
+          200: {
+            description: 'Recoverable deletions, one row per path',
+            type: 'array',
+            items: { $ref: 'PageHistoryEntry#' }
+          }
+        }
+      }
+    },
+    async (req) => {
+      const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
+      return rows.filter((row) =>
+        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+      )
+    }
+  )
+
+  /**
+   * RECOVER DELETED PAGE
+   */
+  app.post<{
+    Params: { siteId: string; versionId: string }
+    Body: { path?: string; locale?: string }
+  }>(
+    '/sites/:siteId/pages/deleted/:versionId/recover',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and `write:pages` is a page
+        permission granted by a rule. Checked against the TARGET path below instead — the override
+        path/locale when given, otherwise the path/locale the version was deleted from.
+      */
+      schema: {
+        summary: 'Recover a deleted page',
+        description:
+          'Recreates the page from one specific deleted version, found by its history id rather than "the latest deletion at this path" — so a caller acting on a `GET …/pages/deleted` row recovers exactly the version it showed.\n\n`path` and/or `locale` in the body steer the recreated page around a conflict the plain restore would hit: a path a newer page has since taken answers `pageDuplicatePath` (409), and a locale the site no longer serves answers `pageInvalidLocale` (400) — both as the same JSON error shape every other page-creation failure uses, not a generic 500.',
+        tags: ['Pages'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: {
+              type: 'string',
+              format: 'uuid'
+            },
+            versionId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['siteId', 'versionId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              maxLength: 255,
+              pattern: '^/?[a-zA-Z0-9-_/]*$',
+              description: 'Recreate at this path instead of the one the page was deleted from.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: 'Recreate in this locale instead of the one the page was deleted from.'
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'PageHistoryRecoverResponse#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Recovering a page requires a logged in user.')
+      }
+      const version = await WIKI.models.pageHistory.getDeletedVersion(
+        req.params.siteId,
+        req.params.versionId
+      )
+      if (!version) {
+        return reply.notFound('No deleted version exists with this id.')
+      }
+      const overrides = req.body ?? {}
+      const target = {
+        path: overrides.path ?? version.path,
+        locale: overrides.locale ?? version.locale
+      }
+      if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to recover a page here.')
+      }
+      const page = await WIKI.models.pageHistory.recoverDeletedPage(
+        req.params.siteId,
+        req.params.versionId,
+        actor,
+        overrides
+      )
+      return {
+        ok: true,
+        message: 'Page recovered successfully.',
+        page
+      }
+    }
+  )
+
+  /**
    * RESOLVE ALIAS
    */
   app.get<{ Params: { siteId: string; alias: string } }>(

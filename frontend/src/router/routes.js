@@ -81,6 +81,7 @@ const routes = [
       { path: ':siteid/locale', component: () => import('@/pages/AdminLocale.vue') },
       { path: ':siteid/login', component: () => import('@/pages/AdminLogin.vue') },
       { path: ':siteid/navigation', component: () => import('@/pages/AdminNavigation.vue') },
+      { path: ':siteid/pages/deleted', component: () => import('@/pages/AdminPagesDeleted.vue') },
       { path: ':siteid/storage/:id?', component: () => import('@/pages/AdminStorage.vue') },
       { path: ':siteid/comments', component: () => import('@/pages/AdminComments.vue') },
       { path: ':siteid/theme', component: () => import('@/pages/AdminTheme.vue') },

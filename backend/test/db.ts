@@ -108,7 +108,7 @@ export async function setupTestDb(): Promise<TestFixtures> {
     .values({
       hostname: 'test.localhost',
       isEnabled: true,
-      config: { locales: { primary: 'en' } }
+      config: { locales: { primary: 'en', active: ['en', 'fr'] } }
     })
     .returning({ id: sitesTable.id })
 
@@ -131,7 +131,10 @@ export async function setupTestDb(): Promise<TestFixtures> {
     })
     .returning({ id: groupsTable.id })
 
-  WIKI.sites[site!.id] = { id: site!.id, config: { locales: { primary: 'en' } } }
+  WIKI.sites[site!.id] = {
+    id: site!.id,
+    config: { locales: { primary: 'en', active: ['en', 'fr'] } }
+  }
 
   return { db, siteId: site!.id, userId: user!.id, groupId: group!.id, schema }
 }

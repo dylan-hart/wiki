@@ -225,7 +225,36 @@
           <div class="page-history-same" v-if="state.sameContent">
             {{ t('history.sameContent') }}
           </div>
-          <div ref="diffEl" class="page-history-diff" />
+          <!--
+            Monaco never sees this pair (see `DIFF_INLINE_CHAR_LIMIT`) -- the container behind it stays
+            in the DOM either way, since an editor already mounted on it from an earlier, smaller
+            comparison needs somewhere to keep living while it is hidden.
+          -->
+          <div class="page-history-toolarge" v-if="state.diffTooLarge">
+            <w-icon name="la:exclamation-triangle" size="md" />
+            <div class="page-history-toolarge-text">{{ t('history.diffTooLarge') }}</div>
+            <div class="page-history-toolarge-actions">
+              <w-btn
+                outline
+                dense
+                no-caps
+                color="secondary"
+                :disable="!sideA"
+                @click="downloadVersion(sideA)">
+                {{ t('history.downloadVersionLetter', { letter: 'A' }) }}
+              </w-btn>
+              <w-btn
+                outline
+                dense
+                no-caps
+                color="secondary"
+                :disable="!sideB"
+                @click="downloadVersion(sideB)">
+                {{ t('history.downloadVersionLetter', { letter: 'B' }) }}
+              </w-btn>
+            </div>
+          </div>
+          <div ref="diffEl" class="page-history-diff" v-show="!state.diffTooLarge" />
         </template>
       </w-page>
     </w-page-container>
@@ -299,6 +328,8 @@ const state = reactive({
   notice: '',
   /** Set alongside the models rather than computed: the fetched sources are held outside `state`. */
   sameContent: false,
+  /** Set alongside the models, for the same reason: whether this pair was too large to hand to Monaco. */
+  diffTooLarge: false,
   /** One column with the changes marked in place, rather than the two-column default. */
   inline: false
 })
@@ -629,7 +660,11 @@ function branchFrom(version) {
         json: {
           path: target.path,
           title: target.title,
-          locale: pageStore.locale,
+          // -> The version's own locale, not the page's current one. `movePage` never changes locale
+          //    today, so the two happen to always agree — but a version is a record of what the page
+          //    was, and reading its own field is what stays correct if that invariant ever stops
+          //    holding rather than relying on it silently.
+          locale: full.locale || pageStore.locale,
           editor: full.meta?.editor || pageStore.editor,
           content,
           render: await renderOf(full, content),
@@ -692,13 +727,61 @@ async function mountEditor() {
     readOnly: true,
     scrollBeyondLastLine: false,
     theme: 'wikijs',
-    wordWrap: 'on'
+    wordWrap: 'on',
+    // -> Written out rather than left to Monaco's own defaults (which happen to be these same two
+    //    values today): the diff computation itself runs off the main thread in a worker, so a huge
+    //    pair of versions does not freeze the tab -- but past this budget the worker gives up and
+    //    returns no changes at all, and an abandoned computation then looks identical to two versions
+    //    that truly have no differences, with nothing in the UI to say which one happened. `DIFF_INLINE
+    //    _CHAR_LIMIT` below is what actually keeps that silent case from being reached in practice; this
+    //    is the backstop for the content that slips in under it but still turns out to be slow to diff.
+    maxComputationTime: 5000,
+    maxFileSize: 50
   })
 }
 
 /** The format the page was written in at the time, which is what colours the two sides. */
 function languageOf(version) {
-  return contentTypeOf(version) === 'html' ? 'html' : 'markdown'
+  const type = contentTypeOf(version)
+  if (type === 'html') {
+    return 'html'
+  }
+  // -> A redirect's content is `{kind, target, showInterstitial}` as JSON (see `helpers/pageRedirect.
+  //    js`), not prose -- coloured as markdown, a target such as `/foo_bar` reads as broken emphasis
+  //    syntax rather than as the path it is. JSON is what it actually is, and Monaco already knows it.
+  if (type === 'redirect') {
+    return 'json'
+  }
+  return 'markdown'
+}
+
+/**
+ * Above this many characters on either side, the comparison is not put in front of Monaco at all.
+ *
+ * Monaco's own diff computation runs in a worker, so it does not freeze the tab the way a main-thread
+ * computation would -- but a page with tens of thousands of lines is well within where it quietly runs
+ * past its computation budget (`maxComputationTime` on the diff editor above) and gives up, returning
+ * no changes. That result renders exactly like two versions with nothing different between them, with
+ * no indication the comparison was ever abandoned -- worse than a blank pane, which would at least look
+ * broken. This threshold is chosen to sit below where that starts happening in practice, so the honest
+ * "too large to render inline" notice is what a reader sees instead of a false "nothing changed".
+ */
+const DIFF_INLINE_CHAR_LIMIT = 500_000
+
+function tooLargeToDiffInline(a, b) {
+  return (
+    (a?.content?.length ?? 0) > DIFF_INLINE_CHAR_LIMIT ||
+    (b?.content?.length ?? 0) > DIFF_INLINE_CHAR_LIMIT
+  )
+}
+
+/** Releases whatever the diff editor is currently showing, without disposing the editor itself. */
+function disposeModels() {
+  diffEditor?.setModel(null)
+  originalModel?.dispose()
+  modifiedModel?.dispose()
+  originalModel = null
+  modifiedModel = null
 }
 
 async function applyDiff() {
@@ -706,13 +789,25 @@ async function applyDiff() {
   state.loading++
   try {
     const [a, b] = await Promise.all([loadVersion(state.aId), loadVersion(state.bId)])
-    await mountEditor()
     // -> A newer comparison started while this one was in flight, and owns the editor now
-    if (token !== applyToken || !diffEditor) {
+    if (token !== applyToken) {
       return
     }
 
     state.sameContent = Boolean(a && b && a.content === b.content)
+    state.diffTooLarge = tooLargeToDiffInline(a, b)
+
+    if (state.diffTooLarge) {
+      // -> Neither version reaches Monaco: the pane is left empty (hidden behind the notice in the
+      //    template) and downloading each side is the one thing offered instead.
+      disposeModels()
+      return
+    }
+
+    await mountEditor()
+    if (token !== applyToken || !diffEditor) {
+      return
+    }
 
     const previous = [originalModel, modifiedModel]
     originalModel = monaco.editor.createModel(a?.content ?? '', languageOf(a ?? b))
@@ -734,12 +829,9 @@ async function applyDiff() {
 }
 
 function disposeEditor() {
+  disposeModels()
   diffEditor?.dispose()
-  originalModel?.dispose()
-  modifiedModel?.dispose()
   diffEditor = null
-  originalModel = null
-  modifiedModel = null
 }
 
 async function load() {
@@ -967,6 +1059,30 @@ $timeline-turn: 16px;
     font-size: 0.8rem;
     color: rgba(#fff, 0.6);
     background-color: rgba(#fff, 0.04);
+  }
+
+  /* -> Takes the diff pane's own place rather than sitting alongside it, unlike `-same` above: there
+        is no partial diff underneath this one to also show. */
+  &-toolarge {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem;
+    text-align: center;
+    color: rgba(#fff, 0.7);
+  }
+
+  &-toolarge-text {
+    max-width: 32rem;
+    font-size: 0.9rem;
+  }
+
+  &-toolarge-actions {
+    display: flex;
+    gap: 0.75rem;
   }
 
   &-diff {

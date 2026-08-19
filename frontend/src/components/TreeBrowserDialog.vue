@@ -165,6 +165,16 @@ const props = defineProps({
     required: false,
     default: 'savePage'
   },
+  /**
+   * The site to browse, when it isn't the one currently on screen -- the admin area's Recently
+   * Deleted view opens this dialog for whichever site its own picker has selected, which is not
+   * necessarily the site `siteStore` is showing.
+   */
+  siteId: {
+    type: String,
+    required: false,
+    default: ''
+  },
   itemId: {
     type: String,
     required: false,
@@ -333,7 +343,7 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
     state.fileList = []
   }
   try {
-    const items = await API_CLIENT.get(`sites/${siteStore.id}/tree`, {
+    const items = await API_CLIENT.get(`sites/${props.siteId || siteStore.id}/tree`, {
       searchParams: {
         ...(parentId ? { parentId } : {}),
         ...(parentPath ? { parentPath } : {}),

@@ -213,6 +213,14 @@
               <w-item-section>{{ t('admin.navigation.title') }}</w-item-section>
             </w-item>
             <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/pages/deleted`"
+              active-class="bg-primary text-white">
+              <w-item-section avatar>
+                <w-icon name="img:/_assets/icons/fluent-delete-bin.svg" />
+              </w-item-section>
+              <w-item-section>{{ t('history.recovery.title') }}</w-item-section>
+            </w-item>
+            <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/storage`"
               active-class="bg-primary text-white"
               v-if="maySeeStorage">

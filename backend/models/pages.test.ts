@@ -112,6 +112,17 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(page.contentType, 'asciidoc')
   })
 
+  test('createPage refuses a locale the site does not have enabled', async () => {
+    await assert.rejects(
+      pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/no-such-locale', locale: 'de' }),
+        actor
+      ),
+      /pageInvalidLocale/
+    )
+  })
+
   test('the same path is free again in a different locale', async () => {
     const en = await pagesModel.createPage(
       fixtures.siteId,
@@ -152,6 +163,24 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(updated!.title, 'Updated Title')
     // -> Untouched: not part of the patch
     assert.equal(updated!.description, 'original description')
+  })
+
+  test("updatePage keeps the page's original editor even if the patch names a different one", async () => {
+    // -> The invariant `PageHistoryOverlay.vue`'s `restoreVersion`/`branchFrom` rely on: a page's
+    //    editor is fixed at creation (see the comment on `updatePage`, "which editor authored a page
+    //    is not something a save may change"), so every version ever recorded for a given page was
+    //    written by the same editor the page still has today. That is what makes a same-page restore
+    //    structurally unable to hit a genuine editor-type mismatch -- there is no format-conversion
+    //    feature that could have made a version disagree with its own page.
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/editor-locked', editor: 'markdown' }),
+      actor
+    )
+
+    const updated = await pagesModel.updatePage(fixtures.siteId, page.id, { editor: 'html' }, actor)
+
+    assert.equal(updated!.editor, 'markdown')
   })
 
   test('updatePage returns null for a page that does not exist', async () => {
