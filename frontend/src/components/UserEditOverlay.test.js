@@ -281,3 +281,55 @@ describe('UserEditOverlay unassignGroup', () => {
     )
   })
 })
+
+/**
+ * Regression coverage for OpenProject #798: mail delivery isn't implemented in the backend at all
+ * yet, so the "Send Welcome Email" proceed button (which calls a no-op `sendWelcomeEmail()` stub)
+ * must render disabled with an explanatory caption rather than appearing actionable.
+ */
+describe('UserEditOverlay operations panel send welcome email', () => {
+  it('renders the proceed button disabled', async () => {
+    setActivePinia(createPinia())
+
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: USER.id }
+
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:users']
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'groups') {
+        return { json: () => Promise.resolve([]) }
+      }
+      if (url === `users/${USER.id}`) {
+        return { json: () => Promise.resolve(USER) }
+      }
+      return { json: () => Promise.resolve(undefined) }
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/u/:section', component: { template: '<div />' } }]
+    })
+    router.push('/u/operations')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(UserEditOverlay, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { BlueprintIcon: true }
+      }
+    })
+    await flushPromises()
+
+    // -> Under the empty test i18n bundle, `t()` falls back to the raw message key.
+    const proceedButton = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('common.actions.proceed'))
+    expect(proceedButton.attributes('disabled')).not.toBeUndefined()
+
+    wrapper.unmount()
+  })
+})

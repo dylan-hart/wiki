@@ -599,6 +599,9 @@
                     <w-item-label caption>{{
                       t(`admin.users.sendWelcomeEmailAltHint`)
                     }}</w-item-label>
+                    <w-item-label caption class="text-orange-8">{{
+                      t(`admin.users.sendWelcomeEmailUnavailable`)
+                    }}</w-item-label>
                   </w-item-section>
                   <w-item-section side>
                     <w-btn
@@ -607,6 +610,7 @@
                       icon="la:arrow-circle-right"
                       color="primary"
                       v-if="canManage"
+                      disable
                       @click="sendWelcomeEmail"
                       :label="t(`common.actions.proceed`)" />
                   </w-item-section>

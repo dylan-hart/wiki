@@ -110,20 +110,23 @@
               @click.stop />
           </w-item-section>
         </w-item>
-        <w-item clickable @click="state.userSendWelcomeEmail = !state.userSendWelcomeEmail">
+        <w-item>
           <blueprint-icon icon="email-open" />
           <w-item-section>
             <w-item-label>{{ t(`admin.users.sendWelcomeEmail`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.sendWelcomeEmailHint`) }}</w-item-label>
+            <w-item-label caption class="text-orange-8">{{
+              t(`admin.users.sendWelcomeEmailUnavailable`)
+            }}</w-item-label>
           </w-item-section>
           <w-item-section avatar>
             <w-toggle
               v-model="state.userSendWelcomeEmail"
-              :aria-label="t(`admin.users.sendWelcomeEmail`)"
-              @click.stop />
+              disable
+              :aria-label="t(`admin.users.sendWelcomeEmail`)" />
           </w-item-section>
         </w-item>
-        <w-item v-if="state.userSendWelcomeEmail">
+        <w-item v-if="welcomeEmailAvailable && state.userSendWelcomeEmail">
           <blueprint-icon icon="web-design" />
           <w-item-section>
             <w-select
@@ -202,6 +205,11 @@ const adminStore = useAdminStore()
 const { t } = useI18n()
 
 // DATA
+
+// -> Mail delivery isn't implemented in the backend yet (see backend/api/users.ts), which hard-
+//    rejects the request when this is true. Keep the toggle disabled here rather than letting the
+//    user flip it on only to have submit fail.
+const welcomeEmailAvailable = false
 
 const state = reactive({
   userName: '',

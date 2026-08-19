@@ -1188,6 +1188,7 @@
   "admin.users.sendWelcomeEmailAltHint": "An email will be sent to the user with link(s) to the wiki(s) the user has read access to.",
   "admin.users.sendWelcomeEmailFromSiteId": "Site to use for the Welcome Email",
   "admin.users.sendWelcomeEmailHint": "An email will be sent to the user with his login details.",
+  "admin.users.sendWelcomeEmailUnavailable": "Not available yet: mail sending isn't implemented in this version.",
   "admin.users.subtitle": "Manage Users",
   "admin.users.systemUser": "System User",
   "admin.users.tfa": "Two Factor Authentication (2FA)",
