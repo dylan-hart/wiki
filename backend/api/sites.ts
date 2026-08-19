@@ -595,6 +595,18 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Site does not exist.')
       }
 
+      // -> Mirror the DELETE route's last-site guard: a site can only be disabled if at least one
+      //    other site would remain enabled, otherwise every hostname would stop resolving.
+      if (
+        req.body.isEnabled === false &&
+        site.isEnabled &&
+        (await WIKI.models.sites.countEnabledSites()) <= 1
+      ) {
+        return reply.conflict(
+          'Cannot disable the last enabled site. At least 1 site must remain enabled at all times.'
+        )
+      }
+
       // -> Check for duplicate hostname
       if (
         req.body.hostname !== undefined &&

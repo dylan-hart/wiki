@@ -2,6 +2,7 @@ import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
   blocks as blocksTable,
+  navigation as navigationTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
   storage as storageTable
@@ -347,11 +348,17 @@ class Sites {
 
   async deleteSite(id: string): Promise<boolean> {
     // -> Block, storage and uploaded image rows belong to the site rather than to its content, and
-    //    their FK has no cascade, so they would otherwise block the delete. Content tables (pages,
-    //    assets, ...) deliberately still do — see the conflict handling in the route.
+    //    their FK has no cascade, so they would otherwise block the delete. The site's own root
+    //    navigation row (`navigation.id = siteId`, created by `createSite` via
+    //    `navigation.ensureSiteNav`) is the same story and is cleaned up the same way — note this
+    //    filters by `id`, not `siteId`, so it only ever removes that one row and leaves per-page
+    //    navigation rows (keyed by tree entry id) alone. Content tables (pages, assets, the page
+    //    tree, and any navigation row still owned by one of them) deliberately still lack a cascade
+    //    — see the conflict handling in the route.
     await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
     await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
     await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
+    await WIKI.db.delete(navigationTable).where(eq(navigationTable.id, id))
 
     const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
     if ((deletedResult.rowCount ?? 0) < 1) {
@@ -364,6 +371,10 @@ class Sites {
 
   async countSites() {
     return WIKI.db.$count(sitesTable)
+  }
+
+  async countEnabledSites() {
+    return WIKI.db.$count(sitesTable, eq(sitesTable.isEnabled, true))
   }
 
   async init(ids: SystemIds): Promise<void> {
