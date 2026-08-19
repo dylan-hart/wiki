@@ -33,7 +33,9 @@ export function flattenMenuItem(item, out) {
       'target',
       'openInNewWindow',
       'expandByDefault',
-      'visibilityGroups'
+      'visibilityGroups',
+      // -> `getNav`-only, never sent back on save — see `cleanMenuItem`/`reconstructMenuItems`
+      'generated'
     ]),
     visibilityLimited: item.visibilityGroups?.length > 0
   })
@@ -46,7 +48,8 @@ export function flattenMenuItem(item, out) {
         'icon',
         'target',
         'openInNewWindow',
-        'visibilityGroups'
+        'visibilityGroups',
+        'generated'
       ]),
       visibilityLimited: child.visibilityGroups?.length > 0,
       isNested: true
@@ -79,27 +82,32 @@ export function flattenMenuItems(items) {
  *
  * @param {object} item An editor-shaped row from `state.items`
  * @param {boolean} [isNested] Whether this row is itself a nested child
+ * @param {'before'|'after'} [pinned] A `mixed`-menu top-level item's placement relative to the
+ *   generated block — see `reconstructMenuItems`. Never set on a nested item.
  * @returns {object|undefined} The save-shaped item, or `undefined` for an unrecognized type
  */
-export function cleanMenuItem(item, isNested = false) {
+export function cleanMenuItem(item, isNested = false, pinned) {
   switch (item.type) {
     case 'header': {
       return {
         ...pick(item, ['id', 'type', 'label']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
+        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
+        ...(pinned && { pinned })
       }
     }
     case 'link': {
       return {
         ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
         visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
-        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) })
+        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) }),
+        ...(pinned && { pinned })
       }
     }
     case 'separator': {
       return {
         ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
+        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
+        ...(pinned && { pinned })
       }
     }
   }
@@ -115,20 +123,41 @@ export function cleanMenuItem(item, isNested = false) {
  * anything, and is the one case this raises on rather than silently drops or misfiles, since either of
  * those would save a menu different from the one on screen.
  *
+ * A `generated` item (and every nested child of one — always also `generated`, see `markGenerated` on
+ * the server) is skipped entirely: it is not this menu's own, `getNav` builds it fresh from the tree on
+ * every read, and writing it back would freeze today's snapshot into the stored `items` column exactly
+ * as the merge-rule note on the server's `getNav` warns against.
+ *
+ * On a `mixed` menu, a surviving top-level item's own `pinned` is recomputed from where it currently
+ * sits relative to the generated block, rather than trusting whatever it loaded with: dragging is
+ * fenced off from crossing that block (see `NavItemEditor.vue`'s `sortableOptions`), but a stored item
+ * can still move relative to OTHER stored items on the same side, and this is what keeps a save from
+ * silently reverting a drag the fence allowed.
+ *
  * @param {object[]} items The flat, editor-shaped list (`state.items`)
+ * @param {object} [opts]
+ * @param {string} [opts.menuMode] The resolved menu's own source (`static`/`auto`/`mixed`) — only a
+ *   `mixed` menu computes `pinned` on its surviving top-level items.
  * @returns {object[]} The nested, save-shaped menu
  * @throws {Error} If a nested item has no preceding top-level `link` to attach to
  */
-export function reconstructMenuItems(items) {
+export function reconstructMenuItems(items, { menuMode } = {}) {
   const out = []
+  let sawGeneratedBlock = false
   for (const item of items) {
+    if (item.generated) {
+      sawGeneratedBlock = true
+      continue
+    }
     if (item.isNested) {
       if (out.length < 1 || out.at(-1)?.type !== 'link') {
         throw new Error('One or more nested link items are not under a parent link!')
       }
+      // -> `pinned` is a top-level-only placement, meaningless (and never set) on a nested item
       out[out.length - 1].children.push(cleanMenuItem(item, true))
     } else {
-      out.push(cleanMenuItem(item))
+      const pinned = menuMode === 'mixed' ? (sawGeneratedBlock ? 'after' : 'before') : undefined
+      out.push(cleanMenuItem(item, false, pinned))
     }
   }
   return out

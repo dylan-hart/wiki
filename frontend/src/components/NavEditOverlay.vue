@@ -10,6 +10,9 @@
       <span class="ml-3 text-caption opacity-80" v-if="isEditingInherited">
         {{ t('navEdit.editingInherited') }}
       </span>
+      <span class="ml-3 text-caption opacity-80" v-if="menuMode === 'auto'">
+        {{ t('navEdit.menuSourceReadOnlyNotice') }}
+      </span>
       <w-space />
       <transition name="syncing">
         <w-spinner class="mr-2" v-show="isBusy" color="accent" size="24px" />
@@ -41,7 +44,7 @@
           :label="t(`common.actions.save`)"
           :aria-label="t(`common.actions.save`)"
           icon="la:check"
-          :disabled="isBusy"
+          :disabled="isBusy || menuMode === 'auto'"
           @click="save" />
       </w-btn-group>
     </w-header>
@@ -49,6 +52,7 @@
       ref="editorRef"
       :site-id="siteStore.id"
       :nav-id="navId"
+      :menu-mode="menuMode"
       @load-error="close"
       @update:loading="state.editorLoading = $event" />
   </w-layout>
@@ -126,6 +130,20 @@ const navId = computed(() => {
 const isEditingInherited = computed(() => Boolean(siteStore.overlayOpts.navId))
 
 /**
+ * The resolved menu's own source (`static`/`auto`/`mixed`) -- a different axis from the entry's own
+ * cascade `mode`. Resolved by `NavEditMenu.vue`'s popup before this overlay ever opens (see its
+ * `loadMenuMode`) and carried here via `overlayOpts`, rather than fetched again: it is what decides
+ * whether `nav-item-editor` below renders read-only (`auto`), and it travels back out again on save so
+ * that a source picked in the popup but not yet saved there is not silently lost.
+ *
+ * Left `undefined` (not defaulted to `'static'`) rather than assumed: `nav-item-editor` already
+ * defaults its own `menuMode` prop to `'static'`, and an explicit `undefined` prop value falls through
+ * to a component's own default exactly the same as the prop being omitted -- so this only ever adds
+ * information, never overrides the editor's default with a guess of its own.
+ */
+const menuMode = computed(() => siteStore.overlayOpts.menuMode)
+
+/**
  * Loading the menu, loading the group list, or saving — any of which the header spinner covers and
  * the Save button disables against.
  *
@@ -156,6 +174,10 @@ async function save() {
     const resp = await API_CLIENT.put(`sites/${siteStore.id}/navigation/pages/${pageStore.id}`, {
       json: {
         mode: siteStore.overlayOpts.mode ?? pageStore.navigationMode,
+        // -> Carried through unchanged (see `menuMode` above): the Save button is disabled while
+        //    `auto`, so this only ever re-affirms whatever source was already resolved, or persists a
+        //    source picked in the popup but not yet saved from there
+        menuMode: menuMode.value,
         items
       }
     }).json()

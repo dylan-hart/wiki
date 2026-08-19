@@ -125,7 +125,8 @@ const reTitle = /^[^<>"]+$/
 
 /** Ceiling on how many entries one listing returns, and how deep it may recurse. */
 const MAX_LIMIT = 1000
-const MAX_DEPTH = 10
+/** Also the recursion ceiling `Navigation.generateFromTree` enforces for the same reason. */
+export const MAX_DEPTH = 10
 
 /** Ceiling on how many entries one browse level returns. */
 const MAX_BROWSE = 500
@@ -138,6 +139,18 @@ const MAX_NAME_ATTEMPTS = 100
  */
 function childPathOf(folder: { folderPath?: string | null; fileName: string }): string {
   return folder.folderPath ? `${folder.folderPath}.${folder.fileName}` : folder.fileName
+}
+
+/**
+ * Folders before pages, alphabetical by title within each — the sort order `browse()` uses for a
+ * folder listing, and `Navigation.generateFromTree` reuses for the same reason: an auto-generated menu
+ * should read the same way the folder it was built from does.
+ */
+export function compareFoldersFirst(
+  a: { isFolder: boolean; title: string },
+  b: { isFolder: boolean; title: string }
+): number {
+  return a.isFolder === b.isFolder ? a.title.localeCompare(b.title) : a.isFolder ? -1 : 1
 }
 
 /**
@@ -200,7 +213,7 @@ function toTreeItem(row: TreeRow, depth: number, parentPath: string): TreeItem {
  * @param publicOnly Restrict to what a reader with no session may see. `isBrowsable` applies either
  *                   way: it is the author saying "not in the tree", not an access rule.
  */
-function pageIsVisible(
+export function pageIsVisible(
   columns: { isBrowsable: PgColumn; publishState: PgColumn },
   publicOnly: boolean
 ): (SQL | undefined)[] {
@@ -550,9 +563,7 @@ class Tree {
       title,
       truncated: rows.length > MAX_BROWSE,
       // -> Folders first, as a file browser lists them; an entry that is both belongs with them
-      items: [...merged.values()].sort((a, b) =>
-        a.isFolder === b.isFolder ? a.title.localeCompare(b.title) : a.isFolder ? -1 : 1
-      )
+      items: [...merged.values()].sort(compareFoldersFirst)
     }
   }
 

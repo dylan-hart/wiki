@@ -1,5 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { NAVIGATION_MODES, type NavigationItem, type NavigationMode } from '../models/navigation.ts'
+import {
+  NAVIGATION_MODES,
+  NAVIGATION_SOURCE_MODES,
+  type NavigationItem,
+  type NavigationMode,
+  type NavigationSourceMode
+} from '../models/navigation.ts'
 
 const navigationItem = {
   type: 'object',
@@ -19,6 +25,18 @@ const navigationItem = {
       type: 'array',
       items: { type: 'string' },
       description: 'Groups the item is limited to. Visible to everyone when empty.'
+    },
+    pinned: {
+      type: 'string',
+      enum: ['before', 'after'],
+      description:
+        "`mixed` menus only: whether a stored top-level item is placed before or after the tree-generated items it is merged with. Meaningless on `static`/`auto` menus and on nested items. Anything other than 'before' (including absent) is treated as 'after'."
+    },
+    generated: {
+      type: 'boolean',
+      readOnly: true,
+      description:
+        "Set by the server on an `auto`/`mixed` menu for every item (and nested child) that came from the tree walk rather than the stored items — never sent in a request body, since it is derived fresh on every read, not stored. Absent on a `static` menu and on a `mixed` menu's own stored items."
     }
   }
 }
@@ -53,7 +71,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get a navigation menu',
         description:
-          "The items of one menu, addressed by the id a page's `navigationId` points at.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead, and needs `manage:navigation`, or `site:navigation` on this site.",
+          'The resolved items of one menu, addressed by the id a page\'s `navigationId` points at. For a `static` menu (still the default, and the only kind before this feature) that is the stored items unchanged; for `auto` it is a fresh tree walk instead, and for `mixed` it is the tree walk merged with the stored items per each item\'s `pinned` placement — so this is not always "a column read verbatim" the way it once was.\n\nReadable without a session, because the sidebar is drawn for anonymous readers too. Items limited to a group are dropped for anyone outside it, at both levels of the menu — so what comes back is what the requester may see, not the whole menu. `full` asks for the whole of it instead (still including generation, so it is the preview an editor needs for `auto`/`mixed`, not just raw stored items), and needs `manage:navigation`, or `site:navigation` on this site.',
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -100,6 +118,45 @@ async function routes(app: FastifyInstance) {
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
         unfiltered
       })
+    }
+  )
+
+  /**
+   * GET A MENU'S SOURCE MODE
+   */
+  app.get<{ Params: { siteId: string; navId: string } }>(
+    '/sites/:siteId/navigation/:navId/mode',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "Get a menu's source mode",
+        description:
+          "A menu row's own `mode` (`static`/`auto`/`mixed`) with no item resolution -- what `NavEditMenu.vue`'s mode selector asks before it has anything to save, so it can preselect the option actually stored rather than always defaulting to `static`. `static` for a menu with no row yet, the same fallback `GET /sites/:siteId/navigation/:navId` falls back to.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            navId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'navId']
+        },
+        response: {
+          200: {
+            description: "The menu row's own source mode",
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: NAVIGATION_SOURCE_MODES }
+            },
+            required: ['mode']
+          }
+        }
+      }
+    },
+    async (req) => {
+      return { mode: await WIKI.models.navigation.getMode(req.params.navId) }
     }
   )
 
@@ -283,7 +340,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string; pageId: string }
-    Body: { mode: NavigationMode; items?: NavigationItem[] }
+    Body: { mode: NavigationMode; items?: NavigationItem[]; menuMode?: NavigationSourceMode }
   }>(
     '/sites/:siteId/navigation/pages/:pageId',
     {
@@ -294,7 +351,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Set how a page resolves its navigation',
         description:
-          'Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.\n\nRequires `manage:navigation`, or `site:navigation` on this site.',
+          "Records the mode on the tree entry and repoints every descendant that still inherits, stopping at any that overrides or hides in between.\n\nSending `items` stores them as the menu the mode resolves to, and leaving them out changes only the mode. With `inherit` that menu belongs to an ancestor — the same one `navigation/pages/{pageId}/inherited` names — so editing a menu from a page that inherits it edits it where it lives, for every page using it; for the home page that is the site-wide menu, which is what every other page inherits by default. Refused when the mode is `inherit` and the sidebar above the page is hidden, since then there is no menu to store items in.\n\n`mode` and `menuMode` are different axes: `mode` is this ENTRY's cascade setting (how it and its descendants pick a menu), `menuMode` is the RESOLVED MENU's own source (`static`/`auto`/`mixed` — whether its items are hand-authored, tree-generated, or both). Sending `menuMode` sets it on the same row `items` would write to; either can be sent without the other.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -321,6 +378,12 @@ async function routes(app: FastifyInstance) {
                   children: { type: 'array', items: navigationItem }
                 }
               }
+            },
+            menuMode: {
+              type: 'string',
+              enum: NAVIGATION_SOURCE_MODES,
+              description:
+                "The resolved menu's own source mode (`static`/`auto`/`mixed`) -- a different axis from `mode` above, which is this entry's cascade setting. Leaving it out changes only `mode`/`items`, not the menu's source."
             }
           }
         },
@@ -335,6 +398,12 @@ async function routes(app: FastifyInstance) {
               navigationId: {
                 type: ['string', 'null'],
                 description: 'The menu this page now resolves to. Null when the sidebar is hidden.'
+              },
+              mode: {
+                type: 'string',
+                enum: NAVIGATION_SOURCE_MODES,
+                description:
+                  "The resolved menu's own source mode. Present only when `menuMode` was sent in the request, echoing back what was just written."
               }
             }
           },
@@ -353,7 +422,8 @@ async function routes(app: FastifyInstance) {
         siteId: req.params.siteId,
         pageId: req.params.pageId,
         mode: req.body.mode,
-        items: req.body.items
+        items: req.body.items,
+        menuMode: req.body.menuMode
       })
       return {
         ok: true,

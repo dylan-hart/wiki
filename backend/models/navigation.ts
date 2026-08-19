@@ -1,6 +1,12 @@
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm'
-import { navigation as navigationTable, tree as treeTable } from '../db/schema.ts'
+import { and, asc, eq, exists, inArray, ne, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
+import {
+  navigation as navigationTable,
+  pages as pagesTable,
+  tree as treeTable
+} from '../db/schema.ts'
 import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
 export const NAVIGATION_MODES = [
@@ -11,6 +17,15 @@ export const NAVIGATION_MODES = [
   'hideExact'
 ] as const
 export type NavigationMode = (typeof NAVIGATION_MODES)[number]
+
+/**
+ * Where a navigation row's items come from -- `navigation.mode` in the schema. `static` (the
+ * default, and the only value any row had before this feature) is hand-authored items exactly as
+ * `setNavItems` already works; `auto` and `mixed` are resolved by `getNav`, which walks the tree via
+ * `generateFromTree` instead of (`auto`) or alongside (`mixed`) the stored `items`.
+ */
+export const NAVIGATION_SOURCE_MODES = ['static', 'auto', 'mixed'] as const
+export type NavigationSourceMode = (typeof NAVIGATION_SOURCE_MODES)[number]
 
 export interface NavigationItem {
   id: string
@@ -23,11 +38,31 @@ export interface NavigationItem {
   expandByDefault?: boolean
   visibilityGroups?: string[]
   children?: NavigationItem[]
+  /**
+   * `mixed` menus only: where a stored (manually-authored) top-level item sits relative to the
+   * generated tree-walk items it is merged with -- see the merge-rule comment on `getNav`. Meaningless
+   * on a `static` or `auto` menu, and on a nested (`children`) item, since placement is only ever
+   * decided at the top level.
+   */
+  pinned?: 'before' | 'after'
+  /**
+   * Set by `getNav` (never stored) on every item -- and nested child -- that came from `generateFromTree`
+   * rather than the row's own `items` column, on an `auto` or `mixed` menu. Absent on a `static` menu's
+   * items, and on a `mixed` menu's stored items, since neither is ever generated. See `markGenerated`.
+   */
+  generated?: boolean
 }
 
 export interface UpdateNavigationResult {
   navigationMode: NavigationMode
   navigationId: string | null
+  /**
+   * The resolved navigation row's own `mode` (static/auto/mixed) -- present only when `updateNavigation`
+   * was called with a `menuMode`, in which case it echoes back what was just written. Absent (not
+   * `undefined`-but-stale) when the call left `navigation.mode` untouched, since a caller that didn't
+   * send `menuMode` may not otherwise know the row's current source mode.
+   */
+  mode?: NavigationSourceMode
 }
 
 /** One tree entry whose navigation mode overrides what it would otherwise inherit. */
@@ -49,6 +84,24 @@ function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
 }
 
 /**
+ * Marks a `generateFromTree` result (and every nested child of it) as `generated`, recursively.
+ *
+ * What lets an `auto`/`mixed` editor (Task 464's `NavItemEditor.vue`) tell a tree-walk item apart from
+ * a hand-authored one in the single combined list `getNav` returns -- without it, editing a `mixed`
+ * menu and saving back everything on screen would freeze a snapshot of the generated items into the
+ * stored `items` column, exactly the footgun documented on `getNav` above. Applied only in `getNav`,
+ * not on `generateFromTree`'s own result, since "generated" is a property of how `getNav` is presenting
+ * an item to a caller, not of the tree walk itself.
+ */
+function markGenerated(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    generated: true,
+    ...(item.children?.length && { children: markGenerated(item.children) })
+  }))
+}
+
+/**
  * Navigation model
  *
  * A navigation menu is a row of `items` keyed by the id of whatever it belongs to: a tree entry that
@@ -61,7 +114,22 @@ function isVisibleTo(item: NavigationItem, userGroups: string[]): boolean {
  */
 class Navigation {
   /**
-   * The items of one menu.
+   * The resolved items of one menu — hand-authored, tree-generated, or both, depending on the row's
+   * `mode`.
+   *
+   * `static` returns the stored `items` unchanged, exactly as before this feature. `auto` ignores
+   * `items` entirely and returns a fresh `generateFromTree` walk instead. `mixed` computes both and
+   * combines them into a single list (see the merge-rule comment below) rather than the two-view
+   * `Main Menu`/`Browse` toggle 2.5.x used, which is the source of real user confusion this feature
+   * deliberately does not reproduce.
+   *
+   * `unfiltered` only ever controls the visibility-group pass at the end — it never changes whether
+   * generation runs, so a `full=true` read of an `auto`/`mixed` menu is the generated preview an editor
+   * needs to show, not just whatever happens to be stored. Note for whoever builds `mixed` editing
+   * (task 464): that preview is not safe to read back verbatim and re-save through `setNavItems` — it
+   * contains generated items alongside the stored ones, and saving it as-is would freeze a snapshot of
+   * the generated items into the stored `items` column. The editor needs to keep the two apart itself
+   * (e.g. only ever writing back the subset it loaded as stored), not rely on this method to do it.
    *
    * @param id Menu id — a tree entry id, or a site id for the site-wide menu
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
@@ -74,16 +142,48 @@ class Navigation {
     { userGroups = [], unfiltered = false }: { userGroups?: string[]; unfiltered?: boolean } = {}
   ): Promise<NavigationItem[]> {
     const rows = await WIKI.db
-      .select({ items: navigationTable.items })
+      .select({
+        items: navigationTable.items,
+        mode: navigationTable.mode,
+        siteId: navigationTable.siteId
+      })
       .from(navigationTable)
       .where(eq(navigationTable.id, id))
       .limit(1)
 
-    const items = (rows[0]?.items ?? []) as NavigationItem[]
-    if (unfiltered) {
-      return items
+    const row = rows[0]
+    const items = (row?.items ?? []) as NavigationItem[]
+
+    let combined: NavigationItem[]
+    if (!row || row.mode === 'static') {
+      combined = items
+    } else {
+      const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id)
+      const generated = markGenerated(
+        await this.generateFromTree(row.siteId, rootFolderPath, locale)
+      )
+      if (row.mode === 'auto') {
+        combined = generated
+      } else {
+        /*
+          Merge rule for `mixed`, per this feature's brief: a single combined list rather than 2.5.x's
+          two-view toggle, with placement decided per stored item via `pinned` rather than a single
+          fixed prepend-or-append rule -- a menu author can pin a "Home" link before the generated
+          section and leave everything else to fall in after it, in the same list. An item with no
+          `pinned` (or any value other than 'before') defaults to 'after', so a `mixed` menu with no
+          pinning at all behaves as "generated items, then whatever is stored" -- the least surprising
+          default, and the same shape `auto` already has plus manual items tacked on.
+        */
+        const before = items.filter((item) => item.pinned === 'before')
+        const after = items.filter((item) => item.pinned !== 'before')
+        combined = [...before, ...generated, ...after]
+      }
     }
-    return items
+
+    if (unfiltered) {
+      return combined
+    }
+    return combined
       .filter((item) => isVisibleTo(item, userGroups))
       .map((item) =>
         item.children?.length
@@ -93,10 +193,55 @@ class Navigation {
   }
 
   /**
+   * A menu row's own source mode (`static`/`auto`/`mixed`), with no item resolution -- what
+   * `NavEditMenu.vue`'s mode selector (Task 464) asks before it has anything to PUT, so it can
+   * preselect the option that is actually stored rather than always defaulting to `static`. `static`
+   * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
+   *
+   * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
+   */
+  async getMode(id: string): Promise<NavigationSourceMode> {
+    const rows = await WIKI.db
+      .select({ mode: navigationTable.mode })
+      .from(navigationTable)
+      .where(eq(navigationTable.id, id))
+      .limit(1)
+    return rows[0]?.mode ?? 'static'
+  }
+
+  /**
+   * The scope a `getNav` generation call walks from, for a given menu id -- resolved the same way
+   * `updateNavigation` already resolves `ownNavId`/`ancestorId`: the site id maps to the site root
+   * (empty `folderPath`, and the site's primary locale, since a site-wide menu names no locale of its
+   * own); any other id names a tree entry, and maps to THAT ENTRY'S OWN `folderPath` (its parent
+   * folder, not a path built from its own name) and locale, exactly as stored on it. A menu therefore
+   * always generates the section it sits alongside -- its siblings -- not its own subtree, which is
+   * also why an override on a leaf page resolves to a sensible (non-empty) root.
+   */
+  private async resolveGeneratorRoot(
+    siteId: string,
+    id: string
+  ): Promise<{ rootFolderPath: string; locale: string }> {
+    if (id === siteId) {
+      return { rootFolderPath: '', locale: this.defaultLocale(siteId) }
+    }
+    const entry = await this.getEntry(siteId, id)
+    return { rootFolderPath: entry.folderPath ?? '', locale: entry.locale }
+  }
+
+  /** The locale a site-wide (root) generated menu walks when nothing else names one. */
+  private defaultLocale(siteId: string): string {
+    return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+  }
+
+  /**
    * The menu the site as a whole uses, which is the one every page inherits by default.
    *
    * Created empty on demand: a site made before this row existed, or one whose menu was never edited,
    * has nothing stored, and an absent menu is an empty one rather than an error.
+   *
+   * Deliberately does not set `mode` -- the schema default (`static`) is what every row created here
+   * should get, so a row this creates behaves exactly as it did before `mode` existed.
    */
   async ensureSiteNav(siteId: string): Promise<void> {
     await WIKI.db
@@ -159,6 +304,130 @@ class Navigation {
       ...row,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
     }))
+  }
+
+  /**
+   * Build a menu by walking the tree instead of reading a hand-authored `items` row — the `auto` /
+   * `mixed` navigation source modes this feature adds. Called from `getNav` via `resolveGeneratorRoot`,
+   * which is what picks `rootFolderPath`/`locale` for a given menu id.
+   *
+   * Queries `tree`/`pages` under `rootFolderPath` the same way `tree.browse()` lists a folder: joined
+   * on `pages` for `isBrowsable`/`publishState`/`icon`, a folder with no visible descendant page
+   * dropped via the same `EXISTS` pattern (`holdsVisiblePages`), `asset` entries never considered, and
+   * ordered by the same folders-then-title comparator `browse()` uses (`compareFoldersFirst`, factored
+   * out of `tree.ts` for exactly this reuse).
+   *
+   * Sub-boundary rule, per the feature brief: an entry whose own `navigationMode` is `hide` or
+   * `hideExact` is dropped from the walk outright — for the recursive `hide` that silently drops
+   * everything below it too, since nothing below a row that was never added is ever walked. An entry on
+   * `override` or `overrideExact` is still included, as a leaf: its own subtree is a menu of its own
+   * (edited separately through the normal override/manual-items path), so the walk does not recurse
+   * into it.
+   *
+   * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
+   *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
+   * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
+   *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
+   */
+  private async generateFromTree(
+    siteId: string,
+    rootFolderPath: string,
+    locale: string,
+    depth = 0
+  ): Promise<NavigationItem[]> {
+    if (depth > MAX_DEPTH) {
+      return []
+    }
+
+    const descendant = alias(treeTable, 'navGenDescendantTree')
+    const descendantPage = alias(pagesTable, 'navGenDescendantPage')
+    // -> Text rather than an ltree operator, so the child path can be built from a bound prefix and the
+    //    row's own name -- the same trick `tree.browse()`'s `holdsVisiblePages` uses
+    const childPathPrefix = rootFolderPath ? `${rootFolderPath}.` : ''
+
+    const holdsVisiblePages = exists(
+      WIKI.db
+        .select({ one: sql`1` })
+        .from(descendant)
+        .innerJoin(descendantPage, eq(descendantPage.id, descendant.id))
+        .where(
+          and(
+            eq(descendant.siteId, treeTable.siteId),
+            eq(descendant.locale, treeTable.locale),
+            eq(descendant.type, 'page'),
+            sql`${descendant.folderPath} <@ (${childPathPrefix}::text || ${treeTable.fileName})::ltree`,
+            ...pageIsVisible(descendantPage, true)
+          )
+        )
+    )
+
+    const rows = await WIKI.db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        fileName: treeTable.fileName,
+        title: treeTable.title,
+        icon: pagesTable.icon,
+        navigationMode: treeTable.navigationMode,
+        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          eq(treeTable.folderPath, rootFolderPath),
+          ne(treeTable.type, 'asset'),
+          or(
+            eq(treeTable.type, 'folder'),
+            and(eq(treeTable.type, 'page'), ...pageIsVisible(pagesTable, true))
+          )
+        )
+      )
+
+    const parentPath = decodeTreePath(rootFolderPath) ?? ''
+
+    const candidates = rows
+      // -> An empty folder is a dead end -- same as `browse()` drops it
+      .filter((row) => row.type !== 'folder' || row.holdsVisiblePages)
+      // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
+      //    since nothing below a row that was never added is ever walked
+      .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
+      .sort((a, b) =>
+        compareFoldersFirst(
+          { isFolder: a.type === 'folder', title: a.title },
+          { isFolder: b.type === 'folder', title: b.title }
+        )
+      )
+
+    return Promise.all(
+      candidates.map(async (row): Promise<NavigationItem> => {
+        // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
+        //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
+        const isBoundary =
+          row.type === 'folder' &&
+          (['override', 'overrideExact'] as NavigationMode[]).includes(row.navigationMode)
+        const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
+        const children =
+          row.type === 'folder' && !isBoundary
+            ? await this.generateFromTree(siteId, childFolderPath, locale, depth + 1)
+            : []
+
+        return {
+          id: row.id,
+          type: 'link',
+          label: row.title,
+          ...(row.icon && { icon: row.icon }),
+          // -> Matches how `NavItemEditor.vue`'s manual page-picker builds a link target, so a
+          //    generated item and a hand-picked one render identically on the frontend
+          ...(row.type === 'page' && {
+            target: `/${locale}/${parentPath ? `${parentPath}/${row.fileName}` : row.fileName}`
+          }),
+          ...(children.length > 0 && { children })
+        }
+      })
+    )
   }
 
   /**
@@ -248,19 +517,32 @@ class Navigation {
    * change alters what descendants inherit — every entry below it that is still on `inherit` is
    * repointed, stopping at any that overrides or hides in between.
    *
+   * `mode` here is the entry's cascade setting (`inherit`/`override`/`overrideExact`/`hide`/
+   * `hideExact` — `NavigationMode`, deciding WHICH menu a page's sidebar resolves to). `menuMode` is a
+   * different axis entirely: the resolved menu ROW's own `mode` column (`static`/`auto`/`mixed` —
+   * `NavigationSourceMode`, deciding whether that menu's items are hand-authored, tree-generated, or
+   * both — see `getNav`). The two can change independently of each other in the same call, which is
+   * why they are separate parameters rather than one being folded into the other.
+   *
    * @param items When given, the menu the mode resolves to, replacing whatever was there — this
    *              entry's own, or the one it inherits when the mode is `inherit`
+   * @param menuMode When given, the resolved menu row's own `mode` (`static`/`auto`/`mixed`),
+   *                 replacing whatever it already had — set on the same target row `items` would
+   *                 write to (`ancestorId` under `inherit`, `ownNavId` otherwise), independent of
+   *                 whether `items` is also given.
    */
   async updateNavigation({
     siteId,
     pageId,
     mode,
-    items
+    items,
+    menuMode
   }: {
     siteId: string
     pageId: string
     mode: NavigationMode
     items?: NavigationItem[]
+    menuMode?: NavigationSourceMode
   }): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
@@ -277,12 +559,12 @@ class Navigation {
 
     const ancestorId = await this.ancestorNavId(siteId, folderPath)
 
-    if (items) {
+    if (items || menuMode) {
       /*
-        Which menu the items belong to is the mode's answer, not the entry's: a page that inherits
-        shows a menu belonging to an ancestor, so editing the sidebar from that page edits THAT menu
-        rather than starting one of its own that nothing would point at. For the root home page the two
-        are the same id — the site-wide menu is what it inherits and what it owns.
+        Which menu the items (and/or menuMode) belong to is the mode's answer, not the entry's: a page
+        that inherits shows a menu belonging to an ancestor, so editing the sidebar from that page edits
+        THAT menu rather than starting one of its own that nothing would point at. For the root home
+        page the two are the same id — the site-wide menu is what it inherits and what it owns.
       */
       const targetNavId = mode === 'inherit' ? ancestorId : ownNavId
       if (!targetNavId) {
@@ -292,10 +574,22 @@ class Navigation {
           400
         )
       }
+      const set: { items?: NavigationItem[]; mode?: NavigationSourceMode } = {}
+      if (items) {
+        set.items = items
+      }
+      if (menuMode) {
+        set.mode = menuMode
+      }
       await WIKI.db
         .insert(navigationTable)
-        .values({ id: targetNavId, siteId, items })
-        .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+        .values({
+          id: targetNavId,
+          siteId,
+          items: items ?? [],
+          ...(menuMode && { mode: menuMode })
+        })
+        .onConflictDoUpdate({ target: navigationTable.id, set })
     }
 
     // -> A mode that stops applying below this entry hands its descendants back to the ancestor
@@ -365,7 +659,7 @@ class Navigation {
       `)
     }
 
-    return { navigationMode: mode, navigationId: navId }
+    return { navigationMode: mode, navigationId: navId, ...(menuMode && { mode: menuMode }) }
   }
 }
 

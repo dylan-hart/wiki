@@ -410,11 +410,17 @@ export const locales = pgTable(
 )
 
 // NAVIGATION --------------------------
+// -> Where a menu's items come from: hand-authored (`static`, the only mode there has ever been),
+//    walked live off the tree (`auto`), or the tree walk with hand-authored items layered on top
+//    (`mixed`). Landed ahead of the walk itself -- every existing row defaults to `static`, so this
+//    column changes nothing about how a menu resolves until something later actually reads it.
+export const treeNavigationSourceEnum = pgEnum('treeNavigationSource', ['static', 'auto', 'mixed'])
 export const navigation = pgTable(
   'navigation',
   {
     id: uuid().primaryKey().defaultRandom(),
     items: jsonb().notNull().default([]),
+    mode: treeNavigationSourceEnum('mode').notNull().default('static'),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)

@@ -156,6 +156,98 @@ describe('expandByDefault / children: link-only, non-nested-only fields', () => 
   })
 })
 
+describe('generated items and mixed-menu pinned placement', () => {
+  it('flattenMenuItems carries the generated flag through, top-level and nested', () => {
+    const flat = flattenMenuItems([
+      { id: 'g1', type: 'link', label: 'Generated', visibilityGroups: [], generated: true },
+      { id: 'm1', type: 'link', label: 'Manual', visibilityGroups: [] }
+    ])
+    expect(flat.find((i) => i.id === 'g1').generated).toBe(true)
+    expect(flat.find((i) => i.id === 'm1').generated).toBeUndefined()
+  })
+
+  it('reconstructMenuItems drops every generated item, and its nested children, from the save payload', () => {
+    const items = [
+      { id: 'm1', type: 'link', label: 'Manual', visibilityLimited: false, visibilityGroups: [] },
+      {
+        id: 'g1',
+        type: 'link',
+        label: 'Generated',
+        visibilityLimited: false,
+        visibilityGroups: [],
+        generated: true
+      },
+      {
+        id: 'g1c',
+        type: 'link',
+        label: 'Generated child',
+        isNested: true,
+        visibilityLimited: false,
+        visibilityGroups: [],
+        generated: true
+      }
+    ]
+    const rebuilt = reconstructMenuItems(items)
+    expect(rebuilt.map((i) => i.id)).toEqual(['m1'])
+  })
+
+  it('leaves pinned unset on a static/auto menu even with a generated block present', () => {
+    const items = [
+      { id: 'm1', type: 'link', label: 'Before', visibilityLimited: false, visibilityGroups: [] },
+      {
+        id: 'g1',
+        type: 'link',
+        label: 'Generated',
+        visibilityLimited: false,
+        visibilityGroups: [],
+        generated: true
+      },
+      { id: 'm2', type: 'link', label: 'After', visibilityLimited: false, visibilityGroups: [] }
+    ]
+    const rebuilt = reconstructMenuItems(items, { menuMode: 'auto' })
+    expect(rebuilt.every((i) => i.pinned === undefined)).toBe(true)
+  })
+
+  it('on a mixed menu, tags surviving top-level items before/after the generated block by their position', () => {
+    const items = [
+      { id: 'm1', type: 'link', label: 'Before', visibilityLimited: false, visibilityGroups: [] },
+      {
+        id: 'g1',
+        type: 'link',
+        label: 'Generated',
+        visibilityLimited: false,
+        visibilityGroups: [],
+        generated: true
+      },
+      { id: 'm2', type: 'link', label: 'After one', visibilityLimited: false, visibilityGroups: [] },
+      { id: 'm3', type: 'link', label: 'After two', visibilityLimited: false, visibilityGroups: [] }
+    ]
+    const rebuilt = reconstructMenuItems(items, { menuMode: 'mixed' })
+    expect(rebuilt.map((i) => [i.id, i.pinned])).toEqual([
+      ['m1', 'before'],
+      ['m2', 'after'],
+      ['m3', 'after']
+    ])
+  })
+
+  it('never sets pinned on a nested item, even on a mixed menu', () => {
+    const items = [
+      { id: 'p1', type: 'link', label: 'Parent', visibilityLimited: false, visibilityGroups: [] },
+      {
+        id: 'c1',
+        type: 'link',
+        label: 'Child',
+        isNested: true,
+        visibilityLimited: false,
+        visibilityGroups: []
+      }
+    ]
+    const rebuilt = reconstructMenuItems(items, { menuMode: 'mixed' })
+    expect(rebuilt[0].pinned).toBe('before')
+    expect(rebuilt[0].children[0]).not.toHaveProperty('pinned')
+  })
+})
+
 describe('reconstructMenuItems() malformed input', () => {
   it('raises when a nested item has no preceding top-level link', () => {
     const items = [
