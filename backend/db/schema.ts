@@ -421,11 +421,20 @@ export const navigation = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     items: jsonb().notNull().default([]),
     mode: treeNavigationSourceEnum('mode').notNull().default('static'),
+    // -> Set only for the site-wide default menu, where it is what makes (siteId, locale) that row's
+    //    identity -- see the unique index below. Null for a row belonging to a tree entry override,
+    //    which is addressed by that entry's own id instead and has no locale of its own to record: a
+    //    unique index treats every null as distinct, so any number of overrides can share a site and
+    //    locale without colliding on this constraint.
+    locale: varchar({ length: 255 }),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [index('navigation_siteId_idx').on(table.siteId)]
+  (table) => [
+    index('navigation_siteId_idx').on(table.siteId),
+    uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)
+  ]
 )
 
 // PAGES ------------------------------

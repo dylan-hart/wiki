@@ -145,8 +145,11 @@ describe('AdminNavigation', () => {
     })
   })
 
-  it('opens the site-wide default menu directly, without a page to navigate to first', async () => {
+  it('opens the site-wide default menu directly, resolving its locale-scoped row id first', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(OVERRIDES) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ navigationId: 'default-nav-en' })
+    })
     dialog.mockClear()
 
     const { wrapper } = await mountPage()
@@ -156,14 +159,48 @@ describe('AdminNavigation', () => {
     //    its visible text instead of assuming which attribute landed on the DOM button
     const btn = wrapper.findAll('button').find((b) => b.text().includes('Edit Default Menu'))
     await btn.trigger('click')
+    await vi.waitUntil(() => dialog.mock.calls.length === 1)
 
+    // -> No locale is selected (the "All Locales" filter), so it falls back to the site's primary
+    //    locale rather than assuming its row id is the site id
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-1/navigation/default', {
+      searchParams: { locale: 'en' }
+    })
     expect(dialog).toHaveBeenCalledWith(
       expect.objectContaining({
         componentProps: expect.objectContaining({
           siteId: 'site-1',
-          navId: 'site-1',
+          navId: 'default-nav-en',
           title: 'Site Default Menu'
         })
+      })
+    )
+  })
+
+  it('resolves the default menu for whichever locale is currently selected', async () => {
+    API_CLIENT.get.mockReturnValue({ json: vi.fn().mockResolvedValue(OVERRIDES) })
+    dialog.mockClear()
+
+    const { wrapper } = await mountPage()
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 1)
+
+    const localeSelect = wrapper.findComponent({ name: 'WSelect' })
+    await localeSelect.vm.$emit('update:modelValue', 'fr')
+    await vi.waitUntil(() => API_CLIENT.get.mock.calls.length === 2)
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ navigationId: 'default-nav-fr' })
+    })
+    const btn = wrapper.findAll('button').find((b) => b.text().includes('Edit Default Menu'))
+    await btn.trigger('click')
+    await vi.waitUntil(() => dialog.mock.calls.length === 1)
+
+    expect(API_CLIENT.get).toHaveBeenLastCalledWith('sites/site-1/navigation/default', {
+      searchParams: { locale: 'fr' }
+    })
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: expect.objectContaining({ navId: 'default-nav-fr' })
       })
     )
   })

@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
+  NAV_COPY_MODES,
   NAVIGATION_MODES,
   NAVIGATION_SOURCE_MODES,
+  type NavCopyMode,
   type NavigationItem,
   type NavigationMode,
   type NavigationSourceMode
@@ -58,8 +60,10 @@ function canManageNavigation(req: FastifyRequest, siteId: string): boolean {
 /**
  * Navigation API Routes
  *
- * A menu belongs to a tree entry that overrides it, or to the site itself for the one every page falls
- * back to — both addressed by the same id, which is why there is a single route to read one.
+ * A menu belongs to a tree entry that overrides it, addressed by that entry's own id, or to one
+ * locale of the site itself for the one every page in that locale falls back to, addressed by that
+ * row's own id (see `GET .../navigation/default`) rather than the site's — either way a single opaque
+ * id, which is why there is a single route to read one.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -214,6 +218,99 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * GET THE SITE-WIDE DEFAULT MENU'S ROW ID
+   */
+  app.get<{ Params: { siteId: string }; Querystring: { locale: string } }>(
+    '/sites/:siteId/navigation/default',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "Get a locale's site-wide default menu row id",
+        description:
+          "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            locale: { type: 'string' }
+          },
+          required: ['locale']
+        },
+        response: {
+          200: {
+            description: "This locale's site-wide default menu row",
+            type: 'object',
+            properties: {
+              navigationId: { type: 'string', description: 'The row id, never the site id.' }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      return {
+        navigationId: await WIKI.models.navigation.ensureSiteNav(
+          req.params.siteId,
+          req.query.locale
+        )
+      }
+    }
+  )
+
+  /**
+   * LIST THE SITE-WIDE DEFAULT MENU ROOTS, ONE PER ACTIVE LOCALE
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/navigation/roots',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: "List a site's default menu roots, one per active locale",
+        description:
+          "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            description: "This site's default menu roots, one per active locale",
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                locale: { type: 'string' },
+                navigationId: { type: 'string', description: 'The row id, never the site id.' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.navigation.siteRoots(req.params.siteId)
+    }
+  )
+
+  /**
    * LIST NAVIGATION OVERRIDES
    */
   app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
@@ -286,7 +383,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Set a menu's items directly",
         description:
-          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — the site-wide default (`navId` is the site id, always present once `ensureSiteNav` has run) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` is neither the site id nor a tree entry belonging to this site.",
+          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — a locale's site-wide default (its own row id from `GET /sites/:siteId/navigation/default`) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` names neither an existing menu row of this site nor one of its own tree entries.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -331,6 +428,76 @@ async function routes(app: FastifyInstance) {
       return {
         ok: true,
         message: 'Navigation updated successfully.'
+      }
+    }
+  )
+
+  /**
+   * COPY NAVIGATION
+   */
+  app.post<{
+    Params: { siteId: string; targetNavId: string }
+    Body: { sourceSiteId?: string; sourceNavId: string; mode: NavCopyMode }
+  }>(
+    '/sites/:siteId/navigation/:targetNavId/copy',
+    {
+      config: {
+        permissions: ['manage:navigation']
+      },
+      schema: {
+        summary: 'Copy a menu onto another',
+        description:
+          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.",
+        tags: ['Navigation'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            targetNavId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'targetNavId']
+        },
+        body: {
+          type: 'object',
+          required: ['sourceNavId', 'mode'],
+          properties: {
+            sourceSiteId: {
+              type: 'string',
+              format: 'uuid',
+              description: "Site the source menu belongs to. Defaults to the path's siteId."
+            },
+            sourceNavId: { type: 'string', format: 'uuid' },
+            mode: {
+              type: 'string',
+              enum: NAV_COPY_MODES,
+              description:
+                'replace overwrites the target items; append pushes the clones onto the existing ones.'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Navigation copied successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' }
+            }
+          }
+        }
+      }
+    },
+    async (req) => {
+      await WIKI.models.navigation.copyNav({
+        sourceSiteId: req.body.sourceSiteId ?? req.params.siteId,
+        sourceId: req.body.sourceNavId,
+        targetSiteId: req.params.siteId,
+        targetId: req.params.targetNavId,
+        mode: req.body.mode
+      })
+      return {
+        ok: true,
+        message: 'Navigation copied successfully.'
       }
     }
   )

@@ -195,14 +195,15 @@ class Sites {
           config
         )
       })
-      .returning({ id: sitesTable.id })
+      .returning({ id: sitesTable.id, config: sitesTable.config })
 
     const newSite = result[0]
 
-    // -> The menu every page of the site inherits, keyed by the site id. Empty to begin with, but it
-    //    has to exist before a page can point at it
+    // -> The menu every page of the site's primary locale inherits by default. Empty to begin with,
+    //    but it has to exist before a page can point at it
     WIKI.logger.debug(`Creating new root navigation for site ${newSite.id}`)
-    await WIKI.models.navigation.ensureSiteNav(newSite.id)
+    const newSiteConfig = newSite.config as { locales: { primary: string } }
+    await WIKI.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
     // -> Site lookups by id / hostname are served from cache, which must know about the new site
     await WIKI.models.sites.reloadCache()

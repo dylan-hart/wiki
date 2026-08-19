@@ -145,7 +145,8 @@ import AdminNavEditDialog from '@/components/AdminNavEditDialog.vue'
  * someone already deviated from the default menu" — it lists every tree entry whose
  * `navigationMode` is not `inherit` (via `GET sites/:siteId/navigation/overrides`, one flat,
  * searchable, locale-filterable table) and gives a launch point for the site-wide default menu
- * itself ("Edit Default Menu", `navId === siteId`) plus each override row's own menu.
+ * itself ("Edit Default Menu", its row id resolved per-locale via
+ * `GET sites/:siteId/navigation/default`) plus each override row's own menu.
  *
  * It does not resolve or apply navigation for a single page in context, and it does not walk a page
  * tree — that is `NavEditMenu.vue` (the mode picker) and `NavEditOverlay.vue` (the item editor),
@@ -252,10 +253,32 @@ function openNavEditor(navId, title) {
   }).onOk(load)
 }
 
-/** Edits the site-wide default menu -- the one the home page's `override` mode points at, and every
- * other page inherits by default -- directly, without navigating to the live home page first. */
-function openDefaultMenu() {
-  openNavEditor(adminStore.currentSiteId, t('admin.navigation.defaultMenuTitle'))
+/**
+ * Edits the site-wide default menu -- the one the home page's `override` mode points at, and every
+ * other page inherits by default -- directly, without navigating to the live home page first.
+ *
+ * The default menu is locale-scoped and identified by `(siteId, locale)`, not by an id equal to the
+ * site's own, so its row id has to be resolved from the server rather than assumed: the locale filter
+ * when one is picked, or the site's primary locale for "All Locales" -- there is no single default
+ * menu spanning every locale to fall back to instead.
+ */
+async function openDefaultMenu() {
+  const locale = state.locale ?? siteStore.locales.primary
+  let navigationId
+  try {
+    ;({ navigationId } = await API_CLIENT.get(
+      `sites/${adminStore.currentSiteId}/navigation/default`,
+      { searchParams: { locale } }
+    ).json())
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.navigation.loadFailed'),
+      caption: apiErrorMessage(err)
+    })
+    return
+  }
+  openNavEditor(navigationId, t('admin.navigation.defaultMenuTitle'))
 }
 
 /**

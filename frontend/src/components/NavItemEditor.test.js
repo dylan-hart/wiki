@@ -1,8 +1,24 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
 import NavItemEditor from './NavItemEditor.vue'
+import { dialog } from '@/composables/dialog'
+
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
+
+/*
+  `WMenu` (the kebab "more actions" menu) teleports its open content straight into `document.body`,
+  independent of whichever wrapper mounted it -- and nothing here unmounts a wrapper between tests, so
+  a menu left open by one test would otherwise still be sitting in `document.body` for the next one to
+  find via a plain `[role="menu"]` query.
+*/
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 const MESSAGES = {
   'navEdit.header': 'Header',
@@ -16,7 +32,10 @@ const MESSAGES = {
   'navEdit.menuSourceReadOnlyNotice': 'This menu is generated automatically from the page tree.',
   'navEdit.menuSourceMixedListHint': 'Dimmed items are generated automatically.',
   'common.actions.add': 'Add',
-  'common.actions.delete': 'Delete'
+  'common.actions.delete': 'Delete',
+  'navEdit.clearItems': 'Clear All Items',
+  'navEdit.copyFrom': 'Copy from...',
+  'navEdit.copyFromWarn': 'Menu items copied. Review the copied links.'
 }
 
 const SERVER_ITEMS = [
@@ -49,10 +68,16 @@ const SERVER_ITEMS = [
   }
 ]
 
-function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode } = {}) {
+function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], sites = [] } = {}) {
   API_CLIENT.get.mockImplementation((url) => {
     if (url === 'groups') {
       return { json: vi.fn().mockResolvedValue(groups) }
+    }
+    if (url === 'sites') {
+      return { json: vi.fn().mockResolvedValue(sites) }
+    }
+    if (url === 'sites/site-1/navigation/roots') {
+      return { json: vi.fn().mockResolvedValue(roots) }
     }
     return { json: vi.fn().mockResolvedValue(items) }
   })
@@ -62,6 +87,13 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode } = {}) {
     props: { siteId: 'site-1', navId: 'nav-1', ...(menuMode && { menuMode }) },
     global: { plugins: [i18n] }
   })
+}
+
+/** Opens the kebab ("more actions") menu and returns its teleported panel. */
+async function openKebabMenu(wrapper) {
+  await wrapper.find('button.ml-2').trigger('click')
+  await vi.waitUntil(() => document.querySelector('[role="menu"]'))
+  return document.querySelector('[role="menu"]')
 }
 
 describe('NavItemEditor', () => {
@@ -126,6 +158,146 @@ describe('NavItemEditor', () => {
 
     const [item] = wrapper.vm.buildSaveItems()
     expect(item.visibilityGroups).toEqual([])
+  })
+
+  it("discovers copy sources (this site's locale roots and other enabled sites) on mount", async () => {
+    const wrapper = mountEditor({
+      roots: [{ locale: 'en', navigationId: 'nav-1' }],
+      sites: [{ id: 'site-2', title: 'Other Site', hostname: 'other.example.com', isEnabled: true }]
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/roots')
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites')
+  })
+
+  it('hides the "Copy from..." action when the site has one locale and there is no other enabled site', async () => {
+    const wrapper = mountEditor({
+      roots: [{ locale: 'en', navigationId: 'nav-1' }],
+      sites: []
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const menu = await openKebabMenu(wrapper)
+    expect(menu.textContent).not.toContain('Copy from...')
+  })
+
+  it('hides "Copy from..." when the only other site on the list is disabled', async () => {
+    const wrapper = mountEditor({
+      roots: [{ locale: 'en', navigationId: 'nav-1' }],
+      sites: [
+        { id: 'site-2', title: 'Disabled Site', hostname: 'off.example.com', isEnabled: false }
+      ]
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const menu = await openKebabMenu(wrapper)
+    expect(menu.textContent).not.toContain('Copy from...')
+  })
+
+  it('shows "Copy from..." and opens the source picker with the discovered locales and sites', async () => {
+    dialog.mockClear()
+    const roots = [
+      { locale: 'en', navigationId: 'nav-1' },
+      { locale: 'fr', navigationId: 'nav-2' }
+    ]
+    const sites = [
+      { id: 'site-2', title: 'Other Site', hostname: 'other.example.com', isEnabled: true }
+    ]
+    const wrapper = mountEditor({ roots, sites })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const menu = await openKebabMenu(wrapper)
+    const copyAction = [...menu.querySelectorAll('[role="button"]')].find((el) =>
+      el.textContent.includes('Copy from...')
+    )
+    expect(copyAction).toBeTruthy()
+    copyAction.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    await vi.waitUntil(() => dialog.mock.calls.length === 1)
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: expect.objectContaining({
+          siteId: 'site-1',
+          navId: 'nav-1',
+          locales: roots,
+          otherSites: sites
+        })
+      })
+    )
+  })
+
+  it("copies with mode 'append', reloads the items, and warns to review the copied links", async () => {
+    let confirm
+    dialog.mockImplementation(() => ({
+      onOk: (cb) => {
+        confirm = cb
+      }
+    }))
+    const wrapper = mountEditor({
+      roots: [
+        { locale: 'en', navigationId: 'nav-1' },
+        { locale: 'fr', navigationId: 'nav-2' }
+      ],
+      sites: []
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const menu = await openKebabMenu(wrapper)
+    const copyAction = [...menu.querySelectorAll('[role="button"]')].find((el) =>
+      el.textContent.includes('Copy from...')
+    )
+    copyAction.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await vi.waitUntil(() => typeof confirm === 'function')
+
+    API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({ ok: true }) })
+    API_CLIENT.get.mockClear()
+    const getCalls = API_CLIENT.get.mock.calls.length
+
+    await confirm({ sourceSiteId: 'site-1', sourceNavId: 'nav-2' })
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/navigation/nav-1/copy', {
+      json: { sourceSiteId: 'site-1', sourceNavId: 'nav-2', mode: 'append' }
+    })
+    // -> Reloads the menu's items from the server rather than assuming the merge locally
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1', {
+      searchParams: { full: true }
+    })
+    expect(API_CLIENT.get.mock.calls.length).toBeGreaterThan(getCalls)
+    expect(wrapper.vm.loading).toBe(false)
+  })
+
+  it('surfaces the API error and leaves the menu untouched when the copy is refused', async () => {
+    let confirm
+    dialog.mockImplementation(() => ({
+      onOk: (cb) => {
+        confirm = cb
+      }
+    }))
+    const wrapper = mountEditor({
+      roots: [
+        { locale: 'en', navigationId: 'nav-1' },
+        { locale: 'fr', navigationId: 'nav-2' }
+      ],
+      sites: []
+    })
+    await vi.waitUntil(() => !wrapper.vm.loading)
+
+    const menu = await openKebabMenu(wrapper)
+    const copyAction = [...menu.querySelectorAll('[role="button"]')].find((el) =>
+      el.textContent.includes('Copy from...')
+    )
+    copyAction.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await vi.waitUntil(() => typeof confirm === 'function')
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: false, message: 'Nope.' })
+    })
+    const itemsBefore = wrapper.vm.buildSaveItems()
+
+    await confirm({ sourceSiteId: 'site-1', sourceNavId: 'nav-2' })
+
+    expect(wrapper.vm.buildSaveItems()).toEqual(itemsBefore)
   })
 
   it('emits load-error and notifies when the initial fetch fails', async () => {

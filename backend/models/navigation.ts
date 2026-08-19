@@ -27,6 +27,15 @@ export type NavigationMode = (typeof NAVIGATION_MODES)[number]
 export const NAVIGATION_SOURCE_MODES = ['static', 'auto', 'mixed'] as const
 export type NavigationSourceMode = (typeof NAVIGATION_SOURCE_MODES)[number]
 
+/**
+ * How `copyNav` merges cloned items into the target menu.
+ *
+ * `replace` overwrites the target's `items` outright; `append` pushes the cloned items onto whatever
+ * is already there, matching 2.5.x's "copy from locale" merge behavior.
+ */
+export const NAV_COPY_MODES = ['replace', 'append'] as const
+export type NavCopyMode = (typeof NAV_COPY_MODES)[number]
+
 export interface NavigationItem {
   id: string
   type: 'link' | 'header' | 'separator'
@@ -102,15 +111,35 @@ function markGenerated(items: NavigationItem[]): NavigationItem[] {
 }
 
 /**
+ * Deep-clone a menu's items for `copyNav`, giving every item — top-level and nested child alike — a
+ * fresh id, since the sortable list frontend keys its drag-and-drop state on `id` and the source and
+ * target menus must not share one.
+ *
+ * `visibilityGroups` is left as-is on purpose: groups are instance-wide, so the reference copied over
+ * from the source item is still correct on the target, whatever site or locale it belongs to. `target`
+ * (the link itself) is copied unrewritten too — pointing it at the right page in the destination
+ * locale/site is a known best-effort limitation here, same as 2.5.x's own "copy from locale".
+ */
+function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
+  return items.map((item) => ({
+    ...item,
+    id: crypto.randomUUID(),
+    children: item.children?.length ? cloneItemsWithFreshIds(item.children) : item.children
+  }))
+}
+
+/**
  * Navigation model
  *
- * A navigation menu is a row of `items` keyed by the id of whatever it belongs to: a tree entry that
- * overrides the menu below it, or — for the site-wide menu every page falls back to — the site's own
- * id. That double use of the key is why the id alone is enough to fetch a menu, and why the home page
- * edits the site menu rather than one of its own.
+ * A navigation menu is a row of `items` keyed by its own id: a tree entry that overrides the menu
+ * below it, addressed by that entry's own id, or — for the site-wide menu every page falls back to —
+ * a row identified not by id (a real random uuid, meaningless on its own) but by the `(siteId,
+ * locale)` pair it belongs to, since a site with more than one active locale needs one such menu per
+ * locale. The home page of a given locale edits that locale's site menu rather than one of its own.
  *
  * Which menu a page gets is decided when the mode is saved rather than when the page is rendered:
- * every tree entry carries the resolved `navigationId`, so drawing a sidebar is one lookup.
+ * every tree entry carries the resolved `navigationId` — the menu row's real id either way — so
+ * drawing a sidebar is one lookup.
  */
 class Navigation {
   /**
@@ -131,7 +160,7 @@ class Navigation {
    * the generated items into the stored `items` column. The editor needs to keep the two apart itself
    * (e.g. only ever writing back the subset it loaded as stored), not rely on this method to do it.
    *
-   * @param id Menu id — a tree entry id, or a site id for the site-wide menu
+   * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
@@ -145,7 +174,8 @@ class Navigation {
       .select({
         items: navigationTable.items,
         mode: navigationTable.mode,
-        siteId: navigationTable.siteId
+        siteId: navigationTable.siteId,
+        locale: navigationTable.locale
       })
       .from(navigationTable)
       .where(eq(navigationTable.id, id))
@@ -158,7 +188,7 @@ class Navigation {
     if (!row || row.mode === 'static') {
       combined = items
     } else {
-      const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id)
+      const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
       const generated = markGenerated(
         await this.generateFromTree(row.siteId, rootFolderPath, locale)
       )
@@ -210,52 +240,85 @@ class Navigation {
   }
 
   /**
-   * The scope a `getNav` generation call walks from, for a given menu id -- resolved the same way
-   * `updateNavigation` already resolves `ownNavId`/`ancestorId`: the site id maps to the site root
-   * (empty `folderPath`, and the site's primary locale, since a site-wide menu names no locale of its
-   * own); any other id names a tree entry, and maps to THAT ENTRY'S OWN `folderPath` (its parent
-   * folder, not a path built from its own name) and locale, exactly as stored on it. A menu therefore
-   * always generates the section it sits alongside -- its siblings -- not its own subtree, which is
-   * also why an override on a leaf page resolves to a sensible (non-empty) root.
+   * The scope a `getNav` generation call walks from, for a given menu row -- resolved the same way
+   * `updateNavigation` already resolves `ownNavId`/`ancestorId`: a row carrying its own `locale` (see
+   * the schema comment on `navigation.locale`) is a site-wide default, and maps to the site root
+   * (empty `folderPath`) in that locale; a row with no `locale` of its own belongs to a tree entry
+   * instead, and maps to THAT ENTRY'S OWN `folderPath` (its parent folder, not a path built from its
+   * own name) and locale, exactly as stored on it. A menu therefore always generates the section it
+   * sits alongside -- its siblings -- not its own subtree, which is also why an override on a leaf
+   * page resolves to a sensible (non-empty) root.
    */
   private async resolveGeneratorRoot(
     siteId: string,
-    id: string
+    id: string,
+    rowLocale: string | null
   ): Promise<{ rootFolderPath: string; locale: string }> {
-    if (id === siteId) {
-      return { rootFolderPath: '', locale: this.defaultLocale(siteId) }
+    if (rowLocale !== null) {
+      return { rootFolderPath: '', locale: rowLocale }
     }
     const entry = await this.getEntry(siteId, id)
     return { rootFolderPath: entry.folderPath ?? '', locale: entry.locale }
   }
 
-  /** The locale a site-wide (root) generated menu walks when nothing else names one. */
-  private defaultLocale(siteId: string): string {
-    return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
-  }
-
   /**
-   * The menu the site as a whole uses, which is the one every page inherits by default.
+   * The menu one locale of the site as a whole uses, which is what every page in that locale inherits
+   * by default. Returns its row id — never the site id, and not stable to guess at, since it is a
+   * plain `defaultRandom()` uuid — so a caller always gets this from here rather than assuming it.
    *
-   * Created empty on demand: a site made before this row existed, or one whose menu was never edited,
-   * has nothing stored, and an absent menu is an empty one rather than an error.
+   * Created empty on demand: a site made before this row existed, a locale activated since, or a menu
+   * that was never edited, has nothing stored, and an absent menu is an empty one rather than an
+   * error. Idempotent: identified by `(siteId, locale)`, not by id, so calling it again for the same
+   * site and locale returns the same row instead of creating a second one.
    *
    * Deliberately does not set `mode` -- the schema default (`static`) is what every row created here
    * should get, so a row this creates behaves exactly as it did before `mode` existed.
    */
-  async ensureSiteNav(siteId: string): Promise<void> {
-    await WIKI.db
+  async ensureSiteNav(siteId: string, locale: string): Promise<string> {
+    const inserted = await WIKI.db
       .insert(navigationTable)
-      .values({ id: siteId, siteId, items: [] })
-      .onConflictDoNothing()
+      .values({ siteId, locale, items: [] })
+      .onConflictDoNothing({ target: [navigationTable.siteId, navigationTable.locale] })
+      .returning({ id: navigationTable.id })
+    if (inserted[0]) {
+      return inserted[0].id
+    }
+    const existing = await WIKI.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.siteId, siteId), eq(navigationTable.locale, locale)))
+      .limit(1)
+    return existing[0]!.id
+  }
+
+  /**
+   * Every site-wide default menu's own row id, one per active locale — what a "copy from" picker
+   * lists so an admin can pick a source without knowing a raw navigation uuid up front.
+   *
+   * Deliberately just the site-wide default, not every override: `listOverrides` already covers
+   * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
+   *
+   * Reads `siteId`'s active locales from the cached site config rather than taking them as a
+   * parameter, same as `defaultLocale` in `api/tree.ts` reaching into `WIKI.sites` directly — a site
+   * with none configured (or one this instance doesn't know about) resolves to an empty list rather
+   * than an error, since there is nothing to enumerate.
+   */
+  async siteRoots(siteId: string): Promise<{ locale: string; navigationId: string }[]> {
+    const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? []
+    return Promise.all(
+      activeLocales.map(async (locale) => ({
+        locale,
+        navigationId: await this.ensureSiteNav(siteId, locale)
+      }))
+    )
   }
 
   /**
    * Drop the menus belonging to tree entries that no longer exist.
    *
    * A menu is keyed by the id of the entry that owns it, so deleting a page or a folder would
-   * otherwise leave its menu behind with nothing able to reach it. The site's own menu is keyed by the
-   * site id and is never a tree entry, so it is not at risk here.
+   * otherwise leave its menu behind with nothing able to reach it. A site-wide menu is identified by
+   * `(siteId, locale)` rather than by belonging to a tree entry, so it is not at risk here.
    *
    * @param ids Tree entry ids being removed
    */
@@ -434,21 +497,26 @@ class Navigation {
    * Write a menu's items directly, addressed by the id of the row that already holds it.
    *
    * No page or mode resolution, unlike `updateNavigation` — the caller already knows which row it
-   * means, because it read the id off the thing it is editing: the site-wide default (its own id is
-   * the site id, see `ensureSiteNav`) or an override's `navigationId` from `listOverrides`. That is
-   * what the admin-launched menu editor (Task 433) saves against, as opposed to the page-context
-   * editor, which still goes through `updateNavigation` so that saving from an inheriting page can
-   * repoint at the ancestor it inherits from.
+   * means, because it read the id off the thing it is editing: a site-wide default's own row id (from
+   * `ensureSiteNav`, or `GET /sites/:siteId/navigation/default` for a caller with no db access of its
+   * own) or an override's `navigationId` from `listOverrides`. That is what the admin-launched menu
+   * editor (Task 433) saves against, as opposed to the page-context editor, which still goes through
+   * `updateNavigation` so that saving from an inheriting page can repoint at the ancestor it inherits
+   * from.
    *
-   * @param navId The row to write to — the site id, or a tree entry id belonging to this site
+   * @param navId The row to write to — a site-wide default's own id, or a tree entry id belonging to
+   *              this site
    */
   async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
-    if (navId === siteId) {
-      // -> Falls back to the site menu, and a site created before that row existed does not have one yet
-      await this.ensureSiteNav(siteId)
-    } else {
-      // -> Refuse a navId that names neither the site nor one of its own tree entries, rather than
-      //    silently creating a floating navigation row nothing else ever reaches
+    const existing = await WIKI.db
+      .select({ id: navigationTable.id })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, navId), eq(navigationTable.siteId, siteId)))
+      .limit(1)
+    if (existing.length < 1) {
+      // -> Refuse a navId that names neither an existing menu row of this site nor one of its own
+      //    tree entries, rather than silently creating a floating navigation row nothing else ever
+      //    reaches
       await this.getEntry(siteId, navId)
     }
 
@@ -456,6 +524,71 @@ class Navigation {
       .insert(navigationTable)
       .values({ id: navId, siteId, items })
       .onConflictDoUpdate({ target: navigationTable.id, set: { items } })
+  }
+
+  /**
+   * Copy one menu's items onto another, addressed by id exactly like `setNavItems` — the caller
+   * already knows both rows, whether that's a same-site "copy from locale" or a genuinely cross-site
+   * copy (`sourceSiteId` and `targetSiteId` differ).
+   *
+   * Reads the source's raw, unfiltered items (the same shape `getNav(..., { unfiltered: true })`
+   * returns — an editor copying a menu needs every item, not just what the requester's own groups can
+   * see), deep-clones them with a fresh id on every item so the sortable list frontend's `id`-keyed
+   * drag state never collides between source and target, and either overwrites the target's items
+   * (`replace`) or pushes the clones onto whatever the target already has (`append`, matching 2.5.x's
+   * "copy from locale" merge behavior).
+   *
+   * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
+   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten
+   * too: validating or repointing them against the destination locale/site is a known best-effort
+   * limitation, same as 2.5.x.
+   *
+   * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
+   *                      "copy from locale", different for a cross-site copy
+   * @param sourceId The source row's own id
+   * @param targetSiteId Site the target row belongs to — always the path's `:siteId` from the route
+   * @param targetId The target row's own id
+   */
+  async copyNav({
+    sourceSiteId,
+    sourceId,
+    targetSiteId,
+    targetId,
+    mode
+  }: {
+    sourceSiteId: string
+    sourceId: string
+    targetSiteId: string
+    targetId: string
+    mode: NavCopyMode
+  }): Promise<void> {
+    const sourceRows = await WIKI.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, sourceId), eq(navigationTable.siteId, sourceSiteId)))
+      .limit(1)
+    const sourceRow = sourceRows[0]
+    if (!sourceRow) {
+      throw new CustomError('navCopySourceNotFound', 'The source menu does not exist.', 404)
+    }
+
+    const targetRows = await WIKI.db
+      .select({ items: navigationTable.items })
+      .from(navigationTable)
+      .where(and(eq(navigationTable.id, targetId), eq(navigationTable.siteId, targetSiteId)))
+      .limit(1)
+    const targetRow = targetRows[0]
+    if (!targetRow) {
+      throw new CustomError('navCopyTargetNotFound', 'The target menu does not exist.', 404)
+    }
+
+    const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    const items =
+      mode === 'append'
+        ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
+        : clonedItems
+
+    await WIKI.db.update(navigationTable).set({ items }).where(eq(navigationTable.id, targetId))
   }
 
   /** The tree entry a navigation change is addressed to. */
@@ -474,26 +607,36 @@ class Navigation {
 
   /**
    * The menu a tree entry falls back to: the nearest ancestor that overrides or hides, or the
-   * site-wide menu when nothing above it does either.
+   * site-wide menu for its locale when nothing above it does either.
    *
    * @param siteId Site the entry belongs to, since paths are only unique within one
+   * @param locale Locale the entry belongs to — an ancestor override in a different locale that
+   *               happens to share the same path is not this entry's ancestor
    * @param folderPath Encoded ltree path of the folder holding the entry, empty at the site root
    */
-  private async ancestorNavId(siteId: string, folderPath: string): Promise<string | null> {
+  private async ancestorNavId(
+    siteId: string,
+    locale: string,
+    folderPath: string
+  ): Promise<string | null> {
     if (!folderPath) {
-      return siteId
+      return this.ensureSiteNav(siteId, locale)
     }
     const result = await WIKI.db.execute(sql`
       SELECT "navigationId"
       FROM tree
       WHERE "siteId" = ${siteId}
+        AND "locale" = ${locale}
         AND ("folderPath" || "fileName") @> ${folderPath}::ltree
         AND "navigationMode" IN ('override', 'hide')
       ORDER BY nlevel("folderPath" || "fileName") DESC
       LIMIT 1
     `)
     const rows = (result.rows ?? result) as any[]
-    return rows.length > 0 ? (rows[0].navigationId ?? null) : siteId
+    if (rows.length > 0) {
+      return rows[0].navigationId ?? null
+    }
+    return this.ensureSiteNav(siteId, locale)
   }
 
   /**
@@ -507,7 +650,7 @@ class Navigation {
    */
   async inheritedNavId(siteId: string, pageId: string): Promise<string | null> {
     const entry = await this.getEntry(siteId, pageId)
-    return this.ancestorNavId(siteId, entry.folderPath ?? '')
+    return this.ancestorNavId(siteId, entry.locale, entry.folderPath ?? '')
   }
 
   /**
@@ -546,18 +689,19 @@ class Navigation {
   }): Promise<UpdateNavigationResult> {
     const entry = await this.getEntry(siteId, pageId)
 
-    // -> Whatever this change resolves to, `inherit` ultimately falls back to the site menu, and a
-    //    site created before that row existed does not have one yet
-    await this.ensureSiteNav(siteId)
+    // -> Whatever this change resolves to, `inherit` ultimately falls back to this entry's locale's
+    //    site menu, and a site created before that row existed — or a locale activated since — does
+    //    not have one yet
+    const siteNavId = await this.ensureSiteNav(siteId, entry.locale)
 
     const folderPath = entry.folderPath ?? ''
-    // -> The home page at the root edits the site-wide menu rather than one of its own, which is what
-    //    makes it the menu every other page inherits
+    // -> The home page at the root edits its locale's site-wide menu rather than one of its own, which
+    //    is what makes it the menu every other page in that locale inherits
     const isSiteRoot = folderPath === '' && entry.fileName === 'home'
-    const ownNavId = isSiteRoot ? siteId : entry.id
+    const ownNavId = isSiteRoot ? siteNavId : entry.id
     const fullPath = folderPath ? `${folderPath}.${entry.fileName}` : entry.fileName
 
-    const ancestorId = await this.ancestorNavId(siteId, folderPath)
+    const ancestorId = await this.ancestorNavId(siteId, entry.locale, folderPath)
 
     if (items || menuMode) {
       /*
