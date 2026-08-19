@@ -23,11 +23,11 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
    * exact/wildcard semantics (`models/sites.ts`) rather than pulling in the db/schema/drizzle graph —
    * same approach as `api/sites.test.ts`.
    */
-  
+
   const SITE_A = { id: 'site-a', hostname: 'sitea.example.com', config: { assets: { logo: true } } }
   const SITE_B = { id: 'site-b', hostname: 'siteb.example.com', config: { assets: { logo: true } } }
   const SITE_WILDCARD = { id: 'site-wildcard', hostname: '*', config: { assets: { logo: true } } }
-  
+
   const sitesMappings: Record<string, string> = {
     [SITE_A.hostname]: SITE_A.id,
     [SITE_B.hostname]: SITE_B.id,
@@ -38,27 +38,27 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     [SITE_B.id]: SITE_B,
     [SITE_WILDCARD.id]: SITE_WILDCARD
   }
-  
+
   /** Distinct bytes per site so a response can be attributed to exactly one of them. */
   const assetsBySiteId: Record<string, { mime: string; data: Buffer }> = {
     [SITE_A.id]: { mime: 'image/png', data: Buffer.from('logo-a') },
     [SITE_B.id]: { mime: 'image/png', data: Buffer.from('logo-b') },
     [SITE_WILDCARD.id]: { mime: 'image/png', data: Buffer.from('logo-wildcard') }
   }
-  
+
   async function getSiteByHostname({ hostname }: { hostname: string }) {
     // -> Mirrors the real `Sites.getSiteByHostname`'s non-strict lookup: exact match, else the '*'
     //    wildcard mapping.
     const siteId = sitesMappings[hostname] || sitesMappings['*']
     return siteId ? sites[siteId] : null
   }
-  
+
   async function getAsset(siteId: string, _kind: string) {
     return assetsBySiteId[siteId] ?? null
   }
-  
+
   let app: FastifyInstance
-  
+
   before(async () => {
     ;(globalThis as any).WIKI = {
       ROOTPATH: process.cwd(),
@@ -70,17 +70,17 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         }
       }
     }
-  
+
     app = fastify()
     await app.register(siteRoutes)
     await app.ready()
   })
-  
+
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
   })
-  
+
   test("resolves site A's own logo when the Host header is site A's hostname", async () => {
     const res = await app.inject({
       method: 'GET',
@@ -90,7 +90,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.body, 'logo-a')
   })
-  
+
   test("resolves site B's own logo when the Host header is site B's hostname", async () => {
     const res = await app.inject({
       method: 'GET',
@@ -100,7 +100,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.body, 'logo-b')
   })
-  
+
   test("falls back to the '*' wildcard site when no site is registered for the hostname", async () => {
     const res = await app.inject({
       method: 'GET',
@@ -110,7 +110,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(res.body, 'logo-wildcard')
   })
-  
+
   test(
     "a Host header carrying a port still resolves the bare-hostname site, not the '*' wildcard " +
       "(Fastify's req.hostname already strips the port before this route ever sees it)",
@@ -124,7 +124,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       assert.equal(res.body, 'logo-a')
     }
   )
-  
+
   /**
    * Task 759 (the SVG CSP lockdown): the ETag/`If-None-Match`/304 branch, the `Content-Security-Policy`
    * header being conditioned on `asset.mime === svgMimeType`, and the header asymmetry between the two
@@ -138,14 +138,18 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
    * above.
    */
   describe('GET /_site/current/<resource> — caching, ETag and the SVG Content-Security-Policy header', () => {
-    const SITE = { id: 'site-etag', hostname: 'siteetag.example.com', config: { assets: {} as any } }
-  
+    const SITE = {
+      id: 'site-etag',
+      hostname: 'siteetag.example.com',
+      config: { assets: {} as any }
+    }
+
     let localApp: FastifyInstance
     let previousWiki: any
     let rootDir: string
     /** What `getAsset` returns for the current test; null reproduces "nothing uploaded". */
     let currentAsset: { data: Buffer; mime: string } | null = null
-  
+
     before(async () => {
       previousWiki = (globalThis as any).WIKI
       rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-site-fallback-'))
@@ -156,7 +160,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
         path.join(rootDir, 'assets', '_assets', 'logo-wikijs.svg'),
         '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg>'
       )
-  
+
       ;(globalThis as any).WIKI = {
         ROOTPATH: rootDir,
         models: {
@@ -167,33 +171,33 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
           }
         }
       }
-  
+
       localApp = fastify()
       await localApp.register(siteRoutes)
       await localApp.ready()
     })
-  
+
     after(async () => {
       await localApp.close()
       await fs.rm(rootDir, { recursive: true, force: true })
       ;(globalThis as any).WIKI = previousWiki
     })
-  
+
     afterEach(() => {
       currentAsset = null
       SITE.config.assets = {}
     })
-  
+
     test('an uploaded (non-SVG) asset gets an ETag, "public, no-cache", nosniff, and no CSP header', async () => {
       SITE.config.assets = { logo: true }
       currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
-  
+
       const res = await localApp.inject({
         method: 'GET',
         url: '/current/logo',
         headers: { host: SITE.hostname }
       })
-  
+
       assert.equal(res.statusCode, 200)
       assert.equal(res.body, 'raw-png-bytes')
       assert.equal(res.headers['cache-control'], 'public, no-cache')
@@ -206,17 +210,20 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       const expectedEtag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
       assert.equal(res.headers.etag, expectedEtag)
     })
-  
+
     test('an uploaded SVG asset gets the CSP/sandbox lockdown header in addition to the same caching headers', async () => {
       SITE.config.assets = { logo: true }
-      currentAsset = { data: Buffer.from('<svg><script>alert(1)</script></svg>'), mime: svgMimeType }
-  
+      currentAsset = {
+        data: Buffer.from('<svg><script>alert(1)</script></svg>'),
+        mime: svgMimeType
+      }
+
       const res = await localApp.inject({
         method: 'GET',
         url: '/current/logo',
         headers: { host: SITE.hostname }
       })
-  
+
       assert.equal(res.statusCode, 200)
       assert.equal(
         res.headers['content-security-policy'],
@@ -225,38 +232,38 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       assert.equal(res.headers['cache-control'], 'public, no-cache')
       assert.ok(res.headers.etag)
     })
-  
+
     test('a matching If-None-Match short-circuits to an empty 304, keeping ETag/Cache-Control on the response', async () => {
       SITE.config.assets = { logo: true }
       currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
       const etag = `"${crypto.createHash('sha1').update(currentAsset.data).digest('hex')}"`
-  
+
       const res = await localApp.inject({
         method: 'GET',
         url: '/current/logo',
         headers: { host: SITE.hostname, 'if-none-match': etag }
       })
-  
+
       assert.equal(res.statusCode, 304)
       assert.equal(res.body, '')
       assert.equal(res.headers.etag, etag)
       assert.equal(res.headers['cache-control'], 'public, no-cache')
     })
-  
+
     test('a stale/mismatched If-None-Match still gets the full 200 response, not a 304', async () => {
       SITE.config.assets = { logo: true }
       currentAsset = { data: Buffer.from('raw-png-bytes'), mime: 'image/png' }
-  
+
       const res = await localApp.inject({
         method: 'GET',
         url: '/current/logo',
         headers: { host: SITE.hostname, 'if-none-match': '"stale-etag-from-a-previous-upload"' }
       })
-  
+
       assert.equal(res.statusCode, 200)
       assert.equal(res.body, 'raw-png-bytes')
     })
-  
+
     test(
       'the built-in fallback (nothing uploaded) is served with neither an ETag nor a Cache-Control ' +
         'header — confirming the asymmetry with the uploaded branch is real, not an oversight this ' +
@@ -264,13 +271,13 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       async () => {
         SITE.config.assets = { logo: false }
         currentAsset = null
-  
+
         const res = await localApp.inject({
           method: 'GET',
           url: '/current/logo',
           headers: { host: SITE.hostname }
         })
-  
+
         assert.equal(res.statusCode, 200)
         assert.match(res.body, /<svg/)
         assert.equal(res.headers.etag, undefined)
@@ -290,10 +297,10 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
    * disabled site answers 403, distinguishable from the pre-existing 404 for a siteId/hostname that
    * matches nothing.
    */
-  
+
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
-  
+
   const sites: Record<string, any> = {
     [ENABLED_SITE_ID]: {
       id: ENABLED_SITE_ID,
@@ -311,19 +318,19 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
       config: { assets: {} }
     }
   }
-  
+
   async function getSiteById({ id }: { id: string }) {
     return sites[id] ?? null
   }
-  
+
   async function getAsset(siteId: string, kind: string) {
     return sites[siteId]?.config?.assets?.[kind]
       ? { data: Buffer.from('fake-logo-bytes'), mime: 'image/webp' }
       : null
   }
-  
+
   let app: FastifyInstance
-  
+
   before(async () => {
     ;(globalThis as any).WIKI = {
       ROOTPATH: process.cwd(),
@@ -336,24 +343,27 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
     await app.register(siteRoutes)
     await app.ready()
   })
-  
+
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
   })
-  
+
   test('answers 404 for a siteId that matches nothing', async () => {
-    const res = await app.inject({ method: 'GET', url: '/00000000-0000-0000-0000-000000000000/logo' })
+    const res = await app.inject({
+      method: 'GET',
+      url: '/00000000-0000-0000-0000-000000000000/logo'
+    })
     assert.equal(res.statusCode, 404)
   })
-  
+
   test('answers 403, distinguishable from 404, for a resolved-but-disabled site', async () => {
     const res = await app.inject({ method: 'GET', url: `/${DISABLED_SITE_ID}/logo` })
     assert.equal(res.statusCode, 403)
     assert.notEqual(res.statusCode, 404)
     assert.match(res.json().message, /disabled/i)
   })
-  
+
   test('an enabled site serves its uploaded asset, past the guard', async () => {
     const res = await app.inject({ method: 'GET', url: `/${ENABLED_SITE_ID}/logo` })
     assert.equal(res.statusCode, 200)

@@ -33,7 +33,11 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
-import { localePrefixRedirectTarget, resolveRequestSite, stripPageExtension } from './helpers/common.ts'
+import {
+  localePrefixRedirectTarget,
+  resolveRequestSite,
+  stripPageExtension
+} from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'

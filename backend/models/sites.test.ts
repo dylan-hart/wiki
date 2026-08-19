@@ -426,23 +426,23 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
     ;(globalThis as any).WIKI = previousWiki
   })
 
-test('an exact hostname match beats the catch-all', async () => {
-  const site = await sites.getSiteByHostname({ hostname: 'wiki.example.com' })
-  assert.equal(site?.id, EXACT_SITE_ID)
-})
+  test('an exact hostname match beats the catch-all', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'wiki.example.com' })
+    assert.equal(site?.id, EXACT_SITE_ID)
+  })
 
-test('an unmapped hostname falls back to the catch-all when not strict', async () => {
-  const site = await sites.getSiteByHostname({ hostname: 'unmapped.example.com', strict: false })
-  assert.equal(site?.id, WILDCARD_SITE_ID)
-})
+  test('an unmapped hostname falls back to the catch-all when not strict', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'unmapped.example.com', strict: false })
+    assert.equal(site?.id, WILDCARD_SITE_ID)
+  })
 
-test('strict: true excludes the catch-all fallback for an unmapped hostname', async () => {
-  const site = await sites.getSiteByHostname({ hostname: 'unmapped.example.com', strict: true })
-  assert.equal(site, null)
-})
+  test('strict: true excludes the catch-all fallback for an unmapped hostname', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'unmapped.example.com', strict: true })
+    assert.equal(site, null)
+  })
 
-test('strict: true still returns an exact match', async () => {
-  const site = await sites.getSiteByHostname({ hostname: 'wiki.example.com', strict: true })
-  assert.equal(site?.id, EXACT_SITE_ID)
-})
+  test('strict: true still returns an exact match', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'wiki.example.com', strict: true })
+    assert.equal(site?.id, EXACT_SITE_ID)
+  })
 })

@@ -9,7 +9,6 @@ import {
   type LocaleRoutingConfig
 } from './common.ts'
 
-
 const locales = (overrides: Partial<LocaleRoutingConfig> = {}): LocaleRoutingConfig => ({
   primary: 'en',
   active: ['en', 'fr'],

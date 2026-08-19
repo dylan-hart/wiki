@@ -82,7 +82,10 @@ describe('download route: byte-serving behavior', () => {
   test('serves the buffer path with Content-Disposition and X-Content-Type-Options set, and passes siteId through', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp()
-    const res = await app.inject({ method: 'GET', url: `/sites/${siteId}/assets/${assetId}/content` })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-disposition'], 'attachment; filename="archive.zip"')
     assert.equal(res.headers['x-content-type-options'], 'nosniff')
@@ -95,7 +98,10 @@ describe('download route: byte-serving behavior', () => {
   test('serves the stream path with the exact same headers as the buffer path', async () => {
     readContentResult = { body: Readable.from([Buffer.from('the bytes')]), size: 9 }
     const app = await buildApp()
-    const res = await app.inject({ method: 'GET', url: `/sites/${siteId}/assets/${assetId}/content` })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-disposition'], 'attachment; filename="archive.zip"')
     assert.equal(res.headers['x-content-type-options'], 'nosniff')
@@ -107,7 +113,10 @@ describe('download route: byte-serving behavior', () => {
   test('issues a 302 to the direct-access URL when readContent supplies one, instead of serving bytes', async () => {
     readContentResult = { redirectUrl: 'https://cdn.example.com/asset-1' }
     const app = await buildApp()
-    const res = await app.inject({ method: 'GET', url: `/sites/${siteId}/assets/${assetId}/content` })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
     assert.equal(res.statusCode, 302)
     assert.equal(res.headers.location, 'https://cdn.example.com/asset-1')
     await app.close()
@@ -116,7 +125,10 @@ describe('download route: byte-serving behavior', () => {
   test('answers 404 when readContent finds no content', async () => {
     readContentResult = null
     const app = await buildApp()
-    const res = await app.inject({ method: 'GET', url: `/sites/${siteId}/assets/${assetId}/content` })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
     assert.equal(res.statusCode, 404)
     await app.close()
   })
