@@ -155,7 +155,9 @@ async function routes(app: FastifyInstance) {
               mode: { type: 'string', enum: NAVIGATION_SOURCE_MODES }
             },
             required: ['mode']
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -252,7 +254,9 @@ async function routes(app: FastifyInstance) {
             properties: {
               navigationId: { type: 'string', description: 'The row id, never the site id.' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -298,7 +302,9 @@ async function routes(app: FastifyInstance) {
                 navigationId: { type: 'string', description: 'The row id, never the site id.' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -483,7 +489,9 @@ async function routes(app: FastifyInstance) {
               ok: { type: 'boolean' },
               message: { type: 'string' }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

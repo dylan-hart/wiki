@@ -1124,7 +1124,6 @@ class Rendering {
       throw err
     }
   }
-
 }
 
 export const rendering = new Rendering()

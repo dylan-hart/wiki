@@ -1244,7 +1244,9 @@ async function routes(app: FastifyInstance) {
                   'ID of the queued job. Pass it to the download route once it completes.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1299,7 +1301,9 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1384,7 +1388,9 @@ async function routes(app: FastifyInstance) {
                 description: 'ID of the queued job.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1456,7 +1462,9 @@ async function routes(app: FastifyInstance) {
                 description: 'ID of the queued job. Pass it to the status route below.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -1554,7 +1562,9 @@ async function routes(app: FastifyInstance) {
                 }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

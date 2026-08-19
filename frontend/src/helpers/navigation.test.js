@@ -219,7 +219,13 @@ describe('generated items and mixed-menu pinned placement', () => {
         visibilityGroups: [],
         generated: true
       },
-      { id: 'm2', type: 'link', label: 'After one', visibilityLimited: false, visibilityGroups: [] },
+      {
+        id: 'm2',
+        type: 'link',
+        label: 'After one',
+        visibilityLimited: false,
+        visibilityGroups: []
+      },
       { id: 'm3', type: 'link', label: 'After two', visibilityLimited: false, visibilityGroups: [] }
     ]
     const rebuilt = reconstructMenuItems(items, { menuMode: 'mixed' })

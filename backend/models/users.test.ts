@@ -728,7 +728,6 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   })
 })
 
-
 /**
  * `matchRecoveryCode` is the constant-time-discipline core of recovery-code verification, split out
  * of `verifyAndConsumeRecoveryCode` precisely so it can be tested without `WIKI` or a database: given

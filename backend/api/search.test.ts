@@ -6,6 +6,7 @@ import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
 import searchRoutes from './search.ts'
 import { registerSchemas as registerSearchSchema } from './schemas/search.ts'
+import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 /**
  * Route-level tests for the engine-picker endpoints added on top of `api/search.ts` (task #570):
@@ -93,6 +94,7 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  await registerErrorSchema(app)
   await registerSearchSchema(app)
   await app.register(searchRoutes)
   await app.ready()

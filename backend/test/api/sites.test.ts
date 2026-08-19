@@ -55,6 +55,9 @@ before(async () => {
       },
       rendering: {
         isAvailable: async () => true
+      },
+      blocks: {
+        getSiteBlocks: async () => []
       }
     }
   }

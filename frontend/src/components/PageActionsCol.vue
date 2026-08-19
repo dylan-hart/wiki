@@ -515,7 +515,6 @@ function removePendingAsset(item) {
     menuPendingAssets.value.hide()
   }
 }
-
 </script>
 
 <style lang="scss">

@@ -1,7 +1,7 @@
 key: azure-search
 title: 'Azure AI Search'
 icon: '/_assets/icons/ultraviolet-azure.svg'
-description: 'Azure AI Search (formerly Azure Cognitive Search) is Microsoft''s cloud information retrieval platform. Pages are indexed into a managed search index, with relevancy scored by field.'
+description: "Azure AI Search (formerly Azure Cognitive Search) is Microsoft's cloud information retrieval platform. Pages are indexed into a managed search index, with relevancy scored by field."
 vendor: Microsoft Corporation
 website: 'https://azure.microsoft.com/en-us/products/ai-services/ai-search'
 props:

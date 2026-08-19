@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
-/**
+ /**
  * Placeholder for an async component that has not arrived yet.
  *
  * Passed as `loadingComponent` wherever a shell is on screen before its content is: the overlays and

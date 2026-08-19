@@ -91,7 +91,9 @@ async function routes(app: FastifyInstance) {
                 items: { type: 'string' }
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -156,7 +158,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -239,7 +243,9 @@ async function routes(app: FastifyInstance) {
                 description: 'ID of the queued job, which the scheduler view lists.'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -293,7 +299,9 @@ async function routes(app: FastifyInstance) {
             description: 'List of search engines',
             type: 'array',
             items: { $ref: 'SearchEngine#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -358,7 +366,9 @@ async function routes(app: FastifyInstance) {
                 type: 'string'
               }
             }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -426,7 +436,9 @@ async function routes(app: FastifyInstance) {
             description: 'Refreshed list of search engines',
             type: 'array',
             items: { $ref: 'SearchEngine#' }
-          }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },

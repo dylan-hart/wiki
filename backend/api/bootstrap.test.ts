@@ -69,6 +69,9 @@ describe('pdfExportAvailable exposure (task 500)', () => {
         },
         rendering: {
           isAvailable: async () => renderingAvailable
+        },
+        blocks: {
+          getSiteBlocks: async () => []
         }
       }
     }
@@ -156,7 +159,8 @@ describe('isEnabled guard (task 699)', () => {
       models: {
         sites: { getSiteByHostname },
         flags: { getFlags: () => ({ experimental: false }) },
-        rendering: { isAvailable: async () => false }
+        rendering: { isAvailable: async () => false },
+        blocks: { getSiteBlocks: async () => [] }
       }
     }
 
