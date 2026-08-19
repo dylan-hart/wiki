@@ -16,7 +16,7 @@ import { setCssVar } from '@/helpers/cssVars'
 import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
-import { stripPageExtension } from '@/helpers/pagePaths'
+import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
 import { notify } from '@/composables/notify'
 
@@ -26,6 +26,7 @@ import WNotifications from '@/components/shared/WNotifications.vue'
 
 import { useCommonStore } from './stores/common'
 import { useFlagsStore } from '@/stores/flags'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
@@ -53,6 +54,7 @@ const dark = useDark()
 
 const commonStore = useCommonStore()
 const flagsStore = useFlagsStore()
+const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
@@ -251,6 +253,28 @@ router.beforeEach(async (to, from) => {
     : stripPageExtension(to.path, siteStore.pageExtensions)
   if (withoutExtension) {
     return { path: withoutExtension, query: to.query, hash: to.hash, replace: true }
+  }
+
+  /*
+    -> Locale prefix
+    A site with more than one active locale can address each in a page URL's own leading segment
+    (`/fr/some/page`), which is a content decision, not a UI one -- distinct from `desiredLocale` below,
+    which is the interface language and persists across pages regardless of which translation is being
+    read. Resolved into `pageStore.locale` so it is there before the page itself arrives: a `/_` route
+    is the app itself rather than a page, same as the extension check above, so it has no path segment
+    to read one from -- `resolveRouteLocale` falls back to a `?locale=` query instead (only `/_create`
+    ever sets one; see `pageStore.pageCreate`), and then to the site's primary same as an ordinary path
+    whose leading segment isn't one of the site's active codes. `Index.vue`'s own route watcher does
+    the matching strip of the segment off the path it hashes to look the page up -- this only resolves
+    which locale that lookup asks for.
+  */
+  if (siteStore.useLocales) {
+    pageStore.locale = resolveRouteLocale(
+      to.path,
+      to.query,
+      siteStore.locales.active.map((l) => l.code),
+      siteStore.locales.primary
+    )
   }
 
   // -> Locale

@@ -1144,7 +1144,8 @@ async function routes(app: FastifyInstance) {
             type: 'object',
             properties: {
               id: { type: 'string', format: 'uuid' },
-              path: { type: 'string' }
+              path: { type: 'string' },
+              locale: { type: 'string' }
             }
           },
           404: {

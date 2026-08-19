@@ -5,6 +5,7 @@ import { pick } from 'es-toolkit/object'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
+import { localizedPagePath, shouldPrefixLocale } from '@/helpers/pagePaths'
 
 /**
  * The icon a page starts with.
@@ -105,7 +106,13 @@ export const usePageStore = defineStore('page', {
   getters: {
     breadcrumbs: (state) => {
       const siteStore = useSiteStore()
-      const pathPrefix = siteStore.useLocales ? `/${state.locale}` : ''
+      const pathPrefix = shouldPrefixLocale(state.locale, {
+        useLocales: siteStore.useLocales,
+        primary: siteStore.locales.primary,
+        forcePrefix: siteStore.locales.forcePrefix
+      })
+        ? `/${state.locale}`
+        : ''
       return state.path.split('/').reduce((result, value, key) => {
         result.push({
           id: key,
@@ -129,16 +136,26 @@ export const usePageStore = defineStore('page', {
      * Its own path, except for a redirection, which is held on arrival: whoever just wrote down where
      * this page sends people is the one person who does not want to be sent there. `?redirect=no` is
      * what holds it — see `PageRedirect.vue` — and the screen it lands on offers to follow it.
+     *
+     * Carries the page's own locale prefix, same rule as `breadcrumbs` — this is a real navigation
+     * target (`router.replace` lands on it directly), so an unprefixed link to a non-primary-locale
+     * page would round-trip through the locale-detection default and land on the wrong translation.
      */
     editorExitPath: (state) => {
-      return `/${state.path}${state.editor === 'redirect' ? '?redirect=no' : ''}`
+      const siteStore = useSiteStore()
+      const path = localizedPagePath(state.path, state.locale, {
+        useLocales: siteStore.useLocales,
+        primary: siteStore.locales.primary,
+        forcePrefix: siteStore.locales.forcePrefix
+      })
+      return `${path}${state.editor === 'redirect' ? '?redirect=no' : ''}`
     }
   },
   actions: {
     /**
      * PAGE - LOAD
      */
-    async pageLoad({ path, id, withContent = false }) {
+    async pageLoad({ path, id, withContent = false, locale }) {
       const editorStore = useEditorStore()
       const siteStore = useSiteStore()
       /*
@@ -157,7 +174,11 @@ export const usePageStore = defineStore('page', {
           `sites/${siteStore.id}/pages/${id ?? fastHash(normalizePath(path))}`,
           {
             searchParams: {
-              withContent
+              withContent,
+              // -> A hash only identifies a page within a locale; omitted, the server falls back to
+              //    the site's primary one -- see `parseLocalePrefix` in `helpers/pagePaths.js` for
+              //    where this comes from.
+              ...(locale ? { locale } : {})
             }
           }
         ).json()
@@ -324,16 +345,21 @@ export const usePageStore = defineStore('page', {
       })
     },
     /**
-     * PAGE - GET PATH FROM ALIAS
+     * PAGE - RESOLVE ALIAS
+     *
+     * Returns the `{ id, path, locale }` the alias points at -- the locale as well as the bare path,
+     * so the caller can build a properly-prefixed link (`localizedPagePath`) instead of landing on
+     * the primary-locale default for a translation that isn't. `routes.js`'s `/a/:alias` is the only
+     * caller.
      */
     async pageAlias(alias) {
       const siteStore = useSiteStore()
       try {
-        const pagePath = await API_CLIENT.get(`sites/${siteStore.id}/pages/alias/${alias}`).json()
-        if (!pagePath?.id) {
+        const target = await API_CLIENT.get(`sites/${siteStore.id}/pages/alias/${alias}`).json()
+        if (!target?.id) {
           throw new Error('ERR_PAGE_NOT_FOUND')
         }
-        return pagePath.path
+        return target
       } catch (err) {
         if (err.response?.status === 404) {
           throw new Error('ERR_PAGE_NOT_FOUND')
@@ -356,6 +382,7 @@ export const usePageStore = defineStore('page', {
       fromNavigate = false
     } = {}) {
       const editorStore = useEditorStore()
+      const siteStore = useSiteStore()
 
       // -> Load editor config
       if (!editorStore.configIsLoaded) {
@@ -376,7 +403,19 @@ export const usePageStore = defineStore('page', {
       // -> Redirect if not at /_create path
       if (!this.router.currentRoute.value.path.startsWith('/_create/') && !fromNavigate) {
         editorStore.$patch({ ignoreRouteChange: true })
-        this.router.push(`/_create/${editor}`)
+        /*
+          `/_create` has no page segment of its own to carry a locale in, so the app router's own
+          locale-prefix guard (`App.vue`'s `beforeEach`, via `resolveRouteLocale`) would otherwise
+          reset `pageStore.locale` to the site's primary the instant this navigation resolves --
+          overwriting whatever gets patched in below before anything downstream can read it back.
+          Carrying it here, as `?locale=`, is what that guard falls back to instead. Skipped for a
+          single-locale site, where that guard never runs at all.
+        */
+        const createLocale = locale || this.locale
+        this.router.push({
+          path: `/_create/${editor}`,
+          query: siteStore.useLocales && createLocale ? { locale: createLocale } : undefined
+        })
       }
 
       // -> Init editor

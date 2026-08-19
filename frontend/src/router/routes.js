@@ -1,4 +1,6 @@
 import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 const routes = [
   {
@@ -18,11 +20,16 @@ const routes = [
   {
     path: '/a/:alias',
     component: () => import('@/layouts/MainLayout.vue'),
-    beforeEnter: async (to, from) => {
+    beforeEnter: async (to) => {
       const pageStore = usePageStore()
+      const siteStore = useSiteStore()
       try {
-        const pathPath = await pageStore.pageAlias(to.params.alias)
-        return `/${pathPath}`
+        const target = await pageStore.pageAlias(to.params.alias)
+        return localizedPagePath(target.path, target.locale, {
+          useLocales: siteStore.useLocales,
+          primary: siteStore.locales.primary,
+          forcePrefix: siteStore.locales.forcePrefix
+        })
       } catch (err) {
         return '/_error/notfound'
       }

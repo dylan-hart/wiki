@@ -230,6 +230,26 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(recreated.path, 'docs/delete-me')
   })
 
+  test('getPathFromAlias resolves an alias to its path and locale', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/alias-target', locale: 'fr', alias: 'aliased-page', title: 'Cible' }),
+      actor
+    )
+
+    const target = await pagesModel.getPathFromAlias(fixtures.siteId, 'aliased-page')
+
+    assert.ok(target)
+    assert.equal(target!.id, page.id)
+    assert.equal(target!.path, 'docs/alias-target')
+    assert.equal(target!.locale, 'fr')
+  })
+
+  test('getPathFromAlias returns null for an alias nothing claims', async () => {
+    const target = await pagesModel.getPathFromAlias(fixtures.siteId, 'no-such-alias')
+    assert.equal(target, null)
+  })
+
   test('deletePage returns false for a page that does not exist', async () => {
     const deleted = await pagesModel.deletePage(
       fixtures.siteId,
