@@ -1910,6 +1910,20 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
     // -> Flex so the preview toggle can be pushed to the far inline-end by `w-space`
     display: flex;
     align-items: center;
+
+    /*
+      `w-btn`'s own default min-height (2.572em, ~36px at this button's inherited 14px font-size --
+      see `WBtn.vue`'s `styles` computed) is taller than this toolbar's fixed 32px band regardless of
+      the `padding="xs sm"` passed here, since that prop only overrides `padding`, never `minHeight`.
+      Centered by `align-items: center` above, the button box then overflows top and bottom, which is
+      invisible until a flat button's own `hover:bg-current/10` fill paints that overflow. `!important`
+      is required because `WBtn` sets `min-height` as an inline style, which otherwise beats any
+      selector here. Scoped to this toolbar's own buttons -- `WBtn.vue` keeps its default for every
+      other caller.
+    */
+    .w-btn {
+      min-height: 24px !important;
+    }
   }
   &-sidebar {
     background-color: $dark-4;
