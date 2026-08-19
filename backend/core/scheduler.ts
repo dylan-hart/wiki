@@ -2,6 +2,7 @@ import { DynamicThreadPool, FixedThreadPool } from 'poolifier'
 import os from 'node:os'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { CronExpressionParser } from 'cron-parser'
 import { v4 as uuid } from 'uuid'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
@@ -114,7 +115,16 @@ export default {
     this.tasks = {}
     for (const f of await fs.readdir(path.join(WIKI.SERVERPATH, 'tasks/simple'))) {
       const taskName = camelCase(f.replace(/\.[jt]s$/, ''))
-      this.tasks[taskName] = (await import(path.join(WIKI.SERVERPATH, 'tasks/simple', f))).task
+      // -> Unlike `workerFile` above (a plain OS path, which is what both poolifier's own
+      //    pre-flight `existsSync()` check and `new Worker()` itself expect), dynamic `import()`
+      //    parses its argument as a module specifier -- a bare absolute Windows path like
+      //    `C:\...` gets its drive letter read as a URL *scheme*, throwing
+      //    ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol 'c:'"). A `file://` URL is what
+      //    `import()` actually wants for an absolute path; a raw POSIX path happens to also parse
+      //    (no colon before the first `/`), which is why this went unnoticed until run on Windows.
+      this.tasks[taskName] = (
+        await import(pathToFileURL(path.join(WIKI.SERVERPATH, 'tasks/simple', f)).href)
+      ).task
     }
     return this
   },
