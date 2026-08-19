@@ -70,14 +70,40 @@ export const useEditorStore = defineStore('editor', {
     }
   },
   actions: {
-    addPendingAsset(data) {
+    /**
+     * `generateUniqueName` forces a fresh, collision-proof name even for a `File` instance whose own
+     * `name` would otherwise be trusted verbatim.
+     *
+     * Needed for a pasted image specifically (OpenProject #806 follow-up): every browser hands a
+     * clipboard-pasted image file the same literal name, "image.png", regardless of what it actually
+     * is -- so trusting `data.name` there means every paste on every page uploads to the same asset
+     * path, and the site's default overwrite conflict behavior makes each one clobber the last. A
+     * dropped file's name IS meaningful user intent (e.g. "quarterly-report.pdf") and must still be
+     * preserved, which is why this defaults to off and is opt-in per call rather than keyed off
+     * `data instanceof File` the way `kind` already is.
+     */
+    addPendingAsset(data, { generateUniqueName = false } = {}) {
       const blobUrl = URL.createObjectURL(data)
-      if (data instanceof File) {
+      if (data instanceof File && !generateUniqueName) {
         this.pendingAssets.push({
           id: uuid(),
           kind: 'file',
           file: data,
           fileName: data.name,
+          blobUrl
+        })
+      } else if (data instanceof File) {
+        // -> Trust only the extension off the browser-supplied name (or fall back to the mime table,
+        //    same as the blob branch below), mint a fresh unique name for everything else
+        const dotIndex = data.name.lastIndexOf('.')
+        const ext = dotIndex > 0 ? data.name.slice(dotIndex + 1) : imgMimeExt[data.type] || 'dat'
+        const fileId = uuid()
+        const fileName = `${fileId}.${ext}`
+        this.pendingAssets.push({
+          id: fileId,
+          kind: 'file',
+          file: data,
+          fileName,
           blobUrl
         })
       } else {

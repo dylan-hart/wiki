@@ -53,6 +53,9 @@ const fakeEditor = {
   setPosition: vi.fn((pos) => {
     cursorPosition = pos
   }),
+  // -> Only consulted by `onEditorDrop` to move the cursor to the drop point; `null` exercises its
+  //    `if (target?.position)` no-op guard, which is all a happy-dom drop event needs here.
+  getTargetAtClientPoint: vi.fn(() => null),
   executeEdits: vi.fn((_source, edits) => {
     for (const edit of edits) {
       fakeModel.applyEdit(edit)
@@ -254,6 +257,60 @@ describe('EditorMarkdown content flusher (OpenProject #806)', () => {
     wrapper.unmount()
 
     expect(editorStore.contentFlusher).toBeNull()
+  })
+})
+
+/*
+  OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
+  "image.png" -- so `addPendingAsset` mints a fresh unique name for a pasted `File`, but a dropped
+  `File`'s name is real user intent and must stay untouched. These are the component-side proof that
+  each DOM source (`onEditorPaste`'s capture-phase `paste` listener on the editor's parent, vs.
+  `onEditorDrop`'s `drop` listener on the Monaco host itself) actually threads the right flag down to
+  `insertFilesAsAssets` -- `stores/editor.test.js` covers the naming logic itself directly.
+*/
+describe('EditorMarkdown paste vs. drop file naming (OpenProject #806 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function makeFile(name, type = 'image/png') {
+    return new File(['x'], name, { type })
+  }
+
+  it('mints distinct fileNames for two images pasted in a row, both literally named "image.png"', async () => {
+    const { wrapper } = await mountEditor('')
+    const editorStore = useEditorStore()
+    // -> `pasteCaptureNode` in the component is `monacoRef.value.parentElement`, i.e. this wrapper div
+    const editorEl = wrapper.find('.editor-markdown-editor')
+
+    await editorEl.trigger('paste', {
+      clipboardData: { files: [makeFile('image.png')], getData: () => '' }
+    })
+    await editorEl.trigger('paste', {
+      clipboardData: { files: [makeFile('image.png')], getData: () => '' }
+    })
+
+    expect(editorStore.pendingAssets).toHaveLength(2)
+    const [first, second] = editorStore.pendingAssets
+    expect(first.fileName).not.toBe('image.png')
+    expect(second.fileName).not.toBe('image.png')
+    expect(first.fileName).not.toBe(second.fileName)
+  })
+
+  it("preserves a dropped file's real name unchanged -- no regression from the paste fix", async () => {
+    const { wrapper } = await mountEditor('')
+    const editorStore = useEditorStore()
+    // -> The `drop` listener is on `monacoRef.value` itself, the inner unclassed div
+    const dropTarget = wrapper.find('.editor-markdown-editor div')
+
+    await dropTarget.trigger('drop', {
+      dataTransfer: { files: [makeFile('quarterly-report.pdf', 'application/pdf')] },
+      clientX: 0,
+      clientY: 0
+    })
+
+    expect(editorStore.pendingAssets).toHaveLength(1)
+    expect(editorStore.pendingAssets[0].fileName).toBe('quarterly-report.pdf')
   })
 })
 

@@ -1465,10 +1465,15 @@ function processContent(newContent) {
  * An image goes in as one, anything else as a link with its file name for text — a dropped PDF is a
  * link to a PDF, not a broken picture. The name is the image's alt text as well, which is both what the
  * handler this replaces did and better than nothing for a reader who cannot see it.
+ *
+ * `generateUniqueName` is passed straight through to `editorStore.addPendingAsset` -- see its own doc
+ * comment (OpenProject #806 follow-up). Only the paste call site below sets it: every browser names a
+ * clipboard-pasted file "image.png" regardless of source, where a dropped file's name is real user
+ * intent worth keeping.
  */
-function insertFilesAsAssets(files) {
+function insertFilesAsAssets(files, { generateUniqueName = false } = {}) {
   const markup = files.map((file) => {
-    const blobUrl = editorStore.addPendingAsset(file)
+    const blobUrl = editorStore.addPendingAsset(file, { generateUniqueName })
     return `${file.type.startsWith('image/') ? '!' : ''}[${file.name}](${blobUrl})`
   })
   // -> One per line: two images on the same line is rarely what was meant by dropping two files
@@ -1491,7 +1496,7 @@ function onEditorPaste(event) {
   */
   event.preventDefault()
   event.stopPropagation()
-  insertFilesAsAssets([...event.clipboardData.files])
+  insertFilesAsAssets([...event.clipboardData.files], { generateUniqueName: true })
 }
 
 /*
