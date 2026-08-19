@@ -32,6 +32,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       vendor: {
         type: 'string'
       },
+      author: {
+        type: 'string',
+        description: 'Used by an external, client-embedded provider instead of `vendor`.'
+      },
+      logo: {
+        type: 'string',
+        description: 'Used by an external, client-embedded provider instead of `icon`.'
+      },
       website: {
         type: 'string'
       },
@@ -49,6 +57,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         additionalProperties: true,
         description:
           'Values for the module props, completed with the module defaults for any prop that has none stored yet.'
+      },
+      codeTemplate: {
+        type: 'boolean',
+        description:
+          "Whether this provider embeds a vendor's own client-side script/widget (Disqus, Commento, Artalk) rather than being rendered server-side by this wiki. This fork does not render that embed on a page view yet."
+      },
+      hasImplementation: {
+        type: 'boolean',
+        description:
+          'Whether a `comments.ts` sits next to the definition — only the native provider has one.'
+      },
+      isSelectable: {
+        type: 'boolean',
+        description:
+          'Whether this provider may be listed and selected: `hasImplementation || codeTemplate`.'
       }
     }
   })

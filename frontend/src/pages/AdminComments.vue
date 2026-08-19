@@ -119,6 +119,15 @@
               :to="`/_admin/` + adminStore.currentSiteId + `/general`" />
           </template>
         </w-banner>
+        <!-- -> Disqus/Commento/Artalk are pure client-side embeds this fork does not render on page
+             views yet -- see the permission-boundary note on CommentProviders in
+             backend/models/commentProviders.ts before ever wiring one up. -->
+        <w-banner
+          class="mb-4"
+          v-if="selectedProvider.codeTemplate"
+          :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`">
+          {{ t('admin.comments.externalProviderNotice') }}
+        </w-banner>
         <!-- ----------------------- -->
         <!-- Description -->
         <!-- ----------------------- -->

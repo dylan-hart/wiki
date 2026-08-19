@@ -278,7 +278,9 @@ describe('comments model — mocked', () => {
 
     it('falls back to guestName when authorId is null, matching pageEditSubmissions-style rows', async () => {
       ;(globalThis as any).WIKI.db = makeFakeDb({
-        selectRows: [row({ id: 'c1', authorId: null, authorName: null, guestName: 'Casual Visitor' })]
+        selectRows: [
+          row({ id: 'c1', authorId: null, authorName: null, guestName: 'Casual Visitor' })
+        ]
       })
       const result = await comments.listForPage('p1')
       assert.equal(result[0].authorName, 'Casual Visitor')

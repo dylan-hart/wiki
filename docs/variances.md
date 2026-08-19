@@ -5,6 +5,34 @@ intentionally does not reproduce something 2.5.x had, or does not build somethin
 along with the reasoning. It is not a changelog and does not track resolved CI/lint/type issues;
 those get fixed, not logged here.
 
+## Comment provider selectability: two competing implementations reconciled
+
+**Date:** 2026-08-18
+**Feature:** #396 (External Comment Providers) vs. the already-merged #394 (Default Comment Provider)
+**Decision:** Kept `models/commentProviders.ts` (#394's `CommentProviders` class — the real, DB-wired
+registry `api/comments.ts`'s routes already call) as the one live implementation, and ported #396's
+`codeTemplate`/`hasImplementation`/`isSelectable()` concept into it.
+
+Feature 396 branched before #394 existed, so it built its own module-discovery/definition-loading
+class from scratch — under the name `models/comments.ts`, colliding at the git level with the
+*actual* `comments.ts` (comment content CRUD: post/edit/delete/list, from #395/#397) rather than with
+the provider registry it was really duplicating. Both classes independently implemented
+`refreshFromDisk()`/`getDefinition()` reading `modules/comments/<key>/definition.yml`; #394's version
+was already wired to the `commentProviders` db table, `syncSite()`, `setActiveProvider()` and the live
+`GET/PUT /sites/:siteId/comments/providers` routes, while #396's was a pure-disk, unwired duplicate —
+so #394's was kept as the base. #396's version was genuinely more complete on one axis #394's lacked
+entirely: it read `codeTemplate` (declared `true` on the Disqus/Commento/Artalk `definition.yml`s,
+already present on disk) to mark a provider selectable via `isSelectable()` even with no
+`comments.ts` implementation, since an external client-embedded provider was never going to get one —
+`hasImplementation` alone would have left Disqus/Commento/Artalk permanently unselectable in the admin
+area. Ported: `codeTemplate`/`author`/`logo`/`hasImplementation` on `CommentProviderDefinition`,
+`isSelectable()`, the extensive `read:comments` permission-boundary doc comment (nothing renders a
+`codeTemplate` provider's embed yet, so the note is purely preventive), the `admin.comments.
+externalProviderNotice` locale string and its `AdminComments.vue` banner, and #396's disk-based
+definition-loading test suite (retargeted at `commentProviders.test.ts`, run against the real
+`modules/comments/` tree). #396's own `models/comments.ts`/`models/comments.test.ts` additions were
+discarded as dead weight once ported.
+
 ## Storage targets: Box, Dropbox, Google Drive, OneDrive omitted (no 3.x storage module)
 
 **Date:** 2026-08-17

@@ -6,16 +6,42 @@ import { parseModuleProps } from '../helpers/common.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 
-/** A comment provider module, as declared by its `definition.yml`. */
+/**
+ * A comment provider module, as declared by its `definition.yml`.
+ *
+ * `icon`/`vendor` (the native `default` provider's own fields) and `author`/`logo` (used by every
+ * external provider — Disqus, Commento, Artalk) are both optional rather than unified into one shape:
+ * the two kinds of provider were scaffolded from different sources (2.5.x's native module vs. its
+ * external ones) and forcing them onto a single required field each would mean inventing a value
+ * neither `definition.yml` actually declares.
+ */
 export interface CommentProviderDefinition {
   key: string
   title: string
   description: string
-  icon: string
-  vendor: string
+  icon?: string
+  vendor?: string
+  author?: string
+  logo?: string
   website: string
   isAvailable: boolean
   props: Record<string, ModuleProp>
+  /**
+   * Whether this provider embeds a vendor's own client-side script/widget (Disqus, Commento, Artalk)
+   * rather than being rendered and moderated server-side by this wiki. Read straight off
+   * `definition.yml`; defaults to `false` when absent, matching the `default` provider, which has real
+   * server-side render/spam/rate-limit logic and so declares no `codeTemplate` at all.
+   */
+  codeTemplate: boolean
+  /**
+   * Whether a `comments.ts` sits next to the definition, i.e. whether this provider has server-side
+   * code behind it. Only the `default` provider does today — every external provider is pure
+   * client-side configuration (a shortname/instance URL passed to the vendor's own embed script), so
+   * it never needs one. Mirrors `StorageDefinition.hasImplementation` in `models/storage.ts`, but see
+   * `isSelectable()` below for why a comment provider cannot be gated on this field alone the way a
+   * storage target currently is.
+   */
+  hasImplementation: boolean
 }
 
 /** A configured provider: the module definition, plus how this site has it set up. */
@@ -25,12 +51,17 @@ export interface CommentProvider {
   isEnabled: boolean
   title: string
   description: string
-  icon: string
-  vendor: string
+  icon?: string
+  vendor?: string
+  author?: string
+  logo?: string
   website: string
   isAvailable: boolean
   props: Record<string, ModuleProp>
   config: Record<string, any>
+  codeTemplate: boolean
+  hasImplementation: boolean
+  isSelectable: boolean
 }
 
 /**
@@ -42,10 +73,69 @@ export interface CommentProvider {
  * `setActiveProvider` is the only way to flip it, and it always clears every other row for that site
  * first. There is no default: a fresh site has every provider disabled until an administrator picks
  * one, since (unlike storage) a site with comments off entirely is a perfectly normal state.
+ *
+ * ---
+ *
+ * **`read:comments` permission boundary — binding on any future embed rendering.**
+ *
+ * Nothing in this repo renders a `codeTemplate` provider's embed yet: there is no page-view logic
+ * that drops Disqus/Commento/Artalk's `<script>` onto a page, only the native `default` provider's
+ * server-rendered comments are wired up. This note exists so that whichever future change adds one
+ * does not reintroduce a permission bug that would be easy to miss precisely *because*
+ * Disqus/Commento/Artalk have no server-side code of their own to gate.
+ *
+ * The `default` provider's comments are read through `models/comments.ts` calls a route makes, and
+ * any such route checks `mayOnPage(req, 'read:comments', page)` (`api/pages.ts`) before returning
+ * anything — the same page-rule boundary every other page-scoped permission in this codebase goes
+ * through (see CLAUDE.md's "Permissions" section: `read:comments` is a **page rule** permission,
+ * bound to path/locale/tags via a group's rules, not a global one — it cannot be enforced by
+ * Fastify's route-level `config.permissions` hook, only by an explicit `mayOnPage`/`checkAccess` call
+ * in the handler).
+ *
+ * A `codeTemplate` provider has no equivalent handler to put that check in — embedding its `<script>`
+ * IS the render, there is no server response to withhold first. That makes it easy to wire up a page
+ * view that drops the vendor's embed tag onto the page unconditionally, reachable by anyone who can
+ * load the page's HTML at all. Doing that would leak more than the comments: Disqus/Commento/Artalk
+ * are third-party services, and initializing their embed tells that third party the page exists (its
+ * URL/shortname, at minimum, before the visitor supplies any credential of their own) — for a reader
+ * who lacks `read:comments` on that specific page, that is a leak the native provider's own
+ * `mayOnPage` check exists precisely to prevent. So: **whatever future code renders a `codeTemplate`
+ * provider's embed on a page view must call `mayOnPage(req, 'read:comments', page)` (or the
+ * equivalent frontend-side `userStore.pagePermissions` check described in CLAUDE.md) and skip
+ * emitting the embed script entirely when it is false** — not merely hide the resulting widget with
+ * CSS, which would still have let the third-party script load and phone home first.
  */
 class CommentProviders {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
   definitions: CommentProviderDefinition[] = []
+
+  /** Whether the module has any server-side code to run, as opposed to only a definition. */
+  async hasImplementation(key: string, modulesPath: string): Promise<boolean> {
+    try {
+      await fs.access(path.join(modulesPath, key, 'comments.ts'))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Whether a provider may be listed and selected.
+   *
+   * Deliberately **not** `hasImplementation` alone: `models/storage.ts` gates a storage target's
+   * actions on that field, which happens to be harmless there only because no storage module has
+   * shipped an implementation yet, so every target is equally unavailable. A comment provider is a
+   * different shape entirely — Disqus, Commento and Artalk are pure client-side embeds (a shortname
+   * or instance URL handed to the vendor's own script) and were never going to get a `comments.ts`,
+   * so gating on `hasImplementation` the same way would mark them permanently unselectable instead of
+   * temporarily unavailable. `codeTemplate` is the independent signal that a provider needs no
+   * server-side implementation to be usable.
+   */
+  isSelectable(
+    definition: Pick<CommentProviderDefinition, 'hasImplementation' | 'codeTemplate'>
+  ): boolean {
+    return definition.hasImplementation || definition.codeTemplate
+  }
 
   /**
    * Load the comment provider module definitions from disk.
@@ -63,6 +153,10 @@ class CommentProviders {
         const parsed = load(raw) as Record<string, any>
         // -> The directory name is the key, as it is for every other module type
         parsed.key = dir
+        // -> Absent in YAML means "not a client-side embed", i.e. false — only ever `true` when the
+        //    module says so explicitly
+        parsed.codeTemplate = parsed.codeTemplate === true
+        parsed.hasImplementation = await this.hasImplementation(dir, modulesPath)
         // -> Props carry a display `order`, applied once here so that every consumer — the admin
         //    area included — reads them in the order the module meant them to be shown in
         parsed.props = Object.fromEntries(
@@ -165,10 +259,15 @@ class CommentProviders {
         description: definition.description,
         icon: definition.icon,
         vendor: definition.vendor,
+        author: definition.author,
+        logo: definition.logo,
         website: definition.website,
         isAvailable: definition.isAvailable,
         props: definition.props,
-        config: this.buildConfig(definition.key, {}, row.config as Record<string, any>)
+        config: this.buildConfig(definition.key, {}, row.config as Record<string, any>),
+        codeTemplate: definition.codeTemplate,
+        hasImplementation: definition.hasImplementation,
+        isSelectable: this.isSelectable(definition)
       })
     }
     return providers

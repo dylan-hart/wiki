@@ -31,6 +31,8 @@ const messages = {
         saveSuccess: 'Comment provider configuration saved successfully.',
         enabledNoProviderHint: 'Comments are enabled in General, but no provider is active yet.',
         goToGeneral: 'Go to General',
+        externalProviderNotice:
+          'This is an external, client-embedded comment provider and is not rendered on pages yet.',
         moderation: 'Moderation',
         moderationUnavailableHint:
           'Comments are not active for this site, so there is nothing to moderate yet.',
@@ -94,6 +96,9 @@ const PROVIDERS = [
     vendor: 'Disqus Inc.',
     website: 'https://disqus.com',
     isAvailable: true,
+    codeTemplate: true,
+    hasImplementation: false,
+    isSelectable: true,
     props: {
       shortname: {
         type: 'string',
@@ -122,6 +127,9 @@ const PROVIDERS = [
     vendor: 'Wiki.js',
     website: '',
     isAvailable: true,
+    codeTemplate: false,
+    hasImplementation: true,
+    isSelectable: true,
     props: {},
     config: {}
   }
@@ -215,6 +223,25 @@ describe('AdminComments', () => {
 
     // -> `default` has no config props, so the "no config" message should now show instead
     expect(wrapper.text()).toContain('This provider has no configuration options you can modify.')
+  })
+
+  it('shows the external-provider notice for a codeTemplate provider, not for the native one', async () => {
+    const { wrapper } = mountPage()
+    await flushPromises()
+
+    // -> Defaults to the enabled provider (Disqus, codeTemplate: true)
+    expect(wrapper.text()).toContain(
+      'This is an external, client-embedded comment provider and is not rendered on pages yet.'
+    )
+
+    const items = wrapper.findAll('.w-item')
+    const defaultItem = items.find((i) => i.text().includes('Default'))
+    await defaultItem.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain(
+      'This is an external, client-embedded comment provider and is not rendered on pages yet.'
+    )
   })
 
   it('shows a hint pointing at General when comments are enabled but no provider is active', async () => {

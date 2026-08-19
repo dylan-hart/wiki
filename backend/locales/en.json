@@ -236,6 +236,7 @@
   "admin.comments.moderation": "Moderation",
   "admin.comments.moderationUnavailableHint": "Comments are not active for this site, so there is nothing to moderate yet -- enable comments in General, then choose a provider below.",
   "admin.comments.noProviders": "No comment provider modules are installed.",
+  "admin.comments.externalProviderNotice": "This is an external, client-embedded comment provider. Saving this configuration stores it, but this fork does not yet implement rendering its embed script on page views -- comments will not appear on pages until that support is added.",
   "admin.comments.page": "Page",
   "admin.comments.provider": "Provider",
   "admin.comments.providerConfig": "Provider Configuration",

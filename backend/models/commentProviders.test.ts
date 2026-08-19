@@ -132,3 +132,89 @@ describe('commentProviders (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result, null)
   })
 })
+
+/**
+ * `codeTemplate`/`hasImplementation`/`isSelectable` (Feature 396): the module loader must not gate
+ * "is this provider selectable" purely on `hasImplementation`, the way `models/storage.ts` currently
+ * does for storage targets -- harmless there only because no storage module has shipped an
+ * implementation yet, so every target is equally (and temporarily) unavailable. Disqus, Commento and
+ * Artalk are pure client-side embeds -- a shortname/instance URL handed to the vendor's own script --
+ * and were never going to get a `comments.ts`, so the same gate would mark them *permanently*
+ * unselectable. `codeTemplate: true` (declared on each of their `definition.yml`) is the independent
+ * signal that lets a provider be selectable without server-side code behind it.
+ *
+ * No `WIKI` global/database beyond `SERVERPATH` + a silent logger is needed: `refreshFromDisk()` only
+ * reads disk, and points at this repo's own real `modules/comments/` directory (not a fixture) so
+ * this test exercises the actual Disqus/Commento/Artalk/default definitions rather than stand-ins.
+ */
+describe('commentProviders (definition loading)', () => {
+  let previousWiki: WikiGlobal | undefined
+  let commentProvidersModel: typeof import('./commentProviders.ts').commentProviders
+
+  before(async () => {
+    previousWiki = global.WIKI
+    global.WIKI = {
+      SERVERPATH: path.join(import.meta.dirname, '..'),
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    } as unknown as WikiGlobal
+    ;({ commentProviders: commentProvidersModel } = await import('./commentProviders.ts'))
+    await commentProvidersModel.refreshFromDisk()
+  })
+
+  after(() => {
+    global.WIKI = previousWiki as WikiGlobal
+  })
+
+  test('reads codeTemplate off each definition.yml, defaulting to false when absent', () => {
+    const disqus = commentProvidersModel.definitions.find((d) => d.key === 'disqus')!
+    const commento = commentProvidersModel.definitions.find((d) => d.key === 'commento')!
+    const artalk = commentProvidersModel.definitions.find((d) => d.key === 'artalk')!
+    const defaultProvider = commentProvidersModel.definitions.find((d) => d.key === 'default')!
+
+    assert.equal(disqus.codeTemplate, true)
+    assert.equal(commento.codeTemplate, true)
+    assert.equal(artalk.codeTemplate, true)
+    // -> `default`'s definition.yml declares no `codeTemplate` key at all
+    assert.equal(defaultProvider.codeTemplate, false)
+  })
+
+  test('all three external providers are selectable despite having no comments.ts', () => {
+    for (const key of ['disqus', 'commento', 'artalk']) {
+      const definition = commentProvidersModel.definitions.find((d) => d.key === key)!
+      assert.equal(definition.hasImplementation, false, `${key} unexpectedly has an implementation`)
+      assert.equal(definition.codeTemplate, true, `${key} did not declare codeTemplate: true`)
+      assert.equal(
+        commentProvidersModel.isSelectable(definition),
+        true,
+        `${key} should be selectable via codeTemplate even without hasImplementation`
+      )
+    }
+  })
+
+  test('the default provider is selectable via hasImplementation, not codeTemplate', () => {
+    const definition = commentProvidersModel.definitions.find((d) => d.key === 'default')!
+    assert.equal(definition.hasImplementation, true)
+    assert.equal(definition.codeTemplate, false)
+    assert.equal(commentProvidersModel.isSelectable(definition), true)
+  })
+
+  test('a hypothetical provider with neither hasImplementation nor codeTemplate is not selectable', () => {
+    assert.equal(
+      commentProvidersModel.isSelectable({ hasImplementation: false, codeTemplate: false }),
+      false
+    )
+  })
+
+  test('backend/locales/en.json carries a codeTemplate-aware caption under admin.comments.*', async () => {
+    const enJsonPath = path.join(import.meta.dirname, '..', 'locales', 'en.json')
+    const enLocale = JSON.parse(await fs.readFile(enJsonPath, 'utf8'))
+    const caption = enLocale['admin.comments.externalProviderNotice']
+
+    assert.equal(typeof caption, 'string')
+    assert.ok(caption.length > 0, 'caption must not be empty')
+    // -> Must actually communicate the two things an admin needs to know: that this is an external,
+    //    client-embedded provider, and that page-view rendering for it isn't implemented yet
+    assert.match(caption, /external/i)
+    assert.match(caption, /not.*(?:implement|support)/i)
+  })
+})
