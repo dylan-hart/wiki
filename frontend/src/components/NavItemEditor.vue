@@ -444,10 +444,10 @@ import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 
 import { v4 as uuid } from 'uuid'
-import { pick } from 'es-toolkit/object'
 import { Sortable } from 'sortablejs-vue3'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { flattenMenuItems, reconstructMenuItems } from '@/helpers/navigation.js'
 
 /**
  * The item-list-plus-detail-panel navigation editor: the sortable list of items on the left, and the
@@ -662,39 +662,9 @@ async function loadMenuItems() {
     const items = await API_CLIENT.get(`sites/${props.siteId}/navigation/${props.navId}`, {
       searchParams: { full: true }
     }).json()
-    state.items = []
+    state.items = flattenMenuItems(items)
     state.selected = null
     state.current = {}
-    for (const item of items ?? []) {
-      state.items.push({
-        ...pick(item, [
-          'id',
-          'type',
-          'label',
-          'icon',
-          'target',
-          'openInNewWindow',
-          'expandByDefault',
-          'visibilityGroups'
-        ]),
-        visibilityLimited: item.visibilityGroups?.length > 0
-      })
-      for (const child of item?.children ?? []) {
-        state.items.push({
-          ...pick(child, [
-            'id',
-            'type',
-            'label',
-            'icon',
-            'target',
-            'openInNewWindow',
-            'visibilityGroups'
-          ]),
-          visibilityLimited: child.visibilityGroups?.length > 0,
-          isNested: true
-        })
-      }
-    }
   } catch (err) {
     notify({
       type: 'negative',
@@ -705,51 +675,14 @@ async function loadMenuItems() {
   state.loading--
 }
 
-function cleanMenuItem(item, isNested = false) {
-  switch (item.type) {
-    case 'header': {
-      return {
-        ...pick(item, ['id', 'type', 'label']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
-      }
-    }
-    case 'link': {
-      return {
-        ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : [],
-        // -> Only a top-level link can hold children, so only one of those can be a parent — a nested
-        //    item carrying an expand flag would be a setting nothing ever reads
-        ...(!isNested && { children: [], expandByDefault: Boolean(item.expandByDefault) })
-      }
-    }
-    case 'separator': {
-      return {
-        ...pick(item, ['id', 'type', 'label', 'icon', 'target', 'openInNewWindow']),
-        visibilityGroups: item.visibilityLimited ? item.visibilityGroups : []
-      }
-    }
-  }
-}
-
 /**
  * Builds the nested `items` payload a save PUTs, from the flat editing list.
  *
  * Thrown, not returned, on a nested item with nothing above it to nest under — the host's own
- * `save()` is what shows that as an error, matching how the pre-extraction code surfaced it.
+ * `save()` is what shows that as an error.
  */
 function buildSaveItems() {
-  const items = []
-  for (const item of state.items) {
-    if (item.isNested) {
-      if (items.length < 1 || items.at(-1)?.type !== 'link') {
-        throw new Error('One or more nested link items are not under a parent link!')
-      }
-      items[items.length - 1].children.push(cleanMenuItem(item, true))
-    } else {
-      items.push(cleanMenuItem(item))
-    }
-  }
-  return items
+  return reconstructMenuItems(state.items)
 }
 
 /** Reloads the menu's items and the group list — the host calls this once `navId` is known. */
