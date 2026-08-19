@@ -1115,7 +1115,7 @@ function onDividerPointerDown(ev) {
   dragStartX = ev.clientX
   previousPreviewWidth = state.previewWidth
   dragStartWidthPx = state.previewWidth ?? previewRect.width
-  dragSign = previewRect.left < dividerRect.left ? -1 : 1
+  dragSign = previewRect.left < dividerRect.left ? 1 : -1
   /*
     Both panes' current widths, combined, are exactly the space the two of them have to split between
     them -- independent of the sidebar or the viewport, and stable for the length of one drag (the

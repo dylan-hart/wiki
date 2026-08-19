@@ -256,3 +256,119 @@ describe('EditorMarkdown content flusher (OpenProject #806)', () => {
     expect(editorStore.contentFlusher).toBeNull()
   })
 })
+
+/*
+  OpenProject #804 follow-up: `onDividerPointerDown`'s `dragSign` was inverted, so dragging the
+  divider toward the preview pane GREW it and dragging away SHRANK it -- backwards in both of the
+  two layouts the divider has to handle (normal LTR, where the preview sits to the right of the
+  divider, and an RTL mirror, where it sits to the left). These tests stand each layout up with
+  mocked `getBoundingClientRect()`s (happy-dom, this workspace's Vitest environment, returns all-zero
+  rects otherwise) and drag in both directions, asserting the resulting `--preview-width` moved the
+  correct way in each -- rather than only re-asserting the sign formula itself, which would pass
+  right back on the pre-fix code if copied from it by mistake.
+*/
+describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-up)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function mockRect(el, { left, width }) {
+    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+      left,
+      width,
+      top: 0,
+      height: 0,
+      right: left + width,
+      bottom: 0,
+      x: left,
+      y: 0,
+      toJSON: () => ({})
+    })
+  }
+
+  /*
+    Reads the live width the divider drag writes onto the preview pane's inline style
+    (`previewInlineStyle`'s `flex: 0 0 <px>px`). happy-dom's `CSSStyleDeclaration` expands that
+    shorthand into `flex-basis` (plus `flex-grow`/`flex-shrink`) when serializing the `style`
+    attribute, so read the longhand rather than the shorthand written in the component.
+  */
+  function previewFlexWidth(preview) {
+    const match = preview.attributes('style')?.match(/flex-basis:\s*(\d+(?:\.\d+)?)px/)
+    return match ? Number(match[1]) : null
+  }
+
+  async function dragDivider(wrapper, { down, move }) {
+    const divider = wrapper.find('.editor-markdown-divider')
+    await divider.trigger('pointerdown', { clientX: down, pointerId: 1 })
+    await divider.trigger('pointermove', { clientX: move, pointerId: 1 })
+    return wrapper.find('.editor-markdown-preview')
+  }
+
+  /*
+    Each assertion mounts its own editor: `state.previewWidth` (and so the pointer-down's own
+    `dragStartWidthPx`) carries over from one drag to the next on the same instance, which would make
+    a second drag's expected width depend on the first drag's result instead of the fixed 500px rect
+    below -- a fresh mount is what keeps each `toBe` an easy, self-contained arithmetic check.
+  */
+  it('shrinks the preview when dragging toward it, in normal (preview-on-the-right) layout', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const mid = wrapper.find('.editor-markdown-mid')
+    const divider = wrapper.find('.editor-markdown-divider')
+    const preview = wrapper.find('.editor-markdown-preview')
+
+    // Normal LTR: preview sits to the right of the divider.
+    mockRect(mid.element, { left: 0, width: 600 })
+    mockRect(divider.element, { left: 600, width: 4 })
+    mockRect(preview.element, { left: 604, width: 500 })
+
+    // Dragging right -- toward the preview -- should shrink it.
+    const updatedPreview = await dragDivider(wrapper, { down: 600, move: 650 })
+    expect(previewFlexWidth(updatedPreview)).toBe(450)
+  })
+
+  it('grows the preview when dragging away from it, in normal (preview-on-the-right) layout', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const mid = wrapper.find('.editor-markdown-mid')
+    const divider = wrapper.find('.editor-markdown-divider')
+    const preview = wrapper.find('.editor-markdown-preview')
+
+    mockRect(mid.element, { left: 0, width: 600 })
+    mockRect(divider.element, { left: 600, width: 4 })
+    mockRect(preview.element, { left: 604, width: 500 })
+
+    // Dragging left -- away from the preview -- should grow it.
+    const updatedPreview = await dragDivider(wrapper, { down: 600, move: 550 })
+    expect(previewFlexWidth(updatedPreview)).toBe(550)
+  })
+
+  it('shrinks the preview when dragging toward it, in RTL-mirrored (preview-on-the-left) layout', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const mid = wrapper.find('.editor-markdown-mid')
+    const divider = wrapper.find('.editor-markdown-divider')
+    const preview = wrapper.find('.editor-markdown-preview')
+
+    // RTL mirror: preview sits to the left of the divider.
+    mockRect(preview.element, { left: 0, width: 500 })
+    mockRect(divider.element, { left: 500, width: 4 })
+    mockRect(mid.element, { left: 504, width: 600 })
+
+    // Dragging left -- toward the preview -- should shrink it.
+    const updatedPreview = await dragDivider(wrapper, { down: 500, move: 450 })
+    expect(previewFlexWidth(updatedPreview)).toBe(450)
+  })
+
+  it('grows the preview when dragging away from it, in RTL-mirrored (preview-on-the-left) layout', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const mid = wrapper.find('.editor-markdown-mid')
+    const divider = wrapper.find('.editor-markdown-divider')
+    const preview = wrapper.find('.editor-markdown-preview')
+
+    mockRect(preview.element, { left: 0, width: 500 })
+    mockRect(divider.element, { left: 500, width: 4 })
+    mockRect(mid.element, { left: 504, width: 600 })
+
+    // Dragging right -- away from the preview -- should grow it.
+    const updatedPreview = await dragDivider(wrapper, { down: 500, move: 550 })
+    expect(previewFlexWidth(updatedPreview)).toBe(550)
+  })
+})
