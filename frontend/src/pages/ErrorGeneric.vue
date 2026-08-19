@@ -48,6 +48,13 @@ const actions = {
     code: 'X!?',
     showHomeBtn: false
   },
+  // -> The site an administrator can still sign in to fix, so `/login` gets shown instead of `/` —
+  //    home would only bounce right back here, since the hostname is what's disabled
+  disabled: {
+    code: 503,
+    showHomeBtn: false,
+    showLoginBtn: true
+  },
   generic: {
     code: '!?0'
   }

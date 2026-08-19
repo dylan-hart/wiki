@@ -110,6 +110,27 @@ function checkSiteAccess(actor: { permissions: string[] }, permission: string, s
 }
 let currentSitePermissionHeader: string | undefined
 
+/**
+ * Regression test for `POST /_api/sites`'s hand-rolled hostname check: the handler validated
+ * `req.body.hostname` against `/^(\*)|([a-z0-9\-.:]+)$/`, but the alternation is ungrouped and the
+ * first branch (`\*` — zero or more literal backslashes) matches the empty string, so the whole
+ * expression is always true regardless of what follows it — `''` and `'<script>'` both pass. The
+ * check never actually validated anything; it was redundant with (and looser than) the body schema's
+ * own `pattern: '^(\*|[a-z0-9.-]+)$'`, which Fastify's ajv already enforces before the handler runs.
+ * Fixed by deleting the dead hand-rolled check and relying solely on the schema.
+ */
+const createSiteCalls: Array<{ hostname: string; config: Record<string, any> }> = []
+let hostnamesTakenByUnique: Set<string>
+
+async function isHostnameUnique(hostname: string) {
+  return !hostnamesTakenByUnique.has(hostname)
+}
+
+async function createSite(hostname: string, config: Record<string, any>) {
+  createSiteCalls.push({ hostname, config })
+  return { id: 'new-site-id' }
+}
+
 before(async () => {
   ;(globalThis as any).WIKI = {
     models: {
@@ -118,7 +139,9 @@ before(async () => {
         getSiteById,
         updateSite,
         setAsset,
-        clearAsset
+        clearAsset,
+        isHostnameUnique,
+        createSite
       },
       groups: {
         actorForRequest,
@@ -222,6 +245,140 @@ test('strict=false falls back to the wildcard site', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(res.json().hostname, '*')
+})
+
+beforeEach(() => {
+  createSiteCalls.length = 0
+  hostnamesTakenByUnique = new Set()
+})
+
+test('a schema-valid hostname creates the site', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: 'wiki.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.deepEqual(createSiteCalls, [
+    { hostname: 'wiki.example.org', config: { title: 'My Wiki' } }
+  ])
+})
+
+test('a hostname the schema rejects never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: '<script>', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('an empty hostname never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: '', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('the catch-all wildcard hostname is still accepted', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: '*', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createSiteCalls[0]?.hostname, '*')
+})
+
+test('an uppercase hostname is rejected by the schema and never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: 'WIKI.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('a hostname with a colon (port suffix) is rejected by the schema and never reaches createSite', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: 'wiki.example.org:8080', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+/**
+ * Regression coverage for duplicate-hostname / duplicate-catch-all rejection: `POST /_api/sites`
+ * checks `isHostnameUnique` before ever calling `createSite`, and picks between two distinct error
+ * messages depending on whether the rejected hostname was `*` or an ordinary one.
+ */
+
+test('a duplicate ordinary hostname is rejected with the duplicate-hostname message, never reaching createSite', async () => {
+  hostnamesTakenByUnique.add('taken.example.org')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: 'taken.example.org', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /duplicate hostname/i)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+test('a duplicate catch-all hostname is rejected with the duplicate-catch-all message, never reaching createSite', async () => {
+  hostnamesTakenByUnique.add('*')
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { hostname: '*', title: 'My Wiki' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /catch-all/i)
+  assert.equal(createSiteCalls.length, 0)
+})
+
+/**
+ * Regression coverage for the last leg of task 699/702's disabled-site contract: unlike the read
+ * routes gated elsewhere in this feature, `PUT /:siteId` (behind `manage:sites`) must keep succeeding
+ * against an already-disabled site — otherwise nobody could ever flip `isEnabled` back on.
+ */
+
+test('updating a disabled site still succeeds, so it can be re-enabled', async () => {
+  updateSiteCalls = []
+  const DISABLED_SITE_ID = '44444444-4444-4444-8444-444444444444'
+  sites[DISABLED_SITE_ID] = {
+    id: DISABLED_SITE_ID,
+    hostname: 'off.example.com',
+    isEnabled: false,
+    config: { title: 'Disabled Site' }
+  }
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${DISABLED_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { isEnabled: true }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().ok, true)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].id, DISABLED_SITE_ID)
+  assert.equal(updateSiteCalls[0].patch.isEnabled, true)
 })
 
 beforeEach(() => {

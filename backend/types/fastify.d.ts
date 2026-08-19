@@ -17,6 +17,14 @@ declare module 'fastify' {
      * cookie-authenticated and anonymous requests.
      */
     apiKey?: ApiKeyIdentity | null
+    /**
+     * Set by the site-resolution hook in `index.ts` for a page/shell request whose hostname resolved
+     * to a site — enabled or not, so a handler further down the same request can tell "disabled" from
+     * "never resolved" without re-deriving it. Stays null for a request the hook didn't scope at all
+     * (an `/_api`/`/_admin`/etc. route, or an exempt path like `/login`) and for one whose hostname
+     * matched no site, since that case is redirected to `/_error/unknownsite` with nothing to attach.
+     */
+    site?: Record<string, any> | null
   }
 
   interface Session {

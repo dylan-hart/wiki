@@ -1,4 +1,5 @@
 import { INLINE_EXTS } from '../models/assets.ts'
+import { guardSiteEnabled } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -34,6 +35,11 @@ async function routes(app: FastifyInstance) {
     const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site) {
       return reply.notFound('Site not found')
+    }
+    // -> Resolved by hostname independently of the page/shell hook, so a disabled site's files stay
+    //    reachable by direct URL until this stops them the same way
+    if (guardSiteEnabled(site, reply)) {
+      return
     }
 
     const asset = await WIKI.models.assets.resolveAssetPath(site.id, req.params['*'] ?? '')
