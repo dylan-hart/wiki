@@ -105,6 +105,15 @@ export const useSiteStore = defineStore('site', {
       markdown: false,
       wysiwyg: false
     },
+    /*
+      Whether an optional, system-wide extension is installed -- key -> boolean, from
+      `GET system/extensions/status`. Unlike `editors` above, this has nothing to do with any one
+      site's config: it is what gates a feature that needs a tool this instance may not have, e.g.
+      `pandoc` for the page-import menu item. Fetched lazily via `fetchExtensionsStatus`, same
+      cached-until-asked-again shape as `tags` / `tagsLoaded` below.
+    */
+    extensionsStatus: {},
+    extensionsStatusLoaded: false,
     locales: {
       primary: 'en',
       showMenu: true,
@@ -257,6 +266,29 @@ export const useSiteStore = defineStore('site', {
       } catch (err) {
         console.warn(err.message)
         throw err
+      }
+    },
+    /**
+     * Fetch which optional extensions are installed, e.g. to decide whether the page-import menu
+     * item should offer itself.
+     *
+     * Swallows its own failure rather than rethrowing, unlike `fetchTags` above: this only ever
+     * gates a menu item's visibility, and a caller that cannot reach the check should get the item
+     * hidden -- the safe default, since showing it would promise a conversion this instance cannot
+     * actually be sure it can do -- not an uncaught rejection.
+     */
+    async fetchExtensionsStatus(forceRefresh = false) {
+      if (this.extensionsStatusLoaded && !forceRefresh) {
+        return
+      }
+      try {
+        const status = await API_CLIENT.get(`system/extensions/status`).json()
+        this.$patch({
+          extensionsStatus: status ?? {},
+          extensionsStatusLoaded: true
+        })
+      } catch (err) {
+        console.warn(err.message)
       }
     },
     /**

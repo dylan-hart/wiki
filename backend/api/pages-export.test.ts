@@ -8,31 +8,26 @@ import pagesRoutes from './pages.ts'
 import { registerSchemas as registerPageSchema } from './schemas/page.ts'
 import { registerSchemas as registerApprovalSchema } from './schemas/approval.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
-import { CustomError } from '../helpers/common.ts'
+import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 
 /**
- * Route-wiring tests for the page export routes:
- *   - `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496)
- *   - `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498)
+ * Route-wiring tests for `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498).
  *
- * `WIKI.models.rendering.renderPdf` is stubbed rather than exercised for real: Puppeteer is an
- * optional extension not installed in this environment (see `models/rendering.test.ts` for the
- * gating unit test that IS exercised for real), so what is worth verifying here is the route's own
- * logic — permission/lock checks reusing `loadReadablePage`'s established pattern, that a thrown
- * `renderPuppeteerMissing` `CustomError` reaches the client as the standard `{ok,error,statusCode,
- * message}` shape (via the same `setErrorHandler` `index.ts` registers), and that a successful render
- * is streamed back with the right headers — not whether a real PDF comes out of Chromium.
+ * `GET /sites/:siteId/pages/:pageId/export/pdf` (task 496) is deliberately not covered here: this
+ * file originally also tested that route against `models/rendering.ts#renderPdf()`, but that PDF
+ * path was retired at merge-review time in favor of `models/pdfExport.ts`'s richer, live-page-view
+ * export (see `docs/variances.md`'s "PDF export: two competing implementations reconciled" entry) --
+ * `api/pagesExportPdf.test.ts` is the winning route's own dedicated test file.
  *
- * The Markdown/HTML export route needs no such stub — it just serves `content`/`render` off the page
- * already loaded — so its tests focus on the permission split the task calls for: `format=markdown`
- * needs `read:source` on top of `read:pages`, `format=html` needs only `read:pages`.
+ * The Markdown/HTML export route needs no Puppeteer stub — it just serves `content`/`render` off the
+ * page already loaded — so its tests focus on the permission split the task calls for:
+ * `format=markdown` needs `read:source` on top of `read:pages`, `format=html` needs only `read:pages`.
  */
 
 const SITE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const PAGE_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const RENDER_HTML = '<p>Hello, PDF.</p>'
 const RAW_MARKDOWN = '# Hello, Export\n\nSome **raw** source.'
-const PDF_BYTES = Buffer.from('%PDF-1.7 fake pdf bytes')
 
 let pageFixture: {
   id: string
@@ -42,8 +37,6 @@ let pageFixture: {
   content: string
   isLocked: boolean
 } | null
-
-let renderPdfBehavior: 'success' | 'unavailable'
 
 /**
  * Mirrors the real model just enough to catch a wiring bug: `content` is only present on the
@@ -58,19 +51,6 @@ async function getPage(opts?: { withContent?: boolean }) {
   }
   const { content: _content, ...withoutContent } = pageFixture
   return withoutContent
-}
-
-async function renderPdf(html: string, options: { title: string }) {
-  if (renderPdfBehavior === 'unavailable') {
-    throw new CustomError(
-      'renderPuppeteerMissing',
-      'Exporting a page to PDF needs the Puppeteer extension, which is not installed.',
-      503
-    )
-  }
-  assert.equal(html, RENDER_HTML)
-  assert.equal(options.title, pageFixture?.title)
-  return PDF_BYTES
 }
 
 function actorForRequest(req: FastifyRequest) {
@@ -92,7 +72,6 @@ before(async () => {
     models: {
       pages: { getPage },
       groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
-      rendering: { renderPdf },
       approvals: {
         pageViewerState: async () => ({
           canSuggestEdits: false,
@@ -114,6 +93,7 @@ before(async () => {
   await registerErrorSchema(app)
   await registerPageSchema(app)
   await registerApprovalSchema(app)
+  await registerPageImportSchema(app)
   app.addHook('onRequest', async (req) => {
     const raw = req.headers['x-test-session']
     if (typeof raw === 'string') {
@@ -160,7 +140,6 @@ beforeEach(() => {
     content: RAW_MARKDOWN,
     isLocked: false
   }
-  renderPdfBehavior = 'success'
 })
 
 function sessionHeader(pagePermissions: string[]) {
@@ -174,68 +153,6 @@ function sessionHeader(pagePermissions: string[]) {
     })
   }
 }
-
-test('streams a PDF with the right headers when read:pages is granted', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
-    headers: sessionHeader(['read:pages'])
-  })
-  assert.equal(res.statusCode, 200)
-  assert.equal(res.headers['content-type'], 'application/pdf')
-  assert.equal(res.headers['content-disposition'], 'attachment; filename="getting-started.pdf"')
-  assert.deepEqual(res.rawPayload, PDF_BYTES)
-})
-
-test('answers 404 when the page does not exist', async () => {
-  pageFixture = null
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
-    headers: sessionHeader(['read:pages'])
-  })
-  assert.equal(res.statusCode, 404)
-})
-
-test('answers 404 when the requester lacks read:pages (folded into not-found, like the rest of the file)', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
-    headers: sessionHeader([])
-  })
-  assert.equal(res.statusCode, 404)
-})
-
-test('answers 403 when the page is locked and this session has not unlocked it', async () => {
-  pageFixture!.isLocked = true
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
-    headers: sessionHeader(['read:pages'])
-  })
-  assert.equal(res.statusCode, 403)
-  assert.match(res.json().message, /password protected/)
-})
-
-test('answers 503 with the standard error shape when Puppeteer is not installed', async () => {
-  renderPdfBehavior = 'unavailable'
-  const res = await app.inject({
-    method: 'GET',
-    url: `/sites/${SITE_ID}/pages/${PAGE_ID}/export/pdf`,
-    headers: sessionHeader(['read:pages'])
-  })
-  assert.equal(res.statusCode, 503)
-  assert.deepEqual(res.json(), {
-    ok: false,
-    error: 'renderPuppeteerMissing',
-    statusCode: 503,
-    message: 'Exporting a page to PDF needs the Puppeteer extension, which is not installed.'
-  })
-})
-
-/**
- * `GET /sites/:siteId/pages/:pageId/export?format=markdown|html` (task 498)
- */
 
 test('format=markdown streams the raw content when read:source and read:pages are both granted', async () => {
   const res = await app.inject({

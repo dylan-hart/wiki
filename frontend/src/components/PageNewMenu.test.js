@@ -78,3 +78,33 @@ describe('PageNewMenu', () => {
     wrapper.unmount()
   })
 })
+
+describe('PageNewMenu: import menu item', () => {
+  it('fetches the extensions status once opened, to decide whether to show itself', () => {
+    globalThis.API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ pandoc: false })
+    })
+
+    mountMenu()
+
+    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith('system/extensions/status')
+  })
+
+  it('hides the "Import Page" item when Pandoc is not installed', async () => {
+    const { wrapper } = mountMenu()
+    const siteStore = useSiteStore()
+    siteStore.extensionsStatus = { pandoc: false }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('pages.import.menuLabel')
+  })
+
+  it('shows the "Import Page" item when Pandoc is installed', async () => {
+    const { wrapper } = mountMenu()
+    const siteStore = useSiteStore()
+    siteStore.extensionsStatus = { pandoc: true }
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('pages.import.menuLabel')
+  })
+})

@@ -145,11 +145,11 @@ describe('PageActionsCol export menu', () => {
   })
 
   /**
-   * PDF is the one export that genuinely takes several real seconds (a headless Chromium render, per
-   * `models/rendering.ts#renderPdf`) rather than an instant client-side Blob, so the button carries
-   * `w-btn`'s own `loading` state for the duration -- this is the "loading spinner while Chromium
-   * renders" the task calls for, and it also disables the button so a second click during the wait
-   * can't fire a second render.
+   * PDF is the one export that genuinely takes several real seconds (a headless Chromium render of
+   * the live page view, per `models/pdfExport.ts`) rather than an instant client-side Blob, so the
+   * button carries `w-btn`'s own `loading` state for the duration -- this is the "loading spinner
+   * while Chromium renders" the task calls for, and it also disables the button so a second click
+   * during the wait can't fire a second render.
    */
   it('shows a loading spinner on the Export button while the PDF request is in flight, and hits /export/pdf', async () => {
     let resolveBlob
@@ -168,7 +168,8 @@ describe('PageActionsCol export menu', () => {
     expect(trigger.attributes('disabled')).toBeDefined()
 
     expect(API_CLIENT.get).toHaveBeenCalledWith(
-      `sites/${ctx.siteStore.id}/pages/${ctx.pageStore.id}/export/pdf`
+      `sites/${ctx.siteStore.id}/pages/${ctx.pageStore.id}/export/pdf`,
+      expect.objectContaining({ timeout: expect.any(Number) })
     )
 
     resolveBlob(new Blob(['%PDF'], { type: 'application/pdf' }))

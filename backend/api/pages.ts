@@ -1,6 +1,7 @@
 import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { PageActor, PageInput } from '../models/pages.ts'
+import { MAX_IMPORT_SIZE, SUPPORTED_IMPORT_FORMATS } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import { generatePathHash, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
@@ -189,6 +190,17 @@ export async function loadReadablePage(
  * Pages API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> IMPORT PAGE's body is the uploaded file's raw bytes, not a multipart form or JSON — the same
+  //    approach `api/assets.ts` uses for asset uploads. The catch-all only claims content types
+  //    nothing else in this file parses, so the JSON routes above and below are unaffected.
+  app.addContentTypeParser(
+    '*',
+    { parseAs: 'buffer', bodyLimit: MAX_IMPORT_SIZE },
+    (req, body, done) => {
+      done(null, body)
+    }
+  )
+
   /**
    * LIST PAGES
    */
@@ -712,6 +724,78 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * IMPORT PAGE CONTENT
+   */
+  app.post<{
+    Params: { siteId: string }
+    Querystring: { format: string; path: string; locale?: string }
+  }>(
+    '/sites/:siteId/pages/import',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES, addressed by the path the converted content would be saved to.
+        Checked against that path below, exactly like CREATE PAGE above.
+      */
+      schema: {
+        summary: 'Convert an uploaded file to Markdown',
+        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`format\` says what the bytes are; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        tags: ['Pages'],
+        consumes: ['*/*'],
+        params: siteIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            format: {
+              type: 'string',
+              enum: [...SUPPORTED_IMPORT_FORMATS],
+              description: "The uploaded file's format."
+            },
+            path: {
+              type: 'string',
+              maxLength: 255,
+              pattern: '^/?[a-zA-Z0-9-_/]*$',
+              description:
+                'Where the converted content would be saved. Used only to check permission — nothing is written here.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            }
+          },
+          required: ['format', 'path']
+        },
+        response: {
+          200: { $ref: 'PageImportResult#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Importing a page requires a logged in user.')
+      }
+      if (!mayOnPage(req, 'write:pages', { path: req.query.path, locale: req.query.locale })) {
+        return reply.forbidden('You are not allowed to write a page here.')
+      }
+      const data = req.body
+      if (!Buffer.isBuffer(data) || data.length < 1) {
+        return reply.badRequest('No file was sent.')
+      }
+      const markdown = await WIKI.models.pageImport.convertToMarkdown({
+        format: req.query.format,
+        data
+      })
+      return {
+        ok: true,
+        message: 'File converted successfully.',
+        markdown
+      }
+    }
+  )
+
+  /**
    * UPDATE PAGE
    */
   app.patch<{
@@ -995,6 +1079,67 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * EXPORT PAGE AS PDF
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/export/pdf',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and page permissions are
+        granted by a group's RULES. Checked against the page in question below instead, the same
+        `read:pages` the page view itself needs — exporting shows nothing a reader could not already
+        see.
+      */
+      // -> Same cost as re-rendering a page — a headless browser per request — so it shares that
+      //    route's throttle; see `helpers/rateLimit.ts`
+      preHandler: limitRenders,
+      schema: {
+        summary: 'Export a page as PDF',
+        description:
+          "Drives Puppeteer against this instance's own live page view — not the stored render — so the PDF matches what a reader sees: theme, layout and block components (Mermaid diagrams, PlantUML, …) included, once their own async drawing has settled. Needs the Puppeteer extension, and answers 503 without it.\n\nNeeds `read:pages` ON THIS PAGE, on the same terms as reading it: a password-protected page answers only once the session has satisfied `POST …/unlock`, and an anonymous requester only ever exports a published page. The export runs as whoever asked for it — nothing more.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: 'The page as a PDF file',
+            content: {
+              'application/pdf': {
+                schema: { type: 'string', format: 'binary' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
+      if (!page) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (page.isLocked) {
+        return reply.forbidden('This page is password protected.')
+      }
+
+      const pdf = await WIKI.models.pdfExport.exportPdf({
+        hostname: req.hostname,
+        port: WIKI.config.port,
+        path: page.path,
+        // -> The raw, still-signed cookie value exactly as the browser sent it — see the AUTH comment
+        //    on `PdfExport.exportPdf` for why forwarding it is safe and sufficient
+        sessionCookie: req.cookies?.wikiSession ?? null
+      })
+
+      reply.header(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(page.path || 'home')}.pdf"`
+      )
+      reply.header('X-Content-Type-Options', 'nosniff')
+      reply.header('Content-Length', pdf.length)
+      return reply.type('application/pdf').send(pdf)
+    }
+  )
+
+  /**
    * DELETE PAGE
    */
   app.delete<{ Params: { siteId: string; pageId: string } }>(
@@ -1140,57 +1285,6 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This version does not exist.')
       }
       return version
-    }
-  )
-
-  /**
-   * EXPORT PAGE AS PDF
-   */
-  app.get<{ Params: { siteId: string; pageId: string } }>(
-    '/sites/:siteId/pages/:pageId/export/pdf',
-    {
-      /*
-        No route-level `permissions`: `read:pages` is a page permission granted by a group's RULES,
-        checked against this page below (through `loadReadablePage`) rather than the group-wide list.
-        A PDF is the rendered view a reader already sees, not the source, so `read:source` — checked
-        for `withContent=true` on the GET route above — does not apply here.
-      */
-      schema: {
-        summary: 'Export a page as a PDF',
-        description:
-          "The page's stored `render` HTML, printed to a PDF through a headless browser — a minimal print document built from just that HTML and a print stylesheet, not the live app: no nav, no editor rail, nothing `window.print()` on the SPA itself would carry along.\n\nNeeds `read:pages` ON THIS PAGE, exactly like reading it; a password-protected page answers 403 until the session has satisfied `POST …/unlock`. Answers 503 when the Puppeteer extension this needs is not installed.",
-        tags: ['Pages'],
-        params: pageIdParam,
-        response: {
-          200: {
-            description: 'The page as a PDF file',
-            content: {
-              'application/pdf': {
-                schema: {
-                  type: 'string',
-                  format: 'binary'
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    async (req, reply) => {
-      const page = await loadReadablePage(req, req.params.siteId, req.params.pageId)
-      if (!page) {
-        return reply.notFound('This page does not exist.')
-      }
-      if (page.isLocked) {
-        return reply.forbidden('This page is password protected.')
-      }
-      const pdf = await WIKI.models.rendering.renderPdf(page.render, { title: page.title })
-      reply.header(
-        'Content-Disposition',
-        `attachment; filename="${exportFilenameStem(page.path)}.pdf"`
-      )
-      reply.header('Content-Length', pdf.length)
-      return reply.type('application/pdf').send(pdf)
     }
   )
 

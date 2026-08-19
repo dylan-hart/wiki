@@ -4,6 +4,7 @@ import { eq, inArray, sql } from 'drizzle-orm'
 import { flipFromString, rotateFromString } from '@iconify/utils'
 import { jobs as jobsTable, pageRenderQueue as renderQueueTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
+import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
 
@@ -64,46 +65,6 @@ function withRenderTimeout<T>(work: Promise<T>): Promise<T> {
     )
   })
   return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
-}
-
-/** Escape text for a spot in an HTML document that is not itself markup — here, a PDF's `<title>`. */
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-}
-
-/**
- * The print document a PDF export puts in the tab, standing in for the live SPA.
- *
- * `window.print()` on the app itself is the tempting shortcut and the wrong one: the page a reader
- * sees carries the nav rail, the editor chrome and everything else the layout draws around content,
- * none of which belongs on paper. This is built from nothing but the page's own already-sanitized
- * `render` HTML — no app shell, no script, just a title and a small print stylesheet so headings don't
- * split across a page break and images don't run past the margin.
- */
-function printDocument(title: string, bodyHtml: string): string {
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>${escapeHtml(title)}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #1a1a1a; }
-  h1, h2, h3, h4, h5, h6 { break-after: avoid; }
-  img, table, figure, pre { break-inside: avoid; max-width: 100%; }
-  pre, code { white-space: pre-wrap; word-break: break-word; }
-  table { border-collapse: collapse; }
-  td, th { border: 1px solid #ccc; padding: 4px 8px; }
-</style>
-</head>
-<body>
-<h1>${escapeHtml(title)}</h1>
-${bodyHtml}
-</body>
-</html>`
 }
 
 /** A heading in the table of contents, shaped for the Quasar tree the page sidebar draws. */
@@ -1101,33 +1062,6 @@ class Rendering {
   }
 
   /**
-   * Import Puppeteer and start a headless browser — the one bootstrap every render path shares,
-   * whether what comes next is `createRenderer` driving the frontend's renderer bundle or `renderPdf`
-   * printing a page's stored HTML. Exactly one place knows how to launch Chromium for this instance.
-   */
-  private async launchBrowser(): Promise<any> {
-    // -> Held in a variable because Puppeteer is not a declared dependency: it is an extension the
-    //    operator installs, so a literal import would not typecheck
-    const specifier = 'puppeteer'
-    let puppeteer: any
-    try {
-      ;({ default: puppeteer } = await import(specifier))
-    } catch (err: any) {
-      WIKI.models.extensions.noteLoadFailure(specifier)
-      throw new CustomError(
-        'renderPuppeteerMissing',
-        `Could not load the Puppeteer extension: ${err.message}`,
-        503
-      )
-    }
-
-    return puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-dev-shm-usage']
-    })
-  }
-
-  /**
    * Open a headless browser on the renderer bundle and hand back something that renders through it.
    *
    * The markdown pipeline lives in the frontend and stays there — this drives it rather than
@@ -1138,7 +1072,9 @@ class Rendering {
    * returns a string, so nothing carries over between them but the bundle's own warm caches.
    */
   private async createRenderer(): Promise<PageRenderer> {
-    const browser = await this.launchBrowser()
+    // -> `helpers/puppeteer.ts` also backs `models/pdfExport.ts`'s PDF export, so both share one
+    //    launch path — same flags, same load-failure tracking
+    const browser = await launchPuppeteerBrowser('renderPuppeteerMissing')
     try {
       const page = await browser.newPage()
       // -> A shell page whose only job is to load the frontend's renderer bundle. It is served by this
@@ -1189,50 +1125,6 @@ class Rendering {
     }
   }
 
-  /**
-   * Print a page's stored HTML to a PDF, through the same Puppeteer bootstrap `createRenderer` uses.
-   *
-   * Unlike `createRenderer`, this tab never touches `/_render` — a PDF is built straight from HTML
-   * that has already been through `postProcess` and is already sanitized, wrapped in a minimal print
-   * document of its own (see `printDocument`) with no SPA shell, no nav, no editor rail around it.
-   * That absence is the whole reason this exists rather than the app calling `window.print()` on
-   * itself: the live page carries all of that chrome, and none of it belongs on paper.
-   *
-   * @param html The page's stored `render` HTML.
-   * @param options.title Set as the document's `<title>` and printed as a heading above the content.
-   * @returns The finished PDF.
-   */
-  async renderPdf(html: string, options: { title: string }): Promise<Buffer> {
-    if (!(await this.isAvailable())) {
-      throw new CustomError(
-        'renderPuppeteerMissing',
-        'Exporting a page to PDF needs the Puppeteer extension, which is not installed.',
-        503
-      )
-    }
-
-    const browser = await this.launchBrowser()
-    try {
-      const page = await browser.newPage()
-      const pdf = await withRenderTimeout(
-        (async () => {
-          await page.setContent(printDocument(options.title, html), { waitUntil: 'networkidle0' })
-          return page.pdf({
-            format: 'A4',
-            printBackground: true,
-            margin: { top: '20mm', bottom: '15mm', left: '15mm', right: '15mm' }
-          })
-        })()
-      )
-      return Buffer.from(pdf)
-    } finally {
-      try {
-        await browser.close()
-      } catch (err: any) {
-        WIKI.logger.debug(`Could not close the PDF export browser cleanly: ${err.message}`)
-      }
-    }
-  }
 }
 
 export const rendering = new Rendering()

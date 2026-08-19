@@ -548,3 +548,94 @@ for this one family of input.
 throw and fall to the error panel, which is a separate, already-tracked gap between that path and
 `::block-katex`, not something this task's audit re-derives. Everything else in the table above
 applies equally to the literal path, since it uses the same KaTeX engine and default options.
+
+## Feature 402 — Puppeteer: server-side diagram pre-rendering descoped
+
+**Decided in:** Task 666 ("Decide and record scope per promised capability; correct definition.yml
+wording for whatever is descoped"), part of Feature 402 ("Extension-to-Feature Wiring: Pandoc Import
+& Puppeteer PDF/Diagram Export").
+
+Feature 402 covers three capabilities that `backend/modules/extensions/pandoc/definition.yml` and
+`backend/modules/extensions/puppeteer/definition.yml` promised but that nothing in the codebase
+actually implemented:
+
+1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **building now**
+   (Feature 402 tasks 667/668). A straightforward `execFile` shell-out, comparable in shape to the
+   extension-install pattern already used elsewhere in `models/extensions.ts`.
+2. **Puppeteer PDF export** of a page — **building now** (Feature 402 tasks 669/670). A headless
+   Chromium print-to-PDF against the real, live page-view URL, waiting for async block components
+   (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
+   a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
+   496); see "PDF export: two competing implementations reconciled" below for how that was resolved.
+3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — **deferred**. Tracked as
+   OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
+   from Feature #402)").
+
+### Why #3 is deferred and #1/#2 are not
+
+Web research (recorded on Feature 402) confirms none of the three ever shipped in Wiki.js 2.5.x —
+each surfaces only as a community feature request, never a delivered feature. So none of the three
+required migration or compatibility handling; the only question was whether to build each for real
+now or correct the `definition.yml` claim.
+
+\#1 and #2 are both straightforward: a CLI conversion piped through `execFile`, and a headless-browser
+print of a page that already renders correctly in a live browser context. Both fit cleanly into
+existing patterns in this codebase.
+
+\#3 is architecturally heavier. Mermaid, PlantUML, and Kroki diagrams are drawn entirely client-side
+today by `block-diagram` / `block-plantuml` / `block-kroki` — Lit web components that read their
+fenced source out of the page and render at _view time_, inside a live browser page that has loaded
+the full block-component runtime. The existing headless surface
+(`backend/controllers/render.ts` `/_render`, driven by `models/rendering.ts`) only re-runs the
+markdown-to-HTML pass (`frontend/src/renderers/headless.js` → `window.__wikiRender`); it is a bare
+shell that does not load block components at all, so it cannot produce pre-rendered diagram markup
+today even in principle. Making it do so means running Lit block components inside a headless
+context outside their current view-time-only execution model — a real design problem (how a headless
+pass instantiates the block, waits for its diagram library to settle, extracts or rasterizes the
+result, and where that output is cached relative to stored `page.render` HTML), not a shell-out or a
+print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
+built now.
+
+### Correction made
+
+`backend/modules/extensions/puppeteer/definition.yml`'s `description` previously read:
+
+> Headless Chromium browser. Required to export pages as PDF and to render content elements on the
+> server, such as Mermaid or PlantUML diagrams. …
+
+It now describes only PDF export, matching what Feature 402 actually builds. Resolve/delete this
+entry once task 785 ships and the description can honestly mention server-side diagram rendering
+again.
+
+## PDF export: two competing implementations reconciled at merge-review time
+
+**Merged:** `integration/merge-review-1`, reconciling `feature/page-version-export` (Feature 371,
+task 496) against `feature/pandoc-import-puppeteer-pdf-export` (Feature 402, tasks 669/670). Both
+branches independently built `GET /sites/:siteId/pages/:pageId/export/pdf`, and both authors flagged
+the overlap in their own code (`pdfExport.ts`'s class comment: "a human has two competing
+page-PDF-export endpoints to reconcile at merge time") rather than resolving it unilaterally — this
+entry is that reconciliation.
+
+**Kept live:** Feature 402's `models/pdfExport.ts` (`WIKI.models.pdfExport.exportPdf()`). It drives
+Puppeteer against this instance's own live SPA page view — real theme, real layout, and every block
+component (Mermaid, PlantUML, …) rendered and settled (`blockSettleScript` rides each block's Lit
+`updateComplete` before printing) — authenticated by forwarding the requester's own session cookie to
+the headless browser over loopback.
+
+**Retired:** Feature 371's `models/rendering.ts#renderPdf()` (plus its now-unused `printDocument()`/
+`escapeHtml()` helpers) and the API route built on it. It printed only the page's already-stored
+`render` HTML wrapped in a bare print stylesheet — no SPA shell, no live JS, so a page containing a
+Mermaid/PlantUML/Kroki diagram exported with that diagram's `<pre>` fallback markup instead of the
+diagram itself. Feature 402's version is a strict capability superset with no corresponding regression
+for anything Feature 371's version could do. `models/rendering.ts#isAvailable()` (the same Puppeteer-
+extension check, used elsewhere for server-side page re-rendering) and `models/rendering.ts
+#createRenderer()` are unaffected and remain in place; only the PDF-specific method and its route were
+removed. `rendering.ts#createRenderer()` was also switched from its own inline Puppeteer-launch
+private method onto the shared `helpers/puppeteer.ts#launchPuppeteerBrowser()` Feature 402 introduced
+— the two render paths (page re-render, PDF export) now share one launch implementation instead of
+two copies of the same flags/error handling.
+
+**Not touched:** `api/sites.ts`'s `buildSitePayload()` still reads `pdfExportAvailable` off
+`WIKI.models.rendering.isAvailable()` rather than `WIKI.models.pdfExport.isAvailable()` — both ask the
+identical question (is the `puppeteer` extension installed) so this is not a correctness bug, just a
+naming nicety left for a future pass rather than bundled into this reconciliation.

@@ -292,7 +292,10 @@ const menuPendingAssets = ref(null)
 
 // DATA
 
-/** Set only while a PDF export is in flight -- the one format that can't just hand back a Blob. */
+/**
+ * Whether an export request is in flight -- a browser launch plus a full page render, several
+ * seconds even on a fast page, so the button needs to say so rather than sit inert.
+ */
 const exportingPdf = ref(false)
 
 /**
@@ -305,6 +308,14 @@ const EXPORT_TEXT_TYPES = {
   markdown: { ext: 'md', mime: 'text/markdown' },
   html: { ext: 'html', mime: 'text/html' }
 }
+
+/**
+ * How long the client gives the PDF export request, in milliseconds -- past `ky`'s own 10s default,
+ * which is well under what a browser launch plus navigation plus settling plus `page.pdf()` can take.
+ * Not exact: `models/pdfExport.ts`'s own timeouts (navigation 30s + block-settle 15s + PDF 30s) sum to
+ * 75s worst case, so this rounds up past that rather than matching it precisely.
+ */
+const EXPORT_PDF_TIMEOUT = 90 * 1000
 
 // COMPUTED
 
@@ -376,21 +387,39 @@ async function exportPageText(format) {
   }
 }
 
+/**
+ * Ask the server to render this page's live view to PDF and save the result -- a binary response, so
+ * `.blob()` rather than `.json()`; `ky` still parses a non-2xx body as JSON into `err.data` first (see
+ * `helpers/apiError.js`), which is what lets the catch below tell a missing extension apart from
+ * anything else going wrong.
+ */
 async function exportPagePdf() {
   exportingPdf.value = true
   try {
-    const blob = await API_CLIENT.get(
-      `sites/${siteStore.id}/pages/${pageStore.id}/export/pdf`
-    ).blob()
+    const blob = await API_CLIENT.get(`sites/${siteStore.id}/pages/${pageStore.id}/export/pdf`, {
+      timeout: EXPORT_PDF_TIMEOUT
+    }).blob()
     await fileSave(blob, {
       fileName: `${exportFileStem()}.pdf`,
       extensions: ['.pdf']
     })
   } catch (err) {
-    if (err.name !== 'AbortError') {
+    // -> Dismissing the save picker is not a failure
+    if (err.name === 'AbortError') {
+      return
+    }
+    // -> Same error name `models/pdfExport.ts`'s `ensureCanExport` throws (mirroring
+    //    `renderPuppeteerMissing` on the render queue) -- told apart from a generic failure so the
+    //    reader knows whether reloading will help or an administrator needs to install something
+    if (err?.data?.error === 'exportPuppeteerMissing') {
       notify({
         type: 'negative',
-        message: 'Failed to export page as PDF.',
+        message: t('pages.export.puppeteerMissing')
+      })
+    } else {
+      notify({
+        type: 'negative',
+        message: t('pages.export.failed'),
         caption: apiErrorMessage(err)
       })
     }
@@ -486,6 +515,7 @@ function removePendingAsset(item) {
     menuPendingAssets.value.hide()
   }
 }
+
 </script>
 
 <style lang="scss">

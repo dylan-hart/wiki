@@ -12,6 +12,7 @@ import { flags } from './flags.ts'
 import { groups } from './groups.ts'
 import { hooks } from './hooks.ts'
 import { icons } from './icons.ts'
+import { pageImport } from './import.ts'
 import { jobs } from './jobs.ts'
 import { locales } from './locales.ts'
 import { mail } from './mail.ts'
@@ -20,6 +21,7 @@ import { pageHistory } from './pageHistory.ts'
 import { pages } from './pages.ts'
 import { pageWatching } from './pageWatching.ts'
 import { passkeys } from './passkeys.ts'
+import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
 import { rendering } from './rendering.ts'
 import { search } from './search.ts'
@@ -47,6 +49,7 @@ export default {
   groups,
   hooks,
   icons,
+  pageImport,
   jobs,
   locales,
   mail,
@@ -55,6 +58,7 @@ export default {
   pages,
   pageWatching,
   passkeys,
+  pdfExport,
   rateLimits,
   rendering,
   search,

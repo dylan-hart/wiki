@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
+import ajvFormats from 'ajv-formats'
 import systemRoutes from './system.ts'
 import { registerSchemas as registerFlagsSchema } from './schemas/flags.ts'
 import { registerSchemas as registerSecuritySchema } from './schemas/security.ts'
@@ -29,76 +30,158 @@ if (typeof Temporal === 'undefined') {
  * `WIKI.db.execute` is stubbed to return two connections for one instance and one for another, which
  * is exactly the shape `getClusterNodes()` groups by `application_name`.
  */
-
-const FAKE_ROWS = [
-  {
-    usename: 'wiki',
-    client_addr: '10.0.0.1',
-    application_name: 'Wiki.js - aaaaaaaaaa:MAIN',
-    backend_start: '2026-08-17 09:00:00.000000+00',
-    state_change: '2026-08-17 09:05:00.000000+00'
-  },
-  {
-    usename: 'wiki',
-    client_addr: '10.0.0.1',
-    application_name: 'Wiki.js - aaaaaaaaaa:PUBSUB',
-    backend_start: '2026-08-17 09:00:00.000000+00',
-    state_change: '2026-08-17 09:05:30.000000+00'
-  },
-  {
-    usename: 'wiki',
-    client_addr: '10.0.0.2',
-    application_name: 'Wiki.js - bbbbbbbbbb:MAIN',
-    backend_start: '2026-08-17 09:01:00.000000+00',
-    state_change: '2026-08-17 09:06:00.000000+00'
-  }
-]
-
-let app: FastifyInstance
-
-before(async () => {
-  ;(globalThis as any).WIKI = {
-    dbManager: {
-      dbName: 'wiki_test'
+describe('GET /cluster (renamed from /instances)', () => {
+  const FAKE_ROWS = [
+    {
+      usename: 'wiki',
+      client_addr: '10.0.0.1',
+      application_name: 'Wiki.js - aaaaaaaaaa:MAIN',
+      backend_start: '2026-08-17 09:00:00.000000+00',
+      state_change: '2026-08-17 09:05:00.000000+00'
     },
-    db: {
-      execute: async () => ({ rows: FAKE_ROWS })
+    {
+      usename: 'wiki',
+      client_addr: '10.0.0.1',
+      application_name: 'Wiki.js - aaaaaaaaaa:PUBSUB',
+      backend_start: '2026-08-17 09:00:00.000000+00',
+      state_change: '2026-08-17 09:05:30.000000+00'
+    },
+    {
+      usename: 'wiki',
+      client_addr: '10.0.0.2',
+      application_name: 'Wiki.js - bbbbbbbbbb:MAIN',
+      backend_start: '2026-08-17 09:01:00.000000+00',
+      state_change: '2026-08-17 09:06:00.000000+00'
     }
-  }
+  ]
 
-  app = fastify()
-  await app.register(fastifySensible)
-  await registerErrorSchema(app)
-  await registerFlagsSchema(app)
-  await registerSecuritySchema(app)
-  await registerExtensionSchema(app)
-  await app.register(systemRoutes)
-  await app.ready()
-})
+  let app: FastifyInstance
 
-after(async () => {
-  await app.close()
-  delete (globalThis as any).WIKI
-})
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      dbManager: {
+        dbName: 'wiki_test'
+      },
+      db: {
+        execute: async () => ({ rows: FAKE_ROWS })
+      }
+    }
 
-test('GET /cluster lists cluster nodes grouped by instance id (not /instances)', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: '/cluster'
+    app = fastify()
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerFlagsSchema(app)
+    await registerSecuritySchema(app)
+    await registerExtensionSchema(app)
+    await app.register(systemRoutes)
+    await app.ready()
   })
-  assert.equal(res.statusCode, 200)
-  const nodes = res.json()
-  assert.equal(nodes.length, 2)
-  const nodeA = nodes.find((n: any) => n.id === 'aaaaaaaaaa')
-  assert.ok(nodeA, 'expected the two aaaaaaaaaa connections to be grouped into one node')
-  assert.equal(nodeA.activeConnections, 1)
-  assert.equal(nodeA.activeListeners, 1)
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('GET /cluster lists cluster nodes grouped by instance id (not /instances)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/cluster'
+    })
+    assert.equal(res.statusCode, 200)
+    const nodes = res.json()
+    assert.equal(nodes.length, 2)
+    const nodeA = nodes.find((n: any) => n.id === 'aaaaaaaaaa')
+    assert.ok(nodeA, 'expected the two aaaaaaaaaa connections to be grouped into one node')
+    assert.equal(nodeA.activeConnections, 1)
+    assert.equal(nodeA.activeListeners, 1)
+  })
+
+  test('GET /instances no longer exists', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/instances'
+    })
+    assert.equal(res.statusCode, 404)
+  })
 })
 
-test('GET /instances no longer exists', async () => {
-  const res = await app.inject({
-    method: 'GET',
-    url: '/instances'
+/**
+ * Route-level test for `GET /system/extensions/status`.
+ *
+ * The frontend gates page-import on the Pandoc extension being installed (`PageNewMenu.vue` /
+ * `ImportPageDialog.vue`, per task 668), and needs to ask that without `manage:system` — the
+ * permission the full `/extensions` listing requires, since that route also carries install
+ * eligibility and instructions meant for admins. This route is the "lightweight … check" the task
+ * called for: no route-level permissions (open to any caller, like the public site-info route), and
+ * answering nothing but `{ <extensionKey>: isInstalled }` for every declared extension.
+ */
+describe('GET /system/extensions/status', () => {
+  let app: FastifyInstance
+  let getExtensions: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    getExtensions = mock.fn(async () => [
+      { key: 'pandoc', title: 'Pandoc', isInstalled: true, isInstallable: false, isCompatible: true },
+      {
+        key: 'puppeteer',
+        title: 'Puppeteer',
+        isInstalled: false,
+        isInstallable: true,
+        isCompatible: true
+      }
+    ])
+
+    ;(globalThis as any).WIKI = {
+      models: {
+        extensions: {
+          getExtensions
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      if (req.headers['x-test-anon'] !== 'true') {
+        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      }
+      done()
+    })
+    await registerErrorSchema(app)
+    await registerFlagsSchema(app)
+    await registerExtensionSchema(app)
+    await registerSecuritySchema(app)
+    await app.register(systemRoutes)
+    await app.ready()
   })
-  assert.equal(res.statusCode, 404)
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    getExtensions.mock.resetCalls()
+  })
+
+  test('answers a key -> isInstalled map for every declared extension', async () => {
+    const res = await app.inject({ method: 'GET', url: '/extensions/status' })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { pandoc: true, puppeteer: false })
+    assert.equal(getExtensions.mock.callCount(), 1)
+  })
+
+  test('answers an anonymous caller too — no route-level permission gates it', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/extensions/status',
+      headers: { 'x-test-anon': 'true' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), { pandoc: true, puppeteer: false })
+  })
 })
