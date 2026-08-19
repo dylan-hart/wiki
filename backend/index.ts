@@ -33,6 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
+import { templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
   resolveRequestSite,
@@ -773,7 +774,14 @@ async function initHTTPServer() {
 
     `no-store`: the bundles this pulls in are hashed and immutable under `/_assets`, but the document
     naming them must never be held, or a rebuilt frontend would keep booting the previous one. Read per
-    request for the same reason -- `npm run build` while the server is up should be enough.
+    request for the same reason -- `npm run build` while the server is up should be enough. It also
+    means a cache never has to be told the templated `lang`/`dir` below vary per site, since nothing
+    is cached at all.
+
+    `lang`/`dir` are filled in here rather than left to `App.vue` (which also sets them, from
+    `siteStore.locales`, the moment it boots): that only happens once its JS has loaded, parsed and
+    run, so an RTL locale would flash LTR for however long that takes. Templating them into the shell
+    itself closes that window -- see `helpers/appShell.ts`.
   */
   app.setNotFoundHandler(async (req, reply) => {
     const urlPath = req.raw.url!.split('?')[0]!
@@ -788,7 +796,18 @@ async function initHTTPServer() {
     }
     try {
       const shell = await readFile(appShellPath, 'utf8')
-      return reply.header('Cache-Control', 'no-store').type('text/html; charset=utf-8').send(shell)
+      // -> Same site resolution as the SEO hook above: straight off the caches, since this also
+      //    runs on every request that reaches the shell.
+      const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
+      const siteConfig = WIKI.sites[siteId]?.config
+      const lang = siteConfig?.locales?.primary ?? 'en'
+      const locales = await WIKI.models.locales.getLocales()
+      const isRTL = locales.find((l: any) => l.code === lang)?.isRTL ?? false
+      const templated = templateAppShell(shell, { lang, isRTL })
+      return reply
+        .header('Cache-Control', 'no-store')
+        .type('text/html; charset=utf-8')
+        .send(templated)
     } catch (err: any) {
       // -> Nothing to serve means the frontend was never built, which is a setup step rather than a
       //    fault of this request: say which one, since a bare 500 sends people looking in the server

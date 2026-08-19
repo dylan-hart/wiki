@@ -1,7 +1,14 @@
 <template>
   <div class="page-header flex flex-wrap">
     <!-- PAGE ICON -->
-    <div class="flex-none pl-4 flex items-center">
+    <!--
+      This row is a plain flex row, so under `dir="rtl"` the flex axis itself already reorders the
+      icon, the title column and the actions -- the icon lands beside whichever edge is now the
+      reading start. What would NOT follow along on its own is the gap between them: `ps-4`/`ms-4`/
+      `me-2` (Tailwind's logical spacing utilities) are used in place of `pl-4`/`ml-4`/`mr-2` below so
+      that gap stays on the correct side of each element rather than staying physically left/right.
+    -->
+    <div class="flex-none ps-4 flex items-center">
       <w-btn
         class="rounded"
         v-if="isEditing"
@@ -105,7 +112,7 @@
           and nobody is reading this one — they are passing through it.
         -->
         <w-btn
-          class="ml-4"
+          class="ms-4"
           :class="{ 'is-ringing': state.bellRinging }"
           v-if="userStore.authenticated && !isRedirect"
           flat
@@ -120,7 +127,7 @@
           </w-tooltip>
         </w-btn>
         <w-btn
-          class="ml-4"
+          class="ms-4"
           v-if="siteStore.theme.showPrintBtn"
           flat
           dense
@@ -143,7 +150,7 @@
           one to review.
         -->
         <w-btn
-          class="ml-4"
+          class="ms-4"
           v-if="pageStore.canReview && !isRedirect"
           flat
           dense
@@ -165,11 +172,23 @@
           </w-badge>
           <w-tooltip>{{ t('inbox.pendingReview') }}</w-tooltip>
           <!--
-            Down from the button's right edge, like every other menu hanging off this row: the panel is
-            wider than the button and the button is near the right of the window, so aligning their
-            RIGHT edges is what keeps it on screen.
+            Down from the button's trailing edge, like every other menu hanging off this row: the
+            panel is wider than the button and the button sits near the reading-END edge of the
+            window (this actions group is the last child of a flex row, so a plain flex reorder is
+            what puts it there under either direction) -- aligning their trailing edges is what keeps
+            it on screen. `WMenu` places itself in raw viewport pixels and knows nothing about
+            `direction` (`composables/anchoredPosition.js`), so the LTR-written "right" pair would pop
+            the panel off toward the visual right even once `dir="rtl"` has moved this button to the
+            visual left; `reviewMenu` mirrors it via `directionalAnchor`, the same helper
+            `EditorMarkdown.vue`'s side toolbar uses for its own hardcoded anchors -- kept reactive
+            here (see the script setup comment) since this header, unlike an editor session, outlives
+            a single locale.
           -->
-          <w-menu class="translucent-menu" anchor="bottom right" self="top right" auto-close>
+          <w-menu
+            class="translucent-menu"
+            :anchor="reviewMenu.anchor"
+            :self="reviewMenu.self"
+            auto-close>
             <w-list padding style="min-width: 320px">
               <w-item v-if="pendingCount < 1">
                 <w-item-section>
@@ -218,9 +237,9 @@
           Whoever else has this page open in an editor. Renders nothing when that is nobody, which is
           also what it renders whenever there is no collaboration session at all.
         -->
-        <collab-presence class="mr-2" />
+        <collab-presence class="me-2" />
         <w-btn
-          class="ml-4 acrylic-btn"
+          class="ms-4 acrylic-btn"
           icon="la:question-circle"
           flat
           color="grey"
@@ -237,7 +256,7 @@
       -->
       <template v-if="!editorStore.isActive && userStore.can(`write:pages`)">
         <w-btn
-          class="acrylic-btn ml-4"
+          class="acrylic-btn ms-4"
           flat
           icon="la:edit"
           color="deep-orange-9"
@@ -259,7 +278,7 @@
       -->
       <template v-else-if="!editorStore.isActive && pageStore.canSuggestEdits && !isRedirect">
         <w-btn
-          class="acrylic-btn ml-4"
+          class="acrylic-btn ms-4"
           flat
           icon="la:edit"
           color="deep-orange-9"
@@ -278,7 +297,7 @@
       </template>
       <template v-if="editorStore.isActive || editorStore.hasPendingChanges">
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           flat
           icon="la:times"
           color="negative"
@@ -291,7 +310,7 @@
           no-caps
           @click="discardChanges" />
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           v-if="isSuggesting"
           flat
           icon="la:paper-plane"
@@ -302,7 +321,7 @@
           no-caps
           @click="submitSuggestion" />
         <w-btn
-          class="acrylic-btn ml-2"
+          class="acrylic-btn ms-2"
           v-else-if="editorStore.mode === `create`"
           flat
           icon="la:check"
@@ -311,7 +330,7 @@
           :aria-label="t(`editor.createPage`)"
           no-caps
           @click="createPage" />
-        <w-btn-group class="ml-2" v-else flat>
+        <w-btn-group class="ms-2" v-else flat>
           <w-btn
             class="acrylic-btn"
             flat
@@ -348,6 +367,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
+import { useDirection } from '@/composables/direction'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
@@ -362,12 +382,28 @@ import { useUserStore } from '@/stores/user'
 import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 
 /**
  * How long the bell swings for, in milliseconds. Matches the `w-bell-ring` animation below — the class
  * has to come off once it has played, or the next watch would not play it again.
  */
 const BELL_RING_MS = 700
+
+// DIRECTION
+
+const direction = useDirection()
+
+/*
+  The review-queue dropdown's `anchor`/`self`, LTR-correct pair mirrored for `dir="rtl"` -- see the
+  template comment above the `w-menu` for why a hardcoded "right" pair breaks once this actions group
+  has moved to the visual left. Kept reactive off `composables/direction.js` rather than read once:
+  this header stays mounted across navigations (it is not remounted per page the way an editor session
+  is), so a reader moving between an LTR page and an RTL one in the same visit must flip this too.
+*/
+const reviewMenu = computed(() =>
+  directionalAnchor(direction.isRTL ? 'rtl' : 'ltr', 'bottom right', 'top right')
+)
 
 // STORES
 

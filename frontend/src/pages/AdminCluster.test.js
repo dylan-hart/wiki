@@ -3,15 +3,16 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
-import AdminInstances from './AdminInstances.vue'
+import AdminCluster from './AdminCluster.vue'
 import WTable from '@/components/shared/WTable.vue'
 
 /**
- * Task 605 verification pass.
+ * Task 605 verification pass, ported to this file's task-711 rename (AdminInstances.vue ->
+ * AdminCluster.vue, state.instances -> state.nodes, admin.instances.* -> admin.cluster.*).
  *
- * `<w-table row-key="name">` was wired to a property no row object has — see `getInstances()` in
- * `backend/api/system.ts`, which returns `id`/`activeConnections`/`dbUser`/... with no `name` field
- * at all. Every row therefore keyed on the same `undefined`.
+ * `<w-table row-key="name">` was wired to a property no row object has — `getClusterNodes()` in
+ * `backend/api/system.ts` returns `id`/`activeConnections`/`dbUser`/... with no `name` field at all.
+ * Every row therefore keyed on the same `undefined`.
  *
  * That is a real bug of intent (the prop's own docstring says it wants "a row property holding a
  * stable identity"), but it is NOT a duplicate-key warning: Vue's keyed-diff algorithm only compares
@@ -30,12 +31,12 @@ function mountPage() {
     locale: 'en',
     messages: {
       en: {
-        'admin.instances.title': 'Instances',
-        'admin.instances.subtitle': 'Connected instances',
-        'admin.instances.activeConnections': 'Connections',
-        'admin.instances.activeListeners': 'Listeners',
-        'admin.instances.firstSeen': 'First seen',
-        'admin.instances.lastSeen': 'Last seen',
+        'admin.cluster.title': 'Cluster',
+        'admin.cluster.subtitle': 'Connected cluster nodes',
+        'admin.cluster.activeConnections': 'Connections',
+        'admin.cluster.activeListeners': 'Listeners',
+        'admin.cluster.firstSeen': 'First seen',
+        'admin.cluster.lastSeen': 'Last seen',
         'common.field.id': 'ID',
         'common.actions.viewDocs': 'View docs',
         'common.actions.refresh': 'Refresh'
@@ -43,14 +44,14 @@ function mountPage() {
     }
   })
 
-  return mount(AdminInstances, {
+  return mount(AdminCluster, {
     global: {
       plugins: [i18n]
     }
   })
 }
 
-const INSTANCE_A = {
+const NODE_A = {
   id: 'aaaaaaaaaa',
   activeConnections: 1,
   activeListeners: 1,
@@ -59,7 +60,7 @@ const INSTANCE_A = {
   dbLastSeen: '2026-08-17T00:05:00.000Z',
   ip: '127.0.0.1'
 }
-const INSTANCE_B = {
+const NODE_B = {
   id: 'bbbbbbbbbb',
   activeConnections: 2,
   activeListeners: 1,
@@ -69,14 +70,14 @@ const INSTANCE_B = {
   ip: '127.0.0.2'
 }
 
-describe('AdminInstances table', () => {
-  it('keys rows on "id", the one identity property instances actually have', () => {
+describe('AdminCluster table', () => {
+  it('keys rows on "id", the one identity property cluster nodes actually have', () => {
     const wrapper = mountPage()
     expect(wrapper.findComponent(WTable).props('rowKey')).toBe('id')
     wrapper.unmount()
   })
 
-  it('renders zero instances without error', async () => {
+  it('renders zero nodes without error', async () => {
     API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
 
     const wrapper = mountPage()
@@ -84,14 +85,14 @@ describe('AdminInstances table', () => {
     await Promise.resolve()
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.vm.state.instances).toEqual([])
+    expect(wrapper.vm.state.nodes).toEqual([])
     expect(wrapper.findAll('tbody tr').length).toBe(0)
 
     wrapper.unmount()
   })
 
-  it('renders a single instance', async () => {
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([INSTANCE_A]) })
+  it('renders a single node', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([NODE_A]) })
 
     const wrapper = mountPage()
     await wrapper.vm.$nextTick()
@@ -104,8 +105,8 @@ describe('AdminInstances table', () => {
     wrapper.unmount()
   })
 
-  it('renders multiple instances, each with its own row and identity', async () => {
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([INSTANCE_A, INSTANCE_B]) })
+  it('renders multiple nodes, each with its own row and identity', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([NODE_A, NODE_B]) })
 
     const wrapper = mountPage()
     await wrapper.vm.$nextTick()

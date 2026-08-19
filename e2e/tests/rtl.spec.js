@@ -1,0 +1,138 @@
+import { expect, test } from '@playwright/test'
+
+// -> The e2e workspace has no `pg`/`drizzle-orm` of its own (it is a plain Playwright workspace --
+//    see `e2e/package.json`); `runSeedRtlTestLocale()` builds and closes its own connection, and
+//    everything IT imports resolves against `backend/`'s own `node_modules` because Node resolves
+//    bare specifiers relative to the importing file's location, not this file's.
+import {
+  RTL_TEST_LOCALE,
+  runSeedRtlTestLocale
+} from '../../backend/scripts/seed-rtl-test-locale.ts'
+import { loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
+
+/**
+ * Feature 413 ("RTL support end-to-end"), task 727: seed the synthetic RTL test locale directly
+ * into the same database the backend under test boots against (its own `refreshFromDisk()` boot
+ * step never touches it -- see the seed script's header comment -- so this is safe to do once,
+ * ahead of every test in this file, rather than per test).
+ */
+test.beforeAll(async () => {
+  await runSeedRtlTestLocale()
+})
+
+test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
+  test('activating the synthetic RTL locale via AdminLocale.vue flips dir/lang across the reading view, both editors, and the admin area', async ({
+    page
+  }) => {
+    await loginAsAdmin(page)
+
+    // -> `models/locales.ts#getLocales()` answers from `WIKI.cache`, populated once at boot
+    //    (`index.ts#postBoot`) and never invalidated on its own -- a locale inserted straight into
+    //    the table (as `beforeAll` above just did) is invisible to `GET /_api/locales`, and so to
+    //    `AdminLocale.vue`, until something busts that cache. `POST /_api/system/cache/flush` is the
+    //    real, existing mechanism for exactly this (`AdminUtilities.vue`'s "Flush Caches" button,
+    //    `core/maintenance.ts#flushCaches`) -- not a test-only workaround, and the same step a real
+    //    administrator would take after loading a locale outside the normal boot-time
+    //    `refreshFromDisk()` path.
+    await page.request.post('/_api/system/cache/flush')
+
+    // -> Activate the locale for the default site through the real admin screen (`AdminLocale.vue`),
+    //    per the task's own instruction -- not a direct API/DB write.
+    await page.goto('/_admin/sites')
+    await page.getByRole('button', { name: 'Edit', exact: true }).first().click()
+    await expect(page).toHaveURL(/\/_admin\/[^/]+\/general$/)
+    const siteId = new URL(page.url()).pathname.match(/\/_admin\/([^/]+)\/general/)[1]
+
+    await page.goto(`/_admin/${siteId}/locale`)
+    // -> `AdminLocale.vue#load()` re-fires on its own `watch(() => adminStore.currentSiteId, ...)`
+    //    shortly after `AdminLayout.vue`'s mount resolves that id from the URL -- on a slow run that
+    //    refetch can still be in flight when the toggle below is clicked, and its response (the
+    //    server's still-unchanged, `en`-only list) overwrites `state.active` right back out from
+    //    under the click, and a bare `waitForLoadState('networkidle')` is not late enough to rule
+    //    that out. An explicit, single `load()` this test itself triggers (via the "Refresh" button)
+    //    and then waits out (`aria-busy` clearing is `state.loading` reaching zero) is a fetch this
+    //    test knows has already landed before it touches the toggle, which the implicit one is not.
+    const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
+    await refreshButton.click()
+    await expect(refreshButton).not.toHaveAttribute('aria-busy', 'true')
+
+    const toggle = page.getByRole('switch', { name: RTL_TEST_LOCALE.name })
+    await toggle.waitFor()
+    // -> Idempotent rather than an unconditional click: this suite's own database is not
+    //    guaranteed empty of a previous run's activation (`test/db.ts`'s "fresh schema per run"
+    //    convention is a `backend/` unit-test fixture, not something this e2e database gets for
+    //    free), so the toggle may already be on.
+    if ((await toggle.getAttribute('aria-checked')) !== 'true') {
+      await toggle.click()
+    }
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    await page.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(page.getByText('successfully', { exact: false })).toBeVisible()
+
+    // -> Not `/`: a brand new site has no home page yet, and `Index.vue`'s route watcher sends an
+    //    unauthenticated visitor straight to `/login` in that case -- irrelevant here since this
+    //    session is authenticated, but the same fresh site shows `WelcomeOverlay.vue`'s full-screen
+    //    prompt over the header on `/` regardless of auth state, which would sit in front of the
+    //    sidebar controls this test needs to click. Any other path renders the ordinary "page not
+    //    found" placeholder inside the normal shell instead (see `auth.spec.js`).
+    await page.goto('/e2e-rtl-check')
+
+    // -> Switch the READER's own display locale to the RTL test locale, via the real switcher
+    //    (`LocaleSelectorMenu.vue`, fed from `siteStore.locales.active` -- which is empty until the
+    //    activation above lands). This is what actually flips `dir`/`lang`
+    //    (`App.vue#applyLocale`), not the activation alone.
+    //
+    //    Not `RTL_TEST_LOCALE.nativeName`: this reader-facing menu does not read the `locales`
+    //    table's own `name`/`nativeName` columns at all -- `stores/site.js#describeLocales()`
+    //    deliberately re-derives both from `Intl.DisplayNames` off the bare code instead (see its own
+    //    header comment), so it shows the generic CLDR spelling ("العربية") rather than this seed's
+    //    custom one ("العربية (اختبار)"). The admin's OWN language-switcher (`AdminLayout.vue`,
+    //    checked later) reads the raw API response and does show the custom name.
+    await page.getByRole('button', { name: 'Switch Locale' }).click()
+    await page.getByText('العربية', { exact: true }).click()
+
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+    await expect(page.locator('html')).toHaveAttribute('lang', RTL_TEST_LOCALE.code)
+
+    // -> Translated chrome text actually renders, not just the attribute flip -- the reading view's
+    //    "Browse" sidebar action, in Arabic. By accessible name (its `aria-label`), not visible text:
+    //    on a pageless path like this one the sidebar renders in its icon-only "mini" mode
+    //    (`MainLayout.vue`'s `isSidebarMini`), where the label is an `aria-label`/tooltip rather than
+    //    on-screen text.
+    await expect(
+      page.getByRole('button', { name: RTL_TEST_LOCALE.strings['common.sidebar.browse'] })
+    ).toBeVisible()
+
+    // -> Markdown editor: dir survives navigating into it, and its toolbar (mirrored by task 721)
+    //    mounts under it. The toolbar's own buttons carry neither visible text nor an `aria-label`
+    //    -- `t('editor.markup.bold')` only ever renders into a `<w-tooltip>`, hover-only -- so the
+    //    translated string is checked by hovering, not `getByRole`/`getByText`.
+    await page.goto(`/_create/markdown?path=e2e-rtl-md-${uniqueSlug()}`)
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+    await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
+    const boldButton = page.locator('.editor-markdown-toolbar button').first()
+    await boldButton.hover()
+    await expect(page.getByText(RTL_TEST_LOCALE.strings['editor.markup.bold'])).toBeVisible()
+
+    // -> WYSIWYG editor: NOT checked beyond `dir` surviving the navigation. `pages/Index.vue`'s own
+    //    `editorComponents` map has the `wysiwyg` entry commented out (only `markdown` and
+    //    `redirect` are registered) -- discovered live, during this task's own walk, rather than
+    //    assumed from the file existing: `/_create/wysiwyg` never mounts `EditorWysiwyg.vue` at all
+    //    right now, under any locale or direction, with no console error to say so. That is a
+    //    pre-existing gap this task did not introduce and has no business fixing on its way through
+    //    (wiring up a whole editor mode is not an RTL change) -- recorded in `docs/variances.md`
+    //    instead. What IS still genuine here is that the app shell around the (empty) editor slot
+    //    keeps `dir="rtl"`, which is what this asserts.
+    await page.goto(`/_create/wysiwyg?path=e2e-rtl-wys-${uniqueSlug()}`)
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+
+    // -> Admin area: this fork's decision (documented in `docs/variances.md`, given no 2.5.x source
+    //    was available in this sandbox to confirm against) is that the admin chrome mirrors along
+    //    with the rest of the app rather than staying forced LTR -- it is, after all, the same
+    //    single-locale SPA document, and the admin header carries its own locale switcher
+    //    (`AdminLayout.vue`) that lets an operator pick this very locale directly from within it.
+    await page.goto('/_admin/dashboard')
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
+    await expect(page.getByText(RTL_TEST_LOCALE.strings['admin.adminArea'])).toBeVisible()
+  })
+})

@@ -41,7 +41,7 @@
         <w-table
           :rows="state.nodes"
           :columns="nodesHeaders"
-          row-key="name"
+          row-key="id"
           flat
           :loading="state.loading > 0">
           <template v-slot:body-cell-icon="props">

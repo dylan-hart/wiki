@@ -256,23 +256,38 @@ $sidebar-overlay-max: 1199.98px;
       position: relative;
 
       /*
-        A triangle out of one border: the right border is the only one with a colour, and the left has no
-        width, so the shape tapers to a point on the left. Flush to the edge and centred on the row.
+        A triangle out of one border: the INLINE-END border is the only one with a colour, and the
+        inline-start one has no width, so the shape tapers to a point on the inline-start side. Flush
+        to the edge and centred on the row.
+
+        Written in logical properties rather than `left`/`right` on purpose: this edge always faces
+        the content column, whether that column sits at the sidebar's inline-end (this rule) or its
+        inline-start (the `--flipped` override below) is decided by `sidebarPosition`, a SITE setting
+        -- and which physical side "inline-end" resolves to is decided independently by the reader's
+        text direction. `WLayout`'s grid (`ldrawer main rdrawer`) already places those areas along the
+        inline axis, so the sidebar itself swaps physical sides under `dir="rtl"` with no extra CSS;
+        what logical properties buy here is keeping the NOTCH glued to the edge that swapped with it,
+        for every one of the four `sidebarPosition` × direction combinations, without this rule having
+        to ask which one it is currently in.
       */
       &::after {
         content: '';
         position: absolute;
         top: 50%;
-        right: 0;
+        inset-inline-end: 0;
         width: 0;
         height: 0;
         transform: translateY(-50%);
         border-style: solid;
-        border-width: 7px 7px 7px 0;
-        border-color: transparent #fff transparent transparent;
+        border-block-width: 7px;
+        border-inline-start-width: 0;
+        border-inline-end-width: 7px;
+        border-block-color: transparent;
+        border-inline-start-color: transparent;
+        border-inline-end-color: #fff;
 
         @at-root .body--dark & {
-          border-color: transparent $dark-6 transparent transparent;
+          border-inline-end-color: $dark-6;
         }
       }
     }
@@ -292,7 +307,13 @@ $sidebar-overlay-max: 1199.98px;
     */
     .w-expansion-item__content {
       position: relative;
-      border-left: 10px solid rgba(255, 255, 255, 0.25);
+      /*
+        Logical, to match the two elbow pseudo-elements below (`inset-inline-start: -10px`): a
+        physical `border-left` here would leave the straight run of the rail on the visual left in
+        RTL while its own elbows had already swapped to the inline-start (visual right) edge --
+        the rule and its turns pointing at two different sides of the same row.
+      */
+      border-inline-start: 10px solid rgba(255, 255, 255, 0.25);
       /*
         And a step DOWN from the sidebar rather than up, which is the one place this parts company with
         `NavEditOverlay`: there the nested rows lift off a near-black panel, here they sit in a coloured
@@ -313,51 +334,72 @@ $sidebar-overlay-max: 1199.98px;
       /*
         Each elbow is one 10px box showing two of its borders: the mitre between them is the angle. Set
         10px outside the content on the appropriate side, so the vertical stroke lines up with the rule
-        and continues it. `left: -10px` is the rule's own left edge -- an absolute offset here is
-        measured from the padding box, which starts where the border ends.
+        and continues it. `inset-inline-start: -10px` is the rule's own inline-start edge -- an
+        absolute offset here is measured from the padding box, which starts where the border ends.
+
+        This indent runs off the TREE's own nesting, not off `sidebarPosition`: a deeper item indents
+        further into the reading direction whichever side the sidebar physically sits on, so -- unlike
+        the notch above -- logical properties are all this needs; there is no second `--flipped`
+        variant to compose with.
       */
       &::before,
       &::after {
         content: '';
         display: block;
         position: absolute;
-        left: -10px;
+        inset-inline-start: -10px;
         width: 10px;
         height: 10px;
         border-style: solid;
       }
 
-      /* -> Out of the parent row: the rule's top end, turning right into the row above it */
+      /* -> Out of the parent row: the rule's top end, turning toward inline-end into the row above it */
       &::before {
         top: -10px;
-        border-width: 0 10px 10px 0;
-        border-color: transparent transparent rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.25);
+        border-block-start-width: 0;
+        border-inline-end-width: 10px;
+        border-block-end-width: 10px;
+        border-inline-start-width: 0;
+        border-block-start-color: transparent;
+        border-inline-end-color: transparent;
+        border-block-end-color: rgba(255, 255, 255, 0.25);
+        border-inline-start-color: rgba(255, 255, 255, 0.25);
       }
 
-      /* -> And closed under the last child, turning right again */
+      /* -> And closed under the last child, turning toward inline-end again */
       &::after {
         top: 100%;
-        border-width: 10px 10px 10px 0;
-        border-color: rgba(255, 255, 255, 0.25) transparent transparent rgba(255, 255, 255, 0.25);
+        border-block-start-width: 10px;
+        border-inline-end-width: 10px;
+        border-block-end-width: 10px;
+        border-inline-start-width: 0;
+        border-block-start-color: rgba(255, 255, 255, 0.25);
+        border-inline-end-color: transparent;
+        border-block-end-color: transparent;
+        border-inline-start-color: rgba(255, 255, 255, 0.25);
       }
     }
   }
 
   /*
     A site can put this sidebar on the right instead, which puts the page on the other side of it: the
-    notch has to be bitten out of the left edge then, and point the other way, or it is a white arrow at
-    the window's edge pointing at nothing.
+    notch has to be bitten out of the inline-start edge then, and point the other way, or it is a white
+    arrow pointing at nothing. `sidebarPosition` is a SITE setting, independent of the reader's text
+    direction -- see the comment on the base rule above -- so this override exists whether the locale
+    is LTR or RTL, and each of those still resolves "inline-start"/"inline-end" for itself.
 
     Same specificity as the rule it overrides and stated after it, so the sides swap cleanly.
   */
   &--flipped .w-list .w-item.router-link-exact-active::after {
-    right: auto;
-    left: 0;
-    border-width: 7px 0 7px 7px;
-    border-color: transparent transparent transparent #fff;
+    inset-inline-end: auto;
+    inset-inline-start: 0;
+    border-inline-start-width: 7px;
+    border-inline-end-width: 0;
+    border-inline-start-color: #fff;
+    border-inline-end-color: transparent;
 
     @at-root .body--dark & {
-      border-color: transparent transparent transparent $dark-6;
+      border-inline-start-color: $dark-6;
     }
   }
 
