@@ -205,3 +205,69 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 })
+
+describe('db search module query() siteId threading (task 678)', () => {
+  /**
+   * Regression test for task 678: `query()`'s actor-scoped results filter runs each row through
+   * `WIKI.models.groups.checkAccess`, but the inline page ref it built never carried `siteId` — so a
+   * rule scoped to one site (task 671) could not distinguish this site's results from another's.
+   * `siteId` is already in `query()`'s enclosing scope; this only proves it reaches the
+   * `checkAccess` call made over the filtered rows. Mock-based rather than DB-backed, since this is
+   * a pure wiring check — `models/search.ts`'s original `searchPages()` carried an equivalent test
+   * before task #561 moved the implementation here (see the module doc comment above); this replaces
+   * it at the new location rather than leaving it pointed at code that no longer exists.
+   */
+
+  let checkAccessCalls: any[] = []
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: {},
+      sites: {},
+      db: {
+        execute: async () => ({
+          rows: [
+            {
+              id: 'page-1',
+              path: 'engineering/onboarding',
+              locale: 'en',
+              title: 'Onboarding',
+              description: null,
+              icon: null,
+              tags: ['guide'],
+              updatedAt: '2026-01-01T00:00:00.000Z',
+              relevancy: 0,
+              highlight: null,
+              totalHits: 1
+            }
+          ]
+        })
+      },
+      models: {
+        groups: {
+          checkAccess: (actor: any, permission: string, page: any) => {
+            checkAccessCalls.push(page)
+            return true
+          }
+        }
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('query: threads siteId into the RulePageRef passed to checkAccess', async () => {
+    checkAccessCalls = []
+    const { default: dbSearchModule } = await import('./search.ts')
+
+    await dbSearchModule.query({
+      siteId: '11111111-1111-4111-8111-111111111111',
+      actor: { groupIds: [], permissions: [] } as any
+    })
+
+    assert.equal(checkAccessCalls.length, 1)
+    assert.equal(checkAccessCalls[0].siteId, '11111111-1111-4111-8111-111111111111')
+  })
+})

@@ -148,6 +148,24 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ locale: undefined })), true)
     })
   })
+
+  describe('site scoping', () => {
+    test('an empty sites list on the rule matches every site', () => {
+      const rule = makeRule({ match: 'START', path: '', sites: [] })
+      assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-a' })), true)
+    })
+
+    test('a populated sites list only matches a page in one of them', () => {
+      const rule = makeRule({ match: 'START', path: '', sites: ['site-a'] })
+      assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-a' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-b' })), false)
+    })
+
+    test('a page with no siteId is not excluded by a site-scoped rule', () => {
+      const rule = makeRule({ match: 'START', path: '', sites: ['site-a'] })
+      assert.equal(ruleMatchesPage(rule, page({ siteId: undefined })), true)
+    })
+  })
 })
 
 describe('resolvePageRule / rulesAllow', () => {
@@ -352,5 +370,41 @@ describe('resolvePageRule / rulesAllow', () => {
         )
       })
     }
+  })
+
+  test('site scoping: a more specific rule scoped to the wrong site falls through to a broader one', () => {
+    // -> The deeper rule would win on specificity alone, but it is scoped to a site the page is
+    //    not on, so it must not match at all — the shallower, unscoped rule should decide instead.
+    const scopedToOtherSite = makeRule({
+      id: 'other-site',
+      match: 'START',
+      path: 'geography/countries',
+      mode: 'FORCEALLOW',
+      sites: ['site-b']
+    })
+    const siteWideDeny = makeRule({
+      id: 'site-wide-deny',
+      match: 'START',
+      path: '',
+      mode: 'DENY',
+      sites: []
+    })
+    const target = page({ siteId: 'site-a' })
+    const winner = resolvePageRule([scopedToOtherSite, siteWideDeny], 'read:pages', target)
+    assert.equal(winner?.id, 'site-wide-deny')
+    assert.equal(rulesAllow([scopedToOtherSite, siteWideDeny], 'read:pages', target), false)
+  })
+
+  test('site scoping: with no competing rule, a mismatched site scope denies by default rather than being skipped silently', () => {
+    const scopedToOtherSite = makeRule({
+      id: 'other-site',
+      match: 'START',
+      path: '',
+      mode: 'FORCEALLOW',
+      sites: ['site-b']
+    })
+    const target = page({ siteId: 'site-a' })
+    assert.equal(resolvePageRule([scopedToOtherSite], 'read:pages', target), null)
+    assert.equal(rulesAllow([scopedToOtherSite], 'read:pages', target), false)
   })
 })

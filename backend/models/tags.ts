@@ -61,6 +61,7 @@ class Tags {
       const page = {
         path: row.path as string,
         locale: row.locale as string,
+        siteId,
         tags: (row.tags ?? []) as string[]
       }
       if (!WIKI.models.groups.checkAccess(actor, 'read:pages', page)) {

@@ -1035,6 +1035,7 @@ export class AwsCloudSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: fieldValue(row, 'path'),
             locale: fieldValue(row, 'locale'),
+            siteId,
             tags: fieldValues(row, 'tags')
           })
         )

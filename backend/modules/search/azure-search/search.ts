@@ -649,6 +649,7 @@ export class AzureSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: row.document.path as string,
             locale: row.document.locale as string,
+            siteId,
             tags: (row.document.tags ?? []) as string[]
           })
         )

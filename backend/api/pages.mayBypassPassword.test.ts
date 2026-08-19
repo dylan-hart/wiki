@@ -18,6 +18,8 @@ import { mayBypassPassword, unlockedFor } from './pages.ts'
  * global permissions at all, since a page rule needs none).
  */
 
+const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
 let previousWiki: any
 
 before(() => {
@@ -69,33 +71,36 @@ function reqWithSession(overrides: Record<string, any> = {}): FastifyRequest {
 
 test('mayBypassPassword: a page-rule write:pages grant with no global permissions bypasses the password on a page the rule covers', () => {
   const req = reqWithSession()
-  assert.equal(mayBypassPassword(req, { path: 'docs/allowed/getting-started' }), true)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started' }), true)
 })
 
 test('mayBypassPassword: the same requester is still asked for the password on a page outside the rule scope', () => {
   const req = reqWithSession()
-  assert.equal(mayBypassPassword(req, { path: 'other/page' }), false)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page' }), false)
 })
 
 test('mayBypassPassword: holding write:pages in the session-wide list alone, with no matching page rule, does not bypass', () => {
   // -> Not in `rule-group`, so `checkAccess` grants nothing here -- this is exactly the bug: the old
   //    implementation would have said `true` because the string was in `session.permissions`.
   const req = reqWithSession({ groups: ['some-other-group'], permissions: ['write:pages'] })
-  assert.equal(mayBypassPassword(req, { path: 'docs/allowed/getting-started' }), false)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started' }), false)
 })
 
 test('mayBypassPassword: manage:system still bypasses everywhere, via checkAccess', () => {
   const req = reqWithSession({ groups: [], permissions: ['manage:system'] })
-  assert.equal(mayBypassPassword(req, { path: 'other/page' }), true)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page' }), true)
 })
 
 test('unlockedFor: within the rule scope, bypasses even though the session never recorded an explicit unlock', () => {
   const req = reqWithSession()
-  assert.equal(unlockedFor(req, { id: 'page-1', path: 'docs/allowed/getting-started' }), true)
+  assert.equal(
+    unlockedFor(req, SITE_ID, { id: 'page-1', path: 'docs/allowed/getting-started' }),
+    true
+  )
 })
 
 test('unlockedFor: outside the rule scope, falls back to the session unlockedPages list', () => {
   const req = reqWithSession({ unlockedPages: ['page-2'] })
-  assert.equal(unlockedFor(req, { id: 'page-2', path: 'other/page' }), true)
-  assert.equal(unlockedFor(req, { id: 'page-3', path: 'other/page' }), false)
+  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-2', path: 'other/page' }), true)
+  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-3', path: 'other/page' }), false)
 })

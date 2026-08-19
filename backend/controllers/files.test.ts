@@ -191,4 +191,45 @@ describe('isEnabled guard (task 699)', () => {
     assert.equal(res.statusCode, 404)
     assert.equal(resolveAssetPathCalls, 1)
   })
+
+  /**
+   * Regression test for task 676: the `checkAccess` call here resolves its site from
+   * `getSiteByHostname` rather than from a route param — a different source than every other call
+   * site in this task, but the same fix — so a page rule scoped to one site (task 671) is enforced
+   * when a file is served through `/_files/*` too. Sharing this describe's app/WIKI setup rather than
+   * standing up its own, since both cover the same hostname-resolved file routes.
+   */
+  test('passes the hostname-resolved siteId through to checkAccess', async () => {
+    const originalResolveAssetPath = (globalThis as any).WIKI.models.assets.resolveAssetPath
+    const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    const calls: any[] = []
+    ;(globalThis as any).WIKI.models.assets.resolveAssetPath = async () => ({
+      id: 'asset-1',
+      folderPath: '',
+      fileName: 'file.png',
+      locale: 'en',
+      updatedAt: new Date()
+    })
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _permission: string,
+      page: any
+    ) => {
+      calls.push(page)
+      return false
+    }
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/file.png',
+        headers: { host: 'wiki.example.com' }
+      })
+      assert.equal(res.statusCode, 404)
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+    } finally {
+      ;(globalThis as any).WIKI.models.assets.resolveAssetPath = originalResolveAssetPath
+      ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
+    }
+  })
 })

@@ -325,6 +325,7 @@ class DbSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: row.path as string,
             locale: row.locale as string,
+            siteId,
             tags: (row.tags ?? []) as string[]
           })
         )
@@ -423,6 +424,7 @@ class DbSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: row.path as string,
             locale: row.locale as string,
+            siteId,
             tags: (row.tags ?? []) as string[]
           })
         )

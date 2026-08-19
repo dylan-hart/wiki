@@ -366,6 +366,7 @@ export class AlgoliaSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: hit.path,
             locale: hit.locale,
+            siteId,
             tags: hit.tags ?? []
           })
         )

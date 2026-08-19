@@ -19,15 +19,15 @@ async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: 
     id: pageId,
     withContent: true,
     publicOnly: !actor,
-    unlocked: (page) => unlockedFor(req, page),
-    withPassword: (page) => mayBypassPassword(req, page)
+    unlocked: (page) => unlockedFor(req, siteId, page),
+    withPassword: (page) => mayBypassPassword(req, siteId, page)
   })
   /*
     Reading the page comes first, for suggesting an edit to it and for reviewing one alike: neither is
     something to be done to a page the caller may not see, and answering as though it were not there
     is how every other page-scoped route treats that.
   */
-  if (!page || !mayOnPage(req, 'read:pages', page)) {
+  if (!page || !mayOnPage(req, 'read:pages', siteId, page)) {
     return null
   }
   return page
@@ -52,8 +52,16 @@ async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: 
  * an author: accepting one writes the page and records who accepted it. So a rule that named the
  * guests group among its reviewers, or a page rule granting them `review:pages`, would otherwise hand
  * the queue to the public. An empty scope reviews nothing, whatever the rules say.
+ *
+ * `siteId` is threaded into the `checkAccess` call the same way `mayOnPage` takes it: so a rule scoped
+ * to one site is honored even for the site-wide queue's `{ path: '' }` ref, which carries no site of
+ * its own.
  */
-function reviewerFor(req: FastifyRequest, page?: { path: string; tags?: string[] }): ReviewerScope {
+function reviewerFor(
+  req: FastifyRequest,
+  siteId: string,
+  page?: { path: string; tags?: string[] }
+): ReviewerScope {
   if (!isReviewerSession(req)) {
     return { groupIds: [], reviewsAll: false }
   }
@@ -62,7 +70,7 @@ function reviewerFor(req: FastifyRequest, page?: { path: string; tags?: string[]
     groupIds: WIKI.models.approvals.getActorGroupIds(req),
     reviewsAll:
       actor.permissions.includes('manage:system') ||
-      WIKI.models.groups.checkAccess(actor, 'review:pages', page ?? { path: '' })
+      WIKI.models.groups.checkAccess(actor, 'review:pages', { ...(page ?? { path: '' }), siteId })
   }
 }
 
@@ -479,7 +487,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       reply.preventCache()
-      return WIKI.models.approvals.getReviewableSubmissions(req.params.siteId, reviewerFor(req))
+      return WIKI.models.approvals.getReviewableSubmissions(
+        req.params.siteId,
+        reviewerFor(req, req.params.siteId)
+      )
     }
   )
 
@@ -513,7 +524,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        reviewerFor(req)
+        reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -580,7 +591,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        reviewerFor(req)
+        reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -647,7 +658,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        reviewerFor(req)
+        reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
@@ -715,7 +726,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This page does not exist.')
       }
 
-      const scope = reviewerFor(req, { path: page.path, tags: page.tags ?? [] })
+      const scope = reviewerFor(req, req.params.siteId, { path: page.path, tags: page.tags ?? [] })
       const canReview = await WIKI.models.approvals.canReviewPage(
         req.params.siteId,
         { path: page.path, tags: page.tags ?? [] },

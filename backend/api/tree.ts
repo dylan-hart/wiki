@@ -90,16 +90,16 @@ const folderIdParam = {
  * a reader opening it finds it empty. Hiding those would mean resolving every descendant of every
  * folder on every listing, which is not worth what it costs.
  */
-function visibleTreeItems<T extends { type?: string; folderPath?: string; fileName?: string }>(
-  req: FastifyRequest,
-  items: T[]
-): T[] {
+export function visibleTreeItems<
+  T extends { type?: string; folderPath?: string; fileName?: string }
+>(req: FastifyRequest, siteId: string, items: T[]): T[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   return items.filter((item) => {
     const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : (item.fileName ?? '')
     const permission = item.type === 'asset' ? 'read:assets' : 'read:pages'
     return WIKI.models.groups.checkAccess(actor, permission, {
       path,
+      siteId,
       tags: (item as any).tags ?? []
     })
   })
@@ -118,9 +118,15 @@ function folderPathOf(folder: { folderPath?: string | null; fileName: string }):
  * branch it opens: a rule denying `read:pages` under `geography` hides the folder as well as the
  * pages in it, and only somebody who may reorganise pages there may rename or remove it.
  */
-function mayOnFolder(req: FastifyRequest, permission: string, path: string): boolean {
+export function mayOnFolder(
+  req: FastifyRequest,
+  permission: string,
+  siteId: string,
+  path: string
+): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
-    path
+    path,
+    siteId
   })
 }
 
@@ -232,7 +238,7 @@ async function routes(app: FastifyInstance) {
         includeAncestors: q.includeAncestors,
         includeRootFolders: q.includeRootFolders
       })
-      return visibleTreeItems(req, items)
+      return visibleTreeItems(req, req.params.siteId, items)
     }
   )
 
@@ -319,7 +325,10 @@ async function routes(app: FastifyInstance) {
       return {
         ...level,
         items: level.items.filter((item) =>
-          WIKI.models.groups.checkAccess(actor, 'read:pages', { path: item.path })
+          WIKI.models.groups.checkAccess(actor, 'read:pages', {
+            path: item.path,
+            siteId: req.params.siteId
+          })
         )
       }
     }
@@ -421,6 +430,7 @@ async function routes(app: FastifyInstance) {
       return pages.filter((page) =>
         WIKI.models.groups.checkAccess(actor, 'read:pages', {
           path: page.path,
+          siteId: req.params.siteId,
           locale: req.query.locale ?? defaultLocale(req.params.siteId)
         })
       )
@@ -451,7 +461,7 @@ async function routes(app: FastifyInstance) {
       }
       const folderPath = folderPathOf(folder)
       // -> Not visible is the same as not there, so it answers as the id had matched nothing
-      if (!mayOnFolder(req, 'read:pages', folderPath)) {
+      if (!mayOnFolder(req, 'read:pages', req.params.siteId, folderPath)) {
         return reply.notFound('This folder does not exist.')
       }
       return {
@@ -533,7 +543,7 @@ async function routes(app: FastifyInstance) {
         parentPath = parent ? folderPathOf(parent) : parentPath
       }
       const target = [parentPath, req.body.pathName].filter(Boolean).join('/')
-      if (!mayOnFolder(req, 'manage:pages', target)) {
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to create a folder here.')
       }
       const folder = await WIKI.models.tree.createFolder({
@@ -599,7 +609,7 @@ async function routes(app: FastifyInstance) {
       if (!existing || existing.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
-      if (!mayOnFolder(req, 'manage:pages', folderPathOf(existing))) {
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, folderPathOf(existing))) {
         return reply.forbidden('You are not allowed to rename this folder.')
       }
       const folder = await WIKI.models.tree.renameFolder({
@@ -656,7 +666,7 @@ async function routes(app: FastifyInstance) {
       if (!existing || existing.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
-      if (!mayOnFolder(req, 'manage:pages', folderPathOf(existing))) {
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, folderPathOf(existing))) {
         return reply.forbidden('You are not allowed to delete this folder.')
       }
       const removed = await WIKI.models.tree.deleteFolder(req.params.folderId)

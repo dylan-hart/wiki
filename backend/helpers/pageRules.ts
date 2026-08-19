@@ -44,16 +44,23 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  * same specificity, so a DENY on `geography` does NOT override an ALLOW on `geography/countries` —
  * the deeper rule was more specific and had already won.
  *
+ * A rule may also be scoped to particular **locales** and/or particular **sites** — an empty list on
+ * either means every one of them. Both are match filters, applied before any of the ranking above: a
+ * rule whose locales or sites don't include the page's simply does not match, exactly as if its path
+ * or tags didn't either. Neither one is a specificity axis, so a rule scoped to one locale or one
+ * site is not thereby more specific than an unscoped rule addressing the same path.
+ *
  * ---------------------------------------------------------------------------------------------
  *
  * `manage:system` is not evaluated here: it bypasses this entirely, and does so before any rule is
  * read. See `models/groups.ts`.
  */
 
-/** A page as a rule sees it. `locale` and `path` place it; `tags` are what tag rules match on. */
+/** A page as a rule sees it. `locale`, `siteId` and `path` place it; `tags` are what tag rules match on. */
 export interface RulePageRef {
   path: string
   locale?: string
+  siteId?: string
   tags?: string[]
 }
 
@@ -101,6 +108,11 @@ function specificityOf(rule: GroupRule): number {
 export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
   // -> A rule may be limited to particular locales; an empty list means every one of them
   if (rule.locales?.length > 0 && page.locale && !rule.locales.includes(page.locale)) {
+    return false
+  }
+
+  // -> A rule may be limited to particular sites; an empty list means every one of them
+  if (rule.sites?.length > 0 && page.siteId && !rule.sites.includes(page.siteId)) {
     return false
   }
 

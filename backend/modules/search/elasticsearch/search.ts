@@ -398,6 +398,7 @@ export class ElasticsearchSearchModule implements SearchModule {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: hit._source!.path,
             locale: hit._source!.locale,
+            siteId,
             tags: hit._source!.tags ?? []
           })
         )

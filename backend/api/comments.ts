@@ -219,11 +219,12 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
  */
 function maySelfModerate(
   req: FastifyRequest,
+  siteId: string,
   page: { path: string; locale?: string; tags?: string[] },
   comment: { authorId: string | null },
   actor: { id: string } | null
 ): boolean {
-  if (mayOnPage(req, 'manage:comments', page)) {
+  if (mayOnPage(req, 'manage:comments', siteId, page)) {
     return true
   }
   return Boolean(actor && comment.authorId !== null && comment.authorId === actor.id)
@@ -514,7 +515,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:comments', page)) {
+      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read comments on this page.')
       }
       if (page.isLocked) {
@@ -576,7 +577,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'write:comments', page)) {
+      if (!mayOnPage(req, 'write:comments', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to comment on this page.')
       }
       if (page.isLocked) {
@@ -685,7 +686,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:comments', page)) {
+      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read comments on this page.')
       }
       if (page.isLocked) {
@@ -699,7 +700,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This comment does not exist.')
       }
 
-      if (!maySelfModerate(req, page, comment, actor)) {
+      if (!maySelfModerate(req, req.params.siteId, page, comment, actor)) {
         return reply.forbidden('You are not allowed to edit this comment.')
       }
 
@@ -754,7 +755,7 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
-      if (!mayOnPage(req, 'read:comments', page)) {
+      if (!mayOnPage(req, 'read:comments', req.params.siteId, page)) {
         return reply.forbidden('You are not allowed to read comments on this page.')
       }
       if (page.isLocked) {
@@ -767,7 +768,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This comment does not exist.')
       }
 
-      if (!maySelfModerate(req, page, comment, actor)) {
+      if (!maySelfModerate(req, req.params.siteId, page, comment, actor)) {
         return reply.forbidden('You are not allowed to delete this comment.')
       }
 
