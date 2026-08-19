@@ -213,15 +213,33 @@ body::-webkit-scrollbar-thumb {
 // circular hit area `round` gives every other icon button reads wrong here: too little of the 64px
 // band actually lights up on hover, and what does is too faint against the header's dark background.
 //
-// The shape itself needs no rule of its own: the caller drops `round` (and the now-inert `dense`,
-// since both of its effects are overridden below anyway) and keeps just `flat`, which falls back to
-// WBtn's default `rounded-[3px]` -- the same square-ish corner the markdown editor's own toolbar
-// buttons draw. `min-height` and `padding` are what's left, and both need `!important` because WBtn
-// sets them as inline styles (a JS-computed `style` binding beats any class regardless of layer); see
-// `EditorMarkdown.vue`'s own toolbar for the same fight against the same two properties.
+// The caller drops `round` (and the now-inert `dense`, since both of its effects are overridden
+// below anyway) and keeps just `flat`. Squared off to a true 64x64 -- matching `min-height` with an
+// explicit `width` -- and with WBtn's default `rounded-[3px]` zeroed out entirely, so the four
+// corners read flush against the header band and against each other rather than as a pill floating
+// in a taller box. `min-height` and `padding` need `!important` because WBtn sets them as inline
+// styles (a JS-computed `style` binding beats any class regardless of layer); see
+// `EditorMarkdown.vue`'s own toolbar for the same fight against the same two properties. `width` and
+// `border-radius` don't strictly need it (WBtn sets neither), but carry it anyway for consistency
+// with the rest of this rule.
 .w-btn.header-nav-btn {
   min-height: 64px !important;
+  width: 64px !important;
   padding: 0 16px !important;
+  border-radius: 0 !important;
+  // Replaces the `ml-4` utility the five buttons used to carry individually: that put a gap
+  // between every pair, not just before the first one, so it is expressed here instead as a
+  // margin on each button that a following header-nav-btn immediately cancels (below) -- flush
+  // against its neighbor, but still separated from whatever non-header-nav-btn control (the
+  // search toggle) precedes the group.
+  margin-left: 16px !important;
+}
+
+// Zeroes the margin above wherever two header-nav-btn buttons are adjacent, so only the first
+// button rendered in the group (whichever one that is, since some are conditional on
+// permissions) keeps the separation from the search toggle button before it.
+.w-btn.header-nav-btn + .w-btn.header-nav-btn {
+  margin-left: 0 !important;
 }
 
 // Unlayered (this file is plain CSS, not a Tailwind layer), so the hover fill beats the
