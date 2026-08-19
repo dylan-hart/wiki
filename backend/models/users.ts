@@ -319,6 +319,15 @@ export interface RegisterResult {
 }
 
 /**
+ * What `importLocalUser()` resolves with — the email-collision policy (see that method's doc) is
+ * part of the return value, not just a thrown error, so a bulk import can report *why* a record
+ * didn't land instead of treating a collision as an unhandled failure.
+ */
+export type ImportLocalUserResult =
+  | { status: 'created'; id: string }
+  | { status: 'skipped'; reason: 'email-collision'; existingId: string }
+
+/**
  * Users model
  */
 class Users {
@@ -558,6 +567,133 @@ class Users {
     })
 
     return userId
+  }
+
+  /**
+   * Create a local-provider user during a 2.5.x -> 3.0 import (Feature 414, Task 728), carrying an
+   * already-hashed password over verbatim instead of hashing a plaintext one.
+   *
+   * ## Why this can't reuse `createUser()`
+   * `createUser()` calls `bcrypt.hash(password, 12)` on whatever string it receives. A 2.5.x
+   * local-provider `users.password` column is already a bcryptjs hash at 12 rounds — hashing it
+   * again would produce a value that can never match the original plaintext, silently locking every
+   * imported local account out of its own password. This method takes `passwordHash` and writes it
+   * straight into `auth[localStrategyId].password`; nothing in its body calls `bcrypt.hash()`.
+   *
+   * ## Email-collision policy — explicit decision: skip-and-flag
+   * `users.email` is unique (`db/schema.ts`). Importing into a non-empty 3.0 install (an
+   * administrator's own account, or a previous partial/retried import run) can therefore collide.
+   * The policy here is **skip-and-flag**: on collision this returns `{ status: 'skipped', reason:
+   * 'email-collision', existingId }` instead of throwing or silently overwriting the existing
+   * account. "Never a silent partial import" rules out picking a winner without saying so; the
+   * caller (the users/groups importer engine) is responsible for turning this into a reported
+   * `skipped` record rather than swallowing it. The check-then-insert has a narrow race window
+   * (another writer between the check and this insert), so a `23505` unique-violation from the
+   * insert itself is downgraded to the same skip result as a backstop, rather than surfaced as a
+   * generic `conflicted` failure — a same-email race is still a collision, not a schema error.
+   *
+   * ## 2FA carryover — explicit decision: NOT carried over, always reset
+   * 2.5.x `tfaIsActive`/`tfaSecret` are deliberately **not** accepted by this method at all (there is
+   * no parameter for them) — every imported local account starts with 2FA off
+   * (`tfaIsActive: false`, `tfaSecret: ''`) and can re-enroll after import. A TOTP secret is tied to
+   * whichever authenticator app instance the user already enrolled on the source install; carrying
+   * it over as "active" either (a) silently disables real 2FA protection if the secret is stale or
+   * was rotated since, giving a false sense of security, or (b) if it still matches, moves a secret
+   * across an infrastructure boundary (old install -> new install) without the user's awareness or
+   * re-consent. Feature 414's framing does not mention re-notifying users or forcing 2FA
+   * re-enrollment post-import, so resetting is the safer default until a real product decision says
+   * otherwise — that decision is out of this task's scope, not silently assumed away.
+   *
+   * @returns `{ status: 'created', id }`, or `{ status: 'skipped', reason: 'email-collision',
+   * existingId }` when a user with this email already exists.
+   */
+  async importLocalUser({
+    name,
+    email,
+    passwordHash,
+    groups = [],
+    mustChangePassword = false,
+    isVerified = true
+  }: {
+    name: string
+    email: string
+    /** The source install's already-hashed local password (bcryptjs, 12 rounds) — copied verbatim. */
+    passwordHash: string
+    /** Target-install group UUIDs, already remapped through the source-id -> target-UUID map built
+     * while importing groups (see `migration/importers/users-groups.ts`). */
+    groups?: string[]
+    mustChangePassword?: boolean
+    isVerified?: boolean
+  }): Promise<ImportLocalUserResult> {
+    const normalizedEmail = email.toLowerCase()
+
+    const existing = await this.getByEmail(normalizedEmail)
+    if (existing) {
+      return { status: 'skipped', reason: 'email-collision', existingId: existing.id }
+    }
+
+    const localStrategyId = WIKI.data.systemIds.localAuthId
+    let result
+    try {
+      result = await WIKI.db
+        .insert(usersTable)
+        .values({
+          email: normalizedEmail,
+          name,
+          auth: {
+            [localStrategyId]: {
+              password: passwordHash,
+              mustChangePwd: mustChangePassword,
+              restrictLogin: false,
+              tfaIsActive: false,
+              tfaRequired: false,
+              tfaSecret: ''
+            }
+          },
+          isSystem: false,
+          isActive: true,
+          isVerified,
+          meta: {
+            location: '',
+            jobTitle: '',
+            pronouns: ''
+          },
+          prefs: {
+            timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
+            dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+            timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
+            appearance: 'site',
+            cvd: 'none'
+          }
+        })
+        .returning({ id: usersTable.id })
+    } catch (err: any) {
+      // -> See the collision-policy note above: a race between the pre-check and this insert still
+      //    surfaces as the same skip result, not a generic thrown failure.
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        return { status: 'skipped', reason: 'email-collision', existingId: '' }
+      }
+      throw err
+    }
+
+    const userId = result[0].id
+    if (groups.length > 0) {
+      await this.setUserGroups(userId, groups)
+    }
+
+    WIKI.models.flags.authDebug(
+      `Imported local user ${userId} <${normalizedEmail}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}`
+    )
+
+    await WIKI.models.hooks.emit('user:join', {
+      userId,
+      metadata: {
+        name,
+        email: normalizedEmail
+      }
+    })
+
+    return { status: 'created', id: userId }
   }
 
   /**

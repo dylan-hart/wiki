@@ -338,6 +338,39 @@ class Groups {
   }
 
   /**
+   * Create a group from an already-converted 2.x source record (Feature 414, Task 730).
+   *
+   * Mirrors `createGroup()`'s insert-then-`reloadCache()` shape, but — unlike `createGroup()`, which
+   * always seeds the same starting `permissions`/default rule for a brand-new group — takes the
+   * caller's own `permissions` and `rules`, already converted from a 2.x source group's flat
+   * `permissions` array and `pageRules` array by the Users/Groups importer
+   * (`migration/importers/users-groups.ts`'s `createGroupConverter()`).
+   *
+   * Always non-system: 3.0's own system groups (Administrators/Users/Guests) are seeded once by
+   * `init()`, and a 2.x source's own Administrators/Users/Guests groups are never routed through this
+   * method — `createGroupConverter()` skips them before a row is ever built.
+   *
+   * @returns The new group's ID
+   */
+  async createGroupFromImport(input: {
+    name: string
+    permissions: string[]
+    rules: GroupRule[]
+  }): Promise<string> {
+    const result = await WIKI.db
+      .insert(groupsTable)
+      .values({
+        name: input.name,
+        permissions: input.permissions,
+        rules: input.rules,
+        isSystem: false
+      })
+      .returning({ id: groupsTable.id })
+    await this.reloadCache()
+    return result[0].id
+  }
+
+  /**
    * Fetch all groups, ordered by name
    */
   async getAllGroups(): Promise<GroupWithUserCount[]> {
