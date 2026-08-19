@@ -32,3 +32,21 @@ export function resolveInitialPreviewShown(userSettings, isWideEnough) {
   }
   return isWideEnough
 }
+
+/**
+ * The preview pane's width to open at, in CSS pixels.
+ *
+ * `null` means "no saved preference" -- the caller's cue to fall back to the SCSS default (a
+ * responsive `50vw`) rather than a hardcoded pixel number, so a user who has never dragged the
+ * resize divider keeps getting the same width-of-viewport behaviour this editor always had. Only a
+ * finite, positive number saved by a real drag is honoured; anything else (missing, `0`, negative,
+ * `NaN`, a stray string from hand-edited settings) is treated the same as "never saved" rather than
+ * producing a collapsed or invalid pane width.
+ *
+ * @param {{ previewWidth?: number } | null | undefined} userSettings This user's saved Markdown editor settings
+ * @returns {number | null}
+ */
+export function resolveInitialPreviewWidth(userSettings) {
+  const width = userSettings?.previewWidth
+  return typeof width === 'number' && Number.isFinite(width) && width > 0 ? width : null
+}

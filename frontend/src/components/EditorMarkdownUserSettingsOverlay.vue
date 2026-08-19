@@ -121,7 +121,15 @@ const { t } = useI18n()
 const state = reactive({
   config: {
     previewShown: false,
-    fontSize: 16
+    fontSize: 16,
+    /*
+      No control here for this one -- the resize divider in `EditorMarkdown.vue` is what sets it, on
+      drag. Carried through `load()`/`save()` regardless: `save()` PUTs a full replacement of this
+      user's Markdown settings (see its own comment below), so leaving this out would silently erase
+      a saved preview width the next time this overlay's Apply button is used for the two fields it
+      DOES expose.
+    */
+    previewWidth: null
   },
   loading: 0
 })
@@ -141,6 +149,8 @@ async function load() {
     const conf = (await API_CLIENT.get('users/profile/editor-settings/markdown').json()) ?? {}
     state.config.previewShown = conf.previewShown ?? true
     state.config.fontSize = conf.fontSize ?? 16
+    state.config.previewWidth = conf.previewWidth ?? null
+    editorStore.$patch({ userSettings: { ...editorStore.userSettings, markdown: conf } })
   } catch (err) {
     notify({
       type: 'negative',
@@ -155,16 +165,22 @@ async function load() {
 async function save() {
   state.loading++
   try {
+    // -> Replaces the whole settings object server-side (see the route's own doc comment), so
+    //    `previewWidth` rides along unchanged even though nothing on this screen edits it -- see the
+    //    comment on `state.config` above.
+    const payload = {
+      previewShown: state.config.previewShown,
+      // -> A number input hands back a string; the editor reads this as a pixel size
+      fontSize: Number.parseInt(state.config.fontSize, 10),
+      previewWidth: state.config.previewWidth
+    }
     const resp = await API_CLIENT.put('users/profile/editor-settings/markdown', {
-      json: {
-        previewShown: state.config.previewShown,
-        // -> A number input hands back a string; the editor reads this as a pixel size
-        fontSize: Number.parseInt(state.config.fontSize, 10)
-      }
+      json: payload
     }).json()
     if (!resp?.ok) {
       throw new Error(resp?.message || 'An unexpected error occured.')
     }
+    editorStore.$patch({ userSettings: { ...editorStore.userSettings, markdown: payload } })
     notify({
       type: 'positive',
       message: t('editor.settings.saveSuccess')

@@ -1955,6 +1955,7 @@
   "editor.redirect.title": "Redirection",
   "editor.renderFailed": "The preview could not be rendered. The last successful render is kept.",
   "editor.renderPreview": "Render Preview",
+  "editor.resizePreviewPane": "Resize Preview Pane",
   "editor.save.createSuccess": "Page created successfully.",
   "editor.save.error": "An error occurred while creating the page",
   "editor.save.pleaseWait": "Please wait...",

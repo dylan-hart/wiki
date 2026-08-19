@@ -1,5 +1,5 @@
 <template>
-  <div class="editor-markdown">
+  <div class="editor-markdown" :class="{ 'is-resizing': isDragging }">
     <div class="editor-markdown-main">
       <div class="editor-markdown-sidebar">
         <!-- ------------------------------------------------------- -->
@@ -77,7 +77,7 @@
         <w-space />
         <span class="editor-markdown-type">Markdown</span>
       </div>
-      <div class="editor-markdown-mid">
+      <div class="editor-markdown-mid" ref="editorMidRef">
         <!-- ------------------------------------------------------- -->
         <!-- TOP TOOLBAR -->
         <!-- ------------------------------------------------------- -->
@@ -271,8 +271,28 @@
         <!-- ------------------------------------------------------- -->
         <div class="editor-markdown-editor"><div ref="monacoRef" /></div>
       </div>
-      <transition name="editor-markdown-preview">
-        <div class="editor-markdown-preview" v-if="state.previewShown">
+      <!--
+        The draggable resize divider between the source and preview panes. Only offered while the
+        preview is actually open (nothing to drag against otherwise) and at/above the `md` breakpoint
+        -- see `canResizePreview`'s doc comment for why dragging is withheld below it.
+      -->
+      <div
+        v-if="canResizePreview"
+        class="editor-markdown-divider"
+        :class="{ 'is-dragging': isDragging }"
+        role="separator"
+        aria-orientation="vertical"
+        :aria-label="t('editor.resizePreviewPane')"
+        @pointerdown="onDividerPointerDown"
+        @pointermove="onDividerPointerMove"
+        @pointerup="onDividerPointerUp"
+        @pointercancel="onDividerPointerUp" />
+      <transition name="editor-markdown-preview" @after-leave="onPreviewAfterLeave">
+        <div
+          class="editor-markdown-preview"
+          ref="previewPaneRef"
+          :style="previewInlineStyle"
+          v-if="state.previewShown">
           <div class="editor-markdown-preview-toolbar">
             <strong
               ><em>{{ t('editor.renderPreview') }}</em></strong
@@ -342,7 +362,11 @@ import { assetPath } from '@/helpers/assets'
 import { blockMarkdown } from '@/helpers/blocks'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
 import { hasFiles, shouldAcceptDrag, shouldClaimPaste } from '@/helpers/editorFileTransfer'
-import { resolveEditorFontSize, resolveInitialPreviewShown } from '@/helpers/editorUserSettings'
+import {
+  resolveEditorFontSize,
+  resolveInitialPreviewShown,
+  resolveInitialPreviewWidth
+} from '@/helpers/editorUserSettings'
 import {
   blockOpeningLine,
   blockValues,
@@ -443,6 +467,30 @@ let blockLensProvider = null
 let siteBlocks = []
 const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
+const editorMidRef = ref(null)
+const previewPaneRef = ref(null)
+
+/** Whether the resize divider is currently being dragged -- drives its highlight and the app-wide cursor/selection lockdown while dragging (`.is-resizing` on the component root). */
+const isDragging = ref(false)
+
+/*
+  The active drag's own scratch state. Plain `let`s rather than `reactive`, matching `editor`/`md`/
+  `siteBlocks` above -- nothing here is read by the template directly (`state.previewWidth` and
+  `isDragging` are what render), so there is nothing reactivity would buy.
+*/
+/** Pointer clientX at the drag's start. */
+let dragStartX = 0
+/** `state.previewWidth` resolved to a concrete px number at the drag's start -- see `onDividerPointerDown`. */
+let dragStartWidthPx = 0
+/** +1 or -1: which way a growing `clientX` should move the width, measured fresh each drag (see `onDividerPointerDown`'s doc comment for why). */
+let dragSign = 1
+/** The most the preview may grow to in this drag, measured once at pointer-down (see `onDividerPointerDown`). */
+let dragMaxWidthPx = Infinity
+/** `state.previewWidth` as it was immediately before this drag began -- what a hide-snap restores. */
+let previousPreviewWidth = null
+/** Set by a hide-snapping pointer-up; consumed by `onPreviewAfterLeave` once the close animation finishes. */
+let pendingRestoreWidth = false
+let restoreWidthValue = null
 
 /**
  * Blocks this site has switched off, as the tags they are written as.
@@ -488,6 +536,23 @@ const HEADER_ICONS = [
 const SYNC_SCROLL = { behavior: 'smooth', block: 'start', inline: 'nearest' }
 
 /**
+ * Below this width (CSS px) the preview pane reads as broken rather than "small" -- dragging the
+ * divider past this point snaps it into the existing hidden state instead of leaving an awkward
+ * sliver. Picked from the middle of a reasonable 80-150px range: narrow enough that a deliberately
+ * small-but-legible preview is still reachable before the snap, wide enough that "keep dragging and
+ * it vanishes" reads as an intentional threshold rather than the pane getting stuck.
+ */
+const PREVIEW_HIDE_THRESHOLD_PX = 100
+
+/**
+ * The source pane never gives up more than this many px to the preview, however far the divider is
+ * dragged. 280px is comfortably enough to still read a line of code past Monaco's line-number
+ * gutter, and clamping here means every width check below only has to bound the preview's own
+ * maximum, not chase "how small can the editor get" as a separate calculation.
+ */
+const EDITOR_MIN_WIDTH_PX = 280
+
+/**
  * Whether the window is wide enough to open the preview beside the source.
  *
  * 1024 is the app's `md` breakpoint (`css/tailwind.css`). Below it the two panes are half a small window
@@ -505,7 +570,48 @@ const state = reactive({
     moment a window was dragged narrower mid-edit.
   */
   previewShown: isAtLeastMd.value,
-  previewScrollSync: true
+  previewScrollSync: true,
+  /*
+    `null` until `onMounted` resolves this user's saved width (or the lack of one) through
+    `resolveInitialPreviewWidth` -- the same placeholder-then-resolve shape as `previewShown` above.
+    Tracked separately from `previewShown` on purpose (requirement: a hide/show cycle keeps the last
+    dragged width): `null` means "no custom width, use the responsive 50vw default", a number is a
+    pixel width this session or a past one committed by dragging the divider, and it is left alone by
+    hiding the pane -- only overwritten by another drag, or restored from a saved value on mount.
+  */
+  previewWidth: null
+})
+
+/**
+ * Whether the resize divider is offered at all.
+ *
+ * Below the `md` breakpoint the preview already defaults shut and, once opened deliberately from the
+ * toolbar, takes half of a small window (see `isAtLeastMd` above) -- letting it also be dragged there
+ * would let an author shrink the SOURCE pane on the one screen size that can least afford to lose the
+ * room. Resizing is therefore an `md`-and-up affordance, matching the preview's own default already
+ * being width-dependent.
+ */
+const canResizePreview = computed(() => state.previewShown && isAtLeastMd.value)
+
+/**
+ * The inline style that gives the preview pane a custom width, or `null` to fall back to the SCSS
+ * default (a responsive `50vw`, both for the settled width and for the open/close transition -- see
+ * `--preview-width`'s use there).
+ *
+ * Also `null` below the `md` breakpoint even when a custom width IS saved: `canResizePreview` already
+ * withholds the divider there, and applying a desktop-sized saved width through CSS alone on a
+ * narrower screen would squeeze the source pane exactly as unresizably as dragging one there would.
+ */
+const previewInlineStyle = computed(() => {
+  if (!isAtLeastMd.value || typeof state.previewWidth !== 'number') {
+    return null
+  }
+  return {
+    '--preview-width': `${state.previewWidth}px`,
+    // -> `flex: 0 0 <px>` replaces the SCSS `-preview` rule's own `flex: 0 1 50%` outright (inline
+    //    style always wins), pinning the basis exactly rather than leaving it shrinkable against `-mid`
+    flex: `0 0 ${state.previewWidth}px`
+  }
 })
 
 // METHODS
@@ -984,6 +1090,122 @@ function insertHorizontalBar() {
 }
 
 /**
+ * Pointer-down on the resize divider: begins tracking a drag, VS Code pane-resize style -- live
+ * visual tracking on move (`onDividerPointerMove`), committed on release (`onDividerPointerUp`).
+ *
+ * Pointer capture is what lets a fast drag keep tracking correctly even once the pointer has moved
+ * off the (deliberately narrow) divider itself and over the editor or preview pane -- without it,
+ * `pointermove` would stop firing on this element the moment the cursor left its few px of width.
+ *
+ * The direction a growing `clientX` should move the width in is measured fresh from where the
+ * divider actually sits relative to the preview pane, rather than assumed from `document.dir` the
+ * way `sideToolbarTooltip` above does for a fixed anchor -- a resize divider's physical side of its
+ * pane is exactly what a flex-row mirror under `dir="rtl"` swaps, so asking the DOM directly is what
+ * keeps this correct in both directions without a parallel branch to keep in sync.
+ */
+function onDividerPointerDown(ev) {
+  if (!previewPaneRef.value || !editorMidRef.value) {
+    return
+  }
+  ev.currentTarget.setPointerCapture(ev.pointerId)
+  const previewRect = previewPaneRef.value.getBoundingClientRect()
+  const midRect = editorMidRef.value.getBoundingClientRect()
+  const dividerRect = ev.currentTarget.getBoundingClientRect()
+
+  dragStartX = ev.clientX
+  previousPreviewWidth = state.previewWidth
+  dragStartWidthPx = state.previewWidth ?? previewRect.width
+  dragSign = previewRect.left < dividerRect.left ? -1 : 1
+  /*
+    Both panes' current widths, combined, are exactly the space the two of them have to split between
+    them -- independent of the sidebar or the viewport, and stable for the length of one drag (the
+    window is not expected to be resized mid-drag).
+  */
+  dragMaxWidthPx = Math.max(
+    PREVIEW_HIDE_THRESHOLD_PX,
+    midRect.width + previewRect.width - EDITOR_MIN_WIDTH_PX
+  )
+  isDragging.value = true
+}
+
+/** Live drag tracking: applies the new width immediately, clamped to this drag's own bounds. */
+function onDividerPointerMove(ev) {
+  if (!isDragging.value) {
+    return
+  }
+  const delta = (ev.clientX - dragStartX) * dragSign
+  state.previewWidth = Math.min(Math.max(dragStartWidthPx + delta, 0), dragMaxWidthPx)
+}
+
+/**
+ * Pointer-up (or -cancel): commits the drag.
+ *
+ * A release at or above the hide threshold persists the new width. A release below it hands off to
+ * the existing hidden state (the same `previewShown = false` the toolbar's own hide button sets)
+ * instead of leaving an awkward sliver -- but the width itself is restored only once the closing
+ * transition finishes (`onPreviewAfterLeave`), not here: doing it in this same tick would make the
+ * pane visibly jump back out to its old, much larger width and then animate shut, exactly the
+ * awkwardness the snap exists to avoid.
+ */
+function onDividerPointerUp() {
+  if (!isDragging.value) {
+    return
+  }
+  isDragging.value = false
+  if (state.previewWidth < PREVIEW_HIDE_THRESHOLD_PX) {
+    pendingRestoreWidth = true
+    restoreWidthValue = previousPreviewWidth
+    state.previewShown = false
+  } else {
+    persistPreviewWidth(state.previewWidth)
+  }
+}
+
+/**
+ * Fires once the preview pane has finished animating shut, from any of the three ways that can
+ * happen: the drag-to-hide snap above, or either of the toolbar's own hide/show button pair. Only
+ * the drag snap leaves a pending width to restore (`pendingRestoreWidth`); a plain toolbar hide
+ * leaves it false, so `previewWidth` -- already the last committed value in that case -- is left
+ * untouched, which is what lets the show button reopen at that same width rather than the default.
+ */
+function onPreviewAfterLeave() {
+  if (pendingRestoreWidth) {
+    state.previewWidth = restoreWidthValue
+    pendingRestoreWidth = false
+    restoreWidthValue = null
+  }
+}
+
+/**
+ * Saves this user's chosen preview width the same way `EditorMarkdownUserSettingsOverlay` saves font
+ * size and preview-shown -- a full replace of `users/profile/editor-settings/markdown` (see that
+ * overlay's `save()`).
+ *
+ * The merge base is `editorStore.userSettings.markdown`, not this component's own live `previewShown`
+ * / font size: those are session-only here (this component never saves either on its own, only the
+ * settings overlay's explicit Save does), so writing them out from this path would start silently
+ * persisting a toggle the user never asked to persist. `fetchUserSettings` populates the store field
+ * on mount, and the settings overlay patches it too on its own successful save, so either order --
+ * drag then open settings, or open settings then drag -- reads the other's latest write rather than
+ * stomping it.
+ */
+async function persistPreviewWidth(px) {
+  const payload = { ...editorStore.userSettings.markdown, previewWidth: px }
+  try {
+    const resp = await API_CLIENT.put('users/profile/editor-settings/markdown', {
+      json: payload
+    }).json()
+    if (resp?.ok) {
+      editorStore.$patch({
+        userSettings: { ...editorStore.userSettings, markdown: payload }
+      })
+    }
+  } catch (err) {
+    console.warn(`Could not save the Markdown editor's preview width: ${err.message}`)
+  }
+}
+
+/**
  * Toggle Markup at selection
  */
 async function toggleMarkup({ start, end }) {
@@ -1421,6 +1643,22 @@ onMounted(async () => {
     console.warn(`Could not read Markdown editor settings: ${err.message}`)
   }
   state.previewShown = resolveInitialPreviewShown(userSettings, isAtLeastMd.value)
+  /*
+    Clamped against the viewport right here rather than left to `previewInlineStyle`'s own bounds:
+    that computed only ever withholds the whole custom width below `md`, it does not shrink an
+    oversized one back down to fit a narrower-but-still-`md` window (e.g. a width saved on a wide
+    monitor, reopened on a 1024px one). `EDITOR_MIN_WIDTH_PX` is subtracted the same way the drag's
+    own live clamp does it (`onDividerPointerDown`), just against the viewport instead of the two
+    panes' measured widths -- nothing to measure yet this early in the mount.
+  */
+  const resolvedWidth = resolveInitialPreviewWidth(userSettings)
+  state.previewWidth =
+    resolvedWidth === null
+      ? null
+      : Math.min(
+          resolvedWidth,
+          Math.max(PREVIEW_HIDE_THRESHOLD_PX, window.innerWidth - EDITOR_MIN_WIDTH_PX)
+        )
 
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
@@ -1762,6 +2000,19 @@ $editor-preview-height: calc(100vh - 64px - 96px - 32px);
 $editor-height-mobile: calc(100vh - 112px - 16px);
 
 .editor-markdown {
+  /*
+    While the divider is being dragged (`isDragging`, see `onDividerPointerDown`/`onDividerPointerUp`).
+    Pointer capture already keeps the drag tracking correctly once the pointer leaves the divider's
+    own few px -- this is only about what the pointer LOOKS like, and stopping Monaco or the preview
+    text from being selected as it sweeps across them mid-drag.
+  */
+  &.is-resizing {
+    cursor: col-resize;
+    * {
+      cursor: col-resize !important;
+      user-select: none !important;
+    }
+  }
   &-main {
     display: flex;
     width: 100%;
@@ -1805,6 +2056,39 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
     color: rgba(255, 255, 255, 0.4);
     font-weight: 500;
   }
+  &-divider {
+    flex: 0 0 auto;
+    width: 9px;
+    height: $editor-height;
+    position: relative;
+    cursor: col-resize;
+    // -> Pointer capture (see `onDividerPointerDown`) keeps the drag tracking correctly once the
+    //    pointer leaves this narrow strip; this stops a fast drag from also selecting text in Monaco
+    //    or the preview as the pointer crosses over them along the way.
+    touch-action: none;
+    user-select: none;
+
+    /*
+      Invisible until interacted with. `-mid`'s own `border-inline-end` just before this is already
+      the seam's permanent visual line -- this only adds a highlight on top of it while the divider is
+      actually being grabbed or hovered, rather than shipping a second, always-on stripe beside it.
+    */
+    &::after {
+      content: '';
+      position: absolute;
+      inset-block: 0;
+      inset-inline-start: 3px;
+      width: 3px;
+      border-radius: 2px;
+      background-color: $primary;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    &:hover::after,
+    &.is-dragging::after {
+      opacity: 0.6;
+    }
+  }
   &-preview {
     flex: 0 1 50%;
     position: relative;
@@ -1825,12 +2109,19 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
       snapped open. The inner selector was stale in the same way -- the content class is
       `-preview-content` -- which left the render reflowing for the length of the transition.
     */
+    /*
+      `var(--preview-width, 50vw)`: the custom-property fallback is what keeps this transition (and
+      the settled `-content` max-width below) behaving exactly as before for anyone who has never
+      dragged the divider -- `previewInlineStyle` only ever sets the property once a width has
+      actually been dragged or loaded from a saved one, and leaves it unset (falling through to the
+      `50vw` written here) otherwise.
+    */
     &-enter-active,
     &-leave-active {
       transition: max-width 0.5s ease;
-      max-width: 50vw;
+      max-width: var(--preview-width, 50vw);
       .editor-markdown-preview-content {
-        width: 50vw;
+        width: var(--preview-width, 50vw);
         overflow: hidden;
       }
     }
@@ -1857,7 +2148,7 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
       height: $editor-preview-height;
       overflow-y: scroll;
       padding: 1rem;
-      max-width: calc(50vw - 57px);
+      max-width: calc(var(--preview-width, 50vw) - 57px);
       // -ms-overflow-style: none;
       // &::-webkit-scrollbar {
       //   width: 0px;
