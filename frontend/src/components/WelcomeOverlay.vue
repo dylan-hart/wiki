@@ -6,13 +6,29 @@
       <div class="welcome-title">{{ t('welcome.title') }}</div>
       <div class="welcome-subtitle">{{ t('welcome.subtitle') }}</div>
       <div class="welcome-actions">
-        <w-btn push color="primary" :label="t(`welcome.createHome`)" icon="la:plus" no-caps>
-          <w-menu class="translucent-menu" auto-close anchor="top left" self="bottom left">
+        <w-btn
+          push
+          color="primary"
+          :label="t(`welcome.createHome`)"
+          icon="la:plus"
+          no-caps
+          @click="onCreateHomeClick">
+          <!--
+            -> With exactly one editor enabled there is nothing to pick, so the menu is skipped
+               entirely (onCreateHomeClick creates the page directly) rather than making the visitor
+               open a one-item menu just to click its only entry.
+          -->
+          <w-menu
+            v-if="enabledEditors.length !== 1"
+            class="translucent-menu"
+            auto-close
+            anchor="top left"
+            self="bottom left">
             <w-list padding>
               <w-item
                 clickable
                 @click="createHomePage(`wysiwyg`)"
-                v-if="flagsStore.experimental && siteStore.editors.wysiwyg">
+                v-if="enabledEditors.includes(`wysiwyg`)">
                 <blueprint-icon icon="google-presentation" />
                 <w-item-section class="pr-2">Using the Visual Editor</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
@@ -20,7 +36,7 @@
               <w-item
                 clickable
                 @click="createHomePage(`markdown`)"
-                v-if="siteStore.editors.markdown">
+                v-if="enabledEditors.includes(`markdown`)">
                 <blueprint-icon icon="markdown" />
                 <w-item-section class="pr-2">Using the Markdown Editor</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
@@ -28,7 +44,7 @@
               <w-item
                 clickable
                 @click="createHomePage(`asciidoc`)"
-                v-if="flagsStore.experimental && siteStore.editors.asciidoc">
+                v-if="enabledEditors.includes(`asciidoc`)">
                 <blueprint-icon icon="asciidoc" />
                 <w-item-section class="pr-2">Using the AsciiDoc Editor</w-item-section>
                 <w-item-section side><w-icon name="mdi:chevron-right" /></w-item-section>
@@ -55,6 +71,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -88,7 +105,38 @@ useMeta({
   title: t('welcome.title')
 })
 
+// COMPUTED
+
+/**
+ * Same per-editor gating the menu items use, collected once so the trigger button can decide
+ * whether there is anything to pick between.
+ */
+const enabledEditors = computed(() => {
+  const editors = []
+  if (flagsStore.experimental && siteStore.editors.wysiwyg) {
+    editors.push('wysiwyg')
+  }
+  if (siteStore.editors.markdown) {
+    editors.push('markdown')
+  }
+  if (flagsStore.experimental && siteStore.editors.asciidoc) {
+    editors.push('asciidoc')
+  }
+  return editors
+})
+
 // METHODS
+
+/**
+ * With exactly one editor enabled, skip the picker and create the page with it directly. With
+ * zero or several enabled, the menu (rendered alongside this button) handles the click itself via
+ * its own trigger listener, so there is nothing to do here.
+ */
+function onCreateHomeClick() {
+  if (enabledEditors.value.length === 1) {
+    createHomePage(enabledEditors.value[0])
+  }
+}
 
 async function createHomePage(editor) {
   loading.show()
