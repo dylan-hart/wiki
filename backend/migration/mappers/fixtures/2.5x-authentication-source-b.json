@@ -1,0 +1,31 @@
+[
+  {
+    "key": "local",
+    "isEnabled": true,
+    "config": {},
+    "selfRegistration": false,
+    "domainWhitelist": { "v": [] },
+    "autoEnrollGroups": { "v": [] },
+    "order": 0,
+    "strategyKey": "local",
+    "displayName": "Local Database"
+  },
+  {
+    "key": "oidc-beta",
+    "isEnabled": true,
+    "config": {
+      "clientId": "oidc-client-b",
+      "clientSecret": "oidc-secret-b",
+      "authorizationURL": "https://idp.beta.example.com/authorize",
+      "tokenURL": "https://idp.beta.example.com/token",
+      "userInfoURL": "https://idp.beta.example.com/userinfo",
+      "skipUserProfile": false
+    },
+    "selfRegistration": true,
+    "domainWhitelist": { "v": [] },
+    "autoEnrollGroups": { "v": [] },
+    "order": 1,
+    "strategyKey": "oidc",
+    "displayName": "Beta SSO"
+  }
+]

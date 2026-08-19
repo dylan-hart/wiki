@@ -1,0 +1,41 @@
+[
+  {
+    "key": "disk",
+    "isEnabled": true,
+    "mode": "push",
+    "config": {
+      "path": "/var/wiki/data",
+      "createDailyBackups": true
+    },
+    "syncInterval": null,
+    "state": {}
+  },
+  {
+    "key": "git",
+    "isEnabled": true,
+    "mode": "sync",
+    "config": {
+      "authType": "ssh",
+      "repoUrl": "git@git.acme.example.com:acme/wiki-content.git",
+      "sshPrivateKeyMode": "contents",
+      "sshPrivateKeyContent": "-----BEGIN OPENSSH PRIVATE KEY-----\nFAKEKEYDATA\n-----END OPENSSH PRIVATE KEY-----",
+      "verifySSL": true,
+      "defaultEmail": "wiki-bot@acme.example.com",
+      "defaultName": "Wiki Bot",
+      "alwaysNamespace": true
+    },
+    "syncInterval": "*/15 * * * *",
+    "state": {}
+  },
+  {
+    "key": "dropbox",
+    "isEnabled": true,
+    "mode": "push",
+    "config": {
+      "accessToken": "fake-dropbox-token",
+      "clientId": "dbx-client"
+    },
+    "syncInterval": null,
+    "state": {}
+  }
+]

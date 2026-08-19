@@ -1,0 +1,100 @@
+[
+  {
+    "key": "title",
+    "value": { "v": "Corporate Knowledge Base" },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "company",
+    "value": { "v": "Acme Corp" },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "contentLicense",
+    "value": { "v": "CC-BY-SA-4.0" },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "logoUrl",
+    "value": { "v": "/uploads/logo.png" },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "seo",
+    "value": {
+      "description": "Acme Corp's internal knowledge base.",
+      "robots": ["index", "follow"],
+      "analyticsService": "",
+      "analyticsId": ""
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "theming",
+    "value": {
+      "theme": "default",
+      "iconset": "mdi",
+      "darkMode": true,
+      "tocPosition": "left",
+      "injectCSS": "",
+      "injectHead": "",
+      "injectBody": ""
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "lang",
+    "value": {
+      "code": "en",
+      "autoUpdate": true,
+      "namespaces": [],
+      "namespacing": false,
+      "rtl": false
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "mail",
+    "value": {
+      "senderName": "Acme Wiki",
+      "senderEmail": "wiki@acme.example.com",
+      "host": "smtp.acme.example.com",
+      "port": 587,
+      "name": "",
+      "secure": true,
+      "verifySSL": true,
+      "user": "smtp-user",
+      "pass": "smtp-pass",
+      "useDKIM": false,
+      "dkimDomainName": "",
+      "dkimKeySelector": "",
+      "dkimPrivateKey": ""
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "security",
+    "value": {
+      "securityOpenRedirect": true,
+      "securityIframe": true,
+      "securityReferrerPolicy": true,
+      "securityTrustProxy": false,
+      "securitySRI": false,
+      "securityHSTS": false,
+      "securityHSTSDuration": 15552000,
+      "securityCSP": false,
+      "securityCSPDirectives": ""
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  },
+  {
+    "key": "uploads",
+    "value": {
+      "maxFileSize": 200,
+      "maxFiles": 20,
+      "scanSVG": true,
+      "forceDownload": false
+    },
+    "updatedAt": "2020-01-01T00:00:00.000Z"
+  }
+]
