@@ -284,6 +284,10 @@
       <div class="col-span-12 lg:col-span-5">
         <!-- ----------------------- -->
         <!-- MAIL TEMPLATES -->
+        <!-- Descoped: this section drives MailTemplateEditorOverlay.vue, UI for a DB-backed
+             editable-template system that was never built (there is no template-storage table in
+             db/schema.ts). Left behind the experimental flag on purpose; see backend/models/mail.ts
+             for the plain inline-HTML templates actually in use. -->
         <!-- ----------------------- -->
         <w-card class="pb-2 mb-4" v-if="flagStore.experimental">
           <w-card-header>{{ t('admin.mail.templates') }}</w-card-header>
@@ -360,6 +364,7 @@ import { onMounted, reactive } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -506,7 +511,7 @@ async function sendTest() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
   state.testLoading = false

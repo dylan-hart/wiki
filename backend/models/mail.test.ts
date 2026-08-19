@@ -1,6 +1,6 @@
 import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { mail } from './mail.ts'
+import { mail, classifyMailError } from './mail.ts'
 
 /**
  * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
@@ -191,6 +191,76 @@ describe('mail.send', () => {
     )
     assert.equal((WIKI.logger.warn as any).mock.calls.length, 1)
   })
+
+  test('logs a connection-classified message when sendMail fails with a transport-level code', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('connect ECONNREFUSED 127.0.0.1:25')
+    err.code = 'ECONNECTION'
+    const sendMail = mock.fn(async () => {
+      throw err
+    })
+    mail.getTransporter = () => ({ sendMail }) as any
+
+    await assert.rejects(() =>
+      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    )
+    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.match(message, /\(connection failure\)/)
+  })
+
+  test('logs an auth-classified message when sendMail fails with EAUTH', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('Invalid login')
+    err.code = 'EAUTH'
+    const sendMail = mock.fn(async () => {
+      throw err
+    })
+    mail.getTransporter = () => ({ sendMail }) as any
+
+    await assert.rejects(() =>
+      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    )
+    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.match(message, /\(auth failure\)/)
+  })
+
+  test('logs a send-classified message when sendMail fails with an envelope/message code', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('Message failed')
+    err.code = 'EMESSAGE'
+    const sendMail = mock.fn(async () => {
+      throw err
+    })
+    mail.getTransporter = () => ({ sendMail }) as any
+
+    await assert.rejects(() =>
+      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    )
+    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.match(message, /\(send failure\)/)
+  })
+})
+
+describe('classifyMailError', () => {
+  test('classifies every nodemailer connection-stage code as connection', () => {
+    for (const code of ['ECONNECTION', 'ESOCKET', 'ETIMEDOUT', 'EDNS', 'ETLS', 'EPROTOCOL']) {
+      assert.equal(classifyMailError({ code }), 'connection', code)
+    }
+  })
+
+  test('classifies EAUTH as auth', () => {
+    assert.equal(classifyMailError({ code: 'EAUTH' }), 'auth')
+  })
+
+  test('classifies EENVELOPE and EMESSAGE as send', () => {
+    assert.equal(classifyMailError({ code: 'EENVELOPE' }), 'send')
+    assert.equal(classifyMailError({ code: 'EMESSAGE' }), 'send')
+  })
+
+  test('falls back to unknown for an uncoded or unrecognized error', () => {
+    assert.equal(classifyMailError(new Error('boom')), 'unknown')
+    assert.equal(classifyMailError({ code: 'SOMETHING_ELSE' }), 'unknown')
+  })
 })
 
 describe('mail.buildLink', () => {
@@ -246,5 +316,50 @@ describe('mail template senders', () => {
     assert.equal(msg.to, 'ada@example.com')
     assert.match(msg.subject, /password/i)
     assert.match(msg.text, /Ada/)
+  })
+
+  test('sendForgotPassword includes an expiry notice matching the token TTL', async () => {
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    // -> Matches the 24-hour validUntil set by models/users.ts#generateToken for kind: 'resetPwd'.
+    assert.match(msg.text, /24 hours/i)
+    assert.match(msg.html, /24 hours/i)
+  })
+
+  test('sendForgotPassword signs with the sender name when one is set', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      senderName: 'My Wiki',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /My Wiki/)
+    assert.match(msg.html, /My Wiki/)
+  })
+
+  test('sendForgotPassword omits a signature when no sender name is set', async () => {
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
+    const msg = sendCalls[0]
+    assert.doesNotMatch(msg.text, /—\s*$/)
+  })
+
+  test('sendTestEmail confirms SMTP works and includes the instance defaultBaseURL', async () => {
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.subject, /test/i)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com/)
+    assert.match(msg.html, /https:\/\/wiki\.example\.com/)
+  })
+
+  test('sendTestEmail still sends when defaultBaseURL is unset', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    assert.equal(sendCalls.length, 1)
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
   })
 })

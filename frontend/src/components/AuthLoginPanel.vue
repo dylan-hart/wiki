@@ -848,7 +848,7 @@ async function forgotPassword() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: err.message
+      message: localizeError(apiErrorMessage(err), t)
     })
   } finally {
     loading.hide()

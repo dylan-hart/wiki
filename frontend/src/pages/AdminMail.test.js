@@ -103,4 +103,29 @@ describe('AdminMail sendTest', () => {
     const negative = notifyQueue.find((n) => n.type === 'negative')
     expect(negative?.message).toMatch(/not configured/i)
   })
+
+  it('shows the backend error message, not a generic one, when the request throws (e.g. a 502)', async () => {
+    // -> ky throws for any status above 400 (see `boot/api.js`), and parses the body onto `err.data`
+    //    before throwing (see `helpers/apiError.js`) -- this is what a 502/422/500 from `mail/test`
+    //    looks like on the wire, as opposed to the 400 case above which ky resolves normally.
+    const err = new Error('Request failed with status code 502')
+    err.data = {
+      ok: false,
+      error: 'Bad Gateway',
+      statusCode: 502,
+      message:
+        'Could not connect to the SMTP server. Check the host and port under Mail Configuration.'
+    }
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.reject(err)
+    })
+
+    const { recipientField, sendButton } = await mountAdminMail()
+    await recipientField.setValue('ada@example.com')
+    await sendButton.trigger('click')
+    await vi.waitFor(() => expect(API_CLIENT.post).toHaveBeenCalled())
+
+    const negative = notifyQueue.find((n) => n.type === 'negative')
+    expect(negative?.message).toMatch(/could not connect to the smtp server/i)
+  })
 })
