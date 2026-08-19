@@ -101,11 +101,10 @@ from the list — that is a real, visible fact about that release, not an absenc
 
 `docs/variances.md` is CLAUDE.md's home for genuine, justified deviations from spec — see the
 root `CLAUDE.md`, "variances.md Discipline": it records only real variances, never used to excuse
-a fixable lint or type error, and stale entries get deleted once resolved. As of this writing the
-file does not exist yet (`docs/` on `scarlett` contains no `variances.md`); Feature #425 is what
-creates and populates it.
-
-Once it exists, this item is a manual read, every release, no exceptions:
+a fixable lint or type error, and stale entries get deleted once resolved. **Enforceable today** —
+the file already exists and is populated (several already-merged Features have added entries to it
+ahead of Feature #425's own dedicated discipline pass landing), so this item is a manual read every
+release, no exceptions, starting now rather than once #425 specifically merges:
 
 - [ ] Open `docs/variances.md` and read every entry.
 - [ ] For each entry, confirm it is still true of the release commit — an entry describing a
@@ -194,7 +193,7 @@ future-tense sections above for present-tense fact:
 | ---------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
 | 1. CI quality gates    | Feature #423 / task #777 | Partially — enforced in `release.yml` (task #777); still missing from `build.yml`        |
 | 2. Test suites         | Feature #424             | Yes — all four suites (backend/frontend/blocks/e2e) run as required steps in `build.yml` |
-| 3. `docs/variances.md` | Feature #425             | No — file does not exist                                                                 |
+| 3. `docs/variances.md` | Feature #425             | Yes — file exists and is populated; #425 formalizes ongoing discipline around it         |
 | 4. Bundle drift guards | Feature #423 / task #777 | Partially — same as item 1, `release.yml` only                                           |
 | 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                            |
 
