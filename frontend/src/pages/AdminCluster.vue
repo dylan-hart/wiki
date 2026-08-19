@@ -105,7 +105,7 @@ import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
 
-import { humanizeDuration, relativeDate } from '@/helpers/datetime'
+import { relativeDate } from '@/helpers/datetime'
 
 // STORES
 

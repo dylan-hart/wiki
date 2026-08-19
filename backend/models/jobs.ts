@@ -144,6 +144,15 @@ class Jobs {
   }
 
   /**
+   * How many jobs are sitting in the pending queue, not yet claimed by any worker.
+   *
+   * The `/metrics` endpoint's queue-depth gauge; `countActive()` above is its running counterpart.
+   */
+  async countPending(): Promise<number> {
+    return WIKI.db.$count(jobsTable)
+  }
+
+  /**
    * The cron schedule: which tasks run automatically and how often
    */
   async getSchedule() {

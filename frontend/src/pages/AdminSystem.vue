@@ -84,6 +84,44 @@
               </div>
             </w-item-section>
           </w-item>
+          <w-separator inset />
+          <w-item>
+            <blueprint-icon
+              icon="heart-outline"
+              :hue-rotate="-45"
+              :indicator="state.info.isSchedulerHealthy ? 'positive' : 'negative'"
+              :indicator-text="
+                state.info.isSchedulerHealthy
+                  ? t('admin.system.schedulerHealthy')
+                  : t('admin.system.schedulerUnhealthy')
+              " />
+            <w-item-section>
+              <w-item-label>{{ t('admin.system.schedulerHealth') }}</w-item-label>
+              <w-item-label caption>{{ t('admin.system.schedulerHealthHint') }}</w-item-label>
+            </w-item-section>
+            <w-item-section>
+              <w-item-label class="dark-value" caption>{{
+                state.info.isSchedulerHealthy
+                  ? t('admin.system.schedulerHealthy')
+                  : t('admin.system.schedulerUnhealthy')
+              }}</w-item-label>
+            </w-item-section>
+          </w-item>
+          <w-separator inset />
+          <w-item>
+            <blueprint-icon icon="automation" :hue-rotate="-45" />
+            <w-item-section>
+              <w-item-label>{{ t('admin.system.upgradeCapable') }}</w-item-label>
+              <w-item-label caption>{{ t('admin.system.upgradeCapableHint') }}</w-item-label>
+            </w-item-section>
+            <w-item-section>
+              <w-item-label class="dark-value" caption>{{
+                state.info.upgradeCapable
+                  ? t('admin.system.upgradeCapableYes')
+                  : t('admin.system.upgradeCapableNo')
+              }}</w-item-label>
+            </w-item-section>
+          </w-item>
         </w-card>
         <!-- ----------------------- -->
         <!-- CLIENT -->

@@ -377,8 +377,11 @@
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.uploadsInfo') }}</div>
-                    <!-- Saved, but nothing reads them: there is no upload endpoint yet -->
-                    <div class="mt-1">{{ t('admin.security.uploadsNotEnforced') }}</div>
+                    <!-- Uploading is real now (`POST /sites/:siteId/assets` in `api/assets.ts`), and
+                         the max file size below is enforced as the request's body limit -- but the
+                         batch count and the SVG scan toggle are still only stored, since a single
+                         request is always one file and nothing sanitizes SVGs yet -->
+                    <div class="mt-1">{{ t('admin.security.uploadsPartiallyEnforced') }}</div>
                   </w-card-section>
                 </w-card-section>
               </w-card>
@@ -484,6 +487,43 @@
                   v-model="state.config.corsConfig"
                   dense
                   :aria-label="t(`admin.security.corsRegex`)" />
+              </w-item-section>
+            </w-item>
+          </template>
+        </w-card>
+        <!-- ----------------------- -->
+        <!-- CSP -->
+        <!-- ----------------------- -->
+        <w-card class="pb-2 mt-4">
+          <w-card-header>{{ t('admin.security.csp') }}</w-card-header>
+          <w-item tag="label">
+            <blueprint-icon icon="data-protection" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.security.enforceCsp`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.security.enforceCspHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.config.enforceCsp"
+                :aria-label="t(`admin.security.enforceCsp`)" />
+            </w-item-section>
+          </w-item>
+          <template v-if="state.config.enforceCsp">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="code-file" key="cspDirectives" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.cspDirectives`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.security.cspDirectivesHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-input
+                  outlined
+                  v-model="state.config.cspDirectives"
+                  dense
+                  type="textarea"
+                  :placeholder="t(`admin.security.cspDirectivesPlaceholder`)"
+                  :aria-label="t(`admin.security.cspDirectives`)" />
               </w-item-section>
             </w-item>
           </template>

@@ -70,15 +70,6 @@
                 <template #endpoint><strong class="font-robotomono">/metrics</strong></template>
               </i18n-t>
               <div class="text-caption">{{ t('admin.metrics.endpointWarning') }}</div>
-              <!-- The state is stored, but no route serves it yet — say so rather than let the card -->
-              <!-- above read as a promise -->
-              <i18n-t
-                class="text-caption text-orange"
-                tag="div"
-                keypath="admin.metrics.notImplemented"
-                scope="global">
-                <template #endpoint><strong class="font-robotomono">/metrics</strong></template>
-              </i18n-t>
             </w-card-section>
           </w-card-section>
         </w-card>
@@ -97,7 +88,7 @@
                 </template>
                 <template #tokenType><strong class="font-robotomono">Bearer</strong></template>
                 <template #permission>
-                  <strong class="font-robotomono">read:metrics</strong>
+                  <strong class="font-robotomono">manage:system</strong>
                 </template>
               </i18n-t>
               <div class="text-caption font-robotomono">Authorization: Bearer API-KEY-VALUE</div>
