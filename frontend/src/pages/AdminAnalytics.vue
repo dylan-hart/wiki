@@ -352,8 +352,15 @@ onMounted(() => {
   `object-fit` of its own (see WIcon.vue). Scoped here rather than fixed in WIcon.vue: this is the
   only `img:`-kind icon in the app rendering a raw external logo at icon size, so cropping to fill
   the square (`cover`) beats distorting the wordmark, without changing every other `w-icon` use.
+
+  `object-position: left` alongside it: `cover`'s default center-crop lands on the middle of
+  Matomo's wordmark (its actual icon mark sits in roughly the left quarter of the image), showing
+  two unrecognizable letterforms instead of the mark. Anchoring to the left edge fixes Matomo and
+  is a no-op for Google Analytics and Google Tag Manager's logos, both already square (OpenProject
+  #855).
 */
 .provider-logo-icon :deep(img) {
   object-fit: cover;
+  object-position: left;
 }
 </style>

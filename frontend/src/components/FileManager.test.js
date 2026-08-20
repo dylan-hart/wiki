@@ -241,3 +241,128 @@ describe('FileManager drag-and-drop upload (OpenProject #790)', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * OpenProject #859, #861, #862, #863, #864: `FileManager.vue`'s per-row context menu implemented
+ * the asset "View" action, gated "Rerender Page" and "Duplicate..." to where they actually apply,
+ * and removed three menu items ("Edit Image...", "Resize Image...", "Move to...") that called
+ * nothing. These tests cover that shape directly rather than through the drop zone above.
+ *
+ * `WMenu` is stubbed to render its slot unconditionally -- in the real app a row's menu content
+ * only mounts once its `w-item` trigger receives a real `contextmenu` event (see `WMenu.vue`), and
+ * these tests care about which `<w-item>`s a row's menu holds, not that open/close mechanics WMenu
+ * already owns -- the same pattern `PageNewMenu.test.js` uses.
+ */
+describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  async function mountFileManagerWithItems(fileList) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const router = createRouter({ history: createWebHistory(), routes: [] })
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, router],
+        stubs: {
+          Tree: true,
+          NewMenu: true,
+          LocaleSelectorMenu: true,
+          WMenu: { template: '<div><slot /></div>' }
+        }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    wrapper.vm.state.fileList = fileList
+    await flushPromises()
+    return { wrapper, siteStore }
+  }
+
+  it("openItem()'s asset case opens the asset's URL in a new tab", () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, createRouter({ history: createWebHistory(), routes: [] })],
+        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
+      },
+      attachTo: document.body
+    })
+
+    wrapper.vm.openItem({ type: 'asset', folderPath: 'media', fileName: 'photo.png' })
+
+    expect(openSpy).toHaveBeenCalledWith('/_files/media/photo.png', '_blank')
+
+    wrapper.unmount()
+  })
+
+  it('does not render "Duplicate..." for a folder or an asset, only for a page', async () => {
+    const { wrapper } = await mountFileManagerWithItems([
+      { id: 'f1', type: 'folder', title: 'My Folder', fileName: 'my-folder', children: 0 },
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      }
+    ])
+
+    expect(wrapper.text()).not.toContain('Duplicate...')
+
+    wrapper.vm.state.fileList = [
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'My Page',
+        fileName: 'my-page',
+        pageType: 'markdown',
+        folderPath: ''
+      }
+    ]
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Duplicate...')
+
+    wrapper.unmount()
+  })
+
+  it('no longer renders "Edit Image...", "Resize Image..." or "Move to..." for any item type', async () => {
+    const { wrapper } = await mountFileManagerWithItems([
+      { id: 'f1', type: 'folder', title: 'My Folder', fileName: 'my-folder', children: 0 },
+      {
+        id: 'a1',
+        type: 'asset',
+        title: 'photo',
+        fileName: 'photo.png',
+        fileExt: 'png',
+        fileSize: 1024,
+        mimeType: 'image/png',
+        folderPath: ''
+      },
+      {
+        id: 'p1',
+        type: 'page',
+        title: 'My Page',
+        fileName: 'my-page',
+        pageType: 'markdown',
+        folderPath: ''
+      }
+    ])
+
+    const text = wrapper.text()
+    expect(text).not.toContain('Edit Image')
+    expect(text).not.toContain('Resize Image')
+    expect(text).not.toContain('Move to')
+
+    wrapper.unmount()
+  })
+})

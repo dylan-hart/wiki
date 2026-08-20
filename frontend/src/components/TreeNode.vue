@@ -98,12 +98,13 @@ const dark = useDark()
 /**
  * `.treeview-node`'s own `border-left` (2px) and its parent `.treeview-level`'s `padding-left`
  * (19px) each apply once per nesting level, so a node's rendered left edge — and with it, its
- * `.treeview-label`'s content box — drifts 21px further right per level of depth (19px for every
- * level, plus 2px for every level except the top one, which carries no border). `.treeview-label`'s
- * `active`/hover background only ever covered that shrunken box, so a selected or hovered row read
- * as a full-width band at the top level but as a narrowing "floating pill" the deeper it was
- * nested — with the ancestor guide line(s) it should have sat behind poking out to its left instead,
- * worst right where the pill's own corner met the deepest, selected node (OpenProject #853).
+ * `.treeview-label`'s content box — drifts 21px further right per level of depth below the top
+ * (19px padding + 2px border per level; the top level itself carries neither, which is why
+ * `depth < 1` returns no offset above). `.treeview-label`'s `active`/hover background only ever
+ * covered that shrunken box, so a selected or hovered row read as a full-width band at the top
+ * level but as a narrowing "floating pill" the deeper it was nested — with the ancestor guide
+ * line(s) it should have sat behind poking out to its left instead, worst right where the pill's
+ * own corner met the deepest, selected node (OpenProject #853).
  *
  * `--indent` hands `.treeview-label` (TreeNav.vue's stylesheet) exactly this node's drift so it can
  * pull its box back out to the tree's true left edge with a matching negative margin, while an equal
@@ -113,7 +114,7 @@ const indentStyle = computed(() => {
   if (props.depth < 1) {
     return {}
   }
-  return { '--indent': `${props.depth * 21 - 2}px` }
+  return { '--indent': `${props.depth * 21}px` }
 })
 
 const icon = computed(() => {
