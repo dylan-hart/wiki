@@ -238,7 +238,13 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           scopes: 'openid profile email',
           emailClaim: 'email',
           displayNameClaim: 'name',
-          logoutURL: ''
+          logoutURL: '',
+          // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this
+          //    fixture was authored) -- an imported OIDC strategy gets them at their definition.yml
+          //    defaults, group mapping off, same as a freshly-created one.
+          mapGroups: false,
+          groupsClaim: 'groups',
+          groupsScope: ''
         }
       }
     })
