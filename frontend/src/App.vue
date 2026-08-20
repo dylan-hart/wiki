@@ -302,9 +302,16 @@ router.beforeEach(async (to, from) => {
       there is no built-in protection against two of these racing each other and resolving
       independently against the same `editorStore`. Blocked outright rather than stacking a second
       prompt, which is a decision this guard already knows the answer to once the first is showing.
+
+      `commonStore.routerLoading` is deliberately left untouched here. This navigation does not own
+      it -- the FIRST navigation's prompt is still open and is what actually set it true -- so
+      clearing it here would tell the UI loading finished while the reader still has an unanswered
+      dialog in front of them. `router.afterEach` below fires for this aborted navigation too (not
+      only for a completed one), so its own `isUnsavedChangesPromptOpen` check is what actually
+      guards against it clearing this on this navigation's behalf; whichever way the first prompt
+      resolves is what clears it for real.
     */
     if (isUnsavedChangesPromptOpen) {
-      commonStore.routerLoading = false
       return false
     }
     isUnsavedChangesPromptOpen = true
@@ -325,7 +332,12 @@ router.beforeEach(async (to, from) => {
       isUnsavedChangesPromptOpen = false
     }
     if (!confirmed) {
-      // -> Aborted navigation skips `afterEach`, which is what normally clears this
+      /*
+        Cleared explicitly rather than left to `router.afterEach`: that hook still fires for this
+        aborted navigation (with a `failure` argument), and by now `isUnsavedChangesPromptOpen` is
+        already back to `false` (the `finally` above ran first), so it would clear this too -- just
+        one tick later than doing it here. Set here anyway so the UI doesn't wait even that long.
+      */
       commonStore.routerLoading = false
       return false
     }
@@ -482,6 +494,20 @@ router.afterEach(() => {
     state.isInitialized = true
     applyTheme()
     document.querySelector('.init-loading').remove()
+  }
+  /*
+    `afterEach` fires for an ABORTED navigation too, not only a completed one -- with `failure` set,
+    but it still fires synchronously as soon as `beforeEach` returns `false`. That includes the
+    reentrancy guard above returning `false` for a second navigation blocked by an already-open
+    discard prompt: that resolves (and reaches here) well before the FIRST navigation's own prompt
+    does, while `isUnsavedChangesPromptOpen` is still true. Clearing `routerLoading` here would be
+    this SECOND, already-discarded navigation reporting the FIRST one's still-pending load as
+    finished. Skip it in that case and let the first navigation's own settling -- confirmed (falls
+    through to a normal completion, its own `afterEach`) or cancelled (the explicit clear above) --
+    be what actually clears it.
+  */
+  if (isUnsavedChangesPromptOpen) {
+    return
   }
   commonStore.routerLoading = false
 })

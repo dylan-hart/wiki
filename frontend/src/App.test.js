@@ -467,6 +467,7 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
     const router = makeRouter()
     await mountReady(router)
     const editorStore = makeDirty()
+    const commonStore = useCommonStore()
 
     const firstNav = router.push('/other')
     await flushPromises()
@@ -478,6 +479,13 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
     // -> Not a second dialog: the second navigation was blocked outright
     expect(openDialogs).toHaveLength(1)
     expect(router.currentRoute.value.path).toBe('/')
+    /*
+      Regression for OpenProject #819: the guard used to clear `routerLoading` when it blocked this
+      second navigation, even though the FIRST navigation -- the one that actually set it, and whose
+      prompt is still open right here -- has not resolved yet. Blocking the second one is not the
+      first one completing, so this must still read true.
+    */
+    expect(commonStore.routerLoading).toBe(true)
 
     closeDialog(openDialogs[0].id, true, true)
     const [, secondResult] = await Promise.all([firstNav, secondNav])
