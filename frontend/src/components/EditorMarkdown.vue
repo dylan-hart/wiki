@@ -287,7 +287,8 @@
         @pointermove="onDividerPointerMove"
         @pointerup="onDividerPointerUp"
         @pointercancel="onDividerPointerUp" />
-      <transition name="editor-markdown-preview">
+      <transition
+        :name="previewEverRevealed ? 'editor-markdown-preview' : 'editor-markdown-preview-initial'">
         <div
           class="editor-markdown-preview"
           ref="previewPaneRef"
@@ -481,6 +482,17 @@ const previewPaneRef = ref(null)
 
 /** Whether the resize divider is currently being dragged -- drives its highlight and the app-wide cursor/selection lockdown while dragging (`.is-resizing` on the component root). */
 const isDragging = ref(false)
+/**
+ * Whether the preview pane has already played its entrance once this mount.
+ *
+ * Gates which transition name the pane's `<transition>` uses (see the template) -- `false` picks the
+ * fast `editor-markdown-preview-initial` variant, timed to match the side nav's own close animation
+ * (`WDrawer.vue`'s `0.2s`) since the two happen together the moment the editor opens. Flipped to `true`
+ * once, in `onMounted`, after that first reveal has been scheduled -- every later toggle (the toolbar
+ * button) then uses the original, slower `editor-markdown-preview` transition, unchanged from before
+ * this fix.
+ */
+const previewEverRevealed = ref(false)
 
 /*
   The active drag's own scratch state. Plain `let`s rather than `reactive`, matching `editor`/`md`/
@@ -569,13 +581,15 @@ const isAtLeastMd = useMinWidth(1024)
 
 const state = reactive({
   /*
-    A width-based placeholder until `onMounted` has this user's saved preference (or the lack of one)
-    back from `fetchUserSettings` and resolves the real starting value through
-    `resolveInitialPreviewShown`. Either way it is read once, as a DEFAULT rather than a binding: past
-    that first value the pane is the author's to open and close, and a bound one would slam it shut the
-    moment a window was dragged narrower mid-edit.
+    Starts closed regardless of `isAtLeastMd` -- not a placeholder value to read past, unlike
+    `previewWidth` below, but the actual initial state. Opening it is deferred to `onMounted`, once
+    `previewWidth` is already resolved too, so the very first time this flips true both values are
+    already correct and the pane's entrance transition (see the template's `<transition>` and
+    `previewEverRevealed`) animates straight to the right width -- rather than appearing instantly at
+    the SCSS fallback (`50vw`) and snapping to the real width a moment later, once the async settings
+    fetch resolves, which is what starting `true` here used to produce.
   */
-  previewShown: isAtLeastMd.value,
+  previewShown: false,
   previewScrollSync: true,
   /*
     `null` until `onMounted` resolves this user's saved width (or the lack of one) through
@@ -1677,6 +1691,17 @@ onMounted(async () => {
           resolvedWidth,
           Math.max(PREVIEW_HIDE_THRESHOLD_PX, window.innerWidth - EDITOR_MIN_WIDTH_PX)
         )
+  /*
+    Left `false` through this render, so the `previewShown` flip just above -- the pane's one and only
+    entrance this mount, if it opens at all -- is still the fast `-initial` transition (see the ref's
+    own doc comment) when Vue processes it. `nextTick` is what lands this AFTER that, not before: it
+    resolves once the DOM update from the current synchronous batch is done, which is what keeps a
+    later, unrelated toggle-button click (a wholly separate reactive flush) from ever racing this into
+    reading `true` early and picking the wrong transition for the entrance itself.
+  */
+  nextTick(() => {
+    previewEverRevealed.value = true
+  })
 
   md = new MarkdownRenderer(editorStore.editors.markdown)
 
@@ -2147,6 +2172,32 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
     &-enter-from,
     &-leave-to {
       max-width: 0;
+    }
+    /*
+      The pane's one-time entrance (see `previewEverRevealed`'s doc comment in the script), timed to
+      `WDrawer.vue`'s own `0.2s` close so the two read as one movement -- the side nav sliding away on
+      the left as this opens on the right. `opacity` is added on top of `max-width` here, unlike the
+      toggle-button transition above: a genuinely empty pane has nothing left to paint at `max-width: 0`
+      regardless, but this variant also covers whatever the pane is opening ONTO A STILL-RESOLVING
+      layout, where a border, shadow or the toolbar's own background could otherwise read as a sliver of
+      "something" at the very start of the animation. `var(--ease-standard)` for the same reason as the
+      timing: it is the curve the side nav itself moves on.
+    */
+    &-initial-enter-active,
+    &-initial-leave-active {
+      transition:
+        max-width 0.2s var(--ease-standard),
+        opacity 0.2s var(--ease-standard);
+      max-width: var(--preview-width, 50vw);
+      .editor-markdown-preview-content {
+        width: var(--preview-width, 50vw);
+        overflow: hidden;
+      }
+    }
+    &-initial-enter-from,
+    &-initial-leave-to {
+      max-width: 0;
+      opacity: 0;
     }
     &-toolbar {
       color: $grey-8;

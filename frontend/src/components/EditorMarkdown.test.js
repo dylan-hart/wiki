@@ -514,6 +514,57 @@ describe('EditorMarkdown drag-to-hide restores the pre-drag width (OpenProject #
 })
 
 /*
+  OpenProject #809 follow-up: `previewShown` used to start `true` (on a wide-enough viewport) before
+  `onMounted` had this user's saved width back from the async settings fetch -- so the pane appeared
+  instantly at the SCSS fallback (`50vw`) and snapped to the real width a moment later, rather than
+  never appearing at the wrong width at all. `previewShown` now starts `false` unconditionally, and
+  only opens (if it opens) once `previewWidth` is already resolved too, so the pane's one entrance this
+  mount picks up the correct width from its very first frame. `previewEverRevealed` is what lets that
+  first entrance use a distinct, faster transition (matching the side nav's own `0.2s` close) without
+  changing the toggle-button transition a reader triggers later.
+*/
+describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up)', () => {
+  it('does not start with the preview already shown -- it opens only once mount has resolved', () => {
+    setActivePinia(createPinia())
+    useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
+
+    // -> Synchronously, before `onMounted`'s awaited settings fetch has had any chance to resolve.
+    expect(wrapper.find('.editor-markdown-preview').exists()).toBe(false)
+    expect(wrapper.vm.previewEverRevealed).toBe(false)
+  })
+
+  it('marks the pane as having revealed once mount settles, and keeps it marked across a later toggle', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+
+    // -> The one entrance this mount has already happened by the time `mountEditor` returns (it awaits
+    //    `flushPromises`, which settles the `nextTick` this flag is set in) -- so it reads `true` here,
+    //    not because this test caught it mid-animation.
+    expect(wrapper.vm.previewEverRevealed).toBe(true)
+    expect(wrapper.find('.editor-markdown-preview').exists()).toBe(true)
+
+    // -> Hide and reshow via the toolbar buttons. This is the toggle-button path the ORIGINAL
+    //    `editor-markdown-preview` transition (unchanged, 0.5s) still owns -- proving the flag does not
+    //    reset is what proves this fix cannot regress that already-verified behavior.
+    const hideButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:eye-off-outline')
+    await hideButton.trigger('click')
+    expect(wrapper.find('.editor-markdown-preview').exists()).toBe(false)
+    expect(wrapper.vm.previewEverRevealed).toBe(true)
+
+    const showButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+    await showButton.trigger('click')
+    expect(wrapper.find('.editor-markdown-preview').exists()).toBe(true)
+    expect(wrapper.vm.previewEverRevealed).toBe(true)
+  })
+})
+
+/*
   OpenProject #808: both `onDidChangeModelContent` and `onDidChangeCursorPosition` are registered
   wrapped in a 500ms `debounce()`, with no reference kept to cancel either. `onBeforeUnmount` disposes
   the editor but, pre-fix, left any pending debounced call armed -- it fired ~500ms later against the
