@@ -71,6 +71,20 @@ describe('MicrosoftAuthentication', () => {
       profileMock.mock.restore()
     }
   })
+
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826)', () => {
+    const ms = new MicrosoftAuthentication('strategy-1', {
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'roles',
+      groupsScope: ''
+    })
+    const inner = (ms as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'roles')
+    assert.equal(inner.conf.groupsScope, '')
+  })
 })
 
 describe('microsoft/definition.yml', () => {
@@ -94,6 +108,13 @@ describe('microsoft/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826), leaving groupsScope empty by default since Microsoft gates the claim via the app manifest, not a scope', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
+    assert.equal(def.props.groupsScope.default, '')
   })
 
   test('the callback URL ref matches the shared convention', () => {

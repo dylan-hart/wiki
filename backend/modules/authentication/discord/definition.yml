@@ -33,6 +33,22 @@ props:
       (added automatically here whenever this is set).
     icon: user-groups
     order: 3
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups). Discord's `/users/@me` reports no group/role claim of its own — mapping a server's roles would need a bot token this module doesn't use — so leave this off unless a custom OAuth2 proxy in front of Discord is adding one.
+    icon: user-groups
+    default: false
+    order: 4
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which field of the user info response carries the user's group/role memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 5
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: OAuth2 Redirect URL

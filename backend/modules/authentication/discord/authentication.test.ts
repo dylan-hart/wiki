@@ -207,6 +207,52 @@ describe('DiscordAuthentication', () => {
         'https://discord.com/api/users/@me'
       ])
     })
+
+    /**
+     * Discord inherits group-claim mapping from the base `OAuth2Authentication.mapProfile()` rather
+     * than reimplementing it — this is the same consistency guarantee `oidc/preset.ts`'s branded
+     * presets get from `OidcAuthentication` (OpenProject #826), just for the OAuth2-only side of the
+     * module family. Stock Discord reports no such field on `/users/@me`, so this exercises the
+     * mapping mechanism itself, not a real Discord claim.
+     */
+    test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://discord.com/api/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
+        }
+        if (url === 'https://discord.com/api/users/@me') {
+          return new Response(
+            JSON.stringify({
+              id: '987654321098765432',
+              username: 'octocat',
+              email: 'octocat@example.com',
+              roles: ['moderator', 'editor']
+            }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz',
+        mapGroups: true,
+        groupsClaim: 'roles'
+      })
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile.groups, ['moderator', 'editor'])
+    })
+
+    test('leaves profile.groups absent when mapGroups is off', async () => {
+      fetchMock = mockTokenExchange()
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz'
+      })
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal('groups' in profile, false)
+    })
   })
 })
 
@@ -232,6 +278,11 @@ describe('discord/definition.yml', () => {
     for (const prop of ['authorizationURL', 'tokenURL', 'userInfoURL', 'scope']) {
       assert.equal(def.props[prop], undefined, `${prop} should be fixed, not admin-supplied`)
     }
+  })
+
+  test('declares mapGroups/groupsClaim props for group-claim mapping (OpenProject #826), consistent with every other preset even though stock Discord reports no such field', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
   })
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {

@@ -75,6 +75,31 @@ props:
     hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
     icon: exit
     order: 10
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the field reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: user-groups
+    default: false
+    order: 11
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which field of the user info response carries the user's group/role memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 12
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to add to Scope above if it isn't already there, for a provider that only includes group/role membership when it is explicitly requested. Leave empty if the provider needs none.
+    icon: rules
+    default: ''
+    order: 13
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: Authorization Callback URL

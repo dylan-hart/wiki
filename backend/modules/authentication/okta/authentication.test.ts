@@ -76,6 +76,21 @@ describe('OktaAuthentication', () => {
       profileMock.mock.restore()
     }
   })
+
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826)', () => {
+    const okta = new OktaAuthentication('strategy-1', {
+      orgUrl: 'https://dev-12345.okta.com',
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'groups',
+      groupsScope: 'groups'
+    })
+    const inner = (okta as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'groups')
+    assert.equal(inner.conf.groupsScope, 'groups')
+  })
 })
 
 describe('okta/definition.yml', () => {
@@ -99,6 +114,13 @@ describe('okta/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test("declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826), and defaults groupsScope to Okta's well-known custom scope", () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
+    assert.equal(def.props.groupsScope.default, 'groups')
   })
 
   test('the callback URL ref matches the shared convention', () => {

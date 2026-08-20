@@ -57,6 +57,48 @@ describe('OAuth2Authentication', () => {
         await assert.rejects(oauth2.authorizationUrl(flow), /ERR_STRATEGY_MISCONFIGURED/, missing)
       }
     })
+
+    test('requests scope unchanged when mapGroups is off, even if groupsScope is set', async () => {
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ scope: 'read:user', groupsScope: 'read:groups' })
+      )
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.get('scope'), 'read:user')
+    })
+
+    test('appends groupsScope when mapGroups is on and the scope does not already include it', async () => {
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ scope: 'read:user', mapGroups: true, groupsScope: 'read:groups' })
+      )
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.get('scope'), 'read:user read:groups')
+    })
+
+    test('does not duplicate groupsScope when it is already part of the configured scope', async () => {
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ scope: 'read:user read:groups', mapGroups: true, groupsScope: 'read:groups' })
+      )
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.get('scope'), 'read:user read:groups')
+    })
+
+    test('uses groupsScope alone when mapGroups is on and no other scope was configured', async () => {
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ mapGroups: true, groupsScope: 'read:groups' })
+      )
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.get('scope'), 'read:groups')
+    })
+
+    test('omits scope when mapGroups is on but groupsScope is left empty and no other scope was configured', async () => {
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf({ mapGroups: true }))
+      const url = new URL(await oauth2.authorizationUrl(flow))
+      assert.equal(url.searchParams.has('scope'), false)
+    })
   })
 
   describe('profile', () => {
@@ -200,6 +242,59 @@ describe('OAuth2Authentication', () => {
         /ERR_NO_PROVIDER_ACCOUNT/
       )
     })
+
+    /**
+     * Every branded preset built on this module (`discord/authentication.ts`) inherits this behavior
+     * unchanged by delegating to `mapProfile()` — see `discord/authentication.test.ts`'s own group-
+     * mapping tests. OpenProject #826.
+     */
+    test('leaves `groups` absent from the profile when mapGroups is off, even if the field is present', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', groups: ['editors'] }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf())
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal('groups' in profile, false)
+    })
+
+    test('maps the configured groupsClaim onto profile.groups when mapGroups is on', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(
+          JSON.stringify({ id: 7, email: 'person@example.com', roles: ['editors', 'admins'] }),
+          { status: 200 }
+        )
+      })
+      const oauth2 = new OAuth2Authentication(
+        'strategy-1',
+        makeConf({ mapGroups: true, groupsClaim: 'roles' })
+      )
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile.groups, ['editors', 'admins'])
+    })
+
+    test('reports an empty array, not undefined, when mapGroups is on but the claim is absent from userinfo', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://provider.example/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 })
+        }
+        return new Response(JSON.stringify({ id: 7, email: 'person@example.com' }), { status: 200 })
+      })
+      const oauth2 = new OAuth2Authentication('strategy-1', makeConf({ mapGroups: true }))
+      const profile = await oauth2.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.deepEqual(profile.groups, [])
+    })
   })
 
   describe('logoutUrl', () => {
@@ -315,6 +410,12 @@ describe('oauth2/definition.yml', () => {
       assert.ok(def.props[prop], `expected a ${prop} prop`)
     }
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826)', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
   })
 
   test('drops the props this task calls out as unneeded: pictureClaim, useQueryStringForAccessToken, enableCSRFProtection', () => {

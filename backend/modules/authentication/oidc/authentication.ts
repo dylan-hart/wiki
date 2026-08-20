@@ -1,6 +1,41 @@
 import * as client from 'openid-client'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
+/** A claim value as OIDC providers report it: one value, several, or (rarely) neither. */
+function asStringArray(value: unknown): string[] {
+  if (value === undefined || value === null) {
+    return []
+  }
+  return (Array.isArray(value) ? value : [value]).map((v) => `${v}`)
+}
+
+/**
+ * Map the merged ID-token claims and userinfo response onto a `ProviderProfile`, using the configured
+ * claim names. Exported standalone (mirroring `buildOidcConfig` in `preset.ts`) so the claim-mapping —
+ * including the `mapGroups`/`groupsClaim` behavior every OIDC preset inherits — can be asserted
+ * directly, with no network or ID-token verification involved: everything upstream of this is
+ * `openid-client` itself, already covered by its own test suite.
+ */
+export function mapOidcProfile(
+  conf: Record<string, any>,
+  subject: string,
+  info: Record<string, any>
+): ProviderProfile {
+  const email = info[conf.emailClaim || 'email']
+  if (!email || typeof email !== 'string') {
+    throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+  }
+  return {
+    id: subject,
+    email,
+    name: (info[conf.displayNameClaim || 'name'] as string) || email,
+    // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
+    //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
+    //    is only ever present when `mapGroups` is on, never set to `undefined`.
+    ...(conf.mapGroups ? { groups: asStringArray(info[conf.groupsClaim || 'groups']) } : {})
+  }
+}
+
 /**
  * Generic OpenID Connect / OAuth2
  *
@@ -73,7 +108,7 @@ export default class OidcAuthentication {
     return client
       .buildAuthorizationUrl(config, {
         redirect_uri: redirectUri,
-        scope: this.conf.scopes || 'openid profile email',
+        scope: this.effectiveScope(),
         state,
         nonce,
         code_challenge: await client.calculatePKCECodeChallenge(codeVerifier),
@@ -84,6 +119,27 @@ export default class OidcAuthentication {
         ...this.conf.extraAuthParams
       })
       .toString()
+  }
+
+  /**
+   * The scope string actually requested: the configured scopes, plus — when `mapGroups` is on and
+   * `groupsScope` names one not already present — whatever scope the provider needs before it will
+   * put group membership on the ID token or userinfo response at all.
+   *
+   * This exists because upstream's Generic OpenID Connect strategy could map a `groups` claim while
+   * never requesting the scope that made a provider populate it, so membership silently vanished on
+   * login (OpenProject #826). `groupsScope` is opt-in and provider-specific — Okta and Keycloak both
+   * gate group membership behind a scope literally named `groups`, but plenty of providers (Auth0's
+   * claim comes from a rule/Action, Microsoft's from the app manifest) need no extra scope at all, so
+   * there is no universally-correct default to assume here.
+   */
+  private effectiveScope(): string {
+    const base: string = this.conf.scopes || 'openid profile email'
+    if (!this.conf.mapGroups || !this.conf.groupsScope) {
+      return base
+    }
+    const requested = base.split(/\s+/).filter(Boolean)
+    return requested.includes(this.conf.groupsScope) ? base : `${base} ${this.conf.groupsScope}`
   }
 
   /**
@@ -123,15 +179,7 @@ export default class OidcAuthentication {
       }
     }
 
-    const email = info[this.conf.emailClaim || 'email']
-    if (!email || typeof email !== 'string') {
-      throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
-    }
-    return {
-      id: claims.sub,
-      email,
-      name: (info[this.conf.displayNameClaim || 'name'] as string) || email
-    }
+    return mapOidcProfile(this.conf, claims.sub, info)
   }
 
   /** Where a logout should continue, so that the session at the provider ends too. */

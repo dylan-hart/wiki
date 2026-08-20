@@ -71,6 +71,20 @@ describe('GitlabAuthentication', () => {
       profileMock.mock.restore()
     }
   })
+
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826)', () => {
+    const gl = new GitlabAuthentication('strategy-1', {
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'groups_direct',
+      groupsScope: ''
+    })
+    const inner = (gl as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'groups_direct')
+    assert.equal(inner.conf.groupsScope, '')
+  })
 })
 
 describe('gitlab/definition.yml', () => {
@@ -94,6 +108,12 @@ describe('gitlab/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826)', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
   })
 
   test('the callback URL ref matches the shared convention', () => {

@@ -84,6 +84,21 @@ describe('Auth0Authentication', () => {
       /ERR_STRATEGY_MISCONFIGURED/
     )
   })
+
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826)', () => {
+    const auth0 = new Auth0Authentication('strategy-1', {
+      domain: 'something.auth0.com',
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'https://wiki.example/groups',
+      groupsScope: 'groups'
+    })
+    const inner = (auth0 as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'https://wiki.example/groups')
+    assert.equal(inner.conf.groupsScope, 'groups')
+  })
 })
 
 describe('auth0/definition.yml', () => {
@@ -108,6 +123,12 @@ describe('auth0/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826)', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
   })
 
   test('the callback URL ref matches the {host}/_api/auth/{id}/callback convention every module uses', () => {

@@ -89,6 +89,18 @@ describe('TwitchAuthentication', () => {
       profileMock.mock.restore()
     }
   })
+
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826), even though Twitch has no groups concept of its own', () => {
+    const tw = new TwitchAuthentication('strategy-1', {
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'groups'
+    })
+    const inner = (tw as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'groups')
+  })
 })
 
 describe('twitch/definition.yml', () => {
@@ -111,6 +123,12 @@ describe('twitch/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826), consistent with every other preset even though Twitch has no groups of its own', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
   })
 
   test('the callback URL ref matches the shared convention', () => {

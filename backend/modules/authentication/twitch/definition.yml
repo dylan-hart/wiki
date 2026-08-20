@@ -24,6 +24,31 @@ props:
     icon: password
     sensitive: true
     order: 2
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups). Twitch has no concept of organizations or roles to source this from, so leave this off unless a custom Twitch extension is adding a claim of its own.
+    icon: user-groups
+    default: false
+    order: 3
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which claim carries the user's group memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 4
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the claim above needs one.
+    icon: rules
+    default: ''
+    order: 5
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: OAuth Redirect URL
