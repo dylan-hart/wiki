@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   guardSiteEnabled,
   localePrefixRedirectTarget,
+  requestOrigin,
   resolveRequestSite,
   SITE_DISABLED_MESSAGE,
   stripLocalePrefix,
@@ -46,6 +47,45 @@ describe('stripLocalePrefix', () => {
 
   test('returns null with an empty active list', () => {
     assert.equal(stripLocalePrefix('/fr/page', locales({ active: [] })), null)
+  })
+})
+
+/**
+ * OpenProject #831: the site's canonical/public URL — as consumed by `controllers/seo.ts` and, once
+ * one exists, any `codeTemplate` comment provider's embed (see `models/commentProviders.ts`) — must
+ * match how the request was actually reached, including behind a reverse proxy and on a non-default
+ * port. `requestOrigin` is deliberately a one-line pass-through of `req.protocol`/`req.hostname`
+ * rather than anything that re-derives scheme/host itself; these tests pin that contract so it can't
+ * quietly grow a second, divergent way to compute the same thing.
+ */
+describe('requestOrigin', () => {
+  test('joins protocol and hostname on the default port, exactly as given', () => {
+    assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
+  })
+
+  test('preserves a non-default port carried on the hostname', () => {
+    // -> This is what `req.hostname` looks like when a browser's address bar itself names a
+    //    non-default port, e.g. a dev instance on :3000 with no proxy in front of it at all.
+    assert.equal(requestOrigin('http', 'wiki.example.com:3000'), 'http://wiki.example.com:3000')
+  })
+
+  test('reflects a reverse-proxy-terminated scheme even when it differs from the raw connection', () => {
+    // -> Simulates what Fastify's `trustProxy` hands `req.protocol` when a proxy terminates TLS and
+    //    forwards plain HTTP internally: the *public* scheme, not the one this process actually
+    //    listens on. Getting this wrong is exactly requarks/wiki #2549's failure mode.
+    assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
+  })
+
+  test('reflects a reverse-proxy-rewritten hostname, port included', () => {
+    // -> `X-Forwarded-Host` under `trustProxy`, e.g. a proxy fronting several internal ports on one
+    //    public non-default port. Getting this wrong is requarks/wiki #2784's failure mode: the
+    //    embed identifies the page by a URL nobody outside the proxy can actually reach.
+    assert.equal(requestOrigin('https', 'wiki.example.com:8443'), 'https://wiki.example.com:8443')
+  })
+
+  test('never inserts a port of its own — whatever the hostname carries is what is used', () => {
+    assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
+    assert.ok(!requestOrigin('https', 'wiki.example.com').includes(':443'))
   })
 })
 
