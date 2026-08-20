@@ -1068,6 +1068,86 @@ function insertAfter({ content, newLine, focus = true }) {
   }
 }
 
+const TASK_LIST_MARKER_RE = /^(\s*)-\s\[([ xX])\]\s/
+const ORDERED_LIST_MARKER_RE = /^(\s*)(\d+)([.)])\s/
+const UNORDERED_LIST_MARKER_RE = /^(\s*)([-*+])\s/
+
+function detectListMarker(lineContent) {
+  let match = lineContent.match(TASK_LIST_MARKER_RE)
+  if (match) {
+    return { type: 'task', indent: match[1], markerLength: match[0].length }
+  }
+  match = lineContent.match(ORDERED_LIST_MARKER_RE)
+  if (match) {
+    return {
+      type: 'ordered',
+      indent: match[1],
+      markerLength: match[0].length,
+      number: Number.parseInt(match[2], 10),
+      delimiter: match[3]
+    }
+  }
+  match = lineContent.match(UNORDERED_LIST_MARKER_RE)
+  if (match) {
+    return { type: 'unordered', indent: match[1], markerLength: match[0].length, bullet: match[2] }
+  }
+  return null
+}
+
+function nextMarkerText(detected) {
+  switch (detected.type) {
+    case 'task':
+      return '- [ ] '
+    case 'ordered':
+      return `${detected.number + 1}${detected.delimiter} `
+    default:
+      return `${detected.bullet} `
+  }
+}
+
+function fallbackToDefaultEnter() {
+  editor.trigger('keyboard', 'type', { text: '\n' })
+}
+
+function continueList() {
+  const selections = editor.getSelections()
+  if (selections.length !== 1 || !selections[0].isEmpty()) {
+    fallbackToDefaultEnter()
+    return
+  }
+
+  const selection = selections[0]
+  const line = selection.startLineNumber
+  const column = selection.startColumn
+  const lineContent = editor.getModel().getLineContent(line)
+  const detected = detectListMarker(lineContent)
+
+  // -> A regex match doesn't mean the CURSOR is past the marker -- Enter pressed ahead of or
+  //    inside the marker itself (e.g. column 1, before the leading whitespace) isn't
+  //    continuation. Without this guard the split below would duplicate the marker onto the line
+  //    it pushes down, since "text before the cursor" would be empty and "text at/after the
+  //    cursor" would be the whole original marker-and-content line.
+  if (!detected || column < detected.markerLength + 1) {
+    fallbackToDefaultEnter()
+    return
+  }
+
+  const remainder = lineContent.slice(detected.markerLength)
+
+  if (remainder.length === 0) {
+    const lineMaxColumn = editor.getModel().getLineMaxColumn(line)
+    editor.executeEdits('wikijs.continueList', [
+      { range: new Range(line, 1, line, lineMaxColumn), text: '', forceMoveMarkers: true }
+    ])
+    return
+  }
+
+  const marker = detected.indent + nextMarkerText(detected)
+  editor.executeEdits('wikijs.continueList', [
+    { range: new Range(line, column, line, column), text: `\n${marker}`, forceMoveMarkers: true }
+  ])
+}
+
 /**
  * Insert content before current line
  *
@@ -1861,6 +1941,16 @@ onMounted(async () => {
         lvl = 2
       }
       setHeaderLine(lvl - 1)
+    }
+  })
+
+  editor.addAction({
+    id: 'markdown.extension.editing.continueList',
+    keybindings: [monaco.KeyCode.Enter],
+    label: 'Continue List',
+    precondition: 'editorTextFocus && !suggestWidgetVisible && !renameInputVisible',
+    run(ed) {
+      continueList()
     }
   })
 

@@ -112,7 +112,8 @@ matched marker stripped:
 - **Non-empty item → continue.** Otherwise, perform a normal split at the cursor position — text before the
   cursor stays on the current line, text at/after the cursor moves to a new line, matching Monaco's own
   default Enter split — and prefix the new line with the captured indentation plus the continuation marker:
-  - Unordered: `- `
+  - Unordered: the source line's bullet character (`-`, `*`, or `+`), preserved rather than
+    normalized — same precedent as the ordered-list delimiter below
   - Task: `- [ ] ` (always unchecked)
   - Ordered: `${number + 1}${delimiter} `
 

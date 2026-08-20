@@ -47,6 +47,7 @@ function createFakeModel(initialValue) {
 
 let fakeModel
 let cursorPosition
+let registeredActions
 /**
  * Whether `fakeEditor.dispose()` has been called -- lets `getPosition` reproduce the real Monaco
  * behaviour a disposed editor exhibits (`OpenProject #808`): `getPosition()` returns `null` once the
@@ -60,6 +61,19 @@ const fakeEditor = {
   setPosition: vi.fn((pos) => {
     cursorPosition = pos
   }),
+  // -> `continueList` (OpenProject #802) reads the primary selection off this rather than
+  //    `getPosition`, since it needs to tell a collapsed caret apart from a real selection or a
+  //    second cursor. Defaults to a single collapsed selection at `cursorPosition`; tests that need
+  //    a real selection or multiple cursors override the return value directly.
+  getSelections: vi.fn(() => [
+    {
+      startLineNumber: cursorPosition.lineNumber,
+      startColumn: cursorPosition.column,
+      endLineNumber: cursorPosition.lineNumber,
+      endColumn: cursorPosition.column,
+      isEmpty: () => true
+    }
+  ]),
   // -> Only consulted by `onEditorDrop` to move the cursor to the drop point; `null` exercises its
   //    `if (target?.position)` no-op guard, which is all a happy-dom drop event needs here.
   getTargetAtClientPoint: vi.fn(() => null),
@@ -68,9 +82,15 @@ const fakeEditor = {
       fakeModel.applyEdit(edit)
     }
   }),
+  // -> `continueList`'s fallback path re-invokes Monaco's own default Enter handling this way;
+  //    tests assert on this call rather than on model content when nothing list-specific applies.
+  trigger: vi.fn(),
   updateOptions: vi.fn(),
   addCommand: vi.fn(() => 'fake-command-id'),
-  addAction: vi.fn(),
+  addAction: vi.fn((config) => {
+    registeredActions[config.id] = config
+    return { dispose: vi.fn() }
+  }),
   onDidChangeModelContent: vi.fn(),
   onDidChangeCursorPosition: vi.fn(),
   revealLineInCenterIfOutsideViewport: vi.fn(),
@@ -87,6 +107,7 @@ vi.mock('monaco-editor', () => ({
       fakeModel = createFakeModel(opts.value ?? '')
       cursorPosition = { lineNumber: fakeModel.getLineCount(), column: 1 }
       disposed = false
+      registeredActions = {}
       return fakeEditor
     })
   },
@@ -95,7 +116,7 @@ vi.mock('monaco-editor', () => ({
     registerCodeLensProvider: vi.fn(() => ({ dispose: vi.fn() }))
   },
   KeyMod: { CtrlCmd: 1, Alt: 2 },
-  KeyCode: { KeyB: 1, KeyI: 2, KeyS: 3, RightArrow: 4, LeftArrow: 5 },
+  KeyCode: { KeyB: 1, KeyI: 2, KeyS: 3, RightArrow: 4, LeftArrow: 5, Enter: 6 },
   Range: class Range {
     constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
       this.startLineNumber = startLineNumber
@@ -655,5 +676,179 @@ describe('EditorMarkdown debounced handler cleanup on unmount (OpenProject #808)
     //    refresh" symptom -- a disposed Monaco editor's `getValue()` no longer reflects the document,
     //    so that stale/empty read would land straight in `pageStore.content`.
     expect(fakeEditor.getValue.mock.calls.length).toBe(getValueCallsAtUnmount)
+  })
+})
+
+describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function pressEnter() {
+    registeredActions['markdown.extension.editing.continueList'].run()
+  }
+
+  it('falls back to default Enter handling on a plain, non-list line', async () => {
+    await mountEditor('Some text.')
+    cursorPosition = { lineNumber: 1, column: 'Some text.'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+    expect(fakeModel.getValue()).toBe('Some text.')
+  })
+
+  it('falls back when there are multiple cursors', async () => {
+    await mountEditor('- one\n- two')
+    fakeEditor.getSelections.mockReturnValueOnce([
+      { startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 6, isEmpty: () => true },
+      { startLineNumber: 2, startColumn: 6, endLineNumber: 2, endColumn: 6, isEmpty: () => true }
+    ])
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+  })
+
+  it('falls back when the cursor has a non-empty selection', async () => {
+    await mountEditor('- one')
+    fakeEditor.getSelections.mockReturnValueOnce([
+      { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 6, isEmpty: () => false }
+    ])
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+  })
+
+  it('falls back when the cursor is positioned before the end of the marker', async () => {
+    await mountEditor('- one')
+    cursorPosition = { lineNumber: 1, column: 1 }
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+    expect(fakeModel.getValue()).toBe('- one')
+  })
+
+  it('continues an unordered list item', async () => {
+    await mountEditor('- one')
+    cursorPosition = { lineNumber: 1, column: '- one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n- ')
+    expect(fakeEditor.trigger).not.toHaveBeenCalled()
+  })
+
+  it('continues an ordered list item, incrementing the number', async () => {
+    await mountEditor('1. one')
+    cursorPosition = { lineNumber: 1, column: '1. one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1. one\n2. ')
+  })
+
+  it('preserves the ")" delimiter on an ordered list item', async () => {
+    await mountEditor('1) one')
+    cursorPosition = { lineNumber: 1, column: '1) one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1) one\n2) ')
+  })
+
+  it('preserves the "*" bullet character on an unordered list item', async () => {
+    await mountEditor('* one')
+    cursorPosition = { lineNumber: 1, column: '* one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('* one\n* ')
+  })
+
+  it('registers the continue-list action on Enter with the expected precondition', async () => {
+    await mountEditor('')
+
+    const action = registeredActions['markdown.extension.editing.continueList']
+
+    expect(action.keybindings).toContain(6)
+    expect(action.precondition).toBe(
+      'editorTextFocus && !suggestWidgetVisible && !renameInputVisible'
+    )
+  })
+
+  it('continues a task list item as unchecked, from a checked previous item', async () => {
+    await mountEditor('- [x] done')
+    cursorPosition = { lineNumber: 1, column: '- [x] done'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [x] done\n- [ ] ')
+  })
+
+  it('continues a task list item as unchecked, from an unchecked previous item', async () => {
+    await mountEditor('- [ ] todo')
+    cursorPosition = { lineNumber: 1, column: '- [ ] todo'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [ ] todo\n- [ ] ')
+  })
+
+  it('preserves indentation for a nested list item', async () => {
+    await mountEditor('  - nested')
+    cursorPosition = { lineNumber: 1, column: '  - nested'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('  - nested\n  - ')
+  })
+
+  it('splits mid-line, prefixing the moved text on the new line', async () => {
+    await mountEditor('- one two')
+    cursorPosition = { lineNumber: 1, column: '- one '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one \n- two')
+  })
+
+  it('exits an unordered list on an empty item', async () => {
+    await mountEditor('- one\n- ')
+    cursorPosition = { lineNumber: 2, column: '- '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n')
+    expect(fakeEditor.trigger).not.toHaveBeenCalled()
+  })
+
+  it('exits an ordered list on an empty item', async () => {
+    await mountEditor('1. one\n2. ')
+    cursorPosition = { lineNumber: 2, column: '2. '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1. one\n')
+  })
+
+  it('exits a task list on an empty item', async () => {
+    await mountEditor('- [ ] one\n- [ ] ')
+    cursorPosition = { lineNumber: 2, column: '- [ ] '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [ ] one\n')
+  })
+
+  it('exits an indented, empty list item', async () => {
+    await mountEditor('- one\n  - ')
+    cursorPosition = { lineNumber: 2, column: '  - '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n')
   })
 })
