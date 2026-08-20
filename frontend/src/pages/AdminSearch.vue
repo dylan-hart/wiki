@@ -46,14 +46,31 @@
     </div>
     <w-separator inset />
     <!--
-      Same list-beside-panel shape as `AdminStorage.vue`'s targets and `AdminAuth.vue`'s strategies:
-      the list is only as wide as it needs to be and the panel takes what is left, wrapping onto its
-      own row when there is no room for both.
+      List-beside-panel shape like `AdminStorage.vue`'s targets and `AdminAuth.vue`'s strategies, but
+      the sizing below is deliberately NOT the same (OpenProject #857 fixed only this page; those two
+      keep their own hard `min-width: 300px` list under a separate, filed-but-not-yet-worked audit --
+      don't "restore consistency" by reverting this).
+
+      A rigid `min-width: 300px` list beside a `flex-1 min-w-0` panel has no middle ground: the panel
+      shrinks to near nothing before the row ever wraps, since `min-w-0` lets it go almost to zero
+      first. Two changes fix that without any viewport-width breakpoint (the admin sidebar column
+      itself toggles at 1024px -- see `AdminLayout.vue`'s `isWideViewport` -- so a breakpoint on this
+      row would be reasoning about the wrong box: the CONTENT area's width, not the viewport's, is
+      what actually narrows here, and it does not track viewport width monotonically).
+
+      1. The list's width is now `clamp(260px, 38%, 300px)` -- a percentage of the row itself, so it
+         gives up some width as the row narrows instead of staying pinned at 300px+. 260px keeps the
+         list card's own content (an icon + title + description per row) legible even at its floor.
+      2. The panel keeps `min-w-0` (still needed once it's on its own line, per the comment below) but
+         trades `flex-1`'s `0%` basis for `basis-[340px]`: flex-wrap decides whether to wrap based on
+         each item's flex-basis, not its shrunk size, so once the list's clamped width plus the
+         panel's 340px floor no longer fit the row, the panel wraps onto its own full-width line
+         instead of being squeezed thinner than that.
     -->
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="flex-none">
+      <div class="flex-none" style="width: clamp(260px, 38%, 300px)">
         <w-card class="rounded bg-dark">
-          <w-list style="min-width: 300px" padding dark>
+          <w-list padding dark>
             <w-item
               v-for="eng of state.engines"
               :key="eng.key"
@@ -75,7 +92,7 @@
         </w-card>
       </div>
       <!-- -> `min-w-0`, or a long value inside the panel would push it wider than the row -->
-      <div class="min-w-0 flex-1" v-if="selectedEngine">
+      <div class="min-w-0 grow shrink basis-[340px]" v-if="selectedEngine">
         <w-card class="pb-2">
           <w-card-header>
             {{ t('admin.search.engineConfig') }}
