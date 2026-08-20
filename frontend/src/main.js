@@ -8,6 +8,7 @@ import { initializeEventBus } from './boot/eventbus'
 import { initializeExternals } from './boot/externals'
 import { initializeI18n } from './boot/i18n'
 import { initializeIconify } from './boot/iconify'
+import './boot/monaco'
 import { initializeTemporal } from './boot/temporal'
 import { initializeHairlines } from './helpers/hairline'
 
