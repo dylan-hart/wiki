@@ -342,7 +342,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async () => {
-      return WIKI.models.security.getConfig()
+      return {
+        ...WIKI.models.security.getConfig(),
+        insecureCookieRiskAt: WIKI.models.security.getInsecureCookieRiskAt()
+      }
     }
   )
 

@@ -58,6 +58,13 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description: 'Whether to trust `X-Forwarded-*` headers.'
       },
+      insecureCookieRiskAt: {
+        type: 'string',
+        format: 'date-time',
+        nullable: true,
+        description:
+          'Read-only runtime diagnostic, not a stored setting -- ignored if sent back in a PUT. Set the moment a request showed `X-Forwarded-Proto: https` arriving while Trust Proxy is off and this instance did not itself terminate TLS: the session cookie that response set came out without `Secure`, because `request.protocol` can never see the header in that case. Null if that has not happened since this instance started. Clears itself only on a restart, once Trust Proxy has been turned on.'
+      },
       uploadMaxFileSize: {
         type: 'integer',
         minimum: 1,

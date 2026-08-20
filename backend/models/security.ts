@@ -38,6 +38,48 @@ const DURATION_PATTERN = /^\d+[smhdwy]$/
  */
 class Security {
   /**
+   * Runtime diagnostic, not a stored setting: the moment (if ever, since this process started) a
+   * request showed the classic reverse-proxy cookie misconfiguration (upstream discussion #6866,
+   * task 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`),
+   * but this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself.
+   * `request.protocol` can only ever reflect the raw, plaintext connection in that case, so the
+   * `secure: 'auto'` session cookie (see the `Sessions` section of `index.ts`) resolves to
+   * `false` even though every browser in front of the proxy is really talking HTTPS. Reset only by
+   * a restart -- it describes how the process was started, not something that self-heals while it
+   * keeps running the same way.
+   */
+  private insecureCookieRiskAt: string | null = null
+
+  /**
+   * Record one request's evidence for the diagnostic above. Called from the `onRequest` hook in
+   * `index.ts` for every request -- deliberately cheap (header lookups only, no I/O) since it runs
+   * on the hot path.
+   */
+  observeRequest(headers: Record<string, string | string[] | undefined>, protocol: string): void {
+    if (WIKI.config.security?.trustProxy || protocol === 'https') {
+      // -> Either the header is trusted (so `request.protocol` already reflects it) or this
+      //    instance terminated TLS itself (so the cookie is secure regardless of the header) --
+      //    neither is the misconfiguration this is watching for.
+      return
+    }
+    const forwardedProto = headers['x-forwarded-proto']
+    const firstProto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
+      ?.split(',')[0]
+      ?.trim()
+      .toLowerCase()
+    if (firstProto === 'https') {
+      this.insecureCookieRiskAt = Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
+    }
+  }
+
+  /**
+   * When the diagnostic above last fired, or null if it never has this process.
+   */
+  getInsecureCookieRiskAt(): string | null {
+    return this.insecureCookieRiskAt
+  }
+
+  /**
    * The security configuration as the admin area expects it
    */
   getConfig(): Record<string, any> {
