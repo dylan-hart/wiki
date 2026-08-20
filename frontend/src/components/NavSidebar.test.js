@@ -15,8 +15,9 @@ import { useSiteStore } from '@/stores/site'
 /**
  * Task 466 (feature 362): verify -- rather than assume -- every combination `destination()` feeds
  * through `routableHref()`, plus `isCurrent()`/`containsCurrent()` against a trailing-slash variant
- * and a page reached via a redirect. See `NavSidebar.vue`'s own comments for the intent each case is
- * checked against.
+ * and a page reached via a redirect. See `composables/navSidebarDestination.js`'s own comments (moved
+ * there from this component under OpenProject #814, once a nav item's rendering became recursive) for
+ * the intent each case is checked against.
  *
  * `WItem` is stubbed so a test reads exactly what `destination()` handed it (`to` vs `href`/`target`)
  * rather than re-deriving that from the rendered `<a>`'s `href` attribute, which coincides for some
@@ -262,6 +263,121 @@ describe('NavSidebar isCurrent()/containsCurrent()', () => {
 
     const header = wrapper.find('.w-expansion-item__header')
     expect(header.attributes('aria-expanded')).toBe('true')
+  })
+})
+
+/**
+ * The row for a given label may not be a `CapturingWItem` -- an intermediate depth is a
+ * `w-expansion-item` header, not a leaf `w-item` -- so this reads the header directly off the DOM
+ * rather than through `rowFor()`'s component-tree search.
+ */
+function headerFor(wrapper, label) {
+  const header = wrapper.findAll('.w-expansion-item__header').find((h) => h.text().includes(label))
+  if (!header) {
+    throw new Error(`no rendered expansion header for label "${label}"`)
+  }
+  return header
+}
+
+/**
+ * OpenProject #814: automatic (tree-based) navigation only rendered one level of nested folders --
+ * `NavSidebar.vue`'s template drew a top-level group's children as plain, non-recursive `w-item`s
+ * with no check for a grandchild's own `children`, so anything past the second level was silently
+ * dropped even though `generateFromTree()` on the backend returns it. `NavSidebarItem.vue` now
+ * renders itself once per nesting level, which is what these cases exercise: a leaf four levels
+ * deep (one level further than the fix strictly needs, to leave a margin past the old two-level
+ * ceiling) must actually reach the DOM, and every ancestor group along the way must still
+ * auto-open for it, not only the top-level one the old template happened to handle.
+ */
+describe('NavSidebar recursive nesting (OpenProject #814)', () => {
+  const deepTree = [
+    {
+      id: 'level-0',
+      type: 'link',
+      icon: 'mdi:folder',
+      label: 'Level 0',
+      children: [
+        {
+          id: 'level-1',
+          type: 'link',
+          icon: 'mdi:folder',
+          label: 'Level 1',
+          children: [
+            {
+              id: 'level-2',
+              type: 'link',
+              icon: 'mdi:folder',
+              label: 'Level 2',
+              children: [
+                {
+                  id: 'level-3-leaf',
+                  type: 'link',
+                  icon: 'mdi:file',
+                  label: 'Level 3 leaf',
+                  target: '/deep/page'
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+
+  it('renders a leaf nested three groups deep, past the old two-level ceiling', async () => {
+    const { wrapper } = await mountNav(deepTree)
+
+    expect(rowFor(wrapper, 'Level 3 leaf').exists()).toBe(true)
+  })
+
+  it('auto-opens every ancestor group down to a deep current page, not only the top level', async () => {
+    const { wrapper } = await mountNav(deepTree, { path: '/deep/page' })
+
+    expect(headerFor(wrapper, 'Level 0').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Level 1').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Level 2').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('leaves every ancestor group closed when nothing in its subtree is the current page', async () => {
+    const { wrapper } = await mountNav(deepTree, { path: '/elsewhere' })
+
+    expect(headerFor(wrapper, 'Level 0').attributes('aria-expanded')).toBe('false')
+    expect(headerFor(wrapper, 'Level 1').attributes('aria-expanded')).toBe('false')
+    expect(headerFor(wrapper, 'Level 2').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('honors expandByDefault at a nested (non-top-level) group, not only at the root', async () => {
+    const items = [
+      {
+        id: 'top',
+        type: 'link',
+        icon: 'mdi:folder',
+        label: 'Top',
+        // -> Not expandByDefault and not containing the current page: stays closed
+        children: [
+          {
+            id: 'nested',
+            type: 'link',
+            icon: 'mdi:folder',
+            label: 'Nested',
+            expandByDefault: true,
+            children: [
+              {
+                id: 'nested-leaf',
+                type: 'link',
+                icon: 'mdi:file',
+                label: 'Nested leaf',
+                target: '/somewhere/else'
+              }
+            ]
+          }
+        ]
+      }
+    ]
+    const { wrapper } = await mountNav(items, { path: '/not-a-match' })
+
+    expect(headerFor(wrapper, 'Top').attributes('aria-expanded')).toBe('false')
+    expect(headerFor(wrapper, 'Nested').attributes('aria-expanded')).toBe('true')
   })
 })
 
