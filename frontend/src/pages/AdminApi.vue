@@ -101,7 +101,15 @@
                 <w-item-label caption>{{
                   t('admin.api.keyEndingIn', { suffix: key.keyShort })
                 }}</w-item-label>
-                <w-item-label caption>{{
+                <!--
+                A personal token (`key.userId` set, task/OpenProject #788) carries exactly its owner's
+                own current permissions, resolved live -- there is no fixed `groups` list to name the
+                way an admin-issued key's does, so this line names the owner instead.
+              -->
+                <w-item-label v-if="key.userId" caption>{{
+                  t('admin.api.personalTokenOf', { user: ownerName(key) })
+                }}</w-item-label>
+                <w-item-label v-else caption>{{
                   t('admin.api.permissionsFrom', { groups: groupNames(key) })
                 }}</w-item-label>
                 <!--
@@ -217,6 +225,7 @@ const state = reactive({
   keys: [],
   groups: [],
   sites: [],
+  users: [],
   /** When the signing keypair was generated — what an invalidated key is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -295,23 +304,32 @@ function siteName(key) {
   return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
 }
 
+/** A personal token's owner, by name -- falling back to the ID for an account since deleted. */
+function ownerName(key) {
+  return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
+}
+
 async function load() {
   state.loading++
   loading.show()
   try {
     // -> Groups and sites are fetched alongside the keys so the list can name the permissions and
-    //    the site each key carries, and the certificate date so an invalidated key can say what
-    //    invalidated it
-    const [keys, apiState, groups, sites, certs] = await Promise.all([
+    //    the site each key carries, the certificate date so an invalidated key can say what
+    //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
+    //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
+    //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
+    const [keys, apiState, groups, sites, certs, usersResp] = await Promise.all([
       API_CLIENT.get('api-keys').json(),
       API_CLIENT.get('system/api').json(),
       API_CLIENT.get('groups').json(),
       API_CLIENT.get('sites').json(),
-      API_CLIENT.get('system/certificates').json()
+      API_CLIENT.get('system/certificates').json(),
+      API_CLIENT.get('users', { searchParams: { limit: 100 } }).json()
     ])
     state.keys = keys ?? []
     state.groups = groups ?? []
     state.sites = sites ?? []
+    state.users = usersResp?.users ?? []
     state.enabled = apiState?.isEnabled === true
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
     // -> Keeps the status light in the admin sidebar in step without another round trip

@@ -1,10 +1,79 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import type { FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { groups as groupsTable } from '../db/schema.ts'
-import type { GroupRule } from './groups.ts'
+import { groups, type GroupRule } from './groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
+
+/**
+ * OpenProject #788: `groupIdsForRequest()` used to only ever look at `req.session` — an
+ * API-key-authenticated request (no session) always fell through to the guests-group fallback,
+ * regardless of what groups the key actually carried, so every page-rule check made for a request
+ * authenticated by an API key (`checkAccess()`/`mayOnPage()`, both built on this) was silently deciding
+ * against the PUBLIC's rules instead of the key's own. Pure request/response, no DB involved, so this
+ * runs unconditionally rather than gated on `hasTestDatabase()` — only the guest fallback needs a WIKI
+ * stub at all, for `WIKI.data.systemIds.guestsGroupId`.
+ */
+describe('groups.groupIdsForRequest', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test("an API-key-authenticated request resolves to the key's own groupIds", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: [],
+        groupIds: ['key-group-a'],
+        siteId: null
+      }
+    } as unknown as FastifyRequest
+    assert.deepEqual(groups.groupIdsForRequest(req), ['key-group-a'])
+  })
+
+  test("a personal token's groupIds are used exactly the same way as an admin key's", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: 'user-1',
+        permissions: [],
+        groupIds: ['owner-group-a', 'owner-group-b'],
+        siteId: null
+      }
+    } as unknown as FastifyRequest
+    assert.deepEqual(groups.groupIdsForRequest(req), ['owner-group-a', 'owner-group-b'])
+  })
+
+  test('an API key takes priority over a session present on the same request', () => {
+    const req = {
+      apiKey: { id: 'key-1', userId: null, permissions: [], groupIds: ['key-group'], siteId: null },
+      session: { authenticated: true, user: { id: 'user-1' }, groups: ['session-group'] }
+    } as unknown as FastifyRequest
+    assert.deepEqual(groups.groupIdsForRequest(req), ['key-group'])
+  })
+
+  test("an authenticated session, with no API key, resolves to the session's own groups", () => {
+    const req = {
+      session: { authenticated: true, user: { id: 'user-1' }, groups: ['session-group'] }
+    } as unknown as FastifyRequest
+    assert.deepEqual(groups.groupIdsForRequest(req), ['session-group'])
+  })
+
+  test('an anonymous request (no API key, no session) falls back to the guests group', () => {
+    const req = {} as unknown as FastifyRequest
+    assert.deepEqual(groups.groupIdsForRequest(req), ['guests-group-id'])
+  })
+})
 
 /**
  * `groups.checkAccess` is the one place a page permission is decided (see the "Permissions" section

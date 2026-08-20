@@ -1,7 +1,14 @@
-import { describe, test, before, after } from 'node:test'
+import { describe, test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { apiKeys as apiKeysTable, groups as groupsTable } from '../db/schema.ts'
+import { eq } from 'drizzle-orm'
+import {
+  apiKeys as apiKeysTable,
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
@@ -167,5 +174,149 @@ describe('apiKeys siteId propagation through JWT claims', () => {
 
     const identity = await apiKeys.verify(key)
     assert.equal(identity.siteId, null)
+  })
+})
+
+/**
+ * OpenProject #788: a personal access token's whole point is that its permissions are resolved LIVE
+ * from the owning user's CURRENT group membership on every `verify()` call, never a snapshot taken at
+ * `createKey()` time — the design decision this module's own doc comment explains at length. That is
+ * genuinely a DB-backed question (it is exactly the live join the mock-`WIKI.db` suite above has no
+ * use for), so this runs against a real, migrated database via `test/db.ts`, the same way
+ * `models/groups.test.ts#checkAccess` does for the equivalent claim about sessions.
+ */
+describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let previousTemporal: any
+
+  before(async () => {
+    previousTemporal = (globalThis as any).Temporal
+    installFakeTemporal()
+    fixtures = await setupTestDb()
+    WIKI.config.api = { isEnabled: true }
+    WIKI.config.auth = { certs: generateSigningCertificates() }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+    ;(globalThis as any).Temporal = previousTemporal
+  })
+
+  // -> `fixtures` (and its one seeded user/group) are shared across every test in this describe, so
+  //    each test starts from a clean membership and an active account rather than inheriting what a
+  //    previous test left behind.
+  beforeEach(async () => {
+    await fixtures.db.delete(userGroupsTable).where(eq(userGroupsTable.userId, fixtures.userId))
+    await fixtures.db
+      .update(usersTable)
+      .set({ isActive: true })
+      .where(eq(usersTable.id, fixtures.userId))
+  })
+
+  async function joinGroup(userId: string, groupId: string): Promise<void> {
+    await fixtures.db.insert(userGroupsTable).values({ userId, groupId })
+  }
+
+  test("verify() resolves groupIds/permissions from the owner's current groups, and stores no groups of its own", async () => {
+    await joinGroup(fixtures.userId, fixtures.groupId)
+
+    const { key, id } = await apiKeys.createKey({
+      name: 'My personal token',
+      expiration: '30d',
+      userId: fixtures.userId
+    })
+
+    // -> Nothing admin-shaped survives on the row: `groups` is empty even though the token is fully
+    //    usable, because `userId` is what identity comes from now.
+    const row = await apiKeys.getKeyById(id)
+    assert.deepEqual(row!.groups, [])
+    assert.equal(row!.userId, fixtures.userId)
+
+    const identity = await apiKeys.verify(key)
+    assert.equal(identity.userId, fixtures.userId)
+    assert.deepEqual(identity.groupIds, [fixtures.groupId])
+    // -> setupTestDb() seeds the fixture group with exactly `['read:pages']`
+    assert.deepEqual(identity.permissions, ['read:pages'])
+  })
+
+  test('a group membership change is reflected on the very next verify() — no reissue needed', async () => {
+    await joinGroup(fixtures.userId, fixtures.groupId)
+    const { key } = await apiKeys.createKey({
+      name: 'Live-resolved token',
+      expiration: '30d',
+      userId: fixtures.userId
+    })
+
+    const before1 = await apiKeys.verify(key)
+    assert.deepEqual(before1.permissions, ['read:pages'])
+
+    const [secondGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'Second Group', permissions: ['write:pages'], rules: [] })
+      .returning({ id: groupsTable.id })
+    await joinGroup(fixtures.userId, secondGroup!.id)
+
+    const afterJoin = await apiKeys.verify(key)
+    assert.deepEqual(new Set(afterJoin.groupIds), new Set([fixtures.groupId, secondGroup!.id]))
+    assert.deepEqual(new Set(afterJoin.permissions), new Set(['read:pages', 'write:pages']))
+
+    // -> Removed from every group: the SAME token now grants nothing at all, with nothing revoked.
+    await fixtures.db.delete(userGroupsTable).where(eq(userGroupsTable.userId, fixtures.userId))
+    const afterRemoval = await apiKeys.verify(key)
+    assert.deepEqual(afterRemoval.groupIds, [])
+    assert.deepEqual(afterRemoval.permissions, [])
+  })
+
+  test("scope still narrows a personal token's live-resolved permissions, exactly like an admin-issued key", async () => {
+    await joinGroup(fixtures.userId, fixtures.groupId)
+    const [secondGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'Extra Group', permissions: ['write:pages'], rules: [] })
+      .returning({ id: groupsTable.id })
+    await joinGroup(fixtures.userId, secondGroup!.id)
+
+    const { key } = await apiKeys.createKey({
+      name: 'Scoped personal token',
+      expiration: '30d',
+      userId: fixtures.userId,
+      scope: ['read:pages']
+    })
+
+    const identity = await apiKeys.verify(key)
+    // -> The user holds both read:pages and write:pages live, but scope narrows the token to just
+    //    the one named -- it can only take away, never grant beyond what the groups already hold.
+    assert.deepEqual(identity.permissions, ['read:pages'])
+  })
+
+  test("a deactivated owner's token stops authenticating, the same guarantee a session already gets", async () => {
+    await joinGroup(fixtures.userId, fixtures.groupId)
+    const { key } = await apiKeys.createKey({
+      name: 'Token of a soon-to-be-deactivated user',
+      expiration: '30d',
+      userId: fixtures.userId
+    })
+
+    // -> Confirm it works before deactivation, so the rejection below is provably caused by that
+    await apiKeys.verify(key)
+
+    await fixtures.db
+      .update(usersTable)
+      .set({ isActive: false })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    await assert.rejects(apiKeys.verify(key), /no longer active/)
+  })
+
+  test("an admin-issued key (no userId) is unaffected: groupIds still come from the token's own grp claim", async () => {
+    const { key } = await apiKeys.createKey({
+      name: 'Admin-issued key',
+      expiration: '30d',
+      groups: [fixtures.groupId]
+    })
+
+    const identity = await apiKeys.verify(key)
+    assert.equal(identity.userId, null)
+    assert.deepEqual(identity.groupIds, [fixtures.groupId])
+    assert.deepEqual(identity.permissions, ['read:pages'])
   })
 })

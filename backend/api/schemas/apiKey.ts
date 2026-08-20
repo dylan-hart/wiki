@@ -50,6 +50,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'The single site this key is pinned to, or null for instance-wide (every site).'
       },
+      userId: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description:
+          "The user this is a personal access token for, or null for an admin-issued key. A personal token always carries exactly this user's own current permissions, resolved live — never the `groups` above."
+      },
       expiration: {
         type: 'string',
         format: 'date-time',

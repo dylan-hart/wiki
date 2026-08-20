@@ -7,6 +7,11 @@ import fastifySwagger from '@fastify/swagger'
 import usersRoutes from './users.ts'
 import { registerSchemas as registerUserSchema } from './schemas/user.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+// -> `usersRoutes` now also declares the `/profile/api-keys*` routes (OpenProject #788), whose
+//    response schemas `$ref` `ApiKey#`/`ApiKeyExpiration#`/`ApiKeyScopePermission#` — registering the
+//    whole plugin fails at boot without them, even though this file's own tests only exercise
+//    `/whoami`.
+import { registerSchemas as registerApiKeySchema } from './schemas/apiKey.ts'
 
 /**
  * Regression test for the `GET /whoami` response schema gap: with no `response` block, the generated
@@ -37,6 +42,7 @@ before(async () => {
 
   await registerErrorSchema(app)
   await registerUserSchema(app)
+  await registerApiKeySchema(app)
   await app.register(usersRoutes)
   await app.ready()
 })

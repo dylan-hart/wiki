@@ -1,5 +1,10 @@
 import crypto from 'node:crypto'
-import { apiKeys as apiKeysTable, groups as groupsTable } from '../db/schema.ts'
+import {
+  apiKeys as apiKeysTable,
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { flatten, uniq } from 'es-toolkit/array'
 import { epochSeconds, signJwt, verifyJwt } from '../helpers/jwt.ts'
@@ -88,6 +93,10 @@ export interface ApiKey {
   // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
   //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
   siteId: string | null
+  // -> The user this is a personal access token for, or null for an admin-issued key. See the
+  //    `userId` column comment in `db/schema.ts` and this module's own doc comment for what that
+  //    changes about how the key's permissions are resolved.
+  userId: string | null
   expiration: Date
   isRevoked: boolean
   createdAt: Date
@@ -104,10 +113,25 @@ export interface ApiKeyListEntry extends ApiKey {
   isInvalidated: boolean
 }
 
-/** What a verified key grants, resolved from its groups at request time. */
+/**
+ * What a verified key grants, resolved at request time.
+ *
+ * For an admin-issued key, `groupIds` is the `groups` the key was created with (signed into the
+ * token's `grp` claim) and `permissions` is their union, narrowed to `scope`. For a personal access
+ * token (`userId` set), both are instead resolved LIVE from the owning user's CURRENT group
+ * membership — see `verify()` and this module's own doc comment for why.
+ */
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
+  // -> The groups this identity speaks for, page-rule-checking code (`groups.checkAccess()` via
+  //    `groups.groupIdsForRequest()`) resolves a rule against exactly the way it does for a session.
+  //    Without this, an API-key-authenticated request fell back to the guests group's rules for
+  //    every page permission, regardless of what the key's own groups actually granted.
+  groupIds: string[]
+  // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
+  //    the `userId` column comment in `db/schema.ts`.
+  userId: string | null
   // -> The site this key is pinned to, taken from the token's `site` claim, or null for
   //    instance-wide. Route handlers on a site-scoped path read this to decide whether the key may
   //    act on the site the request names — see the `siteId` column comment in `db/schema.ts` for why
@@ -125,6 +149,7 @@ const keySelection = {
   groups: apiKeysTable.groups,
   scope: apiKeysTable.scope,
   siteId: apiKeysTable.siteId,
+  userId: apiKeysTable.userId,
   expiration: apiKeysTable.expiration,
   isRevoked: apiKeysTable.isRevoked,
   createdAt: apiKeysTable.createdAt,
@@ -150,10 +175,26 @@ export function narrowToScope(permissions: string[], scope: string[] | null): st
 /**
  * API Keys model
  *
- * A key is an RS256 JWT signed with the installation keypair, carrying the key row's ID and the
- * groups it draws permissions from. The token is shown once at creation and never stored: the
- * signature proves authenticity, and the row is consulted for revocation and expiry. Permissions are
- * resolved from the groups on every request, so changing a group takes effect immediately.
+ * A key is an RS256 JWT signed with the installation keypair, carrying the key row's ID and (for an
+ * admin-issued key) the groups it draws permissions from. The token is shown once at creation and
+ * never stored: the signature proves authenticity, and the row is consulted for revocation, expiry
+ * and — for a personal token — ownership. Permissions are resolved on every request rather than
+ * baked into the token, so changing a group takes effect immediately.
+ *
+ * DESIGN DECISION (Feature/OpenProject #788, "who a key acts as"): a personal access token's
+ * permissions are the owning user's CURRENT permissions, revalidated live on every request — the same
+ * question a session answers, not a subset chosen once at creation. Two things this rules out
+ * deliberately: (1) a snapshot taken at issue time, which would let a token quietly outlive the access
+ * it was minted with — demote a user, or deactivate them outright, and every token they ever issued
+ * would go on working exactly as before until somebody thought to revoke it by hand; (2) an
+ * admin-style `groups` selection on the token itself, which would let a user grant a bearer token MORE
+ * than their own account currently holds, or let it survive being removed from a group. Both would be
+ * a real escalation path a stolen laptop turns into a real incident. Living with a permission change
+ * exactly when it happens, with no separate "and now go revoke the tokens too" step, is the whole
+ * point — it is exactly the guarantee `groups.reloadCache()`'s own doc comment already promises for a
+ * session ("a revoked permission that waits for a logout is not revoked"); a personal token keeps that
+ * promise rather than becoming the one credential type it doesn't apply to. `scope` (Feature 395) still
+ * narrows a personal token exactly like an admin one — the live-resolved set is what gets intersected.
  */
 class ApiKeys {
   /**
@@ -230,34 +271,61 @@ class ApiKeys {
   }
 
   /**
+   * A single user's own personal access tokens, newest first — the self-service counterpart to
+   * `getKeys()`, which lists every key on the instance and is admin-only. Same `isInvalidated` marking.
+   */
+  async listKeysForUser(userId: string): Promise<ApiKeyListEntry[]> {
+    const results = await WIKI.db
+      .select(keySelection)
+      .from(apiKeysTable)
+      .where(eq(apiKeysTable.userId, userId))
+      .orderBy(desc(apiKeysTable.createdAt))
+    const generatedAt = Temporal.Instant.from(WIKI.config.auth.certs.generatedAt)
+    return (results as ApiKey[]).map((key) => ({
+      ...key,
+      isInvalidated: Temporal.Instant.compare(key.createdAt.toTemporalInstant(), generatedAt) < 0
+    }))
+  }
+
+  /**
    * Mint a new key.
+   *
+   * `groups` names an admin-issued key's permission source and is meaningless for a personal token
+   * (`userId` set) — left `[]` for those rows, since `verify()` never reads it once `userId` is
+   * present. The `grp` claim is still signed as `[]` in that case for the same reason: it is inert,
+   * not consulted.
    *
    * @returns The key row plus the token, which is the only time it exists outside the client
    */
   async createKey({
     name,
     expiration,
-    groups,
+    groups = [],
     scope = null,
-    siteId = null
+    siteId = null,
+    userId = null
   }: {
     name: string
     expiration: KeyExpiration
-    groups: string[]
+    /** Groups an admin-issued key draws its permissions from. Ignored (and stored empty) when `userId` is set. */
+    groups?: string[]
     /** An explicit permission allow-list to narrow the key to, or null for no narrowing. */
     scope?: string[] | null
     /** The single site to pin the key to, or null for instance-wide (every site). */
     siteId?: string | null
+    /** The user this is a personal access token for, or null for an admin-issued key. */
+    userId?: string | null
   }): Promise<{ id: string; key: string }> {
     const id = crypto.randomUUID()
     const expiresAt = Temporal.Now.zonedDateTimeISO('UTC')
       .add(KEY_EXPIRATIONS[expiration])
       .toInstant()
+    const effectiveGroups = userId ? [] : groups
 
     const key = signJwt(
       {
         id,
-        grp: groups,
+        grp: effectiveGroups,
         site: siteId,
         aud: TOKEN_AUDIENCE,
         iat: epochSeconds(),
@@ -270,9 +338,10 @@ class ApiKeys {
       id,
       name,
       keyShort: key.slice(-8),
-      groups,
+      groups: effectiveGroups,
       scope,
       siteId,
+      userId,
       expiration: new Date(expiresAt.epochMilliseconds),
       isRevoked: false
     })
@@ -302,6 +371,24 @@ class ApiKeys {
       .update(apiKeysTable)
       .set({ isRevoked: true, updatedAt: sql`now()` })
       .where(eq(apiKeysTable.id, id))
+    return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Revoke a key, but only if it belongs to this user — the self-service counterpart to `revokeKey()`.
+   *
+   * Scoping the `WHERE` to `userId` rather than checking ownership as a separate step is what makes
+   * this safe to call directly from a route with no earlier lookup: a keyId belonging to someone else,
+   * or to an admin-issued key with no owner at all, updates zero rows and comes back `false` exactly
+   * like a keyId that does not exist — the caller cannot tell the two apart, which is the point.
+   *
+   * @returns Whether a key owned by this user was revoked
+   */
+  async revokeKeyForUser(id: string, userId: string): Promise<boolean> {
+    const result = await WIKI.db
+      .update(apiKeysTable)
+      .set({ isRevoked: true, updatedAt: sql`now()` })
+      .where(and(eq(apiKeysTable.id, id), eq(apiKeysTable.userId, userId)))
     return (result.rowCount ?? 0) > 0
   }
 
@@ -350,6 +437,36 @@ class ApiKeys {
   }
 
   /**
+   * A personal token's owner as of right now: whether the account is still usable, and which groups it
+   * currently belongs to — the live lookup `verify()` runs instead of trusting anything baked into the
+   * token or the key row. `null` when the account is gone outright (the row's `onDelete: 'cascade'`
+   * makes that the same moment the key row itself disappears, but a request already holding `req.apiKey`
+   * from before that instant should not be trusted either).
+   */
+  private async resolveOwner(
+    userId: string
+  ): Promise<{ isActive: boolean; groupIds: string[]; permissions: string[] } | null> {
+    const rows = await WIKI.db
+      .select({
+        isActive: usersTable.isActive,
+        groupId: userGroupsTable.groupId,
+        permissions: groupsTable.permissions
+      })
+      .from(usersTable)
+      .leftJoin(userGroupsTable, eq(userGroupsTable.userId, usersTable.id))
+      .leftJoin(groupsTable, eq(groupsTable.id, userGroupsTable.groupId))
+      .where(eq(usersTable.id, userId))
+    if (rows.length < 1) {
+      return null
+    }
+    const groupIds = uniq(
+      rows.map((r: any) => r.groupId).filter((g: any): g is string => g != null)
+    )
+    const permissions = uniq(flatten(rows.map((r: any) => (r.permissions ?? []) as string[])))
+    return { isActive: rows[0]!.isActive as boolean, groupIds, permissions }
+  }
+
+  /**
    * Verify a bearer token and resolve what it grants.
    *
    * @throws ApiKeyError with a reason suitable for a 401 response
@@ -387,13 +504,35 @@ class ApiKeys {
       throw new ApiKeyError('API key has expired.')
     }
 
+    const siteId = typeof claims.site === 'string' ? claims.site : null
+
+    // -> A personal access token: ignore whatever `groups`/`grp` the row and token carry (always `[]`,
+    //    see `createKey()`) and resolve live from the owner's CURRENT membership instead — the design
+    //    decision this module's own doc comment explains.
+    if (key.userId) {
+      const owner = await this.resolveOwner(key.userId)
+      if (!owner) {
+        throw new ApiKeyError('The user this token belongs to no longer exists.')
+      }
+      if (!owner.isActive) {
+        throw new ApiKeyError('The user this token belongs to is no longer active.')
+      }
+      return {
+        id: key.id,
+        userId: key.userId,
+        groupIds: owner.groupIds,
+        permissions: narrowToScope(owner.permissions, key.scope),
+        siteId
+      }
+    }
+
+    const groupIds = Array.isArray(claims.grp) ? (claims.grp as string[]) : []
     return {
       id: key.id,
-      permissions: await this.resolvePermissions(
-        Array.isArray(claims.grp) ? (claims.grp as string[]) : [],
-        key.scope
-      ),
-      siteId: typeof claims.site === 'string' ? claims.site : null
+      userId: null,
+      groupIds,
+      permissions: await this.resolvePermissions(groupIds, key.scope),
+      siteId
     }
   }
 }
