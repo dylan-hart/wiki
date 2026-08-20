@@ -219,21 +219,22 @@ describe('batchDocuments()', () => {
 
   test('a handful of small documents fit in a single batch', () => {
     const docs = [doc({ objectID: 'p1' }), doc({ objectID: 'p2' }), doc({ objectID: 'p3' })]
-    assert.deepEqual(batchDocuments(docs), [docs])
+    assert.deepEqual(batchDocuments(docs), { batches: [docs], skipped: [] })
   })
 
   test('an empty list produces no batches', () => {
-    assert.deepEqual(batchDocuments([]), [])
+    assert.deepEqual(batchDocuments([]), { batches: [], skipped: [] })
   })
 
   test('splits once the object count reaches MAX_INDEXING_COUNT', () => {
     const docs = Array.from({ length: MAX_INDEXING_COUNT + 1 }, (_, i) =>
       doc({ objectID: `p${i}` })
     )
-    const batches = batchDocuments(docs)
+    const { batches, skipped } = batchDocuments(docs)
     assert.equal(batches.length, 2)
     assert.equal(batches[0]!.length, MAX_INDEXING_COUNT)
     assert.equal(batches[1]!.length, 1)
+    assert.deepEqual(skipped, [])
   })
 
   test('does not split early: near-max-size documents stay in one batch below both caps', () => {
@@ -246,12 +247,46 @@ describe('batchDocuments()', () => {
     //    split prematurely by an off-by-one in the running byte total.
     const big = 'x'.repeat(8000)
     const docs = Array.from({ length: 500 }, (_, i) => doc({ objectID: `p${i}`, description: big }))
-    assert.deepEqual(batchDocuments(docs), [docs])
+    assert.deepEqual(batchDocuments(docs), { batches: [docs], skipped: [] })
   })
 
-  test('throws for a single document that alone exceeds MAX_DOCUMENT_BYTES', () => {
-    const huge = doc({ objectID: 'p-huge', description: 'x'.repeat(MAX_DOCUMENT_BYTES) })
-    assert.throws(() => batchDocuments([huge]), /exceeds the maximum object size/)
+  /**
+   * OpenProject #830 (upstream discussion #3675): a page whose document alone exceeds Algolia's
+   * per-object size limit used to make `batchDocuments()` throw, which aborted `rebuild()` entirely --
+   * losing every other, correctly-sized page in the same rebuild, not just the oversized one. It is
+   * now diverted into `skipped` instead, so `rebuild()` can send everything else and just log a
+   * warning for what it couldn't.
+   */
+  test('diverts a single document that alone exceeds MAX_DOCUMENT_BYTES into `skipped`, batching the rest', () => {
+    const huge = doc({
+      objectID: 'p-huge',
+      path: 'docs/huge',
+      description: 'x'.repeat(MAX_DOCUMENT_BYTES)
+    })
+    const small1 = doc({ objectID: 'p1' })
+    const small2 = doc({ objectID: 'p2' })
+
+    const { batches, skipped } = batchDocuments([small1, huge, small2])
+
+    assert.deepEqual(batches, [[small1, small2]])
+    assert.equal(skipped.length, 1)
+    assert.equal(skipped[0]!.objectID, 'p-huge')
+    assert.equal(skipped[0]!.path, 'docs/huge')
+    assert.ok(skipped[0]!.bytes >= MAX_DOCUMENT_BYTES)
+  })
+
+  test('multiple oversized documents are all reported, batching everything that fits around them', () => {
+    const huge1 = doc({ objectID: 'p-huge-1', description: 'x'.repeat(MAX_DOCUMENT_BYTES) })
+    const huge2 = doc({ objectID: 'p-huge-2', description: 'y'.repeat(MAX_DOCUMENT_BYTES) })
+    const small = doc({ objectID: 'p1' })
+
+    const { batches, skipped } = batchDocuments([huge1, small, huge2])
+
+    assert.deepEqual(batches, [[small]])
+    assert.deepEqual(
+      skipped.map((doc) => doc.objectID),
+      ['p-huge-1', 'p-huge-2']
+    )
   })
 })
 
@@ -481,6 +516,61 @@ describe('AlgoliaSearchModule', () => {
           { locale: 'fr', dictionary: 'n/a', pages: 1 }
         ]
       )
+    })
+
+    /**
+     * OpenProject #830 (upstream discussion #3675): a page whose Algolia document exceeds the
+     * per-object size limit used to throw out of `batchDocuments()` uncaught, which aborted the whole
+     * `rebuild()` -- so a single oversized page took every other page in the site down with it. It
+     * must instead be skipped, with the rest of the site still indexed and a warning logged that says
+     * which page and why.
+     */
+    test('an oversized page is skipped with a logged warning, the rest of the site still gets indexed', async () => {
+      const { mod, calls } = moduleWithFakeClient()
+      ;(globalThis as any).WIKI.db = fakeDb({
+        [siteId]: [
+          fakePage({ id: 'p1', path: 'docs/small-one', locale: 'en' }),
+          fakePage({
+            id: 'p-huge',
+            path: 'docs/huge-page',
+            locale: 'en',
+            searchContent: 'x'.repeat(MAX_DOCUMENT_BYTES)
+          }),
+          fakePage({ id: 'p2', path: 'docs/small-two', locale: 'fr' })
+        ]
+      })
+      const warnings: string[] = []
+      const previousWarn = (globalThis as any).WIKI.logger.warn
+      ;(globalThis as any).WIKI.logger.warn = (msg: string) => warnings.push(msg)
+
+      let result
+      try {
+        result = await mod.rebuild(siteId)
+      } finally {
+        ;(globalThis as any).WIKI.logger.warn = previousWarn
+      }
+
+      // -> Both small pages made it into the one batch sent; the huge one did not abort anything.
+      assert.equal(calls.batch!.length, 1)
+      assert.equal(calls.batch![0].batchWriteParams.requests.length, 2)
+      const sentIds = calls
+        .batch![0].batchWriteParams.requests.map((r: any) => r.body.objectID)
+        .sort()
+      assert.deepEqual(sentIds, ['p1', 'p2'])
+
+      assert.equal(result.pages, 2)
+      assert.deepEqual(
+        result.locales.sort((a: any, b: any) => a.locale.localeCompare(b.locale)),
+        [
+          { locale: 'en', dictionary: 'n/a', pages: 1 },
+          { locale: 'fr', dictionary: 'n/a', pages: 1 }
+        ]
+      )
+
+      // -> Admin-visible: a warning names the skipped page, and the result itself records it too.
+      assert.ok(warnings.some((w) => w.includes('docs/huge-page')))
+      assert.equal(result.warnings?.length, 1)
+      assert.ok(result.warnings![0]!.includes('docs/huge-page'))
     })
 
     test('an empty site clears the index and sends no batches', async () => {

@@ -66,6 +66,23 @@ describe('HeaderSearch popularTags', () => {
 })
 
 /**
+ * OpenProject #830 (upstream PR #7688): a browser's password manager offers to fill a "username +
+ * password" pair into whatever looks like a login form on the page, and without a signal telling it
+ * otherwise a plain, unlabeled text field like this one can get scooped up as the "username" half --
+ * autofilling a stray credential into the header search box. `autocomplete="off"` is the field's own
+ * opt-out signal; this pins it as a regression test since nothing else about this field (no `name`,
+ * no `type="search"`, sitting right next to the header's own controls) would otherwise stop a browser
+ * from trying.
+ */
+describe('HeaderSearch autofill', () => {
+  it('marks the input autocomplete="off" so password managers do not offer to fill it', async () => {
+    const wrapper = await mountWithTags([])
+
+    expect(wrapper.find('.header-search-input').attributes('autocomplete')).toBe('off')
+  })
+})
+
+/**
  * The debounced live-preview fetch: typing into the focused field, once the query reaches the
  * 2-character floor `searchHint`'s copy already promises, should fetch a handful of matching pages
  * from `sites/:id/pages/search` and land them in `state.previewResults` -- without ever letting a

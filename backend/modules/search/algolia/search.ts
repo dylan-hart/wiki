@@ -159,32 +159,52 @@ export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
   }
 }
 
+/** One page dropped from a batch by `batchDocuments()` for exceeding `MAX_DOCUMENT_BYTES` on its own. */
+export interface OversizedDocument {
+  objectID: string
+  path: string
+  bytes: number
+}
+
+/** `batchDocuments()`'s return: the batches to send, plus what could not be. */
+export interface BatchDocumentsResult {
+  batches: AlgoliaPageDocument[][]
+  skipped: OversizedDocument[]
+}
+
 /**
  * Group an already-built list of Algolia documents into batches no larger than Algolia's documented
- * limits, exactly reproducing 2.5.x's `processDocument`/`flushBuffer` buffering
+ * limits, based on 2.5.x's `processDocument`/`flushBuffer` buffering
  * (`server/modules/search/algolia/engine.js`, `git show 343d4db0:...`): a soft cap of
- * `MAX_INDEXING_COUNT` objects per batch, a hard cap of `MAX_INDEXING_BYTES` serialized bytes per
- * batch (accounting for the `,` joining each object once stringified into a JSON array), and a
- * per-object hard cap of `MAX_DOCUMENT_BYTES`.
+ * `MAX_INDEXING_COUNT` objects per batch and a hard cap of `MAX_INDEXING_BYTES` serialized bytes per
+ * batch (accounting for the `,` joining each object once stringified into a JSON array).
  *
  * Pure and synchronous on purpose: `rebuild()` is the only caller, and keeping the size arithmetic
  * separate from anything that awaits a network call is what lets it be exercised directly, with plain
  * arrays, rather than through a live or faked Algolia client.
  *
- * @throws When a single document already exceeds `MAX_DOCUMENT_BYTES` on its own -- no batch boundary
- *   can fix that, so 2.5.x's `processDocument` threw here too rather than silently dropping the object.
+ * A document that alone exceeds Algolia's per-object cap (`MAX_DOCUMENT_BYTES`) is diverted into
+ * `skipped` rather than included in any batch — no batch boundary could make it fit, and Algolia's
+ * `saveObjects` would reject the whole batch it rode in on. This is a deliberate departure from
+ * 2.5.x's own `processDocument`, which threw in this situation (`throw new Error(...)`, same file):
+ * thrown from inside `rebuild()`'s loop, that failed the ENTIRE rebuild over one oversized page,
+ * silently losing every other, correctly-sized page already read for that batch and every page still
+ * unread behind it — with nothing admin-visible beyond "the rebuild job failed" (OpenProject #830,
+ * upstream discussion #3675: an oversized page failed indexing, and nothing said why). `rebuild()`
+ * logs one `WIKI.logger.warn` per skipped page and keeps going, so a single oversized page costs that
+ * page's own findability, not the rest of the site's.
  */
-export function batchDocuments(docs: AlgoliaPageDocument[]): AlgoliaPageDocument[][] {
+export function batchDocuments(docs: AlgoliaPageDocument[]): BatchDocumentsResult {
   const batches: AlgoliaPageDocument[][] = []
+  const skipped: OversizedDocument[] = []
   let current: AlgoliaPageDocument[] = []
   let bytes = 0
 
   for (const doc of docs) {
     const docBytes = Buffer.byteLength(JSON.stringify(doc))
     if (docBytes >= MAX_DOCUMENT_BYTES) {
-      throw new Error(
-        `Page "${doc.path}" (${docBytes} bytes) exceeds the maximum object size Algolia allows (${MAX_DOCUMENT_BYTES} bytes).`
-      )
+      skipped.push({ objectID: doc.objectID, path: doc.path, bytes: docBytes })
+      continue
     }
     if (current.length > 0 && docBytes + COMMA_BYTES + bytes >= MAX_INDEXING_BYTES) {
       batches.push(current)
@@ -205,7 +225,7 @@ export function batchDocuments(docs: AlgoliaPageDocument[]): AlgoliaPageDocument
   if (current.length > 0) {
     batches.push(current)
   }
-  return batches
+  return { batches, skipped }
 }
 
 /** One site's live Algolia client, plus the index it was built for. */
@@ -423,6 +443,7 @@ export class AlgoliaSearchModule implements SearchModule {
     const pageCounts: Record<string, number> = {}
     let total = 0
     let cursor: string | null = null
+    const skippedTotal: OversizedDocument[] = []
 
     for (;;) {
       const condition: SQL = cursor
@@ -455,7 +476,14 @@ export class AlgoliaSearchModule implements SearchModule {
       }
 
       const docs = rows.map((row) => pageToDocument(row as unknown as SearchIndexablePage))
-      for (const batch of batchDocuments(docs)) {
+      const { batches, skipped } = batchDocuments(docs)
+      for (const doc of skipped) {
+        WIKI.logger.warn(
+          `(SEARCH/ALGOLIA) Skipping page "${doc.path}" (${doc.bytes} bytes): exceeds Algolia's ${MAX_DOCUMENT_BYTES}-byte object size limit and was not indexed.`
+        )
+      }
+      skippedTotal.push(...skipped)
+      for (const batch of batches) {
         await client.batch({
           indexName,
           batchWriteParams: {
@@ -467,7 +495,11 @@ export class AlgoliaSearchModule implements SearchModule {
         })
         total += batch.length
       }
+      const skippedIds = new Set(skipped.map((doc) => doc.objectID))
       for (const row of rows) {
+        if (skippedIds.has(row.id)) {
+          continue
+        }
         pageCounts[row.locale] = (pageCounts[row.locale] ?? 0) + 1
       }
 
@@ -477,6 +509,11 @@ export class AlgoliaSearchModule implements SearchModule {
       }
     }
 
+    if (skippedTotal.length > 0) {
+      WIKI.logger.warn(
+        `(SEARCH/ALGOLIA) Rebuild finished with ${skippedTotal.length} page(s) skipped for exceeding Algolia's object size limit -- see the warnings above for which.`
+      )
+    }
     WIKI.logger.info(`(SEARCH/ALGOLIA) Indexed ${total} page(s) [ OK ]`)
     return {
       pages: total,
@@ -487,7 +524,15 @@ export class AlgoliaSearchModule implements SearchModule {
         locale,
         dictionary: 'n/a',
         pages
-      }))
+      })),
+      ...(skippedTotal.length > 0
+        ? {
+            warnings: skippedTotal.map(
+              (doc) =>
+                `Page "${doc.path}" (${doc.bytes} bytes) exceeds Algolia's ${MAX_DOCUMENT_BYTES}-byte object size limit and was not indexed.`
+            )
+          }
+        : {})
     }
   }
 }

@@ -63,6 +63,36 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(result.results[0]!.title, 'The Wandering Kangaroo')
   })
 
+  /**
+   * OpenProject #830 (upstream #2914, "Search Only Searches The Name of Pages"): `indexPage()`/
+   * `rebuild()` weight `searchContent` into `p.ts` at weight `C`, below title (`A`) and description
+   * (`B`), but they weight it IN -- so a term present only in the body, nowhere in the title or
+   * description, must still be found. This is the acceptance test for that: the query term below
+   * ("wallaby") appears only in the page body, not in its title or its (absent) description.
+   */
+  test('a created page is findable by body content that appears in neither its title nor its description', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/marsupials',
+        title: 'Field Guide',
+        content:
+          '# Field Guide\n\nThis chapter describes the wallaby, a marsupial native to Australia.',
+        // -> `searchContent` is derived from `render` (the editor's HTML), not from `content` (its
+        //    markdown source) -- see `models/pages.ts#createPage`'s `postProcess()` call. A real
+        //    editor always sends both together, so this is what a genuine save looks like.
+        render:
+          '<h1>Field Guide</h1><p>This chapter describes the wallaby, a marsupial native to Australia.</p>'
+      }),
+      actor
+    )
+
+    const result = await searchModel.query({ siteId: fixtures.siteId, query: 'wallaby' })
+
+    assert.equal(result.totalHits, 1)
+    assert.equal(result.results[0]!.path, 'docs/marsupials')
+  })
+
   test('a page edited to a new title becomes findable by it, and stops matching the old one', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -139,6 +169,37 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
       (await searchModel.query({ siteId: fixtures.siteId, query: 'bandicoot' })).totalHits,
       0
     )
+  })
+
+  /**
+   * OpenProject #830 (upstream #6541, permission-filtered instant-search suggestions): the endpoint
+   * behind the header's live preview (`GET /sites/:siteId/pages/search`) is this same `query()` --
+   * `api/pages.ts` passes it the requester's `accessActor` and nothing else narrows the result set for
+   * an anonymous or under-privileged caller. So a match this actor has no `read:pages` access to must
+   * never come back in `results`, not merely be excluded from the `suggestion` -- the "did you mean"
+   * suggestion test below covers the latter already; this covers the former, which is what a reader
+   * would actually see fill the instant-search dropdown.
+   */
+  test('query() never returns a page the actor has no read:pages access to', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/numbat', title: 'Numbat Habits' }),
+      actor
+    )
+    /** No groups and no `manage:system` -- `groups.checkAccess()` denies every page permission. */
+    const blockedActor: PageActor = { id: fixtures.userId, groupIds: [], permissions: [] }
+
+    const asBlocked = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'numbat',
+      actor: blockedActor
+    })
+    assert.equal(asBlocked.totalHits, 0)
+    assert.deepEqual(asBlocked.results, [])
+
+    // -> Sanity check: the same query against the same page finds it once access is not blocked
+    const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
+    assert.equal(unfiltered.totalHits, 1)
   })
 
   /**

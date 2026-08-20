@@ -33,10 +33,20 @@ export interface SearchConfig {
  * that locale, a concept with no equivalent in an external index. `azure-search` and `aws-cloudsearch`
  * (task #564) report `pages` per locale like every engine, but omit `dictionary` entirely rather than
  * inventing a value for a thing they don't have.
+ *
+ * `warnings` is optional too: a non-fatal problem worth an operator's attention that did not stop the
+ * rebuild from finishing -- e.g. the Algolia module (OpenProject #830) skipping a page whose document
+ * exceeds Algolia's per-object size limit rather than aborting the whole rebuild over it. Every engine
+ * already writes the same information to `WIKI.logger.warn` as it happens (the admin-visible channel
+ * every other per-page indexing failure in these modules uses, e.g. `indexPage`'s catch blocks); this
+ * field additionally surfaces it on the structured result itself, which is what a test -- or a future
+ * caller that actually reads a rebuild's return value instead of discarding it -- can assert against
+ * without scraping logs.
  */
 export interface RebuildResult {
   pages: number
   locales: { locale: string; dictionary?: string; pages: number }[]
+  warnings?: string[]
 }
 
 export const SEARCH_ORDER_BY = ['relevancy', 'title', 'updatedAt'] as const
