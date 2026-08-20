@@ -85,6 +85,11 @@
                 <w-item-label caption>
                   <span class="text-grey">{{ t('admin.approval.reviewers') }}:</span>
                   {{ groupNames(rule.reviewerGroups) }}
+                  <!-- The ordinary single-approver case says nothing extra here, as before. -->
+                  <template v-if="rule.minApprovals > 1">
+                    &middot;
+                    {{ t('admin.approval.minApprovals') }}: {{ rule.minApprovals }}
+                  </template>
                 </w-item-label>
               </w-item-section>
               <w-item-section side>

@@ -92,6 +92,12 @@ export const approvalRules = pgTable(
     //    way `apiKeys.groups` works.
     submitterGroups: jsonb().notNull().default([]),
     reviewerGroups: jsonb().notNull().default([]),
+    // -> How many distinct reviewers have to approve a submission this rule covers before it is
+    //    finalized (written to the page). 1 keeps today's single-approver sign-off as the default; a
+    //    rule wanting multiple sign-offs raises it. Enforced in `approveSubmission`, which counts
+    //    distinct approvers recorded in `pageEditSubmissionApprovals` against the highest threshold of
+    //    every enabled rule currently matching the page -- see the doc comment there.
+    minApprovals: integer().notNull().default(1),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
     siteId: uuid()
@@ -765,6 +771,36 @@ export const pageEditSubmissions = pgTable(
     uniqueIndex('pageEditSubmissions_page_author_idx')
       .on(table.pageId, table.authorId)
       .where(sql`"authorId" IS NOT NULL`)
+  ]
+)
+
+// PAGE EDIT SUBMISSION APPROVALS -------
+/**
+ * One reviewer's sign-off on a submission, towards its rule's `minApprovals` threshold.
+ *
+ * A row per (submission, reviewer): a reviewer approving twice does not count twice, which is what the
+ * unique index enforces and `approveSubmission`'s `onConflictDoNothing` relies on to stay idempotent.
+ * Deleted by cascade the moment the submission itself is -- finalized (accepted) or rejected -- so this
+ * never outlives the thing it was counting towards.
+ */
+export const pageEditSubmissionApprovals = pgTable(
+  'pageEditSubmissionApprovals',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    createdAt: timestamp().notNull().defaultNow(),
+    submissionId: uuid()
+      .notNull()
+      .references(() => pageEditSubmissions.id, { onDelete: 'cascade' }),
+    reviewerId: uuid()
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    index('pageEditSubmissionApprovals_submissionId_idx').on(table.submissionId),
+    uniqueIndex('pageEditSubmissionApprovals_submission_reviewer_idx').on(
+      table.submissionId,
+      table.reviewerId
+    )
   ]
 )
 

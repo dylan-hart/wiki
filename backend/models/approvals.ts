@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
+  pageEditSubmissionApprovals as submissionApprovalsTable,
   pageEditSubmissions as submissionsTable,
   pages as pagesTable,
   userGroups as userGroupsTable,
@@ -46,6 +47,22 @@ export interface ApprovalPageRef extends ApprovalPageMatch {
 export interface ReviewerScope {
   groupIds: string[]
   reviewsAll?: boolean
+  /**
+   * The reviewer's own user id, used only to answer `hasApproved` on a submission -- whether THIS
+   * reviewer already cast their sign-off towards its threshold. Optional because most callers of
+   * `canReviewPage` never need that answer; omit it and `hasApproved` reads `false` throughout.
+   */
+  viewerId?: string
+}
+
+/** Where a submission stands against its rule's minimum-approvals threshold. */
+export interface ApprovalProgress {
+  /** How many distinct reviewers have approved so far. */
+  approvalsCount: number
+  /** How many are required before this finalizes -- the strictest of every rule covering the page. */
+  approvalsRequired: number
+  /** Whether the requesting reviewer (`ReviewerScope.viewerId`) already approved it. */
+  hasApproved: boolean
 }
 
 /** An edit suggested against a page, as the author's own view of it. */
@@ -77,6 +94,8 @@ export interface ReviewableSubmission {
     email: string
     isGuest: boolean
   }
+  /** Where this submission stands against its rule's minimum-approvals threshold. */
+  approvals: ApprovalProgress
 }
 
 /** A submission opened for review, with everything the diff needs. */
@@ -96,8 +115,16 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
+ *
+ * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
+ * approve only records their sign-off towards the threshold. `finalized` says which happened --
+ * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
+ * submission closed out" -- and `approvalsCount`/`approvalsRequired` are what a caller shows for
+ * either one.
  */
-export type ApproveSubmissionResult = { ok: true } | { ok: false; reason: 'not-found' | 'stale' }
+export type ApproveSubmissionResult =
+  | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
+  | { ok: false; reason: 'not-found' | 'stale' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -110,6 +137,13 @@ export interface ApprovalRule {
   submitterGroups: string[]
   /** IDs of the groups that review those submissions, and are notified of new ones. */
   reviewerGroups: string[]
+  /**
+   * How many distinct reviewers must approve a submission this rule covers before it is finalized.
+   * 1 is a single approver's ordinary sign-off; higher requires that many DIFFERENT reviewers to
+   * approve before anything is written to the page. See `approveSubmission` for how this is enforced
+   * when several matching rules disagree.
+   */
+  minApprovals: number
   createdAt: Date
   updatedAt: Date
 }
@@ -122,6 +156,7 @@ export interface ApprovalRulePatch {
   path?: string
   submitterGroups?: string[]
   reviewerGroups?: string[]
+  minApprovals?: number
 }
 
 /**
@@ -143,6 +178,7 @@ const ruleSelection = {
   path: approvalRulesTable.path,
   submitterGroups: approvalRulesTable.submitterGroups,
   reviewerGroups: approvalRulesTable.reviewerGroups,
+  minApprovals: approvalRulesTable.minApprovals,
   createdAt: approvalRulesTable.createdAt,
   updatedAt: approvalRulesTable.updatedAt
 }
@@ -255,7 +291,8 @@ class Approvals {
         //    quietly covers no page at all
         path: (patch.path ?? '').trim(),
         submitterGroups: patch.submitterGroups ?? [],
-        reviewerGroups: patch.reviewerGroups ?? []
+        reviewerGroups: patch.reviewerGroups ?? [],
+        minApprovals: patch.minApprovals ?? 1
       })
       .returning(ruleSelection)
     // -> Every rule read afterwards comes from the cache, so it has to know about this one
@@ -280,7 +317,8 @@ class Approvals {
       'match',
       'path',
       'submitterGroups',
-      'reviewerGroups'
+      'reviewerGroups',
+      'minApprovals'
     ] as const) {
       if (patch[key] !== undefined) {
         // -> Trimmed for the same reason it is on create
@@ -473,7 +511,8 @@ class Approvals {
                 siteId,
                 tags: page.tags
               }
-            )
+            ),
+          viewerId: actorId ?? undefined
         }
       : { groupIds: [], reviewsAll: false }
     const canReview = await this.canReviewPage(siteId, page, reviewerScope)
@@ -629,6 +668,65 @@ class Approvals {
   }
 
   /**
+   * How many distinct reviewers a submission on this page needs before it finalizes: the highest
+   * `minApprovals` among every enabled rule that currently matches it.
+   *
+   * Read live, like every other rule question this model answers (`canReviewPage`, `findSubmitRule`,
+   * ...), rather than frozen at submission time -- an administrator raising or lowering a rule's
+   * threshold takes effect on the submissions already waiting, the same way narrowing a rule's path
+   * takes a page out of the queue immediately rather than only for suggestions made after the change.
+   * The highest of several matching rules, not the lowest: a page a stricter rule also covers should
+   * not be finalizable by satisfying only the laxer one.
+   *
+   * Defaults to 1 when no enabled rule matches -- which should not arise for a submission actually
+   * reachable through `approveSubmission` (nothing lets one be created or reviewed without a matching
+   * rule), but leaves nothing stuck requiring zero approvers if it ever does.
+   */
+  private async requiredApprovalsForPage(siteId: string, page: ApprovalPageMatch): Promise<number> {
+    const rules = await this.getRules(siteId)
+    let required = 1
+    for (const rule of rules) {
+      if (rule.isEnabled && this.matchesPage(rule, page)) {
+        required = Math.max(required, rule.minApprovals)
+      }
+    }
+    return required
+  }
+
+  /**
+   * How many distinct reviewers have approved each of these submissions so far, and whether `viewerId`
+   * is among them.
+   *
+   * One query for the whole batch rather than one per submission -- `getReviewableSubmissions` builds
+   * a queue of them, and a round trip per row would turn a queue of any size into that many.
+   */
+  private async approvalCountsFor(
+    submissionIds: string[],
+    viewerId?: string
+  ): Promise<Map<string, { count: number; hasApproved: boolean }>> {
+    const counts = new Map<string, { count: number; hasApproved: boolean }>()
+    if (submissionIds.length < 1) {
+      return counts
+    }
+    const rows = await WIKI.db
+      .select({
+        submissionId: submissionApprovalsTable.submissionId,
+        reviewerId: submissionApprovalsTable.reviewerId
+      })
+      .from(submissionApprovalsTable)
+      .where(inArray(submissionApprovalsTable.submissionId, submissionIds))
+    for (const row of rows as { submissionId: string; reviewerId: string }[]) {
+      const entry = counts.get(row.submissionId) ?? { count: 0, hasApproved: false }
+      entry.count++
+      if (viewerId && row.reviewerId === viewerId) {
+        entry.hasApproved = true
+      }
+      counts.set(row.submissionId, entry)
+    }
+    return counts
+  }
+
+  /**
    * Every user who should be told a suggestion is waiting on this page: the members of every enabled
    * rule's `reviewerGroups` that matches it, deduplicated across both overlapping rules and overlapping
    * group membership.
@@ -725,7 +823,7 @@ class Approvals {
    */
   async getReviewableSubmissions(
     siteId: string,
-    { groupIds, reviewsAll = false, pageId }: ReviewerScope & { pageId?: string }
+    { groupIds, reviewsAll = false, viewerId, pageId }: ReviewerScope & { pageId?: string }
   ): Promise<ReviewableSubmission[]> {
     if (!reviewsAll && groupIds.length < 1) {
       return []
@@ -768,19 +866,43 @@ class Approvals {
 
     // -> Matched in memory rather than in SQL: a rule can be a regular expression or a set of tags,
     //    which no `WHERE` clause here could express, and a review queue is small
-    return rows
-      .filter((row: any) =>
-        rules.some((rule) =>
-          /*
-            No `allowContributions` here, deliberately: that switch governs whether a suggestion may
-            be MADE. One already sent stays in its reviewers' queue if the page is later closed to
-            contributions -- otherwise turning the switch off would silently strand work somebody had
-            submitted in good faith, with nobody able to accept or decline it.
-          */
-          this.matchesPage(rule, { path: row.pagePath, tags: row.pageTags ?? [] })
-        )
+    const matchedRows = rows.filter((row: any) =>
+      rules.some((rule) =>
+        /*
+          No `allowContributions` here, deliberately: that switch governs whether a suggestion may
+          be MADE. One already sent stays in its reviewers' queue if the page is later closed to
+          contributions -- otherwise turning the switch off would silently strand work somebody had
+          submitted in good faith, with nobody able to accept or decline it.
+        */
+        this.matchesPage(rule, { path: row.pagePath, tags: row.pageTags ?? [] })
       )
-      .map((row: any) => this.toReviewable(row))
+    )
+
+    // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
+    //    submission has to clear is the strictest rule covering the page, whoever it names as
+    //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
+    //    `getRules` read across every row instead of awaiting it per row.
+    const allRules = await this.getRules(siteId)
+    const approvalCounts = await this.approvalCountsFor(
+      matchedRows.map((row: any) => row.id),
+      viewerId
+    )
+
+    return matchedRows.map((row: any) => {
+      const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
+      let approvalsRequired = 1
+      for (const rule of allRules) {
+        if (rule.isEnabled && this.matchesPage(rule, pageMatch)) {
+          approvalsRequired = Math.max(approvalsRequired, rule.minApprovals)
+        }
+      }
+      const progress = approvalCounts.get(row.id) ?? { count: 0, hasApproved: false }
+      return this.toReviewable(row, {
+        approvalsCount: progress.count,
+        approvalsRequired,
+        hasApproved: progress.hasApproved
+      })
+    })
   }
 
   /**
@@ -791,10 +913,14 @@ class Approvals {
   async getSubmissionForReview(
     siteId: string,
     submissionId: string,
-    { groupIds, reviewsAll = false }: ReviewerScope
+    { groupIds, reviewsAll = false, viewerId }: ReviewerScope
   ): Promise<ReviewableSubmissionDetail | null> {
     // -> Reuses the queue rather than re-deriving who may see what: one definition of reviewable
-    const reviewable = await this.getReviewableSubmissions(siteId, { groupIds, reviewsAll })
+    const reviewable = await this.getReviewableSubmissions(siteId, {
+      groupIds,
+      reviewsAll,
+      viewerId
+    })
     if (!reviewable.some((s) => s.id === submissionId)) {
       return null
     }
@@ -823,13 +949,23 @@ class Approvals {
   }
 
   /**
-   * Accept a suggestion: write it to the page and close the suggestion out.
+   * Approve a suggestion: record this reviewer's sign-off, then write it to the page and close the
+   * suggestion out once the covering rule's `minApprovals` threshold is met.
    *
-   * The content applied is whatever the reviewer settled on, which is not necessarily what was
-   * submitted — the review screen lets them adjust it before accepting. It is written as an ordinary
-   * page edit, so the render, the search index and the page hooks all happen the way they do for any
-   * other save, with the reviewer recorded as the author: they are the one putting it on the page, and
-   * a guest submitter has no account to attribute it to.
+   * With the ordinary threshold of 1 this still happens on the very first approve, exactly as before
+   * multi-approver support existed. With a higher one, every call up to the last records another
+   * distinct reviewer's sign-off (`finalized: false`) and leaves the page untouched; only the approval
+   * that reaches the threshold does the write. The SAME reviewer approving twice does not count twice
+   * -- `pageEditSubmissionApprovals`'s unique index makes the insert a no-op the second time, so
+   * `approvalsCount` does not move and finalizing still waits on a genuinely different reviewer.
+   *
+   * The content applied when the threshold is finally met is whatever THIS LAST reviewer settled on,
+   * which is not necessarily what was submitted — the review screen lets them adjust it before
+   * accepting. Earlier approvers' `content`/`render` are not applied: their approve call only ever
+   * records a vote, so there is nothing of theirs to write. It is written as an ordinary page edit, so
+   * the render, the search index and the page hooks all happen the way they do for any other save,
+   * with this reviewer recorded as the author: they are the one putting it on the page, and a guest
+   * submitter has no account to attribute it to.
    *
    * Re-checks the submission's `baseHash` against the page's current content immediately before
    * writing, not just when the reviewer's `GET .../submissions/:id` computed `isStale` for display --
@@ -837,11 +973,14 @@ class Approvals {
    * reviewer accepting a different suggestion on the same page, or the author saving straight to the
    * page while the review sat open. Refusing with `'stale'` rather than writing over it is what lets
    * the caller reload the diff and have the reviewer reconcile it instead of silently discarding
-   * whatever changed underneath.
+   * whatever changed underneath. Checked before EVERY approve, not just the finalizing one: an
+   * approval recorded against a page that has since moved would otherwise count towards a threshold
+   * for content nobody re-confirmed against the page as it now stands.
    *
    * @returns `{ ok: false, reason: 'not-found' }` when there is no such submission (or its page is
-   *   gone), `{ ok: false, reason: 'stale' }` when the page moved since `baseHash`, `{ ok: true }`
-   *   once the write has happened and the suggestion is closed out.
+   *   gone), `{ ok: false, reason: 'stale' }` when the page moved since `baseHash`, otherwise
+   *   `{ ok: true, finalized, approvalsCount, approvalsRequired }` -- `finalized` says whether this
+   *   call was the one that wrote the page and closed the suggestion out, or only added to the count.
    */
   async approveSubmission({
     siteId,
@@ -887,6 +1026,32 @@ class Approvals {
       return { ok: false, reason: 'stale' }
     }
 
+    await WIKI.db
+      .insert(submissionApprovalsTable)
+      .values({ submissionId, reviewerId: actor.id })
+      // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
+      //    count as a second, different sign-off
+      .onConflictDoNothing({
+        target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+      })
+
+    const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
+      path: page.path,
+      tags: page.tags ?? []
+    })
+    const approvalsCount = await WIKI.db.$count(
+      submissionApprovalsTable,
+      eq(submissionApprovalsTable.submissionId, submissionId)
+    )
+
+    if (approvalsCount < approvalsRequired) {
+      WIKI.logger.debug(
+        `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
+          `on page ${page.id}; waiting on more reviewers`
+      )
+      return { ok: true, finalized: false, approvalsCount, approvalsRequired }
+    }
+
     /*
       The render has to move with the content, or the page keeps serving HTML that no longer matches
       its source. The markdown pipeline lives in the frontend, so the reviewer's browser produces it
@@ -912,9 +1077,11 @@ class Approvals {
       await WIKI.models.pages.queueRerender(siteId, page.id, actor)
     }
 
+    // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
+    //    with it rather than left to be swept separately
     await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return { ok: true }
+    return { ok: true, finalized: true, approvalsCount, approvalsRequired }
   }
 
   /**
@@ -929,8 +1096,17 @@ class Approvals {
     return (result.rowCount ?? 0) > 0
   }
 
-  /** One joined row, as the review queue presents it. */
-  toReviewable(row: any): ReviewableSubmission {
+  /**
+   * One joined row, as the review queue presents it.
+   *
+   * @param approvals Progress towards the submission's threshold. Defaults to "no approvals yet,
+   *   requires 1" for callers that have not computed it -- today, none; kept so a future caller of this
+   *   already-public method is not forced to plumb through counts it has no use for.
+   */
+  toReviewable(
+    row: any,
+    approvals: ApprovalProgress = { approvalsCount: 0, approvalsRequired: 1, hasApproved: false }
+  ): ReviewableSubmission {
     return {
       id: row.id,
       createdAt: row.createdAt,
@@ -953,7 +1129,8 @@ class Approvals {
         name: row.authorName ?? row.guestName ?? '',
         email: row.authorEmail ?? row.guestEmail ?? '',
         isGuest: !row.authorId
-      }
+      },
+      approvals
     }
   }
 

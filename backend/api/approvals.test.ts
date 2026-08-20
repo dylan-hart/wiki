@@ -39,7 +39,8 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     match: 'START',
     path: '',
     submitterGroups: [SUBMITTER_GROUP],
-    reviewerGroups: [REVIEWER_GROUP]
+    reviewerGroups: [REVIEWER_GROUP],
+    minApprovals: 1
   }
 
   let createRuleCalls: any[] = []
