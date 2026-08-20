@@ -244,17 +244,63 @@ $sidebar-overlay-max: 1199.98px;
         border-inline-start-color: rgba(255, 255, 255, 0.25);
       }
 
-      /* -> And closed under the last child, turning toward inline-end again */
+      /*
+        And closed under the last child, turning toward inline-end again -- the mirror of `::before`
+        above, so it carries only ONE block-direction border the way `::before` does (there,
+        block-end; here, block-start), not both. This one used to declare BOTH block borders at
+        10px, which under this app's global `box-sizing: border-box` (Tailwind's preflight) can
+        never render shorter than border-block-start-width + border-block-end-width -- 20px against
+        the `height: 10px` above, so the browser silently doubled the box. The extra 10px was
+        transparent, so alone it painted nothing; it's still a real oversizing bug worth zeroing out
+        (matching `::before`'s single-border shape), even though the actual visible artifact below
+        turned out to have a different cause.
+      */
       &::after {
         top: 100%;
         border-block-start-width: 10px;
         border-inline-end-width: 10px;
-        border-block-end-width: 10px;
+        border-block-end-width: 0;
         border-inline-start-width: 0;
         border-block-start-color: rgba(255, 255, 255, 0.25);
         border-inline-end-color: transparent;
-        border-block-end-color: transparent;
         border-inline-start-color: rgba(255, 255, 255, 0.25);
+      }
+
+      /*
+        OpenProject #853's screenshot -- a "docs > important > page" chain with a jarring stray tail
+        poking out of the highlighted row into the row above it -- turned out not to be `TreeNav`/
+        `TreeNode` (the file manager's folder picker, which never renders a page inline) but THIS
+        elbow, on the reading-mode sidebar, live-verified with the same fixture shape.
+
+        Every `::after` above sits at `top: 100%` of ITS OWN content box, i.e. at its own last
+        child's bottom edge. That's fine for a group whose last child is a plain page: exactly one
+        `::after`, at that page's own row, turns the rail closed. But when a group's last child is
+        ANOTHER group -- "important" is "docs"'s only child, "docs" closes at exactly the row
+        "important" closes at -- both ancestors' `::after` boxes land on the identical row, one at
+        this level's rail position and one 10px further in. Two mitred corners meeting at the same
+        row, a step apart, don't read as a clean two-step staircase the way the OPENING elbows do
+        (those never coincide -- each is pinned to its own header row, which is always a distinct
+        row from its parent's). They read as a single broken, double-pointed tail, because there is
+        no vertical separation between the two turns for the eye to parse as "two levels" rather
+        than "one shape gone wrong" -- confirmed by screenshot: a lone closing elbow (one ancestor)
+        is a clean cut, and it only becomes the reported tail once a second ancestor's closing
+        elbow lands on the same row.
+
+        The fix is to draw only the INNERMOST closing turn of any such run: an ancestor whose own
+        last child is itself an OPEN group defers to that child's `::after` for the visual close
+        and skips drawing its own, which collapses any length of last-child chain (docs > important
+        > docs > page reproduces the same coincidence one level deeper) down to exactly one visible
+        turn, at the true bottom row, same as a single-level group already draws correctly.
+
+        `[aria-expanded="true"]` (on the child's own header, per `WExpansionItem`) rather than just
+        "last child is a group": a COLLAPSED last-child group renders no `::after` of its own (its
+        whole `.content` is `v-show`n out), so deferring to it unconditionally would leave a group
+        whose last row happens to be a closed folder with no closing mark drawn at all.
+      */
+      &:has(
+          > .w-list > .w-expansion-item:last-child > .w-expansion-item__header[aria-expanded='true']
+        )::after {
+        content: none;
       }
     }
   }
