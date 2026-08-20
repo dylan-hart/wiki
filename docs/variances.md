@@ -1056,3 +1056,44 @@ description's looser phrasing put it, a block "prop": this codebase's actual pro
 (`BlockPropsForm.vue`) only offers single-line string/select/number/boolean fields, with no multiline
 text type, so a multi-kilobyte XML payload was never going to fit there regardless of format, the
 same way none of the three sibling diagram blocks put their source in a prop either.
+
+## 2026-08-20 — `block-openapi` renders with swagger-ui, not @scalar/api-reference (Task #784, Epic #338)
+
+**Decision:** `block-openapi` (2.5.x `openapi-core` parity: an OpenAPI/Swagger spec rendered as HTML
+API documentation embedded in a page) bundles `swagger-ui`, not the `@scalar/api-reference` the task
+description named as the default pick. The task explicitly allowed this — "unless you find a strong
+reason swagger-ui fits this codebase's conventions better" — so this records why that reason held.
+
+**Reasoning:**
+
+1. **Scalar's stylesheet is injected at the document level, not into whatever it is mounted in.**
+   `createApiReference()` mounts a Vue 3 `createApp()` tree, and its standalone build
+   (`dist/standalone/lib/html-api.js`) writes a single `<style id="scalar-style">` into
+   `document.head` — there is no option to hand it a shadow root to style instead. Every other block
+   in this workspace styles itself off `:host` in its own shadow root (see this directory's
+   `CLAUDE.md`); Scalar's model forces a choice between rendering `block-openapi` into the light DOM
+   against page-global CSS (its reset ships wrapped in `@layer scalar-base`, which could shift
+   cascade order for the rest of the site depending on how the frontend's own Tailwind layers are
+   declared), or mounting it inside a shadow root where the injected stylesheet then never reaches in
+   and it draws completely unstyled. Confirmed by reading the installed package
+   (`@scalar/api-reference@1.65.1`), not inferred from documentation.
+2. **Scope mismatch.** Scalar's dependency graph is a full Vue 3 runtime plus its own "API Client"
+   request console and an `AgentScalarChatInterface` AI chat panel, bundled in — its standalone
+   browser build alone is ~3.3MB of JS across chunks before this repo's own rollup build touches it.
+   2.5.x's `openapi-core` rendered a spec as read-only documentation; that is a narrower job than an
+   AI-assisted API client product.
+3. **swagger-ui fits the existing bundling pattern directly.** Its UMD build
+   (`swagger-ui/dist/swagger-ui-bundle.js`, what this workspace's `resolve()` resolves to with no
+   `browser` export condition set) is a self-contained webpack bundle — React included, nothing left
+   as an external import for rollup to chase — that mounts into whatever DOM node it is handed via
+   `domNode`, shadow root included, verified by an actual `npm run build` and by
+   `block-openapi/component.test.js` mounting it under jsdom. Its stylesheet
+   (`swagger-ui/dist/swagger-ui.css`) is a plain, self-contained stylesheet scoped under a
+   `.swagger-ui` root class with no document-level side effects, so it drops straight into the
+   `unsafeCSS` + shadow-root pattern `block-katex` and `block-map` already use for a bundled
+   library's CSS.
+
+**Secondary note — `@scarf/scarf`:** `swagger-ui` carries `@scarf/scarf`, a postinstall analytics
+beacon, as a transitive dependency. Disabled via `scarfSettings: { enabled: false }` in
+`blocks/package.json` (`@scarf/scarf`'s own documented opt-out, read from the installing project's
+`package.json`) rather than left to fire on every `npm install`.
