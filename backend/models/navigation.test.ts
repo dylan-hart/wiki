@@ -813,7 +813,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
     assert.ok(plainItem)
     assert.equal(plainItem!.children?.length, 1)
     assert.equal(plainItem!.children![0].label, 'Inside Plain')
-    assert.equal(plainItem!.children![0].target, '/en/plain-section/inside-plain')
+    assert.equal(plainItem!.children![0].target, '/plain-section/inside-plain')
   })
 
   test('a hide boundary drops the entry and everything below it', async () => {
@@ -840,6 +840,40 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
       items.some((item) => item.label === 'Hidden Section'),
       false
     )
+  })
+
+  test("a page link is unprefixed at the site's primary locale, with forcePrefix off", async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unprefixed-locale-page', title: 'Unprefixed Locale Page' }),
+      actor
+    )
+
+    const items = await generate('', 'en')
+    const item = items.find((i) => i.label === 'Unprefixed Locale Page')
+    assert.ok(item)
+    assert.equal(item!.target, '/unprefixed-locale-page')
+  })
+
+  test('a page link is locale-prefixed when generated for a non-primary active locale', async () => {
+    await treeModel.createFolder({
+      parentPath: '',
+      pathName: 'french-section',
+      title: 'French Section',
+      locale: 'fr',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'french-section/page-fr', title: 'Page FR', locale: 'fr' }),
+      actor
+    )
+
+    const items = await generate('', 'fr')
+    const item = items.find((i) => i.label === 'French Section')
+    assert.ok(item)
+    assert.equal(item!.children?.length, 1)
+    assert.equal(item!.children![0].target, '/fr/french-section/page-fr')
   })
 })
 
@@ -901,7 +935,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     )
     const generated = result.find((item) => item.label === 'Auto Mode Page')
     assert.ok(generated)
-    assert.equal(generated!.target, '/en/auto-mode-page')
+    assert.equal(generated!.target, '/auto-mode-page')
   })
 
   test('auto mode still applies visibility-group filtering on top of generated items', async () => {

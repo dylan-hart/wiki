@@ -283,6 +283,29 @@ export function localePrefixRedirectTarget(
 }
 
 /**
+ * Whether a link addressed at `locale` should carry a locale segment, under a site's locale-prefix
+ * rules.
+ *
+ * The link-building counterpart to `localePrefixRedirectTarget`'s redirect check, and the backend
+ * mirror of the frontend's `shouldPrefixLocale` in `helpers/pagePaths.js`: the site's primary locale
+ * is left unprefixed and every other active locale is prefixed, so a link built for the common case
+ * -- the primary locale -- isn't cluttered with a code nobody chose to see. `forcePrefix` turns that
+ * off and prefixes the primary locale too. There is nothing to disambiguate with a single active
+ * locale (or none configured), same as `localePrefixRedirectTarget`, so that case never prefixes
+ * either -- this is `active.length` standing in for the frontend's `useLocales` flag, which this
+ * config shape has no field for.
+ *
+ * @param locale The link's own locale
+ * @param locales The site's locale routing config
+ */
+export function shouldPrefixLocale(locale: string, locales?: LocaleRoutingConfig | null): boolean {
+  if (!locales?.active || locales.active.length <= 1) {
+    return false
+  }
+  return locale !== locales.primary || Boolean(locales.forcePrefix)
+}
+
+/**
  * Generate SHA-1 Hash of a string
  *
  * @param str String to hash

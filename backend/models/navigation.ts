@@ -5,7 +5,7 @@ import {
   pages as pagesTable,
   tree as treeTable
 } from '../db/schema.ts'
-import { CustomError, decodeTreePath } from '../helpers/common.ts'
+import { CustomError, decodeTreePath, shouldPrefixLocale } from '../helpers/common.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
@@ -450,6 +450,7 @@ class Navigation {
       )
 
     const parentPath = decodeTreePath(rootFolderPath) ?? ''
+    const locales = WIKI.sites[siteId]?.config?.locales
 
     const candidates = rows
       // -> An empty folder is a dead end -- same as `browse()` drops it
@@ -482,10 +483,11 @@ class Navigation {
           type: 'link',
           label: row.title,
           ...(row.icon && { icon: row.icon }),
-          // -> Matches how `NavItemEditor.vue`'s manual page-picker builds a link target, so a
-          //    generated item and a hand-picked one render identically on the frontend
+          // -> Prefixes the locale only when the site's routing rules call for it (`shouldPrefixLocale`),
+          //    matching how `NavItemEditor.vue`'s manual page-picker builds a link target, so a generated
+          //    item and a hand-picked one render identically on the frontend
           ...(row.type === 'page' && {
-            target: `/${locale}/${parentPath ? `${parentPath}/${row.fileName}` : row.fileName}`
+            target: `${shouldPrefixLocale(locale, locales) ? `/${locale}` : ''}/${parentPath ? `${parentPath}/${row.fileName}` : row.fileName}`
           }),
           ...(children.length > 0 && { children })
         }
