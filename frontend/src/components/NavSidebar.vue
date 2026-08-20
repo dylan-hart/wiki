@@ -172,24 +172,34 @@ $sidebar-overlay-max: 1199.98px;
 
     /*
       An open group's children, marked the way `NavEditOverlay` marks a nested nav item: a 10px rule down
-      the side of the run, with an elbow at each end turning it out of the row above and closing it under
-      the last child. The same three pieces and the same 10px, so the two views of one navigation tree
-      look like the same tree.
+      the side of the run, with an elbow at the top turning it out of the row above. The same two pieces
+      and the same 10px, so the two views of one navigation tree look like the same tree.
 
       The rules this replaces addressed `.q-expansion-item__container` and `.q-expansion-item--expanded`,
       which is markup `WExpansionItem` has never emitted -- it renders `__header` and `__content` and
       keeps its state in `aria-expanded`. So none of them matched, and an open group had no line at all.
 
       No expanded/collapsed state needed here: the content is `v-show`n, so when the group is closed this
-      box is `display: none` and takes its border and both elbows with it.
+      box is `display: none` and takes its border and elbow with it.
+
+      No closing elbow at the bottom (OpenProject #853): there used to be a second, mirrored pseudo-
+      element marking where the rail ends, under a group's last child. It was the source of a stray-tail
+      artifact -- when a group's own last child is itself an open group, more than one ancestor's closing
+      mark lands on the same row, and no amount of narrowing which ancestor gets to draw it (two rounds
+      tried) fully avoided some remaining coincidence. Removed instead of chased further: a mark at the
+      BOTTOM of a group implies a relationship with whatever row comes next, and there isn't one -- the
+      row below a closed-off group is exactly as unrelated to it as any two top-level items are to each
+      other. The rail and the opening elbow already say everything true about the structure (this row,
+      and everything under it down to wherever the rail stops, belongs to the header above); nothing
+      real is lost by dropping a mark that was asserting a connection that never existed.
     */
     .w-expansion-item__content {
       position: relative;
       /*
-        Logical, to match the two elbow pseudo-elements below (`inset-inline-start: -10px`): a
-        physical `border-left` here would leave the straight run of the rail on the visual left in
-        RTL while its own elbows had already swapped to the inline-start (visual right) edge --
-        the rule and its turns pointing at two different sides of the same row.
+        Logical, to match the elbow pseudo-element below (`inset-inline-start: -10px`): a physical
+        `border-left` here would leave the straight run of the rail on the visual left in RTL while its
+        own elbow had already swapped to the inline-start (visual right) edge -- the rule and its turn
+        pointing at two different sides of the same row.
       */
       border-inline-start: 10px solid rgba(255, 255, 255, 0.25);
       /*
@@ -204,13 +214,13 @@ $sidebar-overlay-max: 1199.98px;
 
         `padding-box` keeps that wash off the border area. The rule there is 25% white, and with the
         default `border-box` clip the darkened wash behind it would leave the rule a different colour
-        along the children than at the two elbows, which have nothing behind them.
+        along the children than at the elbow, which has nothing behind it.
       */
       background-color: rgb(0 0 0 / 0.12);
       background-clip: padding-box;
 
       /*
-        Each elbow is one 10px box showing two of its borders: the mitre between them is the angle. Set
+        The elbow is one 10px box showing two of its borders: the mitre between them is the angle. Set
         10px outside the content on the appropriate side, so the vertical stroke lines up with the rule
         and continues it. `inset-inline-start: -10px` is the rule's own inline-start edge -- an
         absolute offset here is measured from the padding box, which starts where the border ends.
@@ -219,9 +229,10 @@ $sidebar-overlay-max: 1199.98px;
         further into the reading direction whichever side the sidebar physically sits on, so -- unlike
         the notch above -- logical properties are all this needs; there is no second `--flipped`
         variant to compose with.
+
+        -> Out of the parent row: the rule's top end, turning toward inline-end into the row above it.
       */
-      &::before,
-      &::after {
+      &::before {
         content: '';
         display: block;
         position: absolute;
@@ -229,10 +240,6 @@ $sidebar-overlay-max: 1199.98px;
         width: 10px;
         height: 10px;
         border-style: solid;
-      }
-
-      /* -> Out of the parent row: the rule's top end, turning toward inline-end into the row above it */
-      &::before {
         top: -10px;
         border-block-start-width: 0;
         border-inline-end-width: 10px;
@@ -242,65 +249,6 @@ $sidebar-overlay-max: 1199.98px;
         border-inline-end-color: transparent;
         border-block-end-color: rgba(255, 255, 255, 0.25);
         border-inline-start-color: rgba(255, 255, 255, 0.25);
-      }
-
-      /*
-        And closed under the last child, turning toward inline-end again -- the mirror of `::before`
-        above, so it carries only ONE block-direction border the way `::before` does (there,
-        block-end; here, block-start), not both. This one used to declare BOTH block borders at
-        10px, which under this app's global `box-sizing: border-box` (Tailwind's preflight) can
-        never render shorter than border-block-start-width + border-block-end-width -- 20px against
-        the `height: 10px` above, so the browser silently doubled the box. The extra 10px was
-        transparent, so alone it painted nothing; it's still a real oversizing bug worth zeroing out
-        (matching `::before`'s single-border shape), even though the actual visible artifact below
-        turned out to have a different cause.
-      */
-      &::after {
-        top: 100%;
-        border-block-start-width: 10px;
-        border-inline-end-width: 10px;
-        border-block-end-width: 0;
-        border-inline-start-width: 0;
-        border-block-start-color: rgba(255, 255, 255, 0.25);
-        border-inline-end-color: transparent;
-        border-inline-start-color: rgba(255, 255, 255, 0.25);
-      }
-
-      /*
-        OpenProject #853's screenshot -- a "docs > important > page" chain with a jarring stray tail
-        poking out of the highlighted row into the row above it -- turned out not to be `TreeNav`/
-        `TreeNode` (the file manager's folder picker, which never renders a page inline) but THIS
-        elbow, on the reading-mode sidebar, live-verified with the same fixture shape.
-
-        Every `::after` above sits at `top: 100%` of ITS OWN content box, i.e. at its own last
-        child's bottom edge. That's fine for a group whose last child is a plain page: exactly one
-        `::after`, at that page's own row, turns the rail closed. But when a group's last child is
-        ANOTHER group -- "important" is "docs"'s only child, "docs" closes at exactly the row
-        "important" closes at -- both ancestors' `::after` boxes land on the identical row, one at
-        this level's rail position and one 10px further in. Two mitred corners meeting at the same
-        row, a step apart, don't read as a clean two-step staircase the way the OPENING elbows do
-        (those never coincide -- each is pinned to its own header row, which is always a distinct
-        row from its parent's). They read as a single broken, double-pointed tail, because there is
-        no vertical separation between the two turns for the eye to parse as "two levels" rather
-        than "one shape gone wrong" -- confirmed by screenshot: a lone closing elbow (one ancestor)
-        is a clean cut, and it only becomes the reported tail once a second ancestor's closing
-        elbow lands on the same row.
-
-        The fix is to draw only the INNERMOST closing turn of any such run: an ancestor whose own
-        last child is itself an OPEN group defers to that child's `::after` for the visual close
-        and skips drawing its own, which collapses any length of last-child chain (docs > important
-        > docs > page reproduces the same coincidence one level deeper) down to exactly one visible
-        turn, at the true bottom row, same as a single-level group already draws correctly.
-
-        `[aria-expanded="true"]` (on the child's own header, per `WExpansionItem`) rather than just
-        "last child is a group": a COLLAPSED last-child group renders no `::after` of its own (its
-        whole `.content` is `v-show`n out), so deferring to it unconditionally would leave a group
-        whose last row happens to be a closed folder with no closing mark drawn at all.
-      */
-      &:has(
-          > .w-list > .w-expansion-item:last-child > .w-expansion-item__header[aria-expanded='true']
-        )::after {
-        content: none;
       }
     }
   }
