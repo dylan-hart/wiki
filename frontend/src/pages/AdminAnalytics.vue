@@ -51,7 +51,9 @@
               :active="state.selectedProvider === prov.key"
               @click="state.selectedProvider = prov.key"
               clickable>
-              <w-item-section side><w-icon :name="`img:` + prov.logo" /></w-item-section>
+              <w-item-section side
+                ><w-icon class="provider-logo-icon" :name="`img:` + prov.logo"
+              /></w-item-section>
               <w-item-section>
                 <w-item-label>{{ prov.title }}</w-item-label>
                 <w-item-label caption lines="1">{{ prov.description }}</w-item-label>
@@ -342,3 +344,16 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+/*
+  Provider logos aren't all square (Matomo's is a 341.82x58.32 wordmark) but the list renders them
+  through `w-icon`'s 1em-square box, which stretches a non-square `img:` source to fill it with no
+  `object-fit` of its own (see WIcon.vue). Scoped here rather than fixed in WIcon.vue: this is the
+  only `img:`-kind icon in the app rendering a raw external logo at icon size, so cropping to fill
+  the square (`cover`) beats distorting the wordmark, without changing every other `w-icon` use.
+*/
+.provider-logo-icon :deep(img) {
+  object-fit: cover;
+}
+</style>
