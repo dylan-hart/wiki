@@ -170,17 +170,21 @@ class Groups {
   /**
    * Which groups a request speaks for.
    *
-   * An anonymous request is not group-less: it is the guests group, whose rules are how a wiki says
-   * what the public may see. Treating it as no groups at all would deny everything, which is a
-   * different answer from the one the administrator configured.
-   *
    * A verified API key carries its own `groupIds` (`ApiKeyIdentity`, `models/apiKeys.ts`) — an
    * admin-issued key's own `groups`, or a personal token owner's CURRENT groups, resolved live at
-   * verification time — and is checked first. Before this, an API-key-authenticated request fell
-   * through to the `session` branch (never true for one), landing on the guests-group fallback below
-   * regardless of what groups the key actually carried: every page-rule check `checkAccess()`/
-   * `mayOnPage()` makes for an API key was silently deciding against the PUBLIC's rules rather than
-   * the key's own.
+   * verification time — and is checked first. It stands in for a session, but it is never
+   * `req.session.authenticated` (bearer tokens deliberately never touch the session, see `index.ts`'s
+   * API-key hook), so before this, an API-key-authenticated request fell through to the `session`
+   * branch (never true for one), landing on the guests-group fallback below regardless of what groups
+   * the key actually carried: every page-rule check `checkAccess()`/`mayOnPage()` makes for an API key
+   * was silently deciding against the PUBLIC's rules rather than the key's own. That was OpenProject
+   * #827's bug: a key scoped to a group holding only `read:pages` (via a page rule, not the group-wide
+   * list) still failed every GET, because this method hoisted it up to the guests group's rules
+   * instead of its own.
+   *
+   * Absent both, an anonymous request is not group-less either: it is the guests group, whose rules
+   * are how a wiki says what the public may see. Treating it as no groups at all would deny
+   * everything, which is a different answer from the one the administrator configured.
    */
   groupIdsForRequest(req: FastifyRequest): string[] {
     if (req.apiKey) {

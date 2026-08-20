@@ -124,18 +124,21 @@ export interface ApiKeyListEntry extends ApiKey {
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
-  // -> The groups this identity speaks for, page-rule-checking code (`groups.checkAccess()` via
-  //    `groups.groupIdsForRequest()`) resolves a rule against exactly the way it does for a session.
-  //    Without this, an API-key-authenticated request fell back to the guests group's rules for
-  //    every page permission, regardless of what the key's own groups actually granted.
+  // -> The groups this identity speaks for. A page permission (`read:pages` and the rest of
+  //    `PAGE_PERMISSIONS`) is granted by a group's RULES, not by its group-wide `permissions` column
+  //    that `permissions` above is resolved from — so page-rule-checking code (`groups.checkAccess()`
+  //    via `groups.groupIdsForRequest()`) pools THESE groups' rules exactly the way it pools a
+  //    session's `req.session.groups`. Without this, an API-key-authenticated request fell back to the
+  //    guests group's rules for every page permission, regardless of what the key's own groups (or, for
+  //    a personal token, its owner's current groups) actually granted.
   groupIds: string[]
   // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
   // -> The site this key is pinned to, taken from the token's `site` claim, or null for
-  //    instance-wide. Route handlers on a site-scoped path read this to decide whether the key may
-  //    act on the site the request names — see the `siteId` column comment in `db/schema.ts` for why
-  //    the enforcement itself is not here yet.
+  //    instance-wide (every site) — today's only behavior. Route handlers on a site-scoped path read
+  //    this to decide whether the key may act on the site the request names — see the `siteId` column
+  //    comment in `db/schema.ts` for why the enforcement itself is not here yet.
   siteId: string | null
 }
 
