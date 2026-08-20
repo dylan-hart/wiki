@@ -479,3 +479,109 @@ test('a TLS certificate path that cannot be read rejects as ERR_STRATEGY_MISCONF
     /ERR_STRATEGY_MISCONFIGURED/
   )
 })
+
+test('a custom/internal CA at tlsCertPath is handed to the LDAP client verbatim, alongside the system trust store', async () => {
+  const tmpFile = path.join(os.tmpdir(), `ldap-test-custom-ca-${Date.now()}.pem`)
+  const caPem = '-----BEGIN CERTIFICATE-----\ninternal-ca-fixture\n-----END CERTIFICATE-----\n'
+  fs.writeFileSync(tmpFile, caPem)
+  const conf = { ...CONF, tlsEnabled: true, verifyTLSCertificate: true, tlsCertPath: tmpFile }
+  const seenTlsOptions: any[] = []
+  const factory = (options: any) => {
+    seenTlsOptions.push(options.tlsOptions)
+    const client: any = new EventEmitter()
+    client.bind = (dn: string, _password: string, cb: (err: Error | null) => void) =>
+      queueMicrotask(() => cb(dn === CONF.bindDn ? null : new Error('InvalidCredentialsError')))
+    client.search = (_base: string, _options: any, cb: (err: Error | null, res?: any) => void) =>
+      queueMicrotask(() => {
+        const res = new EventEmitter()
+        cb(null, res)
+        queueMicrotask(() => res.emit('end', {}))
+      })
+    client.unbind = (cb?: () => void) => cb?.()
+    return client
+  }
+  const mod = new LdapAuthentication('strategy-1', conf, factory)
+
+  await assert.rejects(mod.authenticate({ username: 'jdoe', password: 'pw' }))
+  fs.rmSync(tmpFile)
+
+  assert.equal(seenTlsOptions.length > 0, true)
+  assert.equal(seenTlsOptions[0].ca[0].toString(), caPem)
+})
+
+test('verifyTLSCertificate off never reads tlsCertPath from disk, even when one is configured (2.5.x #2980)', async () => {
+  const conf = {
+    ...CONF,
+    tlsEnabled: true,
+    verifyTLSCertificate: false,
+    tlsCertPath: '/nonexistent/path/never-read.pem'
+  }
+  const seenTlsOptions: any[] = []
+  const factory = (options: any) => {
+    seenTlsOptions.push(options.tlsOptions)
+    const client: any = new EventEmitter()
+    client.bind = (dn: string, _password: string, cb: (err: Error | null) => void) =>
+      queueMicrotask(() => cb(dn === CONF.bindDn ? null : new Error('InvalidCredentialsError')))
+    client.search = (_base: string, _options: any, cb: (err: Error | null, res?: any) => void) =>
+      queueMicrotask(() => {
+        const res = new EventEmitter()
+        cb(null, res)
+        queueMicrotask(() => res.emit('end', {}))
+      })
+    client.unbind = (cb?: () => void) => cb?.()
+    return client
+  }
+  const mod = new LdapAuthentication('strategy-1', conf, factory)
+
+  // -> Would throw ENOENT trying to read the nonexistent path if this were not skipped.
+  await assert.rejects(mod.authenticate({ username: 'jdoe', password: 'pw' }))
+  assert.equal(seenTlsOptions[0].rejectUnauthorized, false)
+  assert.deepEqual(seenTlsOptions[0].ca, [])
+})
+
+test('an admin bind failing on an untrusted TLS certificate rejects as ERR_LDAP_CERTIFICATE_NOT_TRUSTED, distinct from a bad admin password', async () => {
+  const tlsErr: any = new Error('self signed certificate in certificate chain')
+  tlsErr.code = 'SELF_SIGNED_CERT_IN_CHAIN'
+  const { factory } = makeClientFactory({
+    bind: () => tlsErr,
+    search: () => {
+      throw new Error('should not be reached')
+    }
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'pw' }),
+    /ERR_LDAP_CERTIFICATE_NOT_TRUSTED/
+  )
+})
+
+test('an admin bind failing on an untrusted TLS certificate is recognized from message text alone, when the error carries no `code`', async () => {
+  const { factory } = makeClientFactory({
+    bind: () => new Error('unable to verify the first certificate'),
+    search: () => {
+      throw new Error('should not be reached')
+    }
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'pw' }),
+    /ERR_LDAP_CERTIFICATE_NOT_TRUSTED/
+  )
+})
+
+test('an admin bind failing on genuinely wrong credentials still rejects as ERR_STRATEGY_MISCONFIGURED, not the certificate-trust error', async () => {
+  const { factory } = makeClientFactory({
+    bind: () => new Error('InvalidCredentialsError'),
+    search: () => {
+      throw new Error('should not be reached')
+    }
+  })
+  const mod = new LdapAuthentication('strategy-1', CONF, factory)
+
+  await assert.rejects(
+    mod.authenticate({ username: 'jdoe', password: 'pw' }),
+    /ERR_STRATEGY_MISCONFIGURED/
+  )
+})

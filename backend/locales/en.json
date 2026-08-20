@@ -2021,6 +2021,7 @@
   "error.ERR_INVALID_STRATEGY": "This authentication method cannot be used here.",
   "error.ERR_INVALID_USER": "This account no longer exists.",
   "error.ERR_INVALID_VALIDATION_TOKEN": "This request is no longer valid. Please start over.",
+  "error.ERR_LDAP_CERTIFICATE_NOT_TRUSTED": "The directory server's TLS certificate is not trusted. If it was issued by an internal or private certificate authority, an administrator needs to add that CA's certificate to this strategy's TLS Certificate Path setting.",
   "error.ERR_LOGIN_EXPIRED": "That sign-in took too long or was started somewhere else. Please try again.",
   "error.ERR_LOGIN_FAILED": "The email or password is invalid.",
   "error.ERR_LOGIN_RESTRICTED": "Password login is turned off for this account.",
