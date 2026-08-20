@@ -301,7 +301,11 @@ async function save() {
   // -> A path is a URL: casing and spaces are corrected rather than refused, the way the server does
   //    it, and the field is left showing what will actually be saved
   state.path = normalizePagePath(state.path)
-  if (!/^[a-z0-9-]+$/.test(state.path)) {
+  // -> This mirrors the backend's `rePathName` (`models/tree.ts`), which validates one path segment
+  //    at a time -- checking the WHOLE path against it rejected every nested path outright. A segment
+  //    can also be empty (a stray double slash; `normalizePagePath` only trims the leading/trailing
+  //    ones), which the pattern itself would otherwise accept as "zero letters".
+  if (state.path.split('/').some((segment) => !/^[a-z0-9-]+$/.test(segment))) {
     notify({
       type: 'negative',
       message: t('pageSaveDialog.pathInvalid')

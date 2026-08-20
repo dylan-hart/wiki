@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import TreeBrowserDialog from './TreeBrowserDialog.vue'
+import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 
 /**
@@ -57,3 +58,51 @@ describe('TreeBrowserDialog siteId prop', () => {
     )
   })
 })
+
+/**
+ * Regression test for task 810: `save()` used to test the WHOLE path against
+ * `/^[a-z0-9-]+$/` -- a pattern with no slash in its character class, meant to validate one
+ * path segment at a time (it mirrors the backend's `rePathName` in `models/tree.ts`) -- so any
+ * nested path (`docs/setup/install`) was rejected outright. The fix checks each slash-separated
+ * segment individually instead. Covered across all three modes the dialog's single shared `save()`
+ * serves (`savePage`, `duplicatePage`, `renamePage`), since the same function backs all of them.
+ */
+describe.each(['savePage', 'duplicatePage', 'renamePage'])(
+  'TreeBrowserDialog save() path validation (mode: %s)',
+  (mode) => {
+    it('accepts a valid nested path', async () => {
+      const wrapper = mountDialog({ mode })
+      await flushPromises()
+      wrapper.vm.state.title = 'Install Guide'
+      wrapper.vm.state.path = 'docs/setup/install'
+      await wrapper.vm.save()
+
+      expect(wrapper.emitted('ok')).toBeTruthy()
+      expect(wrapper.emitted('ok')[0][0]).toMatchObject({ path: 'docs/setup/install' })
+    })
+
+    it('rejects a path with an invalid segment (uppercase, spaces, symbols)', async () => {
+      notifyQueue.splice(0, notifyQueue.length)
+      const wrapper = mountDialog({ mode })
+      await flushPromises()
+      wrapper.vm.state.title = 'Install Guide'
+      wrapper.vm.state.path = 'docs/Setup Folder/inst@ll'
+      await wrapper.vm.save()
+
+      expect(wrapper.emitted('ok')).toBeFalsy()
+      expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    })
+
+    it('rejects an empty segment from a stray double slash', async () => {
+      notifyQueue.splice(0, notifyQueue.length)
+      const wrapper = mountDialog({ mode })
+      await flushPromises()
+      wrapper.vm.state.title = 'Install Guide'
+      wrapper.vm.state.path = 'docs//install'
+      await wrapper.vm.save()
+
+      expect(wrapper.emitted('ok')).toBeFalsy()
+      expect(notifyQueue.some((n) => n.type === 'negative')).toBe(true)
+    })
+  }
+)
