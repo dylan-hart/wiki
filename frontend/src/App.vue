@@ -266,19 +266,27 @@ async function loadBootstrap() {
 /** Set once the Markdown editor settings prefetch below has fired -- see its own doc comment. */
 let hasPrefetchedMarkdownSettings = false
 
+/** True while the discard-unsaved-changes prompt below is open -- see its own doc comment. */
+let isUnsavedChangesPromptOpen = false
+
 router.beforeEach(async (to, from) => {
   commonStore.routerLoading = true
 
   /*
     -> Unsaved editor changes
-    Every navigation vector -- breadcrumbs, side nav, search results, browser back/forward, a typed
-    address -- goes through the router, so this is the one place that can catch discarding an
-    in-progress edit uniformly, rather than patching each call site. `to.path !== from.path` excludes
+    Every ROUTER navigation vector -- breadcrumbs, side nav, search results, browser back/forward --
+    goes through here uniformly, rather than patching each call site. `to.path !== from.path` excludes
     a query-string-only change (e.g. a hash or filter) on the page already being edited, which is not
     "leaving" it. On confirm, the editor is put back to its inactive shape -- the same one
     `PageHeader.vue`'s own `discardChanges` patches to -- so whatever the destination route is does not
     inherit a stale "an editor is open" flag; unlike that handler, there is no page state to revert
     here, since the destination is about to load its own.
+
+    NOT covered: typing a new address into the bar, following an external link, or closing the tab --
+    each of those is a page unload, not a router navigation, and `beforeEach` never fires for it.
+    `editor.unsavedWarning` in `en.json` is an unused string that reads like it was minted for a
+    `beforeunload` handler to cover exactly that gap; none exists yet, and adding one is a separate
+    piece of work from this guard.
 
     `pageStore.pageCreate()`'s own un-awaited `router.push()` into `/_create/...` (the header's New
     Page menu, mid-edit) is not a special case here: it synchronously re-patches `editorStore` --
@@ -287,17 +295,35 @@ router.beforeEach(async (to, from) => {
     the time this condition is checked. See the comment at that patch for why the ordering holds.
   */
   if (editorStore.isActive && editorStore.hasPendingChanges && to.path !== from.path) {
-    const confirmed = await new Promise((resolve) => {
-      confirm({
-        title: i18n.t('editor.unsaved.title'),
-        message: i18n.t('editor.unsaved.body'),
-        cancel: true,
-        color: 'negative',
-        okLabel: i18n.t('common.actions.discard')
+    /*
+      A second navigation -- a double click, or one fired while the dialog above is still up --
+      reaches this guard before the first one's `await` resolves: vue-router only cancels a
+      superseded navigation once every `beforeEach` in the queue (this one included) settles, so
+      there is no built-in protection against two of these racing each other and resolving
+      independently against the same `editorStore`. Blocked outright rather than stacking a second
+      prompt, which is a decision this guard already knows the answer to once the first is showing.
+    */
+    if (isUnsavedChangesPromptOpen) {
+      commonStore.routerLoading = false
+      return false
+    }
+    isUnsavedChangesPromptOpen = true
+    let confirmed
+    try {
+      confirmed = await new Promise((resolve) => {
+        confirm({
+          title: i18n.t('editor.unsaved.title'),
+          message: i18n.t('editor.unsaved.body'),
+          cancel: true,
+          color: 'negative',
+          okLabel: i18n.t('common.actions.discard')
+        })
+          .onOk(() => resolve(true))
+          .onCancel(() => resolve(false))
       })
-        .onOk(() => resolve(true))
-        .onCancel(() => resolve(false))
-    })
+    } finally {
+      isUnsavedChangesPromptOpen = false
+    }
     if (!confirmed) {
       // -> Aborted navigation skips `afterEach`, which is what normally clears this
       commonStore.routerLoading = false

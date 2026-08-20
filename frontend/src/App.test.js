@@ -19,7 +19,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import {
+  createMemoryHistory,
+  createRouter,
+  isNavigationFailure,
+  NavigationFailureType
+} from 'vue-router'
 
 import App from './App.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
@@ -448,6 +453,45 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
     expect(editorStore.isActive).toBe(false)
     expect(editorStore.editor).toBe('')
     expect(editorStore.mode).toBe('edit')
+  })
+
+  /**
+   * Regression: vue-router only cancels a superseded navigation (`checkCanceledNavigation`) once
+   * every `beforeEach` guard in the queue -- including this one's `await` on the confirm dialog --
+   * has resolved. A second navigation fired while the first's dialog is still open therefore reaches
+   * this guard's own `isActive && hasPendingChanges` check too, which without the module-level
+   * `isUnsavedChangesPromptOpen` flag would stack a second dialog against the same `editorStore`.
+   */
+  it('blocks a second navigation that fires while the first discard prompt is still open', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = makeDirty()
+
+    const firstNav = router.push('/other')
+    await flushPromises()
+    expect(openDialogs).toHaveLength(1)
+
+    const secondNav = router.push('/other')
+    await flushPromises()
+
+    // -> Not a second dialog: the second navigation was blocked outright
+    expect(openDialogs).toHaveLength(1)
+    expect(router.currentRoute.value.path).toBe('/')
+
+    closeDialog(openDialogs[0].id, true, true)
+    const [, secondResult] = await Promise.all([firstNav, secondNav])
+
+    /*
+      Which of the two `push()` calls actually lands on `/other` is vue-router's own call -- issuing a
+      second `push()` supersedes the first regardless of what any guard decides, same as a plain double
+      click would. What this guard owns, and what matters here, is that only one dialog ever showed
+      (asserted above) and `editorStore` only resolved once: the second navigation was aborted by this
+      guard's own re-entrancy check, not left to open a competing prompt.
+    */
+    expect(isNavigationFailure(secondResult, NavigationFailureType.aborted)).toBe(true)
+    expect(editorStore.isActive).toBe(false)
+    expect(openDialogs).toHaveLength(0)
   })
 
   it('blocks the navigation when the discard is cancelled', async () => {
