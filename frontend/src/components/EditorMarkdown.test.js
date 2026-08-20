@@ -562,6 +562,39 @@ describe('EditorMarkdown preview pane initial reveal (OpenProject #809 follow-up
     expect(wrapper.find('.editor-markdown-preview').exists()).toBe(true)
     expect(wrapper.vm.previewEverRevealed).toBe(true)
   })
+
+  it("uses App.vue's prefetched settings instead of fetching again, when already cached", async () => {
+    setActivePinia(createPinia())
+    const editorStore = useEditorStore()
+    useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
+    // -> Standing in for App.vue's own prefetch (OpenProject #809 follow-up) having already landed by
+    //    the time this component mounts -- the normal case, not a special setup for this test alone.
+    editorStore.userSettings.markdown = { previewShown: true, previewWidth: 725 }
+    const fetchUserSettings = vi.spyOn(editorStore, 'fetchUserSettings')
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    expect(fetchUserSettings).not.toHaveBeenCalled()
+    expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(725)
+  })
+
+  it('falls back to fetching directly when nothing was prefetched (e.g. a guest who just signed in)', async () => {
+    setActivePinia(createPinia())
+    const editorStore = useEditorStore()
+    useCommonStore().loadBlocks = vi.fn().mockResolvedValue(undefined)
+    const fetchUserSettings = vi
+      .spyOn(editorStore, 'fetchUserSettings')
+      .mockResolvedValue({ previewShown: true, previewWidth: 725 })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(EditorMarkdown, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    expect(fetchUserSettings).toHaveBeenCalledWith('markdown')
+    expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(725)
+  })
 })
 
 /*

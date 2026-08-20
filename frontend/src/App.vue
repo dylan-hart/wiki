@@ -27,6 +27,7 @@ import WLoadingOverlay from '@/components/shared/WLoadingOverlay.vue'
 import WNotifications from '@/components/shared/WNotifications.vue'
 
 import { useCommonStore } from './stores/common'
+import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -56,6 +57,7 @@ const direction = useDirection()
 // STORES
 
 const commonStore = useCommonStore()
+const editorStore = useEditorStore()
 const flagsStore = useFlagsStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
@@ -260,6 +262,9 @@ async function loadBootstrap() {
 
 // ROUTE GUARDS
 
+/** Set once the Markdown editor settings prefetch below has fired -- see its own doc comment. */
+let hasPrefetchedMarkdownSettings = false
+
 router.beforeEach(async (to, from) => {
   commonStore.routerLoading = true
 
@@ -275,6 +280,30 @@ router.beforeEach(async (to, from) => {
       bootstrapError && bootstrapFailureRedirectFor(to.path, bootstrapError)
     if (bootstrapFailureRoute) {
       return bootstrapFailureRoute
+    }
+  }
+
+  /*
+    -> Markdown editor preferences, prefetched
+    A one-time head start for `EditorMarkdown.vue`'s own mount, which reads whatever landed here (or
+    fetches it itself, if this hasn't resolved yet, or never ran at all) rather than depending on it --
+    so a guest, a click fast enough to win the race, or this request simply failing all still work,
+    just without it. `userStore.profileLoaded` is what this actually waits on -- true the moment
+    `loadBootstrap()` above has ever resolved once, whichever navigation that was -- not the bootstrap
+    branch itself, so this fires on the very next navigation even on a route that skipped it entirely.
+    Not awaited: the earliest possible moment -- session start, in the background, while the reader is
+    doing anything else -- is also the only one that reliably beats an "Edit" click, and awaiting it
+    here would instead delay every navigation on the one it actually runs on for no reason. `.catch`
+    rather than a `try`/`catch` around an `await`, for the same reason it is not awaited -- nothing
+    here is in a position to react to the failure, only to keep it from becoming an unhandled
+    rejection.
+  */
+  if (!hasPrefetchedMarkdownSettings && userStore.profileLoaded) {
+    hasPrefetchedMarkdownSettings = true
+    if (userStore.authenticated) {
+      editorStore.fetchUserSettings('markdown').catch((err) => {
+        console.warn(`Could not prefetch Markdown editor settings: ${err.message}`)
+      })
     }
   }
 

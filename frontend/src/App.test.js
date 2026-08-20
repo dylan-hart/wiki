@@ -15,7 +15,7 @@
 // calls it on every repeat trigger without piling up duplicate DOM nodes — which is exactly the shape
 // of bug this feature started from (a saved setting with zero rendered effect). Every assertion below
 // is written to fail if that wiring regresses, not merely to prove the helper module works.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -23,6 +23,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 
 import App from './App.vue'
 import { useSiteStore } from '@/stores/site'
+import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
 import { useUserStore } from '@/stores/user'
 import { useCommonStore } from './stores/common'
@@ -265,5 +266,86 @@ describe('App.vue applyLocale()', () => {
 
     expect(document.documentElement.getAttribute('dir')).toBe('ltr')
     expect(document.documentElement.getAttribute('lang')).toBe('en')
+  })
+})
+
+/**
+ * Regression coverage for OpenProject #809's follow-up: the Markdown editor's saved
+ * preview-shown/width/font-size preferences used to only ever be fetched from
+ * `EditorMarkdown.vue`'s own `onMounted`, once the reader had already clicked Edit -- putting a
+ * network round trip on the critical path of the preview pane's entrance animation, which then ran
+ * well past the side nav's own fixed-duration close. Prefetching them here, the moment the session's
+ * profile is confirmed loaded, gives that fetch a head start long before any Edit click exists, so
+ * `EditorMarkdown.vue`'s own mount usually finds the answer already sitting in the store.
+ *
+ * `siteStore.id` / `flagsStore.loaded` are pre-set the same way `mountAppWithLocale` sets them above,
+ * so the bootstrap branch is skipped -- this prefetch is deliberately its own guard, independent of
+ * that branch (see the doc comment on `hasPrefetchedMarkdownSettings` in `App.vue`), specifically so
+ * it still fires on a navigation that skips bootstrap, which is exactly what these tests exercise.
+ */
+describe('App.vue Markdown editor settings prefetch', () => {
+  function seedLoadedSession({ authenticated }) {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    siteStore.id = 'site-1'
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+    userStore.authenticated = authenticated
+  }
+
+  it('prefetches once the session profile is loaded, for an authenticated user', async () => {
+    seedLoadedSession({ authenticated: true })
+    const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+
+    expect(fetchUserSettings).toHaveBeenCalledWith('markdown')
+  })
+
+  it('does not prefetch for a guest (unauthenticated) session', async () => {
+    seedLoadedSession({ authenticated: false })
+    const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+
+    expect(fetchUserSettings).not.toHaveBeenCalled()
+  })
+
+  it('fires at most once per session, across multiple navigations', async () => {
+    seedLoadedSession({ authenticated: true })
+    const fetchUserSettings = vi.spyOn(useEditorStore(), 'fetchUserSettings').mockResolvedValue({})
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/other', component: { template: '<div />' } }
+      ]
+    })
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    mount(App, { global: { plugins: [router, i18n] } })
+
+    await router.push('/')
+    await router.isReady()
+    await router.push('/other')
+
+    expect(fetchUserSettings).toHaveBeenCalledTimes(1)
   })
 })

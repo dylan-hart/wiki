@@ -1659,21 +1659,33 @@ onMounted(async () => {
     hideSideNav: true
   })
 
-  // -> Awaited here so it is settled well before the first preview render at the end of this hook
-  await loadSiteBlocks()
-
   /*
-    This user's saved Markdown editor preferences -- font size and whether the preview pane opens --
-    read before Monaco is created so both apply from the first paint. A user who has never saved any
-    (or a request that fails) gets an empty object back, which `resolveEditorFontSize` /
-    `resolveInitialPreviewShown` treat as "no preference", not as an error to surface.
+    This user's saved Markdown editor preferences -- font size, whether the preview pane opens, and its
+    saved width -- read before Monaco is created so all three apply from the first paint. Normally
+    already sitting in the store by now: `App.vue`'s boot flow prefetches them in the background as
+    soon as the session starts, well ahead of any "Edit" click, specifically so the preview's entrance
+    transition below can start in step with the side nav's own close animation instead of both waiting
+    on a network round trip neither has any real reason to share a deadline with. Only actually fetched
+    here as a fallback for whoever beats that prefetch -- a guest who just signed in, or simply a click
+    fast enough to win the race -- so this mount never depends on the prefetch having finished. A user
+    who has never saved any preference (or a request that fails) resolves to an empty object, which
+    `resolveEditorFontSize` / `resolveInitialPreviewShown` / `resolveInitialPreviewWidth` all treat as
+    "no preference", not as an error to surface.
+
+    Run alongside `loadSiteBlocks()` below rather than after it -- awaiting the two in sequence, as
+    before, just adds their times together for no reason; neither depends on the other's result, and
+    `loadSiteBlocks()` still finishes well before the first preview render at the end of this hook.
   */
-  let userSettings = {}
-  try {
-    userSettings = (await editorStore.fetchUserSettings('markdown')) ?? {}
-  } catch (err) {
-    console.warn(`Could not read Markdown editor settings: ${err.message}`)
-  }
+  const userSettingsPromise =
+    editorStore.userSettings.markdown !== undefined
+      ? Promise.resolve(editorStore.userSettings.markdown)
+      : editorStore.fetchUserSettings('markdown').catch((err) => {
+          console.warn(`Could not read Markdown editor settings: ${err.message}`)
+          return {}
+        })
+
+  const [, userSettings = {}] = await Promise.all([loadSiteBlocks(), userSettingsPromise])
+
   state.previewShown = resolveInitialPreviewShown(userSettings, isAtLeastMd.value)
   /*
     Clamped against the viewport right here rather than left to `previewInlineStyle`'s own bounds:
