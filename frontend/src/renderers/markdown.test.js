@@ -12,15 +12,15 @@ import { MarkdownRenderer } from './markdown.js'
 */
 
 /**
- * The block-vs-fence handoff: `block-diagram`, `block-kroki` and `block-plantuml` all read their
- * source out of a `<pre>` left behind by markdown's own fence handling — never rendered or escaped
- * away, since each block draws it client-side (Mermaid) or hands it to an image server (Kroki,
- * PlantUML). This is the one seam that is genuinely worth a unit test: it is exactly what a headless
- * re-render depends on producing byte-for-byte, and a regression here would silently blank every
- * diagram on the site without ever touching the block components themselves.
+ * The block-vs-fence handoff: `block-diagram`, `block-kroki`, `block-plantuml` and `block-drawio` all
+ * read their source out of a `<pre>` left behind by markdown's own fence handling — never rendered or
+ * escaped away, since each block draws it client-side (Mermaid, draw.io) or hands it to an image
+ * server (Kroki, PlantUML). This is the one seam that is genuinely worth a unit test: it is exactly
+ * what a headless re-render depends on producing byte-for-byte, and a regression here would silently
+ * blank every diagram on the site without ever touching the block components themselves.
  */
 describe('MarkdownRenderer fenced diagram handoff', () => {
-  it.each(['mermaid', 'kroki', 'plantuml'])(
+  it.each(['mermaid', 'kroki', 'plantuml', 'drawio'])(
     'leaves a ```%s fence as an escaped <pre> for the block to read, not a rendered diagram',
     (lang) => {
       const md = new MarkdownRenderer({})
@@ -32,7 +32,7 @@ describe('MarkdownRenderer fenced diagram handoff', () => {
     }
   )
 
-  it.each(['mermaid', 'kroki', 'plantuml'])(
+  it.each(['mermaid', 'kroki', 'plantuml', 'drawio'])(
     'escapes markup written inside a ```%s fence rather than interpolating it raw',
     (lang) => {
       const md = new MarkdownRenderer({})
