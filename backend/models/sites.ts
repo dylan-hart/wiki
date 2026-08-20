@@ -168,6 +168,10 @@ class Sites {
                 isActive: true,
                 config: {}
               },
+              code: {
+                isActive: true,
+                config: {}
+              },
               markdown: {
                 isActive: true,
                 config: {
@@ -436,6 +440,10 @@ class Sites {
         },
         editors: {
           asciidoc: {
+            isActive: true,
+            config: {}
+          },
+          code: {
             isActive: true,
             config: {}
           },
