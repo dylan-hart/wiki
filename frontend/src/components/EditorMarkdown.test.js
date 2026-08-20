@@ -794,4 +794,41 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
 
     expect(fakeModel.getValue()).toBe('- one \n- two')
   })
+
+  it('exits an unordered list on an empty item', async () => {
+    await mountEditor('- one\n- ')
+    cursorPosition = { lineNumber: 2, column: '- '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n')
+    expect(fakeEditor.trigger).not.toHaveBeenCalled()
+  })
+
+  it('exits an ordered list on an empty item', async () => {
+    await mountEditor('1. one\n2. ')
+    cursorPosition = { lineNumber: 2, column: '2. '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1. one\n')
+  })
+
+  it('exits a task list on an empty item', async () => {
+    await mountEditor('- [ ] one\n- [ ] ')
+    cursorPosition = { lineNumber: 2, column: '- [ ] '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [ ] one\n')
+  })
+
+  it('exits an indented, empty list item', async () => {
+    await mountEditor('- one\n  - ')
+    cursorPosition = { lineNumber: 2, column: '  - '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n')
+  })
 })
