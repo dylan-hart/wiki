@@ -1008,3 +1008,51 @@ The two orphaned locale keys were deleted (`backend/locales/en.json`) rather tha
 panel that doesn't exist.
 
 Recording this here so a future spec pass on Feature 387 does not re-open or re-derive the question.
+
+## OpenProject #783 — draw.io diagrams: a purpose-built subset renderer, not the mxgraph.js library or a hosted viewer embed
+
+**Feature:** #783 (draw.io-format Diagram Block), parity with 2.5.x's `server/modules/rendering/
+html-diagram`, closing the gap requarks/wiki's own v3 Feature Parity Checklist (#6844) lists as
+not-yet-implemented.
+
+**Decision:** `block-drawio` parses mxGraph/draw.io XML and draws it as inline SVG with a
+purpose-built renderer (`blocks/block-drawio/mxgraph.js`), covering a bounded shape/edge vocabulary
+rather than the format's full stencil surface. Two alternatives were considered and rejected:
+
+1. **The `mxgraph` npm package** (the actual library draw.io itself is built on, published under that
+   name until jgraph deprecated it — "Package no longer supported. Use at your own risk," last
+   released years ago). Rejected: an unmaintained, ~10MB, DOM-manipulating dependency with a real
+   history of style-string-driven XSS surface is a poor fit for a renderer whose one job is turning
+   untrusted page content into markup — the "Currency" rule in CLAUDE.md tracks latest-LTS libraries,
+   not deprecated ones, and there is no active upstream to receive a security fix from if one is ever
+   needed.
+2. **draw.io's hosted `viewer.diagrams.net`/`viewer-static.min.js` embed script.** This is the
+   lightest _editor-free_ option draw.io itself ships, but it is a live script fetched from a
+   third-party host at page-view time — every reader's browser loading code from diagrams.net on
+   every view of every page that has one of these blocks. That is a materially different trust and
+   availability story than every other block in this library (`block-diagram`, `block-kroki`,
+   `block-plantuml`, `block-katex`, `block-mathjax`, `block-map`'s tiles) bundles or vendors what it
+   draws with, or degrades to a clear, actionable error when a _self-hosted_ server address is wrong —
+   never a hidden dependency on one specific vendor's uptime for every page view.
+
+The renderer that ships instead is deliberately scoped to the shapes that account for the
+overwhelming majority of real diagrams — rectangles, rounded rectangles, ellipses, rhombuses,
+triangles, hexagons, parallelograms, cylinders, swimlanes, groups/layers, and edges with waypoints —
+and, per the module's own header comment, treats "never lose a cell" as the one rule every code path
+must uphold: an unrecognised shape still gets its bounding box, border and label drawn as a plain
+rectangle rather than being silently dropped. That rule is a direct response to the upstream bug this
+task cites (requarks/wiki#6881 — complex, multi-layer diagrams losing elements on render), and is
+covered by a dedicated multi-layer, multi-shape test fixture in `component.test.js`. What this
+renderer does **not** attempt is the hundreds of named stencils the shape libraries carry (AWS/Azure/
+GCP icons, UML-specific glyphs, network gear, and the rest) — those fall back to the same
+"rectangle plus label" treatment, which is honest and complete rather than pixel-exact. A future task
+wanting closer visual fidelity for a specific stencil family should extend the `SHAPES` table in
+`mxgraph.js`, not replace the approach.
+
+**Read-only, not editable-in-page**, per the task's own stated default: the diagram is drawn once at
+page-view time from an XML payload written into the block's body, exactly the shape `block-diagram`
+(Mermaid), `block-kroki`, and `block-plantuml` already use for their own source — not, as the task
+description's looser phrasing put it, a block "prop": this codebase's actual prop system
+(`BlockPropsForm.vue`) only offers single-line string/select/number/boolean fields, with no multiline
+text type, so a multi-kilobyte XML payload was never going to fit there regardless of format, the
+same way none of the three sibling diagram blocks put their source in a prop either.
