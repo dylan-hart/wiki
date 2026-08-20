@@ -69,12 +69,10 @@ export default {
     icon: 'img:/_assets/icons/color-cd.svg'
   },
   jpg: {
-    icon: 'img:/_assets/icons/color-jpg.svg',
-    imageEdit: true
+    icon: 'img:/_assets/icons/color-jpg.svg'
   },
   jpeg: {
-    icon: 'img:/_assets/icons/color-jpg.svg',
-    imageEdit: true
+    icon: 'img:/_assets/icons/color-jpg.svg'
   },
   json: {
     icon: 'img:/_assets/icons/color-json.svg'
@@ -113,8 +111,7 @@ export default {
     icon: 'img:/_assets/icons/color-pdf.svg'
   },
   png: {
-    icon: 'img:/_assets/icons/color-png.svg',
-    imageEdit: true
+    icon: 'img:/_assets/icons/color-png.svg'
   },
   pptx: {
     icon: 'img:/_assets/icons/color-ppt.svg'

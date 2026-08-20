@@ -418,11 +418,17 @@
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.edit`) }}</w-item-section>
                         </w-item>
-                        <!-- -> Nothing to render on a redirection: it has a target where a page has
-                                content, and the endpoint behind this refuses any editor but markdown -->
+                        <!-- -> The route 503s without the Puppeteer extension (mirrored here via
+                                siteStore.pdfExportAvailable) and throws renderUnsupportedEditor for
+                                any page whose editor isn't markdown (backend/models/rendering.ts's
+                                ensureCanRender). No button that just fails, per OpenProject #864. -->
                         <w-item
                           clickable
-                          v-if="item.type === `page` && item.pageType !== `redirect`"
+                          v-if="
+                            item.type === `page` &&
+                            item.pageType === `markdown` &&
+                            siteStore.pdfExportAvailable
+                          "
                           @click="rerenderPage(item)">
                           <w-item-section side>
                             <w-icon name="la:magic" color="orange" />
@@ -435,20 +441,6 @@
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.view`) }}</w-item-section>
                         </w-item>
-                        <template v-if="item.type === `asset` && item.imageEdit">
-                          <w-item clickable>
-                            <w-item-section side>
-                              <w-icon name="la:edit" color="orange" />
-                            </w-item-section>
-                            <w-item-section>Edit Image...</w-item-section>
-                          </w-item>
-                          <w-item clickable>
-                            <w-item-section side>
-                              <w-icon name="la:crop" color="orange" />
-                            </w-item-section>
-                            <w-item-section>Resize Image...</w-item-section>
-                          </w-item>
-                        </template>
                         <w-item clickable v-if="item.type !== `folder`" @click="copyItemURL(item)">
                           <w-item-section side>
                             <w-icon name="la:clipboard" color="primary" />
@@ -461,7 +453,7 @@
                           </w-item-section>
                           <w-item-section>{{ t(`common.actions.download`) }}</w-item-section>
                         </w-item>
-                        <w-item clickable @click="duplicateItem(item)">
+                        <w-item clickable v-if="item.type === `page`" @click="duplicateItem(item)">
                           <w-item-section side>
                             <w-icon name="la:copy" color="teal" />
                           </w-item-section>
@@ -484,12 +476,6 @@
                               <w-icon name="la:redo" color="teal" />
                             </w-item-section>
                             <w-item-section>Rename...</w-item-section>
-                          </w-item>
-                          <w-item clickable>
-                            <w-item-section side>
-                              <w-icon name="la:arrow-right" color="teal" />
-                            </w-item-section>
-                            <w-item-section>Move to...</w-item-section>
                           </w-item>
                         </template>
                         <w-item clickable @click="delItem(item)">
@@ -773,7 +759,6 @@ const files = computed(() => {
         case 'asset': {
           f.icon = fileTypes[f.fileExt]?.icon ?? ''
           f.side = filesize(f.fileSize, { round: 0 })
-          f.imageEdit = fileTypes[f.fileExt]?.imageEdit
           if (fileTypes[f.fileExt]) {
             f.caption = t(`fileman.${f.fileExt}FileType`)
           } else {
@@ -1470,7 +1455,7 @@ function openItem(item) {
       break
     }
     case 'asset': {
-      // TODO: Open asset
+      window.open(assetUrl(item.folderPath, item.fileName), '_blank')
       close()
       break
     }
@@ -1555,8 +1540,8 @@ function renameItem(item) {
 }
 
 /**
- * Duplicating a folder or an asset has no endpoint behind it yet, so those two keep the inert entry
- * they already had rather than being offered something that would fail.
+ * Duplicating a folder or an asset has no endpoint behind it yet, so the menu item itself is gated
+ * to `item.type === 'page'` (see the template) -- this only ever runs for a page.
  */
 function duplicateItem(item) {
   switch (item.type) {
