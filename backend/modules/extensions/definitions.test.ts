@@ -19,22 +19,27 @@ async function readDefinition(key: string): Promise<ParsedDefinition> {
 }
 
 // Regression coverage for the scope decision recorded in docs/variances.md (OpenProject task 666,
-// Feature 402): puppeteer/definition.yml must describe only what Feature 402 actually built (PDF
-// export), not the server-side diagram pre-rendering that was explicitly deferred to task 785. If
-// this ever starts failing because someone re-added the diagram-rendering claim, that claim needs
-// either a real implementation behind it or to stay out of the description — not a silent revert of
-// this decision.
+// Feature 402, later revisited by task 785): puppeteer/definition.yml must describe exactly what is
+// actually implemented, no more and no less. PDF export (task 669/670) and Mermaid diagram
+// pre-rendering (task 785, `models/diagramRender.ts`) both need this extension; PlantUML rendering
+// does not (`DiagramRender` fetches it directly — see that model's class comment), so the
+// description must not claim it needs Puppeteer either. If any of these three assertions ever starts
+// failing, the claim that changed needs either a real implementation behind it or to stay out of the
+// description — not a silent drift from what is true.
 describe('puppeteer extension definition', () => {
   test('promises PDF export', async () => {
     const definition = await readDefinition('puppeteer')
     assert.match(definition.description, /PDF/)
   })
 
-  test('does not promise server-side diagram rendering (deferred, see docs/variances.md)', async () => {
+  test('promises Mermaid diagram pre-rendering, which genuinely needs this extension', async () => {
     const definition = await readDefinition('puppeteer')
-    assert.doesNotMatch(definition.description, /mermaid/i)
+    assert.match(definition.description, /mermaid/i)
+  })
+
+  test('does not claim PlantUML needs this extension — it is fetched directly, no browser involved', async () => {
+    const definition = await readDefinition('puppeteer')
     assert.doesNotMatch(definition.description, /plantuml/i)
-    assert.doesNotMatch(definition.description, /diagram/i)
   })
 })
 

@@ -595,9 +595,12 @@ actually implemented:
    (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
    a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
    496); see "PDF export: two competing implementations reconciled" below for how that was resolved.
-3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — **deferred**. Tracked as
+3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — deferred at the time as
    OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
-   from Feature #402)").
+   from Feature #402)"), **since shipped** on `feature/puppeteer-diagram-prerender`
+   (`backend/models/diagramRender.ts`). See "Task 785 — server-side diagram pre-rendering" below for
+   the design it landed on, which sidesteps the architectural problem described in "Why #3 is
+   deferred" rather than solving it as originally framed.
 
 ### Why #3 is deferred and #1/#2 are not
 
@@ -624,16 +627,57 @@ result, and where that output is cached relative to stored `page.render` HTML), 
 print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
 built now.
 
-### Correction made
+### Correction made, then reverted once task 785 shipped
 
-`backend/modules/extensions/puppeteer/definition.yml`'s `description` previously read:
+`backend/modules/extensions/puppeteer/definition.yml`'s `description` originally mentioned
+server-side diagram rendering; Feature 402 narrowed it to PDF export only, since that was all it
+built. Task 785 (below) restored a mention of diagram pre-rendering once that capability actually
+existed again.
 
-> Headless Chromium browser. Required to export pages as PDF and to render content elements on the
-> server, such as Mermaid or PlantUML diagrams. …
+## Task 785 — server-side diagram pre-rendering
 
-It now describes only PDF export, matching what Feature 402 actually builds. Resolve/delete this
-entry once task 785 ships and the description can honestly mention server-side diagram rendering
-again.
+**Built on:** `feature/puppeteer-diagram-prerender`, closing OpenProject task 785. Delivers
+`backend/models/diagramRender.ts` (`WIKI.models.diagramRender.render()`) plus `POST
+/_api/diagrams/render`.
+
+**The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
+making the headless `/_render` shell run Lit block components as part of rendering a whole *page* —
+a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
+`page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
+problem: it renders one diagram from raw source, independent of any page, so there is no page-render
+pipeline to extend and no render cache to invalidate. That framing — page-level pre-rendering wired
+into `models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task
+if ever wanted.
+
+**Mermaid** still needs a real browser — `mermaid` lays out and paints via the DOM, so there is no way
+around one. Rather than adding a second `mermaid` dependency to the backend (liable to drift from the
+version `block-diagram` actually ships) or reimplementing its render call directly, `diagramRender.ts`
+drives Puppeteer to load `block-diagram`'s own compiled bundle (`/_blocks/block-diagram.js` — the
+exact code a reader's browser runs) onto a blank page, mounts one instance of it, and waits with the
+same `blockSettleScript` `pdfExport.ts` already uses for a whole page. This only works because a
+single block's `firstUpdated()`/`updateComplete` lifecycle needs nothing about being inside the full
+SPA shell — it reads its fenced source off its own light DOM and renders into its own shadow root,
+regardless of what else is or isn't on the page around it. That is what makes "mount one block on an
+empty page" a real shortcut rather than a smaller version of the same architectural problem.
+
+**PlantUML** needs no browser at all, deferred or not: `block-plantuml` never draws locally — it
+deflates the source into a PlantUML server's GET URL and lets the reader's own browser fetch an
+`<img>` from it. `diagramRender.ts` mirrors that transport server-side with Node's built-in
+`zlib.deflateRawSync` (byte-identical to the block's `pako.deflateRaw`) and fetches the bytes
+directly. The Puppeteer extension is therefore never required for a PlantUML request — only for
+Mermaid.
+
+**API surface and its auth model.** `POST /_api/diagrams/render` requires a session
+(`req.session.authenticated`) but no specific permission: the request touches no page and no
+group-wide capability, the same shape `/profile` in `api/users.ts` already uses for "logged in is
+enough." Deliberately not anonymous, unlike reading a public page: a Mermaid request opens a full
+headless Chromium per call, the same cost `helpers/rateLimit.ts#limitRenders` already exists to
+bound (reused here rather than adding a second limiter), and letting that run unauthenticated would
+make the endpoint a standing invitation to burn CPU/memory on a public instance for free. A future
+per-page integration (e.g. pre-rendering a page's own diagrams as part of PDF export, instead of
+waiting on the live view to draw them one at a time) is left as a followup rather than built here —
+the win is real but unproven without profiling data on where PDF export time actually goes, and nothing
+about the model's shape forecloses wiring it in later.
 
 ## PDF export: two competing implementations reconciled at merge-review time
 
