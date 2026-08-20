@@ -41,19 +41,31 @@ export interface WatchEventItem {
 }
 
 /**
- * Classify a failed send by nodemailer's `err.code` so logs distinguish a network-level problem
- * from bad credentials from a rejected message, instead of one generic "failed to send" line for
- * all three. Codes come from `nodemailer/lib/smtp-connection`, the only transport this model uses.
+ * Classify a failed send by nodemailer's `err.code` so logs — and the test-send endpoint's
+ * response — distinguish a plain network-level problem (unreachable host, wrong port, timeout)
+ * from a TLS certificate that failed validation, from bad credentials, from a rejected message,
+ * instead of one generic "failed to send" line for all four. Codes come from
+ * `nodemailer/lib/smtp-connection`, the only transport this model uses.
+ *
+ * `'tls'` is split out from `'connection'` on purpose: `smtp-connection` reports both a
+ * self-signed/expired/hostname-mismatched certificate (via `ETLS`, whether hit during the initial
+ * implicit-TLS handshake or during `STARTTLS`) and a plain socket-level failure (refused
+ * connection, DNS lookup failure, timeout, protocol desync) as connection-stage errors — but they
+ * call for different admin action. A `'connection'` failure says "check the host and port"; a
+ * `'tls'` failure says "check the certificate, or enable Verify SSL Certificate" (see
+ * `buildTransportOptions`'s `tls.rejectUnauthorized` — this is the failure that setting exists to
+ * work around for a self-hosted mail relay with a self-signed cert).
  */
-export function classifyMailError(err: any): 'connection' | 'auth' | 'send' | 'unknown' {
+export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'send' | 'unknown' {
   switch (err?.code) {
     case 'ECONNECTION':
     case 'ESOCKET':
     case 'ETIMEDOUT':
     case 'EDNS':
-    case 'ETLS':
     case 'EPROTOCOL':
       return 'connection'
+    case 'ETLS':
+      return 'tls'
     case 'EAUTH':
       return 'auth'
     case 'EENVELOPE':
@@ -155,10 +167,10 @@ class MailModel {
    * Send a single email through the configured SMTP transport.
    *
    * @throws `ERR_MAIL_NOT_CONFIGURED` when there is no transport to send with. Any other failure
-   *   (auth rejected, connection refused, message rejected, ...) is logged with its
-   *   {@link classifyMailError} category — so a log search can tell "the SMTP host is unreachable"
-   *   apart from "the credentials are wrong" apart from "the message itself was rejected" — and
-   *   rethrown as-is.
+   *   (auth rejected, connection refused, certificate rejected, message rejected, ...) is logged
+   *   with its {@link classifyMailError} category — so a log search can tell "the SMTP host is
+   *   unreachable" apart from "the TLS certificate didn't validate" apart from "the credentials
+   *   are wrong" apart from "the message itself was rejected" — and rethrown as-is.
    */
   async send({ to, subject, html, text }: MailMessage): Promise<void> {
     const transporter = this.getTransporter()

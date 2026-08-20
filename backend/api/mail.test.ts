@@ -150,6 +150,26 @@ test('answers 502 with a specific message when the SMTP host is unreachable', as
   assert.match(res.json().message, /connect/i)
 })
 
+test('answers 502 with a specific message when the SMTP TLS certificate fails validation', async () => {
+  sendTestEmailMock = mock.fn(async () => {
+    const err: any = new Error('Error initiating TLS - self signed certificate')
+    err.code = 'ETLS'
+    throw err
+  })
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/mail/test',
+    payload: { recipientEmail: 'ada@example.com' }
+  })
+
+  assert.equal(res.statusCode, 502)
+  assert.match(res.json().message, /certificate/i)
+  // -> Distinct wording from the plain "connect" connection-failure message below, and points the
+  //    admin at the "Verify SSL Certificate" toggle that exists to work around exactly this.
+  assert.match(res.json().message, /Verify SSL Certificate/)
+})
+
 test('answers 422 with a specific message when the recipient is rejected by the SMTP server', async () => {
   sendTestEmailMock = mock.fn(async () => {
     const err: any = new Error('550 no such user')
