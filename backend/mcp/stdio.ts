@@ -1,0 +1,93 @@
+/**
+ * MCP server, stdio transport.
+ *
+ * Run via `node backend/mcp/stdio.ts` from the repo root (same convention as `node backend`, and as
+ * `node backend/tasks/migrate.ts`) — never imported by `index.ts`. An MCP client (Claude Desktop, an
+ * IDE, `npx @modelcontextprotocol/inspector`, …) spawns this as a child process and speaks JSON-RPC
+ * over its stdin/stdout, which is why it cannot run inside the same process as the Fastify app: that
+ * process's own stdout already carries request logs (`core/logger.ts`), and the two would corrupt each
+ * other's framing on the same stream. See `mcp/bootstrap.ts`'s doc comment for why this is still "the
+ * `backend/mcp/` module registered alongside the existing Fastify app" the work package asks for, in
+ * every sense except the one the transport itself forces apart — and `docs/variances.md` for the
+ * HTTP/SSE transport that would actually share the process, left as future work.
+ *
+ * Auth: reads a single bearer token from `WIKI_MCP_API_KEY` (mint one via the existing API Keys admin
+ * screen, or `POST /_api/system/api-keys`) and verifies it once at startup — refusing to start at all
+ * on an invalid/revoked/expired key, rather than failing the first tool call. Every tool call for the
+ * lifetime of this process then acts as that one key. See `mcp/auth.ts`'s `McpAuthContext` doc comment
+ * for what that does and does not grant, and why it is an interim stand-in for per-user tokens.
+ */
+
+// -> MUST run before anything below logs a single line: `core/logger.ts` and various boot-path
+//    fallbacks write through `console.log`/`console.info`, and the stdio transport needs stdout free
+//    for JSON-RPC frames only. `console.error` (already used for genuine failures throughout
+//    `core/config.ts`/`core/db.ts`) is left alone — stderr is exactly where an MCP client expects a
+//    misbehaving server's diagnostics to go.
+console.log = console.error.bind(console)
+console.info = console.error.bind(console)
+
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { bootstrapMcpRuntime } from './bootstrap.ts'
+import { authenticateApiKey } from './auth.ts'
+import { createMcpServer } from './server.ts'
+import { registerAllTools } from './tools/index.ts'
+
+/**
+ * Closes the db pool (if it was ever opened) and exits. The one path off this process: a startup
+ * failure before the pool exists, the client disconnecting, or a signal — all funnel through here so
+ * none of them leaves an open `pg` pool holding the event loop, or a process exit that skips it. Same
+ * reasoning `tasks/migrate.ts` documents for its own cleanup `finally`.
+ */
+async function shutdown(code: number): Promise<never> {
+  // -> `WIKI` is declared non-nullable (`types/global.d.ts`), but genuinely is not yet assigned when
+  //    this runs before `bootstrapMcpRuntime()` (the missing-`WIKI_MCP_API_KEY` early exit) — `typeof`
+  //    is the one check that is safe to make of a possibly-unset `var` without the type checker
+  //    treating it as always true.
+  if (typeof WIKI !== 'undefined') {
+    await WIKI.dbManager?.pool?.end()
+  }
+  process.exit(code)
+}
+
+async function main(): Promise<void> {
+  const token = process.env.WIKI_MCP_API_KEY?.trim()
+  if (!token) {
+    console.error(
+      'WIKI_MCP_API_KEY is not set. Mint an API key for this server to use (Admin > API Keys, or ' +
+        'POST /_api/system/api-keys) and set it in the MCP client config that launches this process.'
+    )
+    await shutdown(1)
+    return
+  }
+
+  const WIKI = await bootstrapMcpRuntime('mcp-stdio')
+
+  let ctx
+  try {
+    ctx = await authenticateApiKey(token)
+  } catch (err: any) {
+    console.error(err.message)
+    await shutdown(1)
+    return
+  }
+
+  const server = createMcpServer(WIKI.version)
+  registerAllTools(server, ctx)
+
+  const transport = new StdioServerTransport()
+  // -> The client closes stdin when it disconnects; the SDK's transport surfaces that as `onclose`
+  //    rather than the process exiting on its own, so this is what actually ends the process.
+  transport.onclose = () => {
+    void shutdown(0)
+  }
+  await server.connect(transport)
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(signal, () => void shutdown(0))
+}
+
+main().catch((err) => {
+  console.error(err)
+  void shutdown(1)
+})

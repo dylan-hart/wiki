@@ -1097,3 +1097,68 @@ reason swagger-ui fits this codebase's conventions better" — so this records w
 beacon, as a transitive dependency. Disabled via `scarfSettings: { enabled: false }` in
 `blocks/package.json` (`@scarf/scarf`'s own documented opt-out, read from the installing project's
 `package.json`) rather than left to fire on every `npm install`.
+
+## Task #789 — MCP server: read-only first pass, instance-wide key, stdio-only transport
+
+**Date:** 2026-08-20
+**Feature/Epic:** #789 (Native MCP server for wiki content), Epic #340 (API, Webhooks & Integrations)
+**Decision:** Shipped `backend/mcp/` with four read-only tools (`list_sites`, `search_pages`,
+`get_page`, `list_navigation`), authenticated by a single instance-wide API key, reachable only over
+the stdio transport. Write tools (create/update a page), per-user auth, and an HTTP/SSE transport are
+explicitly deferred, not attempted-and-cut.
+
+**Why read-only only:**
+
+`models/pages.ts`'s `createPage()`/`updatePage()` take a `PageActor` whose `id` becomes the page's
+`authorId` — a real `users` table foreign key. `models/apiKeys.ts`'s `ApiKeyIdentity` has no such id:
+it is the API key row's own id, not a user's, and using it as `authorId` would either violate the FK
+or misattribute every MCP-created edit to whichever human happens to hold the shared instance key.
+There is no service/system-user account concept in this schema to attribute an agent-driven write to
+instead. Reads have no such problem — `search`/`tree`/`pages.getPage()` take a permission actor
+(`groupIds` + `permissions`), not an author — so they were unaffected by this gap. The work package's
+own text anticipated this exact call: "read-only is an acceptable and complete first-pass scope if
+write operations would compromise quality/safety under time pressure."
+
+**Why an instance-wide key instead of per-user tokens:** `feature/per-user-api-tokens` is a concurrent,
+unmerged item in this same batch, so there is no per-user credential to authenticate an MCP caller
+with yet. `mcp/auth.ts` instead reuses `models/apiKeys.ts`'s existing bearer-token mechanism as-is (the
+same one `/_api/` already authenticates with) — one key configured for the whole server process via
+`WIKI_MCP_API_KEY`. Concretely, since a bearer-token-only identity carries no session and therefore no
+group membership (`models/groups.ts`'s `groupIdsForRequest()` falls back to the guests group for
+exactly this reason, for every OTHER bearer-token caller in this codebase too — this is not new
+behavior introduced by MCP), every MCP tool call sees whatever the guests group's page rules allow,
+unless the configured key holds `manage:system`, which bypasses every page rule everywhere. This is
+documented at length on `McpAuthContext` in `mcp/auth.ts`, which is also the one place that changes
+once per-user tokens land: an MCP client would pass its caller's own token, and `actorFor()` would
+build the actor from that token's real group membership instead of falling back to guests. Nothing
+else in `mcp/` changes, since every tool already asks `checkAccess()`/`mayHoldPermissionSomewhere()`
+for the answer rather than assuming one.
+
+**Why stdio-only, and what "registered alongside the existing Fastify app" means here:** the work
+package asks for `backend/mcp/` to be a module registered alongside the existing Fastify app (simpler
+to land in one branch than a standalone service), while also asking for stdio transport at minimum.
+Those two are in tension: the stdio transport is a protocol contract requiring exclusive use of a
+process's own stdin/stdout, which cannot be shared with a running Fastify server whose own stdout
+already carries request logs (`core/logger.ts` writes through `console.log`). `mcp/stdio.ts` is
+therefore its own OS process (`node backend/mcp/stdio.ts`, the same convention as `node backend/tasks/
+migrate.ts`) — but it is not a standalone *service* in the sense the work package was contrasting
+against: it lives in the same `backend/` workspace, imports the same models/schema/db as the main app
+(`mcp/bootstrap.ts` is a trimmed `preBoot()`, modeled directly on `migration/bootstrap.ts`), and ships
+in the same package. An HTTP/SSE transport — left as explicit future work, per the work package's own
+"add HTTP/SSE only if time allows" — is what would let the MCP server actually run inside the Fastify
+process (mounted as a route the way `controllers/collab.ts`'s websocket upgrade is), the same shape
+`openproject-mcp` itself uses (`StreamableHTTPServerTransport`, one session per `Authorization: Bearer`
+token). That would also be the natural point to drop the guests-group fallback above in favor of a
+per-request token, once per-user tokens exist to carry.
+
+**Follow-up work this pass intentionally leaves open**, roughly in priority order: (1) per-user token
+auth once `feature/per-user-api-tokens` merges, replacing the guests-group fallback described above;
+(2) an HTTP/SSE transport mounted on the Fastify app, letting the MCP server run in-process and
+per-request-authenticated rather than as a separate keyed process; (3) write tools (`create_page`,
+`update_page`), once there is an actor shape an MCP call can legitimately author a page as.
+
+> **Update, same integration pass:** `feature/per-user-api-tokens` (#788) merged into this same
+> `integration/merge-review-2` branch immediately before this one, so follow-up item (1) above is now
+> unblocked in principle — `mcp/auth.ts`'s guests-group fallback still applies until `mcp/` is actually
+> updated to consult a per-user token, which did not happen as part of either branch. Left as a
+> concrete next task rather than done silently.

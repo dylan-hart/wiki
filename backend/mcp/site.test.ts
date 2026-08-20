@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict'
+import { after, before, test } from 'node:test'
+import { McpToolError } from './auth.ts'
+import { defaultLocale, resolveDefaultSiteId, resolveRequestedSite, resolveSite } from './site.ts'
+
+const SITE_A = { id: 'site-a', hostname: 'a.example.com', isEnabled: true, config: {} }
+const SITE_B = { id: 'site-b', hostname: 'b.example.com', isEnabled: true, config: {} }
+const SITE_DISABLED = { id: 'site-c', hostname: 'c.example.com', isEnabled: false, config: {} }
+
+let previousWiki: any
+
+function installSites(sites: Record<string, any>) {
+  ;(globalThis as any).WIKI = { sites }
+}
+
+before(() => {
+  previousWiki = (globalThis as any).WIKI
+})
+
+after(() => {
+  ;(globalThis as any).WIKI = previousWiki
+})
+
+test('resolveSite: returns the site when it exists and is enabled', () => {
+  installSites({ [SITE_A.id]: SITE_A })
+  assert.deepEqual(resolveSite('site-a'), SITE_A)
+})
+
+test('resolveSite: throws when the site does not exist', () => {
+  installSites({})
+  assert.throws(() => resolveSite('missing'), McpToolError)
+})
+
+test('resolveSite: throws when the site is disabled', () => {
+  installSites({ [SITE_DISABLED.id]: SITE_DISABLED })
+  assert.throws(() => resolveSite('site-c'), /disabled/)
+})
+
+test('defaultLocale: reads config.locales.primary', () => {
+  assert.equal(defaultLocale({ ...SITE_A, config: { locales: { primary: 'fr' } } }), 'fr')
+})
+
+test('defaultLocale: falls back to en when unset', () => {
+  assert.equal(defaultLocale({ ...SITE_A, config: {} }), 'en')
+})
+
+test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
+  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: 'site-b' }), 'site-b')
+})
+
+test('resolveDefaultSiteId: an unscoped key resolves to the sole enabled site', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_DISABLED.id]: SITE_DISABLED })
+  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null }), 'site-a')
+})
+
+test('resolveDefaultSiteId: an unscoped key resolves to nothing when several sites are enabled', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
+  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null }), null)
+})
+
+test('resolveRequestedSite: an explicit siteId wins over the default guess', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
+  assert.deepEqual(
+    resolveRequestedSite({ keyId: 'k', permissions: [], siteId: null }, 'site-b'),
+    SITE_B
+  )
+})
+
+test('resolveRequestedSite: refuses when neither an explicit siteId nor a default settles on one', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
+  assert.throws(
+    () => resolveRequestedSite({ keyId: 'k', permissions: [], siteId: null }),
+    /more than one site/
+  )
+})
+
+test('resolveRequestedSite: enforces the key site-pin even when an explicit siteId is given', () => {
+  installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
+  assert.throws(
+    () => resolveRequestedSite({ keyId: 'k', permissions: [], siteId: 'site-a' }, 'site-b'),
+    /not scoped/
+  )
+})
