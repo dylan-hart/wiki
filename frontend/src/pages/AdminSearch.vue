@@ -51,26 +51,18 @@
       keep their own hard `min-width: 300px` list under a separate, filed-but-not-yet-worked audit --
       don't "restore consistency" by reverting this).
 
-      A rigid `min-width: 300px` list beside a `flex-1 min-w-0` panel has no middle ground: the panel
-      shrinks to near nothing before the row ever wraps, since `min-w-0` lets it go almost to zero
-      first. Two changes fix that without any viewport-width breakpoint (the admin sidebar column
-      itself toggles at 1024px -- see `AdminLayout.vue`'s `isWideViewport` -- so a breakpoint on this
-      row would be reasoning about the wrong box: the CONTENT area's width, not the viewport's, is
-      what actually narrows here, and it does not track viewport width monotonically).
-
-      1. The list's width is now `clamp(300px, 42%, 380px)` -- a percentage of the row itself, so it
-         gives up some width as the row narrows instead of staying pinned at 300px+. The floor matches
-         the list's ORIGINAL fixed width (so it's never thinner than it used to be) and the ceiling
-         lets it grow past that at wide viewports, rather than both list and panel converging on the
-         old 300px as a shared cap.
-      2. The panel keeps `min-w-0` (still needed once it's on its own line, per the comment below) but
-         trades `flex-1`'s `0%` basis for `basis-[340px]`: flex-wrap decides whether to wrap based on
-         each item's flex-basis, not its shrunk size, so once the list's clamped width plus the
-         panel's 340px floor no longer fit the row, the panel wraps onto its own full-width line
-         instead of being squeezed thinner than that.
+      Straight 50/50: both sides are `flex: 1 1 50%`, so they always split the row evenly and shrink
+      together, with `min-width: 260px` on each as the point past which the row wraps to stacked
+      instead of squeezing either side's content (an icon + title + description per list row, or the
+      config form's own inputs) illegible. Earlier attempts at this (a rigid `min-width: 300px` list
+      beside a `flex-1` panel, then a `clamp()`-based list width) both left the list far narrower than
+      its original share of the row, which used to be the vast majority of the width -- there is no
+      viewport-width breakpoint here on purpose: the admin sidebar column itself toggles at 1024px (see
+      `AdminLayout.vue`'s `isWideViewport`), so the CONTENT area's width does not track viewport width
+      monotonically, and a breakpoint on this row would be reasoning about the wrong box.
     -->
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="flex-none" style="width: clamp(300px, 42%, 380px)">
+      <div class="min-w-0" style="flex: 1 1 50%; min-width: 260px">
         <w-card class="rounded bg-dark">
           <w-list padding dark>
             <w-item
@@ -94,7 +86,7 @@
         </w-card>
       </div>
       <!-- -> `min-w-0`, or a long value inside the panel would push it wider than the row -->
-      <div class="min-w-0 grow shrink basis-[340px]" v-if="selectedEngine">
+      <div class="min-w-0" style="flex: 1 1 50%; min-width: 260px" v-if="selectedEngine">
         <w-card class="pb-2">
           <w-card-header>
             {{ t('admin.search.engineConfig') }}
