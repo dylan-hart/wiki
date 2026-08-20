@@ -218,3 +218,53 @@ describe('commentProviders (definition loading)', () => {
     assert.match(caption, /not.*(?:implement|support)/i)
   })
 })
+
+/**
+ * OpenProject #831: `canonicalPageUrl` is the mandatory formula for the URL any future `codeTemplate`
+ * provider's embed identifies a page by — see the class doc comment's "Canonical URL boundary"
+ * section. No `WIKI` global needed: this is a pure method over its three string arguments.
+ */
+describe('commentProviders.canonicalPageUrl', () => {
+  test('joins protocol, hostname and page path into one absolute URL', async () => {
+    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
+    assert.equal(
+      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', 'docs/getting-started'),
+      'https://wiki.example.com/docs/getting-started'
+    )
+  })
+
+  test('carries a non-default port through from the hostname untouched', async () => {
+    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
+    assert.equal(
+      commentProvidersModel.canonicalPageUrl('http', 'wiki.example.com:3000', 'home'),
+      'http://wiki.example.com:3000/home'
+    )
+  })
+
+  test('reflects a reverse-proxy scheme/host pair rather than a raw internal one', async () => {
+    // -> Stands in for what `req.protocol`/`req.hostname` are under `trustProxy`: the proxy's public
+    //    scheme and host, not whatever this process's own listener sees. A canonical URL built from
+    //    the wrong pair here is requarks/wiki #2549/#2784's exact failure mode.
+    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
+    assert.equal(
+      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com:8443', 'docs/page'),
+      'https://wiki.example.com:8443/docs/page'
+    )
+  })
+
+  test('does not double a leading slash on the page path', async () => {
+    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
+    assert.equal(
+      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', '/docs/page'),
+      'https://wiki.example.com/docs/page'
+    )
+  })
+
+  test('the root page path produces the bare origin plus a trailing slash', async () => {
+    const { commentProviders: commentProvidersModel } = await import('./commentProviders.ts')
+    assert.equal(
+      commentProvidersModel.canonicalPageUrl('https', 'wiki.example.com', ''),
+      'https://wiki.example.com/'
+    )
+  })
+})

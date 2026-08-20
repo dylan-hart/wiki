@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
-import { parseModuleProps } from '../helpers/common.ts'
+import { parseModuleProps, requestOrigin } from '../helpers/common.ts'
 import { commentProviders as commentProvidersTable, sites as sitesTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 
@@ -104,6 +104,26 @@ export interface CommentProvider {
  * equivalent frontend-side `userStore.pagePermissions` check described in CLAUDE.md) and skip
  * emitting the embed script entirely when it is false** — not merely hide the resulting widget with
  * CSS, which would still have let the third-party script load and phone home first.
+ *
+ * ---
+ *
+ * **Canonical URL boundary — also binding on any future embed rendering (OpenProject #831).**
+ *
+ * Disqus and Commento both identify a page by a canonical URL handed to their embed script
+ * (`disqus_config.page.url`, Commento's `data-page-id`/current-URL detection) — get that URL wrong
+ * and the widget either refuses to load ("this page isn't registered") or loads the *wrong* page's
+ * thread. Two upstream reports (requarks/wiki #2549, #2784) both trace to the same cause: that URL
+ * was assembled somewhere other than the request that served the page, so it could silently drift
+ * from the site's real public address — behind a reverse proxy, on a non-default port, or just
+ * because an admin-typed "Site URL" setting went stale.
+ *
+ * `canonicalPageUrl()` below is the fix, and it is mandatory: **whatever future code renders a
+ * `codeTemplate` provider's embed must build the page URL it hands the vendor's script by calling
+ * `canonicalPageUrl(req.protocol, req.hostname, page.path)`, never by re-deriving `protocol://host`
+ * itself and never from a separately stored/configured URL.** `req.protocol`/`req.hostname` are
+ * already correct behind a reverse proxy and on a non-default port *as long as `security.trustProxy`
+ * is on* (see `requestOrigin`'s own doc comment in `helpers/common.ts`), so there is nothing left to
+ * get wrong once every caller goes through the one formula.
  */
 class CommentProviders {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -135,6 +155,22 @@ class CommentProviders {
     definition: Pick<CommentProviderDefinition, 'hasImplementation' | 'codeTemplate'>
   ): boolean {
     return definition.hasImplementation || definition.codeTemplate
+  }
+
+  /**
+   * The absolute URL of a page on this site, as it was actually reached — the value any
+   * `codeTemplate` provider's embed script must be given to identify the page. See the class doc
+   * comment's "Canonical URL boundary" section for why this must be the *only* way that URL is ever
+   * built.
+   *
+   * @param protocol `req.protocol`, verbatim
+   * @param hostname `req.hostname`, verbatim — already includes a non-default port, and already
+   *   honors `X-Forwarded-Host` behind a reverse proxy when `security.trustProxy` is on
+   * @param pagePath The page's own path, without a leading slash (as `models/pages.ts` stores it)
+   */
+  canonicalPageUrl(protocol: string, hostname: string, pagePath: string): string {
+    const normalizedPath = pagePath.replace(/^\/+/, '')
+    return `${requestOrigin(protocol, hostname)}/${normalizedPath}`
   }
 
   /**

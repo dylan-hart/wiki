@@ -130,6 +130,34 @@ export function stripPageExtension(urlPath: string, extensions?: string[] | null
   return urlPath.slice(0, dot)
 }
 
+/**
+ * The absolute origin (scheme + host, port included whenever the host itself carries one) a request
+ * actually arrived on.
+ *
+ * Deliberately just `${protocol}://${hostname}` — Fastify's own `req.protocol`/`req.hostname` are
+ * already the right values to pass in, *because* `security.trustProxy` (wired in `index.ts` as
+ * `trustProxy: WIKI.config.security.trustProxy`) is what makes Fastify read `X-Forwarded-Proto` /
+ * `X-Forwarded-Host` instead of the raw socket's own scheme/host when the instance sits behind a
+ * reverse proxy — and `X-Forwarded-Host` (like `Host` itself) already carries a non-default port when
+ * the browser's address bar does. So there is nothing left for this function to compute; its entire
+ * job is to be the *one* formula every caller uses, rather than each re-deriving `protocol://host`
+ * slightly differently.
+ *
+ * That "slightly differently" is exactly the failure mode this function exists to close off: two
+ * upstream Wiki.js reports (requarks/wiki #2549 — a Disqus "config error" — and #2784 — Commento
+ * "not loading on a page with a different URL") both traced back to the canonical/base URL an
+ * external comment embed was told to identify a page by having drifted from the site's real public
+ * URL, because it came from a second, independently-configured place (2.x's admin-typed "Site URL"
+ * setting) that nothing kept in sync with what the request was actually reached on. Passing
+ * `req.protocol`/`req.hostname` straight through — never a stored setting, never assembled by hand a
+ * second time — makes that drift structurally impossible: there is only one source, the request
+ * itself. `controllers/seo.ts`'s sitemap/robots.txt and `commentProviders.ts`'s `canonicalPageUrl`
+ * (for any future `codeTemplate` provider's embed) both go through this.
+ */
+export function requestOrigin(protocol: string, hostname: string): string {
+  return `${protocol}://${hostname}`
+}
+
 /** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }

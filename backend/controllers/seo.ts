@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { requestOrigin } from '../helpers/common.ts'
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -95,7 +96,7 @@ async function routes(app: FastifyInstance) {
       return reply.notFound()
     }
 
-    const sitemapUrl = `${req.protocol}://${req.hostname}/sitemap.xml`
+    const sitemapUrl = `${requestOrigin(req.protocol, req.hostname)}/sitemap.xml`
     return reply.type('text/plain; charset=utf-8').send(buildRobotsTxt(site.config, sitemapUrl))
   })
 
@@ -106,7 +107,7 @@ async function routes(app: FastifyInstance) {
     }
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
-    const baseUrl = `${req.protocol}://${req.hostname}`
+    const baseUrl = requestOrigin(req.protocol, req.hostname)
     return reply.type('application/xml; charset=utf-8').send(buildSitemapXml(baseUrl, pages))
   })
 }
