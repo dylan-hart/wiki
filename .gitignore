@@ -47,3 +47,6 @@ playwright-report/
 !/server/locales/en.json
 
 cloudflared.deb
+
+# Git Bash crash dumps (Windows)
+bash.exe.stackdump
