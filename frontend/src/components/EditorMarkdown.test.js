@@ -698,6 +698,39 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     expect(fakeModel.getValue()).toBe('Some text.')
   })
 
+  it('falls back when there are multiple cursors', async () => {
+    await mountEditor('- one\n- two')
+    fakeEditor.getSelections.mockReturnValueOnce([
+      { startLineNumber: 1, startColumn: 6, endLineNumber: 1, endColumn: 6, isEmpty: () => true },
+      { startLineNumber: 2, startColumn: 6, endLineNumber: 2, endColumn: 6, isEmpty: () => true }
+    ])
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+  })
+
+  it('falls back when the cursor has a non-empty selection', async () => {
+    await mountEditor('- one')
+    fakeEditor.getSelections.mockReturnValueOnce([
+      { startLineNumber: 1, startColumn: 3, endLineNumber: 1, endColumn: 6, isEmpty: () => false }
+    ])
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+  })
+
+  it('falls back when the cursor is positioned before the end of the marker', async () => {
+    await mountEditor('- one')
+    cursorPosition = { lineNumber: 1, column: 1 }
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+    expect(fakeModel.getValue()).toBe('- one')
+  })
+
   it('continues an unordered list item', async () => {
     await mountEditor('- one')
     cursorPosition = { lineNumber: 1, column: '- one'.length + 1 }

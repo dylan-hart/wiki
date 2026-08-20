@@ -1110,13 +1110,24 @@ function fallbackToDefaultEnter() {
 }
 
 function continueList() {
-  const selection = editor.getSelections()[0]
+  const selections = editor.getSelections()
+  if (selections.length !== 1 || !selections[0].isEmpty()) {
+    fallbackToDefaultEnter()
+    return
+  }
+
+  const selection = selections[0]
   const line = selection.startLineNumber
   const column = selection.startColumn
   const lineContent = editor.getModel().getLineContent(line)
   const detected = detectListMarker(lineContent)
 
-  if (!detected) {
+  // -> A regex match doesn't mean the CURSOR is past the marker -- Enter pressed ahead of or
+  //    inside the marker itself (e.g. column 1, before the leading whitespace) isn't
+  //    continuation. Without this guard the split below would duplicate the marker onto the line
+  //    it pushes down, since "text before the cursor" would be empty and "text at/after the
+  //    cursor" would be the whole original marker-and-content line.
+  if (!detected || column < detected.markerLength + 1) {
     fallbackToDefaultEnter()
     return
   }
