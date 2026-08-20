@@ -53,6 +53,21 @@
                 <w-badge v-if="submission.isStale" color="warning" rounded>
                   {{ t('inbox.reviewStale') }}
                 </w-badge>
+                <!--
+                  Only shown once a rule actually asks for more than one sign-off -- the ordinary
+                  single-approver case reads exactly as it always has, with no count anywhere.
+                -->
+                <w-badge
+                  v-if="submission.approvals?.approvalsRequired > 1"
+                  color="secondary"
+                  rounded>
+                  {{
+                    t('inbox.reviewApprovalProgress', {
+                      count: submission.approvals.approvalsCount,
+                      required: submission.approvals.approvalsRequired
+                    })
+                  }}
+                </w-badge>
                 <w-icon name="la:angle-right" color="grey" />
               </div>
             </w-item-section>
@@ -93,6 +108,14 @@
             </template>
           </div>
         </div>
+        <w-badge v-if="state.selected.approvals?.approvalsRequired > 1" color="secondary" rounded>
+          {{
+            t('inbox.reviewApprovalProgress', {
+              count: state.selected.approvals.approvalsCount,
+              required: state.selected.approvals.approvalsRequired
+            })
+          }}
+        </w-badge>
         <w-btn
           class="acrylic-btn"
           flat
@@ -443,10 +466,24 @@ function approveSubmission() {
       if (!resp?.ok) {
         throw new Error(resp?.message || 'An unexpected error occured.')
       }
-      notify({
-        type: 'positive',
-        message: t('inbox.reviewApproveSuccess')
-      })
+      // -> `finalized` is false the moment a rule asks for more than one sign-off and this reviewer
+      //    is not the last one in: the page was not written, so leaving with the ordinary "applied"
+      //    toast would be a straightforward lie. `finalized` defaults true for a server predating this
+      //    field, which is also right: no such server ever answered anything else.
+      if (resp.finalized === false) {
+        notify({
+          type: 'positive',
+          message: t('inbox.reviewApprovePending', {
+            count: resp.approvalsCount,
+            required: resp.approvalsRequired
+          })
+        })
+      } else {
+        notify({
+          type: 'positive',
+          message: t('inbox.reviewApproveSuccess')
+        })
+      }
       const target = backTarget()
       // -> Refreshed before leaving, so the queue behind is right whether or not that is where this
       //    goes; on the way to a page the reload is what the page's own review button will read

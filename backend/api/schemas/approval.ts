@@ -49,6 +49,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         }
       },
+      minApprovals: {
+        type: 'integer',
+        minimum: 1,
+        description:
+          'How many distinct reviewers must approve a submission this rule covers before it is written to the page. 1 is an ordinary single-approver sign-off.'
+      },
       createdAt: {
         type: 'string',
         format: 'date-time',
@@ -107,6 +113,25 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           name: { type: 'string' },
           email: { type: 'string' },
           isGuest: { type: 'boolean' }
+        }
+      },
+      approvals: {
+        type: 'object',
+        description: 'Where this submission stands against its covering rule’s approval threshold.',
+        properties: {
+          approvalsCount: {
+            type: 'integer',
+            description: 'How many distinct reviewers have approved it so far.'
+          },
+          approvalsRequired: {
+            type: 'integer',
+            description:
+              'How many are required before it is written to the page -- the strictest of every enabled rule covering it.'
+          },
+          hasApproved: {
+            type: 'boolean',
+            description: 'Whether the caller already cast their own approval towards that count.'
+          }
         }
       }
     }
@@ -175,6 +200,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           type: 'string',
           format: 'uuid'
         }
+      },
+      minApprovals: {
+        type: 'integer',
+        minimum: 1
       }
     }
   })

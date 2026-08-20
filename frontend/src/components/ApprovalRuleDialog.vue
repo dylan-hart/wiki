@@ -109,6 +109,23 @@
               lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
+        <w-item>
+          <blueprint-icon icon="user-groups" />
+          <w-item-section>
+            <w-input
+              v-model.number="state.minApprovals"
+              outlined
+              dense
+              type="number"
+              min="1"
+              step="1"
+              :rules="minApprovalsValidation"
+              hide-bottom-space
+              :label="t(`admin.approval.minApprovals`)"
+              :hint="t(`admin.approval.minApprovalsHint`)"
+              lazy-rules="ondemand" />
+          </w-item-section>
+        </w-item>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
@@ -180,6 +197,7 @@ const state = reactive({
   path: props.rule?.path ?? '',
   submitterGroups: [...(props.rule?.submitterGroups ?? [])],
   reviewerGroups: [...(props.rule?.reviewerGroups ?? [])],
+  minApprovals: props.rule?.minApprovals ?? 1,
   isLoading: false
 })
 
@@ -239,6 +257,10 @@ const pathValidation = [
 
 const groupsValidation = (message) => [(val) => (val ?? []).length > 0 || message]
 
+const minApprovalsValidation = [
+  (val) => (Number.isInteger(val) && val >= 1) || t('admin.approval.minApprovalsInvalid')
+]
+
 // METHODS
 
 async function save() {
@@ -256,7 +278,8 @@ async function save() {
       match: state.match,
       path: state.path.trim(),
       submitterGroups: state.submitterGroups,
-      reviewerGroups: state.reviewerGroups
+      reviewerGroups: state.reviewerGroups,
+      minApprovals: state.minApprovals
     }
     const resp = isEdit.value
       ? await API_CLIENT.put(`sites/${props.siteId}/approvals/rules/${props.rule.id}`, {

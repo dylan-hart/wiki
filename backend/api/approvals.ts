@@ -70,7 +70,11 @@ function reviewerFor(
     groupIds: WIKI.models.approvals.getActorGroupIds(req),
     reviewsAll:
       actor.permissions.includes('manage:system') ||
-      WIKI.models.groups.checkAccess(actor, 'review:pages', { ...(page ?? { path: '' }), siteId })
+      WIKI.models.groups.checkAccess(actor, 'review:pages', { ...(page ?? { path: '' }), siteId }),
+    // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
+    //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
+    //    is right either way.
+    viewerId: actorFrom(req)?.id
   }
 }
 
@@ -116,13 +120,15 @@ function validateRule({
   match,
   path,
   submitterGroups,
-  reviewerGroups
+  reviewerGroups,
+  minApprovals
 }: {
   name: string
   match: string
   path: string
   submitterGroups: string[]
   reviewerGroups: string[]
+  minApprovals: number
 }): CustomError | null {
   if (!name || name.trim().length < 1) {
     return new CustomError('approvalRuleEmptyName', 'A rule name is required.')
@@ -163,6 +169,12 @@ function validateRule({
     return new CustomError(
       'approvalRuleNoReviewers',
       'At least one group has to review submissions.'
+    )
+  }
+  if (!Number.isInteger(minApprovals) || minApprovals < 1) {
+    return new CustomError(
+      'approvalRuleInvalidMinApprovals',
+      'The number of required approvals must be a whole number of at least 1.'
     )
   }
   return null
@@ -301,7 +313,8 @@ async function routes(app: FastifyInstance) {
         match: req.body.match!,
         path: req.body.path!,
         submitterGroups: req.body.submitterGroups ?? [],
-        reviewerGroups: req.body.reviewerGroups ?? []
+        reviewerGroups: req.body.reviewerGroups ?? [],
+        minApprovals: req.body.minApprovals ?? 1
       })
       if (invalid) {
         throw invalid
@@ -384,7 +397,8 @@ async function routes(app: FastifyInstance) {
         match: req.body.match ?? current.match,
         path: req.body.path ?? current.path,
         submitterGroups: req.body.submitterGroups ?? current.submitterGroups,
-        reviewerGroups: req.body.reviewerGroups ?? current.reviewerGroups
+        reviewerGroups: req.body.reviewerGroups ?? current.reviewerGroups,
+        minApprovals: req.body.minApprovals ?? current.minApprovals
       })
       if (invalid) {
         throw invalid
@@ -543,9 +557,9 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/approvals/submissions/:submissionId/approve',
     {
       schema: {
-        summary: 'Approve an edit suggestion and write it to the page',
+        summary: 'Approve an edit suggestion, writing it to the page once enough reviewers have',
         description:
-          'Applies `content` when given — the reviewer may have adjusted the suggestion before accepting it — and what was submitted otherwise. Send `render` alongside it, as the editor does on any other save: the markdown pipeline lives in the client. Without it the server queues the page for rendering, which needs the Puppeteer extension and answers 503 without it; the page then serves its previous HTML until the queue reaches it. The page is re-indexed as it would be for any other edit, with the reviewer recorded as the author, and the suggestion is closed out.',
+          'Records this reviewer’s sign-off. If the covering rule’s `minApprovals` is 1 (the default) this writes the page immediately, exactly as a single-approver sign-off always has. With a higher threshold, every call up to the last only adds to the count — `finalized: false`, page untouched — and only the approve that reaches the threshold writes it (`finalized: true`); the same reviewer approving twice counts once. Applies `content` when given — the reviewer may have adjusted the suggestion before accepting it — and what was submitted otherwise; only the FINALIZING approve’s `content`/`render` are ever written. Send `render` alongside it, as the editor does on any other save: the markdown pipeline lives in the client. Without it the server queues the page for rendering, which needs the Puppeteer extension and answers 503 without it; the page then serves its previous HTML until the queue reaches it. Once finalized the page is re-indexed as it would be for any other edit, with this reviewer recorded as the author, and the suggestion is closed out.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -571,11 +585,18 @@ async function routes(app: FastifyInstance) {
         },
         response: {
           200: {
-            description: 'Suggestion approved',
+            description: 'Approval recorded; see `finalized` for whether it was also written',
             type: 'object',
             properties: {
               ok: { type: 'boolean' },
-              message: { type: 'string' }
+              message: { type: 'string' },
+              finalized: {
+                type: 'boolean',
+                description:
+                  'Whether this approval was the one that reached the threshold and wrote the page.'
+              },
+              approvalsCount: { type: 'integer' },
+              approvalsRequired: { type: 'integer' }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -618,7 +639,12 @@ async function routes(app: FastifyInstance) {
       }
       return {
         ok: true,
-        message: 'Edit suggestion approved.'
+        message: applied.finalized
+          ? 'Edit suggestion approved.'
+          : `Approval recorded (${applied.approvalsCount}/${applied.approvalsRequired}). Waiting on more reviewers.`,
+        finalized: applied.finalized,
+        approvalsCount: applied.approvalsCount,
+        approvalsRequired: applied.approvalsRequired
       }
     }
   )

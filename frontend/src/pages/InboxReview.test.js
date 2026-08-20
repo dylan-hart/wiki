@@ -236,6 +236,112 @@ describe('InboxReview approveSubmission / rejectSubmission not-found (404)', () 
   })
 })
 
+describe('InboxReview multi-approver threshold (OpenProject #828)', () => {
+  it('shows no approval-progress badge for an ordinary single-approver submission', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      // -> No `approvals` field at all, the shape an older server (or a fixture predating this
+      //    feature) would send -- the badge must stay hidden rather than throw on it
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+
+    const wrapper = await mountReview()
+
+    expect(wrapper.text()).not.toContain('inbox.reviewApprovalProgress')
+  })
+
+  it('shows the approval-progress badge once a rule asks for more than one reviewer', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return {
+        json: () =>
+          Promise.resolve(
+            submissionDetail({
+              approvals: { approvalsCount: 1, approvalsRequired: 2, hasApproved: true }
+            })
+          )
+      }
+    })
+
+    const wrapper = await mountReview()
+
+    expect(wrapper.text()).toContain('inbox.reviewApprovalProgress')
+  })
+
+  it('shows a pending toast, not the "applied" one, when the approve response is not finalized', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return {
+        json: () =>
+          Promise.resolve(
+            submissionDetail({
+              approvals: { approvalsCount: 1, approvalsRequired: 2, hasApproved: true }
+            })
+          )
+      }
+    })
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          finalized: false,
+          approvalsCount: 1,
+          approvalsRequired: 2
+        })
+    })
+
+    const wrapper = await mountReview()
+    const button = approveButton(wrapper)
+    expect(button).toBeTruthy()
+    await button.trigger('click')
+
+    const confirmDialog = openDialogs.at(-1)
+    expect(confirmDialog).toBeTruthy()
+    closeDialog(confirmDialog.id, true)
+    await flushPromises()
+
+    const lastNotification = notifyQueue.at(-1)
+    expect(lastNotification.type).toBe('positive')
+    // -> Not `inbox.reviewApproveSuccess`: the page was not written by this call, so that toast would
+    //    overclaim
+    expect(lastNotification.message).toBe('inbox.reviewApprovePending')
+  })
+
+  it('shows the ordinary "applied" toast when the approve response finalizes the submission', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (String(url).endsWith('/approvals/submissions')) {
+        return { json: () => Promise.resolve([]) }
+      }
+      return { json: () => Promise.resolve(submissionDetail()) }
+    })
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          finalized: true,
+          approvalsCount: 1,
+          approvalsRequired: 1
+        })
+    })
+
+    const wrapper = await mountReview()
+    const button = approveButton(wrapper)
+    await button.trigger('click')
+    const confirmDialog = openDialogs.at(-1)
+    closeDialog(confirmDialog.id, true)
+    await flushPromises()
+
+    const lastNotification = notifyQueue.at(-1)
+    expect(lastNotification.message).toBe('inbox.reviewApproveSuccess')
+  })
+})
+
 describe('InboxReview queue distinguishes same-page guest submissions', () => {
   it('tags colliding rows when two guests left the same blank name on the same page', async () => {
     API_CLIENT.get.mockImplementation((url) => {

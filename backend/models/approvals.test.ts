@@ -86,7 +86,12 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       actor
     })
 
-    assert.deepEqual(result, { ok: true })
+    assert.deepEqual(result, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 1,
+      approvalsRequired: 1
+    })
     const updated = await pagesModel.getPage({
       siteId: fixtures.siteId,
       id: page.id,
@@ -184,7 +189,12 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       render: '<p>First suggestion</p>',
       actor
     })
-    assert.deepEqual(approveFirst, { ok: true })
+    assert.deepEqual(approveFirst, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 1,
+      approvalsRequired: 1
+    })
 
     // -> `getReviewableSubmissions` joins the live page row every time it is called -- there is no
     //    cache sitting in front of it to miss, so this is what "without a manual queue refresh" means
@@ -206,6 +216,288 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
       actor
     })
     assert.deepEqual(approveSecond, { ok: false, reason: 'stale' })
+  })
+})
+
+/**
+ * OpenProject #828: multi-approver minimum-threshold support. `approveSubmission` used to write the
+ * page and close the submission out on the very first approve, whoever cast it -- a single-approver
+ * sign-off no matter how many reviewers a rule named. These pin the threshold behaviour a rule's
+ * `minApprovals` now adds: an approve short of the threshold only records a vote and leaves the page
+ * untouched, the same reviewer approving twice does not count as two different sign-offs, and the
+ * threshold enforced is the strictest of every enabled rule currently covering the page.
+ */
+describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let actor: PageActor
+  let reviewerBId: string
+  let reviewerCId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+    const [reviewerB] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'threshold-reviewer-b@example.com',
+        name: 'Threshold Reviewer B',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    reviewerBId = reviewerB!.id
+
+    const [reviewerC] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'threshold-reviewer-c@example.com',
+        name: 'Threshold Reviewer C',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    reviewerCId = reviewerC!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+  }
+
+  test('a rule requiring 2 approvals leaves the page untouched after the first, and writes it on the second from a different reviewer', async () => {
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'requires two',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/threshold/two',
+      submitterGroups: [],
+      reviewerGroups: [],
+      minApprovals: 2
+    })
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/threshold/two/page',
+        title: 'Threshold Two',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const firstApprove = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(firstApprove, {
+      ok: true,
+      finalized: false,
+      approvalsCount: 1,
+      approvalsRequired: 2
+    })
+
+    // -> Not written yet: only one of the two required approvals is in
+    const untouched = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(untouched!.content, 'Original content')
+
+    // -> Still in the queue, and shows progress towards the threshold
+    const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id,
+      viewerId: fixtures.userId
+    })
+    const pendingEntry = pending.find((s) => s.id === submission.id)
+    assert.ok(pendingEntry)
+    assert.deepEqual(pendingEntry!.approvals, {
+      approvalsCount: 1,
+      approvalsRequired: 2,
+      hasApproved: true
+    })
+
+    // -> A second, DIFFERENT reviewer reaches the threshold and their own content/render is what gets
+    //    written
+    const secondApprove = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Second reviewer content',
+      render: '<p>Second reviewer content</p>',
+      actor: { id: reviewerBId, permissions: ['manage:system'], groupIds: [] }
+    })
+    assert.deepEqual(secondApprove, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 2,
+      approvalsRequired: 2
+    })
+
+    const finalPage = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(finalPage!.content, 'Second reviewer content')
+
+    // -> Closed out: gone from the queue
+    const afterFinalize = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id
+    })
+    assert.equal(
+      afterFinalize.some((s) => s.id === submission.id),
+      false
+    )
+  })
+
+  test('the same reviewer approving twice counts once, and does not finalize a threshold of 2 on its own', async () => {
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'requires two, same reviewer twice',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/threshold/dedup',
+      submitterGroups: [],
+      reviewerGroups: [],
+      minApprovals: 2
+    })
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/threshold/dedup/page',
+        title: 'Threshold Dedup',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    // -> Same reviewer (`actor`) approving again must not be a second, different sign-off
+    const repeated = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.deepEqual(repeated, {
+      ok: true,
+      finalized: false,
+      approvalsCount: 1,
+      approvalsRequired: 2
+    })
+
+    const untouched = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(untouched!.content, 'Original content')
+  })
+
+  test('the threshold enforced is the strictest of every enabled rule currently matching the page', async () => {
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'lax',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/threshold/strictest',
+      submitterGroups: [],
+      reviewerGroups: [],
+      minApprovals: 1
+    })
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'strict',
+      isEnabled: true,
+      match: 'START',
+      path: 'approvals/threshold/strictest',
+      submitterGroups: [],
+      reviewerGroups: [],
+      minApprovals: 3
+    })
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/threshold/strictest/page',
+        title: 'Threshold Strictest',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: pageRef(page),
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    const first = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor
+    })
+    assert.equal(first.ok, true)
+    assert.equal((first as any).approvalsRequired, 3)
+    assert.equal((first as any).finalized, false)
+
+    await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor: { id: reviewerBId, permissions: ['manage:system'], groupIds: [] }
+    })
+    const third = await approvalsModel.approveSubmission({
+      siteId: fixtures.siteId,
+      submissionId: submission.id,
+      content: 'Suggested content',
+      render: '<p>Suggested content</p>',
+      actor: { id: reviewerCId, permissions: ['manage:system'], groupIds: [] }
+    })
+    assert.deepEqual(third, {
+      ok: true,
+      finalized: true,
+      approvalsCount: 3,
+      approvalsRequired: 3
+    })
   })
 })
 
