@@ -200,21 +200,34 @@ $sidebar-overlay-max: 1199.98px;
         `border-left` here would leave the straight run of the rail on the visual left in RTL while its
         own elbow had already swapped to the inline-start (visual right) edge -- the rule and its turn
         pointing at two different sides of the same row.
+
+        The SAME colour as `background-color` below, on purpose (not `padding-box` clipped, unlike the
+        background -- see that comment -- so the rail sits ON TOP of the wash rather than beside it,
+        compounding with its own parent's wash the same way the wash itself does). A rail is drawn once
+        per level, at that level's OWN edge, so a rail one level up (spanning everything under its
+        header, e.g. az-docs's own rail alongside "az-important" AND "Az Hello") reads as exactly that
+        level's shade -- the same colour "az-important"'s row itself carries, since az-important sits
+        directly inside az-docs's one wash. A rail one level deeper (az-important's own, spanning just
+        "Az Hello") compounds with the wash already behind it, reading as "Az Hello"'s own, twice-washed
+        shade. Dimming rather than highlighting: a rail used to be a flat translucent white regardless
+        of depth, which read as a highlight laid over the tree rather than a property OF it -- tying it
+        to the same wash the nesting itself already darkens by makes a rail's shade tell you which
+        level's group it belongs to, the same way the row colours already do.
       */
-      border-inline-start: 10px solid rgba(255, 255, 255, 0.25);
+      border-inline-start: 10px solid rgb(0 0 0 / 0.12);
       /*
         And a step DOWN from the sidebar rather than up, which is the one place this parts company with
         `NavEditOverlay`: there the nested rows lift off a near-black panel, here they sit in a coloured
-        one, and a lighter wash on a mid-tone blue reads as a highlight -- as if the whole group were
-        selected.
+        one, and this dims it -- one step darker per level nested, the same way file explorers and
+        editors shade a folder's contents relative to its siblings.
 
         A translucent black, not a colour: the sidebar's own is the site's to choose (`--q-sidebar`,
         rewritten at runtime for per-site theming), so anything fixed would be right for the default blue
         and wrong for every other site.
 
-        `padding-box` keeps that wash off the border area. The rule there is 25% white, and with the
-        default `border-box` clip the darkened wash behind it would leave the rule a different colour
-        along the children than at the elbow, which has nothing behind it.
+        `padding-box` keeps this wash off the border area -- the rail (above) draws its OWN, unclipped
+        copy of this same colour there instead, which is what lets the two compound into progressively
+        darker shades with depth rather than the wash silently doubling up under the rail on top of it.
       */
       background-color: rgb(0 0 0 / 0.12);
       background-clip: padding-box;
@@ -247,8 +260,10 @@ $sidebar-overlay-max: 1199.98px;
         border-inline-start-width: 0;
         border-block-start-color: transparent;
         border-inline-end-color: transparent;
-        border-block-end-color: rgba(255, 255, 255, 0.25);
-        border-inline-start-color: rgba(255, 255, 255, 0.25);
+        /* -> Same colour as the rail above, for the same reason: this elbow is this level's own
+                turn into it, so it carries this level's own shade, not a fixed one. */
+        border-block-end-color: rgb(0 0 0 / 0.12);
+        border-inline-start-color: rgb(0 0 0 / 0.12);
       }
     }
   }
