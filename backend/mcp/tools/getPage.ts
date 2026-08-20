@@ -1,0 +1,109 @@
+import { z } from 'zod'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+import { generatePathHash, normalizePagePath } from '../../helpers/common.ts'
+import { actorFor, McpToolError, type McpAuthContext } from '../auth.ts'
+import { resolveRequestedSite } from '../site.ts'
+
+const getPageInputSchema = {
+  path: z.string().describe('Slash-separated path of the page to read. The home page when empty.'),
+  siteId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      'Which site to read from. Omit on a single-site instance; see `list_sites` otherwise.'
+    ),
+  locale: z.string().optional().describe("The site's primary locale when omitted."),
+  includeSource: z
+    .boolean()
+    .optional()
+    .describe('Also return the page source (markdown/etc.), not just its rendered HTML.')
+}
+
+export interface GetPageArgs {
+  path: string
+  siteId?: string
+  locale?: string
+  includeSource?: boolean
+}
+
+function toResult(payload: unknown): CallToolResult {
+  return { content: [{ type: 'text', text: JSON.stringify(payload) }] }
+}
+
+/**
+ * Read a single page by path, restricted to what the configured key may actually read. Mirrors
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`): `read:pages` gates the page at all,
+ * `read:source` gates the raw source on top of that, and a password-protected page comes back with
+ * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it.
+ *
+ * `includeSource` is honored best-effort: asked for without `read:source` on the page, the call still
+ * succeeds and returns everything else, with `sourceOmitted: true` explaining why — refusing the whole
+ * read over a permission gap on one field it didn't strictly need would be a worse answer for an agent
+ * that mostly wants the rendered content.
+ */
+export async function handleGetPage(
+  ctx: McpAuthContext,
+  args: GetPageArgs
+): Promise<CallToolResult> {
+  const site = resolveRequestedSite(ctx, args.siteId)
+  const actor = actorFor(ctx)
+  const path = normalizePagePath(args.path)
+
+  const page = await WIKI.models.pages.getPage({
+    siteId: site.id,
+    hash: generatePathHash(path || 'home'),
+    locale: args.locale,
+    withContent: Boolean(args.includeSource),
+    publicOnly: false,
+    // -> Whoever may write or manage the page is not stopped by its own password
+    unlocked: (unlockRef) =>
+      WIKI.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
+      WIKI.models.groups.checkAccess(actor, 'manage:pages', { ...unlockRef, siteId: site.id }),
+    withPassword: false
+  })
+
+  if (!page) {
+    throw new McpToolError('This page does not exist.')
+  }
+  // -> Not readable is indistinguishable from not there, same as `loadReadablePage()` in `api/pages.ts`
+  if (!WIKI.models.groups.checkAccess(actor, 'read:pages', { ...page, siteId: site.id })) {
+    throw new McpToolError('This page does not exist.')
+  }
+
+  const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+    ...page,
+    siteId: site.id
+  })
+  const includeSource = Boolean(args.includeSource) && !page.isLocked && maySeeSource
+
+  return toResult({
+    id: page.id,
+    path: page.path,
+    locale: page.locale,
+    title: page.title,
+    description: page.description,
+    icon: page.icon,
+    tags: page.tags,
+    publishState: page.publishState,
+    isLocked: page.isLocked,
+    updatedAt: page.updatedAt,
+    // -> Already withheld by `getPage()` itself when `isLocked` (see `toPage()`'s `locked` handling)
+    render: page.render,
+    content: includeSource ? page.content : undefined,
+    sourceOmitted: Boolean(args.includeSource) && !includeSource
+  })
+}
+
+export function registerGetPageTool(server: McpServer, ctx: McpAuthContext): void {
+  server.registerTool(
+    'get_page',
+    {
+      description:
+        'Read a single wiki page by path: its rendered content plus metadata, and optionally its raw source.',
+      inputSchema: getPageInputSchema
+    },
+    (args) => handleGetPage(ctx, args)
+  )
+}

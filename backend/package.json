@@ -29,6 +29,7 @@
     "dev": "cd .. && nodemon backend --watch backend --ext js,ts,json",
     "migrate": "cd .. && node backend/tasks/migrate.ts",
     "verify-migration": "cd .. && node backend/tasks/verify-migration.ts",
+    "mcp": "cd .. && node backend/mcp/stdio.ts",
     "typecheck": "tsc",
     "typecheck:watch": "tsc --watch",
     "test": "node --test '**/*.test.ts'",
@@ -60,6 +61,7 @@
     "@google-cloud/storage": "8.0.0",
     "@gquittet/graceful-server": "6.0.10",
     "@iconify/utils": "3.1.4",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@node-saml/node-saml": "5.1.0",
     "@simplewebauthn/server": "13.3.2",
     "acorn": "8.18.0",
@@ -103,7 +105,8 @@
     "tar-stream": "3.2.0",
     "uuid": "14.0.1",
     "y-protocols": "1.0.7",
-    "yjs": "13.6.32"
+    "yjs": "13.6.32",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@js-temporal/polyfill": "0.5.1",

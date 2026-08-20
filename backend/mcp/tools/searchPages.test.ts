@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict'
+import { after, before, test } from 'node:test'
+import { McpToolError } from '../auth.ts'
+import { handleSearchPages } from './searchPages.ts'
+
+const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
+const SITE_ID = 'site-a'
+
+let previousWiki: any
+let queryCalls: any[]
+
+before(() => {
+  previousWiki = (globalThis as any).WIKI
+})
+
+function install({ permissions = [] as string[] } = {}) {
+  queryCalls = []
+  ;(globalThis as any).WIKI = {
+    data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
+    sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
+    models: {
+      groups: {
+        mayHoldPermissionSomewhere: (actor: any, perms: string[]) =>
+          actor.permissions.includes('manage:system') ||
+          perms.some((p: string) => actor.permissions.includes(p))
+      },
+      search: {
+        query: async (params: any) => {
+          queryCalls.push(params)
+          return { results: [], totalHits: 0, suggestion: null }
+        }
+      }
+    }
+  }
+  return { keyId: 'key-1', permissions, siteId: null as string | null }
+}
+
+after(() => {
+  ;(globalThis as any).WIKI = previousWiki
+})
+
+test('handleSearchPages: forwards query/locale/tags/limit and the actor to search.query', async () => {
+  const ctx = install()
+  await handleSearchPages(ctx, {
+    query: 'onboarding',
+    siteId: SITE_ID,
+    locale: 'en',
+    tags: ['hr'],
+    limit: 5
+  })
+  assert.equal(queryCalls.length, 1)
+  const call = queryCalls[0]
+  assert.equal(call.siteId, SITE_ID)
+  assert.equal(call.query, 'onboarding')
+  assert.deepEqual(call.locales, ['en'])
+  assert.deepEqual(call.tags, ['hr'])
+  assert.equal(call.limit, 5)
+  assert.deepEqual(call.actor, { groupIds: [GUEST_GROUP_ID], permissions: [] })
+})
+
+test('handleSearchPages: a caller with no write:pages/manage:pages hides drafts and protected excerpts', async () => {
+  const ctx = install({ permissions: [] })
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].includeDrafts, false)
+  assert.equal(queryCalls[0].hideProtectedContent, true)
+})
+
+test('handleSearchPages: a caller holding write:pages sees drafts and protected excerpts', async () => {
+  const ctx = install({ permissions: ['write:pages'] })
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].includeDrafts, true)
+  assert.equal(queryCalls[0].hideProtectedContent, false)
+})
+
+test('handleSearchPages: defaults limit to 20 when omitted', async () => {
+  const ctx = install()
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].limit, 20)
+})
+
+test('handleSearchPages: refuses a site the configured key is not scoped to', async () => {
+  const ctx = install()
+  ctx.siteId = 'some-other-site'
+  await assert.rejects(() => handleSearchPages(ctx, { query: 'x', siteId: SITE_ID }), McpToolError)
+  assert.equal(queryCalls.length, 0)
+})
+
+test('handleSearchPages: refuses an unknown site', async () => {
+  const ctx = install()
+  await assert.rejects(() => handleSearchPages(ctx, { query: 'x', siteId: 'nope' }), McpToolError)
+})
