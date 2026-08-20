@@ -73,6 +73,29 @@ describe('buildOidcConfig', () => {
     assert.equal(config.scopes, 'openid profile email')
     assert.equal(config.emailClaim, undefined)
   })
+
+  /**
+   * No `OidcPresetTemplate` field fixes group-claim mapping — it is always an admin choice — so
+   * `mapGroups`/`groupsClaim`/`groupsScope` pass through untouched for every branded preset (Auth0,
+   * Okta, Microsoft, Keycloak, GitLab, Twitch, Slack all build on this same merge). This is the single
+   * point that guarantees the mapping behaves identically across all of them: see OpenProject #826,
+   * and `oidc/authentication.test.ts`'s `mapOidcProfile` suite for the mapping logic itself.
+   */
+  test('mapGroups/groupsClaim/groupsScope are never fixed by a template — every preset gets whatever the admin configured', () => {
+    const config = buildOidcConfig(
+      { issuer: () => 'https://issuer.example' },
+      {
+        clientId: 'abc',
+        clientSecret: 'xyz',
+        mapGroups: true,
+        groupsClaim: 'roles',
+        groupsScope: 'groups'
+      }
+    )
+    assert.equal(config.mapGroups, true)
+    assert.equal(config.groupsClaim, 'roles')
+    assert.equal(config.groupsScope, 'groups')
+  })
 })
 
 describe('OidcPreset', () => {

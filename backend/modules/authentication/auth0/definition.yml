@@ -30,6 +30,31 @@ props:
     icon: password
     sensitive: true
     order: 3
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: user-groups
+    default: false
+    order: 4
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which claim carries the user's group memberships. Auth0 reports no such claim by default — add an Action on the Login flow that sets a custom claim (e.g. `https://yourapp.example/groups`) from `event.authorization.roles` or the user's `app_metadata`, and name it here.
+    icon: user-groups
+    default: 'groups'
+    order: 5
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the Action above gates the claim behind one. Auth0's own claim-injecting Actions typically need none.
+    icon: rules
+    default: ''
+    order: 6
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: Allowed Callback URL

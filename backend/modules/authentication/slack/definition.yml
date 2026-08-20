@@ -32,6 +32,31 @@ props:
       and a member already signed into it skips the consent screen.
     icon: user-groups
     order: 3
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups). Slack's OIDC userinfo carries no group/role claim of its own, so leave this off unless a custom Slack app is adding one.
+    icon: user-groups
+    default: false
+    order: 4
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which claim carries the user's group memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 5
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to request in addition to the fixed ones this preset already sends, if the claim above needs one.
+    icon: rules
+    default: ''
+    order: 6
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: Redirect URL

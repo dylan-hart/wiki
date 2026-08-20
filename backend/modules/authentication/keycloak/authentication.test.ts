@@ -80,6 +80,29 @@ describe('KeycloakAuthentication', () => {
       profileMock.mock.restore()
     }
   })
+
+  /**
+   * This is the WP's own worked example: upstream's dedicated Keycloak strategy had no group-claim
+   * mapping at all, unlike its Generic OpenID Connect strategy (OpenProject #826). This fork closes
+   * that gap by routing Keycloak through the same `OidcAuthentication`/`mapOidcProfile` every other
+   * OIDC preset uses, rather than special-casing it — so the fields simply pass through, same as any
+   * other preset.
+   */
+  test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged, closing the gap Task/OpenProject #826 called out for Keycloak specifically', () => {
+    const kc = new KeycloakAuthentication('strategy-1', {
+      baseUrl: 'https://sso.example.com',
+      realm: 'wiki',
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      mapGroups: true,
+      groupsClaim: 'groups',
+      groupsScope: 'groups'
+    })
+    const inner = (kc as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(inner.conf.mapGroups, true)
+    assert.equal(inner.conf.groupsClaim, 'groups')
+    assert.equal(inner.conf.groupsScope, 'groups')
+  })
 })
 
 describe('keycloak/definition.yml', () => {
@@ -103,6 +126,13 @@ describe('keycloak/definition.yml', () => {
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
     assert.equal(def.props.clientSecret.sensitive, true)
+  })
+
+  test('declares mapGroups/groupsClaim/groupsScope props for group-claim mapping (OpenProject #826), defaulting groupsScope to the realm\'s well-known "groups" client scope', () => {
+    assert.ok(def.props.mapGroups, 'expected a mapGroups prop')
+    assert.ok(def.props.groupsClaim, 'expected a groupsClaim prop')
+    assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
+    assert.equal(def.props.groupsScope.default, 'groups')
   })
 
   test('the baseUrl hint says plainly that this is the self-hosted preset', () => {

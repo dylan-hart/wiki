@@ -1,5 +1,13 @@
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
+/** A userinfo field value as a plain OAuth2 provider reports it: one value, several, or neither. */
+function asStringArray(value: unknown): string[] {
+  if (value === undefined || value === null) {
+    return []
+  }
+  return (Array.isArray(value) ? value : [value]).map((v) => `${v}`)
+}
+
 /**
  * Generic OAuth2
  *
@@ -59,11 +67,32 @@ export default class OAuth2Authentication {
     url.searchParams.set('client_id', this.conf.clientId)
     url.searchParams.set('redirect_uri', redirectUri)
     // -> Omitted rather than sent empty: an admin who configured no scope gets the provider's default.
-    if (this.conf.scope) {
-      url.searchParams.set('scope', this.conf.scope)
+    const scope = this.effectiveScope()
+    if (scope) {
+      url.searchParams.set('scope', scope)
     }
     url.searchParams.set('state', state)
     return url.toString()
+  }
+
+  /**
+   * The scope string actually requested: `conf.scope` (a fixed value for a preset like
+   * `discord/authentication.ts`, an admin-entered one for the bare module), plus — when `mapGroups` is
+   * on and `groupsScope` names one not already present — whatever scope the provider needs before a
+   * group/role field shows up in the userinfo response at all. Mirrors
+   * `oidc/authentication.ts`'s `effectiveScope()`; see its comment for why there is no universal
+   * default to assume here (OpenProject #826).
+   */
+  protected effectiveScope(): string | undefined {
+    const base: string | undefined = this.conf.scope
+    if (!this.conf.mapGroups || !this.conf.groupsScope) {
+      return base
+    }
+    if (!base) {
+      return this.conf.groupsScope
+    }
+    const requested = base.split(/\s+/).filter(Boolean)
+    return requested.includes(this.conf.groupsScope) ? base : `${base} ${this.conf.groupsScope}`
   }
 
   /** POST the authorization code to `tokenURL` and return the access token. */
@@ -131,7 +160,13 @@ export default class OAuth2Authentication {
     return {
       id: String(id),
       email,
-      name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email
+      name: (info[this.conf.displayNameClaim || 'displayName'] as string) || email,
+      // -> `undefined` (module did not look) versus `[]` (looked, provider reported none) matters to
+      //    `syncProviderGroups()` — see `ProviderProfile.groups`'s own doc comment — so the key itself
+      //    is only ever present when `mapGroups` is on, never set to `undefined`.
+      ...(this.conf.mapGroups
+        ? { groups: asStringArray(info[this.conf.groupsClaim || 'groups']) }
+        : {})
     }
   }
 

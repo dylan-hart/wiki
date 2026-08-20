@@ -88,6 +88,31 @@ props:
     hint: (optional) Where to send a user after logging out, so that the session at the provider ends too.
     icon: exit
     order: 12
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: user-groups
+    default: false
+    order: 13
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which claim carries the user's group memberships.
+    icon: user-groups
+    default: 'groups'
+    order: 14
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to add to Scopes above if it isn't already there, for a provider that only includes group membership when it is explicitly requested (Okta and Keycloak both gate it behind a scope literally named `groups`). Leave empty if the provider needs none.
+    icon: rules
+    default: ''
+    order: 15
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: Authorization Callback URL

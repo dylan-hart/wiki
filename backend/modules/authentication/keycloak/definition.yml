@@ -36,6 +36,31 @@ props:
     icon: password
     sensitive: true
     order: 4
+  mapGroups:
+    type: Boolean
+    title: Map Groups
+    hint: Reconcile a user's wiki groups with the claim reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    icon: user-groups
+    default: false
+    order: 5
+  groupsClaim:
+    type: String
+    title: Groups Claim
+    hint: Which claim carries the user's group memberships. Requires the realm's `groups` client scope assigned to this client, with a group-membership mapper enabled on it.
+    icon: user-groups
+    default: 'groups'
+    order: 6
+    if:
+      - { key: 'mapGroups', eq: true }
+  groupsScope:
+    type: String
+    title: Groups Scope
+    hint: (optional) A scope to request in addition to the fixed ones this preset already sends. Keycloak's own `groups` client scope, when added as optional rather than default, has to be requested by name before the claim above is populated.
+    icon: rules
+    default: 'groups'
+    order: 7
+    if:
+      - { key: 'mapGroups', eq: true }
 refs:
   callbackUrl:
     title: Valid Redirect URI
