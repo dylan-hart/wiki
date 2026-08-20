@@ -3,11 +3,11 @@
     <w-card style="min-width: 350px">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-unavailable.svg" size="sm" class="mr-2" />
-        <span>{{ t(`admin.api.revokeConfirm`) }}</span>
+        <span>{{ t(`${labelPrefix}.revokeConfirm`) }}</span>
       </w-card-section>
       <w-card-section>
         <div class="text-body2">
-          <i18n-t keypath="admin.api.revokeConfirmText">
+          <i18n-t :keypath="`${labelPrefix}.revokeConfirmText`">
             <template #name>
               <strong>{{ apiKey.name }}</strong>
             </template>
@@ -25,7 +25,7 @@
           @click="onDialogCancel" />
         <w-btn
           unelevated
-          :label="t(`admin.api.revoke`)"
+          :label="t(`${labelPrefix}.revoke`)"
           color="negative"
           padding="xs md"
           :loading="state.isLoading"
@@ -49,6 +49,20 @@ const props = defineProps({
   apiKey: {
     type: Object,
     required: true
+  },
+  // -> Which REST resource to revoke against: the admin listing (`api-keys`, every key) or the
+  //    self-service one (`users/profile/api-keys`, the caller's own personal tokens only) —
+  //    `ProfileApi.vue` passes the latter. Same dialog either way; only the endpoint differs.
+  endpoint: {
+    type: String,
+    default: 'api-keys'
+  },
+  // -> `admin.api.*` for the admin listing, `profile.api.*` for the self-service one — the two
+  //    string sets say the same things ("Revoke", "Revoke API Key?", ...) under different i18n
+  //    namespaces, since a personal token isn't an admin's "API Key" to the reader holding it.
+  labelPrefix: {
+    type: String,
+    default: 'admin.api'
   }
 })
 
@@ -75,13 +89,13 @@ const state = reactive({
 async function confirm() {
   state.isLoading = true
   try {
-    const resp = await API_CLIENT.post(`api-keys/${props.apiKey.id}/revoke`).json()
+    const resp = await API_CLIENT.post(`${props.endpoint}/${props.apiKey.id}/revoke`).json()
     if (!resp?.ok) {
       throw new Error(resp?.message || 'An unexpected error occured.')
     }
     notify({
       type: 'positive',
-      message: t('admin.api.revokeSuccess')
+      message: t(`${props.labelPrefix}.revokeSuccess`)
     })
     onDialogOK()
   } catch (err) {

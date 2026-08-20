@@ -173,8 +173,19 @@ class Groups {
    * An anonymous request is not group-less: it is the guests group, whose rules are how a wiki says
    * what the public may see. Treating it as no groups at all would deny everything, which is a
    * different answer from the one the administrator configured.
+   *
+   * A verified API key carries its own `groupIds` (`ApiKeyIdentity`, `models/apiKeys.ts`) — an
+   * admin-issued key's own `groups`, or a personal token owner's CURRENT groups, resolved live at
+   * verification time — and is checked first. Before this, an API-key-authenticated request fell
+   * through to the `session` branch (never true for one), landing on the guests-group fallback below
+   * regardless of what groups the key actually carried: every page-rule check `checkAccess()`/
+   * `mayOnPage()` makes for an API key was silently deciding against the PUBLIC's rules rather than
+   * the key's own.
    */
   groupIdsForRequest(req: FastifyRequest): string[] {
+    if (req.apiKey) {
+      return req.apiKey.groupIds
+    }
     if (req.session?.authenticated && req.session.user?.id) {
       return req.session.groups ?? []
     }

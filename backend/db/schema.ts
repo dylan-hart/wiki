@@ -60,12 +60,25 @@ export const apiKeys = pgTable(
     //    actually addressed to is a follow-up (Epic 11, Multi-Site Platform) — this column and the
     //    claim it is signed into only carry the data.
     siteId: uuid().references(() => sites.id),
+    // -> Non-null makes this a personal access token: created by and acting as this user, rather than
+    //    an admin-issued key carrying `groups` above. A personal token's permissions are never read
+    //    from `groups` (left `[]` for these rows) or snapshotted at creation — `models/apiKeys.ts`'s
+    //    `verify()` resolves them live from the user's CURRENT group membership on every request, the
+    //    same "no waiting for a re-login" guarantee a session already gets (see `groups.reloadCache`'s
+    //    own comment). `onDelete: 'cascade'`, unlike every other `authorId`-shaped column in this
+    //    schema that goes `set null`: a personal token has no meaning once its owner is gone -- it is a
+    //    credential for acting AS that account, not a record of something that already happened, so
+    //    there is no audit trail reason to keep the row around orphaned.
+    userId: uuid().references(() => users.id, { onDelete: 'cascade' }),
     expiration: timestamp().notNull().defaultNow(),
     isRevoked: boolean().notNull().default(false),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow()
   },
-  (table) => [index('apiKeys_siteId_idx').on(table.siteId)]
+  (table) => [
+    index('apiKeys_siteId_idx').on(table.siteId),
+    index('apiKeys_userId_idx').on(table.userId)
+  ]
 )
 
 // APPROVAL RULES ----------------------

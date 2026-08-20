@@ -60,13 +60,24 @@ const pageIdParam = {
 /**
  * Who is saving, and what they may embed.
  *
- * A page records an author, so it takes a logged in user rather than an API key — and the author's
- * permissions are what the render is sanitized against. `write:scripts`/`write:styles` are
- * page-rule-scoped (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is
- * what `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()`
- * does here.
+ * A page records an author, so this takes a real user — a session, or a personal access token
+ * (`req.apiKey.userId` set), which acts as its owner for exactly this reason (see the design decision
+ * in `models/apiKeys.ts`'s doc comment). An admin-issued key has no user behind it to attribute a page
+ * to, so it still resolves to `null` here exactly as before — unchanged, not a regression: minting one
+ * never granted page-saving either, since this returned `null` for every API key until personal
+ * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
+ * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
+ * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
+ * here.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
+  if (req.apiKey?.userId) {
+    return {
+      id: req.apiKey.userId,
+      permissions: req.apiKey.permissions,
+      groupIds: req.apiKey.groupIds
+    }
+  }
   if (!req.session?.authenticated || !req.session.user?.id) {
     return null
   }

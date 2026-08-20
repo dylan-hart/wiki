@@ -140,6 +140,11 @@ const sidenav = [
     icon: 'la:users'
   },
   {
+    key: 'api',
+    label: t('profile.api.title'),
+    icon: 'la:key'
+  },
+  {
     key: 'notifications',
     label: t('profile.notifications'),
     icon: 'la:bell',

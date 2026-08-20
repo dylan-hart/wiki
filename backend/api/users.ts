@@ -2,6 +2,7 @@ import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { UserPatch, UserProfilePatch } from '../models/users.ts'
+import type { KeyExpiration } from '../models/apiKeys.ts'
 
 interface UserUpdateBody {
   name?: string
@@ -546,6 +547,200 @@ async function routes(app: FastifyInstance) {
         return reply.unauthorized()
       }
       return WIKI.models.users.getUserGroups(userId)
+    }
+  )
+
+  /**
+   * LIST OWN PERSONAL ACCESS TOKENS
+   *
+   * Self-service, mirroring `GET /api-keys` but scoped to `WHERE userId = <this session>` — a regular
+   * user has no `manage:system`, so it cannot reach the admin listing. See `models/apiKeys.ts`'s doc
+   * comment for what makes a personal token different from an admin-issued key.
+   */
+  app.get(
+    '/profile/api-keys',
+    {
+      schema: {
+        summary: "List the logged in user's own personal access tokens",
+        description:
+          'Revoked and expired tokens are listed too, so the profile page can show their state — same as the admin listing.',
+        tags: ['Users'],
+        response: {
+          200: {
+            description: 'List of personal access tokens',
+            type: 'array',
+            items: { $ref: 'ApiKey#' }
+          },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      reply.preventCache()
+      const userId = sessionUserId(req)
+      if (!userId) {
+        return reply.unauthorized()
+      }
+      return WIKI.models.apiKeys.listKeysForUser(userId)
+    }
+  )
+
+  /**
+   * CREATE OWN PERSONAL ACCESS TOKEN
+   *
+   * No `groups` field, unlike the admin-issued form: a personal token always carries exactly the
+   * creating user's own current permissions, resolved live on every request rather than picked here —
+   * see `models/apiKeys.ts`'s doc comment for why. `scope` can still narrow it, and `siteId` still pin
+   * it, exactly like an admin-issued key (Feature 395).
+   */
+  app.post<{
+    Body: {
+      name: string
+      expiration: KeyExpiration
+      scope?: string[] | null
+      siteId?: string | null
+    }
+  }>(
+    '/profile/api-keys',
+    {
+      schema: {
+        summary: 'Create a new personal access token',
+        description:
+          "The response carries the token, which is the only time it can be read: only its last characters are stored. The token holds exactly the creating user's own current permissions, revalidated live on every request — not a snapshot of them at creation — narrowed to `scope` when one is given.",
+        tags: ['Users'],
+        body: {
+          type: 'object',
+          required: ['name', 'expiration'],
+          properties: {
+            name: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 255,
+              description: 'What the token is for.'
+            },
+            expiration: { $ref: 'ApiKeyExpiration#' },
+            scope: {
+              type: ['array', 'null'],
+              default: null,
+              description:
+                'An explicit permission allow-list to narrow the token to. Omit or pass null for no narrowing — the token then carries the full extent of your own current permissions. Can only narrow: a permission here you do not hold still grants nothing.',
+              items: { $ref: 'ApiKeyScopePermission#' }
+            },
+            siteId: {
+              type: ['string', 'null'],
+              format: 'uuid',
+              default: null,
+              description:
+                'The single site to pin the token to, or null for instance-wide (every site you can already reach).'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Personal access token created successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              id: { type: 'string', format: 'uuid' },
+              key: {
+                type: 'string',
+                description: 'The token. Shown once and never again.'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+      if (!userId) {
+        return reply.unauthorized()
+      }
+      if (!/^[^<>"]+$/.test(req.body.name)) {
+        return reply.badRequest('Token name contains invalid characters.')
+      }
+      // -> null pins nothing (instance-wide); any other value must name a real site, same check the
+      //    admin-issued route makes
+      if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
+        return reply.badRequest('This site does not exist.')
+      }
+
+      const { id, key } = await WIKI.models.apiKeys.createKey({
+        name: req.body.name,
+        expiration: req.body.expiration,
+        scope: req.body.scope ?? null,
+        siteId: req.body.siteId ?? null,
+        userId
+      })
+
+      return {
+        ok: true,
+        message: 'Personal access token created successfully.',
+        id,
+        key
+      }
+    }
+  )
+
+  /**
+   * REVOKE OWN PERSONAL ACCESS TOKEN
+   *
+   * `revokeKeyForUser` scopes the update to `WHERE userId = <this session>`, so a keyId belonging to
+   * someone else — or to an admin-issued key with no owner — comes back 404, the same answer as a
+   * keyId that does not exist at all. Nothing here can revoke another user's token or an admin key.
+   */
+  app.post<{ Params: { keyId: string } }>(
+    '/profile/api-keys/:keyId/revoke',
+    {
+      schema: {
+        summary: "Revoke one of the logged in user's own personal access tokens",
+        description:
+          'Permanent: the token stays listed as revoked and stops authenticating on the next request.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            keyId: { type: 'string', format: 'uuid' }
+          },
+          required: ['keyId']
+        },
+        response: {
+          200: {
+            description: 'Personal access token revoked successfully',
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' },
+          409: { $ref: 'ApiError#', description: 'The token is already revoked.' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const userId = sessionUserId(req)
+      if (!userId) {
+        return reply.unauthorized()
+      }
+      const key = await WIKI.models.apiKeys.getKeyById(req.params.keyId)
+      if (!key || key.userId !== userId) {
+        return reply.notFound('Personal access token does not exist.')
+      }
+      if (key.isRevoked) {
+        return reply.conflict('This personal access token is already revoked.')
+      }
+
+      await WIKI.models.apiKeys.revokeKeyForUser(key.id, userId)
+
+      return {
+        ok: true,
+        message: 'Personal access token revoked successfully.'
+      }
     }
   )
 
