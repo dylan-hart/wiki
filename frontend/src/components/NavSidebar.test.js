@@ -382,6 +382,87 @@ describe('NavSidebar recursive nesting (OpenProject #814)', () => {
 })
 
 /**
+ * OpenProject #832 (upstream discussion #5311): a folder whose direct children mix a page (a leaf,
+ * no `children`) alongside a sub-folder (its own `children`) didn't render its nested content
+ * correctly, unlike the OpenProject #814 cases above -- every one of which chains a SINGLE child
+ * per level, so a folder's `children` array there is always uniform (one link, or one link with its
+ * own nested single child). That shape never exercises two DIFFERENT item kinds as siblings under
+ * the same parent, which is exactly what a real generated menu produces once a folder holds both
+ * pages of its own and sub-folders (`generateFromTree`'s `compareFoldersFirst` sorts folders before
+ * pages, but does not stop a folder from holding both at once).
+ *
+ * `NavSidebarItem.vue` has no special-casing by item kind -- every child is handed to a fresh
+ * recursive `<nav-sidebar-item>` and each one independently decides `w-expansion-item` vs. plain
+ * `w-item` off its OWN `children.length` -- so this is confirmed correct here rather than assumed
+ * safe merely because the deep-chain cases above pass.
+ */
+describe('NavSidebar mixed folder/page side-tree (OpenProject #832)', () => {
+  const mixedTree = [
+    {
+      id: 'parent-folder',
+      type: 'link',
+      icon: 'mdi:folder',
+      label: 'Parent Folder',
+      children: [
+        {
+          id: 'direct-page',
+          type: 'link',
+          icon: 'mdi:file',
+          label: 'Direct Page',
+          target: '/parent-folder/direct-page'
+        },
+        {
+          id: 'sub-folder',
+          type: 'link',
+          icon: 'mdi:folder',
+          label: 'Sub Folder',
+          children: [
+            {
+              id: 'nested-page',
+              type: 'link',
+              icon: 'mdi:file',
+              label: 'Nested Page',
+              target: '/parent-folder/sub-folder/nested-page'
+            }
+          ]
+        }
+      ]
+    }
+  ]
+
+  it('renders a direct page sibling alongside a direct sub-folder sibling', async () => {
+    const { wrapper } = await mountNav(mixedTree)
+
+    // -> The page child is a leaf row, not an expansion header
+    expect(rowFor(wrapper, 'Direct Page').exists()).toBe(true)
+    // -> The folder child is an expansion header, not a leaf row
+    expect(headerFor(wrapper, 'Sub Folder')).toBeTruthy()
+  })
+
+  it("renders the sub-folder's own nested page, not just the folder header", async () => {
+    const { wrapper } = await mountNav(mixedTree)
+
+    expect(rowFor(wrapper, 'Nested Page').exists()).toBe(true)
+  })
+
+  it('auto-opens only the sub-folder branch that holds the current page, leaving the page sibling unaffected', async () => {
+    const { wrapper } = await mountNav(mixedTree, {
+      path: '/parent-folder/sub-folder/nested-page'
+    })
+
+    expect(headerFor(wrapper, 'Parent Folder').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Sub Folder').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('leaves the sub-folder branch closed when the current page is its direct-page sibling instead', async () => {
+    const { wrapper } = await mountNav(mixedTree, { path: '/parent-folder/direct-page' })
+
+    expect(headerFor(wrapper, 'Parent Folder').attributes('aria-expanded')).toBe('true')
+    expect(headerFor(wrapper, 'Sub Folder').attributes('aria-expanded')).toBe('false')
+  })
+})
+
+/**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 721. Mounting at all is
  * itself a meaningful check: this component's `<style lang="scss">` was rewritten from physical
  * `left`/`right`/`border-left` declarations to logical `inset-inline-*`/`border-inline-*` ones (the
