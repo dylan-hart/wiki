@@ -159,6 +159,21 @@ export interface PageInput {
    * field: it belongs to the version this save produces, and is recorded on the history row.
    */
   reasonForChange?: string
+  /**
+   * Backdates the new page's `createdAt` column instead of stamping the moment `createPage()` runs.
+   * The editor UI has no field for this and never sets it, so ordinary saves keep the column's
+   * `now()` default; only the migration importer (`backend/migration/page-import.ts`) supplies it, to
+   * carry a source page's real creation time across rather than replacing it with import time — the
+   * bug upstream requarks/wiki#4631 describes ("Importing from Local File System is ignoring
+   * dateCreated and date fields").
+   */
+  createdAt?: string
+  /**
+   * Same reasoning as {@link createdAt}, for `updatedAt` — also used as the `versionDate` of the
+   * single `pageHistory` row `createPage()` writes for this page's initial state, so that row is
+   * dated the source's real last-modified time instead of import time too.
+   */
+  updatedAt?: string
 }
 
 /**
@@ -627,7 +642,9 @@ class Pages {
         siteId,
         tags: input.tags ?? [],
         title,
-        toc
+        toc,
+        ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
+        ...(input.updatedAt ? { updatedAt: new Date(input.updatedAt) } : {})
       })
       .returning()
 
@@ -656,7 +673,8 @@ class Pages {
       pageId: page.id,
       action: 'created',
       authorId: actor.id,
-      reason: input.reasonForChange
+      reason: input.reasonForChange,
+      versionDate: input.updatedAt ? new Date(input.updatedAt) : undefined
     })
     // -> No `notifyWatchers` call here: nobody can be watching a page before it exists, so there is
     //    nothing to resolve. See that method's own comment for the one case (restore) that would

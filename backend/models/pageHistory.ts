@@ -141,6 +141,13 @@ class PageHistory {
    * @param changedFields Which fields the change touched. Empty for a creation or a deletion, where
    *                      the whole page is the change.
    * @param reason Why, in the author's words, when the site asks for one.
+   * @param versionDate When to date this version, in place of `now()`. Only ever supplied by
+   *                     `createPage()` (`backend/models/pages.ts`, passed `PageInput.updatedAt`),
+   *                     backdating the one `record()` call it makes to a source page's real
+   *                     last-modified time instead of stamping it with import time — see upstream
+   *                     requarks/wiki#4631, the bug this exists to not repeat. Every other caller
+   *                     (`updatePage`/`movePage`/`deletePage`/restore) omits it and keeps the
+   *                     unchanged `now()` behavior.
    * @returns The version's ID, or null when nothing was recorded
    */
   async record({
@@ -149,7 +156,8 @@ class PageHistory {
     action,
     authorId,
     changedFields = [],
-    reason
+    reason,
+    versionDate
   }: {
     siteId: string
     pageId: string
@@ -157,6 +165,7 @@ class PageHistory {
     authorId: string
     changedFields?: string[]
     reason?: string | null
+    versionDate?: Date
   }): Promise<string | null> {
     try {
       const rows = await WIKI.db.select().from(pagesTable).where(eq(pagesTable.id, pageId)).limit(1)
@@ -187,7 +196,8 @@ class PageHistory {
           path: page.path,
           title: page.title,
           content: page.content,
-          meta
+          meta,
+          ...(versionDate ? { versionDate } : {})
         })
         .returning({ id: pageHistoryTable.id })
 
