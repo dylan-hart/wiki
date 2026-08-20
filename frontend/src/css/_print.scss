@@ -1,0 +1,56 @@
+// ------------------------------------------------------------------
+// PRINT
+// ------------------------------------------------------------------
+/*
+  Printing a page used to print the whole app shell along with it -- the header, the side nav, the
+  contents/tags/rating column, every floating corner button, and the page's own action row all came
+  out on paper exactly as they render on screen (OpenProject #821). This hides everything that is
+  chrome AROUND the article, leaving the article itself.
+
+  The on-screen shell is also a fixed-height scrolling box on purpose: header and side nav stay put
+  while the article scrolls past them (`WLayout`'s `.w-layout--page`, `WScrollArea`'s own
+  `overflow: auto`, both load-bearing for that -- see their own doc comments). Print has no concept of
+  "past the fold": a browser paginates whatever height a box actually lays out to, and a box still
+  fixed to the viewport's height only ever lays out one screenful, so hiding the chrome alone would
+  still crop the article to one page. This also frees every level of that chain back to its natural
+  content height, which is what lets a long article paginate across as many sheets as it needs rather
+  than being clipped to the first one.
+
+  What is deliberately NOT hidden: the page's own title and description (`PageHeader`'s icon and text
+  -- just not its action row of buttons/badges beside them), and `FooterNav`'s copyright/license line
+  and "Powered by Wiki.js" credit. That credit is what requarks/wiki#1593 (upstream) asks a print
+  layout to retain; it already sits inside the scrolling article column rather than the shell being
+  hidden here (`pages/Index.vue` mounts it as the last thing in `.page-container-scrl`), so nothing
+  below has to single it out -- it survives simply by never being chrome to begin with.
+*/
+@media print {
+  // -> Chrome: never part of the article, always hidden
+  .w-header,
+  .w-drawer,
+  .corner-btn,
+  .page-breadcrumbs,
+  .page-header-actions,
+  .page-sidebar,
+  .page-sidebar-scrim,
+  .page-actions,
+  .w-notifications,
+  .w-loading,
+  .main-overlay {
+    display: none !important;
+  }
+
+  // -> Structure: freed from the fixed-height scrolling shell so the article can paginate in full --
+  //    see the comment above for why this is needed alongside the hiding above
+  .w-layout--page,
+  .w-layout--container,
+  .w-page-container,
+  .w-page,
+  .page-container,
+  .page-container-scrl {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+}
