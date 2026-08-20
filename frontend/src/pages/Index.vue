@@ -41,7 +41,7 @@
         the page behind it is.
       -->
       <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
-        <template v-if="!pageStore.publishState === `draft`">
+        <template v-if="pageStore.publishState === 'draft'">
           <div class="text-caption text-accent"><strong>Unpublished</strong></div>
           <w-separator class="mx-2" vertical />
         </template>

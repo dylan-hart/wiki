@@ -271,3 +271,42 @@ describe('Index.vue: breadcrumb bar during editing (OpenProject #813)', () => {
     expect(wrapper.findComponent({ name: 'WBreadcrumbs' }).exists()).toBe(true)
   })
 })
+
+/**
+ * OpenProject #817: the "Unpublished" chip rendering was guarded by a broken condition
+ * `!pageStore.publishState === 'draft'`, which due to operator precedence parsed as
+ * `(!pageStore.publishState) === 'draft'` — always false since a negated value is a boolean,
+ * never the string 'draft'. Fixed to `pageStore.publishState === 'draft'`.
+ */
+describe('Index.vue: unpublished chip (OpenProject #817)', () => {
+  it('renders the "Unpublished" chip when publishState is "draft"', async () => {
+    const { wrapper, pageStore } = await mountIndex()
+    pageStore.publishState = 'draft'
+    await wrapper.vm.$nextTick()
+
+    const chip = wrapper.find('.text-accent')
+    expect(chip.exists()).toBe(true)
+    expect(chip.text()).toContain('Unpublished')
+  })
+
+  it('does not render the chip when publishState is not "draft"', async () => {
+    const { wrapper, pageStore } = await mountIndex()
+    pageStore.publishState = 'published'
+    await wrapper.vm.$nextTick()
+
+    const chip = wrapper.find('div:has-text("Unpublished")')
+    expect(chip.exists()).toBe(false)
+  })
+
+  it('renders the separator only when the chip renders', async () => {
+    const { wrapper, pageStore } = await mountIndex()
+    const separator = () => wrapper.findComponent({ name: 'WSeparator' })
+
+    expect(separator().exists()).toBe(false)
+
+    pageStore.publishState = 'draft'
+    await wrapper.vm.$nextTick()
+
+    expect(separator().exists()).toBe(true)
+  })
+})
