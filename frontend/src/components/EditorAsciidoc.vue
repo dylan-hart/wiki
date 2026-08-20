@@ -14,7 +14,7 @@
           flat
           :aria-label="t('editor.markup.insertAssets')"
           @click="insertAssets">
-          <w-tooltip anchor="center right" self="center left">{{
+          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
@@ -39,6 +39,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { assetPath } from '@/helpers/assets'
+import { directionalAnchor } from '@/helpers/directionalAnchor'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -83,6 +84,21 @@ const { t } = useI18n()
 
 let editor
 const monacoRef = ref(null)
+
+/*
+ * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap, not caught by task 721/727's
+ * pass since it only audited `EditorMarkdown.vue`): the side toolbar's single tooltip popped OUTWARD
+ * toward the fixed physical `right`, same bug `EditorMarkdown.vue`'s own `sideToolbarTooltip` fixes --
+ * see that component's comment for the full explanation. Read once at setup for the same reason: a
+ * mid-edit locale switch is not a case this editor has to survive gracefully.
+ */
+const sideToolbarTooltip = directionalAnchor(
+  document.documentElement.dir,
+  'center right',
+  'center left'
+)
+const sideToolbarTooltipAnchor = sideToolbarTooltip.anchor
+const sideToolbarTooltipSelf = sideToolbarTooltip.self
 
 // METHODS
 

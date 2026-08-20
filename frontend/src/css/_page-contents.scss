@@ -809,17 +809,22 @@
   */
   ul.links-list {
     margin: 1.5em 0;
-    padding-left: 0;
+    padding-inline-start: 0;
     list-style: none;
 
     > li {
       margin-top: 4px;
       border-radius: 4px;
       /*
-        The bar down the left, grey at rest and the link's colour under the pointer -- so what hovering
-        does is colour something already there rather than add a bar and shunt the words sideways.
+        The bar down the leading edge, grey at rest and the link's colour under the pointer -- so what
+        hovering does is colour something already there rather than add a bar and shunt the words
+        sideways. `border-inline-start`, not `border-left`: this list renders raw markdown, which reads
+        RTL locales same as any other content (`composables/direction.js`), and a bar hardcoded to the
+        physical left would sit on the TRAILING edge of an RTL row -- behind the text rather than
+        leading it in, and on the opposite side from the hover colour a reader's eye is already tracking
+        from every other left-to-right row above the fold.
       */
-      border-left: 3px solid var(--content-rule);
+      border-inline-start: 3px solid var(--content-rule);
       background-color: var(--content-links-row);
       /* -> The light down the top of the row; see `--content-links-sheen` */
       background-image: linear-gradient(to bottom, var(--content-links-sheen), transparent 65%);
@@ -830,7 +835,7 @@
 
       &:hover,
       &:focus-within {
-        border-left-color: var(--content-link);
+        border-inline-start-color: var(--content-link);
         background-color: var(--content-links-row-hover);
       }
     }
@@ -864,9 +869,9 @@
       a line of small print.
     */
     em {
-      margin-left: 0.5em;
-      padding-left: 0.75em;
-      border-left: 1px solid var(--content-rule);
+      margin-inline-start: 0.5em;
+      padding-inline-start: 0.75em;
+      border-inline-start: 1px solid var(--content-rule);
       color: var(--content-ink-muted);
       font-style: normal;
       font-weight: 400;
@@ -874,13 +879,13 @@
 
     /*
       On a phone the two halves stack. The rule between them goes with the arrangement it was drawn
-      for: down the left of a wrapped description it would read as a quote inside the row.
+      for: down the leading edge of a wrapped description it would read as a quote inside the row.
     */
     @media (max-width: $breakpoint-xs-max) {
       em {
-        margin-left: 0;
-        padding-left: 0;
-        border-left: 0;
+        margin-inline-start: 0;
+        padding-inline-start: 0;
+        border-inline-start: 0;
         font-size: 0.9375em;
       }
 

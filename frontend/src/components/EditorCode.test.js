@@ -7,6 +7,8 @@ import { nextTick } from 'vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
+import WTooltip from '@/components/shared/WTooltip.vue'
+
 /**
  * `monaco-editor` needs real browser layout/measurement APIs (`ResizeObserver`, text metrics, a
  * genuine contenteditable surface) that `happy-dom` -- this workspace's Vitest environment, see
@@ -173,5 +175,37 @@ describe('EditorCode', () => {
 
     EVENT_BUS.emit('insertAsset', { type: 'asset', mimeType: 'image/png', title: 'x' })
     expect(fakeEditor.executeEdits).not.toHaveBeenCalled()
+  })
+
+  /**
+   * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap): the side toolbar's tooltip
+   * used to pop outward toward a hardcoded physical `right`, which is the reading-START edge of the
+   * `Insert Assets` button only under LTR -- under RTL that edge is the visual left, and a tooltip
+   * still anchored `right` pops away from the toolbar instead of back toward it. Same bug
+   * `EditorMarkdown.vue`'s own `sideToolbarTooltip` already covers; this editor was outside task
+   * 721/727's audit.
+   */
+  describe('side toolbar tooltip mirroring', () => {
+    afterEach(() => {
+      document.documentElement.removeAttribute('dir')
+    })
+
+    it('anchors outward to the right under ltr (the default)', () => {
+      document.documentElement.dir = 'ltr'
+      const { wrapper } = mountEditor('')
+
+      const tooltip = wrapper.findComponent(WTooltip)
+      expect(tooltip.props('anchor')).toBe('center right')
+      expect(tooltip.props('self')).toBe('center left')
+    })
+
+    it('mirrors outward to the left under rtl', () => {
+      document.documentElement.dir = 'rtl'
+      const { wrapper } = mountEditor('')
+
+      const tooltip = wrapper.findComponent(WTooltip)
+      expect(tooltip.props('anchor')).toBe('center left')
+      expect(tooltip.props('self')).toBe('center right')
+    })
   })
 })

@@ -19,8 +19,8 @@
       :class="[
         side === 'right' ? 'w-drawer--right' : 'w-drawer--left',
         isOverlay ? 'w-drawer--overlay fixed inset-y-0 z-40 shadow-dialog' : '',
-        isOverlay && side === 'right' ? 'right-0' : '',
-        isOverlay && side !== 'right' ? 'left-0' : '',
+        isOverlay && side === 'right' ? 'end-0' : '',
+        isOverlay && side !== 'right' ? 'start-0' : '',
         bordered ? borderClass : '',
         dark ? 'text-white' : ''
       ]"
@@ -62,6 +62,14 @@ const props = defineProps({
     type: Number,
     default: 300
   },
+  /**
+   * `'left'` places the drawer in the grid's first (reading-START) column, `'right'` in its last
+   * (reading-END) one -- this is a LOGICAL choice, not a literal physical side: `.w-layout`'s CSS
+   * Grid mirrors column order under `dir="rtl"` on its own, so `'left'` (the default, what the site
+   * sidebar uses) renders on the visual left under LTR and the visual right under RTL. See the
+   * `<style>` block's `margin-inline-start`/`-end` comment for the bug this caused when the rest of
+   * the component didn't yet track that (OpenProject #834).
+   */
   side: {
     type: String,
     default: 'left',
@@ -135,8 +143,8 @@ const isVisible = computed(() => props.modelValue || (isWide.value && defaultOpe
 
 const borderClass = computed(() =>
   props.side === 'right'
-    ? 'border-l border-black/12 dark:border-white/15'
-    : 'border-r border-black/12 dark:border-white/15'
+    ? 'border-s border-black/12 dark:border-white/15'
+    : 'border-e border-black/12 dark:border-white/15'
 )
 </script>
 
@@ -165,9 +173,26 @@ const borderClass = computed(() =>
   it leaves, in step. A transform would have moved the panel but left the column at full width, and
   animating `width` would have reflowed the nav on every frame instead of sliding it.
 
-  Nothing clips the panel on its way out, but nothing needs to: overflow past the left edge of the
+  Nothing clips the panel on its way out, but nothing needs to: overflow past the leading edge of the
   document creates no scrollable area, and an overlaying drawer is `fixed`, which is outside the
   document's overflow altogether.
+
+  `margin-inline-start`/`-end`, not the physical `margin` pair they replaced (OpenProject #834):
+  `.w-layout`'s grid places `ldrawer` and `rdrawer` by their LOGICAL column order (1 and 3), which the
+  CSS Grid spec itself mirrors under `dir="rtl"` -- column 1 renders at the visual right, not the
+  left, once the document goes RTL. `.w-drawer--left` (grid area `ldrawer`) is therefore always the
+  reading-START column, whichever physical edge that is, and collapsing it with a hardcoded physical
+  property that does NOT mirror pulled it the wrong way under RTL: toward the CENTER of the page (in
+  through the sidebar's own physical left edge) rather than off-canvas through the true edge the grid
+  had already mirrored it to. The logical property tracks the same edge the grid resolved to, in
+  either direction, with no JS involved -- consistent with `border-s`/`border-e` below, which fixes
+  the matching bug on the drawer's OWN border (facing whichever edge `main` sits on), and with
+  `start-0`/`end-0` above, which fixes it for the overlay/narrow breakpoint's `position: fixed` case
+  -- a raw-pixel context the grid's own mirroring never reached, so it stayed pinned to the physical
+  left/right of the VIEWPORT there even after task 721/727 mirrored everything else. Crossing that
+  overlay breakpoint is exactly what a reader's browser zoom does (it is CSS-pixel width, not device
+  width, that the breakpoint reads), which is why this surfaced as a nav layout that looked fine at
+  100% and broke at another zoom level rather than a plain, always-broken RTL bug.
 */
 .w-drawer-enter-active,
 .w-drawer-leave-active {
@@ -175,11 +200,11 @@ const borderClass = computed(() =>
 }
 .w-drawer--left.w-drawer-enter-from,
 .w-drawer--left.w-drawer-leave-to {
-  margin-left: calc(-1 * var(--w-drawer-width));
+  margin-inline-start: calc(-1 * var(--w-drawer-width));
 }
 .w-drawer--right.w-drawer-enter-from,
 .w-drawer--right.w-drawer-leave-to {
-  margin-right: calc(-1 * var(--w-drawer-width));
+  margin-inline-end: calc(-1 * var(--w-drawer-width));
 }
 
 .w-drawer-scrim-enter-active,
