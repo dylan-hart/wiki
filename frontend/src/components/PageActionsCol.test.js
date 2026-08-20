@@ -276,3 +276,78 @@ describe('PageActionsCol export menu', () => {
     expect(wrapper.get('[aria-label="Export Page"]').attributes('aria-busy')).toBeUndefined()
   })
 })
+
+/**
+ * OpenProject #858: Rerender Page can't just check `write:pages` -- the backend also refuses the
+ * request when Puppeteer isn't installed (503) or the page's editor isn't markdown
+ * (`renderUnsupportedEditor`). Mirrors the PDF export item's own availability gate above, and
+ * `canRerenderPage` doubles as what decides whether the "..." Page Actions menu has anything to show
+ * at all, so the empty-menu case is worth its own assertion.
+ */
+async function mountRailWithPageActions({
+  pdfExportAvailable = true,
+  editor = 'markdown',
+  canWritePages = true
+} = {}) {
+  setActivePinia(createPinia())
+
+  const pageStore = usePageStore()
+  pageStore.id = 'page-1'
+  pageStore.path = 'docs/getting-started'
+  pageStore.editor = editor
+
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+  siteStore.pdfExportAvailable = pdfExportAvailable
+
+  const userStore = useUserStore()
+  userStore.permissions = canWritePages ? ['write:pages'] : []
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }]
+  })
+  router.push('/')
+  await router.isReady()
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  const wrapper = mount(PageActionsCol, {
+    attachTo: document.body,
+    global: { plugins: [router, i18n] }
+  })
+
+  return { wrapper, pageStore, siteStore, userStore }
+}
+
+describe('PageActionsCol page actions menu', () => {
+  let wrapper
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+  })
+
+  it('offers Rerender Page when write:pages, Puppeteer and a markdown editor all line up', async () => {
+    ;({ wrapper } = await mountRailWithPageActions())
+
+    await wrapper.get('[aria-label="Page Actions"]').trigger('click')
+    await flushPromises()
+
+    expect(menuItemLabels()).toContain('Rerender Page')
+  })
+
+  it('hides the "..." Page Actions button entirely when Rerender Page is the only entry and cannot run', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ pdfExportAvailable: false }))
+
+    // -> With the experimental flag off, Rerender Page was the menu's only entry -- so with it also
+    //    unavailable, the trigger itself must not render (no separator/button opening an empty panel)
+    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+  })
+
+  it('hides the Page Actions menu for a non-markdown editor even when write:pages and Puppeteer are available', async () => {
+    ;({ wrapper } = await mountRailWithPageActions({ editor: 'code' }))
+
+    expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+  })
+})

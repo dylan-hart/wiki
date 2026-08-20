@@ -190,7 +190,9 @@
               </w-item-section>
               <w-item-section><w-item-label>Convert Page</w-item-label></w-item-section>
             </w-item>
-            <w-item clickable v-if="userStore.can(`write:pages`)" @click="rerenderPage">
+            <!-- -> Gated on `canRerenderPage`: needs Puppeteer, and the backend's `ensureCanRender`
+                    rejects any editor but markdown -->
+            <w-item clickable v-if="canRerenderPage" @click="rerenderPage">
               <w-item-section class="items-center" avatar>
                 <w-icon class="text-deep-orange-9" name="la:magic" size="sm" />
               </w-item-section>
@@ -331,14 +333,26 @@ const hasPendingAssets = computed(() => editorStore.pendingAssets?.length > 0)
 const isRedirect = computed(() => pageStore.editor === 'redirect')
 
 /**
+ * Whether Rerender Page may be offered at all: `write:pages` is necessary but not sufficient -- the
+ * route also 503s without the Puppeteer extension (mirrored here via `siteStore.pdfExportAvailable`,
+ * same signal the PDF export item above already uses) and throws `renderUnsupportedEditor` for any
+ * page whose editor isn't `markdown` (backend/models/rendering.ts's `ensureCanRender`). No button that
+ * just fails, per OpenProject #858.
+ */
+const canRerenderPage = computed(
+  () =>
+    userStore.can('write:pages') && siteStore.pdfExportAvailable && pageStore.editor === 'markdown'
+)
+
+/**
  * Whether the "..." menu has anything to show.
  *
- * Every entry in it is behind something: Rerender Page behind `write:pages`, Convert Page and View
+ * Every entry in it is behind something: Rerender Page behind `canRerenderPage`, Convert Page and View
  * Backlinks behind the experimental flag (the first behind `manage:pages` as well). So those two tests
  * cover the whole menu -- and with neither of them true it opened an empty panel, which is what a guest
  * got on every page. Keep this in step with the entries themselves.
  */
-const hasPageActions = computed(() => flagsStore.experimental || userStore.can('write:pages'))
+const hasPageActions = computed(() => flagsStore.experimental || canRerenderPage.value)
 
 // METHODS
 
