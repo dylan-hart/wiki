@@ -17,40 +17,40 @@ props:
     type: Boolean
     title: Verify TLS Certificate
     hint: Reject a connection whose certificate cannot be verified. Turn off only for a self-signed cluster you trust.
-    icon: shield-check
+    icon: security-ssl
     default: true
     order: 2
   tlsCertPath:
     type: String
     title: TLS Certificate Path
     hint: Absolute path to the TLS certificate on the server, for a cluster with a self-signed or private CA certificate.
-    icon: certificate
+    icon: symlink-directory
     order: 3
   indexName:
     type: String
     title: Index Name
     hint: The name of the Elasticsearch index pages are written to and searched against.
-    icon: view-list
+    icon: index
     default: wiki
     order: 4
   analyzer:
     type: String
     title: Analyzer
     hint: The default text analyzer Elasticsearch uses to tokenize page content when the index is created.
-    icon: text-recognition
+    icon: fonts-app
     default: standard
     order: 5
   sniffOnStart:
     type: Boolean
     title: Sniff on Start
     hint: Discover the rest of the cluster's nodes on first connect.
-    icon: radar
+    icon: rfid-signal
     default: false
     order: 6
   sniffInterval:
     type: Number
     title: Sniff Interval
     hint: 'Interval in seconds to check for an updated list of nodes in the cluster. 0 disables it.'
-    icon: timer-outline
+    icon: timer
     default: 0
     order: 7

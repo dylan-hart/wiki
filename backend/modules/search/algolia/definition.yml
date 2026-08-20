@@ -9,7 +9,7 @@ props:
     type: String
     title: Application ID
     hint: Your Algolia Application ID, found under API Keys in the Algolia dashboard.
-    icon: identifier
+    icon: fingerprint-scan
     required: true
     order: 1
   apiKey:
@@ -24,6 +24,6 @@ props:
     type: String
     title: Index Name
     hint: The name of the Algolia index pages are written to and searched against.
-    icon: view-list
+    icon: index
     default: wiki
     order: 3

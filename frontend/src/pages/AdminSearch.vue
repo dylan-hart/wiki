@@ -51,18 +51,22 @@
       keep their own hard `min-width: 300px` list under a separate, filed-but-not-yet-worked audit --
       don't "restore consistency" by reverting this).
 
-      Straight 50/50: both sides are `flex: 1 1 50%`, so they always split the row evenly and shrink
-      together, with `min-width: 260px` on each as the point past which the row wraps to stacked
-      instead of squeezing either side's content (an icon + title + description per list row, or the
-      config form's own inputs) illegible. Earlier attempts at this (a rigid `min-width: 300px` list
-      beside a `flex-1` panel, then a `clamp()`-based list width) both left the list far narrower than
-      its original share of the row, which used to be the vast majority of the width -- there is no
-      viewport-width breakpoint here on purpose: the admin sidebar column itself toggles at 1024px (see
-      `AdminLayout.vue`'s `isWideViewport`), so the CONTENT area's width does not track viewport width
-      monotonically, and a breakpoint on this row would be reasoning about the wrong box.
+      Straight 50/50: both sides are `flex: 1 1 calc(50% - 8px)`, so they always split the row evenly
+      and shrink together, with `min-width: 260px` on each as the point past which the row wraps to
+      stacked instead of squeezing either side's content (an icon + title + description per list row,
+      or the config form's own inputs) illegible. The `- 8px` is half of `gap-4`'s 16px: two plain `50%`
+      bases plus the gap between them sum to MORE than the row's width, which is what was forcing an
+      unwanted wrap even with room to spare -- flex-wrap goes by each item's hypothetical size including
+      the gap, not by what's left over after subtracting it. Earlier attempts at this (a rigid
+      `min-width: 300px` list beside a `flex-1` panel, then a `clamp()`-based list width) both left the
+      list far narrower than its original share of the row, which used to be the vast majority of the
+      width -- there is no viewport-width breakpoint here on purpose: the admin sidebar column itself
+      toggles at 1024px (see `AdminLayout.vue`'s `isWideViewport`), so the CONTENT area's width does not
+      track viewport width monotonically, and a breakpoint on this row would be reasoning about the
+      wrong box.
     -->
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="min-w-0" style="flex: 1 1 50%; min-width: 260px">
+      <div class="min-w-0" style="flex: 1 1 calc(50% - 8px); min-width: 260px">
         <w-card class="rounded bg-dark">
           <w-list padding dark>
             <w-item
@@ -86,7 +90,10 @@
         </w-card>
       </div>
       <!-- -> `min-w-0`, or a long value inside the panel would push it wider than the row -->
-      <div class="min-w-0" style="flex: 1 1 50%; min-width: 260px" v-if="selectedEngine">
+      <div
+        class="min-w-0"
+        style="flex: 1 1 calc(50% - 8px); min-width: 260px"
+        v-if="selectedEngine">
         <w-card class="pb-2">
           <w-card-header>
             {{ t('admin.search.engineConfig') }}
