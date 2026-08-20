@@ -181,6 +181,42 @@ describe('App.vue applyTheme()', () => {
     expect(document.querySelector('#theme-content-font').textContent).toContain('Montserrat')
   })
 
+  /*
+    Regression coverage for upstream requarks/wiki #2408 (closed): head/body code injection ran only
+    on content pages, never on the auth/login screen, so an admin's analytics snippet or site-wide
+    banner silently vanished for every visitor who hadn't logged in yet. There is no per-page
+    injection call to gate here -- `applyTheme()` lives on `App.vue` itself, one level above
+    `<router-view>`, and every route (including `/login`) mounts underneath it -- so this proves the
+    site-wide behaviour holds by actually navigating to a non-content route rather than by reading
+    the source.
+  */
+  it('injectHead/injectBody/injectCSS apply on the /login route, not just content pages', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.theme.injectCSS = '.probe-css { color: red; }'
+    siteStore.theme.injectHead = '<meta name="probe-head" content="1">'
+    siteStore.theme.injectBody = '<div id="probe-body-el"></div>'
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/login', component: { template: '<div class="login-stub" />' } }
+      ]
+    })
+    router.push('/login')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    currentWrapper = mount(App, { global: { plugins: [router, i18n] } })
+    await triggerApplyTheme()
+
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(document.querySelector('#theme-inject-css')).not.toBeNull()
+    expect(document.head.querySelector('#theme-inject-head')).not.toBeNull()
+    expect(document.body.querySelector('#theme-inject-body')).not.toBeNull()
+  })
+
   it('repeated applyTheme() calls (e.g. route navigation) do not duplicate injected elements', async () => {
     const siteStore = await mountApp()
     siteStore.theme.injectCSS = '.probe-css { color: red; }'
