@@ -519,6 +519,36 @@ test("tickScheduledSyncs honors a target's own scheduleOverride over the module'
   assert.equal(jobs.length, 1)
 })
 
+/**
+ * OpenProject #823 item 4 (upstream #2443: "sync-interval setting doesn't actually take effect once
+ * changed"). `tickScheduledSyncs()` re-reads `scheduleOverride` off the `storage` row fresh on every
+ * call — there is no separately-scheduled per-target cron job baking the interval in at server start
+ * the way 2.5.x's own scheduler did, only this one `* * * * *` tick (`storageSyncTick`, `models/
+ * jobs.ts`) that checks every target's *current* row against `now`. So an admin shortening a target's
+ * interval takes effect on the very next tick (within the minute), with no restart, and — the sharper
+ * version of the bug report — without even waiting out however much of the *old*, longer interval was
+ * already elapsed: this simulates exactly that by ticking once under a long interval (not yet due),
+ * then shortening it and ticking again a few seconds later.
+ */
+test('tickScheduledSyncs picks up a shortened scheduleOverride on its very next tick, no restart needed', async () => {
+  const t0 = Temporal.Now.instant()
+  const lastTickAt = new Date(t0.epochMilliseconds)
+  const rows = [makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT1H', lastTickAt })]
+
+  // -> Under the original hour-long interval, 30 seconds later is nowhere near due.
+  const { jobs: jobsBefore } = fakeTickDeps(rows)
+  const queuedBefore = await storage.tickScheduledSyncs(t0.add({ seconds: 30 }))
+  assert.equal(queuedBefore, 0)
+  assert.equal(jobsBefore.length, 0)
+
+  // -> An admin shortens the interval to a minute — the same row, freshly read, not a new target.
+  rows[0].scheduleOverride = 'PT1M'
+  const { jobs: jobsAfter } = fakeTickDeps(rows)
+  const queuedAfter = await storage.tickScheduledSyncs(t0.add({ seconds: 65 }))
+  assert.equal(queuedAfter, 1)
+  assert.equal(jobsAfter.length, 1)
+})
+
 test('tickScheduledSyncs does not advance lastTickAt when the job fails to queue', async () => {
   const { jobs, updates } = fakeTickDeps([makeTickRow('git', { syncMode: 'sync' })], {
     addJobSucceeds: false
@@ -527,6 +557,36 @@ test('tickScheduledSyncs does not advance lastTickAt when the job fails to queue
   assert.equal(queued, 0)
   assert.equal(jobs.length, 1)
   assert.equal(updates.length, 0)
+})
+
+/**
+ * OpenProject #823 item 5 (upstream #2082, open: "once the remote goes unreachable then recovers,
+ * sync never resumes automatically — only a manual Force Sync works, and even that doesn't restore
+ * the schedule"). `tickScheduledSyncs()` is stateless with respect to whether the *previous* queued
+ * job actually succeeded — `lastTickAt` only tracks when a sync was last *queued* (see the doc above
+ * this method), never whether it completed. So a target whose remote was unreachable for several
+ * ticks in a row is due again on the very next tick once its interval has re-elapsed, with nothing
+ * to "restore": the schedule was never suspended in the first place. Job-level failure/retry is a
+ * separate, orthogonal concern the scheduler's own backoff handles (`core/scheduler.ts`); this test
+ * is about the *tick* logic specifically not caring, which is what makes automatic resumption
+ * inherent rather than something a fix has to add back in.
+ */
+test('tickScheduledSyncs re-queues a target on schedule regardless of how many prior ticks were never actually retried — auto-resume needs no state to restore', async () => {
+  const now = Temporal.Now.instant()
+  const dueAgo = new Date(now.subtract({ minutes: 10 }).epochMilliseconds)
+  // -> Nothing here distinguishes "the last 5 queued syncs all failed because the remote was down"
+  //    from "the last sync succeeded" -- tickScheduledSyncs has no such state to consult, which is
+  //    exactly the point: it queues again because the interval elapsed, full stop.
+  const { jobs, updates } = fakeTickDeps([
+    makeTickRow('git', { syncMode: 'sync', scheduleOverride: 'PT5M', lastTickAt: dueAgo })
+  ])
+  const queued = await storage.tickScheduledSyncs(now)
+  assert.equal(queued, 1)
+  assert.equal(jobs.length, 1)
+  assert.equal(jobs[0].payload.handler, 'sync')
+  // -> `lastTickAt` advances the same as any other successful *queue* -- next tick will judge
+  //    "due" against this new timestamp, same as if the remote had never gone down at all.
+  assert.ok(updates[0].values.lastTickAt instanceof Date)
 })
 
 test('tickScheduledSyncs logs and skips a target with an unparseable schedule override, without throwing', async () => {
@@ -930,6 +990,51 @@ test('runDailyBackups skips a module with no dailyBackup handler (e.g. db)', asy
   )
   const result = await storage.runDailyBackups()
   assert.deepEqual(result, { ran: 0, failed: 0 })
+})
+
+/**
+ * OpenProject #823 item 8 (upstream #2343: "backup path specifically broken for git-backed storage").
+ * That bug was 2.5.x's generic backup routine making disk-path assumptions that did not hold for a
+ * git target. Here, backup is a *module-owned* action declared (or not) per `definition.yml` rather
+ * than one generic routine every module is forced through — `git`'s own definition declares no
+ * `createDailyBackups` prop and no `backup`/`dailyBackup` action at all (its commit history plus
+ * pushing to `origin` already is its backup), so there is no shared disk-shaped code path for a git
+ * target to break through. This is the "documented reason it doesn't apply" the WP allows for, proven
+ * two ways: `runDailyBackups()` silently skips a git target exactly like it does `db` above, and the
+ * live `definition.yml` genuinely declares no backup-shaped action to expose in the admin area.
+ */
+test('runDailyBackups skips a git target — the module declares no dailyBackup handler', async () => {
+  fakeDailyBackupDeps(
+    [{ id: 'site-1' }],
+    [
+      [
+        {
+          id: 'target-git-site-1',
+          siteId: 'site-1',
+          module: 'git',
+          isEnabled: true,
+          contentTypes: { activeTypes: ['pages'], largeThreshold: '5MB' },
+          assetDelivery: { streaming: false, directAccess: false },
+          versioning: { enabled: true },
+          syncMode: storage.getDefinition('git')!.defaultMode,
+          scheduleOverride: null,
+          config: {},
+          state: {}
+        }
+      ]
+    ]
+  )
+  const result = await storage.runDailyBackups()
+  assert.deepEqual(result, { ran: 0, failed: 0 })
+})
+
+test('the git module definition declares no backup-shaped action or config prop', () => {
+  const definition = storage.getDefinition('git')!
+  assert.equal(
+    definition.actions.some((action) => /backup/i.test(action.handler)),
+    false
+  )
+  assert.equal('createDailyBackups' in definition.props, false)
 })
 
 test('runDailyBackups logs and continues past a target whose dailyBackup throws, without failing the others', async () => {

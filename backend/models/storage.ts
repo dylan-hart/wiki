@@ -893,6 +893,19 @@ class Storage {
    * not "did the sync work" -- a target stuck failing every attempt still gets exactly one queued job
    * per interval rather than a growing backlog.
    *
+   * That statelessness is also what answers OpenProject #823 item 5 (upstream #2082, open: "once the
+   * remote goes unreachable then recovers, sync never resumes automatically -- only a manual Force
+   * Sync works, and even that doesn't restore the schedule"). There is no per-target "suspended" state
+   * for a run of failures to set, and therefore nothing a recovery needs to clear: this method re-reads
+   * every enabled target's row on every tick and queues whichever are due, regardless of how many of
+   * their previous jobs failed. A remote that comes back reachable is simply due again at its next
+   * regular interval, automatically, with no administrator action required -- see
+   * `storage.test.ts`'s "re-queues a target on schedule regardless of how many prior ticks were never
+   * actually retried" test. Item 4 (upstream #2443: "sync-interval setting doesn't actually take
+   * effect once changed") is the same statelessness from a different angle: `scheduleOverride` is read
+   * fresh off the row every tick too, so a shortened interval takes effect on the very next tick, not
+   * after a restart -- see "picks up a shortened scheduleOverride on its very next tick".
+   *
    * @returns How many syncs were queued
    */
   async tickScheduledSyncs(now: Temporal.Instant = Temporal.Now.instant()): Promise<number> {

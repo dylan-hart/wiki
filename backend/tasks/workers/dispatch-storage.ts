@@ -1,5 +1,6 @@
 import { storage } from '../../models/storage.ts'
 import { contentSync } from '../../models/contentSync.ts'
+import { withAdvisoryLock } from '../../helpers/advisoryLock.ts'
 import type { SyncContentType } from '../../models/contentSync.ts'
 
 export interface DispatchStoragePayload {
@@ -48,24 +49,42 @@ export interface DispatchStoragePayload {
  * A whole-target action such as `sync` has no single content item to record state against, so that
  * step is skipped for it — see `DispatchStoragePayload`.
  *
- * @param deps Real models by default; overridable so tests can exercise the branching here without a
- *             database or a loaded module.
+ * The actual handler call is wrapped in `withAdvisoryLock`, keyed by `targetId`: this task runs in a
+ * worker-thread pool (`scheduler.workers`, 3 by default), so two dispatches for the *same* target can
+ * otherwise execute concurrently on separate threads with no shared JS memory to serialize them — a
+ * write-path push racing a scheduled pull for a file-backed module such as `git` is a real race on the
+ * one on-disk working copy both are about to run `git` commands against. See that helper's doc for why
+ * this is a Postgres advisory lock rather than an in-process one.
+ *
+ * @param deps Real models (and lock) by default; overridable so tests can exercise the branching here
+ *             without a database or a loaded module. Each has its own default rather than one default
+ *             for the whole object, so a test overriding only `storage`/`contentSync` still gets the
+ *             real `withAdvisoryLock` and vice versa.
  */
 export async function task(
   job: { payload: DispatchStoragePayload },
-  deps: { storage: typeof storage; contentSync: typeof contentSync } = { storage, contentSync }
+  deps: {
+    storage?: typeof storage
+    contentSync?: typeof contentSync
+    withLock?: typeof withAdvisoryLock
+  } = {}
 ): Promise<void> {
   await WIKI.ensureDb!()
+  const {
+    storage: storageDep = storage,
+    contentSync: contentSyncDep = contentSync,
+    withLock = withAdvisoryLock
+  } = deps
   const { targetId, siteId, contentType, contentId, handler, data } = job.payload
 
-  const target = await deps.storage.getSiteTargetById(siteId, targetId)
+  const target = await storageDep.getSiteTargetById(siteId, targetId)
   if (!target) {
     // -> Deleted (or its site was) between queueing and delivery; nothing to do and nothing to retry
     WIKI.logger.info(`Storage target ${targetId} no longer exists, skipping "${handler}" dispatch.`)
     return
   }
 
-  const mod = await deps.storage.ensureModule(target.module)
+  const mod = await storageDep.ensureModule(target.module)
   if (!mod || typeof mod[handler] !== 'function') {
     WIKI.logger.debug(
       `${target.title} storage module has no "${handler}" handler installed, skipping dispatch.`
@@ -73,19 +92,21 @@ export async function task(
     return
   }
 
-  try {
-    await mod[handler](target, data)
-    if (contentType && contentId) {
-      await deps.contentSync.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
+  await withLock(`storage-target:${targetId}`, async () => {
+    try {
+      await mod[handler](target, data)
+      if (contentType && contentId) {
+        await contentSyncDep.recordSuccess({ contentType, contentId, targetId, direction: 'push' })
+      }
+    } catch (err: any) {
+      if (contentType && contentId) {
+        await contentSyncDep.recordFailure({ contentType, contentId, targetId, error: err.message })
+      }
+      WIKI.logger.warn(
+        `Failed to dispatch "${handler}" to storage target ${target.title}: ${err.message}`
+      )
+      // -> Rethrown so the job fails and the scheduler retries with its usual backoff
+      throw err
     }
-  } catch (err: any) {
-    if (contentType && contentId) {
-      await deps.contentSync.recordFailure({ contentType, contentId, targetId, error: err.message })
-    }
-    WIKI.logger.warn(
-      `Failed to dispatch "${handler}" to storage target ${target.title}: ${err.message}`
-    )
-    // -> Rethrown so the job fails and the scheduler retries with its usual backoff
-    throw err
-  }
+  })
 }

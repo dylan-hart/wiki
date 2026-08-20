@@ -116,6 +116,18 @@ async function resolveSshKeyPath(repoPath: string, config: Record<string, any>):
 /**
  * Embed `basicUsername`/`basicPassword` as URL credentials, matching how 2.5.x built the
  * authenticated remote URL for `authType: 'basic'`.
+ *
+ * **OpenProject #823 item 1 (upstream #2646): "an unescaped `@` in a git-URL embedded password broke
+ * the connection string."** 2.5.x built this by naive string interpolation
+ * (`` `${scheme}://${user}:${pass}@${host}` ``), so a password containing its own `@` (or `:`, `/`,
+ * `#`, ...) shifted where the userinfo section actually ends and silently produced the wrong host —
+ * exactly the kind of thing a PAT with a `@` in it hits in practice. Going through `new URL()` and its
+ * `username`/`password` setters instead of concatenation avoids the whole bug class: those setters
+ * percent-encode per the userinfo encode set on assignment regardless of what is handed to them, so
+ * `@`, `:`, `/`, `#`, and space all come out safely escaped and `url.toString()` cannot be misparsed.
+ * `encodeURI()` here is therefore redundant with the setters' own encoding, not what fixes the bug —
+ * verified empirically (see `storage.test.ts`) rather than assumed — but is left in place as
+ * defense in depth: dropping it would rely entirely on the setter behavior never changing.
  */
 export function buildAuthenticatedUrl(repoUrl: string, username: string, password: string): string {
   const url = new URL(repoUrl)
@@ -224,6 +236,16 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
 
   if (config.authType === 'ssh') {
     const keyPath = await resolveSshKeyPath(repoPath, config)
+    // -> No `-p <port>` here, and no separate "SSH Port" config prop exists at all — OpenProject
+    //    #823 item 2 (upstream #2564: "custom SSH port setting silently ignored") is a bug about a
+    //    dedicated port field that was never applied to the actual connection. This design has no
+    //    such field to lose: a non-default port belongs directly in `repoUrl` (`ssh://host:port/...`
+    //    — see `definition.yml`'s hint), and git derives `-p` from *that* itself when invoking
+    //    `core.sshCommand`, exactly as it would for a bare `ssh` call. Verified against a real `ssh`
+    //    invocation, not assumed — see `storage.test.ts`'s "honors a custom SSH port" test — including
+    //    that this only works because the command below starts with the literal binary name `ssh`:
+    //    git only appends `-p` for the recognized `ssh`/`plink`/`tortoiseplink` variants, falling
+    //    back to a `-p`-less "simple" variant for anything it does not recognize by that name.
     await git.addConfig('core.sshCommand', `ssh -i ${keyPath} -o StrictHostKeyChecking=no`)
   }
 
