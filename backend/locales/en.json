@@ -2382,6 +2382,7 @@
   "profile.api.loadFailed": "Failed to load your personal access tokens.",
   "profile.api.nameInvalidChars": "Token name has invalid characters.",
   "profile.api.nameMissing": "Token name is missing.",
+  "profile.api.newKeyButton": "New Personal Access Token",
   "profile.api.newKeyCopyWarn": "Copy the token shown below as {bold}",
   "profile.api.newKeyCopyWarnBold": "it will NOT be shown again.",
   "profile.api.newKeyExpiration": "Expiration",
