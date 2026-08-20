@@ -124,7 +124,13 @@ const routes = [
   // EDIT
   // --------------------------------
   {
-    path: '/_edit/:pagePath?',
+    /*
+      A custom regex rather than the `*` repeat modifier `/:catchAll(.*)*` uses below: `*` turns the
+      param into an array of segments, but `pagePath` is handed straight to `pageEdit({ path })` as a
+      single string (see `Index.vue`'s route watcher) -- `(.*)` matches every segment of a nested path
+      in one capture without changing that shape, and the trailing `?` keeps `/_edit` alone valid too.
+    */
+    path: '/_edit/:pagePath(.*)?',
     component: () => import('../layouts/MainLayout.vue'),
     children: [{ path: '', component: () => import('../pages/Index.vue') }]
   },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import routes from './routes.js'
 
@@ -28,5 +29,39 @@ describe('admin routes', () => {
     //    621 changed the component's shape without touching this assertion.
     expect(typeof loaded.default).toBe('object')
     expect(typeof loaded.default.setup).toBe('function')
+  })
+})
+
+/**
+ * Regression test for OpenProject #812: `/_edit/:pagePath?` had no wildcard, so vue-router only ever
+ * captured one path segment -- editing a page at a nested path (e.g. "docs/setup") fell through to the
+ * catch-all route instead, with `route.params.pagePath` coming back `undefined`.
+ *
+ * `pagePath` is handed straight to `pageStore.pageEdit({ path })` as a plain string (see `Index.vue`'s
+ * route watcher), so the fix uses a custom regex (`(.*)`) rather than the `*` repeat modifier the
+ * standard page catch-all route uses below -- `*` would turn the param into an array of segments
+ * instead, which `pageEdit` does not expect.
+ */
+describe('edit route', () => {
+  const router = createRouter({ history: createMemoryHistory(), routes })
+
+  it('matches a bare /_edit with no pagePath param', async () => {
+    await router.push('/_edit')
+    expect(router.currentRoute.value.matched.some((r) => r.path === '/_edit/:pagePath(.*)?')).toBe(
+      true
+    )
+    expect(router.currentRoute.value.params.pagePath).toBeUndefined()
+  })
+
+  it('matches a single-segment path as a plain string', async () => {
+    await router.push('/_edit/about')
+    expect(router.currentRoute.value.params.pagePath).toBe('about')
+  })
+
+  it('matches a nested, multi-segment path as a single plain string, not an array', async () => {
+    await router.push('/_edit/docs/setup/install')
+    const { pagePath } = router.currentRoute.value.params
+    expect(pagePath).toBe('docs/setup/install')
+    expect(Array.isArray(pagePath)).toBe(false)
   })
 })
