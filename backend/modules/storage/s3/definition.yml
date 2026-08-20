@@ -30,7 +30,7 @@ props:
     enum:
       - aws|AWS S3
       - do|DigitalOcean Spaces
-      - custom|Custom
+      - custom|Custom (MinIO, other S3-compatible)
   awsRegion:
     type: String
     title: Region
@@ -140,7 +140,7 @@ props:
   s3ForcePathStyle:
     type: Boolean
     title: Force Path Style for S3 objects
-    hint: Whether to force path style URLs for S3 objects.
+    hint: Whether to address objects as https://endpoint/bucket/key instead of https://bucket.endpoint/key. Required for MinIO and most other self-hosted S3-compatible servers, which have no wildcard DNS record for a per-bucket subdomain.
     icon: filtration
     default: false
     order: 11
