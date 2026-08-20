@@ -348,42 +348,42 @@ describe('EditorMarkdown paste vs. drop file naming (OpenProject #806 follow-up)
   correct way in each -- rather than only re-asserting the sign formula itself, which would pass
   right back on the pre-fix code if copied from it by mistake.
 */
+function mockRect(el, { left, width }) {
+  vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
+    left,
+    width,
+    top: 0,
+    height: 0,
+    right: left + width,
+    bottom: 0,
+    x: left,
+    y: 0,
+    toJSON: () => ({})
+  })
+}
+
+/*
+  Reads the live width the divider drag writes onto the preview pane's inline style
+  (`previewInlineStyle`'s `flex: 0 0 <px>px`). happy-dom's `CSSStyleDeclaration` expands that
+  shorthand into `flex-basis` (plus `flex-grow`/`flex-shrink`) when serializing the `style`
+  attribute, so read the longhand rather than the shorthand written in the component.
+*/
+function previewFlexWidth(preview) {
+  const match = preview.attributes('style')?.match(/flex-basis:\s*(\d+(?:\.\d+)?)px/)
+  return match ? Number(match[1]) : null
+}
+
+async function dragDivider(wrapper, { down, move }) {
+  const divider = wrapper.find('.editor-markdown-divider')
+  await divider.trigger('pointerdown', { clientX: down, pointerId: 1 })
+  await divider.trigger('pointermove', { clientX: move, pointerId: 1 })
+  return wrapper.find('.editor-markdown-preview')
+}
+
 describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-up)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
-
-  function mockRect(el, { left, width }) {
-    vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
-      left,
-      width,
-      top: 0,
-      height: 0,
-      right: left + width,
-      bottom: 0,
-      x: left,
-      y: 0,
-      toJSON: () => ({})
-    })
-  }
-
-  /*
-    Reads the live width the divider drag writes onto the preview pane's inline style
-    (`previewInlineStyle`'s `flex: 0 0 <px>px`). happy-dom's `CSSStyleDeclaration` expands that
-    shorthand into `flex-basis` (plus `flex-grow`/`flex-shrink`) when serializing the `style`
-    attribute, so read the longhand rather than the shorthand written in the component.
-  */
-  function previewFlexWidth(preview) {
-    const match = preview.attributes('style')?.match(/flex-basis:\s*(\d+(?:\.\d+)?)px/)
-    return match ? Number(match[1]) : null
-  }
-
-  async function dragDivider(wrapper, { down, move }) {
-    const divider = wrapper.find('.editor-markdown-divider')
-    await divider.trigger('pointerdown', { clientX: down, pointerId: 1 })
-    await divider.trigger('pointermove', { clientX: move, pointerId: 1 })
-    return wrapper.find('.editor-markdown-preview')
-  }
 
   /*
     Each assertion mounts its own editor: `state.previewWidth` (and so the pointer-down's own
@@ -451,6 +451,65 @@ describe('EditorMarkdown resize divider drag direction (OpenProject #804 follow-
     // Dragging right -- away from the preview -- should grow it.
     const updatedPreview = await dragDivider(wrapper, { down: 500, move: 550 })
     expect(previewFlexWidth(updatedPreview)).toBe(550)
+  })
+})
+
+/*
+  OpenProject #809: dragging the divider down past `PREVIEW_HIDE_THRESHOLD_PX` used to leave
+  `state.previewWidth` at the tiny in-drag value for the whole close animation, only restoring the
+  real pre-drag width in `onPreviewAfterLeave` -- after the pane had already finished animating shut,
+  so the fix was invisible until the next open. `onDividerPointerUp` now commits the restore
+  synchronously, before the close even begins.
+  happy-dom implements no real CSS transitions (`getComputedStyle` reports no transition-duration),
+  so the leaving element is torn down immediately rather than lingering through a `leave-active`
+  state -- there is no way to assert on the pane's rendered width *during* the close animation here.
+  What IS asserted, without needing a live browser: the DATA the animation would read from is correct
+  by the time the pane starts leaving, proven the same way `onPreviewAfterLeave` used to prove its own
+  restore worked -- reopening afterwards lands back at the pre-drag width, not the near-zero one the
+  drag ended on. Whether the animation itself visually covers the right distance, with no earlier pop,
+  is a live-browser concern outside what this suite can see.
+*/
+describe('EditorMarkdown drag-to-hide restores the pre-drag width (OpenProject #809)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('reopens at the width the pane had before the hide-drag, not the width the drag ended on', async () => {
+    const { wrapper } = await mountEditor('Some text.')
+    const mid = wrapper.find('.editor-markdown-mid')
+    let divider = wrapper.find('.editor-markdown-divider')
+    let preview = wrapper.find('.editor-markdown-preview')
+
+    mockRect(mid.element, { left: 0, width: 600 })
+    mockRect(divider.element, { left: 600, width: 4 })
+    mockRect(preview.element, { left: 604, width: 500 })
+
+    // First drag: settle the pane at a known, deliberately-large width and release ABOVE the hide
+    // threshold, so it persists as `state.previewWidth` -- this is the "actual set width" the
+    // second drag below must be judged against.
+    preview = await dragDivider(wrapper, { down: 600, move: 650 })
+    await divider.trigger('pointerup', { clientX: 650, pointerId: 1 })
+    expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(450)
+
+    // Second drag: well past `PREVIEW_HIDE_THRESHOLD_PX` (100), all the way down to a sliver --
+    // the drag-to-hide path.
+    divider = wrapper.find('.editor-markdown-divider')
+    preview = await dragDivider(wrapper, { down: 600, move: 1000 })
+    expect(previewFlexWidth(preview)).toBeLessThan(100)
+    await divider.trigger('pointerup', { clientX: 1000, pointerId: 1 })
+
+    // The pane is gone -- happy-dom's leave completes immediately with no real transition to wait on.
+    expect(wrapper.find('.editor-markdown-preview').exists()).toBe(false)
+
+    // Reopen via the toolbar's own show button. Pre-fix, this came back at whatever the drag left
+    // `state.previewWidth` on (~near zero); it must instead come back at the 450px the pane actually
+    // had set before this second drag started.
+    const showButton = wrapper
+      .findAllComponents(WBtn)
+      .find((candidate) => candidate.props('icon') === 'mdi:view-split-vertical')
+    await showButton.trigger('click')
+
+    expect(previewFlexWidth(wrapper.find('.editor-markdown-preview'))).toBe(450)
   })
 })
 

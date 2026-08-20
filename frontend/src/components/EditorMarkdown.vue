@@ -287,7 +287,7 @@
         @pointermove="onDividerPointerMove"
         @pointerup="onDividerPointerUp"
         @pointercancel="onDividerPointerUp" />
-      <transition name="editor-markdown-preview" @after-leave="onPreviewAfterLeave">
+      <transition name="editor-markdown-preview">
         <div
           class="editor-markdown-preview"
           ref="previewPaneRef"
@@ -497,9 +497,6 @@ let dragSign = 1
 let dragMaxWidthPx = Infinity
 /** `state.previewWidth` as it was immediately before this drag began -- what a hide-snap restores. */
 let previousPreviewWidth = null
-/** Set by a hide-snapping pointer-up; consumed by `onPreviewAfterLeave` once the close animation finishes. */
-let pendingRestoreWidth = false
-let restoreWidthValue = null
 
 /**
  * Blocks this site has switched off, as the tags they are written as.
@@ -1151,10 +1148,29 @@ function onDividerPointerMove(ev) {
  *
  * A release at or above the hide threshold persists the new width. A release below it hands off to
  * the existing hidden state (the same `previewShown = false` the toolbar's own hide button sets)
- * instead of leaving an awkward sliver -- but the width itself is restored only once the closing
- * transition finishes (`onPreviewAfterLeave`), not here: doing it in this same tick would make the
- * pane visibly jump back out to its old, much larger width and then animate shut, exactly the
- * awkwardness the snap exists to avoid.
+ * instead of leaving an awkward sliver, restoring `previewWidth` to the width the pane actually had
+ * before this drag (`previousPreviewWidth`) rather than leaving it at the small in-drag value --
+ * otherwise the close animation would shrink from that sliver instead of the pane's real size.
+ *
+ * That restore is written to the DOM directly, synchronously, in the same turn as flipping
+ * `previewShown` -- not through the reactive `state.previewWidth` binding a moment earlier, and not
+ * deferred to after the close transition (`@after-leave`) the way this used to work. Two things rule
+ * those out:
+ *
+ * - Writing `state.previewWidth` here and letting Vue's own render pick it up does nothing for the
+ *   *leaving* element: once `previewShown` is false in the same update, the pane's `v-if` branch is
+ *   absent from the new vnode tree, so Vue never re-patches its style from the new state -- it just
+ *   tears down the DOM node as last rendered (still at the small in-drag width). Deferring the
+ *   restore to `@after-leave` used to work around exactly that, at the cost of the underlying value
+ *   staying wrong, invisibly, for the whole close animation.
+ * - Splitting the restore into its own render first (e.g. an `await nextTick()` before the flip)
+ *   would let Vue patch the big width onto the still-open pane, but does not guarantee no paint lands
+ *   between that patch and the leave starting -- which would show the exact pop-then-shut this snap
+ *   exists to avoid: a static hold at the full width before it starts shrinking.
+ *
+ * Setting the inline style imperatively and flipping `previewShown` in the same synchronous call
+ * sidesteps both: the DOM already reflects the real width by the time Vue's `<transition>` captures
+ * its leave-active starting point, with no intervening render for the browser to paint.
  */
 function onDividerPointerUp() {
   if (!isDragging.value) {
@@ -1162,26 +1178,14 @@ function onDividerPointerUp() {
   }
   isDragging.value = false
   if (state.previewWidth < PREVIEW_HIDE_THRESHOLD_PX) {
-    pendingRestoreWidth = true
-    restoreWidthValue = previousPreviewWidth
+    if (previewPaneRef.value && typeof previousPreviewWidth === 'number') {
+      previewPaneRef.value.style.setProperty('--preview-width', `${previousPreviewWidth}px`)
+      previewPaneRef.value.style.flex = `0 0 ${previousPreviewWidth}px`
+    }
+    state.previewWidth = previousPreviewWidth
     state.previewShown = false
   } else {
     persistPreviewWidth(state.previewWidth)
-  }
-}
-
-/**
- * Fires once the preview pane has finished animating shut, from any of the three ways that can
- * happen: the drag-to-hide snap above, or either of the toolbar's own hide/show button pair. Only
- * the drag snap leaves a pending width to restore (`pendingRestoreWidth`); a plain toolbar hide
- * leaves it false, so `previewWidth` -- already the last committed value in that case -- is left
- * untouched, which is what lets the show button reopen at that same width rather than the default.
- */
-function onPreviewAfterLeave() {
-  if (pendingRestoreWidth) {
-    state.previewWidth = restoreWidthValue
-    pendingRestoreWidth = false
-    restoreWidthValue = null
   }
 }
 
