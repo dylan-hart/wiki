@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import Index from './Index.vue'
+import { useCommonStore } from '@/stores/common'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -308,5 +309,88 @@ describe('Index.vue: unpublished chip (OpenProject #817)', () => {
     await wrapper.vm.$nextTick()
 
     expect(separator().exists()).toBe(true)
+  })
+})
+
+/*
+ * OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
+ * on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX). This is the
+ * frontend half of the render-then-reload regression test the item asks for -- `rendering.test.ts`
+ * covers the save-time half (a diagram block and a resolved formula both survive `postProcess`
+ * byte-for-byte); this covers what actually draws a diagram once that stored HTML comes back down.
+ *
+ * A diagram block is a Lit custom element that draws itself in its own `firstUpdated()` once its
+ * component script has been imported and the tag upgrades -- it does not matter whether that
+ * happened because the live editor preview loaded it moments ago or because this is a page loaded
+ * fresh (a direct URL, a browser reload) that has never seen the editor at all. What matters is that
+ * SOMETHING scans the page for an undefined block tag and imports it either way. This mounts
+ * `Index.vue` exactly as a reader loading a saved page directly would -- `pageStore.pageLoad`
+ * resolving real page data whose `render` is what `rendering.test.ts` proved a save writes to
+ * storage -- and asserts the block-loading scan this view's route watcher runs (`{ immediate: true }`,
+ * so it also covers the very first load of a page, not only navigating between two already-open
+ * ones) picks the diagram up, with no live editor ever having been open in this test at all.
+ */
+describe('Index.vue: read-path block loading for a directly-loaded/reloaded page (OpenProject #829 item 1)', () => {
+  it('loads a block found only in the stored page render, never having gone through the live editor preview', async () => {
+    setActivePinia(createPinia())
+
+    const commonStore = useCommonStore()
+    const loadBlocksSpy = vi.spyOn(commonStore, 'loadBlocks').mockResolvedValue(undefined)
+
+    // -> The shape `rendering.postProcess` actually stores: the block element plus its fenced
+    //    mermaid source, exactly as a reload's GET would hand it back -- see
+    //    `rendering.test.ts`'s "render, save, reload" describe block for where this shape comes from.
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'page-1',
+          path: 'diagram-page',
+          editor: 'markdown',
+          render:
+            '<p>Some text.</p>' +
+            '<block-diagram theme="auto"><pre class="codeblock-mermaid"><code>A --&gt; B</code></pre></block-diagram>',
+          relations: [],
+          tocDepth: { min: 1, max: 6 }
+        })
+    })
+    // -> `ensureSiteBlocks()`'s own fetch, consulted for a custom block's isCustom/id; empty is fine,
+    //    `block-diagram` is a built-in and resolves by its bare tag either way
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    await flushPromises()
+    // -> The block scan runs inside the route watcher's own `nextTick`, one tick behind `pageLoad`
+    //    resolving -- a second flush is what lets that nested callback actually run
+    await flushPromises()
+
+    const loadedTags = loadBlocksSpy.mock.calls.flatMap((call) =>
+      call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
+    )
+    expect(loadedTags).toContain('block-diagram')
+
+    wrapper.unmount()
   })
 })
