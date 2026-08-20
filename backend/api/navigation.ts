@@ -9,40 +9,6 @@ import {
   type NavigationSourceMode
 } from '../models/navigation.ts'
 
-const navigationItem = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    type: { type: 'string', enum: ['link', 'header', 'separator'] },
-    label: { type: 'string' },
-    icon: { type: 'string' },
-    target: { type: 'string' },
-    openInNewWindow: { type: 'boolean' },
-    expandByDefault: {
-      type: 'boolean',
-      description:
-        'Whether a link holding children is shown expanded on load. Meaningless on any other item.'
-    },
-    visibilityGroups: {
-      type: 'array',
-      items: { type: 'string' },
-      description: 'Groups the item is limited to. Visible to everyone when empty.'
-    },
-    pinned: {
-      type: 'string',
-      enum: ['before', 'after'],
-      description:
-        "`mixed` menus only: whether a stored top-level item is placed before or after the tree-generated items it is merged with. Meaningless on `static`/`auto` menus and on nested items. Anything other than 'before' (including absent) is treated as 'after'."
-    },
-    generated: {
-      type: 'boolean',
-      readOnly: true,
-      description:
-        "Set by the server on an `auto`/`mixed` menu for every item (and nested child) that came from the tree walk rather than the stored items — never sent in a request body, since it is derived fresh on every read, not stored. Absent on a `static` menu and on a `mixed` menu's own stored items."
-    }
-  }
-}
-
 /**
  * Whether the requester may see and edit a menu whole, rather than only the parts meant for them.
  *
@@ -99,13 +65,7 @@ async function routes(app: FastifyInstance) {
           200: {
             description: 'The menu items, in the order they are shown',
             type: 'array',
-            items: {
-              ...navigationItem,
-              properties: {
-                ...navigationItem.properties,
-                children: { type: 'array', items: navigationItem }
-              }
-            }
+            items: { $ref: 'NavigationItem#' }
           },
           403: { $ref: 'ApiError#' }
         }
@@ -405,13 +365,7 @@ async function routes(app: FastifyInstance) {
           properties: {
             items: {
               type: 'array',
-              items: {
-                ...navigationItem,
-                properties: {
-                  ...navigationItem.properties,
-                  children: { type: 'array', items: navigationItem }
-                }
-              }
+              items: { $ref: 'NavigationItem#' }
             }
           }
         },
@@ -546,13 +500,7 @@ async function routes(app: FastifyInstance) {
             },
             items: {
               type: 'array',
-              items: {
-                ...navigationItem,
-                properties: {
-                  ...navigationItem.properties,
-                  children: { type: 'array', items: navigationItem }
-                }
-              }
+              items: { $ref: 'NavigationItem#' }
             },
             menuMode: {
               type: 'string',

@@ -20,6 +20,7 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/hook.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/icon.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/mail.ts').then((m) => m.registerSchemas(app))
+  await import('./schemas/navigation.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/notification.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/page.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/pageImport.ts').then((m) => m.registerSchemas(app))

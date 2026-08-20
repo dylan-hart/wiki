@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import navigationRoutes from './navigation.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { registerSchemas as registerNavigationSchema } from './schemas/navigation.ts'
 
 /**
  * Task #683: `GET .../navigation/pages/:pageId/inherited` and `PUT .../navigation/pages/:pageId`
@@ -15,6 +16,26 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 const SITE_ID = '5d9c8f1e-2b3a-4c5d-9e6f-7a8b9c0d1e2f'
 const PAGE_ID = 'a1b2c3d4-e5f6-4789-9abc-def012345678'
+
+// -> Three levels deep: top-level item -> child -> grandchild. The `NavigationItem` response
+//    schema used to be a plain object literal bolting on exactly one hand-written level of
+//    `children`, so `fast-json-stringify` silently dropped the grandchild regardless of what
+//    `getNav` actually returned (OpenProject #814 follow-up to 6d1cd05e).
+const DEEP_NAV_TREE = [
+  {
+    id: 'top',
+    type: 'link',
+    label: 'Top',
+    children: [
+      {
+        id: 'child',
+        type: 'link',
+        label: 'Child',
+        children: [{ id: 'grandchild', type: 'link', label: 'Grandchild' }]
+      }
+    ]
+  }
+]
 
 let currentSitePermissionHeader: string | undefined
 function checkSiteAccess(actor: { permissions: string[] }, permission: string, siteId: string) {
@@ -44,7 +65,7 @@ before(async () => {
           navigationMode: opts.mode,
           navigationId: 'resulting-nav-id'
         }),
-        getNav: async () => []
+        getNav: async () => DEEP_NAV_TREE
       }
     },
     logger: { warn: () => {} }
@@ -64,6 +85,7 @@ before(async () => {
     })
   })
   await registerErrorSchema(app)
+  await registerNavigationSchema(app)
   app.addHook('preHandler', (req: any, reply, done) => {
     currentSitePermissionHeader = req.headers['x-test-site-permissions']
     done()
@@ -149,6 +171,16 @@ test('reading a menu in full requires manage:navigation or site:navigation on th
     headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` }
   })
   assert.equal(allowed.statusCode, 200)
+})
+
+test('a menu nested three levels deep reaches the response intact', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_ID}/navigation/${PAGE_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body[0].children[0].children[0].id, 'grandchild')
 })
 
 describe('manage:navigation permission surface on GET/PUT .../navigation/:navId (Task 472)', () => {
@@ -253,6 +285,7 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     app.addHook('onRequest', testSessionOnRequest)
     app.addHook('preHandler', permissionPreHandler)
     await registerErrorSchema(app)
+    await registerNavigationSchema(app)
     await app.register(navigationRoutes)
     await app.ready()
   })
@@ -295,6 +328,24 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     assert.equal(res.statusCode, 200)
     assert.equal(res.json().ok, true)
     assert.equal(lastSetNavItemsCall?.navId, NAV_ID)
+  })
+
+  // -> Unlike the GET test above, this one does NOT independently demonstrate OpenProject #814's
+  //    fix: Ajv only strips/rejects undeclared-depth properties when `additionalProperties: false`
+  //    is set somewhere in the schema chain, and it never was here, in either the old inlined
+  //    `navigationItem` shape or the new shared `NavigationItem` schema -- so a PUT body nested
+  //    past the schema's known depth was never actually truncated or rejected on the write path.
+  //    Reverting `navigation.ts` to its pre-fix schema still passes this test. It stays as a
+  //    forward-looking contract test for the write path, not as proof of this bug's existence.
+  test('a menu nested three levels deep survives the save (body validation)', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      payload: { items: DEEP_NAV_TREE },
+      headers: headersFor(['manage:navigation'])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(lastSetNavItemsCall?.items[0].children[0].children[0].id, 'grandchild')
   })
 
   test('an account without manage:navigation is refused a full read', async () => {
