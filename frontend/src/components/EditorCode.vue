@@ -198,18 +198,29 @@ onBeforeUnmount(() => {
 <style lang="scss">
 @use 'sass:color';
 
-$editor-height: calc(100vh - 64px - 96px);
-
 .editor-code {
+  /*
+    Percentage heights all the way down rather than a viewport calc, which had to grow a new
+    hardcoded term every time a bar was added or resized above it -- most recently the breadcrumb bar
+    staying mounted through editing (OpenProject #813). `Index.vue`'s `.page-container` already hands
+    its row a definite height via `items-stretch`, which is what lets the reading column's own scroll
+    area just say `height: 100%` -- this is the editor doing the same thing instead of restating it.
+    See `EditorMarkdown.vue`'s matching comment for the fuller version.
+  */
+  height: 100%;
+  min-height: 0;
+
   &-main {
     display: flex;
     width: 100%;
+    height: 100%;
+    min-height: 0;
   }
   &-editor {
     background-color: $dark-6;
     flex: 1 1 auto;
     display: block;
-    height: $editor-height;
+    height: 100%;
     position: relative;
     min-width: 0;
 

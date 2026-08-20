@@ -398,6 +398,29 @@ describe('page store: pageCreate()', () => {
 
     expect(pageStore.router.push).not.toHaveBeenCalled()
   })
+
+  /*
+   * OpenProject #813: the breadcrumb bar's "Last modified" line now stays mounted through editing
+   * and reads straight off this store, so a page being created has to actually blank these rather
+   * than leave whatever a previous `pageLoad` left standing -- otherwise New Page from an existing
+   * page (or a direct `/_create` visit right after browsing one) would report THAT page's save time
+   * as its own.
+   */
+  it('blanks updatedAt and createdAt, not just whatever the previous page left behind', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+    pageStore.$patch({
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      createdAt: '2025-06-01T00:00:00.000Z'
+    })
+
+    await pageStore.pageCreate({ editor: 'markdown', fromNavigate: true })
+
+    expect(pageStore.updatedAt).toBe('')
+    expect(pageStore.createdAt).toBe('')
+  })
 })
 
 describe('page store: breadcrumbs', () => {

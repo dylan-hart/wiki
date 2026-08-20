@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import Index from './Index.vue'
+import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -89,7 +90,12 @@ async function mountIndex() {
   })
   activeWrapper = wrapper
 
-  return { wrapper, pageStore: usePageStore(), siteStore: useSiteStore() }
+  return {
+    wrapper,
+    pageStore: usePageStore(),
+    siteStore: useSiteStore(),
+    editorStore: useEditorStore()
+  }
 }
 
 describe('Index.vue: page-view comments gating', () => {
@@ -213,5 +219,55 @@ describe('Index missing-page screen: Recently Deleted entry link', () => {
 
     const entry = wrapper.find('[href="/_admin/site-1/pages/deleted"]')
     expect(entry.exists()).toBe(false)
+  })
+})
+
+/**
+ * OpenProject #813: the breadcrumb bar (trail + "Last modified") used to unmount the moment
+ * `editorStore.isActive` flipped true. It now stays up through editing, gated only on there being a
+ * page at all (`pageStore.notFound`) -- with "Last modified" itself further hidden for a page that
+ * has never been saved, where there is no true last-saved moment to report.
+ */
+describe('Index.vue: breadcrumb bar during editing (OpenProject #813)', () => {
+  it('stays mounted once the editor is active, unlike before', async () => {
+    const { wrapper, editorStore } = await mountIndex()
+    expect(wrapper.find('.page-breadcrumbs').exists()).toBe(true)
+
+    editorStore.isActive = true
+    editorStore.mode = 'edit'
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.page-breadcrumbs').exists()).toBe(true)
+  })
+
+  it('stays hidden for a path with no page at all, editor or not', async () => {
+    const { wrapper, pageStore, editorStore } = await mountIndex()
+    pageStore.notFound = true
+    editorStore.isActive = true
+    editorStore.mode = 'create'
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.page-breadcrumbs').exists()).toBe(false)
+  })
+
+  it('keeps "Last modified" visible while editing an already-saved page', async () => {
+    const { wrapper, pageStore, editorStore } = await mountIndex()
+    pageStore.updatedAt = '2026-01-01T00:00:00.000Z'
+    editorStore.isActive = true
+    editorStore.mode = 'edit'
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('Last modified on')
+  })
+
+  it('hides "Last modified" but keeps the trail for a page that has never been saved', async () => {
+    const { wrapper, pageStore, editorStore } = await mountIndex()
+    pageStore.$patch({ path: 'new-page', updatedAt: '' })
+    editorStore.isActive = true
+    editorStore.mode = 'create'
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('Last modified on')
+    expect(wrapper.findComponent({ name: 'WBreadcrumbs' }).exists()).toBe(true)
   })
 })

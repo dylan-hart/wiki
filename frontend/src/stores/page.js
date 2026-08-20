@@ -466,6 +466,15 @@ export const usePageStore = defineStore('page', {
         isSearchable: editor !== 'redirect',
         // -> The page being created is very often the one that was missing, and it is not missing now
         notFound: false,
+        /*
+          Neither is real yet, so both are blanked rather than left as whatever `pageLoad` last put
+          here -- unblanked, a page created from an existing one (the header's New Page button, a
+          direct `/_create` visit, `pageDuplicate`) would report THAT page's last-saved and created
+          times as its own (OpenProject #813: the breadcrumb bar now stays up during editing and reads
+          this).
+        */
+        updatedAt: '',
+        createdAt: '',
         mode: 'edit'
       })
     },

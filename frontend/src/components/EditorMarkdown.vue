@@ -2141,11 +2141,20 @@ onBeforeUnmount(() => {
 <style lang="scss">
 @use 'sass:color';
 
-$editor-height: calc(100vh - 64px - 96px);
-$editor-preview-height: calc(100vh - 64px - 96px - 32px);
-$editor-height-mobile: calc(100vh - 112px - 16px);
-
 .editor-markdown {
+  /*
+    Percentage heights all the way down rather than a viewport calc (`100vh` minus every fixed-height
+    bar above this one), which is what this used to be and had to grow a new hardcoded term -- and get
+    it exactly right -- every time a bar was added or resized above it (most recently the breadcrumb
+    bar staying mounted through editing, OpenProject #813). `Index.vue`'s `.page-container` already
+    hands its row a definite height via `items-stretch`, which is what lets the reading column's own
+    scroll area just say `height: 100%` (`w-scroll-area class="page-container-scrl" style="height:
+    100%"`) -- this is the editor doing the same thing, so it inherits whatever is above it instead of
+    restating it.
+  */
+  height: 100%;
+  min-height: 0;
+
   /*
     While the divider is being dragged (`isDragging`, see `onDividerPointerDown`/`onDividerPointerUp`).
     Pointer capture already keeps the drag tracking correctly once the pointer leaves the divider's
@@ -2162,12 +2171,14 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
   &-main {
     display: flex;
     width: 100%;
+    height: 100%;
+    min-height: 0;
   }
   &-mid {
     background-color: $dark-6;
     flex: 1 1 50%;
     display: block;
-    height: $editor-height;
+    height: 100%;
     position: relative;
     /*
       The seam facing the preview pane, which is the next flex item in `-main` -- always the one
@@ -2187,9 +2198,6 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
     display: block;
     height: calc(100% - 32px);
     position: relative;
-    // @include until($tablet) {
-    //   height: $editor-height-mobile;
-    // }
 
     > div {
       height: 100%;
@@ -2205,7 +2213,7 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
   &-divider {
     flex: 0 0 auto;
     width: 9px;
-    height: $editor-height;
+    height: 100%;
     position: relative;
     cursor: col-resize;
     // -> Pointer capture (see `onDividerPointerDown`) keeps the drag tracking correctly once the
@@ -2238,7 +2246,7 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
   &-preview {
     flex: 0 1 50%;
     position: relative;
-    height: $editor-height;
+    height: 100%;
     overflow: hidden;
 
     @at-root .body--light & {
@@ -2317,7 +2325,7 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
       }
     }
     &-content {
-      height: $editor-preview-height;
+      height: calc(100% - 32px);
       overflow-y: scroll;
       padding: 1rem;
       max-width: calc(var(--preview-width, 50vw) - 57px);
@@ -2325,9 +2333,6 @@ $editor-height-mobile: calc(100vh - 112px - 16px);
       // &::-webkit-scrollbar {
       //   width: 0px;
       //   background: transparent;
-      // }
-      // @include until($tablet) {
-      //   height: $editor-height-mobile;
       // }
       > div {
         outline: none;

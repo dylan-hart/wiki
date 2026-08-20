@@ -7,14 +7,20 @@
   <w-page class="flex flex-col h-full min-h-0">
     <!--
       Both bars are about a page: where it sits and when it was last written to. A path with no page
-      has neither to report -- the trail would end on a crumb that leads nowhere and the bar would read
-      "Last modified on N/A" -- so the missing-page screen below is the whole column.
+      AT ALL -- `pageStore.notFound` -- has neither to report, so the missing-page screen below is the
+      whole column.
+
+      Kept mounted through editing too (OpenProject #813), not just while reading: the trail is still
+      how an author gets back out, and "Last modified" is exactly as useful mid-edit as it is while
+      reading -- `pageStore.path`/`breadcrumbs` and `updatedAt` do not move until a save actually lands
+      (see `pageSave`), so the bar keeps reporting the true last-saved state throughout an edit rather
+      than something that just changed underfoot. Staying mounted across the view-to-edit transition
+      also means this is no longer one more thing reflowing at the same moment as the side nav closing
+      and the preview pane sliding in.
     -->
     <!-- -> `py-1` on a phone: with the date gone the bar holds one line of small type, and 8px above and
             below it made a strip nearly as tall as the crumbs themselves -->
-    <div
-      class="page-breadcrumbs py-1 px-4 sm:py-2 flex flex-wrap"
-      v-if="!editorStore.isActive && !pageStore.notFound">
+    <div class="page-breadcrumbs py-1 px-4 sm:py-2 flex flex-wrap" v-if="!pageStore.notFound">
       <div class="min-w-0 flex-1">
         <w-breadcrumbs
           :items="breadcrumbs"
@@ -27,8 +33,14 @@
         Off on a phone: on a 390px screen the date takes a whole line of its own under the trail, which
         is a lot of room for something a reader is not here for -- and the trail itself is how they get
         back out, so that is what the bar keeps.
+
+        Also off for a page that has never been saved (`isUnsavedNewPage`): there is no last-saved
+        moment to report yet, and `publishState`/`updatedAt` at that point either are blank or, absent
+        the reset in `pageCreate`, would be carried over from whatever page was open before. The trail
+        above stays up regardless, title-only if that is all there is -- the path is real even before
+        the page behind it is.
       -->
-      <div class="flex-none items-center justify-end hidden sm:flex">
+      <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
         <template v-if="!pageStore.publishState === `draft`">
           <div class="text-caption text-accent"><strong>Unpublished</strong></div>
           <w-separator class="mx-2" vertical />
@@ -580,6 +592,15 @@ const relationsCenter = computed(() => {
 const relationsRight = computed(() => {
   return pageStore.relations ? pageStore.relations.filter((r) => r.position === 'right') : []
 })
+/**
+ * Whether the page on screen has never been saved -- open in the editor, in `create` mode, and not
+ * yet POSTed. `editorStore.isActive` is checked alongside `mode` rather than `mode` alone: `mode`
+ * stays `create` until the save that flips it to `edit` completes (see `pageSave`), and also starts
+ * out `create` before any page has ever been opened -- so a stale `mode` read while merely reading a
+ * page (editor closed) must not be able to suppress "Last modified" there too.
+ */
+const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode === 'create')
+
 const lastModified = computed(() => {
   return pageStore.updatedAt
     ? // -> The fields luxon's DATETIME_MED expanded to, so the bar reads exactly as before
