@@ -18,17 +18,15 @@
             <w-spinner v-show="commonStore.routerLoading" color="accent" size="20px" />
           </transition>
           <w-btn
-            class="ml-4"
+            class="header-nav-btn header-nav-btn--auto-width"
             flat
-            dense
             icon="la:times-circle"
             :label="t(`common.actions.exit`)"
             color="pink"
             to="/" />
           <w-btn
-            class="ml-4"
+            class="header-nav-btn header-nav-btn--auto-width"
             flat
-            dense
             icon="la:language"
             :label="commonStore.locale"
             color="grey-4">

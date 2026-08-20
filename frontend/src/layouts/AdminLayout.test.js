@@ -320,6 +320,96 @@ describe('AdminLayout locale-switcher menu direction', () => {
   })
 })
 
+/**
+ * Regression coverage for task 822: the EXIT and locale-switcher buttons in the admin toolbar used
+ * to carry only `ml-4` (WBtn's default `hover:bg-current/10` fill), the same faint/inconsistent
+ * hover state task 807 fixed for the site header's five icon buttons via `.header-nav-btn`. These
+ * two buttons carry a visible text label beside their icon, unlike those five icon-only buttons, so
+ * they take `header-nav-btn` together with the `header-nav-btn--auto-width` modifier
+ * (`css/_base.scss`) rather than the bare class -- same 64px band, squared corners and 20% hover
+ * fill, but sized to the label instead of forced to a 64px square.
+ */
+describe('AdminLayout toolbar hover treatment (task 822)', () => {
+  async function mountToolbar() {
+    setActivePinia(createPinia())
+    useUserStore().$patch({ permissions: ['manage:system'] })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/_admin/:siteid?/:rest*', component: { template: '<div />' } },
+        { path: '/_error/unauthorized', component: { template: '<div />' } }
+      ]
+    })
+    router.push('/_admin/site-1/dashboard')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites') {
+        return { json: () => Promise.resolve([{ id: 'site-1', title: 'Test Site' }]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const wrapper = mount(AdminLayout, {
+      global: {
+        plugins: [router, i18n],
+        stubs: { 'router-view': true, FooterNav: true }
+      }
+    })
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  function findButtonByIcon(wrapper, iconName) {
+    return wrapper.findAll('.w-btn').find((btn) => btn.find(`[data-icon="${iconName}"]`).exists())
+  }
+
+  it('gives the EXIT button the header-nav-btn hover treatment', async () => {
+    const wrapper = await mountToolbar()
+
+    const exitBtn = findButtonByIcon(wrapper, 'la:times-circle')
+
+    expect(exitBtn).toBeDefined()
+    expect(exitBtn.classes()).toContain('header-nav-btn')
+    expect(exitBtn.classes()).toContain('header-nav-btn--auto-width')
+  })
+
+  it('gives the locale-switcher button the header-nav-btn hover treatment', async () => {
+    const wrapper = await mountToolbar()
+
+    const localeBtn = findButtonByIcon(wrapper, 'la:language')
+
+    expect(localeBtn).toBeDefined()
+    expect(localeBtn.classes()).toContain('header-nav-btn')
+    expect(localeBtn.classes()).toContain('header-nav-btn--auto-width')
+  })
+
+  it('keeps the account-menu button on the shared header-nav-btn treatment too, for a flush group', async () => {
+    const wrapper = await mountToolbar()
+
+    const accountBtn = wrapper.find('.account-avbtn')
+
+    expect(accountBtn.exists()).toBe(true)
+    expect(accountBtn.classes()).toContain('header-nav-btn')
+  })
+
+  it('defines the header-nav-btn--auto-width modifier in _base.scss, sizing to content', () => {
+    // -> Vue Test Utils never loads the app's stylesheet, so the class-presence assertions above
+    //    can't catch the CSS rule itself going missing. Guards the modifier directly, the same way
+    //    the SSL dead-code describe block above asserts on file contents rather than rendered style.
+    const dir = dirname(fileURLToPath(import.meta.url))
+    const scssPath = join(dir, '../css/_base.scss')
+    const source = readFileSync(scssPath, 'utf-8')
+
+    expect(source).toMatch(
+      /\.w-btn\.header-nav-btn\.header-nav-btn--auto-width\s*\{[^}]*width:\s*auto\s*!important/
+    )
+  })
+})
+
 describe('AdminLayout nav count badge', () => {
   it('keeps the count badge on a logical (inline-end) border, not a physical one', () => {
     const dir = dirname(fileURLToPath(import.meta.url))
