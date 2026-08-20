@@ -104,6 +104,27 @@ function moduleWithFakeClient() {
   return { mod, ...fake }
 }
 
+/**
+ * OpenProject #830 (upstream #865, open): the v2 line's Elasticsearch module used to pin its API
+ * version to 6.6, an Elasticsearch major that reached end of life in 2019. Task #552 (see
+ * `docs/variances.md`) already dropped the whole `apiVersion` selector in favor of targeting a single,
+ * current `@elastic/elasticsearch` major -- this pins that as a regression test, so a future dependency
+ * bump that drags the pin back down to an old major fails a test instead of silently shipping.
+ * `dev/docker-compose.search-test.yml` keeps the smoke-tested server image in step with this same
+ * major.
+ */
+describe('@elastic/elasticsearch client version (OpenProject #830 / upstream #865)', () => {
+  test('the pinned client major is current, not the long-EOL 6.x line 2.5.x shipped', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(backendDir, 'package.json'), 'utf8'))
+    const pinned = pkg.dependencies['@elastic/elasticsearch'] as string
+    const major = Number.parseInt(pinned.replace(/^[^\d]*/, ''), 10)
+    assert.ok(
+      major >= 9,
+      `@elastic/elasticsearch is pinned to "${pinned}" -- expected a current (>= 9.x) major, not the EOL line this module used to target.`
+    )
+  })
+})
+
 describe('getTlsOptions()', () => {
   test('with no tlsCertPath, only carries rejectUnauthorized', () => {
     assert.deepEqual(getTlsOptions({ verifyTLSCertificate: true, tlsCertPath: '' }), {
@@ -557,6 +578,68 @@ describe('ElasticsearchSearchModule', () => {
       assert.equal(calls.bulk!.length, 0)
       assert.equal(result.pages, 0)
       assert.deepEqual(result.locales, [])
+    })
+
+    /**
+     * OpenProject #830 (discussion #5235, ES reindex connection pool exhaustion): a rebuild that read
+     * every page of a large site into memory up front (or prefetched the next page of rows while an
+     * earlier batch's `client.bulk` call was still in flight) would hold postgres connections open for
+     * the whole, potentially slow, duration of talking to Elasticsearch -- exactly the failure mode
+     * this fork's Azure/AWS CloudSearch `rebuild()` implementations were already built to avoid (see
+     * their own `pageBatch`/`uploadBatch` doc comments). This module's keyset-paginated loop reads one
+     * `PAGE_SIZE` page, awaits its `client.bulk` call to finish, and only then reads the next page --
+     * this pins that ordering: the second `select` must not start until the first `bulk` has settled,
+     * across a large enough page count (501 rows, two iterations of `PAGE_SIZE=500`) to actually
+     * exercise the loop boundary.
+     */
+    test('streams sequentially: never reads the next page of rows while a batch upload is still in flight', async () => {
+      const { mod, client } = moduleWithFakeClient()
+      const events: string[] = []
+
+      const originalBulk = client.bulk
+      client.bulk = async (args: any) => {
+        events.push('bulk-start')
+        // -> A real network round-trip is asynchronous; this makes an overlapping `select` detectable
+        //    instead of the mock's synchronous resolution hiding it.
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        events.push('bulk-end')
+        return originalBulk(args)
+      }
+
+      const firstPage = Array.from({ length: 500 }, (_, i) =>
+        fakePage({ id: `p${String(i).padStart(4, '0')}`, locale: 'en' })
+      )
+      const secondPage = [fakePage({ id: 'p0500', locale: 'en' })]
+      let selectCall = 0
+      ;(globalThis as any).WIKI.db = {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: async () => {
+                  selectCall++
+                  events.push(`select-${selectCall}`)
+                  if (selectCall === 1) return firstPage
+                  if (selectCall === 2) return secondPage
+                  return []
+                }
+              })
+            })
+          })
+        })
+      }
+
+      const result = await mod.rebuild(siteId)
+
+      assert.equal(result.pages, 501)
+      assert.deepEqual(events, [
+        'select-1',
+        'bulk-start',
+        'bulk-end',
+        'select-2',
+        'bulk-start',
+        'bulk-end'
+      ])
     })
   })
 })

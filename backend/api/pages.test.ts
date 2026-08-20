@@ -599,6 +599,26 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
     assert.equal(searchPagesCalls[0].includeDrafts, false)
     assert.equal(searchPagesCalls[0].hideProtectedContent, true)
   })
+
+  /**
+   * OpenProject #830 (upstream #6541, permission-filtered instant-search suggestions): this route is
+   * what the header's live-preview panel calls (`HeaderSearch.vue`'s `fetchPreview()`, same URL, same
+   * query params), so it is the "instant-search endpoint" that suggestion filtering must apply to.
+   * `search.query()`'s own permission filtering (covered against a real database in
+   * `modules/search/db/search.test.ts`) only works if it is actually handed the requester's access
+   * actor -- this is the wiring proof that it is, for every request, not merely when `write:pages`
+   * happens to be in play like the two tests above.
+   */
+  test('search wires the accessActor through to search.query, so results and suggestions can be permission-filtered', async () => {
+    ruleGrantedPermissions = []
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/search?query=numbat`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(searchPagesCalls.length, 1)
+    assert.deepEqual(searchPagesCalls[0].actor, { permissions: ['write:pages'], groupIds: [] })
+  })
 })
 
 /**
