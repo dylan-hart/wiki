@@ -510,6 +510,45 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
     assert.equal(body.page.updatedAt, STORED_UPDATED_AT.toISOString())
   })
 
+  /**
+   * Escape-hatch guarantee for OpenProject #838 (upstream requarks/wiki #2256: "Conflict after
+   * editing a page which can't be resolved"). A 409 must never be a dead end: the author's edit has
+   * to remain saveable by re-submitting with the conflicting save's own `updatedAt` as the new
+   * baseline -- exactly what `PageSaveConflictDialog.vue`'s "Save Anyway" does. This drives that
+   * two-step sequence against the route directly: the refused save's response carries everything
+   * needed for the retry (`body.page.updatedAt`), the retry is accepted, and what actually reaches
+   * `updatePage()` is this author's own content, not the version that caused the conflict.
+   */
+  test("a 409 conflict is always recoverable: retrying with the response's updatedAt as the new baseline writes this author's content through", async () => {
+    const staleDate = new Date(STORED_UPDATED_AT.getTime() - 60_000).toISOString()
+    const refused = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: {
+        title: "This author's title",
+        content: "This author's content",
+        expectedUpdatedAt: staleDate
+      }
+    })
+    assert.equal(refused.statusCode, 409)
+    assert.equal(updatePageCalls.length, 0)
+    const conflictSnapshot = refused.json().page
+
+    const retried = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}`,
+      payload: {
+        title: "This author's title",
+        content: "This author's content",
+        expectedUpdatedAt: conflictSnapshot.updatedAt
+      }
+    })
+    assert.equal(retried.statusCode, 200)
+    assert.equal(updatePageCalls.length, 1)
+    assert.equal(updatePageCalls[0].patch.title, "This author's title")
+    assert.equal(updatePageCalls[0].patch.content, "This author's content")
+  })
+
   test('expectedUpdatedAt is compared at millisecond precision, not nanosecond', async () => {
     // -> Same instant, just re-serialized without sub-millisecond noise
     const res = await app.inject({

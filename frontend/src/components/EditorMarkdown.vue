@@ -1681,6 +1681,14 @@ function flushEditorContent() {
  * Offers two ways out: adopt the server's version wholesale, or re-issue the save with the server's
  * `updatedAt` as the new baseline -- an informed overwrite, now that this author has been told there
  * was something to overwrite, rather than the blind one `expectedUpdatedAt` exists to prevent.
+ *
+ * Either choice recovers this author's edit one way or another -- discard adopts the server's content
+ * in its place, overwrite forces this author's own content through as the new version -- so a 409
+ * is never a dead end (OpenProject #838, upstream requarks/wiki #2256). Nothing here is lost if the
+ * overwrite's own `pageSave()` hits a second conflict, either: the 409 handler in `stores/page.js`
+ * sets `editorStore.saveConflict` again, which re-triggers the `watch` below and puts this same
+ * dialog back up with the newer snapshot -- the editor's content itself is never touched by a
+ * refusal, only ever replaced by an explicit "Discard" choice.
  */
 function resolveSaveConflict(snapshot) {
   dialog({

@@ -162,6 +162,77 @@ describe('page store: pageSave() concurrency', () => {
 
     expect(editorStore.saveConflict).toEqual(conflictSnapshot)
   })
+
+  /**
+   * Escape-hatch guarantee for OpenProject #838 (upstream requarks/wiki #2256: "Conflict after
+   * editing a page which can't be resolved"). A refused save must never be a dead end -- this
+   * author's edit has to stay saveable one way or another. `EditorMarkdown.vue`'s conflict dialog
+   * offers exactly this "Save Anyway" path: adopt the conflicting save's `updatedAt` as the new
+   * optimistic-concurrency baseline and resubmit the same content unchanged. This test drives that
+   * same sequence directly against the store, without the dialog, and confirms it actually lands --
+   * the retry is accepted, and what gets persisted is this author's content, not the version that
+   * caused the conflict.
+   */
+  it("always has an escape hatch: retrying with the conflicting save's updatedAt as the new baseline persists this author's content", async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: "this author's unsaved edit"
+    })
+
+    const conflictSnapshot = {
+      updatedAt: '2026-01-01T05:00:00.000Z',
+      title: 'Server Title',
+      content: "somebody else's content",
+      authorName: 'Ada Lovelace'
+    }
+    const conflictErr = new Error('Conflict')
+    conflictErr.response = {
+      status: 409,
+      json: () => Promise.resolve({ ok: false, message: 'conflict', page: conflictSnapshot })
+    }
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () => Promise.reject(conflictErr)
+    })
+
+    await expect(pageStore.pageSave()).rejects.toThrow('ERR_SAVE_CONFLICT')
+
+    // -> The refusal doesn't touch this author's own edit -- nothing has been discarded, so there is
+    //    still something to save once the conflict is resolved.
+    expect(pageStore.content).toBe("this author's unsaved edit")
+
+    // -> "Save Anyway": adopt the server's updatedAt as the new baseline and resubmit.
+    pageStore.updatedAt = editorStore.saveConflict.updatedAt
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '5',
+            updatedAt: '2026-01-01T05:00:01.000Z',
+            content: "this author's unsaved edit",
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+
+    await expect(pageStore.pageSave()).resolves.toBeUndefined()
+
+    const [, retryOpts] = API_CLIENT.patch.mock.calls[1]
+    expect(retryOpts.json.expectedUpdatedAt).toBe(conflictSnapshot.updatedAt)
+    expect(retryOpts.json.content).toBe("this author's unsaved edit")
+    expect(pageStore.content).toBe("this author's unsaved edit")
+    expect(pageStore.updatedAt).toBe('2026-01-01T05:00:01.000Z')
+  })
 })
 
 describe('page store: pageSave() reads the live editor first (OpenProject #806)', () => {

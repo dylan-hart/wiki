@@ -933,6 +933,17 @@ async function routes(app: FastifyInstance) {
         trips; comparing `Temporal.Instant` values directly with `<` throws, so this compares
         `epochMilliseconds` instead.
       */
+      /*
+        Escape-hatch guarantee (OpenProject #838, upstream requarks/wiki #2256): a 409 here is a
+        REFUSAL, not a dead end. The response below always carries the row's current `updatedAt`,
+        which is everything a caller needs to make its next request succeed — resubmit the same body
+        with that value as `expectedUpdatedAt` and this check passes, because by then it once again
+        matches what is stored. There is no state this route can put a page into where a save is
+        permanently unsavable; a caller can always either adopt what's on the server or force its own
+        content through as the new version. `PageSaveConflictDialog.vue` /
+        `EditorMarkdown.vue#resolveSaveConflict` is the frontend consumer of that guarantee ("Save
+        Anyway" issues exactly this resubmission); `pages.test.ts` proves the round trip end to end.
+      */
       if (
         req.body.expectedUpdatedAt &&
         Temporal.Instant.from(req.body.expectedUpdatedAt).epochMilliseconds !==
