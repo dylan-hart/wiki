@@ -283,16 +283,9 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
     return { wrapper, siteStore }
   }
 
-  it("openItem()'s asset case opens the asset's URL in a new tab", () => {
+  it("openItem()'s asset case opens the asset's URL in a new tab", async () => {
+    const { wrapper } = await mountFileManagerWithItems([])
     const openSpy = vi.spyOn(window, 'open').mockImplementation(() => {})
-
-    const wrapper = mount(FileManager, {
-      global: {
-        plugins: [i18n, createRouter({ history: createWebHistory(), routes: [] })],
-        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
-      },
-      attachTo: document.body
-    })
 
     wrapper.vm.openItem({ type: 'asset', folderPath: 'media', fileName: 'photo.png' })
 
