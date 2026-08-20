@@ -58,9 +58,11 @@
       row would be reasoning about the wrong box: the CONTENT area's width, not the viewport's, is
       what actually narrows here, and it does not track viewport width monotonically).
 
-      1. The list's width is now `clamp(260px, 38%, 300px)` -- a percentage of the row itself, so it
-         gives up some width as the row narrows instead of staying pinned at 300px+. 260px keeps the
-         list card's own content (an icon + title + description per row) legible even at its floor.
+      1. The list's width is now `clamp(300px, 42%, 380px)` -- a percentage of the row itself, so it
+         gives up some width as the row narrows instead of staying pinned at 300px+. The floor matches
+         the list's ORIGINAL fixed width (so it's never thinner than it used to be) and the ceiling
+         lets it grow past that at wide viewports, rather than both list and panel converging on the
+         old 300px as a shared cap.
       2. The panel keeps `min-w-0` (still needed once it's on its own line, per the comment below) but
          trades `flex-1`'s `0%` basis for `basis-[340px]`: flex-wrap decides whether to wrap based on
          each item's flex-basis, not its shrunk size, so once the list's clamped width plus the
@@ -68,7 +70,7 @@
          instead of being squeezed thinner than that.
     -->
     <div class="flex flex-wrap p-4 gap-4">
-      <div class="flex-none" style="width: clamp(260px, 38%, 300px)">
+      <div class="flex-none" style="width: clamp(300px, 42%, 380px)">
         <w-card class="rounded bg-dark">
           <w-list padding dark>
             <w-item
