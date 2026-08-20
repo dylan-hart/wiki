@@ -697,4 +697,68 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
     expect(fakeModel.getValue()).toBe('Some text.')
   })
+
+  it('continues an unordered list item', async () => {
+    await mountEditor('- one')
+    cursorPosition = { lineNumber: 1, column: '- one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one\n- ')
+    expect(fakeEditor.trigger).not.toHaveBeenCalled()
+  })
+
+  it('continues an ordered list item, incrementing the number', async () => {
+    await mountEditor('1. one')
+    cursorPosition = { lineNumber: 1, column: '1. one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1. one\n2. ')
+  })
+
+  it('preserves the ")" delimiter on an ordered list item', async () => {
+    await mountEditor('1) one')
+    cursorPosition = { lineNumber: 1, column: '1) one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('1) one\n2) ')
+  })
+
+  it('continues a task list item as unchecked, from a checked previous item', async () => {
+    await mountEditor('- [x] done')
+    cursorPosition = { lineNumber: 1, column: '- [x] done'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [x] done\n- [ ] ')
+  })
+
+  it('continues a task list item as unchecked, from an unchecked previous item', async () => {
+    await mountEditor('- [ ] todo')
+    cursorPosition = { lineNumber: 1, column: '- [ ] todo'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- [ ] todo\n- [ ] ')
+  })
+
+  it('preserves indentation for a nested list item', async () => {
+    await mountEditor('  - nested')
+    cursorPosition = { lineNumber: 1, column: '  - nested'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('  - nested\n  - ')
+  })
+
+  it('splits mid-line, prefixing the moved text on the new line', async () => {
+    await mountEditor('- one two')
+    cursorPosition = { lineNumber: 1, column: '- one '.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('- one \n- two')
+  })
 })

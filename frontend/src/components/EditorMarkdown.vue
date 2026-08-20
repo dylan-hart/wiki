@@ -1068,12 +1068,63 @@ function insertAfter({ content, newLine, focus = true }) {
   }
 }
 
+const TASK_LIST_MARKER_RE = /^(\s*)-\s\[([ xX])\]\s/
+const ORDERED_LIST_MARKER_RE = /^(\s*)(\d+)([.)])\s/
+const UNORDERED_LIST_MARKER_RE = /^(\s*)([-*+])\s/
+
+function detectListMarker(lineContent) {
+  let match = lineContent.match(TASK_LIST_MARKER_RE)
+  if (match) {
+    return { type: 'task', indent: match[1], markerLength: match[0].length }
+  }
+  match = lineContent.match(ORDERED_LIST_MARKER_RE)
+  if (match) {
+    return {
+      type: 'ordered',
+      indent: match[1],
+      markerLength: match[0].length,
+      number: Number.parseInt(match[2], 10),
+      delimiter: match[3]
+    }
+  }
+  match = lineContent.match(UNORDERED_LIST_MARKER_RE)
+  if (match) {
+    return { type: 'unordered', indent: match[1], markerLength: match[0].length }
+  }
+  return null
+}
+
+function nextMarkerText(detected) {
+  switch (detected.type) {
+    case 'task':
+      return '- [ ] '
+    case 'ordered':
+      return `${detected.number + 1}${detected.delimiter} `
+    default:
+      return '- '
+  }
+}
+
 function fallbackToDefaultEnter() {
   editor.trigger('keyboard', 'type', { text: '\n' })
 }
 
 function continueList() {
-  fallbackToDefaultEnter()
+  const selection = editor.getSelections()[0]
+  const line = selection.startLineNumber
+  const column = selection.startColumn
+  const lineContent = editor.getModel().getLineContent(line)
+  const detected = detectListMarker(lineContent)
+
+  if (!detected) {
+    fallbackToDefaultEnter()
+    return
+  }
+
+  const marker = detected.indent + nextMarkerText(detected)
+  editor.executeEdits('wikijs.continueList', [
+    { range: new Range(line, column, line, column), text: `\n${marker}`, forceMoveMarkers: true }
+  ])
 }
 
 /**
