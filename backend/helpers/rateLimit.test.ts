@@ -157,7 +157,9 @@ describe('limitApiRequests', () => {
   })
 
   test('keys by apiKey id when the request carries a verified API key', async () => {
-    const req = makeReq({ apiKey: { id: 'key-1', permissions: ['read:pages'], siteId: null } })
+    const req = makeReq({
+      apiKey: { id: 'key-1', permissions: ['read:pages'], groupIds: [], siteId: null }
+    })
     await limitApiRequests(req, makeReply())
     assert.equal(consume.mock.calls.length, 1)
     assert.equal(consume.mock.calls[0].arguments[0], 'api:apiKey:key-1')
@@ -181,7 +183,7 @@ describe('limitApiRequests', () => {
 
   test('prefers the API key over an authenticated session when both are present', async () => {
     const req = makeReq({
-      apiKey: { id: 'key-1', permissions: ['read:pages'], siteId: null },
+      apiKey: { id: 'key-1', permissions: ['read:pages'], groupIds: [], siteId: null },
       session: { authenticated: true, user: { id: 'user-1' }, permissions: ['read:pages'] } as any
     })
     await limitApiRequests(req, makeReply())
@@ -204,7 +206,9 @@ describe('limitApiRequests', () => {
   })
 
   test('exempts manage:system granted through the API key', async () => {
-    const req = makeReq({ apiKey: { id: 'key-1', permissions: ['manage:system'], siteId: null } })
+    const req = makeReq({
+      apiKey: { id: 'key-1', permissions: ['manage:system'], groupIds: [], siteId: null }
+    })
     await limitApiRequests(req, makeReply())
     assert.equal(consume.mock.calls.length, 0)
   })
@@ -256,8 +260,8 @@ describe('limitApiRequests', () => {
     })
     ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
 
-    const keyA = { id: 'key-a', permissions: [], siteId: null }
-    const keyB = { id: 'key-b', permissions: [], siteId: null }
+    const keyA = { id: 'key-a', permissions: [], groupIds: [], siteId: null }
+    const keyB = { id: 'key-b', permissions: [], groupIds: [], siteId: null }
 
     // Exhaust key A's limit (2 allowed, 3rd refused).
     await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
@@ -281,7 +285,8 @@ describe('limitApiRequests', () => {
     })
     ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
 
-    const apiKeyReq = () => makeReq({ apiKey: { id: 'key-a', permissions: [], siteId: null } })
+    const apiKeyReq = () =>
+      makeReq({ apiKey: { id: 'key-a', permissions: [], groupIds: [], siteId: null } })
     const anonReq = () => makeReq({ ip: '203.0.113.4' })
 
     // Exhaust the API key's limit.

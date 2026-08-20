@@ -108,10 +108,14 @@ export interface ApiKeyListEntry extends ApiKey {
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
-  // -> The site this key is pinned to, taken from the token's `site` claim, or null for
-  //    instance-wide. Route handlers on a site-scoped path read this to decide whether the key may
-  //    act on the site the request names — see the `siteId` column comment in `db/schema.ts` for why
-  //    the enforcement itself is not here yet.
+  // -> The groups signed into the token's `grp` claim, i.e. the groups the key was issued for. A page
+  //    permission (`read:pages` and the rest of `PAGE_PERMISSIONS`) is granted by a group's RULES, not
+  //    by its group-wide `permissions` column that `permissions` above is resolved from — so a route
+  //    that decides one (`mayOnPage()` in `api/pages.ts`) has to pool THESE groups' rules, the same way
+  //    it pools a session's `req.session.groups`. See `groups.groupIdsForRequest()`.
+  groupIds: string[]
+  // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
+  //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
   siteId: string | null
 }
 
@@ -387,12 +391,12 @@ class ApiKeys {
       throw new ApiKeyError('API key has expired.')
     }
 
+    const groupIds = Array.isArray(claims.grp) ? (claims.grp as string[]) : []
+
     return {
       id: key.id,
-      permissions: await this.resolvePermissions(
-        Array.isArray(claims.grp) ? (claims.grp as string[]) : [],
-        key.scope
-      ),
+      permissions: await this.resolvePermissions(groupIds, key.scope),
+      groupIds,
       siteId: typeof claims.site === 'string' ? claims.site : null
     }
   }

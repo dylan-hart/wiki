@@ -2,6 +2,8 @@ import { describe, test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { apiKeys as apiKeysTable, groups as groupsTable } from '../db/schema.ts'
 import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import type { GroupRule } from './groups.ts'
 
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
@@ -169,3 +171,126 @@ describe('apiKeys siteId propagation through JWT claims', () => {
     assert.equal(identity.siteId, null)
   })
 })
+
+/**
+ * OpenProject #827: regression test for a v2 bug (upstream requarks/wiki issue #3205, discussions
+ * #6216/#6907) — an API key scoped to a group holding only READ permissions still failed every page
+ * read, and the group had to be over-granted "Manage Page" just to make GETs work. That defeats the
+ * point of a read-only key.
+ *
+ * The equivalent bug existed here too, one layer down from `apiKeys.verify()`: `groups
+ * .groupIdsForRequest()` read `req.session.groups`/`req.session.authenticated` only, so a bearer-token
+ * request — which deliberately never touches the session, see `index.ts`'s API-key `onRequest` hook —
+ * fell straight through to the anonymous branch and got the GUESTS group's rules instead of its own. A
+ * key issued for a group whose only rule grants `read:pages` verified fine (`ApiKeyIdentity.permissions`
+ * resolved correctly) and then failed every page read anyway, because the permission that actually gates
+ * a GET (`mayOnPage()` → `groups.checkAccess()` in `api/pages.ts`) is decided from `groupIdsForRequest()`,
+ * not from the GLOBAL permission list `ApiKeyIdentity.permissions` carries.
+ *
+ * This exercises the real stack end to end through `models/apiKeys.ts` and `models/groups.ts`'s own
+ * public surface — a genuinely signed and verified JWT, a real group row, the real in-memory rules
+ * cache — the same surface `mayOnPage()` calls, rather than re-describing the fix as a mock.
+ */
+describe(
+  'apiKeys page-read regression: group-granted read:pages via an API key (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('./groups.ts').groups
+    let previousTemporal: any
+    let previousToTemporalInstant: any
+
+    before(async () => {
+      previousTemporal = (globalThis as any).Temporal
+      previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
+      installFakeTemporal()
+
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+
+      WIKI.config.auth = { certs: generateSigningCertificates() }
+      WIKI.config.api = { isEnabled: true }
+      // -> Deliberately NOT the fixture's own group: a guests id that names nothing, so that if
+      //    `groupIdsForRequest()` ever regresses back to hoisting an API key up to the guests group,
+      //    the rules cache has nothing for it and `checkAccess` answers false instead of accidentally
+      //    passing anyway.
+      WIKI.data = { systemIds: { guestsGroupId: 'nonexistent-guests-group-id' } }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+      ;(globalThis as any).Temporal = previousTemporal
+      if (previousToTemporalInstant === undefined) {
+        delete (Date.prototype as any).toTemporalInstant
+      } else {
+        ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+      }
+    })
+
+    test('a key issued for a group whose only rule grants read:pages succeeds on a page read, with no elevated permission needed anywhere', async () => {
+      // -> No GLOBAL permissions at all (`permissions: []`) — only a page rule granting `read:pages`,
+      //    exactly the "read-only group" the upstream bug report describes.
+      const readOnlyRule: GroupRule = {
+        id: 'rule-read-only',
+        name: 'Read Only',
+        roles: ['read:pages'],
+        match: 'START',
+        mode: 'ALLOW',
+        path: '',
+        locales: [],
+        sites: []
+      }
+      const [group] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name: 'API Read-Only Group', permissions: [], rules: [readOnlyRule] })
+        .returning({ id: groupsTable.id })
+      await groupsModel.reloadCache()
+
+      const { key } = await apiKeys.createKey({
+        name: 'Read-only key',
+        expiration: '30d',
+        groups: [group!.id]
+      })
+      const identity = await apiKeys.verify(key)
+
+      // -> The resolved GLOBAL permission list is genuinely empty: nothing elevated leaked in through
+      //    `resolvePermissions()`. Read access has to come from the group's rule, not from this.
+      assert.deepEqual(identity.permissions, [])
+      assert.deepEqual(identity.groupIds, [group!.id])
+
+      const fakeReq = { apiKey: identity } as any
+      const actor = groupsModel.actorForRequest(fakeReq)
+
+      // -> This is the actual question a page GET asks (`mayOnPage()` in `api/pages.ts`), and it must
+      //    succeed on the strength of the group's rule alone — no `manage:pages`, no `manage:system`,
+      //    no over-granting anything.
+      assert.equal(
+        groupsModel.checkAccess(actor, 'read:pages', { path: 'anything', locale: 'en', tags: [] }),
+        true
+      )
+      // -> And nothing beyond what the rule actually grants: the same read-only key must not write.
+      assert.equal(
+        groupsModel.checkAccess(actor, 'write:pages', { path: 'anything', locale: 'en', tags: [] }),
+        false
+      )
+    })
+
+    test('groupIdsForRequest resolves an API-key request to its own groups, not the guests group', async () => {
+      const [group] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name: 'Another Group', permissions: [], rules: [] })
+        .returning({ id: groupsTable.id })
+      await groupsModel.reloadCache()
+
+      const { key } = await apiKeys.createKey({
+        name: 'Another key',
+        expiration: '30d',
+        groups: [group!.id]
+      })
+      const identity = await apiKeys.verify(key)
+      const fakeReq = { apiKey: identity } as any
+
+      assert.deepEqual(groupsModel.groupIdsForRequest(fakeReq), [group!.id])
+    })
+  }
+)
