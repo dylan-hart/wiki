@@ -464,6 +464,19 @@ async function initHTTPServer() {
   })
 
   // ----------------------------------------
+  // Cookie Security Diagnostic (task 833)
+  // ----------------------------------------
+
+  // -> Feeds `Security#observeRequest` so the admin area's security view can warn about the
+  //    reverse-proxy cookie misconfiguration described on that method -- see its doc comment.
+  //    Registered after the session cookie is parsed but does not depend on it; placement here is
+  //    just "grouped with the rest of the cookie/session wiring it explains".
+  app.addHook('onRequest', (req, reply, done) => {
+    WIKI.models.security.observeRequest(req.headers, req.protocol)
+    done()
+  })
+
+  // ----------------------------------------
   // API Routes
   // ----------------------------------------
 

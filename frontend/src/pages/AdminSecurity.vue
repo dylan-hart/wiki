@@ -132,6 +132,38 @@
                 :aria-label="t(`admin.security.trustProxy`)" />
             </w-item-section>
           </w-item>
+          <!--
+            Only shown once the backend has actually seen the misconfiguration on a live request
+            (`GET /system/security`'s `insecureCookieRiskAt`) -- unlike the rate-limit warnings
+            above, this is not "off by default, turn it on", it is "something is provably wrong
+            right now". `!trustProxy` is implied by the field ever being set at all (see
+            `Security#observeRequest`), but kept explicit so flipping the toggle above hides the
+            warning immediately rather than waiting on a restart + reload to confirm it.
+          -->
+          <template v-if="state.config.insecureCookieRiskAt && !state.config.trustProxy">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <w-item-section>
+                <w-card class="bg-negative text-white rounded" flat>
+                  <w-card-section class="items-center" horizontal>
+                    <w-card-section class="flex-none pr-0">
+                      <w-icon name="la:exclamation-triangle" size="lg" />
+                    </w-card-section>
+                    <w-card-section class="text-caption">
+                      <div>{{ t('admin.security.insecureCookieRiskWarn') }}</div>
+                      <div class="mt-1">
+                        {{
+                          t('admin.security.insecureCookieRiskWarnSince', {
+                            date: humanizeDate(state.config.insecureCookieRiskAt)
+                          })
+                        }}
+                      </div>
+                    </w-card-section>
+                  </w-card-section>
+                </w-card>
+              </w-item-section>
+            </w-item>
+          </template>
         </w-card>
         <!-- ----------------------- -->
         <!-- HSTS -->
@@ -577,6 +609,7 @@ const state = reactive({
     forceAssetDownload: false,
     hstsDuration: 0,
     trustProxy: false,
+    insecureCookieRiskAt: null,
     authRateLimitEnabled: true,
     authRateLimitMax: 10,
     authRateLimitWindow: '5m',
@@ -609,6 +642,21 @@ const corsModes = [
 ]
 
 // METHODS
+
+/** Same long-form spelling `AdminCluster.vue` / `AdminApi.vue` use for a stored timestamp. */
+function humanizeDate(val) {
+  if (!val) {
+    return '---'
+  }
+  return Temporal.Instant.from(val).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short'
+  })
+}
 
 async function load() {
   state.loading++

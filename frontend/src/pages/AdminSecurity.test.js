@@ -185,6 +185,96 @@ describe('AdminSecurity CSP controls', () => {
   })
 })
 
+/**
+ * Task 833: `GET /system/security`'s read-only `insecureCookieRiskAt` diagnostic (set by
+ * `Security#observeRequest` in the backend, see its doc comment) surfaces as a warning card next
+ * to the Trust Proxy toggle -- shown only while there is something to act on, i.e. the field is
+ * set AND Trust Proxy is still off; flipping the toggle hides it immediately without waiting for a
+ * reload, since the underlying misconfiguration is fixed by turning Trust Proxy on and restarting.
+ */
+describe('AdminSecurity insecure cookie risk warning', () => {
+  it('is hidden when the backend has never observed the misconfiguration', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.security.insecureCookieRiskWarn')
+
+    wrapper.unmount()
+  })
+
+  it('shows the warning once the backend reports a risk while Trust Proxy is off', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          trustProxy: false,
+          insecureCookieRiskAt: '2026-08-20T12:00:00.000Z'
+        })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.security.insecureCookieRiskWarn')
+
+    wrapper.unmount()
+  })
+
+  it('hides the warning once Trust Proxy is toggled on, even before saving', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          trustProxy: false,
+          insecureCookieRiskAt: '2026-08-20T12:00:00.000Z'
+        })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.security.insecureCookieRiskWarn')
+
+    await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).not.toContain('admin.security.insecureCookieRiskWarn')
+
+    wrapper.unmount()
+  })
+
+  it('does not send insecureCookieRiskAt back as a config field the backend could store', async () => {
+    // -> `pickFields` in `models/security.ts` already drops anything outside `SECURITY_FIELDS`,
+    //    so this is belt-and-suspenders on the frontend shape rather than load-bearing -- it just
+    //    documents that the field travels with `state.config` for display, not because it is meant
+    //    to be written back.
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          trustProxy: true,
+          insecureCookieRiskAt: '2026-08-20T12:00:00.000Z',
+          uploadMaxFileSize: 1024
+        })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: true, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.vm.save()
+
+    const [, opts] = API_CLIENT.put.mock.calls[0]
+    // -> Present (the PUT sends the whole `state.config`), but that is fine: the backend field is
+    //    documented as read-only and ignored on write.
+    expect(opts.json.insecureCookieRiskAt).toBe('2026-08-20T12:00:00.000Z')
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminSecurity uploads info banner (task 605)', () => {
   it('no longer claims uploading is unimplemented, now that an upload endpoint exists', () => {
     const wrapper = mountPage()
