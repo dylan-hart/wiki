@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import type { FastifyRequest } from 'fastify'
 import { mayBypassPassword, unlockedFor } from './pages.ts'
+import { resolvePageRule, rulesAllow } from '../helpers/pageRules.ts'
+import type { GroupRule } from '../models/groups.ts'
 
 /**
  * Regression test for task 547: `mayBypassPassword()` used to scan
@@ -103,4 +105,91 @@ test('unlockedFor: outside the rule scope, falls back to the session unlockedPag
   const req = reqWithSession({ unlockedPages: ['page-2'] })
   assert.equal(unlockedFor(req, SITE_ID, { id: 'page-2', path: 'other/page' }), true)
   assert.equal(unlockedFor(req, SITE_ID, { id: 'page-3', path: 'other/page' }), false)
+})
+
+/**
+ * OpenProject #839: `mayBypassPassword()` against nested paths with DENY-mode rules in the mix,
+ * routed through the real `resolvePageRule()` — not the simplified inline stub above — so this
+ * exercises the actual specificity ordering, not a hand-rolled approximation of it. This is the
+ * concrete tie between #787 (mayBypassPassword must ask per-path rules) and #839 (those per-path
+ * answers must stay correct, and never permanently withhold bypass, however deep a DENY chain gets):
+ * a page editor's password-bypass rights must track the same deepest-rule-wins resolution as every
+ * other page permission, including through a subtree that a DENY rule closes and a deeper FORCEALLOW
+ * reopens.
+ */
+describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePageRule)', () => {
+  const rule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
+    id: 'rule',
+    name: 'Test Rule',
+    roles: ['write:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: [],
+    sites: [],
+    ...overrides
+  })
+
+  // -> An editors group may write under 'docs' generally, is expressly denied the deeper
+  //    'docs/archive' subtree (e.g. read-only historical pages), but has a FORCEALLOW on one
+  //    password-protected page inside that archived subtree that still needs upkeep.
+  const rules: GroupRule[] = [
+    rule({ id: 'docs-allow', path: 'docs', mode: 'ALLOW' }),
+    rule({ id: 'archive-deny', path: 'docs/archive', mode: 'DENY' }),
+    rule({
+      id: 'archive-notice-force',
+      path: 'docs/archive/notice',
+      match: 'EXACT',
+      mode: 'FORCEALLOW'
+    })
+  ]
+
+  before(() => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        groups: {
+          actorForRequest: () => ({ groupIds: ['editors'], permissions: [] }),
+          checkAccess: (_actor: unknown, permission: string, page: { path: string }) =>
+            rulesAllow(rules, permission, { path: page.path })
+        }
+      }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = undefined
+  })
+
+  const req = {
+    session: { authenticated: true, groups: ['editors'], permissions: [] }
+  } as unknown as FastifyRequest
+
+  test('bypasses under the general docs ALLOW, above the DENY subtree', () => {
+    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/getting-started' }), true)
+  })
+
+  test('does not bypass inside the DENY subtree', () => {
+    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive/2019-changelog' }), false)
+  })
+
+  test('does not bypass on the DENY subtree root itself', () => {
+    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive' }), false)
+  })
+
+  test('bypasses again on the exact page a FORCEALLOW reopens inside the denied subtree', () => {
+    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive/notice' }), true)
+  })
+
+  test('sanity: resolvePageRule agrees with mayBypassPassword at every depth in this chain', () => {
+    for (const [path, expected] of [
+      ['docs/getting-started', true],
+      ['docs/archive/2019-changelog', false],
+      ['docs/archive', false],
+      ['docs/archive/notice', true]
+    ] as const) {
+      const winner = resolvePageRule(rules, 'write:pages', { path })
+      assert.equal(winner ? winner.mode !== 'DENY' : false, expected, `path '${path}'`)
+      assert.equal(mayBypassPassword(req, SITE_ID, { path }), expected, `path '${path}'`)
+    }
+  })
 })
