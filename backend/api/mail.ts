@@ -211,6 +211,10 @@ async function routes(app: FastifyInstance) {
             return reply.badGateway(
               'Could not connect to the SMTP server. Check the host and port under Mail Configuration.'
             )
+          case 'tls':
+            return reply.badGateway(
+              'Could not establish a secure connection: the mail server\'s TLS certificate could not be verified. If it is self-signed or issued by an internal certificate authority, either install a certificate trusted by this server or disable "Verify SSL Certificate" under Mail Configuration.'
+            )
           case 'send':
             return reply.unprocessableEntity(
               'The mail server rejected the message, often because the recipient address is invalid. Check the address and try again.'

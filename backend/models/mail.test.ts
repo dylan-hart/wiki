@@ -239,13 +239,36 @@ describe('mail.send', () => {
     const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
     assert.match(message, /\(send failure\)/)
   })
+
+  test('logs a tls-classified message when sendMail fails with a certificate error', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    const err: any = new Error('Error initiating TLS - self signed certificate')
+    err.code = 'ETLS'
+    const sendMail = mock.fn(async () => {
+      throw err
+    })
+    mail.getTransporter = () => ({ sendMail }) as any
+
+    await assert.rejects(() =>
+      mail.send({ to: 'ada@example.com', subject: 'Hi', html: '<p>Hi</p>', text: 'Hi' })
+    )
+    const [message] = (WIKI.logger.warn as any).mock.calls[0].arguments
+    assert.match(message, /\(tls failure\)/)
+  })
 })
 
 describe('classifyMailError', () => {
-  test('classifies every nodemailer connection-stage code as connection', () => {
-    for (const code of ['ECONNECTION', 'ESOCKET', 'ETIMEDOUT', 'EDNS', 'ETLS', 'EPROTOCOL']) {
+  test('classifies every nodemailer socket/protocol-stage code as connection', () => {
+    for (const code of ['ECONNECTION', 'ESOCKET', 'ETIMEDOUT', 'EDNS', 'EPROTOCOL']) {
       assert.equal(classifyMailError({ code }), 'connection', code)
     }
+  })
+
+  test('classifies ETLS as tls, distinct from a plain connection failure', () => {
+    // -> nodemailer reports a rejected (e.g. self-signed) certificate as ETLS whether it happens
+    //    during the initial implicit-TLS handshake or during STARTTLS — either way it calls for
+    //    "check the certificate / Verify SSL Certificate setting", not "check the host and port".
+    assert.equal(classifyMailError({ code: 'ETLS' }), 'tls')
   })
 
   test('classifies EAUTH as auth', () => {
