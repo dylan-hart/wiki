@@ -9,7 +9,7 @@ props:
     type: Boolean
     title: Term Highlighting
     hint: Show a highlighted excerpt with matched terms alongside each search result.
-    icon: text-box-search
+    icon: search
     default: false
 # dictOverrides (a locale -> PostgreSQL text search dictionary map, e.g. { "en": "english" }) has no
 # entry above on purpose: it is not a scalar the props system (parseModuleProps in

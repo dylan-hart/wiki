@@ -97,14 +97,14 @@ props:
     type: String
     title: Avatar Picture Field Mapping
     hint: The attribute holding the user's avatar picture. Usually "jpegPhoto" or "thumbnailPhoto".
-    icon: profile-picture
+    icon: image
     default: 'jpegPhoto'
     order: 23
   mapGroups:
     type: Boolean
     title: Map Groups
     hint: Reconcile a user's wiki groups with the directory groups reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
-    icon: multiple-25
+    icon: user-groups
     default: false
     order: 24
   groupSearchBase:
