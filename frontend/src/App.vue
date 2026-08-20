@@ -433,6 +433,27 @@ router.beforeEach(async (to, from) => {
   }
 })
 
+/*
+  -> Unsaved editor changes, browser-level (OpenProject #818)
+  The router guard above only fires for an in-SPA navigation -- typing a new address into the bar,
+  following an external link, closing the tab, or refreshing is a page unload instead, which
+  `beforeEach` never sees (see the comment on that guard). `beforeunload` is the only hook that does,
+  and unlike the router guard it cannot show the app's own confirm dialog: the listener cannot be
+  `async` and returning a promise does not pause the unload, so the native browser-owned prompt is the
+  only one available for this path. Every evergreen browser also ignores the custom string and shows
+  its own fixed wording -- a long-standing anti-phishing measure against a page dressing up its dialog
+  as something else -- but `returnValue` still has to be set to a truthy value, since that (not the
+  string itself) is what tells the browser to prompt at all. `editor.unsavedWarning` in `en.json` was
+  minted for exactly this and sat unused until now.
+*/
+window.addEventListener('beforeunload', (e) => {
+  if (editorStore.isActive && editorStore.hasPendingChanges) {
+    e.preventDefault()
+    e.returnValue = i18n.t('editor.unsavedWarning')
+    return e.returnValue
+  }
+})
+
 // GLOBAL EVENTS HANDLERS
 
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
