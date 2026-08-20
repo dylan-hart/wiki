@@ -1089,7 +1089,7 @@ function detectListMarker(lineContent) {
   }
   match = lineContent.match(UNORDERED_LIST_MARKER_RE)
   if (match) {
-    return { type: 'unordered', indent: match[1], markerLength: match[0].length }
+    return { type: 'unordered', indent: match[1], markerLength: match[0].length, bullet: match[2] }
   }
   return null
 }
@@ -1101,7 +1101,7 @@ function nextMarkerText(detected) {
     case 'ordered':
       return `${detected.number + 1}${detected.delimiter} `
     default:
-      return '- '
+      return `${detected.bullet} `
   }
 }
 

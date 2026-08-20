@@ -116,7 +116,7 @@ vi.mock('monaco-editor', () => ({
     registerCodeLensProvider: vi.fn(() => ({ dispose: vi.fn() }))
   },
   KeyMod: { CtrlCmd: 1, Alt: 2 },
-  KeyCode: { KeyB: 1, KeyI: 2, KeyS: 3, RightArrow: 4, LeftArrow: 5 },
+  KeyCode: { KeyB: 1, KeyI: 2, KeyS: 3, RightArrow: 4, LeftArrow: 5, Enter: 6 },
   Range: class Range {
     constructor(startLineNumber, startColumn, endLineNumber, endColumn) {
       this.startLineNumber = startLineNumber
@@ -757,6 +757,26 @@ describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
     pressEnter()
 
     expect(fakeModel.getValue()).toBe('1) one\n2) ')
+  })
+
+  it('preserves the "*" bullet character on an unordered list item', async () => {
+    await mountEditor('* one')
+    cursorPosition = { lineNumber: 1, column: '* one'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeModel.getValue()).toBe('* one\n* ')
+  })
+
+  it('registers the continue-list action on Enter with the expected precondition', async () => {
+    await mountEditor('')
+
+    const action = registeredActions['markdown.extension.editing.continueList']
+
+    expect(action.keybindings).toContain(6)
+    expect(action.precondition).toBe(
+      'editorTextFocus && !suggestWidgetVisible && !renameInputVisible'
+    )
   })
 
   it('continues a task list item as unchecked, from a checked previous item', async () => {
