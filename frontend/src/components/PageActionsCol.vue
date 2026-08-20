@@ -357,6 +357,12 @@ function togglePageData() {
 }
 
 function viewPageHistory() {
+  // -> An unsaved page has no `id` yet, and therefore no history to show -- the overlay has nothing
+  //    to fetch, so head it off here rather than opening it to an empty state.
+  if (!pageStore.id) {
+    notify.info(t('history.none'))
+    return
+  }
   siteStore.$patch({ overlay: 'PageHistory', overlayOpts: {} })
 }
 

@@ -12,6 +12,9 @@ import { fileSave } from 'browser-fs-access'
 import PageActionsCol from './PageActionsCol.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
+import { useEditorStore } from '@/stores/editor'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * Task 502: the standalone "Page Source" rail button is retired in favour of a single "Export Page"
@@ -63,6 +66,86 @@ function clickMenuItem(label) {
   )
   item.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 }
+
+/**
+ * OpenProject #811: an unsaved (never-saved) page has no `pageStore.id` yet, so clicking Page
+ * History must not open the overlay -- there is nothing for it to fetch. Its own mount setup, since
+ * the "Page History" button is gated on `read:history` (see PageActionsCol.vue), which `mountRail`
+ * above never grants.
+ */
+async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}) {
+  setActivePinia(createPinia())
+
+  const pageStore = usePageStore()
+  pageStore.id = pageId
+  pageStore.path = 'docs/getting-started'
+  pageStore.editor = 'markdown'
+
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  const userStore = useUserStore()
+  userStore.permissions = ['read:history']
+
+  // -> The ticket's actual scenario: a brand-new, never-saved page, still open in the editor
+  if (creating) {
+    const editorStore = useEditorStore()
+    editorStore.isActive = true
+    editorStore.mode = 'create'
+  }
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }]
+  })
+  router.push('/')
+  await router.isReady()
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  const wrapper = mount(PageActionsCol, {
+    attachTo: document.body,
+    global: { plugins: [router, i18n] }
+  })
+
+  return { wrapper, pageStore, siteStore, userStore }
+}
+
+describe('PageActionsCol page history button', () => {
+  let wrapper
+
+  beforeEach(() => {
+    notifyQueue.splice(0, notifyQueue.length)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+  })
+
+  it('opens the History overlay when the page has been saved', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailWithHistory({ pageId: 'page-1' }))
+
+    await wrapper.get('[aria-label="Page History"]').trigger('click')
+
+    expect(ctx.siteStore.overlay).toBe('PageHistory')
+    expect(notifyQueue).toHaveLength(0)
+  })
+
+  it('notifies instead of opening the overlay for an unsaved page with no id', async () => {
+    let ctx
+    // -> '' is the store's real default (page.js), not a stand-in like `null` -- a never-saved page
+    //    has literally never been assigned an id
+    ;({ wrapper } = ctx = await mountRailWithHistory({ pageId: '', creating: true }))
+
+    await wrapper.get('[aria-label="Page History"]').trigger('click')
+
+    expect(ctx.siteStore.overlay).toBeNull()
+    expect(notifyQueue).toHaveLength(1)
+    expect(notifyQueue[0]).toMatchObject({ type: 'info' })
+  })
+})
 
 describe('PageActionsCol export menu', () => {
   let wrapper

@@ -378,3 +378,26 @@ describe('PageHistoryOverlay: languageOf for a redirect-editor page', () => {
     expect(languages).toEqual(['json', 'json'])
   })
 })
+
+/**
+ * OpenProject #811: defense in depth for `load()` -- an empty history list (which is what an
+ * unsaved page's `id` would fetch, were the overlay ever reached with one) must not crash indexing
+ * `state.versions[0]`, and must not raise a "failed to load" toast either, since nothing failed.
+ */
+describe('PageHistoryOverlay: no history yet', () => {
+  it('shows the empty-history notice instead of crashing on an empty version list', async () => {
+    const { wrapper } = await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url) => {
+          if (String(url).endsWith('/history')) {
+            return { json: () => Promise.resolve([]) }
+          }
+          return { json: () => Promise.resolve({ id: 'page-1' }) }
+        })
+      }
+    })
+
+    expect(wrapper.find('.page-history-timeline').exists()).toBe(false)
+    expect(notifyQueue).toHaveLength(0)
+  })
+})
