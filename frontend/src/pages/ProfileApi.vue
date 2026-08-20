@@ -208,23 +208,28 @@ function siteName(key) {
 async function load() {
   state.loading++
   try {
-    // -> Sites are fetched alongside the tokens so the list can name the site each one is pinned to.
-    //    Certificates: the endpoint the admin area uses (`system/certificates`) needs `manage:system`,
-    //    which a regular user does not hold -- `isInvalidated` (from the list response itself) is
-    //    enough to show the badge; only the exact regeneration date in the hint is unavailable here,
-    //    so `stateHint` falls back to `---` via `humanizeDate(null)` for that one line.
-    const [keys, sites] = await Promise.all([
-      API_CLIENT.get('users/profile/api-keys').json(),
-      API_CLIENT.get('sites').json()
-    ])
-    state.keys = keys ?? []
-    state.sites = sites ?? []
+    state.keys = (await API_CLIENT.get('users/profile/api-keys').json()) ?? []
   } catch (err) {
     notify({
       type: 'negative',
       message: t('profile.api.loadFailed'),
       caption: apiErrorMessage(err)
     })
+  }
+  // -> Sites are fetched separately from the token list, on a best-effort basis: `GET /sites` needs
+  //    `read:sites`/`access:admin`, which an ordinary self-service user does not hold, so this call
+  //    fails for most of this page's actual audience. It's fetched only to *name* the site a token is
+  //    pinned to -- `siteName()` already falls back to the raw `siteId` when a site can't be found in
+  //    `state.sites`, so a failure here should degrade the display, not take down the token list
+  //    itself. See also `ProfileApiKeyCreateDialog.vue`'s `loadSites()`, which has the same shape.
+  //    Certificates: the endpoint the admin area uses (`system/certificates`) needs `manage:system`,
+  //    which a regular user does not hold -- `isInvalidated` (from the list response itself) is
+  //    enough to show the badge; only the exact regeneration date in the hint is unavailable here,
+  //    so `stateHint` falls back to `---` via `humanizeDate(null)` for that one line.
+  try {
+    state.sites = (await API_CLIENT.get('sites').json()) ?? []
+  } catch {
+    state.sites = []
   }
   state.loading--
 }

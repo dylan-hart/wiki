@@ -215,14 +215,14 @@ async function loadSites() {
   state.loading++
   state.loadingSites = true
   try {
+    // -> `GET /sites` needs `read:sites`/`access:admin`, which an ordinary self-service user does not
+    //    hold -- this is the expected, common case for this dialog's actual audience, not an error
+    //    worth alarming them with. Degrade silently to an empty list, which leaves the site picker
+    //    showing only "All Sites" (siteId: null) -- the token is still fully creatable.
     const resp = await API_CLIENT.get('sites').json()
     state.sites = resp ?? []
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: t('profile.api.loadFailed'),
-      caption: err.message
-    })
+  } catch {
+    state.sites = []
   }
   state.loadingSites = false
   state.loading--

@@ -72,6 +72,41 @@ describe('ProfileApi', () => {
     expect(wrapper.vm.state.keys[0].name).toBe('My Laptop')
   })
 
+  it("still lists the caller's tokens when GET /sites 403s, since ordinary users lack read:sites/access:admin", async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'sites') {
+        return { json: () => Promise.reject(new Error('403 Forbidden')) }
+      }
+      return {
+        json: () =>
+          Promise.resolve([
+            {
+              id: 'key-1',
+              name: 'My Laptop',
+              keyShort: 'abcd',
+              scope: null,
+              siteId: null,
+              userId: 'user-1',
+              isRevoked: false,
+              isInvalidated: false,
+              createdAt: '2026-01-01T00:00:00.000Z',
+              expiration: '2099-01-01T00:00:00.000Z'
+            }
+          ])
+      }
+    })
+
+    const wrapper = mountPage()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await wrapper.vm.$nextTick()
+
+    // -> The keys list must not be a casualty of the sites fetch failing -- see OpenProject #788's
+    //    ProfileApi.vue history: bundling both calls into one Promise.all meant a 403 on `sites`
+    //    (the expected case for most of this page's actual audience) took the whole load down with it.
+    expect(wrapper.vm.state.keys).toHaveLength(1)
+    expect(wrapper.vm.state.sites).toStrictEqual([])
+  })
+
   it('opens the revoke dialog against the self-service endpoint, not the admin one', async () => {
     globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
 
