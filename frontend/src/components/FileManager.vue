@@ -341,7 +341,30 @@
           </template>
         </w-toolbar>
         <div class="flex flex-wrap" style="flex: 1 1 100%">
-          <div class="min-w-0 flex-1">
+          <!--
+            The drop zone for drag-and-drop upload -- scoped to the file-LISTING pane specifically,
+            not the toolbar or the tree beside it, so a drag that starts over either of those does
+            not compete with what they already do (searching, browsing folders). `dragover` has to be
+            prevented too, not just `drop`: the browser's default for an unhandled `dragover` is to
+            refuse the drop outright, which suppresses `drop` from firing at all.
+          -->
+          <div
+            class="min-w-0 flex-1 fileman-droptarget"
+            @dragenter.prevent="handleDragEnter"
+            @dragover.prevent="handleDragOver"
+            @dragleave.prevent="handleDragLeave"
+            @drop.prevent="handleDrop">
+            <!--
+              `pointer-events: none` (see the stylesheet) keeps this overlay itself from ever being
+              the target of a `dragenter`/`dragleave` -- without it, the overlay appearing under the
+              pointer the instant a drag begins would immediately fire a `dragleave` on the pane
+              underneath it, and `handleDragEnter`/`handleDragLeave` would have to account for an
+              event this element caused by existing.
+            -->
+            <div class="fileman-dropoverlay" v-if="state.isDraggingOver">
+              <w-icon name="la:cloud-upload-alt" size="64px" />
+              <span>{{ t('fileman.dropToUpload') }}</span>
+            </div>
             <w-scroll-area :thumb-style="thumbStyle" :bar-style="barStyle" style="height: 100%">
               <div class="fileman-loadinglist" v-if="state.fileListLoading">
                 <w-spinner class="mr-2" color="primary" size="64px" />
@@ -610,8 +633,23 @@ const state = reactive({
   shouldCancelUpload: false,
   uploadPercentage: 0,
   fileList: [],
-  fileListLoading: false
+  fileListLoading: false,
+  /** Whether a file drag from outside the browser is currently over the drop zone. See `dragDepth`. */
+  isDraggingOver: false
 })
+
+/**
+ * How many un-matched `dragenter`s the drop zone is currently inside.
+ *
+ * Not one of the reactive `state` fields: nothing in the template reads it, only `state.isDraggingOver`
+ * does, and it exists purely to make that boolean correct. The drop zone's children (the scroll area,
+ * the list rows) each fire their own `dragenter`/`dragleave` as the pointer crosses their edges, which
+ * bubble up to the same handlers -- so entering a child fires `dragenter` again before the `dragleave`
+ * that left the parent, and naively flipping a boolean on either event flickers the overlay off between
+ * rows. Counting nets that out: the pair from moving between two children cancel, and only the very
+ * first `dragenter` (count 0 -> 1) and the very last `dragleave` (count 1 -> 0) change `isDraggingOver`.
+ */
+let dragDepth = 0
 
 // -> Over the defaults just above, which is what the view falls back to on a first visit
 Object.assign(state, storedViewOptions())
@@ -1222,8 +1260,23 @@ function uploadFile() {
   fileIpt.value.click()
 }
 
-async function uploadNewFiles() {
+function uploadNewFiles() {
   if (!fileIpt.value.files?.length) {
+    return
+  }
+  uploadFiles([...fileIpt.value.files])
+}
+
+/**
+ * Upload one batch of files through `sites/:siteId/assets`, one POST per file with an aggregate
+ * `uploadPercentage` and mid-batch cancel support.
+ *
+ * The one path both on-ramps feed: the file-picker's `multiple` input (`uploadNewFiles`, above) and
+ * the drop zone (`handleDrop`, below) both just gather a plain array of `File`s and hand it here,
+ * rather than each driving its own upload loop and its own progress UI.
+ */
+async function uploadFiles(filesToUpload) {
+  if (!filesToUpload?.length) {
     return
   }
 
@@ -1236,7 +1289,6 @@ async function uploadNewFiles() {
   nextTick(() => {
     setTimeout(async () => {
       try {
-        const filesToUpload = [...fileIpt.value.files]
         const totalFiles = filesToUpload.length
         let idx = 0
         for (const fileToUpload of filesToUpload) {
@@ -1280,7 +1332,11 @@ async function uploadNewFiles() {
         })
       }
       state.loading--
-      fileIpt.value.value = null
+      // -> Only meaningful after the picker input drove this batch; a value on the drop path
+      //    would have nothing to clear
+      if (fileIpt.value) {
+        fileIpt.value.value = null
+      }
       setTimeout(() => {
         state.isUploading = false
         state.uploadPercentage = 0
@@ -1291,6 +1347,94 @@ async function uploadNewFiles() {
 
 function uploadCancel() {
   state.shouldCancelUpload = true
+}
+
+// --------------------------------------
+// DRAG-AND-DROP UPLOAD
+// --------------------------------------
+
+function handleDragEnter(ev) {
+  // -> Not every drag is a file: text dragged out of the page itself, e.g. from the search field,
+  //    fires the same events and should not open an upload overlay
+  if (!ev.dataTransfer?.types?.includes('Files')) {
+    return
+  }
+  dragDepth++
+  state.isDraggingOver = true
+}
+
+function handleDragOver(ev) {
+  // -> Otherwise the browser's default is to refuse the drop, which never fires `handleDrop`
+  if (ev.dataTransfer) {
+    ev.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+function handleDragLeave() {
+  if (dragDepth <= 0) {
+    return
+  }
+  dragDepth--
+  if (dragDepth === 0) {
+    state.isDraggingOver = false
+  }
+}
+
+/**
+ * Sort a drop's payload into uploadable files and rejected folders.
+ *
+ * `DataTransferItem.webkitGetAsEntry()` is what tells a dropped folder apart from a dropped file --
+ * `dataTransfer.files` flattens both into one `FileList` with no such distinction, and a folder
+ * dropped there shows up as a zero-byte, empty-`type` `File` that `uploadFiles` would happily POST
+ * and the server would just as happily refuse as unreadable. Folders are rejected outright here
+ * rather than walked recursively: nothing in this flow can recreate a folder's structure server-side
+ * (`uploadFiles` uploads flat, into whichever folder is currently open), so recursing would either
+ * silently flatten every nested file into that one folder or require a second, unrelated feature
+ * (server-side folder creation from a client-supplied tree) to do properly. Despite the `webkit`
+ * name this is a long-standing cross-browser API, not a Chromium-only one -- Firefox and Safari both
+ * implement it -- but it is still checked for before use, and its absence falls back to the flattened
+ * list rather than uploading nothing.
+ */
+function collectDroppedFiles(dataTransfer) {
+  const items = dataTransfer.items
+  if (!items || items.length === 0 || typeof items[0]?.webkitGetAsEntry !== 'function') {
+    return { files: [...dataTransfer.files], folderCount: 0 }
+  }
+  const files = []
+  let folderCount = 0
+  for (const item of items) {
+    if (item.kind !== 'file') {
+      continue
+    }
+    if (item.webkitGetAsEntry()?.isDirectory) {
+      folderCount++
+      continue
+    }
+    const file = item.getAsFile()
+    if (file) {
+      files.push(file)
+    }
+  }
+  return { files, folderCount }
+}
+
+function handleDrop(ev) {
+  dragDepth = 0
+  state.isDraggingOver = false
+  if (!ev.dataTransfer) {
+    return
+  }
+  const { files: droppedFiles, folderCount } = collectDroppedFiles(ev.dataTransfer)
+  if (folderCount > 0) {
+    notify({
+      type: 'negative',
+      message: t('fileman.dropFoldersRejected'),
+      caption: t('fileman.dropFoldersRejectedCount', { count: folderCount }, folderCount)
+    })
+  }
+  if (droppedFiles.length > 0) {
+    uploadFiles(droppedFiles)
+  }
 }
 
 // --------------------------------------
@@ -1719,6 +1863,42 @@ $fileman-hdr-wrap-max: 899.98px;
       > img {
         filter: invert(1);
       }
+    }
+  }
+
+  &-droptarget {
+    position: relative;
+    height: 100%;
+  }
+
+  /*
+    Covers the whole pane rather than sitting as a border on it: a dashed inset rectangle plus a
+    translucent wash reads as "drop here" at a glance, the same affordance file managers and mail
+    clients use. `pointer-events: none` is load-bearing -- see the template comment beside it.
+  */
+  &-dropoverlay {
+    position: absolute;
+    inset: 8px;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    border: 2px dashed var(--color-primary);
+    border-radius: 12px;
+    pointer-events: none;
+    font-size: 1.1rem;
+    font-weight: 500;
+    text-align: center;
+
+    @at-root .body--light & {
+      background-color: rgba(255, 255, 255, 0.9);
+      color: $grey-8;
+    }
+    @at-root .body--dark & {
+      background-color: rgba(0, 0, 0, 0.75);
+      color: #fff;
     }
   }
 
