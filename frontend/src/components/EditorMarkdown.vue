@@ -1068,6 +1068,14 @@ function insertAfter({ content, newLine, focus = true }) {
   }
 }
 
+function fallbackToDefaultEnter() {
+  editor.trigger('keyboard', 'type', { text: '\n' })
+}
+
+function continueList() {
+  fallbackToDefaultEnter()
+}
+
 /**
  * Insert content before current line
  *
@@ -1861,6 +1869,16 @@ onMounted(async () => {
         lvl = 2
       }
       setHeaderLine(lvl - 1)
+    }
+  })
+
+  editor.addAction({
+    id: 'markdown.extension.editing.continueList',
+    keybindings: [monaco.KeyCode.Enter],
+    label: 'Continue List',
+    precondition: 'editorTextFocus && !suggestWidgetVisible && !renameInputVisible',
+    run(ed) {
+      continueList()
     }
   })
 

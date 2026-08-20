@@ -47,6 +47,7 @@ function createFakeModel(initialValue) {
 
 let fakeModel
 let cursorPosition
+let registeredActions
 /**
  * Whether `fakeEditor.dispose()` has been called -- lets `getPosition` reproduce the real Monaco
  * behaviour a disposed editor exhibits (`OpenProject #808`): `getPosition()` returns `null` once the
@@ -60,6 +61,19 @@ const fakeEditor = {
   setPosition: vi.fn((pos) => {
     cursorPosition = pos
   }),
+  // -> `continueList` (OpenProject #802) reads the primary selection off this rather than
+  //    `getPosition`, since it needs to tell a collapsed caret apart from a real selection or a
+  //    second cursor. Defaults to a single collapsed selection at `cursorPosition`; tests that need
+  //    a real selection or multiple cursors override the return value directly.
+  getSelections: vi.fn(() => [
+    {
+      startLineNumber: cursorPosition.lineNumber,
+      startColumn: cursorPosition.column,
+      endLineNumber: cursorPosition.lineNumber,
+      endColumn: cursorPosition.column,
+      isEmpty: () => true
+    }
+  ]),
   // -> Only consulted by `onEditorDrop` to move the cursor to the drop point; `null` exercises its
   //    `if (target?.position)` no-op guard, which is all a happy-dom drop event needs here.
   getTargetAtClientPoint: vi.fn(() => null),
@@ -68,9 +82,15 @@ const fakeEditor = {
       fakeModel.applyEdit(edit)
     }
   }),
+  // -> `continueList`'s fallback path re-invokes Monaco's own default Enter handling this way;
+  //    tests assert on this call rather than on model content when nothing list-specific applies.
+  trigger: vi.fn(),
   updateOptions: vi.fn(),
   addCommand: vi.fn(() => 'fake-command-id'),
-  addAction: vi.fn(),
+  addAction: vi.fn((config) => {
+    registeredActions[config.id] = config
+    return { dispose: vi.fn() }
+  }),
   onDidChangeModelContent: vi.fn(),
   onDidChangeCursorPosition: vi.fn(),
   revealLineInCenterIfOutsideViewport: vi.fn(),
@@ -87,6 +107,7 @@ vi.mock('monaco-editor', () => ({
       fakeModel = createFakeModel(opts.value ?? '')
       cursorPosition = { lineNumber: fakeModel.getLineCount(), column: 1 }
       disposed = false
+      registeredActions = {}
       return fakeEditor
     })
   },
@@ -655,5 +676,25 @@ describe('EditorMarkdown debounced handler cleanup on unmount (OpenProject #808)
     //    refresh" symptom -- a disposed Monaco editor's `getValue()` no longer reflects the document,
     //    so that stale/empty read would land straight in `pageStore.content`.
     expect(fakeEditor.getValue.mock.calls.length).toBe(getValueCallsAtUnmount)
+  })
+})
+
+describe('EditorMarkdown list continuation on Enter (OpenProject #802)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  function pressEnter() {
+    registeredActions['markdown.extension.editing.continueList'].run()
+  }
+
+  it('falls back to default Enter handling on a plain, non-list line', async () => {
+    await mountEditor('Some text.')
+    cursorPosition = { lineNumber: 1, column: 'Some text.'.length + 1 }
+
+    pressEnter()
+
+    expect(fakeEditor.trigger).toHaveBeenCalledWith('keyboard', 'type', { text: '\n' })
+    expect(fakeModel.getValue()).toBe('Some text.')
   })
 })
