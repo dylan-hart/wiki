@@ -201,6 +201,46 @@ test('authorizationUrl: refuses a strategy with no entryPoint/issuer/cert config
   )
 })
 
+/*
+  Upstream discussion #5180: passport-saml versions below 3.0 could be configured with no IdP
+  certificate at all, letting anyone forge an assertion and impersonate a user — the identity provider
+  was never actually consulted. These two tests isolate `cert` specifically (entryPoint and issuer both
+  present) rather than relying on the "something is missing" test above, and cover both places a
+  certless config could otherwise slip through: building the outgoing request, and validating an
+  incoming response. `buildSaml()`'s own `if (!entryPoint || !issuer || !cert)` guard is what refuses
+  it here — `@node-saml/node-saml` 5.1.0 (this module's SAML implementation, the actively maintained
+  successor to `passport-saml`) also asserts `idpCert` as required at its own construction time, so the
+  same config is refused twice over even if this module's guard were ever removed.
+*/
+test('authorizationUrl: refuses a strategy with entryPoint and issuer but no cert (no IdP certificate bypass)', async () => {
+  const auth = new SamlAuthentication('strategy1', {
+    entryPoint: 'https://idp.example.com/sso',
+    issuer: AUDIENCE
+  })
+  await assert.rejects(
+    auth.authorizationUrl({ redirectUri: REDIRECT_URI, state: 's', nonce: '', codeVerifier: '' }),
+    { message: 'ERR_STRATEGY_MISCONFIGURED' }
+  )
+})
+
+test('profile: refuses to validate a response against a strategy with entryPoint and issuer but no cert configured', async () => {
+  const auth = new SamlAuthentication('strategy1', {
+    entryPoint: 'https://idp.example.com/sso',
+    issuer: AUDIENCE
+  })
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      currentUrl: REDIRECT_URI,
+      body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
+    }),
+    { message: 'ERR_STRATEGY_MISCONFIGURED' }
+  )
+})
+
 test('profile: validates a genuinely signed assertion and extracts the mapped claims', async () => {
   const auth = new SamlAuthentication('strategy1', BASE_CONF)
   const profile = await auth.profile({
