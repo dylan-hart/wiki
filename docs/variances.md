@@ -1008,3 +1008,43 @@ The two orphaned locale keys were deleted (`backend/locales/en.json`) rather tha
 panel that doesn't exist.
 
 Recording this here so a future spec pass on Feature 387 does not re-open or re-derive the question.
+
+## OpenProject #829 item 4 — PDF footnote fidelity fixed in print CSS, not in `pdfExport.ts`'s own test suite
+
+**Spec asked for:** "footnotes render incorrectly in exported PDF (discussion #6944) — add an
+explicit test case to `backend/models/pdfExport.ts`'s test coverage."
+
+**What was actually done:** Read `backend/models/pdfExport.ts` in full. It has no footnote-specific
+code path at all — `exportPdf()` opens this instance's own live, already-rendered page view in
+Puppeteer and calls `page.pdf()`; `blockSettleScript()` waits only for `block-*` custom elements to
+finish upgrading and settle. Footnote markup itself comes entirely from `markdown-it-footnote`
+(`frontend/src/renderers/markdown.js`, covered by `markdown.test.js`'s existing footnote test) and is
+never touched, inspected, or transformed by anything in `pdfExport.ts`.
+
+Tracing the actual fidelity loss instead of guessing at it: `frontend/src/css/_page-contents.scss`'s
+`@media print` block already applies `break-inside: avoid` to `pre.codeblock`, `table`, `img`,
+`blockquote`, and `details` — every other block-level piece of page content that would read as
+garbled if a page break landed in the middle of it — but never to `.footnote-item`. A footnote note
+can be an arbitrary run of prose, and with no guard on it, Chromium's print pagination (which is what
+both a browser's Print dialog and this instance's own `page.pdf()` export drive) is free to split one
+note across two pages mid-sentence. That reproduces exactly the "footnotes render incorrectly in
+exported PDF" symptom the upstream discussion describes, and it is a real, fixable bug — just not one
+`pdfExport.ts`'s own code causes or could catch, since it is print-layout behavior, not markup
+`pdfExport.ts` produces or transforms.
+
+**Fix applied:** `.footnote-item` added to that `break-inside: avoid` selector list, matching the
+pattern already established for the rest of that rule.
+
+**Why no test was added to `pdfExport.test.ts`:** that file's own subject — `blockSettleScript`'s
+custom-element settle loop and `exportPdf`'s orchestration (cookie forwarding, the spoofed `Host`
+header, navigation, closing the browser) — is exercised against a hand-stubbed `page`/`document`
+object with no real layout engine behind it (see the file's own header comment). There is nothing in
+that harness capable of observing CSS pagination at all, so a "test" asserting anything about
+`.footnote-item`'s page-break behavior there would not exercise real behavior — it would only
+re-assert that a stub returns what it was told to return. Fabricating an assertion that doesn't
+actually verify the fix would be worse than no test in that file. The genuine coverage for footnote
+content shape already exists one layer down (`markdown.test.js`'s footnote-reference test,
+`rendering.test.ts`'s sanitizer coverage), and this fix closes the one remaining gap — a
+paginated-print concern this codebase has no visual-regression/PDF-rendering harness to exercise
+automatically. A human reviewer with a real PDF export in hand should confirm the fix visually before
+this ships; that is the only verification method that would actually observe it.

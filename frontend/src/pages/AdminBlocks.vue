@@ -59,6 +59,20 @@
     </div>
     <w-separator inset />
     <div class="p-4 gap-4">
+      <!--
+        OpenProject #829 item 5: upstream discussions #3275/#7258/#7229 all describe the same
+        dead end -- an author reaches for Kroki or PlantUML, the block draws against the public
+        demo server by default, and nothing on this page said that server exists, that it is a
+        third party, or that self-hosting one is an option -- until it rate-limits, goes down, or
+        the diagram source itself is sensitive. Shown once, above the whole list, rather than
+        repeated per block: both blocks share the exact same story.
+      -->
+      <w-banner
+        v-if="hasServerConfigurableBlocks"
+        class="mb-4"
+        :class="dark.isActive ? `bg-grey-9 text-white` : `bg-grey-2 text-grey-7`">
+        {{ t('admin.blocks.selfHostedServerNote') }}
+      </w-banner>
       <w-card>
         <w-list separator>
           <w-item v-for="block of state.blocks" :key="block.id">
@@ -171,7 +185,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
@@ -247,6 +261,13 @@ function hasServerProp(block) {
 function serverProp(block) {
   return block.props?.find((prop) => prop.name === 'server')
 }
+
+/**
+ * Whether the "self-host your own server" note is worth showing at all -- only when this site
+ * actually has a block whose "Server" field it would be explaining, so the note never appears on a
+ * site with neither Kroki nor PlantUML enabled.
+ */
+const hasServerConfigurableBlocks = computed(() => state.blocks.some(hasServerProp))
 
 async function load() {
   state.loading++

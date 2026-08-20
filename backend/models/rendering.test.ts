@@ -210,6 +210,69 @@ describe('rendering.sanitize -- KaTeX MathML from inline TeX authoring', () => {
   tags). If a later task wires mhchem into the literal path -- or `\ce{}` support becomes part of
   "Engine Selection" -- this confirms the allowlist will not need touching to carry it.
 */
+/*
+  OpenProject #829, item 1: upstream issue #1839 ("Mermaid renders in the live edit preview but not
+  on the saved/reloaded page") and discussion #6446 (the identical pattern for KaTeX formulas) both
+  describe a render-then-reload regression. This fork's architecture cannot reproduce either report
+  by construction, and this test is what pins that down rather than leaving it as an assertion in a
+  comment:
+
+   - A diagram (`block-diagram`/`block-kroki`/`block-plantuml`) is a Lit custom element that draws
+     itself in `firstUpdated()` -- a browser lifecycle hook that fires identically whichever DOM path
+     upgraded the element. `pages/Index.vue`'s route watcher (`{ immediate: true }`, so it also fires
+     on a page loaded directly rather than navigated to) scans the loaded content for
+     `:not(:defined)` custom elements and imports their component the same way `EditorMarkdown.vue`'s
+     live preview does -- there is no separate "preview renderer" and "saved-page renderer" to drift
+     apart. What this test can verify without a browser is the half that actually lives here: that
+     `postProcess` -- what a save (and what a headless re-render replays) both run -- does not
+     itself strip or mangle the block element or the fenced source `firstUpdated()` reads out of it,
+     which is the one way a reload-only regression could hide in this file.
+   - Literal `$…$`/`$$…$$` TeX (Task 624) is resolved to real KaTeX HTML/MathML at the point the
+     editor's own render runs (`renderers/markdown.js`), not deferred to a script that has to run
+     again on every future view -- so the stored/reloaded page needs no client-side re-render step
+     for a formula to appear at all, unlike a design where "render" and "display" are separate
+     passes that can disagree. This test's job is to confirm `postProcess`'s sanitize step is what
+     the earlier `describe` block already proved in isolation -- keeps that literal markup byte-for-
+     byte -- when it runs alongside a diagram block in the same document, not just alone.
+*/
+describe('rendering.postProcess -- render, save, reload (OpenProject #829)', () => {
+  test('keeps a mermaid diagram block and a resolved inline KaTeX formula both intact through the same save-time pass a reload replays', async () => {
+    enabledBlocks = new Set(['diagram'])
+    // -> A trimmed but structurally real `katex.renderToString(..., { output: 'htmlAndMathml' })`
+    //    shape: the MathML the earlier describe block already proved survives `sanitize()` on its
+    //    own, now alongside a diagram block in one document -- the actual "did the editor's own
+    //    HTML come back out the other end of a save" question this item asks.
+    const katexHtml =
+      '<span class="katex"><span class="katex-mathml">' +
+      '<math xmlns="http://www.w3.org/1998/Math/MathML"><semantics>' +
+      '<mrow><mi>π</mi><msup><mi>r</mi><mn>2</mn></msup></mrow>' +
+      '<annotation encoding="application/x-tex">\\pi r^2</annotation>' +
+      '</semantics></math></span>' +
+      '<span class="katex-html" aria-hidden="true">π r<sup>2</sup></span></span>'
+    const diagramHtml = blockHtml(
+      'block-diagram',
+      'theme="auto"',
+      'mermaid',
+      'A[Start] --&gt; B{Ready?}'
+    )
+    const html = `<p>The area is ${katexHtml} exactly.</p>${diagramHtml}`
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    // -> The formula: fully resolved, static markup a reload can display with no re-render step
+    assert.match(result.render, /class="katex"/)
+    assert.match(result.render, /\\pi r\^2/)
+    // -> The diagram: the element and its fenced source, exactly what `firstUpdated()` needs to draw
+    //    it again on whichever DOM path upgraded the element this time
+    assert.match(result.render, /<block-diagram theme="auto">/)
+    assert.match(
+      result.render,
+      /<pre class="codeblock-mermaid"><code>A\[Start\] --&gt; B\{Ready\?\}<\/code><\/pre>/
+    )
+    assert.match(result.render, /<\/block-diagram>/)
+  })
+})
+
 describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () => {
   test('keeps every tag and attribute a real \\ce{} render writes into MathML', () => {
     const math =

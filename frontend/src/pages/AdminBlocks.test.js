@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import AdminBlocks from './AdminBlocks.vue'
+import WBanner from '@/components/shared/WBanner.vue'
 import WBtn from '@/components/shared/WBtn.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -79,6 +80,26 @@ async function mountAdminBlocks(blocks) {
   await flushPromises()
   return wrapper
 }
+
+/*
+ * OpenProject #829 item 5: upstream discussions #3275/#7258/#7229 all describe the same dead end --
+ * an author reaches for Kroki or PlantUML, the block quietly draws against the project's own public
+ * demo server, and nothing on this page said so until it rate-limited, went down, or the diagram
+ * turned out to carry something the author would rather not have sent to a third party.
+ */
+describe('AdminBlocks: self-hosted server note (OpenProject #829 item 5)', () => {
+  it('shows the self-hosted server note when a block on this site declares a Server field', async () => {
+    const wrapper = await mountAdminBlocks([KROKI_BLOCK, GALLERY_BLOCK])
+
+    expect(wrapper.findComponent(WBanner).exists()).toBe(true)
+  })
+
+  it('does not show the note when no block on this site declares a Server field', async () => {
+    const wrapper = await mountAdminBlocks([GALLERY_BLOCK])
+
+    expect(wrapper.findComponent(WBanner).exists()).toBe(false)
+  })
+})
 
 describe('AdminBlocks', () => {
   it('shows a Server field only for a block whose definition declares one', async () => {

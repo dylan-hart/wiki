@@ -1732,7 +1732,17 @@
     table,
     img,
     blockquote,
-    details {
+    details,
+    /*
+      A footnote item is ordinary prose, sometimes several sentences long, and had no guard at all --
+      unlike every other block-level piece of content in this list -- so it was the one thing left
+      free to split mid-sentence across a page boundary in an export. That is exactly the "footnotes
+      render incorrectly in exported PDF" shape reported upstream (discussion #6944): the note itself
+      is intact in the stored HTML (see `rendering.test.ts`/`markdown.test.js` for that half), the
+      fidelity loss is Chromium's print pagination cutting one list item in two with no rule telling
+      it not to.
+    */
+    .footnote-item {
       /* -> A block split across a page break is unreadable in both halves */
       break-inside: avoid;
     }

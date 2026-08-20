@@ -251,3 +251,87 @@ describe('MarkdownRenderer -- inline and display TeX', () => {
     expect(html.match(/class="katex"/g)?.length).toBe(3)
   })
 })
+
+/*
+ * OpenProject #829, item 2: targeted regression coverage for two KaTeX edge cases from upstream
+ * reports -- multi-character subscripts (upstream #1581) and `\vdots` (upstream discussion #3530).
+ * Both are ordinary, well-supported KaTeX/TeX syntax; nothing in `TEX_INLINE`/`TEX_DISPLAY` or
+ * `texMathHtml` singles either out for special handling, so these exist to lock in that plain KaTeX
+ * usage keeps working through this renderer's own delimiter/currency-guard regexes, not because
+ * either construct needed a code change here.
+ */
+describe('MarkdownRenderer -- KaTeX edge cases (OpenProject #829 item 2)', () => {
+  it('typesets a multi-character subscript written with braces', () => {
+    const html = render('The element is $x_{ij}$ in the matrix.')
+    expect(html).toContain('class="katex"')
+    expect(html).not.toContain('tex-math-error')
+    // -> Both characters of the subscript reached KaTeX as one group, not split around the brace
+    expect(html).toMatch(/<annotation encoding="application\/x-tex">x_\{ij\}<\/annotation>/)
+  })
+
+  it('does not let a multi-character subscript run past the paragraph it sits in', () => {
+    const html = render('The element is $x_{ij}$ in the matrix.')
+    expect(html).toContain('in the matrix.')
+  })
+
+  it('typesets \\vdots inside a matrix environment', () => {
+    const html = render('$$\\begin{matrix} 1 \\\\ \\vdots \\\\ n \\end{matrix}$$')
+    expect(html).toContain('katex-display')
+    expect(html).not.toContain('tex-math-error')
+  })
+
+  it('typesets a bare inline \\vdots', () => {
+    const html = render('A column of dots: $\\vdots$')
+    expect(html).toContain('class="katex"')
+    expect(html).not.toContain('tex-math-error')
+  })
+})
+
+/*
+ * OpenProject #829, item 3: upstream PR #2645, "inline math interpreted as attributes" -- braces
+ * that are TeX syntax *inside* a `$…$`/`$$…$$` formula (a multi-character subscript, a literal
+ * `\{…\}` set) must never be read by `markdown-it-attrs` as a trailing `{.class #id}` block.
+ *
+ * This renderer's `tex_math` inline rule is registered `before('text', …)`, so it claims the WHOLE
+ * `$…$` span -- braces included -- as a single token's content before `text` ever splits the source
+ * around them. `markdown-it-attrs` runs afterwards, as a core rule over the already-built token
+ * stream, so by the time it looks for a `{…}` to attach, the formula's braces are already inside a
+ * `tex_math` token's `content` string rather than sitting in the stream as their own text. These
+ * tests are the regression guard for that ordering, confirmed against upstream's own bug shape.
+ */
+describe('MarkdownRenderer -- inline math braces are not consumed as markdown-it-attrs (OpenProject #829 item 3)', () => {
+  it('does not let a multi-character subscript brace become an id/class attribute', () => {
+    const html = render('The subscript is $x_{ij}$ here.')
+    expect(html).toContain('class="katex"')
+    // -> No attribute was scraped out of the formula's own braces onto anything
+    expect(html).not.toContain('id="ij"')
+    expect(html).not.toContain('class="ij"')
+    // -> And the prose after the formula survived untouched
+    expect(html).toContain('here.')
+  })
+
+  it('does not let a literal \\{…\\} set-builder formula be swallowed as an attrs block', () => {
+    const html = render('The set $\\{1, 2, 3\\}$ is finite.')
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('is finite.')
+  })
+
+  it('does not let braces inside a display formula bleed into the next block', () => {
+    const html = render('$$\\{a, b, c\\}$$\n\nAnother paragraph.')
+    expect(html).toContain('katex-display')
+    // -> Its own, ordinary paragraph -- not swallowed into the formula's span, and carrying no
+    //    attribute scraped out of the formula's own braces
+    expect(html).toMatch(/<p[^>]*>Another paragraph\.<\/p>/)
+    expect(html).not.toMatch(/<p[^>]*class="[^"]*\bc\b/)
+  })
+
+  it('still applies a real markdown-it-attrs class written after (not inside) a formula', () => {
+    // -> The braces here are NOT part of the formula -- they trail the paragraph on their own line,
+    //    the ordinary markdown-it-attrs block-attribute position -- so this must keep working exactly
+    //    as it does for any other block, confirming the formula's own rule isn't swallowing attrs it
+    //    was never meant to touch
+    const html = render('> The formula is $x^2$.\n{.is-warning}\n')
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('<blockquote class="is-warning')
+  })
+})
