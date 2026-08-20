@@ -1206,3 +1206,70 @@ per-request-authenticated rather than as a separate keyed process; (3) write too
 > unblocked in principle — `mcp/auth.ts`'s guests-group fallback still applies until `mcp/` is actually
 > updated to consult a per-user token, which did not happen as part of either branch. Left as a
 > concrete next task rather than done silently.
+
+## 2026-08-20 — OpenProject #823: Git storage target regression pass against 8 historical upstream bugs
+
+Verified `backend/modules/storage/git/` against the 8 concrete v2 bugs OpenProject #823 named,
+individually. Two were genuine, reproducible bugs in this implementation and are now fixed; the other
+six do not apply, each for a different, specific reason tied to how this fork's design differs from
+2.5.x's. Every item has a regression test either way — see the commit for the full file list.
+
+**Fixed:**
+
+- **Item 6 (upstream #846, open since 2019): stale error banner.** `contentSync.getTargetSummary()`
+  picked "the most recently updated row with a `lastError`" as the target's displayed error — a page
+  that failed once and was never individually retried kept that error showing forever, even after
+  every other page on the target had since synced successfully. Fixed by treating an error as stale
+  once the target's overall `lastSyncedAt` (across every content item, not just that one row) is more
+  recent than the error itself — `getTargetSummary` in `backend/models/contentSync.ts`. The
+  underlying row is left untouched (`getState`/`getStatesForTarget` still show it), only the
+  target-level summary suppresses it. Judgment call: "clear on next success" is read as "the target's
+  next success", not "that exact content item's next success" — the latter would leave the bug
+  unfixed for any item nothing ever touches again, which is the actual failure mode the upstream
+  report describes.
+- **Item 7 (upstream #2381) — git-sync writes racing a live editor session.** Cross-checked against
+  the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
+  (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
+  sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
+  What was genuinely unguarded is a different race the same upstream report describes: `dispatchStorage`
+  jobs run in a 3-worker thread pool by default (`scheduler.workers`, `base.yml`) with no shared JS
+  memory, so two jobs for the *same* storage target — a write-path push and a scheduled `sync`'s
+  pull/push, say — could run their `git` commands against the one on-disk working copy concurrently,
+  with no in-process mutex able to serialize across threads. Fixed with a Postgres advisory lock keyed
+  by `targetId`, wrapping the handler call in `tasks/workers/dispatch-storage.ts` (new
+  `backend/helpers/advisoryLock.ts`) — the single choke point every storage-module dispatch already
+  passes through, so this is not git-specific plumbing.
+
+**Confirmed not applicable, each verified rather than assumed:**
+
+- **Item 1 (upstream #2646, credential escaping).** `buildAuthenticatedUrl` builds the authenticated
+  remote URL via `new URL()` and its `username`/`password` setters, which percent-encode per the
+  userinfo encode set on assignment regardless of input — confirmed empirically that a password
+  containing `@` round-trips correctly and cannot be misparsed as the userinfo/host separator. 2.5.x's
+  bug was string interpolation; this fork never had that shape of code.
+- **Item 2 (upstream #2564, SSH port ignored).** There is no separate "SSH Port" config field to
+  ignore in the first place — `repoUrl` is a full URI, and a non-default port belongs in it
+  (`ssh://host:port/...`). Confirmed with a real local `ssh` invocation that git correctly derives
+  `-p <port>` from the URL when running `core.sshCommand`, as long as that command starts with the
+  literal binary name `ssh` (verified this fork's does) — git falls back to a `-p`-less "simple" ssh
+  variant for anything it does not recognize by name.
+- **Item 3 (upstream #2817, folder renames don't sync).** Already works. Confirmed the actual git
+  diff shape a folder rename produces (`dir/{old => new}/rest`, one entry per file underneath — git
+  has no first-class directory-rename concept), which `sync.ts`'s existing `RENAME_PATTERN` already
+  parses, then proved it end-to-end for both pages (`movePage` per file) and assets (delete +
+  re-upload per file, since a folder move is not something `renameAsset()` covers).
+- **Item 4 (upstream #2443, interval change not applied) and item 5 (upstream #2082, open — no
+  auto-resume after an outage).** Both are the same root cause from two angles: 2.5.x's scheduler
+  baked each target's interval into a per-target cron job at server start, so a changed interval
+  needed a restart, and a run of failures had no path back to "due" without a Force Sync. This fork's
+  `tickScheduledSyncs()` has no equivalent state — it re-reads every target's `scheduleOverride` and
+  `lastTickAt` off its row on every `* * * * *` tick and queues whichever are due, full stop. A
+  shortened interval takes effect on the very next tick; a target whose prior scheduled syncs all
+  failed is simply due again once its interval re-elapses, automatically, with nothing to "restore".
+- **Item 8 (upstream #2343, backup broken for git storage).** 2.5.x's bug was a generic backup
+  routine making disk-path assumptions that didn't hold for git. In this fork, `backup`/`dailyBackup`
+  are module-owned actions declared per `definition.yml` rather than one shared routine every module
+  is forced through — `git`'s definition declares neither, and `runDailyBackups()` silently skips a
+  module with no `dailyBackup` handler (same as it already does for `db`). There is no shared
+  disk-shaped code path for a git target to break through, because git's own commit history plus
+  pushing to `origin` already is its backup.

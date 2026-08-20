@@ -35,7 +35,7 @@ props:
   repoUrl:
     type: String
     title: Repository URI
-    hint: Git-compliant URI (e.g. git@server.com:org/repo.git for ssh, https://server.com/org/repo.git for basic)
+    hint: Git-compliant URI (e.g. git@server.com:org/repo.git for ssh, https://server.com/org/repo.git for basic). For a non-default SSH port, use ssh://git@server.com:2222/org/repo.git — there is no separate port field.
     icon: dns
     order: 2
   branch:

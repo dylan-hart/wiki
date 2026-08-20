@@ -314,6 +314,114 @@ test('getTargetSummary surfaces the most recent error', { skip }, async () => {
   assert.equal(summary.lastSyncedAt, null)
 })
 
+// ---------------------------------------------------------------------------------------------
+// getTargetSummary: stale error suppression (OpenProject #823 item 6 / upstream #846) -- a per-item
+// error that is never individually retried must not keep the target's status card showing "error"
+// forever once other content has demonstrably synced successfully since.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'getTargetSummary keeps surfacing an error with no later success on the target',
+  { skip },
+  async () => {
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: 'test-summary-stale-none' })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+    const failedPageId = await makePage('stale-error-no-success')
+    await contentSync.recordFailure({
+      contentType: 'page',
+      contentId: failedPageId,
+      targetId,
+      error: 'connection refused'
+    })
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId })
+    assert.equal(summary.lastError, 'connection refused')
+    assert.ok(summary.lastAttemptAt)
+  }
+)
+
+test(
+  "getTargetSummary hides a page's error once a *different* item has since synced successfully",
+  { skip },
+  async () => {
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: 'test-summary-stale-cleared' })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+
+    const failedPageId = await makePage('stale-error-failed-item')
+    await contentSync.recordFailure({
+      contentType: 'page',
+      contentId: failedPageId,
+      targetId,
+      error: 'connection refused'
+    })
+    // -> A later success on a DIFFERENT item -- the failed row itself is never retried, so its own
+    //    `lastError` stays set (see `recordFailure sets lastError without touching a prior successful
+    //    sync`), but the target as a whole has since proven itself healthy. `syncedAt` is nudged a
+    //    couple of seconds into the future rather than left to the default `Temporal.Now.instant()`:
+    //    the failure's `updatedAt` above came from postgres's own clock (`now()` in the upsert), and
+    //    without a comfortable margin this comparison would be sensitive to any skew between that
+    //    clock and this process's.
+    const succeededPageId = await makePage('stale-error-other-item')
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: succeededPageId,
+      targetId,
+      direction: 'push',
+      syncedAt: Temporal.Now.instant().add({ seconds: 2 })
+    })
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId })
+    assert.equal(summary.lastError, null)
+    assert.equal(summary.lastAttemptAt, null)
+    assert.ok(summary.lastSyncedAt)
+
+    // -> The row itself is untouched -- only the target-level summary treats it as stale.
+    const rawState = await contentSync.getState('page', failedPageId, targetId)
+    assert.equal(rawState!.lastError, 'connection refused')
+  }
+)
+
+test(
+  'getTargetSummary still surfaces a fresh error even after an earlier success on the target',
+  { skip },
+  async () => {
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: 'test-summary-fresh-error' })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+    const pageId = await makePage('fresh-error-after-success')
+
+    // -> `syncedAt` is pinned well into the past rather than left to the default `Temporal.Now.instant()`
+    //    -- this process's clock and postgres's own (`now()`, which the following `recordFailure`
+    //    writes through) are not guaranteed to agree to the millisecond, and this test only cares that
+    //    the success is unambiguously *before* the error, not that it happened "just now".
+    await contentSync.recordSuccess({
+      contentType: 'page',
+      contentId: pageId,
+      targetId,
+      direction: 'push',
+      syncedAt: Temporal.Now.instant().subtract({ seconds: 5 })
+    })
+    await contentSync.recordFailure({
+      contentType: 'page',
+      contentId: pageId,
+      targetId,
+      error: 'disk full'
+    })
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId })
+    assert.equal(summary.lastError, 'disk full')
+    assert.ok(summary.lastAttemptAt)
+  }
+)
+
 test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }, async () => {
   const assetId = await makeAsset('never-synced.png')
   const outOfDate = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })

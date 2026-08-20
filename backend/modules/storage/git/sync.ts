@@ -78,6 +78,16 @@ export interface DiffEntry {
  * re-derived: it parses both of git's compact rename spellings — `old/path => new/path` for a
  * whole-path rename, and `dir/{old => new}/rest` for a rename that only changed part of the path —
  * out of the single string `git diffSummary` reports per renamed file.
+ *
+ * The `dir/{old => new}/rest` branch is what a *folder* rename actually produces — git has no
+ * first-class notion of a directory move, so renaming `docs/guide` to `docs/handbook` shows up as one
+ * `docs/{guide => handbook}/<file>` entry per file underneath, each parsed and dispatched
+ * independently by `processDiffEntry` below. OpenProject #823 item 3 (upstream #2817: "folder renames
+ * in the remote repo don't sync via Force Sync") asked this be checked against that upstream bug —
+ * confirmed against a real `git diff -M` first (not assumed), then against `sync()` end-to-end in
+ * `sync.test.ts`'s "pulls a whole-folder rename" tests: this already works, both for pages
+ * (`movePage` per file) and assets (delete + re-upload per file, since a folder move is not something
+ * `renameAsset()` covers — see `processAssetEntry`).
  */
 const RENAME_PATTERN = /(.*?)(?:{(.*?))? => (?:(.*?)})?(.*)/
 

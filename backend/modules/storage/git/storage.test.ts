@@ -70,6 +70,31 @@ describe('git storage: buildAuthenticatedUrl', () => {
     assert.equal(decodeURIComponent(parsed.username), 'alice')
     assert.equal(decodeURIComponent(parsed.password), 'p@ss w/ord')
   })
+
+  test(
+    'an @ in the password does not shift where the host is parsed from ' +
+      '(OpenProject #823 item 1 — upstream #2646)',
+    () => {
+      // -> 2.5.x built this URL by string interpolation, so a password containing its own `@` (a
+      //    real shape for a PAT or generated password) was read as ending the userinfo section
+      //    early, and everything after it — including the *real* `@host` — was misparsed as part of
+      //    the host/path instead. A password with two `@`s is the sharpest version of that.
+      const result = buildAuthenticatedUrl(
+        'https://git.example.com/org/repo.git',
+        'svc-account',
+        'tok@en@2026'
+      )
+      const parsed = new URL(result)
+      assert.equal(parsed.hostname, 'git.example.com')
+      assert.equal(parsed.pathname, '/org/repo.git')
+      assert.equal(decodeURIComponent(parsed.password), 'tok@en@2026')
+      // -> The raw string must not contain a bare, unencoded `@` inside the credentials portion —
+      //    that is precisely what would let it be re-parsed as the userinfo/host separator by
+      //    anything downstream (git itself included) that re-reads this URL as text.
+      const credentials = result.slice('https://'.length, result.indexOf('@git.example.com'))
+      assert.equal(credentials.includes('@'), false)
+    }
+  )
 })
 
 describe('git storage: ensureRepo', () => {
@@ -217,6 +242,32 @@ describe('git storage: ensureRepo', () => {
     assert.ok(sshCommand.includes('-i /etc/wiki/keys/id_ed25519'))
     await assert.rejects(fs.access(path.join(repoPath, '.wiki-ssh-key')))
   })
+
+  test(
+    'honors a custom SSH port embedded in the repository URL (OpenProject #823 item 2 — ' +
+      'upstream #2564, "custom SSH port setting silently ignored")',
+    async () => {
+      // -> This fork's `definition.yml` has no separate "SSH Port" prop at all: `repoUrl` is a
+      //    "Git-compliant URI", and `ssh://host:port/...` is exactly how one embeds a non-default
+      //    port. The regression this guards is that `core.sshCommand` (`-i <key> -o
+      //    StrictHostKeyChecking=no`) must not clobber or ignore that port — git appends its own
+      //    `-p <port>` when invoking a command it recognizes as the real `ssh` binary, but only for
+      //    the "ssh" variant, not the fallback "simple" variant it assumes for anything not
+      //    literally named `ssh`/`plink`/`tortoiseplink`. `ensureRepo()`'s `core.sshCommand` starts
+      //    with literal `ssh`, so it gets the real-variant treatment.
+      const { git } = await ensureRepo({
+        config: baseConfig({
+          authType: 'ssh',
+          repoUrl: 'ssh://git@127.0.0.1:59999/org/repo.git',
+          sshPrivateKeyMode: 'inline',
+          sshPrivateKeyContent: 'FAKE-PRIVATE-KEY'
+        })
+      })
+      // -> Nothing listens on this port, so the attempt fails fast — the point is *which* port ssh
+      //    reports trying, not a successful connection.
+      await assert.rejects(git.listRemote(['origin']), /59999/)
+    }
+  )
 
   test('passes gitBinaryPath through to simple-git as the binary option', async () => {
     const { repoPath } = await ensureRepo({

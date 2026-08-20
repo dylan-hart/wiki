@@ -310,6 +310,56 @@ describe('git storage: sync', () => {
     assert.equal(calls.createPage.length, 0)
   })
 
+  test(
+    'pulls a whole-folder rename (multiple pages) and moves each one in the DB ' +
+      '(OpenProject #823 item 3 — upstream #2817, "folder renames don\'t sync via Force Sync")',
+    async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      await fs.mkdir(path.join(peerPath, 'docs/guide'), { recursive: true })
+      await fs.writeFile(path.join(peerPath, 'docs/guide/one.md'), 'body one')
+      await fs.writeFile(path.join(peerPath, 'docs/guide/two.md'), 'body two')
+      await peer.add(['docs/guide/one.md', 'docs/guide/two.md'])
+      await peer.commit('docs: create guide folder')
+      await peer.push('origin', 'main')
+
+      installWiki(localPath, {
+        pages: [
+          { id: 'p1', path: 'docs/guide/one', locale: PRIMARY_LOCALE, contentType: 'markdown' },
+          { id: 'p2', path: 'docs/guide/two', locale: PRIMARY_LOCALE, contentType: 'markdown' }
+        ]
+      })
+      await ensureRepo(target)
+      const localGit = simpleGit(target.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      // -> A directory rename, not two individual file renames: git has no first-class notion of a
+      //    folder move, so this is what actually produces the `dir/{old => new}/rest` diff shape
+      //    `parseRenamedPaths` exists to parse — verified directly against a real git diff before
+      //    writing this test, not assumed.
+      await peer.mv('docs/guide', 'docs/handbook')
+      await peer.commit('docs: rename guide to handbook')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, {
+        pages: [
+          { id: 'p1', path: 'docs/guide/one', locale: PRIMARY_LOCALE, contentType: 'markdown' },
+          { id: 'p2', path: 'docs/guide/two', locale: PRIMARY_LOCALE, contentType: 'markdown' }
+        ]
+      })
+      await sync(target)
+
+      assert.equal(calls.movePage.length, 2)
+      const moved = calls.movePage
+        .map((c: any) => ({ id: c.id, path: c.patch.path }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+      assert.deepEqual(moved, [
+        { id: 'p1', path: 'docs/handbook/one' },
+        { id: 'p2', path: 'docs/handbook/two' }
+      ])
+      assert.equal(calls.createPage.length, 0)
+    }
+  )
+
   test('pulls a page deletion and deletes it in the DB', async () => {
     const { peer, peerPath } = await makePeer(originPath)
     await fs.writeFile(path.join(peerPath, 'doomed.md'), 'body')
@@ -356,6 +406,44 @@ describe('git storage: sync', () => {
     assert.equal(calls.upload[0].fileName, 'pic.png')
     assert.equal(calls.upload[0].data.toString(), 'binarybytes')
   })
+
+  test(
+    'pulls a whole-folder rename of assets — deletes each old asset and re-uploads it at the new ' +
+      'location (OpenProject #823 item 3), since a folder move is not something renameAsset() covers',
+    async () => {
+      const { peer, peerPath } = await makePeer(originPath)
+      await fs.mkdir(path.join(peerPath, 'images/gallery'), { recursive: true })
+      await fs.writeFile(path.join(peerPath, 'images/gallery/photo1.png'), 'bytes-one')
+      await fs.writeFile(path.join(peerPath, 'images/gallery/photo2.png'), 'bytes-two')
+      await peer.add(['images/gallery/photo1.png', 'images/gallery/photo2.png'])
+      await peer.commit('docs: create gallery folder')
+      await peer.push('origin', 'main')
+
+      const assetsBefore = [
+        { id: 'a1', folderPath: 'images/gallery', fileName: 'photo1.png' },
+        { id: 'a2', folderPath: 'images/gallery', fileName: 'photo2.png' }
+      ]
+      installWiki(localPath, { assets: assetsBefore })
+      await ensureRepo(target)
+      const localGit = simpleGit(target.config.localRepoPath)
+      await localGit.pull('origin', 'main')
+
+      await peer.mv('images/gallery', 'images/exhibit')
+      await peer.commit('docs: rename gallery to exhibit')
+      await peer.push('origin', 'main')
+
+      const calls = installWiki(localPath, { assets: assetsBefore })
+      await sync(target)
+
+      assert.deepEqual(calls.deleteAsset.map((c: any) => c.id).sort(), ['a1', 'a2'])
+      assert.equal(calls.upload.length, 2)
+      assert.deepEqual(calls.upload.map((c: any) => c.fileName).sort(), [
+        'photo1.png',
+        'photo2.png'
+      ])
+      assert.ok(calls.upload.every((c: any) => c.folderId === 'folder:images/exhibit'))
+    }
+  )
 
   test('pushes local commits to origin', async () => {
     installWiki(localPath, { pages: [] })

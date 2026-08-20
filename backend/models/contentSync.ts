@@ -27,6 +27,19 @@ export interface ContentSyncStateRow {
   updatedAt: Date
 }
 
+/**
+ * Parses a raw `timestamp without time zone` value straight off the driver, e.g. from a `sql<string>`
+ * aggregate that bypasses Drizzle's own column-level decoding (see `getTargetSummary`'s `syncedRow`
+ * query). Postgres prints such a column as `YYYY-MM-DD HH:MI:SS[.ffffff]` with no zone suffix — that
+ * type carries no timezone by definition, so this codebase's convention (documented on the
+ * `contentSyncState` schema) is to treat the naive value as UTC throughout. `new Date(value)` would
+ * instead parse a string with no zone suffix as *local* time, which is wrong here and, depending on the
+ * server's own timezone, silently wrong by however many hours that offset is.
+ */
+function parsePgNaiveTimestamp(value: string): Date {
+  return new Date(`${value.replace(' ', 'T')}Z`)
+}
+
 /** One content item the out-of-date query found, i.e. it has no successful sync newer than itself. */
 export interface OutOfDateContent {
   id: string
@@ -43,7 +56,12 @@ export interface OutOfDateContent {
 export interface TargetSyncSummary {
   /** The most recent successful sync to this target, across every content item, or null for none yet. */
   lastSyncedAt: string | null
-  /** The error from the most recently updated row that has one, or null if nothing has ever failed. */
+  /**
+   * The error from the most recently updated row that has one — unless a *different* content item on
+   * this target has since synced successfully, in which case it is stale and this is null instead. See
+   * `getTargetSummary` for why "stale" is judged against the target's overall `lastSyncedAt` rather
+   * than only against a retry of that exact item (OpenProject #823 item 6 / upstream #846).
+   */
   lastError: string | null
   /** When that error happened, i.e. the same row's `updatedAt`. Null exactly when `lastError` is. */
   lastAttemptAt: string | null
@@ -121,6 +139,21 @@ class ContentSync {
    * Two aggregate queries rather than `getStatesForTarget()` reduced in memory: a target can have one
    * row per page and asset on the site, and a status card needs three numbers out of that, not every
    * row transferred to compute them.
+   *
+   * **A stale error is suppressed rather than surfaced (OpenProject #823 item 6 / upstream #846).**
+   * `recordSuccess` only ever clears `lastError` on the *same* content item's own row (see its doc) --
+   * so a page that failed once and was never individually retried keeps a permanent `lastError` on its
+   * row even though the target as a whole may since be syncing everything else fine. Left unchecked,
+   * that single stuck row would win the "most recently updated row with an error" query forever and the
+   * admin area's status card would show a dead error banner indefinitely, exactly the bug report: "the
+   * storage-target status UI keeps showing an old error banner after a later sync succeeds." The fix
+   * judges staleness at the target level, not the row level -- once *any* content item has synced to
+   * this target more recently than the error's own `updatedAt`, that is taken as evidence the target
+   * itself is healthy again (the outage/misconfiguration the error reported has passed) and the error is
+   * hidden. The row itself is left untouched: `getStatesForTarget`/`getState` still report it for anyone
+   * inspecting that specific item, and it becomes live again in the summary if the target's overall
+   * `lastSyncedAt` somehow regresses (which the current callers never allow, so in practice it does not
+   * recur), but its retirement is not lost either.
    */
   async getTargetSummary(
     targetId: string,
@@ -149,10 +182,16 @@ class ContentSync {
       this.getOutOfDateAssets(targetId, { siteId })
     ])
 
+    const lastSyncedAt = syncedRow?.lastSyncedAt ?? null
+    const errorIsStale =
+      errorRow != null &&
+      lastSyncedAt != null &&
+      parsePgNaiveTimestamp(lastSyncedAt) > errorRow.updatedAt
+
     return {
-      lastSyncedAt: syncedRow?.lastSyncedAt ?? null,
-      lastError: errorRow?.lastError ?? null,
-      lastAttemptAt: errorRow ? errorRow.updatedAt.toISOString() : null,
+      lastSyncedAt,
+      lastError: errorIsStale ? null : (errorRow?.lastError ?? null),
+      lastAttemptAt: errorIsStale || !errorRow ? null : errorRow.updatedAt.toISOString(),
       outOfDateCount: outOfDatePages.length + outOfDateAssets.length
     }
   }
