@@ -1,13 +1,15 @@
 # Scope decided in OpenProject task 666 (Feature 402): PDF export is built (tasks 669/670).
-# Server-side pre-rendering of Mermaid/PlantUML diagrams is deferred — it requires running Lit
-# block components in a headless context outside their current view-time-only execution model,
-# which is a materially heavier lift than PDF export. Tracked as task 785. See docs/variances.md.
+# Server-side pre-rendering of Mermaid/PlantUML diagrams, deferred at the time as task 785, now
+# ships too (`models/diagramRender.ts`) — see docs/variances.md's "Feature 402 — Puppeteer:
+# server-side diagram pre-rendering descoped" entry for the history and the design task 785 settled
+# on. PlantUML rendering does not actually need this extension (see that model's class comment);
+# Mermaid does, which is why the description below keeps mentioning diagrams.
 key: puppeteer
 title: Puppeteer
 description: >-
-  Headless Chromium browser. Required to export pages as PDF. Installing it downloads a Chromium
-  build of a few hundred megabytes, unless the server already provides one through
-  PUPPETEER_EXECUTABLE_PATH.
+  Headless Chromium browser. Required to export pages as PDF and to pre-render Mermaid diagrams to a
+  static image server-side. Installing it downloads a Chromium build of a few hundred megabytes,
+  unless the server already provides one through PUPPETEER_EXECUTABLE_PATH.
 website: 'https://pptr.dev'
 detect:
   type: module

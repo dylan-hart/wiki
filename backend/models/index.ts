@@ -7,6 +7,7 @@ import { blocks } from './blocks.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
+import { diagramRender } from './diagramRender.ts'
 import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
@@ -48,6 +49,7 @@ export default {
   commentProviders,
   comments,
   contentSync,
+  diagramRender,
   export: exportModel,
   extensions,
   flags,
