@@ -207,6 +207,17 @@ function parseMillis(value: string | null): number | null {
 }
 
 /**
+ * Validates a staged `createdAt`/`updatedAt` string before it is handed to `PageInput` — `Date.parse`
+ * rather than `new Date(...)` because the latter never throws even for garbage input, it just becomes
+ * an `Invalid Date` that `createPage()` would try to insert. Malformed source data degrades to `undefined`
+ * (the column's ordinary `now()` default) rather than failing the whole page's import, the same
+ * tolerance `page-history-import.ts`'s `parseVersionDate` gives a malformed `versionDate`.
+ */
+function normalizeStagedDate(value: string): string | undefined {
+  return Number.isNaN(Date.parse(value)) ? undefined : value
+}
+
+/**
  * Derives 3.0's three-state `publishState` from 2.x's `isPublished` boolean plus its
  * `publishStartDate`/`publishEndDate` pair, per `docs/migration/2.5x-to-3.0-mapping.md`'s "2.x's
  * boolean + the publishStartDate/publishEndDate pair together decide which of the three 3.0 enum states
@@ -307,7 +318,12 @@ function mapStagedPageToInput(
     publishState,
     publishStartDate: staged.publishStartDate,
     publishEndDate: staged.publishEndDate,
-    tags: staged.tags
+    tags: staged.tags,
+    // -> Preserve the source page's real timestamps instead of createPage()'s ordinary now() default —
+    //    see PageInput.createdAt/updatedAt's doc comment (backend/models/pages.ts) and upstream
+    //    requarks/wiki#4631, the bug this exists to not repeat.
+    createdAt: normalizeStagedDate(staged.createdAt),
+    updatedAt: normalizeStagedDate(staged.updatedAt)
   }
 
   return {

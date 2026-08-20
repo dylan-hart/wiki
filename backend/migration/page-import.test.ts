@@ -288,6 +288,42 @@ describe('importPages', () => {
     assert.equal(result.succeeded[0].pageId, 'page-1')
   })
 
+  test('carries the staged createdAt/updatedAt through to PageInput rather than dropping them', async () => {
+    // -> Regression test for OpenProject #835 / upstream requarks/wiki#4631 ("Importing from Local
+    //    File System is ignoring dateCreated and date fields"): StagedPage already carries the
+    //    source's real timestamps (content-staging.ts) — this asserts importPages() actually forwards
+    //    them to createPage() instead of leaving PageInput.createdAt/updatedAt unset, which would let
+    //    createPage()'s now() default silently stamp every imported page with import time.
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({
+      createdAt: '2018-05-01T12:00:00.000Z',
+      updatedAt: '2020-09-15T09:30:00.000Z'
+    })
+
+    await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.createdAt, '2018-05-01T12:00:00.000Z')
+    assert.equal(pagesModel.created[0].input.updatedAt, '2020-09-15T09:30:00.000Z')
+  })
+
+  test('a malformed staged createdAt/updatedAt degrades to unset rather than reaching createPage()', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({ createdAt: 'not-a-date', updatedAt: '' })
+
+    await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.createdAt, undefined)
+    assert.equal(pagesModel.created[0].input.updatedAt, undefined)
+  })
+
   test('uses creatorId as the synthetic actor and warns when authorId differs', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 1, authorId: 'editor-uuid', creatorId: 'creator-uuid' })

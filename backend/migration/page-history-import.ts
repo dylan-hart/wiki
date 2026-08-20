@@ -8,11 +8,14 @@ import type { IdMap } from './id-map.ts'
  * Page history backfill via a direct `pageHistory` insert (Feature 416 / Task 740)
  *
  * `WIKI.models.pageHistory.record()` (`backend/models/pageHistory.ts:143`) only ever snapshots the
- * CURRENT `pages` row — it reads the row fresh from `pagesTable` and writes exactly that. It has no
- * parameter for "as of this other point in time", so it cannot express any of the *past* versions a
- * 2.x page's history chain carries. Task 738's `importPages()` already calls `createPage()` once per
- * page, which itself calls `record()` once, giving every imported page a single `pageHistory` row
- * for its state *at import time*. This module is what turns each of that page's remaining 2.x
+ * CURRENT `pages` row — it reads the row fresh from `pagesTable` and writes exactly that. Its only
+ * concession to a caller who isn't editing *right now* is `versionDate` (added alongside this task, to
+ * carry `PageInput.updatedAt` through so that row is dated the source's real last-modified time rather
+ * than import time — see upstream requarks/wiki#4631), but it still has no way to express any of the
+ * *past* versions a 2.x page's history chain carries — only ever the current one. Task 738's
+ * `importPages()` already calls `createPage()` once per page, which itself calls `record()` once,
+ * giving every imported page a single `pageHistory` row for its state *as of its own `updatedAt`*.
+ * This module is what turns each of that page's remaining 2.x
  * `pageHistory` rows (`StagedPage.history`, Task 733's `content-staging.ts`) into an equivalent 3.0
  * row — reproducing everything `record()` would have computed (`meta`'s field set, `changedFields`'s
  * diff, the action) by hand, because there is no model method that can be called for a version that

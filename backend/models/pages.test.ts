@@ -123,6 +123,49 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('createPage() preserves PageInput.createdAt/updatedAt instead of stamping import time', async () => {
+    // -> Regression test for OpenProject #835 / upstream requarks/wiki#4631 ("Importing from Local
+    //    File System is ignoring dateCreated and date fields"): the migration importer's whole reason
+    //    for supplying these fields is to carry a source page's real timestamps across rather than
+    //    letting createPage()'s ordinary now() default silently overwrite them with import time.
+    const sourceCreatedAt = '2019-03-14T08:00:00.000Z'
+    const sourceUpdatedAt = '2021-11-02T17:30:00.000Z'
+
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({
+        path: 'docs/backdated-page',
+        createdAt: sourceCreatedAt,
+        updatedAt: sourceUpdatedAt
+      }),
+      actor
+    )
+
+    assert.equal(page.createdAt.toISOString(), sourceCreatedAt)
+    assert.equal(page.updatedAt.toISOString(), sourceUpdatedAt)
+
+    // The pageHistory row createPage() writes for the page's initial state must be dated the same
+    // real updatedAt, not the moment this test ran — otherwise a page imported with genuinely old
+    // history would show a "created" entry timestamped today at the top of its timeline.
+    const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0]!.versionDate.toISOString(), sourceUpdatedAt)
+  })
+
+  test('createPage() with no createdAt/updatedAt keeps the ordinary now() default', async () => {
+    const before = Date.now()
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/ordinary-page' }),
+      actor
+    )
+    const after = Date.now()
+
+    assert.ok(page.createdAt.getTime() >= before && page.createdAt.getTime() <= after)
+    assert.ok(page.updatedAt.getTime() >= before && page.updatedAt.getTime() <= after)
+  })
+
   test('the same path is free again in a different locale', async () => {
     const en = await pagesModel.createPage(
       fixtures.siteId,
