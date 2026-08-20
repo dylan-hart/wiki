@@ -27,10 +27,18 @@ describe('response headers (byte-serving behavior)', () => {
   }
 
   let readContentResult: any
+  let resolvedAsset: any
 
-  async function buildApp() {
+  /**
+   * `security.forceAssetDownload: true` matches `base.yml`'s real default -- every actual instance
+   * merges that in, so a test that wants to exercise realistic behavior needs it here too, since this
+   * stub bypasses the base.yml merge entirely (task/OpenProject #859: the route used to force download
+   * on EVERY asset whenever this was on, images included, contradicting its own admin-facing
+   * description ("non-image files"); the fix scopes it to non-`INLINE_EXTS` extensions only).
+   */
+  async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     global.WIKI = {
-      config: {},
+      config: { security },
       models: {
         sites: { getSiteByHostname: async () => ({ id: 'site-1' }) },
         groups: {
@@ -38,7 +46,7 @@ describe('response headers (byte-serving behavior)', () => {
           checkAccess: () => true
         },
         assets: {
-          resolveAssetPath: async () => asset,
+          resolveAssetPath: async () => resolvedAsset ?? asset,
           forgetPath: () => {},
           readContent: async () => readContentResult
         }
@@ -102,6 +110,26 @@ describe('response headers (byte-serving behavior)', () => {
     assert.equal(res.statusCode, 404)
     assert.equal(res.headers['content-disposition'], undefined)
     assert.equal(res.headers.location, undefined)
+    await app.close()
+  })
+
+  test('never forces an image (INLINE_EXTS) extension to download, even with forceAssetDownload on (OpenProject #859)', async () => {
+    resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: true })
+    const res = await app.inject({ method: 'GET', url: '/docs/photo.png' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-disposition'], undefined)
     await app.close()
   })
 })

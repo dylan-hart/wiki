@@ -79,7 +79,7 @@ async function routes(app: FastifyInstance) {
       return reply.redirect(content.redirectUrl, 302)
     }
 
-    if (WIKI.config.security?.forceAssetDownload || !INLINE_EXTS.has(asset.fileExt)) {
+    if (!INLINE_EXTS.has(asset.fileExt) && WIKI.config.security?.forceAssetDownload) {
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(asset.fileName)}"`
