@@ -465,6 +465,15 @@ let blockLensProvider = null
  * is the props: a block whose definition is not here is one this editor cannot offer a form for.
  */
 let siteBlocks = []
+/**
+ * The `debounce()`-wrapped Monaco event handlers registered in `onMounted`, kept only so
+ * `onBeforeUnmount` can `cancel()` them. Without this, a debounced call still pending when the
+ * component unmounts fires ~500ms later against the already-`dispose()`d editor -- for the
+ * cursor-position one, `editor.getPosition()` returns `null` on a disposed instance, and reading
+ * `.lineNumber` off it throws (OpenProject #808).
+ */
+let debouncedContentChange = null
+let debouncedCursorPositionChange = null
 const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
@@ -1823,49 +1832,45 @@ onMounted(async () => {
   })
 
   // -> Handle content change
-  editor.onDidChangeModelContent(
-    debounce((ev) => {
-      editorStore.$patch({
-        lastChangeTimestamp: Temporal.Now.instant()
-      })
-      // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-      //    the guard in `pageSave`
-      pageStore.contentLoaded = true
-      flushEditorContent()
-    }, 500)
-  )
+  debouncedContentChange = debounce((ev) => {
+    editorStore.$patch({
+      lastChangeTimestamp: Temporal.Now.instant()
+    })
+    // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+    //    the guard in `pageSave`
+    pageStore.contentLoaded = true
+    flushEditorContent()
+  }, 500)
+  editor.onDidChangeModelContent(debouncedContentChange)
 
   // -> Handle cursor movement
-  editor.onDidChangeCursorPosition(
-    debounce((ev) => {
-      if (!state.previewScrollSync || !state.previewShown) {
-        return
-      }
-      // -> Moving the caret into another panel opens it, the same as typing in one does
-      syncPreviewTabs()
-      const currentLine = editor.getPosition().lineNumber
-      if (currentLine < 3) {
-        editorPreviewContainerRef.value.scrollTo({ top: 0, behavior: 'smooth' })
+  debouncedCursorPositionChange = debounce((ev) => {
+    if (!state.previewScrollSync || !state.previewShown) {
+      return
+    }
+    // -> Moving the caret into another panel opens it, the same as typing in one does
+    syncPreviewTabs()
+    const currentLine = editor.getPosition().lineNumber
+    if (currentLine < 3) {
+      editorPreviewContainerRef.value.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      const exactEl = editorPreviewContainerRef.value.querySelector(`[data-line='${currentLine}']`)
+      if (exactEl) {
+        exactEl.scrollIntoView(SYNC_SCROLL)
       } else {
-        const exactEl = editorPreviewContainerRef.value.querySelector(
-          `[data-line='${currentLine}']`
-        )
-        if (exactEl) {
-          exactEl.scrollIntoView(SYNC_SCROLL)
-        } else {
-          const closestLine = md.getClosestPreviewLine(currentLine)
-          if (closestLine) {
-            const closestEl = editorPreviewContainerRef.value.querySelector(
-              `[data-line='${closestLine}']`
-            )
-            if (closestEl) {
-              closestEl.scrollIntoView(SYNC_SCROLL)
-            }
+        const closestLine = md.getClosestPreviewLine(currentLine)
+        if (closestLine) {
+          const closestEl = editorPreviewContainerRef.value.querySelector(
+            `[data-line='${closestLine}']`
+          )
+          if (closestEl) {
+            closestEl.scrollIntoView(SYNC_SCROLL)
           }
         }
       }
-    }, 500)
-  )
+    }
+  }, 500)
+  editor.onDidChangeCursorPosition(debouncedCursorPositionChange)
 
   /*
     Files arriving by paste or by drop.
@@ -1988,6 +1993,11 @@ onBeforeUnmount(() => {
   // -> Registered against the markdown language, not this editor, so nothing else takes it down
   tableLensProvider?.dispose()
   blockLensProvider?.dispose()
+  // -> A pending debounced call left uncancelled fires ~500ms after unmount, against an editor that
+  //    `dispose()` (below) has already torn down -- `editor.getPosition()` on a disposed instance
+  //    returns `null`, and the cursor handler crashed reading `.lineNumber` off it (OpenProject #808).
+  debouncedContentChange?.cancel()
+  debouncedCursorPositionChange?.cancel()
   // -> Before the editor goes: the binding is holding the model, and leaving the room is what takes
   //    this author's avatar out of everyone else's header
   stopCollabSession()
