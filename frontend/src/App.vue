@@ -19,6 +19,7 @@ import { applyInjectCss } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
 import { useDark } from '@/composables/dark'
+import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
 import { notify } from '@/composables/notify'
 
@@ -267,6 +268,47 @@ let hasPrefetchedMarkdownSettings = false
 
 router.beforeEach(async (to, from) => {
   commonStore.routerLoading = true
+
+  /*
+    -> Unsaved editor changes
+    Every navigation vector -- breadcrumbs, side nav, search results, browser back/forward, a typed
+    address -- goes through the router, so this is the one place that can catch discarding an
+    in-progress edit uniformly, rather than patching each call site. `to.path !== from.path` excludes
+    a query-string-only change (e.g. a hash or filter) on the page already being edited, which is not
+    "leaving" it. On confirm, the editor is put back to its inactive shape -- the same one
+    `PageHeader.vue`'s own `discardChanges` patches to -- so whatever the destination route is does not
+    inherit a stale "an editor is open" flag; unlike that handler, there is no page state to revert
+    here, since the destination is about to load its own.
+
+    `pageStore.pageCreate()`'s own un-awaited `router.push()` into `/_create/...` (the header's New
+    Page menu, mid-edit) is not a special case here: it synchronously re-patches `editorStore` --
+    including equalizing these same two timestamps for the fresh session it is opening -- before this
+    guard ever gets a turn to run, so `hasPendingChanges` already reads false for that navigation by
+    the time this condition is checked. See the comment at that patch for why the ordering holds.
+  */
+  if (editorStore.isActive && editorStore.hasPendingChanges && to.path !== from.path) {
+    const confirmed = await new Promise((resolve) => {
+      confirm({
+        title: i18n.t('editor.unsaved.title'),
+        message: i18n.t('editor.unsaved.body'),
+        cancel: true,
+        color: 'negative',
+        okLabel: i18n.t('common.actions.discard')
+      })
+        .onOk(() => resolve(true))
+        .onCancel(() => resolve(false))
+    })
+    if (!confirmed) {
+      // -> Aborted navigation skips `afterEach`, which is what normally clears this
+      commonStore.routerLoading = false
+      return false
+    }
+    editorStore.$patch({
+      isActive: false,
+      editor: '',
+      mode: 'edit'
+    })
+  }
 
   /*
     -> Site info, system flags and the session

@@ -84,6 +84,52 @@ describe('page store: pageSave() concurrency', () => {
     expect(Object.hasOwn(opts.json, 'expectedUpdatedAt')).toBe(false)
   })
 
+  /**
+   * Regression for OpenProject #816: `App.vue`'s router guard reads `editorStore.hasPendingChanges`
+   * on every navigation, including the one `pageSave()` fires itself after a create. If that internal
+   * `router.replace()` ran before the timestamps were equalized, the guard would read the just-saved
+   * page as still dirty and prompt to discard the save that had just succeeded.
+   */
+  it('marks the editor clean (hasPendingChanges false) before navigating away on a create-mode save', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.$patch({
+      mode: 'create',
+      lastSaveTimestamp: 'save-1',
+      lastChangeTimestamp: 'change-1'
+    })
+    pageStore.$patch({
+      id: 0,
+      contentLoaded: true,
+      locale: 'en',
+      path: 'new-page',
+      updatedAt: ''
+    })
+
+    let hasPendingChangesAtReplace = null
+    pageStore.router = {
+      replace: () => {
+        hasPendingChangesAtReplace = editorStore.hasPendingChanges
+        return Promise.resolve()
+      }
+    }
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '9', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    expect(hasPendingChangesAtReplace).toBe(false)
+  })
+
   it('on a 409 conflict, surfaces the server snapshot on the editor store instead of a generic error', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()
@@ -420,6 +466,31 @@ describe('page store: pageCreate()', () => {
 
     expect(pageStore.updatedAt).toBe('')
     expect(pageStore.createdAt).toBe('')
+  })
+
+  /**
+   * Regression for OpenProject #816: `App.vue`'s router guard reads `editorStore.hasPendingChanges`
+   * on every navigation, including `pageCreate()`'s own un-awaited `router.push()` into `/_create/...`
+   * -- fired here from a call site standing in for the header's New Page menu, mid-edit on another
+   * page. Left un-equalized, that OLD page's dirty state would still read true at the moment of this
+   * navigation and the guard would prompt to discard changes belonging to a session `pageCreate()`
+   * is about to overwrite regardless of the answer.
+   */
+  it('starts the new session clean (hasPendingChanges false), even when opened while another page is dirty', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const editorStore = useEditorStore()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/some/other/page')
+    editorStore.$patch({
+      isActive: true,
+      lastSaveTimestamp: 'save-1',
+      lastChangeTimestamp: 'change-1'
+    })
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(editorStore.hasPendingChanges).toBe(false)
   })
 })
 

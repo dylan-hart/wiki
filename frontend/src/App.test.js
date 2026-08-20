@@ -16,12 +16,13 @@
 // of bug this feature started from (a saved setting with zero rendered effect). Every assertion below
 // is written to fail if that wiring regresses, not merely to prove the helper module works.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import App from './App.vue'
+import { closeDialog, openDialogs } from '@/composables/dialog'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -347,5 +348,149 @@ describe('App.vue Markdown editor settings prefetch', () => {
     await router.push('/other')
 
     expect(fetchUserSettings).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Regression coverage for OpenProject #816: nothing guarded against navigating away from an editor
+ * with unsaved changes -- a breadcrumb, a side-nav item, a search result or a typed address all
+ * discarded the in-progress edit silently, through the router's ordinary navigation. This is the one
+ * choke point every one of those vectors goes through, which is what a memory router + `router.push()`
+ * exercises here the same way a real click would.
+ */
+describe('App.vue router.beforeEach() unsaved-changes guard', () => {
+  function seedReadySession() {
+    const siteStore = useSiteStore()
+    const flagsStore = useFlagsStore()
+    const userStore = useUserStore()
+    // -> Skips the bootstrap fetch branch entirely, same as the prefetch tests above
+    siteStore.id = 'site-1'
+    flagsStore.loaded = true
+    userStore.profileLoaded = true
+  }
+
+  function makeRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/other', component: { template: '<div />' } }
+      ]
+    })
+  }
+
+  const MESSAGES = {
+    en: {
+      editor: {
+        unsaved: {
+          title: 'Discard Unsaved Changes?',
+          body: 'You have unsaved changes. Are you sure you want to leave the editor and discard any modifications you made since the last save?'
+        }
+      },
+      common: {
+        actions: {
+          discard: 'Discard'
+        }
+      }
+    }
+  }
+
+  async function mountReady(router) {
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: MESSAGES })
+    mount(App, { global: { plugins: [router, i18n] } })
+    await router.push('/')
+    await router.isReady()
+  }
+
+  function makeDirty() {
+    const editorStore = useEditorStore()
+    editorStore.$patch({
+      isActive: true,
+      lastSaveTimestamp: Temporal.Now.instant(),
+      lastChangeTimestamp: Temporal.Now.instant().add({ seconds: 1 })
+    })
+    return editorStore
+  }
+
+  it('blocks navigation and shows a confirm dialog when the editor is active with pending changes', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    makeDirty()
+
+    const navPromise = router.push('/other')
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Discard Unsaved Changes?',
+      okLabel: 'Discard'
+    })
+    // -> Still pending: the guard's promise has not resolved yet
+    expect(router.currentRoute.value.path).toBe('/')
+
+    closeDialog(openDialogs[0].id, false)
+    await navPromise
+  })
+
+  it('allows navigation and resets the editor once the discard is confirmed', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = makeDirty()
+
+    const navPromise = router.push('/other')
+    await flushPromises()
+    closeDialog(openDialogs[0].id, true, true)
+    await navPromise
+
+    expect(router.currentRoute.value.path).toBe('/other')
+    expect(editorStore.isActive).toBe(false)
+    expect(editorStore.editor).toBe('')
+    expect(editorStore.mode).toBe('edit')
+  })
+
+  it('blocks the navigation when the discard is cancelled', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = makeDirty()
+
+    const navPromise = router.push('/other')
+    await flushPromises()
+    closeDialog(openDialogs[0].id, false)
+    await navPromise
+
+    expect(router.currentRoute.value.path).toBe('/')
+    expect(editorStore.isActive).toBe(true)
+  })
+
+  it('navigates without prompting when the editor is active but has no pending changes', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = useEditorStore()
+    const savedAt = Temporal.Now.instant()
+    editorStore.$patch({
+      isActive: true,
+      lastSaveTimestamp: savedAt,
+      lastChangeTimestamp: savedAt
+    })
+
+    await router.push('/other')
+
+    expect(openDialogs).toHaveLength(0)
+    expect(router.currentRoute.value.path).toBe('/other')
+  })
+
+  it('navigates without prompting when no editor is active at all', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+
+    await router.push('/other')
+
+    expect(openDialogs).toHaveLength(0)
+    expect(router.currentRoute.value.path).toBe('/other')
   })
 })

@@ -418,12 +418,24 @@ export const usePageStore = defineStore('page', {
         })
       }
 
-      // -> Init editor
+      /*
+        -> Init editor
+        `lastChangeTimestamp`/`lastSaveTimestamp` are equalized here the same way `pageLoad()` and
+        `pageSuggest()` already do for their own fresh sessions -- this one starts with nothing typed
+        into it yet. Without this, calling `pageCreate()` while already editing another page dirty
+        (the header's New Page menu, mid-edit) would leave `hasPendingChanges` still reading that OLD
+        page's pending state. The `router.push()` above is not awaited, so this synchronous patch runs
+        (and clears it) before `App.vue`'s router guard -- which only runs once that push's own promise
+        machinery gets a turn -- ever gets to read `hasPendingChanges` for this navigation.
+      */
+      const curDate = Temporal.Now.instant()
       editorStore.$patch({
         originPageId: editorStore.isActive ? editorStore.originPageId : this.id, // Don't replace if already in edit mode
         isActive: true,
         mode: 'create',
-        editor
+        editor,
+        lastChangeTimestamp: curDate,
+        lastSaveTimestamp: curDate
       })
 
       // -> Default Page Path
@@ -786,6 +798,20 @@ export const usePageStore = defineStore('page', {
           tocDepth: pick(pageData.tocDepth, ['min', 'max'])
         })
 
+        /*
+          Ahead of the create-mode navigation just below: `App.vue`'s router guard reads
+          `hasPendingChanges` on every navigation, including this one, so the save has to register as
+          clean before it navigates anywhere -- done after, this internal redirect would read as
+          leaving the editor with unsaved changes and prompt to discard the very save that just
+          succeeded.
+        */
+        const curDate = Temporal.Now.instant()
+        editorStore.$patch({
+          lastChangeTimestamp: curDate,
+          lastSaveTimestamp: curDate,
+          reasonForChange: ''
+        })
+
         if (editorStore.mode === 'create') {
           editorStore.$patch({ mode: 'edit' })
           /*
@@ -796,14 +822,6 @@ export const usePageStore = defineStore('page', {
           */
           await this.router.replace(this.editorExitPath)
         }
-
-        // Update editor state timestamps
-        const curDate = Temporal.Now.instant()
-        editorStore.$patch({
-          lastChangeTimestamp: curDate,
-          lastSaveTimestamp: curDate,
-          reasonForChange: ''
-        })
       } catch (err) {
         /*
           Somebody else saved this page first. The server's reply carries the page as it now stands
