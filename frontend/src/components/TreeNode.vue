@@ -1,5 +1,5 @@
 <template>
-  <li class="treeview-node">
+  <li class="treeview-node" :style="indentStyle">
     <!-- NODE -->
     <div class="treeview-label" @click="openNode" :class="{ active: isActive }">
       <w-icon :name="icon" size="sm" @click.stop="toggleNode()" />
@@ -94,6 +94,27 @@ const state = reactive({
 const dark = useDark()
 
 // COMPUTED
+
+/**
+ * `.treeview-node`'s own `border-left` (2px) and its parent `.treeview-level`'s `padding-left`
+ * (19px) each apply once per nesting level, so a node's rendered left edge — and with it, its
+ * `.treeview-label`'s content box — drifts 21px further right per level of depth (19px for every
+ * level, plus 2px for every level except the top one, which carries no border). `.treeview-label`'s
+ * `active`/hover background only ever covered that shrunken box, so a selected or hovered row read
+ * as a full-width band at the top level but as a narrowing "floating pill" the deeper it was
+ * nested — with the ancestor guide line(s) it should have sat behind poking out to its left instead,
+ * worst right where the pill's own corner met the deepest, selected node (OpenProject #853).
+ *
+ * `--indent` hands `.treeview-label` (TreeNav.vue's stylesheet) exactly this node's drift so it can
+ * pull its box back out to the tree's true left edge with a matching negative margin, while an equal
+ * increase in `padding-left` keeps the icon and text sitting exactly where they always have.
+ */
+const indentStyle = computed(() => {
+  if (props.depth < 1) {
+    return {}
+  }
+  return { '--indent': `${props.depth * 21 - 2}px` }
+})
 
 const icon = computed(() => {
   if (props.node.icon) {

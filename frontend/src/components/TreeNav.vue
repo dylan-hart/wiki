@@ -200,7 +200,19 @@ onMounted(() => {
     // -> 12px matches a toolbar's own side padding, which is what lines a row's folder icon up with
     //    the icon in the header above it. Applied here rather than on the container so the row's
     //    highlight still spans the full width.
+    //
+    // -> `padding-left`/`margin-left` below undo TreeNode.vue's `--indent` (its own contribution to
+    //    this node's nesting) so this box's edge — and so its `active`/hover background — always
+    //    starts at the tree's true left edge rather than at this node's indented content position.
+    //    Without it, only the top-level row (whose `--indent` is unset, defaulting to 0) actually got
+    //    the full-width band the comment above promises; every nested row's highlight shrank to just
+    //    its own indented width instead, leaving the ancestor guide line(s) it should sit behind
+    //    poking out to its left like a stray tail (OpenProject #853). The icon/text position is
+    //    unaffected: `margin-left` pulls the box back by `--indent`, and `padding-left` adds the same
+    //    amount back on the inside, so the content lands exactly where it did before.
     padding: 4px 12px;
+    padding-left: calc(12px + var(--indent, 0px));
+    margin-left: calc(-1 * var(--indent, 0px));
     // -> Square: a row spans the full width of its container, and a radius on a full-width band reads
     //    as a pill that has been clipped rather than as a highlighted row
     cursor: pointer;
