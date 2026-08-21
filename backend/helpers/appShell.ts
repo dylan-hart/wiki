@@ -15,6 +15,9 @@
  * order to fix the RTL FOUC, so it was left out rather than guessed at.
  */
 
+import type { LocaleRoutingConfig } from './common.ts'
+import { stripLocalePrefix } from './common.ts'
+
 const HTML_TAG_PATTERN = /<html\b[^>]*>/i
 
 export interface AppShellTemplateOptions {
@@ -39,4 +42,25 @@ export function templateAppShell(html: string, { lang, isRTL }: AppShellTemplate
     return html
   }
   return html.replace(HTML_TAG_PATTERN, `<html lang="${lang}" dir="${isRTL ? 'rtl' : 'ltr'}">`)
+}
+
+/**
+ * The locale the app shell should be stamped with (`<html lang dir>`) for one request — the same
+ * resolution the frontend's `resolveRouteLocale` performs once booted, done server-side so an RTL
+ * translation never flashes LTR (the exact flash the shell templating exists to prevent).
+ */
+export function resolveAppShellLocale(
+  urlPath: string,
+  search: string | undefined,
+  locales?: LocaleRoutingConfig | null
+): string {
+  const primary = locales?.primary ?? 'en'
+  if (urlPath.startsWith('/_')) {
+    const candidate = search ? new URLSearchParams(search).get('locale') : null
+    const match = candidate
+      ? locales?.active?.find((code) => code.toLowerCase() === candidate.toLowerCase())
+      : null
+    return match ?? primary
+  }
+  return stripLocalePrefix(urlPath, locales)?.locale ?? primary
 }
