@@ -45,6 +45,12 @@
         options-dense
         :options="localeOptions"
         :label="t('graph.filters.locale')" />
+      <w-btn
+        v-if="activeFilters.tags.length || activeFilters.folderDepth || activeFilters.locale"
+        flat
+        dense
+        :label="t('graph.filters.clear')"
+        @click="clearFilters" />
     </div>
     <div class="graph-view-legend">
       <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
@@ -114,6 +120,14 @@ const activeFilters = reactive({
   folderDepth: null,
   locale: null
 })
+
+/** Resets every filter to its default -- the `activeFilters` watcher (Task 26/#901) fires
+ *  automatically once these change, no separate wiring needed here. */
+function clearFilters() {
+  activeFilters.tags = []
+  activeFilters.folderDepth = null
+  activeFilters.locale = null
+}
 
 /** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
  *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
