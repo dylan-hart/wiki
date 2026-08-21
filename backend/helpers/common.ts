@@ -311,6 +311,33 @@ export function localePrefixRedirectTarget(
 }
 
 /**
+ * Whether a page URL carries a locale prefix it should not (or spells one wrong), and if so, where
+ * to redirect.
+ *
+ * The other half of `localePrefixRedirectTarget`: that one ADDS the prefix `forcePrefix` requires;
+ * this one REMOVES an explicit prefix the site's rules leave bare (`/en/page` and `/page` are
+ * otherwise two URLs for the same document — the sitemap, hreflang and caches all want exactly
+ * one), and re-cases a recognized-but-mis-cased prefix to the code as stored in `active`. Returns
+ * null when the URL is already canonical.
+ *
+ * @returns The canonical path to redirect to (query string reattached by the caller), or null
+ */
+export function localePrefixStripTarget(
+  urlPath: string,
+  locales?: LocaleRoutingConfig | null
+): string | null {
+  const stripped = stripLocalePrefix(urlPath, locales)
+  if (!stripped) {
+    return null
+  }
+  if (shouldPrefixLocale(stripped.locale, locales)) {
+    const canonical = `/${stripped.locale}${stripped.path === '/' ? '' : stripped.path}`
+    return canonical === urlPath ? null : canonical
+  }
+  return stripped.path
+}
+
+/**
  * Whether a link addressed at `locale` should carry a locale segment, under a site's locale-prefix
  * rules.
  *

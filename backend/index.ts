@@ -36,6 +36,7 @@ import scheduler from './core/scheduler.ts'
 import { templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
+  localePrefixStripTarget,
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
@@ -711,6 +712,15 @@ async function initHTTPServer() {
         // -> Same reasoning as the extension redirect above: `forcePrefix` is a setting, not a
         //    permanent fact about the URL, so a 301 here would outlive an admin turning it off.
         reply.redirect(withQuery(localeRedirect), 302)
+        return
+      }
+
+      // -> The mirror image: an explicit prefix the site's rules leave bare (`/en/page`) 302s to
+      //    the one canonical URL (`/page`), and a mis-cased prefix re-cases. 302 for the same
+      //    reason as above — which locales are active, and forcePrefix, are settings.
+      const localeStrip = localePrefixStripTarget(trimmed, siteConfig?.locales)
+      if (localeStrip) {
+        reply.redirect(withQuery(localeStrip), 302)
         return
       }
     }
