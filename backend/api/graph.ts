@@ -65,7 +65,18 @@ async function routes(app: FastifyInstance) {
    */
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/graph',
-    { schema: { params: siteIdParam } },
+    {
+      schema: {
+        summary: "The site's knowledge graph",
+        description:
+          "Every page the caller may read on this site, across all locales, as nodes -- plus the relation and internal-link edges between pages that are both visible. Fetched once; every drill-down filter and re-cluster after that (OpenProject #874/#875) runs client-side against this response, per #848's design.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        response: {
+          200: { $ref: 'Graph#' }
+        }
+      }
+    },
     async (req, reply) => {
       if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
         return
