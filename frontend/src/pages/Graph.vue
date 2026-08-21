@@ -1,14 +1,27 @@
 <template>
   <div ref="containerRef" class="graph-view">
-    <canvas ref="canvasRef" class="graph-view-canvas" />
+    <canvas
+      ref="canvasRef"
+      class="graph-view-canvas"
+      @click="onCanvasClick"
+      @mousemove="onCanvasMouseMove" />
+    <div
+      v-if="hoveredNode"
+      class="graph-view-tooltip"
+      :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
+      {{ hoveredNode.title ?? hoveredNode.path }}
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
+import { quadtree as d3quadtree } from 'd3-quadtree'
 import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
+import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
 
 /**
@@ -19,6 +32,7 @@ import { useSiteStore } from '@/stores/site'
  */
 
 const siteStore = useSiteStore()
+const router = useRouter()
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -32,6 +46,10 @@ const loadError = ref(null)
 let simulation = null
 let ctx = null
 let resizeObserver = null
+let nodeQuadtree = null
+const hoveredNode = ref(null)
+/** Cursor position relative to `containerRef`, for positioning the hover tooltip. */
+const tooltipPos = reactive({ x: 0, y: 0 })
 
 function sizeCanvas() {
   const canvas = canvasRef.value
@@ -121,6 +139,12 @@ function drawLabels() {
 }
 
 function redraw() {
+  nodeQuadtree = d3quadtree(
+    nodes.value,
+    (d) => d.x,
+    (d) => d.y
+  )
+
   if (!ctx) {
     return
   }
@@ -137,6 +161,47 @@ function redraw() {
   drawNodes()
   drawLabels()
   ctx.restore()
+}
+
+/** Screen coordinates -> the simulation's own coordinate space, undoing the current zoom transform. */
+function toGraphSpace(clientX, clientY) {
+  const rect = canvasRef.value.getBoundingClientRect()
+  const t = zoomTransform.value ?? zoomIdentity
+  return {
+    x: (clientX - rect.left - t.x) / t.k,
+    y: (clientY - rect.top - t.y) / t.k
+  }
+}
+
+/** The `12`px hit radius is a starting point matched to the `5`px node-dot radius plus some slack
+ *  for an imprecise click -- tune visually. */
+function findNodeAt(clientX, clientY) {
+  if (!nodeQuadtree) {
+    return null
+  }
+  const { x, y } = toGraphSpace(clientX, clientY)
+  return nodeQuadtree.find(x, y, 12)
+}
+
+function onCanvasClick(event) {
+  const node = findNodeAt(event.clientX, event.clientY)
+  if (!node) {
+    return
+  }
+  router.push(
+    localizedPagePath(node.path, node.locale, {
+      useLocales: siteStore.useLocales,
+      primary: siteStore.locales.primary,
+      forcePrefix: siteStore.locales.forcePrefix
+    })
+  )
+}
+
+function onCanvasMouseMove(event) {
+  hoveredNode.value = findNodeAt(event.clientX, event.clientY)
+  const containerRect = containerRef.value.getBoundingClientRect()
+  tooltipPos.x = event.clientX - containerRect.left
+  tooltipPos.y = event.clientY - containerRect.top
 }
 
 /*
@@ -224,5 +289,17 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.graph-view-tooltip {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>
