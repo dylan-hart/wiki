@@ -195,7 +195,7 @@ the shipped 872–876 implementation.
 
 **`edgeMode` is now a client-side selector**, entirely within `frontend/src/pages/Graph.vue` /
 `frontend/src/pages/graphFilters.js` — no backend changes, since every field either mode needs
-(`node.path`, `node.folder`, `node.tags`) is already in the existing endpoint's response.
+(`node.path`, `node.tags`) is already in the existing endpoint's response.
 
 - **`paths` (default)** — `graphFilters.js#buildPathHierarchyEdges`: every visible page connects to
   its immediate parent path segment, climbed to a synthetic root (`''`). A real page is reused as

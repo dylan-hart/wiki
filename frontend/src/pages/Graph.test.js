@@ -52,6 +52,23 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/graph')
   })
 
+  it('paths mode (the default edgeMode) adds synthetic folder/root nodes to the visible set', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.vm.edgeMode).toBe('paths')
+    expect(wrapper.vm.nodes.length).toBeGreaterThan(FIXTURE_GRAPH.nodes.length)
+    expect(wrapper.vm.nodes.some((node) => node.synthetic === true)).toBe(true)
+  })
+
+  it('switching edgeMode does not throw', async () => {
+    const wrapper = await mountGraph()
+
+    wrapper.vm.edgeMode = 'tags'
+    await flushPromises()
+
+    expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

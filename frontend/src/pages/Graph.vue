@@ -11,26 +11,36 @@
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
     </div>
-    <div class="graph-view-controls">
-      <div class="graph-view-control-group">
-        <span class="graph-view-control-caption">Group by</span>
-        <w-btn-toggle
-          v-model="groupBy"
-          no-caps
-          :options="[
-            { label: 'Folder', value: 'folder' },
-            { label: 'Tag', value: 'tag' }
-          ]" />
+    <div class="graph-view-right-rail">
+      <div class="graph-view-controls">
+        <div class="graph-view-control-group">
+          <span class="graph-view-control-caption">Group by</span>
+          <w-btn-toggle
+            v-model="groupBy"
+            no-caps
+            aria-label="Group by"
+            :options="[
+              { label: 'Folder', value: 'folder' },
+              { label: 'Tag', value: 'tag' }
+            ]" />
+        </div>
+        <div class="graph-view-control-group">
+          <span class="graph-view-control-caption">Connect by</span>
+          <w-btn-toggle
+            v-model="edgeMode"
+            no-caps
+            aria-label="Connect by"
+            :options="[
+              { label: 'Paths', value: 'paths' },
+              { label: 'Tags', value: 'tags' }
+            ]" />
+        </div>
       </div>
-      <div class="graph-view-control-group">
-        <span class="graph-view-control-caption">Connect by</span>
-        <w-btn-toggle
-          v-model="edgeMode"
-          no-caps
-          :options="[
-            { label: 'Paths', value: 'paths' },
-            { label: 'Tags', value: 'tags' }
-          ]" />
+      <div class="graph-view-legend">
+        <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
+          <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
+          <span class="graph-view-legend-label">{{ entry.key }}</span>
+        </div>
       </div>
     </div>
     <div class="graph-view-filters">
@@ -66,12 +76,6 @@
         dense
         :label="t('graph.filters.clear')"
         @click="clearFilters" />
-    </div>
-    <div class="graph-view-legend">
-      <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
-        <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
-        <span class="graph-view-legend-label">{{ entry.key }}</span>
-      </div>
     </div>
   </div>
 </template>
@@ -647,11 +651,19 @@ onBeforeUnmount(() => {
   height: 100%;
 }
 
-.graph-view-controls {
+.graph-view-right-rail {
   position: absolute;
   top: 16px;
   right: 16px;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100% - 32px);
+}
+
+.graph-view-controls {
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -691,17 +703,14 @@ onBeforeUnmount(() => {
 }
 
 .graph-view-legend {
-  position: absolute;
-  top: 64px;
-  right: 16px;
-  z-index: 1;
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 4px;
   padding: 8px 12px;
   border-radius: 4px;
   backdrop-filter: blur(4px);
-  max-height: calc(100% - 96px);
   overflow-y: auto;
 
   @at-root .body--light & {
