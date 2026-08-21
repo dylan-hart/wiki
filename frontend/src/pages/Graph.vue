@@ -11,6 +11,15 @@
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
     </div>
+    <div class="graph-view-controls">
+      <w-btn-toggle
+        v-model="groupBy"
+        no-caps
+        :options="[
+          { label: 'Folder', value: 'folder' },
+          { label: 'Tag', value: 'tag' }
+        ]" />
+    </div>
   </div>
 </template>
 
@@ -42,6 +51,17 @@ const nodes = ref([])
 const edges = ref([])
 const isLoading = ref(true)
 const loadError = ref(null)
+
+/** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
+ *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
+const groupBy = ref('folder')
+
+function groupKeyFor(node) {
+  if (groupBy.value === 'tag') {
+    return node.tags?.[0] ?? '(untagged)'
+  }
+  return node.folder || '(root)'
+}
 
 let simulation = null
 let ctx = null
@@ -289,6 +309,13 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.graph-view-controls {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
 }
 
 .graph-view-tooltip {
