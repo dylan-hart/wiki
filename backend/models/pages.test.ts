@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { groups as groupsTable } from '../db/schema.ts'
-import { pageWatchEvents as pageWatchEventsTable, users as usersTable } from '../db/schema.ts'
+import {
+  pages as pagesTable,
+  pageWatchEvents as pageWatchEventsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
@@ -38,6 +42,54 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       ...overrides
     }
   }
+
+  /**
+   * Minimal `.values()` object satisfying every NOT NULL column, for a raw insert that bypasses
+   * `createPage()`'s own duplicate-path probe entirely -- this is what proves the uniqueness is a
+   * database constraint, not just an application-level check.
+   */
+  function rawPageRow(overrides: { path: string; locale: string; siteId: string }) {
+    return {
+      locale: overrides.locale,
+      path: overrides.path,
+      hash: `raw-hash-${overrides.path}-${overrides.locale}`,
+      title: 'Raw Row',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: fixtures.userId,
+      creatorId: fixtures.userId,
+      ownerId: fixtures.userId,
+      siteId: overrides.siteId
+    }
+  }
+
+  test('the database itself rejects a duplicate (siteId, locale, path) even bypassing the model', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/dupe-probe', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      fixtures.db
+        .insert(pagesTable)
+        .values(rawPageRow({ path: 'unique/dupe-probe', locale: 'en', siteId: fixtures.siteId })),
+      (err: any) => (err.cause?.code ?? err.code) === '23505'
+    )
+  })
+
+  test('the same path in two locales coexists', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/two-locales', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/two-locales', locale: 'fr', title: 'Deux Locales' }),
+      actor
+    )
+    assert.equal(fr.locale, 'fr')
+  })
 
   test('createPage inserts a page and gives it a place in the tree', async () => {
     const page = await pagesModel.createPage(

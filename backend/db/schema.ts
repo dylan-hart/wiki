@@ -608,7 +608,13 @@ export const pages = pgTable(
     // -> Backs `search.suggestTitle()`'s `similarity(title, …)` "did you mean" fallback, which runs
     //    only when full-text search found nothing — `pg_trgm` is already a required extension (see
     //    `core/db.ts`), this is the first index that actually uses it.
-    index('pages_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops'))
+    index('pages_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops')),
+    // -> The invariant every probe in models/pages.ts assumes ("path unique within (site, locale)"),
+    //    finally held by the database itself. On path, not hash: the hash is cyrb53 (53-bit,
+    //    non-cryptographic), so two distinct paths may legitimately collide.
+    uniqueIndex('pages_siteId_locale_path_idx').on(table.siteId, table.locale, table.path),
+    // -> Backs getPage's hottest read (siteId + hash + locale equality). Plain, not unique — see above.
+    index('pages_siteId_locale_hash_idx').on(table.siteId, table.locale, table.hash)
   ]
 )
 
@@ -1137,7 +1143,7 @@ export const tree = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     // -> Genuinely hierarchical, and queried as such with `<@`, `@>` and lquery: this is what ltree is
     //    for. The locale beside it is not, and is a plain string.
-    folderPath: ltree('folderPath'),
+    folderPath: ltree('folderPath').notNull().default(''),
     fileName: varchar({ length: 255 }).notNull(),
     hash: varchar({ length: 255 }).notNull(),
     type: treeTypeEnum('tree').notNull(),
@@ -1168,7 +1174,17 @@ export const tree = pgTable(
     index('tree_navigationMode_idx').on(table.navigationMode),
     index('tree_navigationId_idx').on(table.navigationId),
     index('tree_tags_idx').using('gin', table.tags),
-    index('tree_siteId_idx').on(table.siteId)
+    index('tree_siteId_idx').on(table.siteId),
+    // -> One page row per name per (site, locale, folder), and one non-page row: the app rule is that
+    //    a page may share a name with a folder but nothing else shares (see the probes in
+    //    models/tree.ts). The page<->asset cross-partition exclusion cannot be a unique index and
+    //    stays enforced by those probes.
+    uniqueIndex('tree_composite_page_idx')
+      .on(table.siteId, table.locale, table.folderPath, table.fileName)
+      .where(sql`"tree" = 'page'`),
+    uniqueIndex('tree_composite_nonpage_idx')
+      .on(table.siteId, table.locale, table.folderPath, table.fileName)
+      .where(sql`"tree" <> 'page'`)
   ]
 )
 
