@@ -334,6 +334,24 @@ export function shouldPrefixLocale(locale: string, locales?: LocaleRoutingConfig
 }
 
 /**
+ * Build a link to a bare page path, prefixed with its locale segment when `shouldPrefixLocale`
+ * calls for one. The backend mirror of `localizedPagePath` in `frontend/src/helpers/pagePaths.js`,
+ * and the inverse of `stripLocalePrefix`.
+ *
+ * @param path Bare page path, without a leading slash, as `pages.path` stores it
+ * @param locale The path's own locale
+ * @returns The slash-leading path to link to
+ */
+export function localizedPagePath(
+  path: string,
+  locale: string,
+  locales?: LocaleRoutingConfig | null
+): string {
+  const bare = `/${path}`
+  return shouldPrefixLocale(locale, locales) ? `/${locale}${bare}` : bare
+}
+
+/**
  * Generate SHA-1 Hash of a string
  *
  * @param str String to hash

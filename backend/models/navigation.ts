@@ -5,7 +5,7 @@ import {
   pages as pagesTable,
   tree as treeTable
 } from '../db/schema.ts'
-import { CustomError, decodeTreePath, shouldPrefixLocale } from '../helpers/common.ts'
+import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
@@ -483,11 +483,15 @@ class Navigation {
           type: 'link',
           label: row.title,
           ...(row.icon && { icon: row.icon }),
-          // -> Prefixes the locale only when the site's routing rules call for it (`shouldPrefixLocale`),
-          //    matching how `NavItemEditor.vue`'s manual page-picker builds a link target, so a generated
-          //    item and a hand-picked one render identically on the frontend
+          // -> Prefixes the locale only when the site's routing rules call for it
+          //    (`localizedPagePath`), matching how `NavItemEditor.vue`'s manual page-picker builds a
+          //    link target, so a generated item and a hand-picked one render identically on the frontend
           ...(row.type === 'page' && {
-            target: `${shouldPrefixLocale(locale, locales) ? `/${locale}` : ''}/${parentPath ? `${parentPath}/${row.fileName}` : row.fileName}`
+            target: localizedPagePath(
+              parentPath ? `${parentPath}/${row.fileName}` : row.fileName,
+              locale,
+              locales
+            )
           }),
           ...(children.length > 0 && { children })
         }

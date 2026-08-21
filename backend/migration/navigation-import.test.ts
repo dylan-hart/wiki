@@ -42,8 +42,10 @@ describe('extractLocaleItems', () => {
 })
 
 function ctx(pages: NavigationPageRef[] = [], pageIdMap = new IdMap<number>()) {
+  const pageMap = new Map(pages.map((p) => [`${p.locale}::${p.path}`, p]))
   return {
-    pages: new Map(pages.map((p) => [`${p.locale}::${p.path}`, p])),
+    pages: pageMap,
+    knownLocales: new Set([...pageMap.keys()].map((k) => k.split('::')[0]!)),
     pageIdMap,
     warnings: [] as string[],
     dropped: [] as { title: string; target: string; reason: string }[]
@@ -133,7 +135,9 @@ describe('mapNavigationItem', () => {
   })
 
   test('drops a "page" target whose page was never staged, reporting title/target', () => {
-    const c = ctx([])
+    // -> "en" still needs to be a known locale (some *other* page was staged in it) so this hits the
+    //    lookup-miss path, not the "not a locale present in the import" path exercised below.
+    const c = ctx([{ oldId: 999, path: 'unrelated', locale: 'en' }])
     const item = mapNavigationItem(
       { id: 'l5', kind: 'link', label: 'Gone', targetType: 'page', target: '/en/deleted-page' },
       c
@@ -157,7 +161,7 @@ describe('mapNavigationItem', () => {
     assert.match(c.dropped[0].reason, /failed to import/)
   })
 
-  test('drops a malformed "page" target', () => {
+  test('drops a malformed "page" target (a single segment, no locale/path split at all)', () => {
     const c = ctx()
     const item = mapNavigationItem(
       { id: 'l7', kind: 'link', label: 'Bad', targetType: 'page', target: 'not-a-path' },
@@ -165,6 +169,26 @@ describe('mapNavigationItem', () => {
     )
     assert.equal(item, null)
     assert.match(c.dropped[0].reason, /malformed page target/)
+  })
+
+  test('drops a "page" target whose first segment is not a locale present in the import, even though it is shaped like one', () => {
+    // -> "de" reads like a locale code, but no staged page was ever keyed under it — this import
+    //    never saw a "de" tree, so it's just an ordinary path segment, not a locale.
+    const c = ctx([{ oldId: 1, path: 'de/some-page', locale: 'en' }])
+    const item = mapNavigationItem(
+      {
+        id: 'l7b',
+        kind: 'link',
+        label: 'Not a locale',
+        targetType: 'page',
+        target: '/de/some-page'
+      },
+      c
+    )
+    assert.equal(item, null)
+    assert.equal(c.dropped.length, 1)
+    assert.match(c.dropped[0].reason, /malformed page target/)
+    assert.match(c.dropped[0].reason, /locale present in this import/)
   })
 
   test('drops a "search" targetType with no 3.0 equivalent', () => {

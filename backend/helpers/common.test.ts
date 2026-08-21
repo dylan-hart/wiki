@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import {
   guardSiteEnabled,
   localePrefixRedirectTarget,
+  localizedPagePath,
   requestOrigin,
   resolveRequestSite,
+  shouldPrefixLocale,
   SITE_DISABLED_MESSAGE,
   stripLocalePrefix,
   type LocaleRoutingConfig
@@ -125,6 +127,33 @@ describe('localePrefixRedirectTarget', () => {
     assert.equal(
       localePrefixRedirectTarget('/de/foo', locales({ forcePrefix: true })),
       '/en/de/foo'
+    )
+  })
+})
+
+describe('shouldPrefixLocale', () => {
+  test('the primary locale is bare unless forcePrefix', () => {
+    assert.equal(shouldPrefixLocale('en', locales({ forcePrefix: false })), false)
+    assert.equal(shouldPrefixLocale('en', locales({ forcePrefix: true })), true)
+  })
+  test('a non-primary active locale is always prefixed', () => {
+    assert.equal(shouldPrefixLocale('fr', locales({ forcePrefix: false })), true)
+  })
+  test('a single active locale never prefixes', () => {
+    assert.equal(shouldPrefixLocale('en', locales({ active: ['en'], forcePrefix: true })), false)
+  })
+})
+
+describe('localizedPagePath', () => {
+  test('prefixes exactly when shouldPrefixLocale says to', () => {
+    assert.equal(
+      localizedPagePath('guides/x', 'fr', locales({ forcePrefix: false })),
+      '/fr/guides/x'
+    )
+    assert.equal(localizedPagePath('guides/x', 'en', locales({ forcePrefix: false })), '/guides/x')
+    assert.equal(
+      localizedPagePath('guides/x', 'en', locales({ forcePrefix: true })),
+      '/en/guides/x'
     )
   })
 })
