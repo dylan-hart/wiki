@@ -288,6 +288,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
  * Everything that ever happened to a page, and the difference between any two moments of it.
@@ -683,7 +684,7 @@ function branchFrom(version) {
       }
       notify({ type: 'positive', message: t('history.branchSuccess') })
       close()
-      router.push(`/${page.path}`)
+      router.push(localizedPagePath(page.path, page.locale, siteStore.localeRouting))
     } catch (err) {
       notify({
         type: 'negative',

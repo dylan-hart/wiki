@@ -96,10 +96,12 @@ import { notify } from '@/composables/notify'
 import { confirm, dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
+import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import { relativeDate } from '@/helpers/datetime'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
  * Recoverable deletions across the whole site, and the one action there is to take on any of them.
@@ -125,6 +127,7 @@ const dark = useDark()
 // STORES
 
 const adminStore = useAdminStore()
+const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
@@ -269,7 +272,7 @@ async function recover(row, overrides = {}) {
       return
     }
     notify({ type: 'positive', message: t('history.recovery.recoverSuccess') })
-    router.push(`/${resp.page.path}`)
+    router.push(localizedPagePath(resp.page.path, resp.page.locale, siteStore.localeRouting))
   } catch (err) {
     // -> ky throws above 400 -- a path a newer page has since taken answers 409
     if (err.response?.status === 409) {

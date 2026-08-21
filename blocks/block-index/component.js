@@ -383,7 +383,19 @@ export class BlockIndexElement extends LitElement {
           tags: this.tags
         }
       }).json()
-      this._pages = pages.map((p) => ({ ...p, href: `/${p.path}` }))
+      // -> `WIKI_STATE.site` is the live site store (not a plain snapshot), so its `locales` state --
+      //    `primary`/`forcePrefix`/`active` -- is already here to read; a block cannot import the
+      //    frontend's own `localizedPagePath` helper (separate workspace), so the same rule it applies
+      //    is composed locally instead.
+      const locales = WIKI_STATE.site?.locales
+      const pageLocale = WIKI_STATE.page?.locale
+      const prefix =
+        locales?.active?.length > 1 &&
+        pageLocale &&
+        (pageLocale !== locales.primary || locales.forcePrefix)
+          ? `/${pageLocale}`
+          : ''
+      this._pages = pages.map((p) => ({ ...p, href: `${prefix}/${p.path}` }))
       if (this.showIcons) {
         await this._loadIcons()
       }

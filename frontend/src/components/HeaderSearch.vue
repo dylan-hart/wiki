@@ -157,7 +157,7 @@
               v-for="item of previewResultRows"
               :key="item.path"
               clickable
-              :to="`/` + item.path"
+              :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)"
               @mousedown.prevent>
               <w-item-section avatar>
                 <w-icon :name="item.icon || defaultPageIcon" />
@@ -229,6 +229,7 @@ import { orderBy } from 'es-toolkit/array'
 import { debounce } from 'es-toolkit/function'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { copyToClipboard } from '@/helpers/clipboard'
+import { localizedPagePath } from '@/helpers/pagePaths'
 import { notify } from '@/composables/notify'
 
 /**

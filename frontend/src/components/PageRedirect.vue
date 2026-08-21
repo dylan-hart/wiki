@@ -72,6 +72,7 @@ import { useI18n } from 'vue-i18n'
 import { loading } from '@/composables/loading'
 
 import { isFollowable, parseRedirect, REDIRECT_INTERSTITIAL_MS } from '@/helpers/pageRedirect'
+import { localizedPagePath, parseLocalePrefix } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -132,7 +133,33 @@ const chainStopped = ref(false)
 
 // COMPUTED
 
-const redirect = computed(() => parseRedirect(pageStore.content))
+/**
+ * The stored redirection, with an in-app target resolved to a locale it actually carries.
+ *
+ * The author picks a target through `LinkPickerDialog`, which already prefixes it for
+ * `pageStore.locale` at the time it was chosen -- so a target that already carries an active-locale
+ * prefix (`parseLocalePrefix` matches it) is left exactly as written; the author addressed a specific
+ * translation, and re-prefixing it would double up or override that choice. A bare target -- content
+ * saved before that scoping existed, or written by hand -- has no locale of its own to have meant, so
+ * it stays within the redirect page's OWN locale by default, the same rule any other in-app link in
+ * this app follows.
+ *
+ * A URL target leaves the app entirely and has no page locale to carry.
+ */
+const redirect = computed(() => {
+  const parsed = parseRedirect(pageStore.content)
+  if (parsed.kind === 'url' || !parsed.target) {
+    return parsed
+  }
+  const activeLocaleCodes = siteStore.locales.active.map((locale) => locale.code)
+  if (parseLocalePrefix(parsed.target, activeLocaleCodes)) {
+    return parsed
+  }
+  return {
+    ...parsed,
+    target: localizedPagePath(parsed.target.slice(1), pageStore.locale, siteStore.localeRouting)
+  }
+})
 
 /**
  * Why this redirection cannot be followed, if it cannot: nothing was filled in, it points at the page
