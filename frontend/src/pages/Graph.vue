@@ -74,7 +74,7 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
-import { deriveFilterOptions } from './graphFilters.js'
+import { computeVisibleSubset, deriveFilterOptions } from './graphFilters.js'
 
 /**
  * The knowledge graph view (OpenProject #848/#873): a full-viewport, canvas-rendered force graph
@@ -96,6 +96,11 @@ const edges = ref([])
 const isLoading = ref(true)
 const loadError = ref(null)
 
+/** The full, unfiltered graph as fetched -- kept separate from `nodes.value`/`edges.value`, which
+ *  after Task 26 (#901) are the CURRENTLY VISIBLE subset the simulation actually runs on. */
+const allNodes = ref([])
+const allEdges = ref([])
+
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
@@ -110,9 +115,13 @@ const activeFilters = reactive({
   locale: null
 })
 
-/** The tag/locale values offered by the filter panel's `w-select`s, derived from whichever nodes
- *  are currently loaded -- no separate endpoint (OpenProject #899). */
-const filterOptions = computed(() => deriveFilterOptions(nodes.value))
+/** The tag/locale values offered by the filter panel's `w-select`s, derived from `allNodes` (the
+ *  full fetched graph, not the currently-filtered `nodes.value`) -- no separate endpoint
+ *  (OpenProject #899). Deriving from `allNodes` rather than `nodes` matters once Task 26 (#901)
+ *  redefines `nodes.value` as the currently-VISIBLE subset: options must stay the full universe of
+ *  choices, or picking one filter (say, a locale) would shrink another filter's own dropdown (say,
+ *  tags) down to whatever survived it, silently hiding tags the viewer could otherwise combine. */
+const filterOptions = computed(() => deriveFilterOptions(allNodes.value))
 const tagOptions = computed(() => filterOptions.value.tags)
 const localeOptions = computed(() => filterOptions.value.locales)
 
@@ -485,8 +494,9 @@ async function loadGraph() {
   loadError.value = null
   try {
     const graph = await API_CLIENT.get(`sites/${siteStore.id}/graph`).json()
-    nodes.value = graph.nodes ?? []
-    edges.value = graph.edges ?? []
+    allNodes.value = graph.nodes ?? []
+    allEdges.value = graph.edges ?? []
+    applyFilters()
     sizeCanvas()
     startSimulation()
     applyClusteringForce()
@@ -498,11 +508,45 @@ async function loadGraph() {
   }
 }
 
+/** Recomputes `nodes.value`/`edges.value` (the currently-visible subset the simulation runs on)
+ *  from `allNodes`/`allEdges` against `activeFilters` -- called on initial load and by the
+ *  `activeFilters` watcher below. Does not touch the live simulation itself; that's the watcher's
+ *  job, since the initial call here runs before `startSimulation()` has created one. */
+function applyFilters() {
+  const { visibleNodes, visibleEdges } = computeVisibleSubset(
+    allNodes.value,
+    allEdges.value,
+    activeFilters
+  )
+  nodes.value = visibleNodes
+  edges.value = visibleEdges
+}
+
 watch(groupBy, () => {
   applyClusteringForce()
   recomputeClusters()
   simulation?.alpha(0.3).restart()
 })
+
+/*
+  A node re-added after being filtered back in loses whatever `x`/`y`/velocity it had before removal
+  (it is a fresh entry to `d3-force` as far as the simulation is concerned) -- accepted per the
+  spec's own framing ("removed nodes exit the simulation so the remainder re-settles, rather than
+  just being drawn hidden"): re-settling is the explicitly wanted behavior, not a bug to work around.
+*/
+watch(
+  activeFilters,
+  () => {
+    applyFilters()
+    if (simulation) {
+      simulation.nodes(nodes.value)
+      simulation.force('link')?.links(edges.value)
+      recomputeClusters()
+      simulation.alpha(0.5).restart()
+    }
+  },
+  { deep: true }
+)
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
