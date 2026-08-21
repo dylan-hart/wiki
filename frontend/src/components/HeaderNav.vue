@@ -70,6 +70,16 @@
             <w-tooltip>File Manager</w-tooltip>
           </w-btn>
           <w-btn
+            v-if="siteStore.features.browse"
+            class="header-nav-btn"
+            flat
+            icon="mdi:graph-outline"
+            color="teal"
+            to="/_graph"
+            :aria-label="t(`common.header.graph`)">
+            <w-tooltip>{{ t('common.header.graph') }}</w-tooltip>
+          </w-btn>
+          <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"
             flat
