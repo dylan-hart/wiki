@@ -12,13 +12,26 @@
       {{ hoveredNode.title ?? hoveredNode.path }}
     </div>
     <div class="graph-view-controls">
-      <w-btn-toggle
-        v-model="groupBy"
-        no-caps
-        :options="[
-          { label: 'Folder', value: 'folder' },
-          { label: 'Tag', value: 'tag' }
-        ]" />
+      <div class="graph-view-control-group">
+        <span class="graph-view-control-caption">Group by</span>
+        <w-btn-toggle
+          v-model="groupBy"
+          no-caps
+          :options="[
+            { label: 'Folder', value: 'folder' },
+            { label: 'Tag', value: 'tag' }
+          ]" />
+      </div>
+      <div class="graph-view-control-group">
+        <span class="graph-view-control-caption">Connect by</span>
+        <w-btn-toggle
+          v-model="edgeMode"
+          no-caps
+          :options="[
+            { label: 'Paths', value: 'paths' },
+            { label: 'Tags', value: 'tags' }
+          ]" />
+      </div>
     </div>
     <div class="graph-view-filters">
       <w-select
@@ -82,7 +95,12 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
-import { computeVisibleSubset, deriveFilterOptions } from './graphFilters.js'
+import {
+  buildPathHierarchyEdges,
+  buildTagHubEdges,
+  computeVisibleSubset,
+  deriveFilterOptions
+} from './graphFilters.js'
 
 /**
  * The knowledge graph view (OpenProject #848/#873): a full-viewport, canvas-rendered force graph
@@ -112,6 +130,12 @@ const allEdges = ref([])
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
+
+/** Which zero-authoring edge source drives the graph's connections (OpenProject #997): `paths`
+ *  (default) chains every page to its parent path segment up to a synthetic root; `tags` connects
+ *  every page to a synthetic hub per tag it carries. The 872 endpoint's `relation`/`link` edges
+ *  (`allEdges` below) are still fetched but not wired into either mode's rendering. */
+const edgeMode = ref('paths')
 
 /** Drill-down filter state (OpenProject #875): the AND of whichever of these are non-empty narrows
  *  the visible node/edge subset -- see `graphFilters.js#computeVisibleSubset` (Task 25). `'site'` is
@@ -524,18 +548,21 @@ async function loadGraph() {
   }
 }
 
-/** Recomputes `nodes.value`/`edges.value` (the currently-visible subset the simulation runs on)
- *  from `allNodes`/`allEdges` against `activeFilters` -- called on initial load and by the
- *  `activeFilters` watcher below. Does not touch the live simulation itself; that's the watcher's
- *  job, since the initial call here runs before `startSimulation()` has created one. */
+/** Recomputes `nodes.value`/`edges.value` (what the simulation actually runs on) from `allNodes`
+ *  against `activeFilters`, then layers on the current `edgeMode`'s synthetic nodes/edges -- the 872
+ *  endpoint's `relation`/`link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not
+ *  used here; see OpenProject #997. Called on initial load, by the `activeFilters` watcher, and by
+ *  the `edgeMode` watcher below. Does not touch the live simulation itself; that's
+ *  `syncSimulationToVisibleSet`'s job, since the initial call here runs before `startSimulation()`
+ *  has created one. */
 function applyFilters() {
-  const { visibleNodes, visibleEdges } = computeVisibleSubset(
-    allNodes.value,
-    allEdges.value,
-    activeFilters
-  )
-  nodes.value = visibleNodes
-  edges.value = visibleEdges
+  const { visibleNodes } = computeVisibleSubset(allNodes.value, allEdges.value, activeFilters)
+  const { syntheticNodes, edges: syntheticEdges } =
+    edgeMode.value === 'tags'
+      ? buildTagHubEdges(visibleNodes)
+      : buildPathHierarchyEdges(visibleNodes)
+  nodes.value = [...visibleNodes, ...syntheticNodes]
+  edges.value = syntheticEdges
 }
 
 watch(groupBy, () => {
@@ -549,20 +576,32 @@ watch(groupBy, () => {
   (it is a fresh entry to `d3-force` as far as the simulation is concerned) -- accepted per the
   spec's own framing ("removed nodes exit the simulation so the remainder re-settles, rather than
   just being drawn hidden"): re-settling is the explicitly wanted behavior, not a bug to work around.
+  Synthetic nodes (OpenProject #997) are freshly constructed objects on every `applyFilters()` call
+  too, so they re-settle on every `edgeMode`/`activeFilters` change alike, for the same reason.
 */
+function syncSimulationToVisibleSet() {
+  if (!simulation) {
+    return
+  }
+  simulation.nodes(nodes.value)
+  simulation.force('link')?.links(edges.value)
+  recomputeClusters()
+  simulation.alpha(0.5).restart()
+}
+
 watch(
   activeFilters,
   () => {
     applyFilters()
-    if (simulation) {
-      simulation.nodes(nodes.value)
-      simulation.force('link')?.links(edges.value)
-      recomputeClusters()
-      simulation.alpha(0.5).restart()
-    }
+    syncSimulationToVisibleSet()
   },
   { deep: true }
 )
+
+watch(edgeMode, () => {
+  applyFilters()
+  syncSimulationToVisibleSet()
+})
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
@@ -600,6 +639,21 @@ onBeforeUnmount(() => {
   top: 16px;
   right: 16px;
   z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.graph-view-control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.graph-view-control-caption {
+  font-size: 11px;
+  opacity: 0.7;
 }
 
 .graph-view-filters {
