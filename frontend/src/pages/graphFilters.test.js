@@ -193,3 +193,52 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
     expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 })
+
+describe('buildTagHubEdges (OpenProject #999)', () => {
+  it('creates one hub per distinct tag, with an edge from the hub to each carrying page', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([
+      { path: 'a', tags: ['foo'] },
+      { path: 'b', tags: ['bar'] }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__tag__foo', title: 'foo', synthetic: true },
+      { path: '__tag__bar', title: 'bar', synthetic: true }
+    ])
+    expect(edges).toEqual([
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__bar', target: 'b', type: 'tag' }
+    ])
+  })
+
+  it('gives a multi-tagged page one edge per tag, not just its first', () => {
+    const { edges } = buildTagHubEdges([{ path: 'a', tags: ['foo', 'bar'] }])
+    expect(edges).toEqual([
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__bar', target: 'a', type: 'tag' }
+    ])
+  })
+
+  it('shares one hub node across every page carrying the same tag', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([
+      { path: 'a', tags: ['foo'] },
+      { path: 'b', tags: ['foo'] }
+    ])
+    expect(syntheticNodes).toEqual([{ path: '__tag__foo', title: 'foo', synthetic: true }])
+    expect(edges).toEqual([
+      { source: '__tag__foo', target: 'a', type: 'tag' },
+      { source: '__tag__foo', target: 'b', type: 'tag' }
+    ])
+  })
+
+  it('produces no hubs or edges for an untagged page', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a', tags: [] }])
+    expect(syntheticNodes).toEqual([])
+    expect(edges).toEqual([])
+  })
+
+  it('treats a missing tags array the same as an empty one', () => {
+    const { syntheticNodes, edges } = buildTagHubEdges([{ path: 'a' }])
+    expect(syntheticNodes).toEqual([])
+    expect(edges).toEqual([])
+  })
+})

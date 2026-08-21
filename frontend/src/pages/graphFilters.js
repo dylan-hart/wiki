@@ -114,3 +114,27 @@ export function buildPathHierarchyEdges(nodes) {
 
   return { syntheticNodes: [...synthesized.values()], edges }
 }
+
+/**
+ * Tag-hub synthetic nodes/edges (OpenProject #999, `edgeMode: 'tags'`): one synthetic hub node per
+ * distinct tag (`path: '__tag__' + tag`), with an edge from the hub to every page carrying that tag.
+ * Unlike Feature 874's clustering (which buckets a node under only its first tag for a color group),
+ * a multi-tagged page gets one edge per tag here -- simpler than `buildPathHierarchyEdges` above,
+ * since there's no chaining and no root.
+ */
+export function buildTagHubEdges(nodes) {
+  const hubs = new Map()
+  const edges = []
+
+  for (const node of nodes) {
+    for (const tag of node.tags ?? []) {
+      const hubPath = `__tag__${tag}`
+      if (!hubs.has(hubPath)) {
+        hubs.set(hubPath, { path: hubPath, title: tag, synthetic: true })
+      }
+      edges.push({ source: hubPath, target: node.path, type: 'tag' })
+    }
+  }
+
+  return { syntheticNodes: [...hubs.values()], edges }
+}
