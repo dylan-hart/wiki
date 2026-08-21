@@ -87,13 +87,13 @@ describe('buildSitemapXml', () => {
     assert.equal(
       xml,
       '<?xml version="1.0" encoding="UTF-8"?>\n' +
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n</urlset>\n'
     )
   })
 
   test('one <url> per page, with an absolute <loc> and a date-only <lastmod>', () => {
     const xml = buildSitemapXml('https://wiki.example.com', [
-      { path: 'docs/getting-started', updatedAt: new Date('2026-03-14T10:30:00Z') }
+      { path: 'docs/getting-started', locale: 'en', updatedAt: new Date('2026-03-14T10:30:00Z') }
     ])
     assert.ok(xml.includes('<loc>https://wiki.example.com/docs/getting-started</loc>'))
     assert.ok(xml.includes('<lastmod>2026-03-14</lastmod>'))
@@ -101,8 +101,8 @@ describe('buildSitemapXml', () => {
 
   test('lists every page, in order', () => {
     const xml = buildSitemapXml('https://wiki.example.com', [
-      { path: 'a', updatedAt: new Date('2026-01-01T00:00:00Z') },
-      { path: 'b', updatedAt: new Date('2026-01-02T00:00:00Z') }
+      { path: 'a', locale: 'en', updatedAt: new Date('2026-01-01T00:00:00Z') },
+      { path: 'b', locale: 'en', updatedAt: new Date('2026-01-02T00:00:00Z') }
     ])
     const locA = xml.indexOf('<loc>https://wiki.example.com/a</loc>')
     const locB = xml.indexOf('<loc>https://wiki.example.com/b</loc>')
@@ -112,9 +112,35 @@ describe('buildSitemapXml', () => {
 
   test('escapes XML-significant characters in the base URL', () => {
     const xml = buildSitemapXml('https://wiki.example.com/a&b', [
-      { path: 'x', updatedAt: new Date('2026-01-01T00:00:00Z') }
+      { path: 'x', updatedAt: new Date('2026-01-01T00:00:00Z'), locale: 'en' }
     ])
     assert.ok(xml.includes('<loc>https://wiki.example.com/a&amp;b/x</loc>'))
     assert.ok(!xml.includes('a&b/x'))
+  })
+
+  test('translations emit localized URLs with a full hreflang cluster', () => {
+    const xml = buildSitemapXml(
+      'https://wiki.example.com',
+      [
+        { path: 'guides/x', locale: 'en', updatedAt: new Date('2026-08-01T00:00:00Z') },
+        { path: 'guides/x', locale: 'fr', updatedAt: new Date('2026-08-02T00:00:00Z') },
+        { path: 'solo', locale: 'en', updatedAt: new Date('2026-08-03T00:00:00Z') }
+      ],
+      { primary: 'en', active: ['en', 'fr'], forcePrefix: false }
+    )
+    assert.match(xml, /<loc>https:\/\/wiki\.example\.com\/guides\/x<\/loc>/)
+    assert.match(xml, /<loc>https:\/\/wiki\.example\.com\/fr\/guides\/x<\/loc>/)
+    // both cluster members list BOTH alternates (Google requires self-inclusion)
+    assert.equal(
+      (xml.match(/hreflang="en" href="https:\/\/wiki\.example\.com\/guides\/x"/g) ?? []).length,
+      2
+    )
+    assert.equal(
+      (xml.match(/hreflang="fr" href="https:\/\/wiki\.example\.com\/fr\/guides\/x"/g) ?? []).length,
+      2
+    )
+    // a page with no translations carries no alternate links
+    assert.doesNotMatch(xml, /solo"[^>]*hreflang/)
+    assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
   })
 })
