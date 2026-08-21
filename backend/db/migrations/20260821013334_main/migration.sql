@@ -1,0 +1,1 @@
+ALTER TABLE "pages" ADD COLUMN "links" jsonb DEFAULT '[]' NOT NULL;

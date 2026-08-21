@@ -559,6 +559,11 @@ export const pages = pgTable(
     publishEndDate: timestamp(),
     config: jsonb().notNull().default({}),
     relations: jsonb().notNull().default([]),
+    // -> Internal-link target page paths found in the rendered content, resolved at save time by
+    //    `models/rendering.ts#extractInternalLinks` (OpenProject #881). Unlike `relations` (authored,
+    //    explicit) this is derived and gets fully overwritten on every save/re-render — never
+    //    hand-edited, and never merged with a prior value.
+    links: jsonb().notNull().default([]),
     content: text(),
     render: text(),
     searchContent: text(),
