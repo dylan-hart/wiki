@@ -31,6 +31,7 @@ const ROW = {
   pageId: '66666666-6666-6666-6666-666666666666',
   pageTitle: 'Some Page',
   pagePath: 'some/page',
+  pageLocale: 'en',
   action: 'updated',
   changedFields: ['title'],
   actorId: ACTOR_ID,

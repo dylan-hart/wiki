@@ -935,6 +935,8 @@ export const pageWatchEvents = pgTable(
     pageTitle: text().notNull(),
     /** The page's path as of this change, for the same reason `pageTitle` is captured here. */
     pagePath: text().notNull(),
+    /** The page's locale as of this change, for the same reason `pagePath` is captured here. */
+    pageLocale: text().notNull().default('en'),
     siteId: uuid()
       .notNull()
       .references(() => sites.id),

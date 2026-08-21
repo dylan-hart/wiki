@@ -29,7 +29,13 @@
           </w-item-section>
           <w-item-section>
             <w-item-label>{{ notificationLine(notification) }}</w-item-label>
-            <w-item-label caption>/{{ notification.pagePath }}</w-item-label>
+            <w-item-label caption>{{
+              localizedPagePath(
+                notification.pagePath,
+                notification.pageLocale,
+                siteStore.localeRouting
+              )
+            }}</w-item-label>
             <w-item-label caption>{{ humanizeDate(notification.createdAt) }}</w-item-label>
           </w-item-section>
           <w-item-section side>
@@ -123,6 +129,7 @@ import { notify } from '@/composables/notify'
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 // COMPOSABLES
 
@@ -216,7 +223,7 @@ async function loadNotifications() {
 }
 
 function openPage(page) {
-  router.push(`/${page.path}`)
+  router.push(localizedPagePath(page.path, page.locale, siteStore.localeRouting))
 }
 
 /**
@@ -230,7 +237,9 @@ function openPage(page) {
  */
 async function openNotification(notification) {
   await markRead(notification, { silent: true })
-  router.push(`/${notification.pagePath}`)
+  router.push(
+    localizedPagePath(notification.pagePath, notification.pageLocale, siteStore.localeRouting)
+  )
 }
 
 async function markRead(notification, { silent = false } = {}) {

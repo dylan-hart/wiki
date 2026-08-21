@@ -865,7 +865,7 @@ class Pages {
       id,
       'updated',
       actor.id,
-      { title: updated.title, path: updated.path },
+      { title: updated.title, path: updated.path, locale: updated.locale },
       changedFields
     )
 
@@ -1036,7 +1036,7 @@ class Pages {
       id,
       'moved',
       actor.id,
-      { title: moved.title, path: moved.path },
+      { title: moved.title, path: moved.path, locale: moved.locale },
       changedFields
     )
 
@@ -1086,7 +1086,8 @@ class Pages {
     //    has to be read while it still exists
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
-      path: page.path
+      path: page.path,
+      locale: page.locale
     })
 
     await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
@@ -1145,7 +1146,8 @@ class Pages {
       //    with), so the file name stands in for it, same as the path built for `page:delete` below.
       await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
         title: entry.fileName,
-        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
+        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
+        locale: entry.locale
       })
     }
     await WIKI.db.delete(pagesTable).where(
@@ -1425,7 +1427,7 @@ class Pages {
     pageId: string,
     action: PageWatchNotifiableAction,
     actorId: string,
-    page: { title: string; path: string },
+    page: { title: string; path: string; locale: string },
     changedFields: string[] = []
   ): Promise<void> {
     try {
@@ -1440,6 +1442,7 @@ class Pages {
           pageId,
           pageTitle: page.title,
           pagePath: page.path,
+          pageLocale: page.locale,
           action,
           changedFields,
           actorId,

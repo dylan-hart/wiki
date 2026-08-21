@@ -19,6 +19,7 @@ const NOTIFICATION = {
   pageId: 'page-1',
   pageTitle: 'Some Page',
   pagePath: 'some/page',
+  pageLocale: 'en',
   action: 'updated',
   changedFields: ['title'],
   actorId: 'user-1',
@@ -47,10 +48,10 @@ const messages = {
   }
 }
 
-async function mountInboxWatching() {
+async function mountInboxWatching(sitePatch = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
-  siteStore.$patch({ id: 'site-1' })
+  siteStore.$patch({ id: 'site-1', ...sitePatch })
 
   const router = createRouter({
     history: createMemoryHistory(),
@@ -129,6 +130,34 @@ describe('InboxWatching notifications', () => {
     expect(API_CLIENT.patch).toHaveBeenCalledWith('sites/site-1/notifications/notif-1/read')
     expect(wrapper.text()).not.toContain('Jane Actor edited Some Page')
     expect(changedHandler).toHaveBeenCalledTimes(1)
+  })
+
+  it('a non-primary-locale notification shows and links to a locale-prefixed path', async () => {
+    API_CLIENT.get.mockImplementation((url) => {
+      if (url === 'sites/site-1/notifications') {
+        return { json: () => Promise.resolve([{ ...NOTIFICATION, pageLocale: 'fr' }]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+
+    const { wrapper, router } = await mountInboxWatching({
+      locales: {
+        primary: 'en',
+        active: [
+          { code: 'en', language: 'en', name: 'English', nativeName: 'English', isRTL: false },
+          { code: 'fr', language: 'fr', name: 'French', nativeName: 'Français', isRTL: false }
+        ]
+      }
+    })
+
+    expect(wrapper.text()).toContain('/fr/some/page')
+
+    const pushSpy = vi.spyOn(router, 'push')
+    await wrapper.find('[role="button"]').trigger('click')
+    await flushLoads()
+
+    expect(pushSpy).toHaveBeenCalledWith('/fr/some/page')
   })
 
   it('shows a toast and keeps the row when marking read fails', async () => {

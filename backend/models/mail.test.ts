@@ -12,9 +12,18 @@ let previousWiki: any
 const originalGetTransporter = mail.getTransporter.bind(mail)
 const originalSend = mail.send.bind(mail)
 
-function setMailConfig(cfg: Record<string, any> = {}) {
+/** The default site a `siteId` in these tests resolves to — one non-primary locale (`fr`) active
+ *  alongside the primary (`en`), so `sendPageWatchNotification`/`sendPageWatchDigest` have a real
+ *  `locales` config to resolve `WIKI.sites[siteId]?.config?.locales` against. */
+const DEFAULT_SITE_ID = 'site-1'
+const DEFAULT_SITES = {
+  [DEFAULT_SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } }
+}
+
+function setMailConfig(cfg: Record<string, any> = {}, sites: Record<string, any> = DEFAULT_SITES) {
   ;(globalThis as any).WIKI = {
     config: { mail: cfg },
+    sites,
     logger: {
       warn: mock.fn(),
       error: mock.fn(),
@@ -386,10 +395,11 @@ describe('mail template senders', () => {
     assert.equal(msg.to, 'ada@example.com')
   })
 
-  test('sendPageWatchNotification links to the page path with no locale segment', async () => {
+  test('sendPageWatchNotification links to the page path with no locale segment for the primary locale', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
-      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
       action: 'updated',
       changedFields: ['title'],
       actorName: 'Bob'
@@ -400,10 +410,25 @@ describe('mail template senders', () => {
     assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
   })
 
+  test('sendPageWatchNotification for a non-primary-locale page links with the locale prefix', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Bien Démarrer', path: 'docs/getting-started', locale: 'fr' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+  })
+
   test('sendPageWatchNotification summarises an edit as "edited: <fields>"', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
-      page: { title: 'Getting Started', path: 'docs/getting-started' },
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
       action: 'updated',
       changedFields: ['title', 'content'],
       actorName: 'Bob'
@@ -417,7 +442,8 @@ describe('mail template senders', () => {
   test('sendPageWatchNotification for a delete has no changed fields to list', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
-      page: { title: 'Old Page', path: 'old-page' },
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Old Page', path: 'old-page', locale: 'en' },
       action: 'deleted',
       changedFields: [],
       actorName: 'Bob'
@@ -432,7 +458,8 @@ describe('mail template senders', () => {
   test('sendPageWatchNotification escapes an untrusted page title and actor name in the HTML body', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
-      page: { title: '<script>alert(1)</script>', path: 'evil-page' },
+      siteId: DEFAULT_SITE_ID,
+      page: { title: '<script>alert(1)</script>', path: 'evil-page', locale: 'en' },
       action: 'updated',
       changedFields: [],
       actorName: '<img src=x>'
@@ -449,9 +476,10 @@ describe('mail template senders', () => {
     test('one item reads as one line, reusing the same per-event content as a single notification', async () => {
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
         items: [
           {
-            page: { title: 'Getting Started', path: 'docs/getting-started' },
+            page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
             action: 'updated',
             changedFields: ['title'],
             actorName: 'Bob'
@@ -466,24 +494,50 @@ describe('mail template senders', () => {
       assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
     })
 
+    test('a non-primary-locale item links with the locale prefix, alongside a primary-locale item with none', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
+        items: [
+          {
+            page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          },
+          {
+            page: { title: 'Bien Démarrer', path: 'docs/getting-started', locale: 'fr' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+      assert.match(msg.html, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+      assert.match(msg.text, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+    })
+
     test('several items each contribute their own line, in the given order', async () => {
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
         items: [
           {
-            page: { title: 'Page One', path: 'page-one' },
+            page: { title: 'Page One', path: 'page-one', locale: 'en' },
             action: 'updated',
             changedFields: ['content'],
             actorName: 'Bob'
           },
           {
-            page: { title: 'Page Two', path: 'page-two' },
+            page: { title: 'Page Two', path: 'page-two', locale: 'en' },
             action: 'moved',
             changedFields: [],
             actorName: 'Carol'
           },
           {
-            page: { title: 'Page Three', path: 'page-three' },
+            page: { title: 'Page Three', path: 'page-three', locale: 'en' },
             action: 'deleted',
             changedFields: [],
             actorName: 'Dave'
@@ -506,9 +560,10 @@ describe('mail template senders', () => {
     test('subject counts the items and pluralizes correctly', async () => {
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
         items: [
           {
-            page: { title: 'Solo Page', path: 'solo-page' },
+            page: { title: 'Solo Page', path: 'solo-page', locale: 'en' },
             action: 'updated',
             changedFields: ['title'],
             actorName: 'Bob'
@@ -519,15 +574,16 @@ describe('mail template senders', () => {
 
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
         items: [
           {
-            page: { title: 'A', path: 'a' },
+            page: { title: 'A', path: 'a', locale: 'en' },
             action: 'updated',
             changedFields: [],
             actorName: 'Bob'
           },
           {
-            page: { title: 'B', path: 'b' },
+            page: { title: 'B', path: 'b', locale: 'en' },
             action: 'updated',
             changedFields: [],
             actorName: 'Bob'
@@ -540,9 +596,10 @@ describe('mail template senders', () => {
     test('escapes an untrusted page title in the HTML body but not the plain-text alternative', async () => {
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
+        siteId: DEFAULT_SITE_ID,
         items: [
           {
-            page: { title: '<script>alert(1)</script>', path: 'evil-page' },
+            page: { title: '<script>alert(1)</script>', path: 'evil-page', locale: 'en' },
             action: 'updated',
             changedFields: [],
             actorName: 'Bob'

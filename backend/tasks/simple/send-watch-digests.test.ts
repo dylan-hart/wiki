@@ -22,9 +22,11 @@ function pendingEvent(overrides: Partial<PendingDigestEvent> = {}): PendingDiges
   return {
     id: 'event-1',
     userId: 'user-1',
+    siteId: 'site-1',
     pageId: 'page-1',
     pageTitle: 'Getting Started',
     pagePath: 'docs/getting-started',
+    pageLocale: 'en',
     action: 'updated',
     changedFields: ['title'],
     actorId: 'actor-1',
@@ -76,13 +78,25 @@ describe('send-watch-digests task', () => {
     assert.equal(sendPageWatchDigest.mock.calls.length, 1)
     const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
     assert.equal(call.to, 'user-1@example.com')
+    assert.equal(call.siteId, 'site-1')
     assert.equal(call.items.length, 1)
     assert.equal(call.items[0].page.title, 'Getting Started')
     assert.equal(call.items[0].page.path, 'docs/getting-started')
+    assert.equal(call.items[0].page.locale, 'en')
     assert.equal(call.items[0].actorName, 'Someone Person')
 
     assert.equal(markManyDelivered.mock.calls.length, 1)
     assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['event-1'])
+  })
+
+  test('a non-primary-locale event threads its locale through to the digest item', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [pendingEvent({ pageLocale: 'fr' })])
+
+    await sendWatchDigests()
+
+    const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
+    assert.equal(call.items[0].page.locale, 'fr')
+    assert.equal(call.items[0].page.path, 'docs/getting-started')
   })
 
   test('several pending events for the same user are batched into one digest, one line item each', async () => {
@@ -102,6 +116,21 @@ describe('send-watch-digests task', () => {
     const call = sendPageWatchDigest.mock.calls[0]!.arguments[0] as any
     assert.equal(call.items.length, 2)
     assert.deepEqual(markManyDelivered.mock.calls[0]!.arguments[0], ['ev-1', 'ev-2'])
+  })
+
+  test('events for the same user on different sites are grouped and sent as separate digests', async () => {
+    listPendingForDigest.mock.mockImplementation(async () => [
+      pendingEvent({ id: 'ev-1', siteId: 'site-1' }),
+      pendingEvent({ id: 'ev-2', siteId: 'site-2' })
+    ])
+
+    await sendWatchDigests()
+
+    // -> Same user, different sites: never batched into one email, since one email can only resolve
+    //    one site's locale routing config (see this task's own doc comment).
+    assert.equal(sendPageWatchDigest.mock.calls.length, 2)
+    const siteIds = sendPageWatchDigest.mock.calls.map((c: any) => c.arguments[0].siteId).sort()
+    assert.deepEqual(siteIds, ['site-1', 'site-2'])
   })
 
   test('events for different users are grouped and sent as separate digests', async () => {

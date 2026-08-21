@@ -9,14 +9,16 @@ export type PageWatchNotifiableAction = 'updated' | 'moved' | 'deleted'
 export interface PendingWatchEvent {
   siteId: string
   pageId: string
-  /** The page's title/path as of this change — see `db/schema.ts#pageWatchEvents`'s own comment. */
+  /** The page's title/path/locale as of this change — see `db/schema.ts#pageWatchEvents`'s own comment. */
   pageTitle: string
   pagePath: string
+  pageLocale: string
   userId: string
   action: PageWatchNotifiableAction
   /** Who made the change, or null if the account is gone by the time this is written. */
   actorId: string | null
-  /** Which fields the change touched — empty for a move (see `movePage`) or a delete. */
+  /** Which fields the change touched — up to `['path', 'locale', 'title']` for a move (see
+   *  `movePage`), empty for a delete. */
   changedFields: string[]
   /** This watcher's resolved delivery mode, captured for the same reason `pageTitle`/`pagePath` are. */
   notifyMode: WatchNotifyMode
@@ -35,6 +37,8 @@ export interface PendingDigestEvent {
   pageId: string
   pageTitle: string
   pagePath: string
+  pageLocale: string
+  siteId: string
   action: PageWatchNotifiableAction
   changedFields: string[]
   actorId: string | null
@@ -46,6 +50,7 @@ export interface InboxNotification {
   pageId: string
   pageTitle: string
   pagePath: string
+  pageLocale: string
   action: PageWatchNotifiableAction
   changedFields: string[]
   actorId: string | null
@@ -120,6 +125,8 @@ class PageWatchEvents {
         pageId: pageWatchEventsTable.pageId,
         pageTitle: pageWatchEventsTable.pageTitle,
         pagePath: pageWatchEventsTable.pagePath,
+        pageLocale: pageWatchEventsTable.pageLocale,
+        siteId: pageWatchEventsTable.siteId,
         action: pageWatchEventsTable.action,
         changedFields: pageWatchEventsTable.changedFields,
         actorId: pageWatchEventsTable.actorId
@@ -163,6 +170,7 @@ class PageWatchEvents {
         pageId: pageWatchEventsTable.pageId,
         pageTitle: pageWatchEventsTable.pageTitle,
         pagePath: pageWatchEventsTable.pagePath,
+        pageLocale: pageWatchEventsTable.pageLocale,
         action: pageWatchEventsTable.action,
         changedFields: pageWatchEventsTable.changedFields,
         actorId: pageWatchEventsTable.actorId,

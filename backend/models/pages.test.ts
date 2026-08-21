@@ -980,7 +980,9 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
     assert.equal(sendCalls.length, 1)
     assert.equal(sendCalls[0].to, 'watcher@example.com')
+    assert.equal(sendCalls[0].siteId, fixtures.siteId)
     assert.equal(sendCalls[0].page.title, 'Immediately Updated')
+    assert.equal(sendCalls[0].page.locale, 'en')
     assert.deepEqual(sendCalls[0].changedFields, ['title'])
 
     const events = await pendingEventsFor(page.id)
@@ -1080,5 +1082,52 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     assert.equal(events.length, 1)
     assert.equal(events[0]!.actorId, actor.id)
     assert.deepEqual([...events[0]!.changedFields].sort(), ['content', 'title'])
+  })
+
+  test('recorded events capture the page locale as of the change, not the site default', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/captured-locale', locale: 'fr' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Mis À Jour' }, actor)
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.pageLocale, 'fr')
+  })
+
+  test('a move that changes the page locale records the new locale, with "locale" among the changed fields', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/move-locale', locale: 'en' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'watch/move-locale', locale: 'fr' },
+      actor
+    )
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.action, 'moved')
+    assert.equal(events[0]!.pageLocale, 'fr')
+    assert.ok(events[0]!.changedFields.includes('locale'))
   })
 })
