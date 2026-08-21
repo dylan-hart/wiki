@@ -33,9 +33,10 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
-import { templateAppShell } from './helpers/appShell.ts'
+import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
+  localePrefixStripTarget,
   resolveRequestSite,
   stripPageExtension
 } from './helpers/common.ts'
@@ -713,6 +714,15 @@ async function initHTTPServer() {
         reply.redirect(withQuery(localeRedirect), 302)
         return
       }
+
+      // -> The mirror image: an explicit prefix the site's rules leave bare (`/en/page`) 302s to
+      //    the one canonical URL (`/page`), and a mis-cased prefix re-cases. 302 for the same
+      //    reason as above — which locales are active, and forcePrefix, are settings.
+      const localeStrip = localePrefixStripTarget(trimmed, siteConfig?.locales)
+      if (localeStrip) {
+        reply.redirect(withQuery(localeStrip), 302)
+        return
+      }
     }
 
     if (trimmed !== urlPath) {
@@ -820,8 +830,8 @@ async function initHTTPServer() {
     itself closes that window -- see `helpers/appShell.ts`.
   */
   app.setNotFoundHandler(async (req, reply) => {
-    const urlPath = req.raw.url!.split('?')[0]!
-    const firstSegment = urlPath.split('/')[1] ?? ''
+    const [urlPath, urlSearch] = req.raw.url!.split('?')
+    const firstSegment = urlPath!.split('/')[1] ?? ''
     const isSystemPath = SERVER_ROUTE_SEGMENTS.has(firstSegment)
     const isReservedRootFile = RESERVED_ROOT_FILES.has(firstSegment.toLowerCase())
     // -> HEAD as well as GET: it has to answer what GET would, or a monitor pointed at the wiki reads a
@@ -836,7 +846,7 @@ async function initHTTPServer() {
       //    runs on every request that reaches the shell.
       const siteId = WIKI.sitesMappings[req.hostname] || WIKI.sitesMappings['*']
       const siteConfig = WIKI.sites[siteId]?.config
-      const lang = siteConfig?.locales?.primary ?? 'en'
+      const lang = resolveAppShellLocale(urlPath!, urlSearch, siteConfig?.locales)
       const locales = await WIKI.models.locales.getLocales()
       const isRTL = locales.find((l: any) => l.code === lang)?.isRTL ?? false
       const templated = templateAppShell(shell, { lang, isRTL })

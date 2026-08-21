@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer'
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/common.ts'
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -34,7 +35,7 @@ function escapeHtml(value: string): string {
 
 /** One page-watch change, described the same way whether it stands alone or sits inside a digest. */
 export interface WatchEventItem {
-  page: { title: string; path: string }
+  page: { title: string; path: string; locale: string }
   action: PageWatchNotifiableAction
   changedFields: string[]
   actorName: string
@@ -304,17 +305,24 @@ class MailModel {
    * watcher's preference came from) can already be gone, same reasoning as
    * `db/schema.ts#pageWatchEvents`'s own comment.
    *
-   * @param page.path Used verbatim as `models/pageWatching.ts#WatchedPage`'s own link does
-   *   (`InboxWatching.vue`'s `router.push('/' + page.path)`) — the wiki's page route has no locale
-   *   segment, so the caller passes no locale here either.
+   * @param page.path Composed into a locale-aware link the same way `models/pageWatching.ts#WatchedPage`'s
+   *   own link does (`InboxWatching.vue`'s `openPage`/`openNotification`, via `localizedPagePath`) —
+   *   the wiki's page route DOES carry a locale segment for a non-primary locale, so `page.locale` and
+   *   the site's `locales` config (resolved by the caller) are both required here.
+   * @param locales The originating site's locale routing config, resolved by the caller
+   *   (`sendPageWatchNotification` / `sendPageWatchDigest`) from `WIKI.sites[siteId]`, since a
+   *   `pageWatchEvents` row outlives the page but the site config does not need re-resolving per row.
    */
-  private renderWatchEventLine({ page, action, changedFields, actorName }: WatchEventItem): {
+  private renderWatchEventLine(
+    { page, action, changedFields, actorName }: WatchEventItem,
+    locales?: LocaleRoutingConfig | null
+  ): {
     text: string
     html: string
   } {
     const label = WATCH_ACTION_LABELS[action]
     const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
-    const link = this.buildLink(`/${page.path}`)
+    const link = this.buildLink(localizedPagePath(page.path, page.locale, locales))
     const safeTitle = escapeHtml(page.title)
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
@@ -332,19 +340,22 @@ class MailModel {
    */
   async sendPageWatchNotification({
     to,
+    siteId,
     page,
     action,
     changedFields,
     actorName
   }: {
     to: string
-    page: { title: string; path: string }
+    siteId: string
+    page: { title: string; path: string; locale: string }
     action: PageWatchNotifiableAction
     changedFields: string[]
     actorName: string
   }): Promise<void> {
+    const locales = WIKI.sites[siteId]?.config?.locales
     const label = WATCH_ACTION_LABELS[action]
-    const line = this.renderWatchEventLine({ page, action, changedFields, actorName })
+    const line = this.renderWatchEventLine({ page, action, changedFields, actorName }, locales)
     await this.send({
       to,
       subject: `Page ${label}: ${page.title}`,
@@ -359,12 +370,24 @@ class MailModel {
    * per change, built from the same `renderWatchEventLine` content `sendPageWatchNotification` sends
    * alone, so the two templates read consistently without duplicating how a change is phrased.
    *
+   * @param siteId Every item in one digest send is scoped to a single site — `send-watch-digests.ts`
+   *   groups pending events by `(userId, siteId)`, not `userId` alone, precisely so this always holds;
+   *   resolving `locales` once per send rather than once per item is what that grouping buys.
    * @param items At least one — the caller (the digest job) is what turns "no pending events this
    *   cycle" into skipping the send entirely, not this method turning an empty list into an empty
    *   email. Order is preserved as given (the caller's own chronological order).
    */
-  async sendPageWatchDigest({ to, items }: { to: string; items: WatchEventItem[] }): Promise<void> {
-    const lines = items.map((item) => this.renderWatchEventLine(item))
+  async sendPageWatchDigest({
+    to,
+    siteId,
+    items
+  }: {
+    to: string
+    siteId: string
+    items: WatchEventItem[]
+  }): Promise<void> {
+    const locales = WIKI.sites[siteId]?.config?.locales
+    const lines = items.map((item) => this.renderWatchEventLine(item, locales))
     const count = items.length
     const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
     const text = lines.map((line) => `- ${line.text}`).join('\n')

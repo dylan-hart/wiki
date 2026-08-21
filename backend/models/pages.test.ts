@@ -1,9 +1,21 @@
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  seedTreeEntry,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
+import { generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
-import { pageWatchEvents as pageWatchEventsTable, users as usersTable } from '../db/schema.ts'
+import {
+  pages as pagesTable,
+  pageWatchEvents as pageWatchEventsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import { mail } from './mail.ts'
 import { task as notifyPageWatchers } from '../tasks/simple/notify-page-watchers.ts'
@@ -21,6 +33,11 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
   before(async () => {
     fixtures = await setupTestDb()
+    // -> Seeded before any model call, so the very first `getLocales()` cache fill already sees them
+    //    — `isReservedLocaleCode()`'s "installed, not per-site-active" reserved-segment checks need at
+    //    least the site's own active codes to actually be installed.
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
@@ -38,6 +55,54 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       ...overrides
     }
   }
+
+  /**
+   * Minimal `.values()` object satisfying every NOT NULL column, for a raw insert that bypasses
+   * `createPage()`'s own duplicate-path probe entirely -- this is what proves the uniqueness is a
+   * database constraint, not just an application-level check.
+   */
+  function rawPageRow(overrides: { path: string; locale: string; siteId: string }) {
+    return {
+      locale: overrides.locale,
+      path: overrides.path,
+      hash: `raw-hash-${overrides.path}-${overrides.locale}`,
+      title: 'Raw Row',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: fixtures.userId,
+      creatorId: fixtures.userId,
+      ownerId: fixtures.userId,
+      siteId: overrides.siteId
+    }
+  }
+
+  test('the database itself rejects a duplicate (siteId, locale, path) even bypassing the model', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/dupe-probe', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      fixtures.db
+        .insert(pagesTable)
+        .values(rawPageRow({ path: 'unique/dupe-probe', locale: 'en', siteId: fixtures.siteId })),
+      (err: any) => (err.cause?.code ?? err.code) === '23505'
+    )
+  })
+
+  test('the same path in two locales coexists', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/two-locales', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'unique/two-locales', locale: 'fr', title: 'Deux Locales' }),
+      actor
+    )
+    assert.equal(fr.locale, 'fr')
+  })
 
   test('createPage inserts a page and gives it a place in the tree', async () => {
     const page = await pagesModel.createPage(
@@ -74,6 +139,24 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pagesModel.createPage(fixtures.siteId, pageInput({ path: 'docs/collide' }), actor),
       /pageDuplicatePath/
     )
+  })
+
+  test('a create race on the same path surfaces as a 409 CustomError, not a raw 23505', async () => {
+    // -> Both calls race the same probe-then-insert: either may lose at the probe (the ordinary
+    //    duplicate-path check) or at the insert itself (the unique index Task 1 added). Exactly one
+    //    of the two outcomes happens depending on interleaving, but the assertion holds either way --
+    //    which is the point of this test.
+    const input = () => pageInput({ path: 'unique/race-probe', locale: 'en' })
+    const results = await Promise.allSettled([
+      pagesModel.createPage(fixtures.siteId, input(), actor),
+      pagesModel.createPage(fixtures.siteId, input(), actor)
+    ])
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[]
+    assert.equal(results.length - rejected.length, 1)
+    for (const r of rejected) {
+      assert.equal((r.reason as any).statusCode, 409)
+      assert.equal((r.reason as any).name, 'pageDuplicatePath')
+    }
   })
 
   test('createPage stores the code editor content as html, matching EDITOR_CONTENT_TYPES', async () => {
@@ -121,6 +204,26 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       ),
       /pageInvalidLocale/
     )
+  })
+
+  test('a page path whose first segment is an installed locale code is rejected', async () => {
+    await assert.rejects(
+      pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'fr/shadowed', locale: 'en' }),
+        actor
+      ),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
+    )
+  })
+
+  test('a NESTED segment matching an installed locale code is fine — only the first segment shadows', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/fr/nested-ok', locale: 'en' }),
+      actor
+    )
+    assert.equal(page.path, 'docs/fr/nested-ok')
   })
 
   test('createPage() preserves PageInput.createdAt/updatedAt instead of stamping import time', async () => {
@@ -282,6 +385,118 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
     assert.equal(result!.id, page.id)
     assert.equal(result!.path, 'docs/stay-put')
+  })
+
+  test('movePage can re-home a page into another locale', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/xloc', locale: 'en' }),
+      actor
+    )
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'move/xloc', locale: 'fr' },
+      actor
+    )
+    assert.equal(moved!.locale, 'fr')
+    assert.equal(moved!.path, 'move/xloc')
+    assert.ok(
+      await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        hash: generatePathHash('move/xloc'),
+        locale: 'fr'
+      })
+    )
+    assert.equal(
+      await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        hash: generatePathHash('move/xloc'),
+        locale: 'en'
+      }),
+      null
+    )
+  })
+
+  test('movePage rejects a destination-locale collision as 409', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/occupied', locale: 'fr' }),
+      actor
+    )
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/occupied', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, en.id, { path: 'move/occupied', locale: 'fr' }, actor),
+      (err: any) => err.statusCode === 409 && err.name === 'pageDuplicatePath'
+    )
+  })
+
+  test('movePage rejects an inactive destination locale', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/badloc', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, page.id, { path: 'move/badloc', locale: 'zz' }, actor),
+      (err: any) => err.name === 'pageInvalidLocale'
+    )
+  })
+
+  test('movePage refuses a destination path starting with an installed locale code', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/ok', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, page.id, { path: 'en/shadowed' }, actor),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
+    )
+  })
+
+  test('movePage accepts a title-only move on a grandfathered page whose path is not changing', async () => {
+    // -> `createPage()` refuses this path outright since task 12/#994 -- reachable only by writing
+    //    under the model layer, exactly the "grandfathered" row the reserved-segment check on
+    //    `movePage` must not punish for an edit that leaves its shadowing first segment untouched.
+    //    A real grandfathered page also has a real ancestor folder tree row (filled in by
+    //    `tree.addPage` back when it was created, before `tree.createFolder` started refusing `fr`)
+    //    -- seeded directly here so `movePage`'s unconditional tree delete+recreate doesn't have to
+    //    re-materialize `fr` through the now-reserved `createFolder` path.
+    const [rawPage] = await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'fr/legacy', locale: 'en', siteId: fixtures.siteId }))
+      .returning()
+    await seedTreeEntry(fixtures.db, {
+      siteId: fixtures.siteId,
+      path: 'fr',
+      type: 'folder',
+      locale: 'en'
+    })
+
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      rawPage!.id,
+      { path: 'fr/legacy', title: 'Legacy, Renamed' },
+      actor
+    )
+    assert.equal(moved!.path, 'fr/legacy')
+    assert.equal(moved!.title, 'Legacy, Renamed')
+  })
+
+  test('movePage still refuses moving a grandfathered page to a NEW reserved-code path', async () => {
+    const [rawPage] = await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'fr/legacy-relocate', locale: 'en', siteId: fixtures.siteId }))
+      .returning()
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, rawPage!.id, { path: 'en/legacy-relocate' }, actor),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
+    )
   })
 
   test('deletePage removes the page and frees its path for reuse', async () => {
@@ -765,7 +980,9 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
 
     assert.equal(sendCalls.length, 1)
     assert.equal(sendCalls[0].to, 'watcher@example.com')
+    assert.equal(sendCalls[0].siteId, fixtures.siteId)
     assert.equal(sendCalls[0].page.title, 'Immediately Updated')
+    assert.equal(sendCalls[0].page.locale, 'en')
     assert.deepEqual(sendCalls[0].changedFields, ['title'])
 
     const events = await pendingEventsFor(page.id)
@@ -865,5 +1082,52 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
     assert.equal(events.length, 1)
     assert.equal(events[0]!.actorId, actor.id)
     assert.deepEqual([...events[0]!.changedFields].sort(), ['content', 'title'])
+  })
+
+  test('recorded events capture the page locale as of the change, not the site default', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/captured-locale', locale: 'fr' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Mis À Jour' }, actor)
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.pageLocale, 'fr')
+  })
+
+  test('a move that changes the page locale records the new locale, with "locale" among the changed fields', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'watch/move-locale', locale: 'en' }),
+      actor
+    )
+    await WIKI.models.pageWatching.watch({
+      siteId: fixtures.siteId,
+      pageId: page.id,
+      userId: watcherId
+    })
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'watch/move-locale', locale: 'fr' },
+      actor
+    )
+    await drainQueuedNotifications()
+
+    const events = await pendingEventsFor(page.id)
+    assert.equal(events.length, 1)
+    assert.equal(events[0]!.action, 'moved')
+    assert.equal(events[0]!.pageLocale, 'fr')
+    assert.ok(events[0]!.changedFields.includes('locale'))
   })
 })

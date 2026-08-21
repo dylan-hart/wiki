@@ -1,4 +1,6 @@
 import { validate as uuidValidate } from 'uuid'
+import { and, count, eq, inArray } from 'drizzle-orm'
+import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
@@ -678,6 +680,40 @@ async function routes(app: FastifyInstance) {
             'siteUpdatePrimaryLocaleNotActive',
             'The primary locale must be one of the active locales.'
           )
+        }
+
+        // -> Deactivating a locale that still holds pages would orphan them: unreachable by URL
+        //    (the prefix parser only recognizes ACTIVE codes), uncreatable, yet still surfacing in
+        //    the file manager and search. Refuse with counts; moving or deleting the pages first is
+        //    the explicit path. (Decision doc, Option A item 5.)
+        //
+        //    Only PAGES are counted, deliberately: a folder or asset left behind in a deactivated
+        //    locale with zero pages does not orphan a reachable URL the way a page would, so
+        //    deactivation is allowed to proceed in that case. Pages are the orphaning concern this
+        //    check exists for.
+        const removedLocales = (site.config.locales?.active ?? []).filter(
+          (code: string) => !active.includes(code)
+        )
+        if (removedLocales.length > 0) {
+          const counts = await WIKI.db
+            .select({ locale: pagesTable.locale, total: count() })
+            .from(pagesTable)
+            .where(
+              and(
+                eq(pagesTable.siteId, req.params.siteId),
+                inArray(pagesTable.locale, removedLocales)
+              )
+            )
+            .groupBy(pagesTable.locale)
+          if (counts.length > 0) {
+            throw new CustomError(
+              'siteUpdateLocaleHasPages',
+              `Cannot deactivate locale(s) still holding pages: ${counts
+                .map((c) => `${c.locale} (${c.total})`)
+                .join(', ')}. Move or delete those pages first.`,
+              409
+            )
+          }
         }
       }
 

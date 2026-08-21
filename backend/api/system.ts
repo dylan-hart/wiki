@@ -1446,7 +1446,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Scan for page problems',
         description:
-          'Queues a background job that runs four integrity checks across every site: pages whose stored hash has drifted from their path, tree entries and pages that have diverged from each other, duplicate (site, locale, path) tuples, and page relations pointing at a page that no longer exists. Runs in the background — a full scan is not instant on a large wiki — and only reports; nothing is repaired automatically. Poll `GET /pages/scan/:jobId` for the result.',
+          'Queues a background job that runs five integrity checks across every site: pages whose stored hash has drifted from their path, tree entries and pages that have diverged from each other, duplicate (site, locale, path) tuples, page relations pointing at a page that no longer exists, and pages/tree rows whose path starts with an installed locale code. Runs in the background — a full scan is not instant on a large wiki — and only reports; nothing is repaired automatically. Poll `GET /pages/scan/:jobId` for the result.',
         tags: ['System'],
         response: {
           200: {
@@ -1553,6 +1553,15 @@ async function routes(app: FastifyInstance) {
                   brokenRelations: {
                     type: 'object',
                     description: 'Page relations pointing at a page that no longer exists.',
+                    properties: {
+                      count: { type: 'integer' },
+                      entries: { type: 'array', items: { type: 'object' } }
+                    }
+                  },
+                  localeCollisions: {
+                    type: 'object',
+                    description:
+                      'Pages/tree rows whose path starts with an installed locale code, grandfathered in from before that segment was reserved.',
                     properties: {
                       count: { type: 'integer' },
                       entries: { type: 'array', items: { type: 'object' } }

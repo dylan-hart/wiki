@@ -150,6 +150,9 @@ async function writeUnderPath(destPath: string, data: string | Buffer): Promise<
  * A site with nothing to dump (no pages, no assets) simply writes nothing and resolves normally — see
  * `listSiteEntries` returning an empty list.
  *
+ * Implements disk's always-prefixed serialization convention (every locale, including the primary,
+ * gets its own directory) — see `docs/decisions/locale-architecture.md` §5.3.
+ *
  * @throws With a message naming the entry and the underlying fs error, the moment any single write
  *         fails (e.g. the path became unwritable mid-run) — entries already written before that point
  *         stay on disk, and the ones after it are simply not attempted this run.

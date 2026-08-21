@@ -242,6 +242,7 @@ describe('git storage content handlers', () => {
         path: 'new-path',
         previousPath: 'old-path',
         locale: PRIMARY_LOCALE,
+        previousLocale: PRIMARY_LOCALE,
         siteId: SITE_ID
       })
 
@@ -267,12 +268,37 @@ describe('git storage content handlers', () => {
         path: 'new-path',
         previousPath: 'old-path',
         locale: PRIMARY_LOCALE,
+        previousLocale: PRIMARY_LOCALE,
         siteId: SITE_ID
       })
 
       assert.equal(await fs.readFile(path.join(repoPath, 'new-path.md'), 'utf8'), 'body')
       const commit = await latestCommit(repoPath)
       assert.equal(commit?.message, 'docs: create new-path')
+    })
+
+    test('a locale-only move renames the file out of the old locale directory', async () => {
+      installWiki(rootPath, {
+        pages: { p1: { id: 'p1', path: 'same-path', contentType: 'markdown', content: 'body' } }
+      })
+      const { repoPath } = await ensureRepo(target)
+      // -> Created in a non-primary locale, so it starts inside that locale's directory
+      await created(target, { id: 'p1', path: 'same-path', locale: 'fr', siteId: SITE_ID })
+
+      await renamed(target, {
+        id: 'p1',
+        path: 'same-path',
+        previousPath: 'same-path',
+        locale: PRIMARY_LOCALE,
+        previousLocale: 'fr',
+        siteId: SITE_ID
+      })
+
+      // -> The primary locale has no directory of its own, so the page lands at the repo root
+      await assert.rejects(fs.access(path.join(repoPath, 'fr', 'same-path.md')))
+      assert.equal(await fs.readFile(path.join(repoPath, 'same-path.md'), 'utf8'), 'body')
+      const commit = await latestCommit(repoPath)
+      assert.equal(commit?.message, 'docs: rename fr/same-path to en/same-path')
     })
   })
 

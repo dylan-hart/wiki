@@ -72,8 +72,10 @@ import { useI18n } from 'vue-i18n'
 import { loading } from '@/composables/loading'
 
 import { isFollowable, parseRedirect, REDIRECT_INTERSTITIAL_MS } from '@/helpers/pageRedirect'
+import { localizedPagePath, parseLocalePrefix } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
@@ -109,6 +111,7 @@ let hops = 0
 // STORES
 
 const pageStore = usePageStore()
+const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
@@ -130,7 +133,39 @@ const chainStopped = ref(false)
 
 // COMPUTED
 
-const redirect = computed(() => parseRedirect(pageStore.content))
+/**
+ * The site's active locale codes, as `parseLocalePrefix` takes them -- shared between the target
+ * composition below and `isSelf`'s decomposition of it, so the two stay in agreement about what
+ * counts as a recognized prefix.
+ */
+const activeLocaleCodes = computed(() => siteStore.locales.active.map((locale) => locale.code))
+
+/**
+ * The stored redirection, with an in-app target resolved to a locale it actually carries.
+ *
+ * The author picks a target through `LinkPickerDialog`, which already prefixes it for
+ * `pageStore.locale` at the time it was chosen -- so a target that already carries an active-locale
+ * prefix (`parseLocalePrefix` matches it) is left exactly as written; the author addressed a specific
+ * translation, and re-prefixing it would double up or override that choice. A bare target -- content
+ * saved before that scoping existed, or written by hand -- has no locale of its own to have meant, so
+ * it stays within the redirect page's OWN locale by default, the same rule any other in-app link in
+ * this app follows.
+ *
+ * A URL target leaves the app entirely and has no page locale to carry.
+ */
+const redirect = computed(() => {
+  const parsed = parseRedirect(pageStore.content)
+  if (parsed.kind === 'url' || !parsed.target) {
+    return parsed
+  }
+  if (parseLocalePrefix(parsed.target, activeLocaleCodes.value)) {
+    return parsed
+  }
+  return {
+    ...parsed,
+    target: localizedPagePath(parsed.target.slice(1), pageStore.locale, siteStore.localeRouting)
+  }
+})
 
 /**
  * Why this redirection cannot be followed, if it cannot: nothing was filled in, it points at the page
@@ -225,11 +260,28 @@ function clear() {
   timer = null
 }
 
-/** Whether a page target is the page holding it, however the two are spelled. */
+/**
+ * Whether a page target is the page holding it, however the two are spelled -- bare or
+ * locale-prefixed, and whichever locale that prefix names.
+ *
+ * `target` is `redirect.value`'s own composed target above, so it is never simply bare: an explicit
+ * prefix names the locale the author addressed, and the absence of one -- `localizedPagePath`'s only
+ * unprefixed case -- names the site's primary locale just as plainly. Decomposed back into a bare
+ * path and a locale and compared against this page's own `pageStore.path` and `pageStore.locale`
+ * rather than the path alone, since the same path addressed at a DIFFERENT translation is a link to
+ * another page, not a loop back to this one.
+ */
 function isSelf(target) {
+  const parsed = parseLocalePrefix(target, activeLocaleCodes.value)
+  const targetLocale = parsed?.locale ?? siteStore.locales.primary
+  if (targetLocale !== pageStore.locale) {
+    return false
+  }
+  const targetPath = (parsed?.path ?? target).replace(/\/+$/, '')
   const stored = `/${pageStore.path}`.replace(/\/+$/, '')
-  const to = target.replace(/\/+$/, '').toLowerCase()
-  return to === stored.toLowerCase() || (stored === '/home' && to === '')
+  return (
+    targetPath.toLowerCase() === stored.toLowerCase() || (stored === '/home' && targetPath === '')
+  )
 }
 
 /**
@@ -258,6 +310,9 @@ function follow() {
 }
 
 function editPage() {
-  router.push(`/_edit/${pageStore.path}`)
+  router.push({
+    path: `/_edit/${pageStore.path}`,
+    query: siteStore.useLocales ? { locale: pageStore.locale } : undefined
+  })
 }
 </script>

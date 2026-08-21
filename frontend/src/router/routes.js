@@ -25,11 +25,7 @@ const routes = [
       const siteStore = useSiteStore()
       try {
         const target = await pageStore.pageAlias(to.params.alias)
-        return localizedPagePath(target.path, target.locale, {
-          useLocales: siteStore.useLocales,
-          primary: siteStore.locales.primary,
-          forcePrefix: siteStore.locales.forcePrefix
-        })
+        return localizedPagePath(target.path, target.locale, siteStore.localeRouting)
       } catch (err) {
         return '/_error/notfound'
       }
@@ -111,6 +107,11 @@ const routes = [
   {
     path: '/_error/:action?',
     component: () => import('@/pages/ErrorGeneric.vue')
+  },
+  {
+    path: '/_graph',
+    component: () => import('../layouts/MainLayout.vue'),
+    children: [{ path: '', component: () => import('../pages/Graph.vue') }]
   },
 
   // --------------------------------

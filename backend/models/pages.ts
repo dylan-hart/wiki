@@ -176,6 +176,23 @@ export interface PageInput {
   updatedAt?: string
 }
 
+/** One page's worth of raw data for the knowledge graph endpoint (OpenProject #872). */
+export interface GraphPageRow {
+  path: string
+  locale: string
+  title: string
+  icon: string | null
+  tags: string[]
+  relations: {
+    pos: 'left' | 'center' | 'right'
+    label: string
+    caption: string
+    icon: string
+    target: string
+  }[]
+  links: string[]
+}
+
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
@@ -490,6 +507,26 @@ class Pages {
   }
 
   /**
+   * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
+   * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
+   * to build and permission-filter the graph once.
+   */
+  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+    return WIKI.db
+      .select({
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        title: pagesTable.title,
+        icon: pagesTable.icon,
+        tags: pagesTable.tags,
+        relations: pagesTable.relations,
+        links: pagesTable.links
+      })
+      .from(pagesTable)
+      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+  }
+
+  /**
    * Check a page's password, and hand the page over if it matches.
    *
    * Deliberately the only way past the lock: a reader gets the body from here or from a `getPage` the
@@ -560,6 +597,14 @@ class Pages {
     }
 
     const path = normalizePath(input.path)
+    const firstSegment = path.split('/')[0] ?? ''
+    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+      throw new CustomError(
+        'pageReservedLocaleSegment',
+        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+        400
+      )
+    }
     const locale = input.locale || this.defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
@@ -600,53 +645,65 @@ class Pages {
     }
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const pageRef: RulePageRef = { path, locale, tags: input.tags }
-    const { render, toc, text } = await WIKI.models.rendering.postProcess(
+    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags }
+    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
       {
         scripts: hasPermission(actor, 'write:scripts', pageRef),
         styles: hasPermission(actor, 'write:styles', pageRef)
-      }
+      },
+      path
     )
 
     const pathParts = path.split('/')
-    const inserted = await WIKI.db
-      .insert(pagesTable)
-      .values({
-        alias,
-        authorId: actor.id,
-        creatorId: actor.id,
-        ownerId: actor.id,
-        config: this.buildConfig(input, siteId),
-        content,
-        contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
-        description: input.description ?? '',
-        editor,
-        hash,
-        icon: input.icon ?? '',
-        isBrowsable: input.isBrowsable ?? true,
-        // -> A redirection has nothing to find: a result for it would be a result whose page is a
-        //    doorway to the page the reader actually wanted, which is the one search should offer
-        isSearchable: isRedirect ? false : (input.isSearchable ?? true),
-        locale,
-        password: input.password || null,
-        path,
-        publishState: input.publishState ?? 'published',
-        publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
-        publishEndDate: input.publishEndDate ? new Date(input.publishEndDate) : null,
-        relations: input.relations ?? [],
-        render,
-        searchContent: text,
-        scripts: this.buildScripts(input, actor, pageRef),
-        siteId,
-        tags: input.tags ?? [],
-        title,
-        toc,
-        ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
-        ...(input.updatedAt ? { updatedAt: new Date(input.updatedAt) } : {})
-      })
-      .returning()
+    let inserted
+    try {
+      inserted = await WIKI.db
+        .insert(pagesTable)
+        .values({
+          alias,
+          authorId: actor.id,
+          creatorId: actor.id,
+          ownerId: actor.id,
+          config: this.buildConfig(input, siteId),
+          content,
+          contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
+          description: input.description ?? '',
+          editor,
+          hash,
+          icon: input.icon ?? '',
+          isBrowsable: input.isBrowsable ?? true,
+          // -> A redirection has nothing to find: a result for it would be a result whose page is a
+          //    doorway to the page the reader actually wanted, which is the one search should offer
+          isSearchable: isRedirect ? false : (input.isSearchable ?? true),
+          locale,
+          password: input.password || null,
+          path,
+          publishState: input.publishState ?? 'published',
+          publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
+          publishEndDate: input.publishEndDate ? new Date(input.publishEndDate) : null,
+          relations: input.relations ?? [],
+          links,
+          render,
+          searchContent: text,
+          scripts: this.buildScripts(input, actor, pageRef),
+          siteId,
+          tags: input.tags ?? [],
+          title,
+          toc,
+          ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
+          ...(input.updatedAt ? { updatedAt: new Date(input.updatedAt) } : {})
+        })
+        .returning()
+    } catch (err: any) {
+      // -> The probe above already covers the common case; this catches the race it cannot close --
+      //    two requests that both pass the probe before either inserts
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
+      }
+      throw err
+    }
 
     const page = inserted[0]
 
@@ -784,18 +841,25 @@ class Pages {
     const existingRef: RulePageRef = {
       path: existing.path,
       locale: existing.locale,
+      siteId: existing.siteId,
       tags: existing.tags ?? []
     }
 
     // -> A render only means anything next to the content it came from, so the two move together
     if (patch.render !== undefined) {
-      const { render, toc, text } = await WIKI.models.rendering.postProcess(siteId, patch.render, {
-        scripts: hasPermission(actor, 'write:scripts', existingRef),
-        styles: hasPermission(actor, 'write:styles', existingRef)
-      })
+      const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+        siteId,
+        patch.render,
+        {
+          scripts: hasPermission(actor, 'write:scripts', existingRef),
+          styles: hasPermission(actor, 'write:styles', existingRef)
+        },
+        existing.path
+      )
       values.render = render
       values.toc = toc
       values.searchContent = text
+      values.links = links
     }
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
@@ -846,7 +910,7 @@ class Pages {
       id,
       'updated',
       actor.id,
-      { title: updated.title, path: updated.path },
+      { title: updated.title, path: updated.path, locale: updated.locale },
       changedFields
     )
 
@@ -883,12 +947,16 @@ class Pages {
   }
 
   /**
-   * Move a page to another path, taking its tree entry with it.
+   * Move a page to another path and/or another locale, taking its tree entry with it.
+   *
+   * `locale` re-homes the page into another of the site's locales, which is a move in exactly the
+   * sense a path change is: the page keeps its id, history and watchers, and the (siteId, locale,
+   * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
    */
   async movePage(
     siteId: string,
     id: string,
-    { path, title }: { path: string; title?: string },
+    { path, title, locale }: { path: string; title?: string; locale?: string },
     actor: PageActor
   ): Promise<Page | null> {
     const page = await this.getPage({ siteId, id })
@@ -896,11 +964,44 @@ class Pages {
       return null
     }
     const newPath = normalizePath(path)
-    if (newPath === page.path && (title === undefined || title === page.title)) {
+    // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so a
+    //    title-only (or locale-only) move of an already-grandfathered page — one whose path predates
+    //    this rule — isn't itself blocked. The route's own schema advertises rename-via-move, and a
+    //    page whose shadowing first segment is untouched by this call isn't newly at risk.
+    if (newPath !== page.path) {
+      const firstSegment = newPath.split('/')[0] ?? ''
+      if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+        throw new CustomError(
+          'pageReservedLocaleSegment',
+          `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+          400
+        )
+      }
+    }
+    const destLocale = locale ?? page.locale
+    // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
+    //    may end up, whether by being created there or by being moved there
+    if (destLocale !== page.locale) {
+      const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+        this.defaultLocale(siteId)
+      ]
+      if (!activeLocales.includes(destLocale)) {
+        throw new CustomError(
+          'pageInvalidLocale',
+          `This site does not have the "${destLocale}" locale enabled.`,
+          400
+        )
+      }
+    }
+    if (
+      newPath === page.path &&
+      destLocale === page.locale &&
+      (title === undefined || title === page.title)
+    ) {
       return page
     }
 
-    if (newPath !== page.path) {
+    if (newPath !== page.path || destLocale !== page.locale) {
       const duplicate = await WIKI.db
         .select({ id: pagesTable.id })
         .from(pagesTable)
@@ -908,7 +1009,7 @@ class Pages {
           and(
             ne(pagesTable.id, id),
             eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, page.locale),
+            eq(pagesTable.locale, destLocale),
             eq(pagesTable.path, newPath)
           )
         )
@@ -920,17 +1021,28 @@ class Pages {
 
     // -> `.returning()` gets the raw row for free off the same write, which is what
     //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
-    const rawMovedRows = await WIKI.db
-      .update(pagesTable)
-      .set({
-        path: newPath,
-        hash: generatePathHash(newPath),
-        ...(title !== undefined ? { title: title.trim() } : {}),
-        authorId: actor.id,
-        updatedAt: sql`now()`
-      })
-      .where(eq(pagesTable.id, id))
-      .returning()
+    let rawMovedRows
+    try {
+      rawMovedRows = await WIKI.db
+        .update(pagesTable)
+        .set({
+          path: newPath,
+          hash: generatePathHash(newPath),
+          locale: destLocale,
+          ...(title !== undefined ? { title: title.trim() } : {}),
+          authorId: actor.id,
+          updatedAt: sql`now()`
+        })
+        .where(eq(pagesTable.id, id))
+        .returning()
+    } catch (err: any) {
+      // -> The probe above already covers the common case; this catches the race it cannot close --
+      //    two requests that both pass the probe before either updates
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
+      }
+      throw err
+    }
     const rawMoved = rawMovedRows[0]!
 
     // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
@@ -942,7 +1054,7 @@ class Pages {
       parentPath: pathParts.slice(0, -1).join('/'),
       fileName: pathParts.at(-1)!,
       title: title !== undefined ? title.trim() : page.title,
-      locale: page.locale,
+      locale: destLocale,
       siteId,
       tags: page.tags,
       meta: this.treeMeta({ ...page, path: newPath })
@@ -954,6 +1066,7 @@ class Pages {
     //    and a history list has to be able to say so
     const changedFields = [
       ...(newPath !== page.path ? ['path'] : []),
+      ...(destLocale !== page.locale ? ['locale'] : []),
       ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
     ]
     await WIKI.models.pageHistory.record({
@@ -968,16 +1081,20 @@ class Pages {
       id,
       'moved',
       actor.id,
-      { title: moved.title, path: moved.path },
+      { title: moved.title, path: moved.path, locale: moved.locale },
       changedFields
     )
 
-    await WIKI.models.search.renamed(siteId, rawMoved, page.path)
+    await WIKI.models.search.renamed(siteId, rawMoved, page.path, page.locale)
+    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
+    //    that has to find what the page used to be (the git target's own file for it, say) needs the
+    //    whole of where it was, not half of it
     await WIKI.models.hooks.emit('page:rename', siteId, {
       id,
       path: moved.path,
       previousPath: page.path,
       locale: moved.locale,
+      previousLocale: page.locale,
       siteId,
       authorId: actor.id
     })
@@ -986,6 +1103,7 @@ class Pages {
       path: moved.path,
       previousPath: page.path,
       locale: moved.locale,
+      previousLocale: page.locale,
       siteId,
       authorId: actor.id
     })
@@ -1013,7 +1131,8 @@ class Pages {
     //    has to be read while it still exists
     await this.notifyWatchers(siteId, id, 'deleted', actor.id, {
       title: page.title,
-      path: page.path
+      path: page.path,
+      locale: page.locale
     })
 
     await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
@@ -1072,7 +1191,8 @@ class Pages {
       //    with), so the file name stands in for it, same as the path built for `page:delete` below.
       await this.notifyWatchers(siteId, entry.id, 'deleted', actor.id, {
         title: entry.fileName,
-        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName
+        path: entry.folderPath ? `${entry.folderPath}/${entry.fileName}` : entry.fileName,
+        locale: entry.locale
       })
     }
     await WIKI.db.delete(pagesTable).where(
@@ -1132,8 +1252,8 @@ class Pages {
       siteId,
       pageId: page.id,
       permissions: {
-        scripts: hasPermission(actor, 'write:scripts', page),
-        styles: hasPermission(actor, 'write:styles', page)
+        scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
+        styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },
       requestedById: actor.id
     })
@@ -1151,13 +1271,19 @@ class Pages {
     siteId: string,
     id: string,
     html: string,
-    permissions: RenderPermissions
+    permissions: RenderPermissions,
+    pagePath: string
   ): Promise<void> {
-    const { render, toc, text } = await WIKI.models.rendering.postProcess(siteId, html, permissions)
+    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+      siteId,
+      html,
+      permissions,
+      pagePath
+    )
 
     const updated = await WIKI.db
       .update(pagesTable)
-      .set({ render, toc, searchContent: text, updatedAt: sql`now()` })
+      .set({ render, toc, searchContent: text, links, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
       .returning()
 
@@ -1224,7 +1350,14 @@ class Pages {
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
     return rows
-      .filter((row) => rulesAllow(guestRules, 'read:pages', row))
+      .filter((row) =>
+        rulesAllow(guestRules, 'read:pages', {
+          path: row.path,
+          locale: row.locale,
+          siteId,
+          tags: row.tags
+        })
+      )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
   }
 
@@ -1345,7 +1478,7 @@ class Pages {
     pageId: string,
     action: PageWatchNotifiableAction,
     actorId: string,
-    page: { title: string; path: string },
+    page: { title: string; path: string; locale: string },
     changedFields: string[] = []
   ): Promise<void> {
     try {
@@ -1360,6 +1493,7 @@ class Pages {
           pageId,
           pageTitle: page.title,
           pagePath: page.path,
+          pageLocale: page.locale,
           action,
           changedFields,
           actorId,

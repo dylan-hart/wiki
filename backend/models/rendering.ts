@@ -89,6 +89,8 @@ export interface PostProcessResult {
   toc: TocNode[]
   /** Plain text, for the search index. */
   text: string
+  /** Internal-link target page paths, deduplicated — see `extractInternalLinks`. */
+  links: string[]
 }
 
 /**
@@ -400,7 +402,8 @@ class Rendering {
   async postProcess(
     siteId: string,
     html: string,
-    permissions: RenderPermissions
+    permissions: RenderPermissions,
+    pagePath: string = ''
   ): Promise<PostProcessResult> {
     const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(siteId)
     const clean = this.sanitize(html ?? '', permissions, enabledBlocks)
@@ -412,11 +415,13 @@ class Rendering {
     this.liftIconChildren($)
     await this.inlineIcons($)
     const toc = this.anchorHeadings($)
+    const links = this.extractInternalLinks($, pagePath)
 
     return {
       render: $.html(),
       toc,
-      text: this.extractText($)
+      text: this.extractText($),
+      links
     }
   }
 
@@ -835,6 +840,44 @@ class Rendering {
   }
 
   /**
+   * Internal link targets on the page, resolved to page paths — what `pages.links`
+   * (`db/schema.ts`) stores and the knowledge graph endpoint (`api/graph.ts`, OpenProject #872)
+   * reads as `link`-type edges.
+   *
+   * Ported rather than reused from `frontend/src/renderers/markdown.js`'s
+   * `isExternalHref`/`fileSrc`: this runs in Node, with no `document` to resolve a bare-relative
+   * href against, and only cares about anchors, not images — an internal image is a file under
+   * `/_files/`, never another page.
+   */
+  private extractInternalLinks($: cheerio.CheerioAPI, pagePath: string): string[] {
+    const folder = pagePath.split('/').slice(0, -1).join('/')
+    const targets = new Set<string>()
+
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href')?.trim()
+      if (!href || href.startsWith('#') || href.startsWith('//')) {
+        return
+      }
+      // -> Any other scheme (`http:`, `https:`, `mailto:`, `tel:`, ...) is not a page on this
+      //    wiki -- `fileSrc` excludes the same set, for the same reason, for images.
+      if (/^[a-z][a-z\d+.-]*:/i.test(href)) {
+        return
+      }
+      try {
+        const url = new URL(href, `http://page.invalid/${folder ? `${folder}/` : ''}`)
+        const target = url.pathname.replace(/^\/+/, '')
+        if (target) {
+          targets.add(target)
+        }
+      } catch {
+        // -> Malformed href written by an author; nothing to link.
+      }
+    })
+
+    return [...targets]
+  }
+
+  /**
    * Whether this instance can render a page at all.
    *
    * Puppeteer is an extension, and one that is not installed by default: rendering server-side is the
@@ -1030,10 +1073,13 @@ class Rendering {
             WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config ?? {},
             { pagePath: page.path }
           )
-          await WIKI.models.pages.storeRender(entry.siteId, page.id, html, {
-            scripts: entry.allowScripts,
-            styles: entry.allowStyles
-          })
+          await WIKI.models.pages.storeRender(
+            entry.siteId,
+            page.id,
+            html,
+            { scripts: entry.allowScripts, styles: entry.allowStyles },
+            page.path
+          )
           WIKI.logger.debug(`Rendered page ${page.id} (${page.path}) from its source.`)
         } catch (err: any) {
           WIKI.logger.warn(`Failed to render page ${entry.pageId}: ${err.message}`)

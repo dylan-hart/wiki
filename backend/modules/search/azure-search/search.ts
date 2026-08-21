@@ -540,8 +540,9 @@ export class AzureSearchModule implements SearchModule {
    * `previousPath` goes unused: the document's key is the page's `id`, not its `path`, so a move is
    * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
    * under a new key. Unlike the `db` engine — whose `ts` vector never stores the path at all, making a
-   * rename a genuine no-op — this module's index does store `path` as a filterable field, so it does
-   * need rewriting here.
+   * path-only rename a genuine no-op there — this module's index does store `path` as a filterable
+   * field, so it does need rewriting here. A locale change is rewritten by the same reindex, which is
+   * why this module needs no `previousLocale` of its own.
    */
   async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)

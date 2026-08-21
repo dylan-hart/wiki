@@ -153,6 +153,53 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
   })
 })
 
+describe('rendering.postProcess: internal link extraction (OpenProject #881)', () => {
+  test("resolves a relative link against the page's folder", async () => {
+    const html = '<p><a href="../sibling">Sibling</a></p>'
+    const result = await rendering.postProcess(
+      'site-1',
+      html,
+      { scripts: false, styles: false },
+      'docs/child/page'
+    )
+    assert.deepEqual(result.links, ['docs/sibling'])
+  })
+
+  test('resolves a root-relative link as-is, dropping the leading slash', async () => {
+    const html = '<p><a href="/getting-started">Start</a></p>'
+    const result = await rendering.postProcess(
+      'site-1',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+    assert.deepEqual(result.links, ['getting-started'])
+  })
+
+  test('ignores external, mailto, and fragment-only links', async () => {
+    const html =
+      '<p><a href="https://example.com">Ext</a> <a href="mailto:a@b.com">Mail</a> <a href="#section">Frag</a></p>'
+    const result = await rendering.postProcess(
+      'site-1',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+    assert.deepEqual(result.links, [])
+  })
+
+  test('de-duplicates repeated links to the same page', async () => {
+    const html = '<p><a href="sibling">One</a> <a href="sibling">Two</a></p>'
+    const result = await rendering.postProcess(
+      'site-1',
+      html,
+      { scripts: false, styles: false },
+      'docs/page'
+    )
+    assert.deepEqual(result.links, ['docs/sibling'])
+  })
+})
+
 /**
  * `sanitize()` is what a page's HTML has to survive to be stored -- and since Task 624
  * (`renderers/markdown.js`'s `$…$`/`$$…$$` TeX authoring) resolves straight to literal KaTeX

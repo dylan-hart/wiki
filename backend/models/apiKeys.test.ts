@@ -415,12 +415,22 @@ describe(
       //    succeed on the strength of the group's rule alone — no `manage:pages`, no `manage:system`,
       //    no over-granting anything.
       assert.equal(
-        groupsModel.checkAccess(actor, 'read:pages', { path: 'anything', locale: 'en', tags: [] }),
+        groupsModel.checkAccess(actor, 'read:pages', {
+          path: 'anything',
+          locale: 'en',
+          siteId: null,
+          tags: []
+        }),
         true
       )
       // -> And nothing beyond what the rule actually grants: the same read-only key must not write.
       assert.equal(
-        groupsModel.checkAccess(actor, 'write:pages', { path: 'anything', locale: 'en', tags: [] }),
+        groupsModel.checkAccess(actor, 'write:pages', {
+          path: 'anything',
+          locale: 'en',
+          siteId: null,
+          tags: []
+        }),
         false
       )
     })

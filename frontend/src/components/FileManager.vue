@@ -12,17 +12,55 @@
         <span>{{ t(`fileman.title`) }}</span>
       </w-toolbar>
       <w-toolbar class="fileman-hdr-search" dark>
-        <!-- -> Same gate the sidebar's locale button uses in `MainLayout`: with the site's locale menu
-             off, switching locale is not something a reader is offered anywhere -->
+        <!--
+          -> The CONTENT locale being browsed, not the UI language -- `commonStore.locale` /
+             `<locale-selector-menu/>` switch that, and mounting it here read as "which locale's
+             files am I seeing" without doing anything of the sort. Gated on `siteStore.useLocales`
+             (more than one active locale) rather than `locales.showMenu`: that flag is about
+             whether a READER is offered a switcher, which has no bearing on whether an author
+             browsing the tree needs to pick which locale's files to see.
+
+          Menu idiom follows this same file's "view options" button just below: a `w-menu` of
+          `w-item`s with a check-circle/circle pair marking the current choice, rather than
+          `LocaleSelectorMenu`'s avatar-initials layout -- that one is styled for a reader-facing
+          language switcher, this is an in-toolbar filter control like the rest of this row.
+        -->
         <w-btn
-          v-if="siteStore.locales.showMenu"
+          v-if="siteStore.useLocales"
           class="fileman-locale mr-2 acrylic-btn"
           flat
           color="white"
-          :label="commonStore.locale"
-          :aria-label="commonStore.locale"
+          :label="state.locale"
+          :aria-label="state.locale"
           style="height: 40px">
-          <locale-selector-menu />
+          <w-menu
+            class="translucent-menu"
+            auto-close
+            transition-show="jump-down"
+            transition-hide="jump-up"
+            anchor="bottom left"
+            self="top left">
+            <w-card class="p-2">
+              <w-list dense style="min-width: 180px">
+                <w-item
+                  v-for="lang of siteStore.locales.active"
+                  :key="lang.code"
+                  clickable
+                  @click="selectLocale(lang.code)">
+                  <w-item-section side>
+                    <w-icon
+                      :name="lang.code === state.locale ? `la:check-circle` : `la:circle`"
+                      :color="lang.code === state.locale ? `positive` : `grey`"
+                      size="xs" />
+                  </w-item-section>
+                  <w-item-section class="pr-2">
+                    <w-item-label>{{ lang.nativeName }}</w-item-label>
+                    <w-item-label caption>{{ lang.code }}</w-item-label>
+                  </w-item-section>
+                </w-item>
+              </w-list>
+            </w-card>
+          </w-menu>
         </w-btn>
         <!--
           The same pill the site header uses, rather than a `w-input`.
@@ -536,11 +574,11 @@ import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
 import fileTypes from '@/helpers/fileTypes'
+import { localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
 import AssetRenameDialog from '@/components/AssetRenameDialog.vue'
-import LocaleSelectorMenu from '@/components/LocaleSelectorMenu.vue'
 
 // COMPOSABLES
 
@@ -604,6 +642,12 @@ const state = reactive({
   searchIsFocused: false,
   currentFolderId: null,
   currentFileId: null,
+  /**
+   * The content locale currently being browsed -- distinct from `commonStore.locale` (the UI
+   * language). Initialized in `onMounted` to `pageStore.locale || siteStore.locales.primary` and
+   * changed only by `selectLocale`.
+   */
+  locale: null,
   /**
    * Whether the folder tree has been opened. Only consulted while it overlays the list — beside it, it
    * is simply there. Deliberately NOT one of the remembered view options: those describe how a list is
@@ -909,6 +953,7 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
         ...(parentId ? { parentId } : {}),
         ...(parentPath ? { parentPath } : {}),
         ...(types?.length > 0 ? { types: types.join(',') } : {}),
+        locale: state.locale,
         includeAncestors: initLoad,
         includeRootFolders: initLoad
       }
@@ -1014,6 +1059,28 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
     treeComp.value.setLoaded(parentId)
   }
   state.isFetching = false
+}
+
+/**
+ * Switch the content locale being browsed and reload the tree from the root.
+ *
+ * A folder id (or a selected file) from one locale means nothing in another, so the reset clears
+ * every bit of state the previous locale's tree left behind -- the same fields `renameFolder`'s
+ * `onOk` resets before its own reload -- rather than trying to re-resolve the current position in
+ * the new locale's tree.
+ */
+async function selectLocale(code) {
+  if (code === state.locale) {
+    return
+  }
+  state.locale = code
+  state.currentFolderId = null
+  state.currentFileId = null
+  state.treeNodes = {}
+  state.treeRoots = []
+  state.fileList = []
+  treeComp.value?.resetLoaded()
+  await loadTree({ initLoad: true })
 }
 
 function treeContextAction(nodeId, action) {
@@ -1129,7 +1196,11 @@ function duplicatePage(item) {
       itemId: item.id,
       itemTitle: item.title,
       folderPath: item.folderPath,
-      itemFileName: item.fileName
+      itemFileName: item.fileName,
+      // -> The locale this item was listed under, not `pageStore.locale` -- the file being
+      //    duplicated is whatever locale `state.locale` is currently browsing, which may not be
+      //    the locale of the page (if any) open in the editor underneath this overlay
+      locale: state.locale
     }
   }).onOk(async (opts) => {
     try {
@@ -1166,7 +1237,9 @@ function renameMovePage(item) {
       itemId: item.id,
       itemTitle: item.title,
       folderPath: item.folderPath,
-      itemFileName: item.fileName
+      itemFileName: item.fileName,
+      // -> See the same note in `duplicatePage`, just above
+      locale: state.locale
     }
   }).onOk(async (opts) => {
     try {
@@ -1284,11 +1357,13 @@ async function uploadFiles(filesToUpload) {
           }
           idx++
           state.uploadPercentage = totalFiles > 1 ? Math.round((idx / totalFiles) * 100) : 90
-          // -> The body is the file itself rather than a multipart form, and the locale is left to the
-          //    server, which uses the site's primary one
+          // -> The body is the file itself rather than a multipart form. The locale is the one
+          //    currently being browsed, so an upload lands in the same locale as the folder it was
+          //    dropped into rather than always the site's primary.
           const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
             searchParams: {
               fileName: fileToUpload.name,
+              locale: state.locale,
               ...(state.currentFolderId ? { folderId: state.currentFolderId } : {})
             },
             headers: {
@@ -1450,7 +1525,7 @@ function openItem(item) {
     }
     case 'page': {
       const pagePath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
-      router.push(`/${pagePath}`)
+      router.push(localizedPagePath(pagePath, state.locale, siteStore.localeRouting))
       close()
       break
     }
@@ -1467,7 +1542,9 @@ async function copyItemURL(item) {
     switch (item.type) {
       case 'page': {
         const pagePath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
-        await navigator.clipboard.writeText(`${window.location.origin}/${pagePath}`)
+        await navigator.clipboard.writeText(
+          `${window.location.origin}${localizedPagePath(pagePath, state.locale, siteStore.localeRouting)}`
+        )
         break
       }
       case 'asset': {
@@ -1496,9 +1573,12 @@ async function copyItemURL(item) {
 }
 
 async function editItem(item) {
-  router.push(
-    item.folderPath ? `/_edit/${item.folderPath}/${item.fileName}` : `/_edit/${item.fileName}`
-  )
+  router.push({
+    path: item.folderPath
+      ? `/_edit/${item.folderPath}/${item.fileName}`
+      : `/_edit/${item.fileName}`,
+    query: siteStore.useLocales ? { locale: state.locale } : undefined
+  })
   close()
 }
 
@@ -1587,6 +1667,8 @@ function handleKeyPress(ev) {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyPress)
+
+  state.locale = pageStore.locale || siteStore.locales.primary
 
   const pathParts = pageStore.path.split('/')
   const parentPath = pathParts.slice(0, -1).join('/')

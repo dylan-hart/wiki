@@ -32,14 +32,17 @@ before(async () => {
           siteId: ENABLED_SITE_ID,
           fileName: 'sub',
           folderPath: '',
+          locale: 'en',
           meta: {}
         }),
         renameFolder: async (input: any) => ({
           ...input,
           siteId: ENABLED_SITE_ID,
           folderPath: '',
+          locale: 'en',
           meta: {}
-        })
+        }),
+        getTree: async () => []
       },
       groups: {
         actorForRequest: () => ({ permissions: [] })
@@ -78,11 +81,12 @@ test('visibleTreeItems: threads siteId into every filtered item, not just the fi
     { type: 'page', fileName: 'a', folderPath: '' },
     { type: 'asset', fileName: 'b.png', folderPath: 'folder' }
   ]
-  const result = visibleTreeItems({} as any, ENABLED_SITE_ID, items)
+  const result = visibleTreeItems({} as any, ENABLED_SITE_ID, 'en', items)
   assert.equal(result.length, 2)
   assert.equal(calls.length, 2)
   for (const page of calls) {
     assert.equal(page.siteId, ENABLED_SITE_ID)
+    assert.equal(page.locale, 'en')
   }
   assert.equal(calls[0].path, 'a')
   assert.equal(calls[1].path, 'folder/b.png')
@@ -98,11 +102,12 @@ test('mayOnFolder: threads siteId into the RulePageRef passed to checkAccess', (
     calls.push(page)
     return true
   }
-  const result = mayOnFolder({} as any, 'read:pages', ENABLED_SITE_ID, 'foo/bar')
+  const result = mayOnFolder({} as any, 'read:pages', ENABLED_SITE_ID, 'foo/bar', 'en')
   assert.equal(result, true)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
   assert.equal(calls[0].path, 'foo/bar')
+  assert.equal(calls[0].locale, 'en')
 })
 
 test('GET FOLDER route: passes the route siteId through to checkAccess', async () => {
@@ -122,6 +127,27 @@ test('GET FOLDER route: passes the route siteId through to checkAccess', async (
   assert.equal(res.statusCode, 200)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+})
+
+/**
+ * Review finding (#992): the GET tree route resolved a defaulted locale for `visibleTreeItems` but
+ * passed the raw, possibly-absent query param straight through to `getTree` — an omitted `locale`
+ * merged every locale out of `getTree` while `visibleTreeItems` judged access as if the site's
+ * primary locale were the only one present. The handler now resolves one `const locale` and passes
+ * it to both.
+ */
+test('GET TREE route: getTree receives the same resolved locale visibleTreeItems judges by, when the query omits locale', async () => {
+  let getTreeLocale: string | null | undefined = 'not called'
+  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+    getTreeLocale = args.locale
+    return []
+  }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${ENABLED_SITE_ID}/tree`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(getTreeLocale, 'en', "getTree must receive the site's resolved default locale")
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {

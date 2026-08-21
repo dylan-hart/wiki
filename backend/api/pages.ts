@@ -21,6 +21,16 @@ function exportFilenameStem(path: string): string {
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
 }
 
+/**
+ * The locale content belongs to when the request does not say.
+ *
+ * Mirrors `api/tree.ts`'s own copy — a site always has a primary locale, so this is the answer for
+ * most requests rather than a fallback.
+ */
+function defaultLocale(siteId: string): string {
+  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+}
+
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
 function splitList(value?: string): string[] {
   return (
@@ -103,7 +113,7 @@ const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
 }
@@ -117,7 +127,7 @@ export function mayBypassPassword(
 export function unlockedFor(
   req: FastifyRequest,
   siteId: string,
-  page: { id: string; path: string; locale?: string; tags?: string[] }
+  page: { id: string; path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return (
     mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
@@ -139,7 +149,7 @@ export function mayOnPage(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
@@ -164,7 +174,7 @@ export function mayOnPage(
 export function pagePermissionsFor(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   /*
@@ -586,6 +596,7 @@ async function routes(app: FastifyInstance) {
         WIKI.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
           path: page.path,
+          locale: page.locale,
           tags: page.tags ?? [],
           allowContributions: page.allowContributions
         }),
@@ -753,7 +764,7 @@ async function routes(app: FastifyInstance) {
       if (
         !mayOnPage(req, 'write:pages', req.params.siteId, {
           path: req.body.path,
-          locale: req.body.locale
+          locale: req.body.locale ?? defaultLocale(req.params.siteId)
         })
       ) {
         return reply.forbidden('You are not allowed to create a page here.')
@@ -823,7 +834,7 @@ async function routes(app: FastifyInstance) {
       if (
         !mayOnPage(req, 'write:pages', req.params.siteId, {
           path: req.query.path,
-          locale: req.query.locale
+          locale: req.query.locale ?? defaultLocale(req.params.siteId)
         })
       ) {
         return reply.forbidden('You are not allowed to write a page here.')
@@ -994,7 +1005,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string; pageId: string }
-    Body: { path: string; title?: string }
+    Body: { path: string; title?: string; locale?: string }
   }>(
     '/sites/:siteId/pages/:pageId/path',
     {
@@ -1006,7 +1017,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          'Also renames it when a title is given. The tree entry moves with it, and any folder the new path needs is created.',
+          'Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.',
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1022,6 +1033,11 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               minLength: 1,
               maxLength: 255
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: 'Move the page into this locale. Unchanged when absent.'
             }
           }
         },
@@ -1037,7 +1053,11 @@ async function routes(app: FastifyInstance) {
           },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
-          404: { $ref: 'ApiError#' }
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'A page already exists at the destination path (`pageDuplicatePath`).'
+          }
         }
       }
     },
@@ -1055,6 +1075,21 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to move this page.')
+      }
+      // -> Where it is going is its own question: rules are matched on path AND locale, so being
+      //    allowed to manage a page where it sits now says nothing about the destination. Checked
+      //    against the same permission, since arriving somewhere is as much a change to that place as
+      //    leaving is to this one. The ref carries the page's tags because they travel with it, so a
+      //    rule that grants by tag applies at the destination exactly as it does at the source; the
+      //    path is normalized the way `movePage` will store it, so that a leading slash in the body
+      //    cannot make a rule miss.
+      const destPath = normalizePagePath(req.body.path)
+      const destLocale = req.body.locale ?? target.locale
+      if (destPath !== target.path || destLocale !== target.locale) {
+        const destRef = { path: destPath, locale: destLocale, tags: target.tags }
+        if (!mayOnPage(req, 'manage:pages', req.params.siteId, destRef)) {
+          return reply.forbidden('You are not allowed to move this page there.')
+        }
       }
       const page = await WIKI.models.pages.movePage(
         req.params.siteId,
@@ -1611,7 +1646,7 @@ async function routes(app: FastifyInstance) {
   /**
    * PAGE USER PERMISSIONS
    */
-  app.post<{ Params: { siteId: string }; Body: { path: string } }>(
+  app.post<{ Params: { siteId: string }; Body: { path: string; locale?: string } }>(
     '/sites/:siteId/pages/userPermissions',
     {
       schema: {
@@ -1628,11 +1663,16 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               minLength: 1,
               maxLength: 255
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10
             }
           },
           examples: [
             {
-              path: 'foo/bar'
+              path: 'foo/bar',
+              locale: 'en'
             }
           ]
         },
@@ -1646,7 +1686,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return pagePermissionsFor(req, req.params.siteId, { path: req.body.path.replace(/^\/+/, '') })
+      // -> Rules now fail closed on locale (`RulePageRef` requires it), so which locale this asks
+      //    about actually decides the answer -- the site's primary locale is the default for a
+      //    caller who doesn't say, not a stand-in for a param that doesn't exist.
+      return pagePermissionsFor(req, req.params.siteId, {
+        path: req.body.path.replace(/^\/+/, ''),
+        locale: req.body.locale ?? defaultLocale(req.params.siteId)
+      })
     }
   )
 }

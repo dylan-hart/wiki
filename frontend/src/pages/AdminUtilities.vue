@@ -299,7 +299,7 @@ const scanReportScannedAt = computed(() => {
 })
 
 /**
- * The report's four checks, each with its entries rendered as one readable line — a raw dump of
+ * The report's five checks, each with its entries rendered as one readable line — a raw dump of
  * every field would be harder to scan than the sentence a human would write about it.
  */
 const scanChecks = computed(() => {
@@ -333,6 +333,13 @@ const scanChecks = computed(() => {
       label: t('admin.utilities.scanPageProblemsBrokenRelations'),
       entries: state.scanReport.brokenRelations.entries,
       format: (e) => `/${e.path} → ${e.target}`
+    },
+    {
+      key: 'localeCollisions',
+      label: t('admin.utilities.scanPageProblemsLocaleCollisions'),
+      entries: state.scanReport.localeCollisions.entries,
+      format: (e) =>
+        `[${e.table}] /${e.path} (${e.locale}) — starts with locale code "${e.collidingCode}"`
     }
   ]
 })

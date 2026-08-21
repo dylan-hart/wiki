@@ -214,6 +214,15 @@ export const useSiteStore = defineStore('site', {
     },
     useLocales: (state) => {
       return state.locales?.active?.length > 1
+    },
+    /** The exact triple `shouldPrefixLocale` / `localizedPagePath` take -- built once here instead of
+     *  by hand at every call site. */
+    localeRouting() {
+      return {
+        useLocales: this.useLocales,
+        primary: this.locales.primary,
+        forcePrefix: this.locales.forcePrefix
+      }
     }
   },
   actions: {

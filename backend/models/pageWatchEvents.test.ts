@@ -62,6 +62,7 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Digest Fixture',
         pagePath: 'digest-fixture',
+        pageLocale: 'en',
         userId: digestUser,
         action: 'updated',
         actorId: actor.id,
@@ -75,6 +76,7 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Digest Fixture',
         pagePath: 'digest-fixture',
+        pageLocale: 'en',
         userId: immediateUser,
         action: 'updated',
         actorId: actor.id,
@@ -88,6 +90,7 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Digest Fixture',
         pagePath: 'digest-fixture',
+        pageLocale: 'en',
         userId: deliveredDigestUser,
         action: 'updated',
         actorId: actor.id,
@@ -115,10 +118,11 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Captured Title',
         pagePath: 'captured/path',
+        pageLocale: 'fr',
         userId: digestUser,
         action: 'moved',
         actorId: actor.id,
-        changedFields: [],
+        changedFields: ['path', 'locale'],
         notifyMode: 'digest'
       }
     ])
@@ -129,8 +133,10 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
     assert.ok(event)
     assert.equal(event!.pageTitle, 'Captured Title')
     assert.equal(event!.pagePath, 'captured/path')
+    assert.equal(event!.pageLocale, 'fr')
+    assert.equal(event!.siteId, siteId)
     assert.equal(event!.action, 'moved')
-    assert.deepEqual(event!.changedFields, [])
+    assert.deepEqual(event!.changedFields, ['path', 'locale'])
     assert.equal(event!.actorId, actor.id)
   })
 
@@ -144,6 +150,7 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Digest Fixture',
         pagePath: 'digest-fixture',
+        pageLocale: 'en',
         userId: userA,
         action: 'updated',
         actorId: actor.id,
@@ -157,6 +164,7 @@ describe('pageWatchEvents digest queries (DB-backed)', { skip: !hasTestDatabase(
         pageId,
         pageTitle: 'Digest Fixture',
         pagePath: 'digest-fixture',
+        pageLocale: 'en',
         userId: userB,
         action: 'updated',
         actorId: actor.id,
@@ -241,6 +249,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'updated',
         actorId: actor.id,
@@ -254,6 +263,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'moved',
         actorId: actor.id,
@@ -268,6 +278,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'deleted',
         actorId: actor.id,
@@ -284,6 +295,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId: otherUserId,
         action: 'updated',
         actorId: actor.id,
@@ -298,6 +310,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'updated',
         actorId: actor.id,
@@ -324,6 +337,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'updated',
         actorId: actor.id,
@@ -353,6 +367,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId: ownerId,
         action: 'updated',
         actorId: actor.id,
@@ -377,6 +392,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'updated',
         actorId: actor.id,
@@ -388,6 +404,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'moved',
         actorId: actor.id,
@@ -401,6 +418,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
         pageId,
         pageTitle: 'Inbox Fixture',
         pagePath: 'inbox-fixture',
+        pageLocale: 'en',
         userId,
         action: 'deleted',
         actorId: actor.id,

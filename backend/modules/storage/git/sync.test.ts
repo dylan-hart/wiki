@@ -15,7 +15,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
-import { sync, parseRenamedPaths } from './sync.ts'
+import { sync, parseRenamedPaths, parseLocaleAndPath, processDiffEntry } from './sync.ts'
 import { ensureRepo } from './storage.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
@@ -53,7 +53,9 @@ function installWiki(
     ROOTPATH: rootPath,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     sites: {
-      [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
+      [SITE_ID]: {
+        config: { locales: { primary: PRIMARY_LOCALE, active: [PRIMARY_LOCALE, 'fr'] } }
+      }
     },
     models: {
       extensions: {
@@ -209,6 +211,31 @@ describe('git storage: parseRenamedPaths', () => {
   })
 })
 
+describe('git storage: parseLocaleAndPath', () => {
+  test('a two-letter folder that is not an active locale stays a folder path', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'it/setup'), { locale: 'en', path: 'it/setup' })
+  })
+
+  test('an active locale folder is recognized case-preservingly', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'pt-BR'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-BR/intro'), { locale: 'pt-BR', path: 'intro' })
+    // -> A mis-cased folder still resolves to the code AS STORED, never a lowercased twin.
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-br/intro'), { locale: 'pt-BR', path: 'intro' })
+  })
+
+  test('a file named after a locale code at the root is a primary-locale page, not an empty path', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'fr'), { locale: 'en', path: 'fr' })
+  })
+})
+
 describe('git storage: sync', () => {
   let originPath: string
   let localPath: string
@@ -307,6 +334,40 @@ describe('git storage: sync', () => {
     assert.equal(calls.movePage.length, 1)
     assert.equal(calls.movePage[0].id, 'p1')
     assert.equal(calls.movePage[0].patch.path, 'new-name')
+    assert.equal(calls.movePage[0].patch.locale, PRIMARY_LOCALE)
+    assert.equal(calls.createPage.length, 0)
+  })
+
+  test('pulls a cross-locale rename and moves the page into the destination locale', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.mkdir(path.join(peerPath, 'fr'), { recursive: true })
+    await fs.writeFile(path.join(peerPath, 'fr/guide.md'), 'body')
+    await peer.add('fr/guide.md')
+    await peer.commit('docs: create fr/guide')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'guide', locale: 'fr', contentType: 'markdown' }]
+    })
+    await ensureRepo(target)
+    const localGit = simpleGit(target.config.localRepoPath)
+    await localGit.pull('origin', 'main')
+
+    // -> The whole point: the path within the locale is unchanged, only the locale directory moves,
+    //    so a move that carried the path alone would be a no-op that silently left the page in `fr`
+    await peer.mv('fr/guide.md', 'guide.md')
+    await peer.commit('docs: translate guide into the primary locale')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'guide', locale: 'fr', contentType: 'markdown' }]
+    })
+    await sync(target)
+
+    assert.equal(calls.movePage.length, 1)
+    assert.equal(calls.movePage[0].id, 'p1')
+    assert.equal(calls.movePage[0].patch.path, 'guide')
+    assert.equal(calls.movePage[0].patch.locale, PRIMARY_LOCALE)
     assert.equal(calls.createPage.length, 0)
   })
 
@@ -442,6 +503,80 @@ describe('git storage: sync', () => {
         'photo2.png'
       ])
       assert.ok(calls.upload.every((c: any) => c.folderId === 'folder:images/exhibit'))
+    }
+  )
+
+  test(
+    'a text-asset rename+rewrite (shaped exactly as sync() really builds it: real ' +
+      'insertions/deletions, before/after undefined) leaves exactly one asset row, at the new ' +
+      'path, holding the new content (#993 — orphaned-row fix)',
+    async () => {
+      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.svg' }]
+      const calls = installWiki(localPath, { assets: assetsBefore })
+
+      const absPath = path.join(localPath, 'new.svg')
+      await fs.mkdir(localPath, { recursive: true })
+      await fs.writeFile(absPath, 'new-bytes')
+
+      await processDiffEntry(
+        target,
+        { id: 'admin-1', permissions: ['manage:system'], groupIds: [] },
+        {
+          relPath: 'images/new.svg',
+          oldPath: 'images/old.svg',
+          absPath,
+          exists: true,
+          binary: false,
+          insertions: 5,
+          deletions: 2,
+          before: undefined,
+          after: undefined
+        }
+      )
+
+      // -> Exactly one surviving row: the old one deleted, a fresh one uploaded at the new path —
+      //    never a rename-in-place (which would silently drop the new bytes) and never both an
+      //    orphaned old row AND a fresh one.
+      assert.deepEqual(
+        calls.deleteAsset.map((c: any) => c.id),
+        ['a1']
+      )
+      assert.equal(calls.renameAsset.length, 0)
+      assert.equal(calls.upload.length, 1)
+      assert.equal(calls.upload[0].fileName, 'new.svg')
+      assert.equal(calls.upload[0].data.toString(), 'new-bytes')
+    }
+  )
+
+  test(
+    'a binary same-folder rename with unchanged before/after byte counts still takes the ' +
+      'renameAsset path (shaped exactly as sync() really builds it: insertions/deletions ' +
+      'hardcoded 0, real before/after)',
+    async () => {
+      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.png' }]
+      const calls = installWiki(localPath, { assets: assetsBefore })
+
+      await processDiffEntry(
+        target,
+        { id: 'admin-1', permissions: ['manage:system'], groupIds: [] },
+        {
+          relPath: 'images/new.png',
+          oldPath: 'images/old.png',
+          absPath: path.join(localPath, 'new.png'),
+          exists: true,
+          binary: true,
+          insertions: 0,
+          deletions: 0,
+          before: 1024,
+          after: 1024
+        }
+      )
+
+      assert.equal(calls.deleteAsset.length, 0)
+      assert.equal(calls.upload.length, 0)
+      assert.equal(calls.renameAsset.length, 1)
+      assert.equal(calls.renameAsset[0].id, 'a1')
+      assert.equal(calls.renameAsset[0].fileName, 'new.png')
     }
   )
 

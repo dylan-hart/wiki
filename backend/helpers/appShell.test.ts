@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { templateAppShell } from './appShell.ts'
+import { resolveAppShellLocale, templateAppShell } from './appShell.ts'
 
 describe('templateAppShell', () => {
   test('sets lang and dir="ltr" for a non-RTL locale', () => {
@@ -33,5 +33,25 @@ describe('templateAppShell', () => {
     const html = '<!DOCTYPE html>\nnot actually html'
     const result = templateAppShell(html, { lang: 'en', isRTL: false })
     assert.equal(result, html)
+  })
+})
+
+describe('resolveAppShellLocale', () => {
+  const cfg = { primary: 'en', active: ['en', 'ar'], forcePrefix: false }
+
+  test('a locale-prefixed page path resolves to its own locale', () => {
+    assert.equal(resolveAppShellLocale('/ar/guides/x', undefined, cfg), 'ar')
+  })
+
+  test('an app route reads ?locale=', () => {
+    assert.equal(resolveAppShellLocale('/_edit/guides/x', 'locale=ar', cfg), 'ar')
+  })
+
+  test('an invalid query locale falls back to the primary', () => {
+    assert.equal(resolveAppShellLocale('/_edit/guides/x', 'locale=zz', cfg), 'en')
+  })
+
+  test('a bare path is the primary', () => {
+    assert.equal(resolveAppShellLocale('/guides/x', undefined, cfg), 'en')
   })
 })

@@ -1,5 +1,5 @@
 /**
- * Run the four page/tree integrity checks (see `models/pageProblems.ts`) and record the report on the
+ * Run the five page/tree integrity checks (see `models/pageProblems.ts`) and record the report on the
  * job's own history row.
  *
  * Queued from `POST /_api/system/pages/scan` rather than run inline: a full scan of `pages` and
@@ -19,6 +19,7 @@ export async function task(_payload: unknown = {}, jobId?: string): Promise<void
         `${report.hashDrift.count} hash drift, ` +
         `${report.treeDivergence.count} tree divergence, ` +
         `${report.duplicatePaths.count} duplicate paths, ` +
+        `${report.localeCollisions.count} locale-code collisions, ` +
         `${report.brokenRelations.count} broken relations`
     )
   } catch (err: any) {

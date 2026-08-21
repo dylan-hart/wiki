@@ -32,12 +32,13 @@ export function mayOnAsset(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  asset: { folderPath?: string | null; fileName: string }
+  asset: { folderPath?: string | null; fileName: string; locale: string }
 ): boolean {
   const folder = asset.folderPath ?? ''
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
-    siteId
+    siteId,
+    locale: asset.locale
   })
 }
 
@@ -142,6 +143,8 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest('No file was sent.')
       }
 
+      const locale =
+        req.query.locale ?? WIKI.sites[req.params.siteId]?.config?.locales?.primary ?? 'en'
       const folder = req.query.folderId
         ? await WIKI.models.tree.getFolderById(req.query.folderId)
         : null
@@ -150,14 +153,15 @@ async function routes(app: FastifyInstance) {
       if (
         !mayOnAsset(req, 'write:assets', req.params.siteId, {
           folderPath: destination,
-          fileName: req.query.fileName
+          fileName: req.query.fileName,
+          locale
         })
       ) {
         return reply.forbidden('You are not allowed to upload a file here.')
       }
       const asset = await WIKI.models.assets.upload({
         siteId: req.params.siteId,
-        locale: req.query.locale ?? WIKI.sites[req.params.siteId]?.config?.locales?.primary ?? 'en',
+        locale,
         folderId: req.query.folderId,
         fileName: req.query.fileName,
         mimeType: req.headers['content-type'],

@@ -23,6 +23,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'The page title as of the change, captured at write time — see `pageWatchEvents`.'
       },
       pagePath: { type: 'string' },
+      pageLocale: {
+        type: 'string',
+        description:
+          'The page locale as of the change, captured at write time — see `pageWatchEvents`. Used to build a locale-prefixed link to the page.'
+      },
       action: {
         type: 'string',
         enum: ['updated', 'moved', 'deleted'],
@@ -32,7 +37,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       changedFields: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Which fields the change touched. Empty for a move or a delete.'
+        description:
+          'Which fields the change touched. Up to `path`/`locale`/`title` for a move, empty for a delete.'
       },
       actorId: {
         type: ['string', 'null'],

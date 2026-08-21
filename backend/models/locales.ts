@@ -163,6 +163,22 @@ class Locales {
     return WIKI.cache.get('locales') as any[]
   }
 
+  /**
+   * Whether a path segment is reserved because it names an INSTALLED locale.
+   *
+   * Locale codes are reserved as first path segments for pages and folders (decision doc, Option A
+   * item 4): on a site with `fr` active, a root folder `fr/` is unreachable — shadowed by
+   * `stripLocalePrefix` — and one created while `fr` is merely installed becomes unreachable the
+   * day it is activated. Case-insensitive, matching URL parsing.
+   */
+  async isReservedLocaleCode(segment: string): Promise<boolean> {
+    if (!segment) {
+      return false
+    }
+    const codes = (await this.getLocales()).map((lc: any) => String(lc.code).toLowerCase())
+    return codes.includes(segment.toLowerCase())
+  }
+
   async getStrings(locale: string) {
     const results = await WIKI.db
       .select({ strings: localesTable.strings })

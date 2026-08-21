@@ -22,6 +22,7 @@ function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
 const page = (overrides: Partial<RulePageRef> = {}): RulePageRef => ({
   path: 'geography/countries/france',
   locale: 'en',
+  siteId: null,
   tags: [],
   ...overrides
 })
@@ -134,18 +135,19 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ locale: 'fr' })), false)
     })
 
-    test('a page with no locale is not excluded by a locale-scoped rule', () => {
-      // -> FINDING (feature 357, task 446): `ruleMatchesPage`'s locale guard is
-      //    `rule.locales?.length > 0 && page.locale && !rule.locales.includes(page.locale)` — the
-      //    `page.locale &&` conjunct means an unknown locale short-circuits the exclusion instead of
-      //    triggering it, so a rule scoped to `['en']` still matches a page whose locale wasn't
-      //    resolved. This is exactly the shape of gap task 446 is auditing `mayOnPage()` call sites
-      //    for (e.g. `Pages.getPathFromAlias()` not selecting `locale`, so an alias-resolved page
-      //    reaches here with `locale: undefined` and a locale-scoped rule fires when it should
-      //    arguably be excluded). Locked down here as current, intentional-looking behavior — not
-      //    fixed by this task, since fixing it is task 446's call once the audit is done.
+    test('a ref with an explicitly unknown locale is excluded by a locale-scoped rule (fail closed)', () => {
       const rule = makeRule({ match: 'START', path: '', locales: ['en'] })
-      assert.equal(ruleMatchesPage(rule, page({ locale: undefined })), true)
+      assert.equal(ruleMatchesPage(rule, page({ locale: null })), false)
+    })
+
+    test('a locale-scoped rule matches case-insensitively', () => {
+      const rule = makeRule({ match: 'START', path: '', locales: ['pt-BR'] })
+      assert.equal(ruleMatchesPage(rule, page({ locale: 'pt-br' })), true)
+    })
+
+    test('an unscoped rule still matches a ref with unknown locale', () => {
+      const rule = makeRule({ match: 'START', path: '', locales: [] })
+      assert.equal(ruleMatchesPage(rule, page({ locale: null })), true)
     })
   })
 
@@ -161,9 +163,9 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-b' })), false)
     })
 
-    test('a page with no siteId is not excluded by a site-scoped rule', () => {
+    test('a ref with an explicitly unknown siteId is excluded by a site-scoped rule (fail closed)', () => {
       const rule = makeRule({ match: 'START', path: '', sites: ['site-a'] })
-      assert.equal(ruleMatchesPage(rule, page({ siteId: undefined })), true)
+      assert.equal(ruleMatchesPage(rule, page({ siteId: null })), false)
     })
   })
 })

@@ -226,7 +226,8 @@ export async function writeImportedAsset(
       title: existingTree?.title ?? existingAsset.fileName,
       hasPreview: Boolean(existingAsset.preview),
       createdAt: existingAsset.createdAt,
-      updatedAt: existingAsset.updatedAt
+      updatedAt: existingAsset.updatedAt,
+      locale: existingTree?.locale ?? WIKI.sites[record.siteId]?.config?.locales?.primary ?? 'en'
     }
   }
 
@@ -310,6 +311,7 @@ export async function writeImportedAsset(
     title: entry.title,
     hasPreview: Boolean(preview),
     createdAt: record.createdAt,
-    updatedAt: record.updatedAt
+    updatedAt: record.updatedAt,
+    locale
   }
 }

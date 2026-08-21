@@ -288,6 +288,7 @@ import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
  * Everything that ever happened to a page, and the difference between any two moments of it.
@@ -646,7 +647,8 @@ function branchFrom(version) {
       folderPath: '',
       itemId: pageStore.id,
       itemTitle: version.title,
-      itemFileName: pageStore.path
+      itemFileName: pageStore.path,
+      locale: pageStore.locale
     }
   }).onOk(async (target) => {
     const full = await withVersion(version)
@@ -660,10 +662,9 @@ function branchFrom(version) {
         json: {
           path: target.path,
           title: target.title,
-          // -> The version's own locale, not the page's current one. `movePage` never changes locale
-          //    today, so the two happen to always agree — but a version is a record of what the page
-          //    was, and reading its own field is what stays correct if that invariant ever stops
-          //    holding rather than relying on it silently.
+          // -> The version's own locale, not the page's current one: a move can re-home a page into
+          //    another locale, so the two genuinely disagree for any version recorded before such a
+          //    move, and a version is a record of what the page WAS.
           locale: full.locale || pageStore.locale,
           editor: full.meta?.editor || pageStore.editor,
           content,
@@ -683,7 +684,7 @@ function branchFrom(version) {
       }
       notify({ type: 'positive', message: t('history.branchSuccess') })
       close()
-      router.push(`/${page.path}`)
+      router.push(localizedPagePath(page.path, page.locale, siteStore.localeRouting))
     } catch (err) {
       notify({
         type: 'negative',

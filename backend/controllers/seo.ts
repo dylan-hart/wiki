@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { requestOrigin } from '../helpers/common.ts'
+import { requestOrigin, localizedPagePath, type LocaleRoutingConfig } from '../helpers/common.ts'
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -10,6 +10,7 @@ interface RobotsConfig {
 /** The columns `models/pages.ts`'s `listPagesForSitemap` returns — the whole of what a `<url>` needs. */
 export interface SitemapPage {
   path: string
+  locale: string
   updatedAt: Date
 }
 
@@ -61,20 +62,44 @@ export function buildRobotsTxt(config: RobotsConfig, sitemapUrl: string): string
  * time a page reaches here it is assumed public, and this only has to lay it out as the sitemap schema
  * wants it.
  */
-export function buildSitemapXml(baseUrl: string, pages: SitemapPage[]): string {
+export function buildSitemapXml(
+  baseUrl: string,
+  pages: SitemapPage[],
+  locales?: LocaleRoutingConfig | null
+): string {
+  // -> Translations share a path (that is the whole translation link in this data model), so the
+  //    hreflang cluster for a page is every row with its path
+  const clusters = new Map<string, SitemapPage[]>()
+  for (const page of pages) {
+    const list = clusters.get(page.path) ?? []
+    list.push(page)
+    clusters.set(page.path, list)
+  }
   const urls = pages
     .map((page) => {
-      const loc = escapeXml(`${baseUrl}/${page.path}`)
+      const loc = escapeXml(`${baseUrl}${localizedPagePath(page.path, page.locale, locales)}`)
       const lastmod = page.updatedAt
         .toTemporalInstant()
         .toZonedDateTimeISO('UTC')
         .toPlainDate()
         .toString()
-      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n  </url>`
+      const cluster = clusters.get(page.path)!
+      // -> Every member of a multi-locale cluster lists every alternate, itself included — the
+      //    reciprocity hreflang consumers require. A lone page lists nothing.
+      const alternates =
+        cluster.length > 1
+          ? cluster
+              .map(
+                (alt) =>
+                  `    <xhtml:link rel="alternate" hreflang="${escapeXml(alt.locale)}" href="${escapeXml(`${baseUrl}${localizedPagePath(alt.path, alt.locale, locales)}`)}"/>`
+              )
+              .join('\n') + '\n'
+          : ''
+      return `  <url>\n    <loc>${loc}</loc>\n${alternates}    <lastmod>${lastmod}</lastmod>\n  </url>`
     })
     .join('\n')
   const body = urls ? `\n${urls}\n` : '\n'
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${body}</urlset>\n`
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">${body}</urlset>\n`
 }
 
 /**
@@ -108,7 +133,9 @@ async function routes(app: FastifyInstance) {
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)
     const baseUrl = requestOrigin(req.protocol, req.hostname)
-    return reply.type('application/xml; charset=utf-8').send(buildSitemapXml(baseUrl, pages))
+    return reply
+      .type('application/xml; charset=utf-8')
+      .send(buildSitemapXml(baseUrl, pages, site.config?.locales))
   })
 }
 

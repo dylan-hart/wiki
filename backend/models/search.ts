@@ -212,8 +212,16 @@ export interface SearchModule {
   updated(page: SearchIndexablePage): Promise<void>
   /** A page was deleted. Only the ID travels — there is no row left to read anything else from. */
   deleted(siteId: string, pageId: string): Promise<void>
-  /** A page moved. `previousPath` is what the module indexed it under before. */
-  renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void>
+  /**
+   * A page moved. `previousPath` and `previousLocale` are what the module indexed it under before —
+   * a move can change either, and `page` already carries where it ended up.
+   */
+  renamed(
+    siteId: string,
+    page: SearchIndexablePage,
+    previousPath: string,
+    previousLocale: string
+  ): Promise<void>
   /** Serve a search request. */
   query(params: SearchPagesParams): Promise<SearchPagesResult>
   /** Recompute the whole index of a site from scratch. */
@@ -603,9 +611,14 @@ class Search {
   }
 
   /** A page moved. Delegates to the page's site's configured engine. */
-  async renamed(siteId: string, page: SearchIndexablePage, previousPath: string): Promise<void> {
+  async renamed(
+    siteId: string,
+    page: SearchIndexablePage,
+    previousPath: string,
+    previousLocale: string
+  ): Promise<void> {
     const engine = await this.getActiveEngine(siteId)
-    await engine.renamed(siteId, page, previousPath)
+    await engine.renamed(siteId, page, previousPath, previousLocale)
   }
 }
 

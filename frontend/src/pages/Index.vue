@@ -745,7 +745,11 @@ watch(
         return router.replace('/')
       }
       loading.show()
-      await pageStore.pageEdit({ path: route.params.pagePath, fromNavigate: true })
+      await pageStore.pageEdit({
+        path: route.params.pagePath,
+        locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
+        fromNavigate: true
+      })
       loading.hide()
       return
     }
@@ -821,15 +825,23 @@ watch(
             siteStore.overlay = 'Welcome'
           }
         } else {
-          // -> Not a notification over the page the reader came from: that page is still on screen
-          //    behind it, at a URL that is not its own. The view draws the missing page instead.
-          pageStore.pageNotFound({ path: newValue })
+          /*
+            -> Not a notification over the page the reader came from: that page is still on screen
+            behind it, at a URL that is not its own. The view draws the missing page instead.
+
+            `pagePath`/`pageLocale` above are the (path, locale) pair with the locale prefix already
+            stripped off -- `newValue` is still the raw, locale-prefixed route path (`fr/some/page`),
+            which is not a page path at all. Using it here used to bake the prefix into the create
+            screen's display path, ask the permission probe about a path no rule is ever written
+            against, and (via `pageStore.path`, below) into `createPage`'s POST -- see bug #949.
+          */
+          pageStore.pageNotFound({ path: pagePath })
           /*
             The one place the page permissions have to be asked for on their own: everywhere else they
             arrive with the page, and here there is no page to carry them — while the screen about to
             be drawn offers to create one, which is a permission question.
           */
-          await userStore.fetchPagePermissions(newValue)
+          await userStore.fetchPagePermissions(pagePath, pageLocale)
         }
       } else if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
         // -> `replace`, so the back button leaves the wiki the way it came rather than bouncing off
@@ -992,7 +1004,7 @@ async function createPage() {
     return
   }
   loading.show()
-  await pageStore.pageCreate({ editor, path: pageStore.path })
+  await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
   loading.hide()
 }
 

@@ -160,16 +160,25 @@ export function extractLocaleItems(config: unknown, locale: string, warnings: st
 }
 
 /** A 2.x `'page'`-type nav target, `/${locale}/${path}` (`admin-navigation.vue`'s
- * `selectPageHandle`), split back into its parts — or `null` if `target` does not match that shape. */
-function parsePageTarget(target: string): { locale: string; path: string } | null {
+ * `selectPageHandle`), split back into its parts — or `null` if `target` does not match that shape,
+ * or if the leading segment isn't one of `knownLocales`. That set comes from the import's own staged
+ * pages (see `importNavigation`), not the target site's `active` list: validating against the site
+ * being imported *into* would wrongly drop targets for locales that are themselves mid-import, while
+ * the staged-page keys are exactly the 2.x locales this import actually saw. */
+function parsePageTarget(
+  target: string,
+  knownLocales: Set<string>
+): { locale: string; path: string } | null {
   const match = /^\/([^/]+)\/(.+)$/.exec(target)
   if (!match) return null
   const [, locale, path] = match
+  if (!knownLocales.has(locale)) return null
   return { locale, path }
 }
 
 interface MapItemContext {
   pages: Map<string, NavigationPageRef>
+  knownLocales: Set<string>
   pageIdMap: IdMap<number>
   warnings: string[]
   dropped: DroppedNavigationItem[]
@@ -239,12 +248,14 @@ export function mapNavigationItem(raw: unknown, ctx: MapItemContext): Navigation
       return item
     }
     case 'page': {
-      const parsed = parsePageTarget(rawTarget)
+      const parsed = parsePageTarget(rawTarget, ctx.knownLocales)
       if (!parsed) {
         ctx.dropped.push({
           title,
           target: rawTarget,
-          reason: `malformed page target "${rawTarget}" (expected "/<locale>/<path>")`
+          reason:
+            `malformed page target "${rawTarget}" (expected "/<locale>/<path>", where <locale> is ` +
+            'a locale present in this import)'
         })
         return null
       }
@@ -332,7 +343,10 @@ export async function importNavigation(
   const rawItems = row ? extractLocaleItems(row.items, options.locale, warnings) : []
 
   const pageByKey = new Map(pages.map((page) => [pageLookupKey(page.locale, page.path), page]))
-  const ctx: MapItemContext = { pages: pageByKey, pageIdMap, warnings, dropped }
+  // -> The 2.x locales this import actually saw, not the target site's `active` list — see
+  //    `parsePageTarget`'s doc comment for why.
+  const knownLocales = new Set([...pageByKey.keys()].map((key) => key.split('::')[0]!))
+  const ctx: MapItemContext = { pages: pageByKey, knownLocales, pageIdMap, warnings, dropped }
 
   const items: NavigationItem[] = []
   for (const raw of rawItems) {

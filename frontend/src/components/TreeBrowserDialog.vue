@@ -194,6 +194,16 @@ const props = defineProps({
     type: String,
     required: false,
     default: ''
+  },
+  /**
+   * The content locale to browse. Absent (null) for a caller with no page context of its own -- an
+   * absent value is sent to the server as no `locale` param at all, so the tree defaults to the
+   * site's primary locale, same as before this prop existed.
+   */
+  locale: {
+    type: String,
+    required: false,
+    default: null
   }
 })
 
@@ -352,6 +362,7 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
         ...(parentId ? { parentId } : {}),
         ...(parentPath ? { parentPath } : {}),
         ...(state.typesToFetch?.length > 0 ? { types: state.typesToFetch.join(',') } : {}),
+        ...(props.locale ? { locale: props.locale } : {}),
         includeAncestors: initLoad,
         includeRootFolders: initLoad
       }

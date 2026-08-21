@@ -122,6 +122,8 @@ function addCodeCopyButtons(root) {
  * Built from the address bar rather than from the page store, so it carries whatever the reader is
  * actually on -- locale prefix included. The editor is the one place where those diverge: it previews a
  * page that lives at its own address, not at `/_edit/…`, so that prefix is dropped.
+ *
+ * Not a locale parse site -- the locale prefix from the address bar is deliberately preserved.
  */
 function headingUrl(id) {
   const path = window.location.pathname.replace(/^\/_edit\//, '/')

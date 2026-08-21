@@ -117,14 +117,23 @@ class DbSearchModule implements SearchModule {
   async deleted(_siteId: string, _pageId: string): Promise<void> {}
 
   /**
-   * Nothing to do: `indexPage` weights title, description and body into `ts` — none of which is the
-   * path — so a move leaves the vector correct without recomputing it. Same reasoning as `deleted`.
+   * A path change needs nothing done: `indexPage` weights title, description and body into `ts` —
+   * none of which is the path — so a move within one locale leaves the vector correct without
+   * recomputing it, same reasoning as `deleted`.
+   *
+   * A *locale* change does need it, and is why this hook is not empty: which dictionary builds the
+   * vector is decided by the page's locale (`dictionaryForLocale`), so a page re-homed from `en` to
+   * `fr` is left stemmed by the wrong language until it is rebuilt with the right one.
    */
   async renamed(
     _siteId: string,
-    _page: SearchIndexablePage,
-    _previousPath: string
-  ): Promise<void> {}
+    page: SearchIndexablePage,
+    _previousPath: string,
+    previousLocale: string
+  ): Promise<void> {
+    if (previousLocale === page.locale) return
+    await this.indexPage(page.id, page.locale, page.siteId)
+  }
 
   /**
    * The text search configurations this postgres actually has, e.g. `english`, `simple`.

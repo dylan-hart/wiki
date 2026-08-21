@@ -13,8 +13,10 @@ export interface NotifyPageWatchersPayload {
   pageId: string
   pageTitle: string
   pagePath: string
+  pageLocale: string
   action: PageWatchNotifiableAction
-  /** Empty for a move or delete — nothing about the page's content changed. */
+  /** Up to `['path', 'locale', 'title']` for a move (see `models/pages.ts#movePage`), empty for a
+   *  delete. */
   changedFields: string[]
   actorId: string
   watchers: QueuedWatcher[]
@@ -46,7 +48,17 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
   if (!payload || payload.watchers.length < 1) {
     return
   }
-  const { siteId, pageId, pageTitle, pagePath, action, changedFields, actorId, watchers } = payload
+  const {
+    siteId,
+    pageId,
+    pageTitle,
+    pagePath,
+    pageLocale,
+    action,
+    changedFields,
+    actorId,
+    watchers
+  } = payload
 
   let recorded: { id: string; userId: string }[]
   try {
@@ -56,6 +68,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
         pageId,
         pageTitle,
         pagePath,
+        pageLocale,
         userId: watcher.userId,
         action,
         actorId,
@@ -93,7 +106,8 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
       }
       await WIKI.models.mail.sendPageWatchNotification({
         to: recipient.email,
-        page: { title: pageTitle, path: pagePath },
+        siteId,
+        page: { title: pageTitle, path: pagePath, locale: pageLocale },
         action,
         changedFields,
         actorName

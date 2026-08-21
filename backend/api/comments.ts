@@ -103,7 +103,7 @@ async function accessiblePageIdsForAdmin(
     return pageRefs.map((page) => page.id)
   }
   return pageRefs
-    .filter((page) => WIKI.models.groups.checkAccess(actor, 'manage:comments', page))
+    .filter((page) => WIKI.models.groups.checkAccess(actor, 'manage:comments', { ...page, siteId }))
     .map((page) => page.id)
 }
 
@@ -221,7 +221,7 @@ function flattenIds(thread: ThreadedComment[]): Set<string> {
 function maySelfModerate(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] },
+  page: { path: string; locale: string | null; tags?: string[] },
   comment: { authorId: string | null },
   actor: { id: string } | null
 ): boolean {
@@ -475,7 +475,12 @@ async function routes(app: FastifyInstance) {
       }
 
       const actor = WIKI.models.groups.actorForRequest(req)
-      if (!WIKI.models.groups.checkAccess(actor, 'manage:comments', comment.page)) {
+      if (
+        !WIKI.models.groups.checkAccess(actor, 'manage:comments', {
+          ...comment.page,
+          siteId: req.params.siteId
+        })
+      ) {
         return reply.forbidden('You are not allowed to moderate comments on this page.')
       }
 

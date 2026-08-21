@@ -184,7 +184,10 @@
             >
           </div>
           <w-list separator>
-            <w-item v-for="item of state.results" clickable :to="`/` + item.path">
+            <w-item
+              v-for="item of state.results"
+              clickable
+              :to="localizedPagePath(item.path, item.locale, siteStore.localeRouting)">
               <w-item-section avatar>
                 <w-avatar color="primary" text-color="white" rounded>
                   <w-icon :name="item.icon || defaultPageIcon" size="24px" />
@@ -236,6 +239,8 @@ import { useRouter, useRoute } from 'vue-router'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { useMinWidth } from '@/composables/screen'
+
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 import { useFlagsStore } from '@/stores/flags'
 import { useSiteStore } from '@/stores/site'

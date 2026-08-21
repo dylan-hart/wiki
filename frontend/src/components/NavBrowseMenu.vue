@@ -244,11 +244,7 @@ function descend(item) {
  * so that is the locale every row in it belongs to, not necessarily the site's primary one.
  */
 function itemPath(item) {
-  return localizedPagePath(item.path, pageStore.locale, {
-    useLocales: siteStore.useLocales,
-    primary: siteStore.locales.primary,
-    forcePrefix: siteStore.locales.forcePrefix
-  })
+  return localizedPagePath(item.path, pageStore.locale, siteStore.localeRouting)
 }
 
 function goUp() {

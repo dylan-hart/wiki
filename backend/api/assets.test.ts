@@ -32,7 +32,8 @@ describe('download route: byte-serving behavior', () => {
     title: 'archive',
     hasPreview: false,
     createdAt: new Date('2024-01-01T00:00:00Z'),
-    updatedAt: new Date('2024-01-01T00:00:00Z')
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    locale: 'en'
   }
 
   let readContentResult: any
@@ -266,12 +267,14 @@ describe('disabled-site guard (task 699)', () => {
     try {
       const result = mayOnAsset({} as any, 'read:assets', ENABLED_SITE_ID, {
         folderPath: 'foo',
-        fileName: 'bar.png'
+        fileName: 'bar.png',
+        locale: 'en'
       })
       assert.equal(result, true)
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
       assert.equal(calls[0].path, 'foo/bar.png')
+      assert.equal(calls[0].locale, 'en')
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = originalCheckAccess
     }
@@ -283,7 +286,8 @@ describe('disabled-site guard (task 699)', () => {
     const originalCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
     ;(globalThis as any).WIKI.models.assets.getAsset = async () => ({
       folderPath: 'foo',
-      fileName: 'bar.png'
+      fileName: 'bar.png',
+      locale: 'en'
     })
     ;(globalThis as any).WIKI.models.groups.checkAccess = (
       _actor: any,
@@ -314,7 +318,8 @@ describe('disabled-site guard (task 699)', () => {
     const originalDeleteAsset = (globalThis as any).WIKI.models.assets.deleteAsset
     ;(globalThis as any).WIKI.models.assets.getAsset = async () => ({
       folderPath: 'foo',
-      fileName: 'bar.png'
+      fileName: 'bar.png',
+      locale: 'en'
     })
     ;(globalThis as any).WIKI.models.groups.checkAccess = (
       _actor: any,
