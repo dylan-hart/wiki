@@ -188,7 +188,9 @@ revisiting only if hreflang/SEO work later wants fully canonical per-locale URLs
 1. Will any single site here realistically run more than one content locale? — **Answered yes
    (Dylan, 2026-08-21), which selects Option A** and rules out B.
 2. Is a translation-group link wanted (real multilingual), or is same-path-by-convention
-   acceptable? — **Open.** Filed as a spike under the epic; not blocking the integrity work.
+   acceptable? — **Resolved (spike #996, decided by Dylan 2026-08-21): same-path-by-convention,
+   hardened by a movePage "include translations" cascade.** Full record and revisit triggers:
+   `docs/decisions/locale-translation-linking.md`.
 3. Git on-disk convention — primary-bare with strict active-locale, case-preserving validation, or
    disk's always-prefixed scheme? — **Resolved (this epic, A.3): primary-bare kept for git and
    sftp** (`content.ts`'s `localeNamespace`, `sftp/pages.ts`'s `remotePathForPage` — they already

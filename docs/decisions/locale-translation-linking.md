@@ -1,6 +1,6 @@
 # Decision: Translation linking — same-path-by-convention or a translation-group id?
 
-Status: **Recommended — (a) same-path-by-convention, hardened; awaiting Dylan's sign-off**
+Status: **Decided — (a) same-path-by-convention, hardened, 2026-08-21, by Dylan**
 Date: 2026-08-21 (spike, OpenProject #996)
 Author: Claude (deliverable of epic #990's A.6 spike; resolves `locale-architecture.md` §5.2)
 Related: `docs/decisions/locale-architecture.md` (§3.A item 6); epic #990 (implemented); features #991–#995.
@@ -81,5 +81,5 @@ hopes." After the epic, the convention is materially stronger than when §5.2 wa
 ## 4. Resolution of locale-architecture.md §5.2
 
 §5.2 asked: translation-group link, or same-path-by-convention? **Answer: same-path-by-convention,
-hardened per §3** — pending Dylan's sign-off, at which point both this Status line and
-`locale-architecture.md` §5.2 should be flipped to Decided.
+hardened per §3 — decided by Dylan, 2026-08-21.** `locale-architecture.md` §5.2 is updated in the
+same commit; the hardening cascade is tracked as its own feature work package.
