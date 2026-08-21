@@ -644,6 +644,19 @@ describe('page store: breadcrumbs', () => {
     pageStore.$patch({ path: 'foo/bar', locale: 'en' })
     expect(pageStore.breadcrumbs.map((b) => b.path)).toEqual(['/en/foo', '/en/foo/bar'])
   })
+
+  it('carries the page locale and localized cumulative paths', () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.$patch({ path: 'guides/deep/page', locale: 'fr' })
+    const crumbs = pageStore.breadcrumbs
+    expect(crumbs.map((c) => c.path)).toEqual([
+      '/fr/guides',
+      '/fr/guides/deep',
+      '/fr/guides/deep/page'
+    ])
+    expect(crumbs.every((c) => c.locale === 'fr')).toBe(true)
+  })
 })
 
 describe('page store: editorExitPath', () => {

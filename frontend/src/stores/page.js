@@ -5,7 +5,7 @@ import { pick } from 'es-toolkit/object'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
-import { localizedPagePath, shouldPrefixLocale } from '@/helpers/pagePaths'
+import { localizedPagePath } from '@/helpers/pagePaths'
 
 /**
  * The icon a page starts with.
@@ -106,23 +106,18 @@ export const usePageStore = defineStore('page', {
   getters: {
     breadcrumbs: (state) => {
       const siteStore = useSiteStore()
-      const pathPrefix = shouldPrefixLocale(state.locale, {
-        useLocales: siteStore.useLocales,
-        primary: siteStore.locales.primary,
-        forcePrefix: siteStore.locales.forcePrefix
-      })
-        ? `/${state.locale}`
-        : ''
-      return state.path.split('/').reduce((result, value, key) => {
-        result.push({
-          id: key,
-          title: value,
-          icon: 'la:file-alt',
-          locale: 'en',
-          path: (result.at(-1)?.path || pathPrefix) + `/${value}`
-        })
-        return result
-      }, [])
+      const segments = state.path.split('/')
+      return segments.map((value, key) => ({
+        id: key,
+        title: value,
+        icon: 'la:file-alt',
+        locale: state.locale,
+        path: localizedPagePath(
+          segments.slice(0, key + 1).join('/'),
+          state.locale,
+          siteStore.localeRouting
+        )
+      }))
     },
     folderPath: (state) => {
       return state.path.split('/').slice(0, -1).join('/')
@@ -143,11 +138,7 @@ export const usePageStore = defineStore('page', {
      */
     editorExitPath: (state) => {
       const siteStore = useSiteStore()
-      const path = localizedPagePath(state.path, state.locale, {
-        useLocales: siteStore.useLocales,
-        primary: siteStore.locales.primary,
-        forcePrefix: siteStore.locales.forcePrefix
-      })
+      const path = localizedPagePath(state.path, state.locale, siteStore.localeRouting)
       return `${path}${state.editor === 'redirect' ? '?redirect=no' : ''}`
     }
   },
@@ -663,13 +654,7 @@ export const usePageStore = defineStore('page', {
         // -> Through `localizedPagePath` rather than a bare `/${path}`: a move can now change the
         //    page's locale, and an unprefixed link to a non-primary-locale page round-trips through
         //    locale detection and lands on whichever translation that picks.
-        this.router.replace(
-          localizedPagePath(path, locale ?? this.locale, {
-            useLocales: siteStore.useLocales,
-            primary: siteStore.locales.primary,
-            forcePrefix: siteStore.locales.forcePrefix
-          })
-        )
+        this.router.replace(localizedPagePath(path, locale ?? this.locale, siteStore.localeRouting))
       }
     },
     /**

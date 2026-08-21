@@ -767,17 +767,6 @@ const folderPath = computed(() => {
 
 const usePathTitle = computed(() => state.displayMode === 'path')
 
-/**
- * The `{ useLocales, primary, forcePrefix }` triple `localizedPagePath` needs to prefix a link
- * correctly. Built by hand rather than read off `siteStore.localeRouting` -- that getter doesn't
- * exist yet, per the same 5 existing call sites (`LinkPickerDialog`, `LocaleSelectorMenu`, ...).
- */
-const localeRouting = computed(() => ({
-  useLocales: siteStore.useLocales,
-  primary: siteStore.locales.primary,
-  forcePrefix: siteStore.locales.forcePrefix
-}))
-
 const filteredFiles = computed(() => {
   if (state.search) {
     const fuse = new Fuse(state.fileList, {
@@ -1536,7 +1525,7 @@ function openItem(item) {
     }
     case 'page': {
       const pagePath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
-      router.push(localizedPagePath(pagePath, state.locale, localeRouting.value))
+      router.push(localizedPagePath(pagePath, state.locale, siteStore.localeRouting))
       close()
       break
     }
@@ -1554,7 +1543,7 @@ async function copyItemURL(item) {
       case 'page': {
         const pagePath = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
         await navigator.clipboard.writeText(
-          `${window.location.origin}${localizedPagePath(pagePath, state.locale, localeRouting.value)}`
+          `${window.location.origin}${localizedPagePath(pagePath, state.locale, siteStore.localeRouting)}`
         )
         break
       }
@@ -1585,7 +1574,9 @@ async function copyItemURL(item) {
 
 async function editItem(item) {
   router.push({
-    path: item.folderPath ? `/_edit/${item.folderPath}/${item.fileName}` : `/_edit/${item.fileName}`,
+    path: item.folderPath
+      ? `/_edit/${item.folderPath}/${item.fileName}`
+      : `/_edit/${item.fileName}`,
     query: siteStore.useLocales ? { locale: state.locale } : undefined
   })
   close()

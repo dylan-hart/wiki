@@ -93,12 +93,6 @@ const { t } = useI18n()
  * surprise for another.
  */
 function switchLocale(code) {
-  router.push(
-    localizedPagePath(pageStore.path, code, {
-      useLocales: siteStore.useLocales,
-      primary: siteStore.locales.primary,
-      forcePrefix: siteStore.locales.forcePrefix
-    })
-  )
+  router.push(localizedPagePath(pageStore.path, code, siteStore.localeRouting))
 }
 </script>

@@ -228,11 +228,7 @@ const state = reactive({
 const href = computed(() =>
   state.currentTab === 'page'
     ? state.path
-      ? localizedPagePath(state.path, pageStore.locale, {
-          useLocales: siteStore.useLocales,
-          primary: siteStore.locales.primary,
-          forcePrefix: siteStore.locales.forcePrefix
-        })
+      ? localizedPagePath(state.path, pageStore.locale, siteStore.localeRouting)
       : ''
     : state.url.trim()
 )

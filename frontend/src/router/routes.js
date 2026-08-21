@@ -25,11 +25,7 @@ const routes = [
       const siteStore = useSiteStore()
       try {
         const target = await pageStore.pageAlias(to.params.alias)
-        return localizedPagePath(target.path, target.locale, {
-          useLocales: siteStore.useLocales,
-          primary: siteStore.locales.primary,
-          forcePrefix: siteStore.locales.forcePrefix
-        })
+        return localizedPagePath(target.path, target.locale, siteStore.localeRouting)
       } catch (err) {
         return '/_error/notfound'
       }
