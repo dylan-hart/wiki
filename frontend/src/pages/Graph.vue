@@ -46,7 +46,9 @@
         :options="localeOptions"
         :label="t('graph.filters.locale')" />
       <w-btn
-        v-if="activeFilters.tags.length || activeFilters.folderDepth || activeFilters.locale"
+        v-if="
+          activeFilters.tags.length || activeFilters.folderDepth != null || activeFilters.locale
+        "
         flat
         dense
         :label="t('graph.filters.clear')"
