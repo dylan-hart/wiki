@@ -242,3 +242,58 @@ describe('buildTagHubEdges (OpenProject #999)', () => {
     expect(edges).toEqual([])
   })
 })
+
+describe('buildPathHierarchyEdges: combined scenario (OpenProject #1002)', () => {
+  it('produces exactly one synthetic node per distinct missing folder and one edge per parent-child pair, across a mixed real/synthetic tree', () => {
+    const nodes = [
+      { path: 'docs', title: 'Docs Index' }, // real page reused as its own folder node
+      { path: 'docs/guides/intro' },
+      { path: 'docs/guides/advanced' },
+      { path: 'about' }
+    ]
+    const { syntheticNodes, edges } = buildPathHierarchyEdges(nodes)
+
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs/guides'])
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: 'docs/guides', target: 'docs/guides/intro', type: 'path' },
+        { source: 'docs', target: 'docs/guides', type: 'path' },
+        { source: 'docs/guides', target: 'docs/guides/advanced', type: 'path' },
+        { source: '', target: 'docs', type: 'path' },
+        { source: '', target: 'about', type: 'path' }
+      ])
+    )
+    // -> One edge per distinct parent-child pair, no more: 4 real pages climbing a shared tree
+    //    produce exactly 5 edges once the shared `docs -> docs/guides` and `'' -> docs` legs are
+    //    de-duped across every page that climbs through them.
+    expect(edges).toHaveLength(5)
+  })
+})
+
+describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
+  it('produces exactly one hub per distinct tag and one edge per (page, tag) pair, across shared and multi-tagged pages', () => {
+    const nodes = [
+      { path: 'a', tags: ['guide', 'beginner'] },
+      { path: 'b', tags: ['guide'] },
+      { path: 'c', tags: ['beginner', 'reference'] },
+      { path: 'd', tags: [] }
+    ]
+    const { syntheticNodes, edges } = buildTagHubEdges(nodes)
+
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual([
+      '__tag__beginner',
+      '__tag__guide',
+      '__tag__reference'
+    ])
+    expect(edges).toHaveLength(5)
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: '__tag__guide', target: 'a', type: 'tag' },
+        { source: '__tag__beginner', target: 'a', type: 'tag' },
+        { source: '__tag__guide', target: 'b', type: 'tag' },
+        { source: '__tag__beginner', target: 'c', type: 'tag' },
+        { source: '__tag__reference', target: 'c', type: 'tag' }
+      ])
+    )
+  })
+})
