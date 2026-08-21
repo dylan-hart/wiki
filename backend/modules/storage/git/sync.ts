@@ -283,8 +283,17 @@ async function processAssetEntry(
   if (entry.exists && entry.relPath !== entry.oldPath) {
     const existing = await WIKI.models.assets.getAssetByPath(target.siteId, entry.oldPath)
     if (existing) {
-      const contentUnchanged =
-        entry.before === entry.after || (entry.deletions === 0 && entry.insertions === 0)
+      // -> `entry.binary` (which `sync()` always knows, from `DiffResultBinaryFile` vs.
+      //    `DiffResultTextFile`) is the discriminant, not an OR of both signals: a text entry's
+      //    `before`/`after` are always `undefined` (so `before === after` is vacuously true for
+      //    every text entry) and a binary entry's `insertions`/`deletions` are always hardcoded to
+      //    `0` (so that clause is vacuously true for every binary entry) — an OR of the two is
+      //    unconditionally true regardless of which kind actually changed, which is what silently
+      //    let a same-folder rename-and-rewrite through `renameAsset` with stale bytes. Only the
+      //    field that is real for this entry's kind is consulted.
+      const contentUnchanged = entry.binary
+        ? entry.before === entry.after
+        : entry.deletions === 0 && entry.insertions === 0
       const newFolder = dirnameOf(entry.relPath)
       if (contentUnchanged && newFolder === existing.folderPath) {
         await WIKI.models.assets.renameAsset(

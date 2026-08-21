@@ -507,13 +507,14 @@ describe('git storage: sync', () => {
   )
 
   test(
-    'a rename whose bytes also changed leaves exactly one asset row, at the new path ' +
-      '(#993 — orphaned-row fix: rename detection must not gate on content having stayed the same)',
+    'a text-asset rename+rewrite (shaped exactly as sync() really builds it: real ' +
+      'insertions/deletions, before/after undefined) leaves exactly one asset row, at the new ' +
+      'path, holding the new content (#993 — orphaned-row fix)',
     async () => {
-      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.png' }]
+      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.svg' }]
       const calls = installWiki(localPath, { assets: assetsBefore })
 
-      const absPath = path.join(localPath, 'new.png')
+      const absPath = path.join(localPath, 'new.svg')
       await fs.mkdir(localPath, { recursive: true })
       await fs.writeFile(absPath, 'new-bytes')
 
@@ -521,15 +522,15 @@ describe('git storage: sync', () => {
         target,
         { id: 'admin-1', permissions: ['manage:system'], groupIds: [] },
         {
-          relPath: 'images/new.png',
-          oldPath: 'images/old.png',
+          relPath: 'images/new.svg',
+          oldPath: 'images/old.svg',
           absPath,
           exists: true,
           binary: false,
           insertions: 5,
-          deletions: 0,
-          before: 10,
-          after: 20
+          deletions: 2,
+          before: undefined,
+          after: undefined
         }
       )
 
@@ -542,8 +543,40 @@ describe('git storage: sync', () => {
       )
       assert.equal(calls.renameAsset.length, 0)
       assert.equal(calls.upload.length, 1)
-      assert.equal(calls.upload[0].fileName, 'new.png')
+      assert.equal(calls.upload[0].fileName, 'new.svg')
       assert.equal(calls.upload[0].data.toString(), 'new-bytes')
+    }
+  )
+
+  test(
+    'a binary same-folder rename with unchanged before/after byte counts still takes the ' +
+      'renameAsset path (shaped exactly as sync() really builds it: insertions/deletions ' +
+      'hardcoded 0, real before/after)',
+    async () => {
+      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.png' }]
+      const calls = installWiki(localPath, { assets: assetsBefore })
+
+      await processDiffEntry(
+        target,
+        { id: 'admin-1', permissions: ['manage:system'], groupIds: [] },
+        {
+          relPath: 'images/new.png',
+          oldPath: 'images/old.png',
+          absPath: path.join(localPath, 'new.png'),
+          exists: true,
+          binary: true,
+          insertions: 0,
+          deletions: 0,
+          before: 1024,
+          after: 1024
+        }
+      )
+
+      assert.equal(calls.deleteAsset.length, 0)
+      assert.equal(calls.upload.length, 0)
+      assert.equal(calls.renameAsset.length, 1)
+      assert.equal(calls.renameAsset[0].id, 'a1')
+      assert.equal(calls.renameAsset[0].fileName, 'new.png')
     }
   )
 
