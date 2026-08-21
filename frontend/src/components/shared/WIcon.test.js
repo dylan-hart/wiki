@@ -14,11 +14,16 @@ describe('WIcon', () => {
   })
 
   it('renders an unbundled Iconify reference via iconify-icon', () => {
-    const wrapper = mount(WIcon, { props: { name: 'mdi:some-icon-nobody-picked-yet' } })
+    // -> Built by concatenation, not a literal: `scripts/generate-icons.mjs` scans quoted literals
+    //    matching the ref shape and would otherwise try (and fail) to bundle this fake icon name.
+    //    That's also exactly the case being tested here — a reference the static scan never sees,
+    //    same as an icon a user picks at runtime, per CLAUDE.md's Icons section.
+    const unbundledRef = 'mdi:' + 'some-icon-nobody-picked-yet'
+    const wrapper = mount(WIcon, { props: { name: unbundledRef } })
 
     const el = wrapper.find('iconify-icon')
     expect(el.exists()).toBe(true)
-    expect(el.attributes('icon')).toBe('mdi:some-icon-nobody-picked-yet')
+    expect(el.attributes('icon')).toBe(unbundledRef)
   })
 
   it('renders an img: reference as an image', () => {
