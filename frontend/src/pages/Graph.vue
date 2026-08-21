@@ -35,6 +35,7 @@ import {
   forceX,
   forceY
 } from 'd3-force'
+import { polygonHull } from 'd3-polygon'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
@@ -154,18 +155,21 @@ function drawEdges() {
 
 function drawClusterHulls() {
   for (const cluster of clusters.value) {
-    if (!cluster.hullPoints?.length) {
-      continue
-    }
-    ctx.beginPath()
-    ctx.moveTo(cluster.hullPoints[0][0], cluster.hullPoints[0][1])
-    for (const point of cluster.hullPoints.slice(1)) {
-      ctx.lineTo(point[0], point[1])
-    }
-    ctx.closePath()
     ctx.fillStyle = cluster.color
     ctx.globalAlpha = 0.12
-    ctx.fill()
+    if (cluster.hullPoints?.length) {
+      ctx.beginPath()
+      ctx.moveTo(cluster.hullPoints[0][0], cluster.hullPoints[0][1])
+      for (const point of cluster.hullPoints.slice(1)) {
+        ctx.lineTo(point[0], point[1])
+      }
+      ctx.closePath()
+      ctx.fill()
+    } else if (cluster.circle) {
+      ctx.beginPath()
+      ctx.arc(cluster.circle.x, cluster.circle.y, cluster.circle.r, 0, Math.PI * 2)
+      ctx.fill()
+    }
     ctx.globalAlpha = 1
   }
 }
@@ -209,6 +213,7 @@ function redraw() {
   for (const node of nodes.value) {
     node.color = colorForGroup(groupKeyFor(node))
   }
+  computeClusters()
 
   if (!ctx) {
     return
@@ -330,6 +335,60 @@ function applyClusteringForce() {
   simulation
     .force('clusterX', forceX((d) => centroids.get(groupKeyFor(d))?.x ?? 0).strength(0.05))
     .force('clusterY', forceY((d) => centroids.get(groupKeyFor(d))?.y ?? 0).strength(0.05))
+}
+
+/*
+  `16`px is a starting point sized against the `5`px node-dot radius in `drawNodes()` -- tune
+  visually so the hull clearly contains the dots without ballooning past neighboring clusters.
+*/
+const HULL_PADDING = 16
+
+/** Pads a hull outward from its own centroid so the fill visually contains the node dots rather
+ *  than passing through their centers, per the spec's "Obsidian-style" sector requirement. */
+function padHull(points, padding) {
+  const cx = points.reduce((sum, p) => sum + p[0], 0) / points.length
+  const cy = points.reduce((sum, p) => sum + p[1], 0) / points.length
+  return points.map(([x, y]) => {
+    const dx = x - cx
+    const dy = y - cy
+    const len = Math.hypot(dx, dy) || 1
+    return [x + (dx / len) * padding, y + (dy / len) * padding]
+  })
+}
+
+/** Populates `clusters.value` -- one entry per visible group with `hullPoints` (>=3 nodes) or a
+ *  fallback `circle` (1-2 nodes, or a degenerate >=3-node group `polygonHull` can't hull, e.g.
+ *  every point collinear). */
+function computeClusters() {
+  const byGroup = new Map()
+  for (const node of nodes.value) {
+    if (node.x === undefined) {
+      continue
+    }
+    const key = groupKeyFor(node)
+    const list = byGroup.get(key) ?? []
+    list.push(node)
+    byGroup.set(key, list)
+  }
+
+  const result = []
+  for (const [key, groupNodes] of byGroup) {
+    const color = colorForGroup(key)
+    if (groupNodes.length >= 3) {
+      const hull = polygonHull(groupNodes.map((n) => [n.x, n.y]))
+      if (hull) {
+        result.push({ key, color, hullPoints: padHull(hull, HULL_PADDING) })
+        continue
+      }
+      // -> `polygonHull` returns null for degenerate input (e.g. every point collinear) even with
+      //    >=3 nodes; fall through to the circle case below rather than drawing nothing.
+    }
+    const cx = groupNodes.reduce((s, n) => s + n.x, 0) / groupNodes.length
+    const cy = groupNodes.reduce((s, n) => s + n.y, 0) / groupNodes.length
+    const maxDist = Math.max(...groupNodes.map((n) => Math.hypot(n.x - cx, n.y - cy)), 0)
+    result.push({ key, color, circle: { x: cx, y: cy, r: maxDist + HULL_PADDING } })
+  }
+  clusters.value = result
 }
 
 /*
