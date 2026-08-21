@@ -1710,6 +1710,7 @@
   "common.sidebar.currentDirectory": "Current Directory",
   "common.sidebar.mainMenu": "Main Menu",
   "common.sidebar.root": "(root)",
+  "common.sidebar.switchLocale": "Switch Locale",
   "common.unauthorized.action.create": "You cannot create the page.",
   "common.unauthorized.action.download": "You cannot download the page content.",
   "common.unauthorized.action.downloadVersion": "You cannot download the content for this page version.",

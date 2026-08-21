@@ -383,6 +383,7 @@ import CollabPresence from '@/components/CollabPresence.vue'
 import IconPickerDialog from '@/components/IconPickerDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
+import { shouldPrefixLocale } from '@/helpers/pagePaths'
 
 /**
  * How long the bell swings for, in milliseconds. Matches the `w-bell-ring` animation below — the class
@@ -593,11 +594,11 @@ async function discardChanges() {
     })
 
     // Is it the home page in create mode?
-    if ((pageStore.path === '' || pageStore.path === 'home') && pageStore.locale === 'en') {
+    if ((pageStore.path === '' || pageStore.path === 'home') && pageStore.locale === siteStore.locales.primary) {
       siteStore.overlay = 'Welcome'
     }
 
-    router.replace('/')
+    router.replace(shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/')
     return
   }
 

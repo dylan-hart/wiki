@@ -16,9 +16,9 @@
           flat
           icon="la:globe"
           color="white"
-          aria-label="Switch Locale">
+          :aria-label="t('common.sidebar.switchLocale')">
           <locale-selector-menu anchor="top right" self="top left" />
-          <w-tooltip anchor="center right" self="center left">Switch Locale</w-tooltip>
+          <w-tooltip anchor="center right" self="center left">{{ t('common.sidebar.switchLocale') }}</w-tooltip>
         </w-btn>
         <w-btn
           v-if="canBrowse"
