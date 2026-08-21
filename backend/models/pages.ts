@@ -919,13 +919,19 @@ class Pages {
       return null
     }
     const newPath = normalizePath(path)
-    const firstSegment = newPath.split('/')[0] ?? ''
-    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
-      throw new CustomError(
-        'pageReservedLocaleSegment',
-        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
-        400
-      )
+    // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so a
+    //    title-only (or locale-only) move of an already-grandfathered page — one whose path predates
+    //    this rule — isn't itself blocked. The route's own schema advertises rename-via-move, and a
+    //    page whose shadowing first segment is untouched by this call isn't newly at risk.
+    if (newPath !== page.path) {
+      const firstSegment = newPath.split('/')[0] ?? ''
+      if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+        throw new CustomError(
+          'pageReservedLocaleSegment',
+          `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+          400
+        )
+      }
     }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page

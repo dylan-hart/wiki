@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
+  seedTreeEntry,
   setupTestDb,
   teardownTestDb,
   type TestFixtures
@@ -454,6 +455,46 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
     await assert.rejects(
       pagesModel.movePage(fixtures.siteId, page.id, { path: 'en/shadowed' }, actor),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
+    )
+  })
+
+  test('movePage accepts a title-only move on a grandfathered page whose path is not changing', async () => {
+    // -> `createPage()` refuses this path outright since task 12/#994 -- reachable only by writing
+    //    under the model layer, exactly the "grandfathered" row the reserved-segment check on
+    //    `movePage` must not punish for an edit that leaves its shadowing first segment untouched.
+    //    A real grandfathered page also has a real ancestor folder tree row (filled in by
+    //    `tree.addPage` back when it was created, before `tree.createFolder` started refusing `fr`)
+    //    -- seeded directly here so `movePage`'s unconditional tree delete+recreate doesn't have to
+    //    re-materialize `fr` through the now-reserved `createFolder` path.
+    const [rawPage] = await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'fr/legacy', locale: 'en', siteId: fixtures.siteId }))
+      .returning()
+    await seedTreeEntry(fixtures.db, {
+      siteId: fixtures.siteId,
+      path: 'fr',
+      type: 'folder',
+      locale: 'en'
+    })
+
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      rawPage!.id,
+      { path: 'fr/legacy', title: 'Legacy, Renamed' },
+      actor
+    )
+    assert.equal(moved!.path, 'fr/legacy')
+    assert.equal(moved!.title, 'Legacy, Renamed')
+  })
+
+  test('movePage still refuses moving a grandfathered page to a NEW reserved-code path', async () => {
+    const [rawPage] = await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'fr/legacy-relocate', locale: 'en', siteId: fixtures.siteId }))
+      .returning()
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, rawPage!.id, { path: 'en/legacy-relocate' }, actor),
       (err: any) => err.name === 'pageReservedLocaleSegment'
     )
   })

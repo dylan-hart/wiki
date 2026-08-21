@@ -130,7 +130,14 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(entry!.path, 'orphan-page')
   })
 
-  test('scan catches duplicate (siteId, locale, path) tuples', async () => {
+  test('the database itself now prevents a duplicate (siteId, locale, path) tuple, so scan reports none in the normal case', async () => {
+    // -> `pages_siteId_locale_path_idx` (added by an earlier task, `db/schema.ts`) rejects this at
+    //    the database level even writing directly under the model layer -- there is no longer a way
+    //    to fabricate a genuine duplicate to feed this check. `duplicatePaths` stays in `scan()` as
+    //    defense-in-depth regardless (same category as `hashDrift`: an invariant the write path
+    //    upholds today, not proof nothing could ever violate it — e.g. a constraint dropped or
+    //    bypassed by a future migration/import), so this test now covers the DB-level guarantee that
+    //    makes it currently unreachable, plus the clean-report case.
     const common = {
       locale: 'en',
       path: 'duplicate-path',
@@ -143,16 +150,18 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
       ownerId: fixtures.userId,
       siteId: fixtures.siteId
     }
-    // -> Two rows sharing a (siteId, locale, path) — reachable only by writing under the model layer,
-    //    since `createPage` itself refuses this
-    const inserted = await fixtures.db.insert(pagesTable).values([common, common]).returning()
+    await fixtures.db.insert(pagesTable).values(common)
+    await assert.rejects(
+      fixtures.db.insert(pagesTable).values(common),
+      (err: any) => (err.cause?.code ?? err.code) === '23505'
+    )
 
     const report = await pageProblemsModel.scan()
 
-    const group = report.duplicatePaths.entries.find((e) => e.path === 'duplicate-path')
-    assert.ok(group)
-    assert.equal(group!.locale, 'en')
-    assert.deepEqual([...group!.pageIds].sort(), inserted.map((p) => p.id).sort())
+    assert.equal(
+      report.duplicatePaths.entries.some((e) => e.path === 'duplicate-path'),
+      false
+    )
   })
 
   test('scan catches a relation pointing at a page that no longer exists', async () => {
