@@ -233,7 +233,7 @@ function drawEdges() {
   for (const edge of edges.value) {
     const source = edge.source
     const target = edge.target
-    if (!source?.x || !target?.x) {
+    if (source?.x === undefined || target?.x === undefined) {
       continue
     }
     ctx.beginPath()
