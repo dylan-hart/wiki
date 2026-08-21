@@ -1601,6 +1601,7 @@
   "common.header.delete": "Delete",
   "common.header.duplicate": "Duplicate",
   "common.header.edit": "Edit",
+  "common.header.graph": "Knowledge Graph",
   "common.header.history": "History",
   "common.header.home": "Home",
   "common.header.imagesFiles": "Images & Files",
