@@ -3,9 +3,14 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { createI18n } from 'vue-i18n'
 
 import Graph from './Graph.vue'
 import { useSiteStore } from '@/stores/site'
+
+function createTestI18n() {
+  return createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+}
 
 const FIXTURE_GRAPH = {
   nodes: [
@@ -29,7 +34,7 @@ async function mountGraph() {
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_GRAPH) })
 
-  const wrapper = mount(Graph, { global: { plugins: [router] } })
+  const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
   await flushPromises()
   return wrapper
 }
@@ -61,7 +66,7 @@ describe('Graph.vue (OpenProject #891)', () => {
       throw new Error('network')
     })
 
-    const wrapper = mount(Graph, { global: { plugins: [router] } })
+    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)

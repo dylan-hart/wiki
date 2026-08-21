@@ -20,6 +20,32 @@
           { label: 'Tag', value: 'tag' }
         ]" />
     </div>
+    <div class="graph-view-filters">
+      <w-select
+        v-model="activeFilters.tags"
+        multiple
+        use-chips
+        outlined
+        dense
+        options-dense
+        :options="tagOptions"
+        :label="t('graph.filters.tags')" />
+      <w-input
+        v-model.number="activeFilters.folderDepth"
+        type="number"
+        min="0"
+        outlined
+        dense
+        :label="t('graph.filters.folderDepth')" />
+      <w-select
+        v-if="siteStore.locales.showMenu"
+        v-model="activeFilters.locale"
+        outlined
+        dense
+        options-dense
+        :options="localeOptions"
+        :label="t('graph.filters.locale')" />
+    </div>
     <div class="graph-view-legend">
       <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
         <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
@@ -31,6 +57,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   forceCenter,
@@ -57,6 +84,7 @@ import { useSiteStore } from '@/stores/site'
 
 const siteStore = useSiteStore()
 const router = useRouter()
+const { t } = useI18n()
 
 const containerRef = ref(null)
 const canvasRef = ref(null)
@@ -70,6 +98,21 @@ const loadError = ref(null)
 /** 'site' is deliberately not an option here -- see the spec's architecture note: a single loaded
  *  graph has exactly one site value, so grouping by it would be a no-op UI control. */
 const groupBy = ref('folder')
+
+/** Drill-down filter state (OpenProject #875): the AND of whichever of these are non-empty narrows
+ *  the visible node/edge subset -- see `graphFilters.js#computeVisibleSubset` (Task 25). `'site'` is
+ *  deliberately not a field here, same reasoning as `groupBy` above: a single loaded graph has
+ *  exactly one site value, so filtering by it would be a no-op. */
+const activeFilters = reactive({
+  tags: [],
+  folderDepth: null,
+  locale: null
+})
+
+/** Populated for real by Task 24 (#899) from `deriveFilterOptions(nodes.value)`; empty here keeps
+ *  the filter panel's `w-select`s functional (no options to pick) until that task lands. */
+const tagOptions = computed(() => [])
+const localeOptions = computed(() => [])
 
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
@@ -495,6 +538,27 @@ onBeforeUnmount(() => {
   top: 16px;
   right: 16px;
   z-index: 1;
+}
+
+.graph-view-filters {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 220px;
+  padding: 12px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+
+  @at-root .body--light & {
+    background: rgba(255, 255, 255, 0.85);
+  }
+  @at-root .body--dark & {
+    background: rgba(0, 0, 0, 0.55);
+  }
 }
 
 .graph-view-legend {
