@@ -27,7 +27,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import mime from 'mime'
 import type { DiffResultBinaryFile, DiffResultTextFile, SimpleGit } from 'simple-git'
-import { generatePathHash } from '../../../helpers/common.ts'
+import { generatePathHash, stripLocalePrefix } from '../../../helpers/common.ts'
 import { getContentTypeFromExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 import { getEditorForContentType } from '../../../models/pages.ts'
@@ -122,20 +122,26 @@ function stripExt(relPath: string): string {
   return lastDot === -1 ? relPath : relPath.slice(0, lastDot)
 }
 
-/** A folder segment shaped like a locale code, at the front of an extension-stripped page path. */
-const LOCALE_SEGMENT = /^([a-z]{2}(?:-[a-z]{2})?)\/(.+)$/i
-
 /**
  * The inverse of `content.ts`'s `localeNamespace` + `pageRelPath`: split `[locale/]path` (already
- * stripped of its extension) back into the locale it was written under and the bare page path. A
- * path with no such prefix is the site's primary locale, exactly as a page written by `created()`
- * never gets a locale folder when it is already in the primary one.
+ * stripped of its extension) back into the locale it was written under and the bare page path.
+ * Validated against the site's ACTIVE locales via the canonical `stripLocalePrefix` — a folder
+ * merely shaped like a locale code (`it/`, `qa/`) is a folder, and the code comes back exactly as
+ * stored in `active` (`pt-BR`, never a lowercased `pt-br` twin). A path with no active-locale
+ * prefix is the site's primary locale, exactly as `created()` writes it.
+ *
+ * Exported for `sync.test.ts` — see `docs/decisions/locale-architecture.md` §5.3 for why this
+ * parser validates against `locales.active` instead of guessing from shape.
  */
-function parseLocaleAndPath(siteId: string, pathNoExt: string): { locale: string; path: string } {
-  const primary = WIKI.sites?.[siteId]?.config?.locales?.primary ?? 'en'
-  const match = pathNoExt.match(LOCALE_SEGMENT)
-  if (match) {
-    return { locale: match[1].toLowerCase(), path: match[2] }
+export function parseLocaleAndPath(
+  siteId: string,
+  pathNoExt: string
+): { locale: string; path: string } {
+  const locales = WIKI.sites?.[siteId]?.config?.locales
+  const primary = locales?.primary ?? 'en'
+  const match = stripLocalePrefix(`/${pathNoExt}`, locales)
+  if (match && match.path !== '/') {
+    return { locale: match.locale, path: match.path.slice(1) }
   }
   return { locale: primary, path: pathNoExt }
 }
@@ -274,13 +280,13 @@ async function processAssetEntry(
   const bucket = guessAssetBucket(entry.relPath)
   if (!covers(target, bucket)) return
 
-  const contentUnchanged =
-    entry.before === entry.after || (entry.deletions === 0 && entry.insertions === 0)
-  if (entry.exists && entry.relPath !== entry.oldPath && contentUnchanged) {
+  if (entry.exists && entry.relPath !== entry.oldPath) {
     const existing = await WIKI.models.assets.getAssetByPath(target.siteId, entry.oldPath)
     if (existing) {
+      const contentUnchanged =
+        entry.before === entry.after || (entry.deletions === 0 && entry.insertions === 0)
       const newFolder = dirnameOf(entry.relPath)
-      if (newFolder === existing.folderPath) {
+      if (contentUnchanged && newFolder === existing.folderPath) {
         await WIKI.models.assets.renameAsset(
           target.siteId,
           existing.id,
@@ -288,12 +294,12 @@ async function processAssetEntry(
         )
         return
       }
-      // -> The rename also moved folders, which `renameAsset` only ever changes the file name for
-      //    (see its own doc comment) — treat it as a delete of the old asset and a fresh upload at
-      //    the new location rather than silently losing the folder move.
+      // -> Renamed across folders, or renamed AND rewritten in one commit: either way the old row
+      //    cannot be updated in place (renameAsset only changes the file name; upload() below keys
+      //    on the new path) — delete it so the fresh upload doesn't leave it orphaned.
       await WIKI.models.assets.deleteAsset(target.siteId, existing.id)
     }
-    // -> Nothing tracked at the old path: fall through and upload fresh at the new one.
+    // -> fall through to the upload below
   } else if (
     !entry.exists &&
     (((entry.before ?? 0) > 0 && entry.after === 0) ||

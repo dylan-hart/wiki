@@ -53,6 +53,9 @@ export function assetBucket(kind: string | undefined): string {
  * The locale segment a page's file path is written under, mirroring 2.5.x's namespacing: a page in
  * the site's primary locale is written bare, any other locale gets its own folder — so a single-locale
  * wiki (the common case) never sees a locale segment in its repo at all.
+ *
+ * Implements git's primary-bare serialization convention — see `docs/decisions/locale-architecture.md`
+ * §5.3.
  */
 function localeNamespace(siteId: string, locale: string): string {
   const primary = WIKI.sites?.[siteId]?.config?.locales?.primary

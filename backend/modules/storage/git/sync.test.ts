@@ -15,7 +15,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
-import { sync, parseRenamedPaths } from './sync.ts'
+import { sync, parseRenamedPaths, parseLocaleAndPath, processDiffEntry } from './sync.ts'
 import { ensureRepo } from './storage.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
@@ -53,7 +53,9 @@ function installWiki(
     ROOTPATH: rootPath,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     sites: {
-      [SITE_ID]: { config: { locales: { primary: PRIMARY_LOCALE } } }
+      [SITE_ID]: {
+        config: { locales: { primary: PRIMARY_LOCALE, active: [PRIMARY_LOCALE, 'fr'] } }
+      }
     },
     models: {
       extensions: {
@@ -206,6 +208,31 @@ describe('git storage: parseRenamedPaths', () => {
       oldPath: 'docs/old/page.md',
       newPath: 'docs/new/page.md'
     })
+  })
+})
+
+describe('git storage: parseLocaleAndPath', () => {
+  test('a two-letter folder that is not an active locale stays a folder path', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'it/setup'), { locale: 'en', path: 'it/setup' })
+  })
+
+  test('an active locale folder is recognized case-preservingly', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'pt-BR'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-BR/intro'), { locale: 'pt-BR', path: 'intro' })
+    // -> A mis-cased folder still resolves to the code AS STORED, never a lowercased twin.
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'pt-br/intro'), { locale: 'pt-BR', path: 'intro' })
+  })
+
+  test('a file named after a locale code at the root is a primary-locale page, not an empty path', () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } }
+    }
+    assert.deepEqual(parseLocaleAndPath(SITE_ID, 'fr'), { locale: 'en', path: 'fr' })
   })
 })
 
@@ -476,6 +503,47 @@ describe('git storage: sync', () => {
         'photo2.png'
       ])
       assert.ok(calls.upload.every((c: any) => c.folderId === 'folder:images/exhibit'))
+    }
+  )
+
+  test(
+    'a rename whose bytes also changed leaves exactly one asset row, at the new path ' +
+      '(#993 — orphaned-row fix: rename detection must not gate on content having stayed the same)',
+    async () => {
+      const assetsBefore = [{ id: 'a1', folderPath: 'images', fileName: 'old.png' }]
+      const calls = installWiki(localPath, { assets: assetsBefore })
+
+      const absPath = path.join(localPath, 'new.png')
+      await fs.mkdir(localPath, { recursive: true })
+      await fs.writeFile(absPath, 'new-bytes')
+
+      await processDiffEntry(
+        target,
+        { id: 'admin-1', permissions: ['manage:system'], groupIds: [] },
+        {
+          relPath: 'images/new.png',
+          oldPath: 'images/old.png',
+          absPath,
+          exists: true,
+          binary: false,
+          insertions: 5,
+          deletions: 0,
+          before: 10,
+          after: 20
+        }
+      )
+
+      // -> Exactly one surviving row: the old one deleted, a fresh one uploaded at the new path —
+      //    never a rename-in-place (which would silently drop the new bytes) and never both an
+      //    orphaned old row AND a fresh one.
+      assert.deepEqual(
+        calls.deleteAsset.map((c: any) => c.id),
+        ['a1']
+      )
+      assert.equal(calls.renameAsset.length, 0)
+      assert.equal(calls.upload.length, 1)
+      assert.equal(calls.upload[0].fileName, 'new.png')
+      assert.equal(calls.upload[0].data.toString(), 'new-bytes')
     }
   )
 

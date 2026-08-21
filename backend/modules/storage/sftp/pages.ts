@@ -111,6 +111,9 @@ export function resolveLocaleInfo(
  * `<localeCode>/<path>.<ext>` when namespacing applies and the page isn't in the site's default
  * locale, else plain `<path>.<ext>`. Extension comes from `contentType` via
  * `extensionForContentType` (Task 521's shared helper).
+ *
+ * Implements sftp's primary-bare serialization convention — see
+ * `docs/decisions/locale-architecture.md` §5.3.
  */
 export function remotePathForPage(
   page: Pick<PageExportRow, 'locale' | 'path' | 'contentType'>,
