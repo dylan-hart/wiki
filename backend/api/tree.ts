@@ -166,7 +166,7 @@ async function routes(app: FastifyInstance) {
             locale: {
               type: 'string',
               maxLength: 10,
-              description: 'Only entries in this locale. Every locale when absent.'
+              description: "Only entries in this locale. Defaults to the site's primary locale."
             },
             types: {
               type: 'string',
@@ -226,11 +226,12 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const q = req.query
+      const locale = q.locale ?? defaultLocale(req.params.siteId)
       const items = await WIKI.models.tree.getTree({
         siteId: req.params.siteId,
         parentId: q.parentId,
         parentPath: q.parentPath,
-        locale: q.locale,
+        locale,
         types: splitList(q.types) as TreeItemType[] | null,
         tags: splitList(q.tags),
         limit: q.limit,
@@ -241,14 +242,7 @@ async function routes(app: FastifyInstance) {
         includeAncestors: q.includeAncestors,
         includeRootFolders: q.includeRootFolders
       })
-      // -> Task 6 makes the handler's resolved locale always-present; until then this is the same
-      //    fallback every other route in this file uses
-      return visibleTreeItems(
-        req,
-        req.params.siteId,
-        q.locale ?? defaultLocale(req.params.siteId),
-        items
-      )
+      return visibleTreeItems(req, req.params.siteId, locale, items)
     }
   )
 

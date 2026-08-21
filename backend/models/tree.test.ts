@@ -142,4 +142,52 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
+
+  /**
+   * Review finding (#992): `getTree` treated `locale` as optional and only filtered when one was
+   * given, while the API handler's post-filter (`visibleTreeItems`, Task 4) always judges a single
+   * resolved locale — an omitted `locale` therefore listed every locale but filtered as if it were
+   * one. `getTree` now requires `locale` and filters unconditionally, even when two locales share the
+   * same `folderPath` (as `en`/`fr` copies of the same folder do).
+   */
+  test('getTree filters unconditionally on locale, even when locales share a folderPath (#992)', async () => {
+    await treeModel.createFolder({
+      pathName: 'shared',
+      title: 'Shared EN',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await treeModel.createFolder({
+      pathName: 'shared',
+      title: 'Shared FR',
+      locale: 'fr',
+      siteId: fixtures.siteId
+    })
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'shared/intro', title: 'Intro EN', locale: 'en' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'shared/intro', title: 'Intro FR', locale: 'fr' }),
+      actor
+    )
+
+    const items = await treeModel.getTree({
+      siteId: fixtures.siteId,
+      locale: 'en',
+      parentPath: 'shared',
+      includeAncestors: true,
+      depth: 1
+    })
+
+    assert.ok(items.length > 0, 'expected at least the en folder/page to come back')
+    for (const item of items) {
+      assert.notEqual(item.title, 'Shared FR', 'an fr folder must not appear in an en-only listing')
+      assert.notEqual(item.title, 'Intro FR', 'an fr page must not appear in an en-only listing')
+    }
+    const titles = items.map((item) => item.title).sort()
+    assert.deepEqual(titles, ['Intro EN', 'Shared EN'])
+  })
 })

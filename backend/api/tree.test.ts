@@ -41,7 +41,8 @@ before(async () => {
           folderPath: '',
           locale: 'en',
           meta: {}
-        })
+        }),
+        getTree: async () => []
       },
       groups: {
         actorForRequest: () => ({ permissions: [] })
@@ -126,6 +127,27 @@ test('GET FOLDER route: passes the route siteId through to checkAccess', async (
   assert.equal(res.statusCode, 200)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+})
+
+/**
+ * Review finding (#992): the GET tree route resolved a defaulted locale for `visibleTreeItems` but
+ * passed the raw, possibly-absent query param straight through to `getTree` — an omitted `locale`
+ * merged every locale out of `getTree` while `visibleTreeItems` judged access as if the site's
+ * primary locale were the only one present. The handler now resolves one `const locale` and passes
+ * it to both.
+ */
+test('GET TREE route: getTree receives the same resolved locale visibleTreeItems judges by, when the query omits locale', async () => {
+  let getTreeLocale: string | null | undefined = 'not called'
+  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+    getTreeLocale = args.locale
+    return []
+  }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${ENABLED_SITE_ID}/tree`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(getTreeLocale, 'en', "getTree must receive the site's resolved default locale")
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {

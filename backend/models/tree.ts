@@ -245,6 +245,9 @@ class Tree {
    * @param includeAncestors Also return every folder between the root and the one being listed, so a
    *                         caller opening a deep folder gets the branch it hangs off in one request.
    * @param includeRootFolders Also return every folder at the root, for the same reason.
+   * @param locale Required — every listing is scoped to exactly one locale. A caller with no locale
+   *               opinion of its own (an HTTP request that left the query param off) resolves one
+   *               before calling in, rather than this method merging every locale together.
    */
   async getTree({
     siteId,
@@ -264,7 +267,7 @@ class Tree {
     siteId: string
     parentId?: string | null
     parentPath?: string | null
-    locale?: string | null
+    locale: string
     types?: TreeItemType[] | null
     tags?: string[] | null
     limit?: number
@@ -317,10 +320,11 @@ class Tree {
       locations.push(and(eq(treeTable.folderPath, ''), eq(treeTable.type, 'folder'))!)
     }
 
-    const conditions: (SQL | undefined)[] = [eq(treeTable.siteId, siteId), or(...locations)]
-    if (locale) {
-      conditions.push(eq(treeTable.locale, locale))
-    }
+    const conditions: (SQL | undefined)[] = [
+      eq(treeTable.siteId, siteId),
+      or(...locations),
+      eq(treeTable.locale, locale)
+    ]
     if (types && types.length > 0) {
       conditions.push(inArray(treeTable.type, types))
     }
