@@ -467,7 +467,8 @@ function duplicatePage() {
       folderPath: '',
       itemId: pageStore.id,
       itemTitle: pageStore.title,
-      itemFileName: pageStore.path
+      itemFileName: pageStore.path,
+      locale: pageStore.locale
     }
   }).onOk((newPageOpts) => {
     pageStore.pageDuplicate({
@@ -486,7 +487,8 @@ function renamePage() {
       folderPath: '',
       itemId: pageStore.id,
       itemTitle: pageStore.title,
-      itemFileName: pageStore.path
+      itemFileName: pageStore.path,
+      locale: pageStore.locale
     }
   }).onOk(async (renamedPageOpts) => {
     try {

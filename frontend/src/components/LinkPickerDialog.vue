@@ -217,9 +217,13 @@ const state = reactive({
 // COMPUTED
 
 /*
-  The tree this picker browses isn't scoped to a locale, but the link it hands back is inserted into
-  the page currently being edited -- so that page's own locale (`pageStore.locale`) is what the link
-  is prefixed with, same as any other in-content link a reader on that page would follow.
+  The tree this picker browses is scoped to `pageStore.locale` (passed to `loadTree` below), same as
+  the link handed back -- the page currently being edited's own locale, so the picker only ever lists
+  (and only ever links to) pages that exist in that locale.
+
+  Before this scoping, the tree was unfiltered: picking a page that only had, say, a `fr` translation
+  while editing an `en` page produced a link prefixed `/en/<fr-path>` -- a page that never existed
+  under that prefix, so a dead link the moment it was followed. Listing and link now agree.
 */
 const href = computed(() =>
   state.currentTab === 'page'
@@ -272,6 +276,7 @@ async function loadTree({ parentId = null, parentPath = null, initLoad = false }
         ...(parentId ? { parentId } : {}),
         ...(parentPath ? { parentPath } : {}),
         types: 'folder,page',
+        locale: pageStore.locale,
         includeAncestors: initLoad,
         includeRootFolders: initLoad
       }

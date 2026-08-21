@@ -727,7 +727,8 @@ async function createPage() {
       mode: 'savePage',
       folderPath: '',
       itemTitle: pageStore.title,
-      itemFileName: pageStore.path
+      itemFileName: pageStore.path,
+      locale: pageStore.locale
     }
   }).onOk(async ({ path, title }) => {
     await processPendingAssets()
