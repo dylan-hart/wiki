@@ -191,6 +191,10 @@ const CATEGORICAL_PALETTE = [
   '#e34948' // red
 ]
 
+/** Fixed neutral color for every synthetic node (OpenProject #997/#1001) -- deliberately outside
+ *  `CATEGORICAL_PALETTE` so a synthetic folder/tag-hub marker never gets mistaken for a real group. */
+const SYNTHETIC_NODE_COLOR = '#9e9e9e'
+
 const groupColors = new Map()
 
 /** Assigns the palette's next unused slot to a not-yet-seen group key, then always returns that
@@ -211,6 +215,9 @@ function colorForGroup(key) {
 const legendEntries = computed(() => {
   const seen = new Map()
   for (const node of nodes.value) {
+    if (node.synthetic) {
+      continue
+    }
     const key = groupKeyFor(node)
     if (!seen.has(key)) {
       seen.set(key, colorForGroup(key))
@@ -294,7 +301,7 @@ function drawNodes() {
       continue
     }
     ctx.beginPath()
-    ctx.arc(node.x, node.y, 5, 0, Math.PI * 2)
+    ctx.arc(node.x, node.y, node.synthetic ? 3 : 5, 0, Math.PI * 2)
     ctx.fillStyle = node.color ?? '#888'
     ctx.fill()
   }
@@ -366,7 +373,7 @@ function findNodeAt(clientX, clientY) {
 
 function onCanvasClick(event) {
   const node = findNodeAt(event.clientX, event.clientY)
-  if (!node) {
+  if (!node || node.synthetic) {
     return
   }
   router.push(
@@ -419,7 +426,7 @@ function startSimulation() {
 function groupCentroids() {
   const sums = new Map()
   for (const node of nodes.value) {
-    if (node.x === undefined) {
+    if (node.x === undefined || node.synthetic) {
       continue
     }
     const key = groupKeyFor(node)
@@ -444,8 +451,14 @@ function applyClusteringForce() {
   }
   centroids = groupCentroids()
   simulation
-    .force('clusterX', forceX((d) => centroids.get(groupKeyFor(d))?.x ?? 0).strength(0.05))
-    .force('clusterY', forceY((d) => centroids.get(groupKeyFor(d))?.y ?? 0).strength(0.05))
+    .force(
+      'clusterX',
+      forceX((d) => centroids.get(groupKeyFor(d))?.x ?? 0).strength((d) => (d.synthetic ? 0 : 0.05))
+    )
+    .force(
+      'clusterY',
+      forceY((d) => centroids.get(groupKeyFor(d))?.y ?? 0).strength((d) => (d.synthetic ? 0 : 0.05))
+    )
 }
 
 /*
@@ -473,7 +486,7 @@ function padHull(points, padding) {
 function computeClusters() {
   const byGroup = new Map()
   for (const node of nodes.value) {
-    if (node.x === undefined) {
+    if (node.x === undefined || node.synthetic) {
       continue
     }
     const key = groupKeyFor(node)
@@ -507,7 +520,7 @@ function computeClusters() {
  *  whenever the grouping dimension or the visible node set changes. */
 function recomputeClusters() {
   for (const node of nodes.value) {
-    node.color = colorForGroup(groupKeyFor(node))
+    node.color = node.synthetic ? SYNTHETIC_NODE_COLOR : colorForGroup(groupKeyFor(node))
   }
   computeClusters()
 }
