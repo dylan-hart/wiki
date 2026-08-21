@@ -23,14 +23,17 @@ describe('deriveFilterOptions (OpenProject #899)', () => {
   })
 })
 
+// Paths are deliberately nested at different depths (unlike `folder`, which the backend keeps to a
+// single segment for Feature 874's clustering) -- the depth filter derives depth from `path`, so the
+// fixture needs real multi-level paths to exercise that (OpenProject #898/#900).
 const NODES2 = [
-  { path: 'a', locale: 'en', tags: ['foo'], folder: 'docs' },
-  { path: 'b', locale: 'fr', tags: ['bar'], folder: 'docs/child' },
-  { path: 'c', locale: 'en', tags: [], folder: '' }
+  { path: 'a', locale: 'en', tags: ['foo'], folder: '' },
+  { path: 'docs/b', locale: 'fr', tags: ['bar'], folder: 'docs' },
+  { path: 'docs/deep/c', locale: 'en', tags: [], folder: 'docs' }
 ]
 const EDGES2 = [
-  { source: 'a', target: 'b', type: 'link' },
-  { source: 'a', target: 'c', type: 'link' }
+  { source: 'a', target: 'docs/b', type: 'link' },
+  { source: 'a', target: 'docs/deep/c', type: 'link' }
 ]
 
 describe('computeVisibleSubset (OpenProject #900)', () => {
@@ -40,7 +43,7 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
       folderDepth: null,
       locale: null
     })
-    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'b', 'c'])
+    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b', 'docs/deep/c'])
     expect(visibleEdges).toHaveLength(2)
   })
 
@@ -59,16 +62,41 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
       folderDepth: null,
       locale: 'fr'
     })
-    expect(visibleNodes.map((n) => n.path)).toEqual(['b'])
+    expect(visibleNodes.map((n) => n.path)).toEqual(['docs/b'])
   })
 
-  it('filters by folder depth (segment count)', () => {
+  it('filters by folder depth (path segment count, not node.folder)', () => {
     const { visibleNodes } = computeVisibleSubset(NODES2, EDGES2, {
       tags: [],
       folderDepth: 1,
       locale: null
     })
-    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'c'])
+    // 'a' is depth 0, 'docs/b' is depth 1, 'docs/deep/c' is depth 2 -- only the latter is excluded.
+    expect(visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b'])
+  })
+
+  it('depth 0 is a real, active filter -- distinct from no filter at all (OpenProject #898)', () => {
+    const withDepthZero = computeVisibleSubset(NODES2, EDGES2, {
+      tags: [],
+      folderDepth: 0,
+      locale: null
+    })
+    const withNoFilter = computeVisibleSubset(NODES2, EDGES2, {
+      tags: [],
+      folderDepth: null,
+      locale: null
+    })
+    expect(withDepthZero.visibleNodes.map((n) => n.path)).toEqual(['a'])
+    expect(withNoFilter.visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b', 'docs/deep/c'])
+  })
+
+  it('produces a genuinely different visible set at each depth value on multi-level paths', () => {
+    const depth0 = computeVisibleSubset(NODES2, EDGES2, { tags: [], folderDepth: 0, locale: null })
+    const depth1 = computeVisibleSubset(NODES2, EDGES2, { tags: [], folderDepth: 1, locale: null })
+    const depth2 = computeVisibleSubset(NODES2, EDGES2, { tags: [], folderDepth: 2, locale: null })
+    expect(depth0.visibleNodes.map((n) => n.path)).toEqual(['a'])
+    expect(depth1.visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b'])
+    expect(depth2.visibleNodes.map((n) => n.path)).toEqual(['a', 'docs/b', 'docs/deep/c'])
   })
 
   it('drops an edge when either endpoint is filtered out', () => {

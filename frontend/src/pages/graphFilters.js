@@ -35,19 +35,25 @@ function endpointId(endpoint) {
 
 /**
  * The AND of every active filter (OpenProject #875's design) — a node passes only if it passes
- * every non-empty filter, and an edge survives only if both endpoints do. `folderDepth` counts
- * path segments (`docs/child` has depth 2); `null`/`0` on any filter means "no restriction" for
- * that dimension.
+ * every non-empty filter, and an edge survives only if both endpoints do. `null`/`undefined` on
+ * any filter means "no restriction" for that dimension -- `folderDepth` in particular must use
+ * this explicit check rather than truthiness, because `0` (root-only) is itself a real, active
+ * filter value and must not be treated the same as "unset" (OpenProject #898/#900).
  */
 export function computeVisibleSubset(nodes, edges, filters) {
   const passesTag = (node) =>
     filters.tags.length === 0 || filters.tags.some((t) => node.tags?.includes(t))
   const passesLocale = (node) => !filters.locale || node.locale === filters.locale
-  // -> Depth is the FOLDER's segment count, not the page path's -- `docs/child` is depth 2, and a
-  //    root-level page (`folder === ''`) is depth 0, not 1 (`''.split('/')` is `['']`, length 1).
-  const folderDepthOf = (node) => (node.folder ? node.folder.split('/').length : 0)
+  // -> Depth is the number of DIRECTORY segments in the node's full `path`, not `node.folder`.
+  //    `node.folder` (backend `folderOf()`) is deliberately just the path's first segment, coarse
+  //    on purpose for Feature 874's clustering buckets -- it can only ever be "empty" or
+  //    "non-empty" and can't distinguish `guides/one` from `guides/deep/two`. The depth filter is
+  //    a different concept (progressive reveal by path depth), so it derives depth from `path`
+  //    directly: `guides/deep/two` has 2 directory segments (depth 2), a root-level page like
+  //    `standalone` has 0 (depth 0). `node.folder` itself stays untouched for grouping.
+  const folderDepthOf = (node) => node.path.split('/').length - 1
   const passesFolderDepth = (node) =>
-    !filters.folderDepth || folderDepthOf(node) <= filters.folderDepth
+    filters.folderDepth == null || folderDepthOf(node) <= filters.folderDepth
 
   const visibleNodes = nodes.filter((n) => passesTag(n) && passesLocale(n) && passesFolderDepth(n))
   const visiblePaths = new Set(visibleNodes.map((n) => n.path))
