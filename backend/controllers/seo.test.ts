@@ -140,7 +140,7 @@ describe('buildSitemapXml', () => {
       2
     )
     // a page with no translations carries no alternate links
-    assert.doesNotMatch(xml, /solo"[^>]*hreflang/)
+    assert.doesNotMatch(xml, /<xhtml:link[^>]*href="[^"]*\/solo"/)
     assert.match(xml, /xmlns:xhtml="http:\/\/www\.w3\.org\/1999\/xhtml"/)
   })
 })

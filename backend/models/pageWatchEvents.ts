@@ -110,7 +110,8 @@ class PageWatchEvents {
 
   /**
    * Every still-undelivered `digest`-mode notification, across every user, oldest first within each
-   * user — what `tasks/simple/send-watch-digests.ts` groups per user and turns into one email each.
+   * (user, site) pair — what `tasks/simple/send-watch-digests.ts` groups per (user, site) and turns
+   * into one email each.
    *
    * `notifyMode` filters here rather than the caller filtering after the fact: an `immediate`-mode
    * row can also be pending (a failed send left it that way — see `notify-page-watchers.ts`), and
@@ -135,9 +136,11 @@ class PageWatchEvents {
       .where(
         and(isNull(pageWatchEventsTable.deliveredAt), eq(pageWatchEventsTable.notifyMode, 'digest'))
       )
-      .orderBy(asc(pageWatchEventsTable.userId), asc(pageWatchEventsTable.createdAt)) as Promise<
-      PendingDigestEvent[]
-    >
+      .orderBy(
+        asc(pageWatchEventsTable.userId),
+        asc(pageWatchEventsTable.siteId),
+        asc(pageWatchEventsTable.createdAt)
+      ) as Promise<PendingDigestEvent[]>
   }
 
   /**

@@ -86,7 +86,9 @@
             <w-item-label>
               <strong>{{ page.title }}</strong>
             </w-item-label>
-            <w-item-label caption>/{{ page.path }}</w-item-label>
+            <w-item-label caption>{{
+              localizedPagePath(page.path, page.locale, siteStore.localeRouting)
+            }}</w-item-label>
             <w-item-label caption>
               {{ t('inbox.watchingUpdated', { date: humanizeDate(page.updatedAt) }) }}
               &middot;

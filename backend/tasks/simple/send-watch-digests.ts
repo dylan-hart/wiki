@@ -102,7 +102,7 @@ export async function task(): Promise<void> {
         // -> Logged loudly, not thrown: the pending events survive either way (nothing here marks
         //    them delivered before the send succeeds), which is what keeps one watcher's failed
         //    digest from retrying — and re-sending — every other watcher's digest in this same run.
-        WIKI.logger.error(`Sending watch digest to user ${userId}: [ FAILED ]`)
+        WIKI.logger.error(`Sending watch digest to user ${userId} for site ${siteId}: [ FAILED ]`)
         WIKI.logger.error(err.message)
       }
     }
