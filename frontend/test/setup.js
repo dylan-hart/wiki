@@ -1,4 +1,4 @@
-import { beforeEach } from 'vitest'
+import { beforeEach, vi } from 'vitest'
 import { config } from '@vue/test-utils'
 import mitt from 'mitt'
 
@@ -59,7 +59,42 @@ beforeEach(() => {
   globalThis.API_CLIENT = createApiClientStub()
   globalThis.EVENT_BUS = mitt()
   globalThis.localStorage = createLocalStorageStub()
+  HTMLCanvasElement.prototype.getContext = createCanvasContext2dStub
 })
+
+/**
+ * happy-dom's `HTMLCanvasElement.prototype.getContext` returns `null` by default -- no 2D canvas
+ * backend is implemented. `Graph.vue`'s (`src/pages/Graph.vue`) `sizeCanvas()`/`redraw()`/
+ * `drawEdges()`/`drawClusterHulls()`/`drawNodes()`/`drawLabels()` call a fixed set of 2D context
+ * methods and settable properties; this stub is a minimal no-op object covering exactly that set, so
+ * mounting `Graph.vue` under test exercises its simulation/draw code paths instead of failing at
+ * `ctx.scale()` on a `null` context and silently falling into the component's own `try/catch`.
+ * Rebuilt before every test, same rationale as `API_CLIENT`/`EVENT_BUS` above -- `vi.fn()` call
+ * history shouldn't leak between tests in the same file. `getContext` itself is a plain function
+ * (not a `vi.fn()`) since no test here needs to assert on how it was called, only on what it returns.
+ */
+function createCanvasContext2dStub() {
+  return {
+    scale: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    clearRect: vi.fn(),
+    translate: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    stroke: vi.fn(),
+    closePath: vi.fn(),
+    fill: vi.fn(),
+    arc: vi.fn(),
+    fillText: vi.fn(),
+    strokeStyle: '',
+    lineWidth: 1,
+    fillStyle: '',
+    globalAlpha: 1,
+    font: ''
+  }
+}
 
 /**
  * Node ships a native `localStorage` global (Node >= 22), backed by a file the process is given no
