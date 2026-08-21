@@ -3,6 +3,11 @@ import type { GraphPageRow } from '../models/pages.ts'
 import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 
+// -> Re-exported so `graph.test.ts` (OpenProject #884) can import the fixture row shape from the
+//    same module it imports `assembleGraph`/`folderOf` from, without a second import line pointing
+//    at `models/pages.ts`.
+export type { GraphPageRow }
+
 /** One node in the knowledge graph (OpenProject #872) — a page the requester may read. */
 export interface GraphNode {
   path: string
@@ -41,10 +46,41 @@ export function folderOf(path: string): string {
  * wire the route end to end first — Task 5 (#884) fills in the real body.
  */
 export function assembleGraph(
-  _rows: GraphPageRow[],
-  _canRead: (row: GraphPageRow) => boolean
+  rows: GraphPageRow[],
+  canRead: (row: GraphPageRow) => boolean
 ): Graph {
-  return { nodes: [], edges: [] }
+  const visible = rows.filter(canRead)
+  const visiblePaths = new Set(visible.map((row) => row.path))
+
+  const nodes: GraphNode[] = visible.map((row) => ({
+    path: row.path,
+    locale: row.locale,
+    title: row.title,
+    icon: row.icon,
+    tags: row.tags,
+    folder: folderOf(row.path)
+  }))
+
+  const edges: GraphEdge[] = []
+  for (const row of visible) {
+    for (const relation of row.relations) {
+      if (visiblePaths.has(relation.target)) {
+        edges.push({
+          source: row.path,
+          target: relation.target,
+          type: 'relation',
+          label: relation.label
+        })
+      }
+    }
+    for (const target of row.links) {
+      if (visiblePaths.has(target)) {
+        edges.push({ source: row.path, target, type: 'link' })
+      }
+    }
+  }
+
+  return { nodes, edges }
 }
 
 const siteIdParam = {
