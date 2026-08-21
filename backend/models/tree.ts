@@ -819,34 +819,61 @@ class Tree {
         const ancestorFullPath = ancestor.folderPath
           ? `${decodeTreePath(ancestor.folderPath)}/${ancestor.fileName}`
           : ancestor.fileName
-        await db.insert(treeTable).values({
-          folderPath: ancestor.folderPath,
-          fileName: ancestor.fileName,
-          type: 'folder',
-          title: ancestor.fileName,
-          hash: generateHash(ancestorFullPath),
-          locale: effectiveLocale,
-          siteId,
-          meta: { children: 0 }
-        })
+        try {
+          await db.insert(treeTable).values({
+            folderPath: ancestor.folderPath,
+            fileName: ancestor.fileName,
+            type: 'folder',
+            title: ancestor.fileName,
+            hash: generateHash(ancestorFullPath),
+            locale: effectiveLocale,
+            siteId,
+            meta: { children: 0 }
+          })
+        } catch (err: any) {
+          // -> The check above already covers the common case; this catches the race it cannot close --
+          //    two requests both filling in the same missing ancestor folder
+          if (err.cause?.code === '23505' || err.code === '23505') {
+            throw new CustomError(
+              'treeEntryDuplicate',
+              'Something with this name already exists here.',
+              409
+            )
+          }
+          throw err
+        }
         await this.countTowardsFolderAt(siteId, ancestor.folderPath, 1, db)
       }
     }
 
     const fullPath = path ? `${decodeTreePath(path)}/${name}` : name
-    const inserted = await db
-      .insert(treeTable)
-      .values({
-        folderPath: path,
-        fileName: name,
-        type: 'folder',
-        title,
-        hash: generateHash(fullPath),
-        locale: effectiveLocale,
-        siteId,
-        meta: { children: 0 }
-      })
-      .returning()
+    let inserted
+    try {
+      inserted = await db
+        .insert(treeTable)
+        .values({
+          folderPath: path,
+          fileName: name,
+          type: 'folder',
+          title,
+          hash: generateHash(fullPath),
+          locale: effectiveLocale,
+          siteId,
+          meta: { children: 0 }
+        })
+        .returning()
+    } catch (err: any) {
+      // -> The check above already covers the common case; this catches the race it cannot close --
+      //    two requests both creating the same folder
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError(
+          'treeEntryDuplicate',
+          'Something with this name already exists here.',
+          409
+        )
+      }
+      throw err
+    }
 
     await this.countTowardsFolderAt(siteId, path, 1, db)
 
@@ -1279,24 +1306,38 @@ class Tree {
 
     WIKI.logger.debug(`Adding ${type} ${fullPath} to tree...`)
 
-    const inserted = await db
-      .insert(treeTable)
-      .values({
-        ...(id ? { id } : {}),
-        folderPath: path,
-        fileName: name,
-        type,
-        // -> A title that was only ever the file name follows it when the name had to change, so that
-        //    two uploads of `photo.png` do not both show up called `photo.png`
-        title: title === fileName ? name : title,
-        hash: generateHash(fullPath),
-        locale,
-        siteId,
-        tags,
-        meta,
-        ...(navigationId ? { navigationId } : {})
-      })
-      .returning()
+    let inserted
+    try {
+      inserted = await db
+        .insert(treeTable)
+        .values({
+          ...(id ? { id } : {}),
+          folderPath: path,
+          fileName: name,
+          type,
+          // -> A title that was only ever the file name follows it when the name had to change, so that
+          //    two uploads of `photo.png` do not both show up called `photo.png`
+          title: title === fileName ? name : title,
+          hash: generateHash(fullPath),
+          locale,
+          siteId,
+          tags,
+          meta,
+          ...(navigationId ? { navigationId } : {})
+        })
+        .returning()
+    } catch (err: any) {
+      // -> `resolveName` already covers the common case; this catches the race it cannot close -- two
+      //    requests that both resolve the same free name before either inserts
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError(
+          'treeEntryDuplicate',
+          'Something with this name already exists here.',
+          409
+        )
+      }
+      throw err
+    }
 
     await this.countTowardsFolderAt(siteId, path, 1, db)
 

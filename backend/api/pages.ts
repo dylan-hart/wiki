@@ -1006,7 +1006,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          'Also renames it when a title is given. The tree entry moves with it, and any folder the new path needs is created.',
+          'Also renames it when a title is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500.',
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1037,7 +1037,11 @@ async function routes(app: FastifyInstance) {
           },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
-          404: { $ref: 'ApiError#' }
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description: 'A page already exists at the destination path (`pageDuplicatePath`).'
+          }
         }
       }
     },

@@ -128,6 +128,24 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('a create race on the same path surfaces as a 409 CustomError, not a raw 23505', async () => {
+    // -> Both calls race the same probe-then-insert: either may lose at the probe (the ordinary
+    //    duplicate-path check) or at the insert itself (the unique index Task 1 added). Exactly one
+    //    of the two outcomes happens depending on interleaving, but the assertion holds either way --
+    //    which is the point of this test.
+    const input = () => pageInput({ path: 'unique/race-probe', locale: 'en' })
+    const results = await Promise.allSettled([
+      pagesModel.createPage(fixtures.siteId, input(), actor),
+      pagesModel.createPage(fixtures.siteId, input(), actor)
+    ])
+    const rejected = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[]
+    assert.equal(results.length - rejected.length, 1)
+    for (const r of rejected) {
+      assert.equal((r.reason as any).statusCode, 409)
+      assert.equal((r.reason as any).name, 'pageDuplicatePath')
+    }
+  })
+
   test('createPage stores the code editor content as html, matching EDITOR_CONTENT_TYPES', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,

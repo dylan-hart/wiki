@@ -611,42 +611,52 @@ class Pages {
     )
 
     const pathParts = path.split('/')
-    const inserted = await WIKI.db
-      .insert(pagesTable)
-      .values({
-        alias,
-        authorId: actor.id,
-        creatorId: actor.id,
-        ownerId: actor.id,
-        config: this.buildConfig(input, siteId),
-        content,
-        contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
-        description: input.description ?? '',
-        editor,
-        hash,
-        icon: input.icon ?? '',
-        isBrowsable: input.isBrowsable ?? true,
-        // -> A redirection has nothing to find: a result for it would be a result whose page is a
-        //    doorway to the page the reader actually wanted, which is the one search should offer
-        isSearchable: isRedirect ? false : (input.isSearchable ?? true),
-        locale,
-        password: input.password || null,
-        path,
-        publishState: input.publishState ?? 'published',
-        publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
-        publishEndDate: input.publishEndDate ? new Date(input.publishEndDate) : null,
-        relations: input.relations ?? [],
-        render,
-        searchContent: text,
-        scripts: this.buildScripts(input, actor, pageRef),
-        siteId,
-        tags: input.tags ?? [],
-        title,
-        toc,
-        ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
-        ...(input.updatedAt ? { updatedAt: new Date(input.updatedAt) } : {})
-      })
-      .returning()
+    let inserted
+    try {
+      inserted = await WIKI.db
+        .insert(pagesTable)
+        .values({
+          alias,
+          authorId: actor.id,
+          creatorId: actor.id,
+          ownerId: actor.id,
+          config: this.buildConfig(input, siteId),
+          content,
+          contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
+          description: input.description ?? '',
+          editor,
+          hash,
+          icon: input.icon ?? '',
+          isBrowsable: input.isBrowsable ?? true,
+          // -> A redirection has nothing to find: a result for it would be a result whose page is a
+          //    doorway to the page the reader actually wanted, which is the one search should offer
+          isSearchable: isRedirect ? false : (input.isSearchable ?? true),
+          locale,
+          password: input.password || null,
+          path,
+          publishState: input.publishState ?? 'published',
+          publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
+          publishEndDate: input.publishEndDate ? new Date(input.publishEndDate) : null,
+          relations: input.relations ?? [],
+          render,
+          searchContent: text,
+          scripts: this.buildScripts(input, actor, pageRef),
+          siteId,
+          tags: input.tags ?? [],
+          title,
+          toc,
+          ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
+          ...(input.updatedAt ? { updatedAt: new Date(input.updatedAt) } : {})
+        })
+        .returning()
+    } catch (err: any) {
+      // -> The probe above already covers the common case; this catches the race it cannot close --
+      //    two requests that both pass the probe before either inserts
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
+      }
+      throw err
+    }
 
     const page = inserted[0]
 
@@ -920,17 +930,27 @@ class Pages {
 
     // -> `.returning()` gets the raw row for free off the same write, which is what
     //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
-    const rawMovedRows = await WIKI.db
-      .update(pagesTable)
-      .set({
-        path: newPath,
-        hash: generatePathHash(newPath),
-        ...(title !== undefined ? { title: title.trim() } : {}),
-        authorId: actor.id,
-        updatedAt: sql`now()`
-      })
-      .where(eq(pagesTable.id, id))
-      .returning()
+    let rawMovedRows
+    try {
+      rawMovedRows = await WIKI.db
+        .update(pagesTable)
+        .set({
+          path: newPath,
+          hash: generatePathHash(newPath),
+          ...(title !== undefined ? { title: title.trim() } : {}),
+          authorId: actor.id,
+          updatedAt: sql`now()`
+        })
+        .where(eq(pagesTable.id, id))
+        .returning()
+    } catch (err: any) {
+      // -> The probe above already covers the common case; this catches the race it cannot close --
+      //    two requests that both pass the probe before either updates
+      if (err.cause?.code === '23505' || err.code === '23505') {
+        throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
+      }
+      throw err
+    }
     const rawMoved = rawMovedRows[0]!
 
     // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
