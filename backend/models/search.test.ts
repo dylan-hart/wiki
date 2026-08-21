@@ -76,8 +76,8 @@ function makeFakeSearchModule(): { calls: string[]; module: SearchModule } {
     async deleted(siteId, pageId) {
       calls.push(`deleted:${siteId}:${pageId}`)
     },
-    async renamed(siteId, page, previousPath) {
-      calls.push(`renamed:${siteId}:${page.id}:${previousPath}`)
+    async renamed(siteId, page, previousPath, previousLocale) {
+      calls.push(`renamed:${siteId}:${page.id}:${previousLocale}/${previousPath}`)
     },
     async query(params: SearchPagesParams): Promise<SearchPagesResult> {
       calls.push(`query:${params.siteId}:${params.query ?? ''}`)
@@ -100,7 +100,7 @@ describe('SearchModule interface', () => {
     await module.created(page)
     await module.updated(page)
     await module.deleted('site-1', 'page-2')
-    await module.renamed('site-1', page, 'old-path')
+    await module.renamed('site-1', page, 'old-path', 'de')
     const queryResult = await module.query({ siteId: 'site-1', query: 'wiki' })
     const rebuildResult = await module.rebuild('site-1')
 
@@ -109,7 +109,7 @@ describe('SearchModule interface', () => {
       'created:page-1',
       'updated:page-1',
       'deleted:site-1:page-2',
-      'renamed:site-1:page-1:old-path',
+      'renamed:site-1:page-1:de/old-path',
       'query:site-1:wiki',
       'rebuild:site-1'
     ])
@@ -433,14 +433,15 @@ describe('search dispatcher (query/rebuild/created/updated/deleted/renamed)', ()
     assert.deepEqual(calls, ['deleted:site-default:page-gone'])
   })
 
-  test('renamed() forwards siteId, the page and the previous path to the resolved engine', async () => {
+  test('renamed() forwards siteId, the page and where it moved from to the resolved engine', async () => {
     const { calls, module: dbModule } = makeFakeSearchModule()
     search.modules.db = dbModule
     const page = fakePage({ id: 'page-moved', siteId: 'site-default' })
 
-    await search.renamed('site-default', page, 'old/path')
+    // -> Both halves of where it was: a move can change the locale as well as the path
+    await search.renamed('site-default', page, 'old/path', 'de')
 
-    assert.deepEqual(calls, ['renamed:site-default:page-moved:old/path'])
+    assert.deepEqual(calls, ['renamed:site-default:page-moved:de/old/path'])
   })
 })
 

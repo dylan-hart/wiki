@@ -894,12 +894,16 @@ class Pages {
   }
 
   /**
-   * Move a page to another path, taking its tree entry with it.
+   * Move a page to another path and/or another locale, taking its tree entry with it.
+   *
+   * `locale` re-homes the page into another of the site's locales, which is a move in exactly the
+   * sense a path change is: the page keeps its id, history and watchers, and the (siteId, locale,
+   * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
    */
   async movePage(
     siteId: string,
     id: string,
-    { path, title }: { path: string; title?: string },
+    { path, title, locale }: { path: string; title?: string; locale?: string },
     actor: PageActor
   ): Promise<Page | null> {
     const page = await this.getPage({ siteId, id })
@@ -907,11 +911,30 @@ class Pages {
       return null
     }
     const newPath = normalizePath(path)
-    if (newPath === page.path && (title === undefined || title === page.title)) {
+    const destLocale = locale ?? page.locale
+    // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
+    //    may end up, whether by being created there or by being moved there
+    if (destLocale !== page.locale) {
+      const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
+        this.defaultLocale(siteId)
+      ]
+      if (!activeLocales.includes(destLocale)) {
+        throw new CustomError(
+          'pageInvalidLocale',
+          `This site does not have the "${destLocale}" locale enabled.`,
+          400
+        )
+      }
+    }
+    if (
+      newPath === page.path &&
+      destLocale === page.locale &&
+      (title === undefined || title === page.title)
+    ) {
       return page
     }
 
-    if (newPath !== page.path) {
+    if (newPath !== page.path || destLocale !== page.locale) {
       const duplicate = await WIKI.db
         .select({ id: pagesTable.id })
         .from(pagesTable)
@@ -919,7 +942,7 @@ class Pages {
           and(
             ne(pagesTable.id, id),
             eq(pagesTable.siteId, siteId),
-            eq(pagesTable.locale, page.locale),
+            eq(pagesTable.locale, destLocale),
             eq(pagesTable.path, newPath)
           )
         )
@@ -938,6 +961,7 @@ class Pages {
         .set({
           path: newPath,
           hash: generatePathHash(newPath),
+          locale: destLocale,
           ...(title !== undefined ? { title: title.trim() } : {}),
           authorId: actor.id,
           updatedAt: sql`now()`
@@ -963,7 +987,7 @@ class Pages {
       parentPath: pathParts.slice(0, -1).join('/'),
       fileName: pathParts.at(-1)!,
       title: title !== undefined ? title.trim() : page.title,
-      locale: page.locale,
+      locale: destLocale,
       siteId,
       tags: page.tags,
       meta: this.treeMeta({ ...page, path: newPath })
@@ -975,6 +999,7 @@ class Pages {
     //    and a history list has to be able to say so
     const changedFields = [
       ...(newPath !== page.path ? ['path'] : []),
+      ...(destLocale !== page.locale ? ['locale'] : []),
       ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
     ]
     await WIKI.models.pageHistory.record({
@@ -993,12 +1018,16 @@ class Pages {
       changedFields
     )
 
-    await WIKI.models.search.renamed(siteId, rawMoved, page.path)
+    await WIKI.models.search.renamed(siteId, rawMoved, page.path, page.locale)
+    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
+    //    that has to find what the page used to be (the git target's own file for it, say) needs the
+    //    whole of where it was, not half of it
     await WIKI.models.hooks.emit('page:rename', siteId, {
       id,
       path: moved.path,
       previousPath: page.path,
       locale: moved.locale,
+      previousLocale: page.locale,
       siteId,
       authorId: actor.id
     })
@@ -1007,6 +1036,7 @@ class Pages {
       path: moved.path,
       previousPath: page.path,
       locale: moved.locale,
+      previousLocale: page.locale,
       siteId,
       authorId: actor.id
     })

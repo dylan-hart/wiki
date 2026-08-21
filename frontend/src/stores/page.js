@@ -646,20 +646,30 @@ export const usePageStore = defineStore('page', {
     /**
      * PAGE - MOVE
      */
-    async pageMove({ id, title, path } = {}) {
+    async pageMove({ id, title, path, locale } = {}) {
       const siteStore = useSiteStore()
       unwrap(
         await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/path`, {
           json: {
             path,
-            ...(title ? { title } : {})
+            ...(title ? { title } : {}),
+            ...(locale ? { locale } : {})
           }
         }).json()
       )
       // -> Following the page only makes sense when it is the one being viewed. Moved from the file
       //    manager, it is some other page, and the reader is still on theirs.
       if (id === this.id) {
-        this.router.replace(`/${path}`)
+        // -> Through `localizedPagePath` rather than a bare `/${path}`: a move can now change the
+        //    page's locale, and an unprefixed link to a non-primary-locale page round-trips through
+        //    locale detection and lands on whichever translation that picks.
+        this.router.replace(
+          localizedPagePath(path, locale ?? this.locale, {
+            useLocales: siteStore.useLocales,
+            primary: siteStore.locales.primary,
+            forcePrefix: siteStore.locales.forcePrefix
+          })
+        )
       }
     },
     /**

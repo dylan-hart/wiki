@@ -1005,7 +1005,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string; pageId: string }
-    Body: { path: string; title?: string }
+    Body: { path: string; title?: string; locale?: string }
   }>(
     '/sites/:siteId/pages/:pageId/path',
     {
@@ -1017,7 +1017,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          'Also renames it when a title is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500.',
+          'Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.',
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1033,6 +1033,11 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               minLength: 1,
               maxLength: 255
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: 'Move the page into this locale. Unchanged when absent.'
             }
           }
         },
@@ -1070,6 +1075,21 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to move this page.')
+      }
+      // -> Where it is going is its own question: rules are matched on path AND locale, so being
+      //    allowed to manage a page where it sits now says nothing about the destination. Checked
+      //    against the same permission, since arriving somewhere is as much a change to that place as
+      //    leaving is to this one. The ref carries the page's tags because they travel with it, so a
+      //    rule that grants by tag applies at the destination exactly as it does at the source; the
+      //    path is normalized the way `movePage` will store it, so that a leading slash in the body
+      //    cannot make a rule miss.
+      const destPath = normalizePagePath(req.body.path)
+      const destLocale = req.body.locale ?? target.locale
+      if (destPath !== target.path || destLocale !== target.locale) {
+        const destRef = { path: destPath, locale: destLocale, tags: target.tags }
+        if (!mayOnPage(req, 'manage:pages', req.params.siteId, destRef)) {
+          return reply.forbidden('You are not allowed to move this page there.')
+        }
       }
       const page = await WIKI.models.pages.movePage(
         req.params.siteId,

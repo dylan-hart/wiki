@@ -1830,3 +1830,146 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(body.statusCode, 400)
   })
 })
+
+/**
+ * Route-level test for `PUT /sites/:siteId/pages/:pageId/path` — the destination permission check.
+ *
+ * `movePage` can now change a page's locale as well as its path, which makes where a page is going a
+ * different place, in page-rule terms, from where it is: rules are matched on path AND locale, so the
+ * source check alone would let a caller who may manage `en` push a page into a locale somebody else's
+ * rules govern. The handler therefore checks `manage:pages` twice — once against the page as it
+ * stands, once against the destination ref.
+ *
+ * `checkAccess` is wired to the real `resolvePageRule` rather than a canned answer, so what passes
+ * here is the actual rule-matching engine seeing the destination ref, not a stub agreeing it was
+ * called.
+ */
+describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  /** Manage anything in `en`, and nothing anywhere else — the rule the destination check exists for. */
+  const manageEnglish: GroupRule = {
+    id: 'manage-en',
+    name: 'Manage English',
+    roles: ['manage:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: ['en'],
+    sites: []
+  }
+
+  const realCheckAccess = (_actor: unknown, permission: string, page: RulePageRef) => {
+    const rule = resolvePageRule([manageEnglish], permission, page)
+    return rule ? rule.mode !== 'DENY' : false
+  }
+
+  let app: FastifyInstance
+  let movePageCalls: any[] = []
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } },
+      models: {
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'docs/source',
+            hash: 'hash-1',
+            locale: 'en',
+            title: 'Source',
+            tags: []
+          }),
+          movePage: async (siteId: string, id: string, patch: any) => {
+            movePageCalls.push({ siteId, id, patch })
+            return {
+              id,
+              path: patch.path,
+              locale: patch.locale ?? 'en',
+              title: 'Source',
+              hash: 'hash-2'
+            }
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          groupIdsForRequest: () => ['g1'],
+          checkAccess: realCheckAccess
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    // -> Stands in for `@fastify/session`, exactly as the import route's own suite above does.
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    movePageCalls = []
+    ;(globalThis as any).WIKI.models.groups.checkAccess = realCheckAccess
+  })
+
+  test('a move within the locale the caller manages is allowed, and carries no locale', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+    assert.equal(movePageCalls[0].patch.path, 'docs/destination')
+    assert.equal(movePageCalls[0].patch.locale, undefined)
+  })
+
+  test('a move into a locale the caller does not manage is refused, before the model is asked', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().message, 'You are not allowed to move this page there.')
+    assert.equal(movePageCalls.length, 0)
+  })
+
+  test('the requested locale reaches the model when the caller may manage the destination', async () => {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+    assert.equal(movePageCalls[0].patch.locale, 'fr')
+    assert.equal(res.json().page.locale, 'fr')
+  })
+})

@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { sql } from 'drizzle-orm'
 import {
   hasTestDatabase,
   setupTestDb,
@@ -150,6 +151,48 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const found = await searchModel.query({ siteId: fixtures.siteId, query: 'quokka' })
     assert.equal(found.totalHits, 1)
+  })
+
+  /**
+   * `movePage` can re-home a page into another locale, and which dictionary builds a page's `ts` is
+   * decided by that locale — so a page moved from `en` to `fr` has to be re-indexed, or it stays
+   * stemmed by the wrong language and quietly stops matching the way its neighbours in `fr` do. This
+   * is what the `previousLocale` argument on `renamed()` exists for, and the assertion is against the
+   * vector itself rather than a query, since a wrong stemmer degrades matching rather than breaking it.
+   */
+  test('a page moved into another locale is re-indexed with that locale dictionary', async () => {
+    // -> `les`/`des` are french stopwords and english ordinary words, so the two dictionaries produce
+    //    visibly different vectors for this content
+    const content = 'Les documents des utilisateurs'
+    const title = 'Les documents'
+    const moved = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/locale-move', locale: 'en', title, content, render: content }),
+      actor
+    )
+    // -> The same content already living in `fr`: whatever this one's vector is, the moved page's has
+    //    to end up identical, since neither path nor locale is weighted into `ts`
+    const reference = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/locale-reference', locale: 'fr', title, content, render: content }),
+      actor
+    )
+
+    const vectorOf = async (id: string): Promise<string> => {
+      const rows = await fixtures.db.execute(sql`SELECT ts::text AS ts FROM pages WHERE id = ${id}`)
+      return ((rows as any).rows ?? rows)[0].ts
+    }
+
+    assert.notEqual(await vectorOf(moved.id), await vectorOf(reference.id))
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      moved.id,
+      { path: 'docs/locale-move', locale: 'fr' },
+      actor
+    )
+
+    assert.equal(await vectorOf(moved.id), await vectorOf(reference.id))
   })
 
   test('a deleted page no longer matches', async () => {

@@ -214,7 +214,15 @@ async function processPageEntry(
       locale: oldMeta.locale
     })
     if (existing) {
-      await WIKI.models.pages.movePage(target.siteId, existing.id, { path: newMeta.path }, actor)
+      // -> Locale included, because a locale is a directory in the repo: `git mv en/foo.md fr/foo.md`
+      //    is a move into another locale, and passing the path alone would import it as a page that
+      //    never left `en`
+      await WIKI.models.pages.movePage(
+        target.siteId,
+        existing.id,
+        { path: newMeta.path, locale: newMeta.locale },
+        actor
+      )
       return
     }
     // -> Nothing tracked at the old path: fall through and write fresh at the new one.

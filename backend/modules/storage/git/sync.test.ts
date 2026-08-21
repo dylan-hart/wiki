@@ -307,6 +307,40 @@ describe('git storage: sync', () => {
     assert.equal(calls.movePage.length, 1)
     assert.equal(calls.movePage[0].id, 'p1')
     assert.equal(calls.movePage[0].patch.path, 'new-name')
+    assert.equal(calls.movePage[0].patch.locale, PRIMARY_LOCALE)
+    assert.equal(calls.createPage.length, 0)
+  })
+
+  test('pulls a cross-locale rename and moves the page into the destination locale', async () => {
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.mkdir(path.join(peerPath, 'fr'), { recursive: true })
+    await fs.writeFile(path.join(peerPath, 'fr/guide.md'), 'body')
+    await peer.add('fr/guide.md')
+    await peer.commit('docs: create fr/guide')
+    await peer.push('origin', 'main')
+
+    installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'guide', locale: 'fr', contentType: 'markdown' }]
+    })
+    await ensureRepo(target)
+    const localGit = simpleGit(target.config.localRepoPath)
+    await localGit.pull('origin', 'main')
+
+    // -> The whole point: the path within the locale is unchanged, only the locale directory moves,
+    //    so a move that carried the path alone would be a no-op that silently left the page in `fr`
+    await peer.mv('fr/guide.md', 'guide.md')
+    await peer.commit('docs: translate guide into the primary locale')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, {
+      pages: [{ id: 'p1', path: 'guide', locale: 'fr', contentType: 'markdown' }]
+    })
+    await sync(target)
+
+    assert.equal(calls.movePage.length, 1)
+    assert.equal(calls.movePage[0].id, 'p1')
+    assert.equal(calls.movePage[0].patch.path, 'guide')
+    assert.equal(calls.movePage[0].patch.locale, PRIMARY_LOCALE)
     assert.equal(calls.createPage.length, 0)
   })
 

@@ -205,11 +205,16 @@ export async function updated(target: StorageTarget, data: Record<string, any>):
 }
 
 /**
- * A page moved to a new path.
+ * A page moved to a new path, a new locale, or both.
  *
  * A git rename — old path removed, new path added, in a single commit — rather than a delete plus an
  * add: that is what keeps `git log --follow` (and every other history tool) treating the file as one
  * continuous history rather than two unrelated ones, the way 2.5.x's own rename handler did.
+ *
+ * Where the file *was* is composed from `previousLocale`, not the page's current one: a locale is
+ * part of a page's repo path (`localeNamespace`), so a move from `en` to `fr` changes the file's
+ * directory just as a path change does, and reading the old path off the new locale would rename a
+ * file that was never there while leaving the real one behind.
  */
 export async function renamed(target: StorageTarget, data: Record<string, any>): Promise<void> {
   if (!covers(target, 'pages')) return
@@ -221,18 +226,25 @@ export async function renamed(target: StorageTarget, data: Record<string, any>):
   })
   if (!page) return
   const author = await resolveAuthor(target, data.authorId)
-  const oldRelPath = pageRelPath(data.siteId, data.locale, data.previousPath, page.contentType)
+  const oldRelPath = pageRelPath(
+    data.siteId,
+    data.previousLocale,
+    data.previousPath,
+    page.contentType
+  )
   const newRelPath = pageRelPath(data.siteId, data.locale, data.path, page.contentType)
   if (oldRelPath === newRelPath) return
 
   if (await fileExists(path.join(repoPath, oldRelPath))) {
+    // -> A locale-only move leaves both paths identical, and "rename foo to foo" says nothing about
+    //    what actually happened; qualify both ends with their locale in that case
+    const description =
+      data.previousLocale === data.locale
+        ? `${data.previousPath} to ${data.path}`
+        : `${data.previousLocale}/${data.previousPath} to ${data.locale}/${data.path}`
     await fs.mkdir(path.dirname(path.join(repoPath, newRelPath)), { recursive: true })
     await git.mv(oldRelPath, newRelPath)
-    await git.commit(
-      `docs: rename ${data.previousPath} to ${data.path}`,
-      [oldRelPath, newRelPath],
-      authorOption(author)
-    )
+    await git.commit(`docs: rename ${description}`, [oldRelPath, newRelPath], authorOption(author))
     return
   }
   // -> Nothing tracked at the old path — e.g. this target only started covering pages after the page

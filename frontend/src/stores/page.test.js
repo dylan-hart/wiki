@@ -565,6 +565,58 @@ describe('page store: pageCreate()', () => {
   })
 })
 
+/**
+ * A move can now change a page's locale as well as its path (backend task 8), which is why the
+ * follow-link is built through `localizedPagePath` rather than as a bare `/${path}`: landing on an
+ * unprefixed link to a page that now lives in a non-primary locale round-trips through locale
+ * detection and shows whichever translation that picks, not the page just moved.
+ */
+describe('page store: pageMove()', () => {
+  function stubRouter() {
+    return { currentRoute: { value: { path: '/some-page' } }, replace: vi.fn() }
+  }
+
+  it('sends the locale in the body and follows the page into its new locale', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'some-page', locale: 'fr' })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'some-page', locale: 'fr' }
+    })
+    expect(pageStore.router.replace).toHaveBeenCalledWith('/fr/some-page')
+  })
+
+  it('omits the locale when none is asked for, and follows the page within its own locale', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere' })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'elsewhere' }
+    })
+    // -> `en` is the primary locale, so it carries no prefix
+    expect(pageStore.router.replace).toHaveBeenCalledWith('/elsewhere')
+  })
+
+  it('does not follow a page other than the one being viewed', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-2', path: 'elsewhere', locale: 'fr' })
+
+    expect(pageStore.router.replace).not.toHaveBeenCalled()
+  })
+})
+
 describe('page store: breadcrumbs', () => {
   it('leaves the path unprefixed on a single-locale site', () => {
     const pageStore = usePageStore()

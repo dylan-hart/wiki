@@ -2,6 +2,7 @@ import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
   pages as pagesTable,
@@ -352,6 +353,66 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
     assert.equal(result!.id, page.id)
     assert.equal(result!.path, 'docs/stay-put')
+  })
+
+  test('movePage can re-home a page into another locale', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/xloc', locale: 'en' }),
+      actor
+    )
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'move/xloc', locale: 'fr' },
+      actor
+    )
+    assert.equal(moved!.locale, 'fr')
+    assert.equal(moved!.path, 'move/xloc')
+    assert.ok(
+      await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        hash: generatePathHash('move/xloc'),
+        locale: 'fr'
+      })
+    )
+    assert.equal(
+      await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        hash: generatePathHash('move/xloc'),
+        locale: 'en'
+      }),
+      null
+    )
+  })
+
+  test('movePage rejects a destination-locale collision as 409', async () => {
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/occupied', locale: 'fr' }),
+      actor
+    )
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/occupied', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, en.id, { path: 'move/occupied', locale: 'fr' }, actor),
+      (err: any) => err.statusCode === 409 && err.name === 'pageDuplicatePath'
+    )
+  })
+
+  test('movePage rejects an inactive destination locale', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/badloc', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, page.id, { path: 'move/badloc', locale: 'zz' }, actor),
+      (err: any) => err.name === 'pageInvalidLocale'
+    )
   })
 
   test('deletePage removes the page and frees its path for reuse', async () => {
