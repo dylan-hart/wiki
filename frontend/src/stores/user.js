@@ -203,7 +203,7 @@ export const useUserStore = defineStore('user', {
       }
       return false
     },
-    async fetchPagePermissions(path) {
+    async fetchPagePermissions(path, locale) {
       if (path.startsWith('/_')) {
         this.pagePermissions = []
         return
@@ -214,7 +214,8 @@ export const useUserStore = defineStore('user', {
           `sites/${siteStore.id}/pages/userPermissions`,
           {
             json: {
-              path
+              path,
+              ...(locale ? { locale } : {})
             }
           }
         ).json()

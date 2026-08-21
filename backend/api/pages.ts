@@ -1646,7 +1646,7 @@ async function routes(app: FastifyInstance) {
   /**
    * PAGE USER PERMISSIONS
    */
-  app.post<{ Params: { siteId: string }; Body: { path: string } }>(
+  app.post<{ Params: { siteId: string }; Body: { path: string; locale?: string } }>(
     '/sites/:siteId/pages/userPermissions',
     {
       schema: {
@@ -1663,11 +1663,16 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               minLength: 1,
               maxLength: 255
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10
             }
           },
           examples: [
             {
-              path: 'foo/bar'
+              path: 'foo/bar',
+              locale: 'en'
             }
           ]
         },
@@ -1681,12 +1686,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      // -> No `locale` param on this route yet (a later task adds one to the body); the site's
-      //    primary locale is the sensible interim default rather than failing every locale-scoped
-      //    rule closed for a caller who never had a way to say which locale they meant.
+      // -> Rules now fail closed on locale (`RulePageRef` requires it), so which locale this asks
+      //    about actually decides the answer -- the site's primary locale is the default for a
+      //    caller who doesn't say, not a stand-in for a param that doesn't exist.
       return pagePermissionsFor(req, req.params.siteId, {
         path: req.body.path.replace(/^\/+/, ''),
-        locale: defaultLocale(req.params.siteId)
+        locale: req.body.locale ?? defaultLocale(req.params.siteId)
       })
     }
   )

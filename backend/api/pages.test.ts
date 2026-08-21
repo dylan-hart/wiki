@@ -1973,3 +1973,106 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
     assert.equal(res.json().page.locale, 'fr')
   })
 })
+
+/**
+ * Regression test for bug #949 / task 995: `POST .../pages/userPermissions` used to default the
+ * ref's locale to the site primary unconditionally (task 4's interim), so a caller asking about a
+ * path in a non-primary locale got the PRIMARY locale's rule answer instead of the real one — rules
+ * now fail closed on locale (`RulePageRef` requires it), so the wrong locale silently returns the
+ * wrong permissions rather than erroring. The body now takes an explicit `locale`, which the frontend
+ * threads through from the (path, locale) pair `Index.vue`'s route watcher already computed.
+ *
+ * `WIKI.models.groups.checkAccess` is wired to the real `resolvePageRule`, so a passing test proves
+ * the locale in the request body is what reaches the rule engine — not just that some stub saw it.
+ */
+describe('POST /sites/:siteId/pages/userPermissions — locale (bug #949, task 995)', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+
+  /** Grants write:pages only in `fr` — the rule the locale param exists to let a caller reach. */
+  const writeFrench: GroupRule = {
+    id: 'write-fr',
+    name: 'Write French',
+    roles: ['write:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: ['fr'],
+    sites: []
+  }
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } } },
+      models: {
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          checkAccess: (_actor: unknown, permission: string, page: RulePageRef) => {
+            const rule = resolvePageRule([writeFrench], permission, page)
+            return rule ? rule.mode !== 'DENY' : false
+          }
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('an explicit French locale sees the French-scoped grant', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.ok(res.json().includes('write:pages'))
+  })
+
+  test('an explicit English locale does not see the French-scoped grant', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x', locale: 'en' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('write:pages'))
+  })
+
+  test('omitting locale falls back to the site primary (en), not the French grant', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/userPermissions`,
+      payload: { path: 'x' }
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.ok(!res.json().includes('write:pages'))
+  })
+})

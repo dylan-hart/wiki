@@ -109,6 +109,44 @@ describe('user store: canOnSite() / fetchSitePermissions()', () => {
   })
 })
 
+describe('user store: fetchPagePermissions() (bug #949, task 995)', () => {
+  it('posts the locale alongside the path when one is given', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve(['write:pages']) })
+
+    await store.fetchPagePermissions('some/page', 'fr')
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/pages/userPermissions', {
+      json: { path: 'some/page', locale: 'fr' }
+    })
+    expect(store.pagePermissions).toEqual(['write:pages'])
+  })
+
+  it('omits locale from the body when none is given', async () => {
+    const store = useUserStore()
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+    await store.fetchPagePermissions('some/page')
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/pages/userPermissions', {
+      json: { path: 'some/page' }
+    })
+  })
+
+  it('clears to an empty grant for an app (/_) route without ever calling the API', async () => {
+    const store = useUserStore()
+
+    await store.fetchPagePermissions('/_create/markdown', 'en')
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+    expect(store.pagePermissions).toEqual([])
+  })
+})
+
 describe('user store: applyProfile() / setToGuest()', () => {
   it('falls back to the guest identity when the session response is unauthenticated', () => {
     const store = useUserStore()
