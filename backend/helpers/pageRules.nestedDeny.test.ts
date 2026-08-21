@@ -36,7 +36,7 @@ function makeRule(overrides: Partial<GroupRule> = {}): GroupRule {
   }
 }
 
-const page = (path: string): RulePageRef => ({ path, locale: 'en', tags: [] })
+const page = (path: string): RulePageRef => ({ path, locale: 'en', siteId: null, tags: [] })
 
 function permutations<T>(items: T[]): T[][] {
   if (items.length <= 1) {

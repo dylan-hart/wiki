@@ -50,17 +50,27 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  * or tags didn't either. Neither one is a specificity axis, so a rule scoped to one locale or one
  * site is not thereby more specific than an unscoped rule addressing the same path.
  *
+ * Locale and site scoping fail CLOSED, not open: a ref that genuinely has no locale (or site)
+ * context must say so explicitly (`locale: null` / `siteId: null` on `RulePageRef`), and a
+ * locale-scoped (site-scoped) rule then does NOT match that ref, the same as if it named a
+ * different locale/site outright. A caller with no known locale/site is not exempt from scoping —
+ * it is scoped out. Locale comparison is case-insensitive.
+ *
  * ---------------------------------------------------------------------------------------------
  *
  * `manage:system` is not evaluated here: it bypasses this entirely, and does so before any rule is
  * read. See `models/groups.ts`.
  */
 
-/** A page as a rule sees it. `locale`, `siteId` and `path` place it; `tags` are what tag rules match on. */
+/** A page as a rule sees it. `locale`, `siteId` and `path` place it; `tags` are what tag rules match on.
+ *
+ * `locale` and `siteId` are REQUIRED: a caller that genuinely has no locale (or site) context says
+ * `null` explicitly — and a locale-scoped (site-scoped) rule then does not match, i.e. the rules
+ * fail CLOSED. The old optional fields let a dozen call sites silently skip locale scoping. */
 export interface RulePageRef {
   path: string
-  locale?: string
-  siteId?: string
+  locale: string | null
+  siteId: string | null
   tags?: string[]
 }
 
@@ -106,13 +116,18 @@ function specificityOf(rule: GroupRule): number {
 
 /** Whether a rule addresses this page at all, ignoring what it then says about it. */
 export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
-  // -> A rule may be limited to particular locales; an empty list means every one of them
-  if (rule.locales?.length > 0 && page.locale && !rule.locales.includes(page.locale)) {
-    return false
+  // -> A rule may be limited to particular locales; an empty list means every one of them. A ref
+  //    with an unknown locale (`null`) fails closed: the rule does not match. Case-insensitive,
+  //    matching how URL parsing recognizes locale codes (`stripLocalePrefix`).
+  if (rule.locales?.length > 0) {
+    const refLocale = page.locale?.toLowerCase()
+    if (!refLocale || !rule.locales.some((code) => code.toLowerCase() === refLocale)) {
+      return false
+    }
   }
 
-  // -> A rule may be limited to particular sites; an empty list means every one of them
-  if (rule.sites?.length > 0 && page.siteId && !rule.sites.includes(page.siteId)) {
+  // -> Same fail-closed treatment for sites
+  if (rule.sites?.length > 0 && (!page.siteId || !rule.sites.includes(page.siteId))) {
     return false
   }
 
