@@ -46,8 +46,95 @@ function sizeCanvas() {
   simulation?.force('center', forceCenter(width / 2, height / 2))
 }
 
+const zoomTransform = ref(null)
+/** Populated by Task 20 (#895); an empty array here draws no hulls, which is correct pre-874. */
+const clusters = ref([])
+
+/*
+  Node radius (5), edge stroke color/opacity, and the `scale < 1.5` label threshold below are
+  starting points for visual tuning, not verified-correct constants -- adjust them against a real
+  graph in the browser once there's data on screen.
+*/
+function drawEdges() {
+  ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)'
+  ctx.lineWidth = 1
+  for (const edge of edges.value) {
+    const source = edge.source
+    const target = edge.target
+    if (!source?.x || !target?.x) {
+      continue
+    }
+    ctx.beginPath()
+    ctx.moveTo(source.x, source.y)
+    ctx.lineTo(target.x, target.y)
+    ctx.stroke()
+  }
+}
+
+function drawClusterHulls() {
+  for (const cluster of clusters.value) {
+    if (!cluster.hullPoints?.length) {
+      continue
+    }
+    ctx.beginPath()
+    ctx.moveTo(cluster.hullPoints[0][0], cluster.hullPoints[0][1])
+    for (const point of cluster.hullPoints.slice(1)) {
+      ctx.lineTo(point[0], point[1])
+    }
+    ctx.closePath()
+    ctx.fillStyle = cluster.color
+    ctx.globalAlpha = 0.12
+    ctx.fill()
+    ctx.globalAlpha = 1
+  }
+}
+
+function drawNodes() {
+  for (const node of nodes.value) {
+    if (node.x === undefined) {
+      continue
+    }
+    ctx.beginPath()
+    ctx.arc(node.x, node.y, 5, 0, Math.PI * 2)
+    ctx.fillStyle = node.color ?? '#888'
+    ctx.fill()
+  }
+}
+
+function drawLabels() {
+  const scale = zoomTransform.value?.k ?? 1
+  // -> Below this zoom level a label is unreadably small anyway; skipping the fillText calls
+  //    entirely is also what keeps a dense graph's label layer from becoming visual noise.
+  if (scale < 1.5) {
+    return
+  }
+  ctx.font = '10px sans-serif'
+  ctx.fillStyle = '#333'
+  for (const node of nodes.value) {
+    if (node.x === undefined) {
+      continue
+    }
+    ctx.fillText(node.title ?? node.path, node.x + 8, node.y + 3)
+  }
+}
+
 function redraw() {
-  // -> Filled in by Task 13 (#888): edges -> cluster hulls -> node dots -> labels.
+  if (!ctx) {
+    return
+  }
+  const canvas = canvasRef.value
+  const dpr = window.devicePixelRatio || 1
+  ctx.save()
+  ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr)
+  if (zoomTransform.value) {
+    ctx.translate(zoomTransform.value.x, zoomTransform.value.y)
+    ctx.scale(zoomTransform.value.k, zoomTransform.value.k)
+  }
+  drawEdges()
+  drawClusterHulls()
+  drawNodes()
+  drawLabels()
+  ctx.restore()
 }
 
 /*
