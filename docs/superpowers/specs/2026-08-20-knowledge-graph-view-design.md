@@ -185,3 +185,44 @@ and 874 (recompute hooks).
   OpenProject already.
 - A site filter/switcher inside the graph view (see architecture note) — consistent with the rest of
   the app having no site-switcher UI.
+
+## Edge-mode pivot (OpenProject #997) — supersedes the pure-link edge model above
+
+The original 872 design above sources edges only from authored `pages.relations` and extracted
+`pages.links`. In practice neither gets reliably authored across a whole real wiki, so a
+lightly-linked wiki's graph rendered correctly, but uselessly, almost empty — confirmed by testing
+the shipped 872–876 implementation.
+
+**`edgeMode` is now a client-side selector**, entirely within `frontend/src/pages/Graph.vue` /
+`frontend/src/pages/graphFilters.js` — no backend changes, since every field either mode needs
+(`node.path`, `node.folder`, `node.tags`) is already in the existing endpoint's response.
+
+- **`paths` (default)** — `graphFilters.js#buildPathHierarchyEdges`: every visible page connects to
+  its immediate parent path segment, climbed to a synthetic root (`''`). A real page is reused as
+  its own folder's node when one exists at that exact path; otherwise a `{ path, title, synthetic:
+  true }` stand-in is synthesized. "Root fans out to everything" — a fully connected graph for free,
+  even with zero authored relations/links.
+- **`tags`** — `graphFilters.js#buildTagHubEdges`: one synthetic hub node per distinct tag
+  (`path: '__tag__' + tag`); every page connects to the hub for **each** tag it carries (unlike
+  874's clustering, which buckets a node under only its first tag for its color group).
+- **`glossary`** — explicitly deferred until OpenProject #870 (Glossary epic) ships real term→page
+  links. No placeholder/disabled UI slot for it.
+
+The 872 endpoint's `relation`/`link` edges are unchanged and still fetched (`allEdges` in
+`Graph.vue`) but are **not** wired into either mode's rendering — available to revisit as a future
+third/fourth mode, not deleted.
+
+**Synthetic nodes are inert**: excluded from `legendEntries`/`groupCentroids`/`computeClusters`
+(874's grouping), the clustering force's per-node `.strength()` returns `0` for them, `onCanvasClick`
+never navigates for one, and `drawNodes` renders them smaller (radius `3` vs `5`) in a fixed neutral
+gray (`#9e9e9e`) rather than a group color.
+
+**UI**: a second `w-btn-toggle` ("Connect by": Paths | Tags) alongside 874's existing grouping
+toggle ("Group by": Folder | Tag) in `.graph-view-controls`, both bare-literal-label per this file's
+existing `groupBy` toggle convention — no i18n for either toggle's option labels or the new
+captions.
+
+**Known pre-existing limitation, not introduced by this pivot**: a multi-locale path collision (the
+same `path` value in two locales) already violates `computeVisibleSubset`'s and `forceLink`'s
+assumption that `path` is globally unique across the visible node set (Feature 873) — out of scope
+for #997.
