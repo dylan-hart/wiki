@@ -32,12 +32,14 @@ before(async () => {
           siteId: ENABLED_SITE_ID,
           fileName: 'sub',
           folderPath: '',
+          locale: 'en',
           meta: {}
         }),
         renameFolder: async (input: any) => ({
           ...input,
           siteId: ENABLED_SITE_ID,
           folderPath: '',
+          locale: 'en',
           meta: {}
         })
       },
@@ -78,11 +80,12 @@ test('visibleTreeItems: threads siteId into every filtered item, not just the fi
     { type: 'page', fileName: 'a', folderPath: '' },
     { type: 'asset', fileName: 'b.png', folderPath: 'folder' }
   ]
-  const result = visibleTreeItems({} as any, ENABLED_SITE_ID, items)
+  const result = visibleTreeItems({} as any, ENABLED_SITE_ID, 'en', items)
   assert.equal(result.length, 2)
   assert.equal(calls.length, 2)
   for (const page of calls) {
     assert.equal(page.siteId, ENABLED_SITE_ID)
+    assert.equal(page.locale, 'en')
   }
   assert.equal(calls[0].path, 'a')
   assert.equal(calls[1].path, 'folder/b.png')
@@ -98,11 +101,12 @@ test('mayOnFolder: threads siteId into the RulePageRef passed to checkAccess', (
     calls.push(page)
     return true
   }
-  const result = mayOnFolder({} as any, 'read:pages', ENABLED_SITE_ID, 'foo/bar')
+  const result = mayOnFolder({} as any, 'read:pages', ENABLED_SITE_ID, 'foo/bar', 'en')
   assert.equal(result, true)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
   assert.equal(calls[0].path, 'foo/bar')
+  assert.equal(calls[0].locale, 'en')
 })
 
 test('GET FOLDER route: passes the route siteId through to checkAccess', async () => {

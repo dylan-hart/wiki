@@ -73,38 +73,44 @@ function reqWithSession(overrides: Record<string, any> = {}): FastifyRequest {
 
 test('mayBypassPassword: a page-rule write:pages grant with no global permissions bypasses the password on a page the rule covers', () => {
   const req = reqWithSession()
-  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started' }), true)
+  assert.equal(
+    mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started', locale: 'en' }),
+    true
+  )
 })
 
 test('mayBypassPassword: the same requester is still asked for the password on a page outside the rule scope', () => {
   const req = reqWithSession()
-  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page' }), false)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page', locale: 'en' }), false)
 })
 
 test('mayBypassPassword: holding write:pages in the session-wide list alone, with no matching page rule, does not bypass', () => {
   // -> Not in `rule-group`, so `checkAccess` grants nothing here -- this is exactly the bug: the old
   //    implementation would have said `true` because the string was in `session.permissions`.
   const req = reqWithSession({ groups: ['some-other-group'], permissions: ['write:pages'] })
-  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started' }), false)
+  assert.equal(
+    mayBypassPassword(req, SITE_ID, { path: 'docs/allowed/getting-started', locale: 'en' }),
+    false
+  )
 })
 
 test('mayBypassPassword: manage:system still bypasses everywhere, via checkAccess', () => {
   const req = reqWithSession({ groups: [], permissions: ['manage:system'] })
-  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page' }), true)
+  assert.equal(mayBypassPassword(req, SITE_ID, { path: 'other/page', locale: 'en' }), true)
 })
 
 test('unlockedFor: within the rule scope, bypasses even though the session never recorded an explicit unlock', () => {
   const req = reqWithSession()
   assert.equal(
-    unlockedFor(req, SITE_ID, { id: 'page-1', path: 'docs/allowed/getting-started' }),
+    unlockedFor(req, SITE_ID, { id: 'page-1', path: 'docs/allowed/getting-started', locale: 'en' }),
     true
   )
 })
 
 test('unlockedFor: outside the rule scope, falls back to the session unlockedPages list', () => {
   const req = reqWithSession({ unlockedPages: ['page-2'] })
-  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-2', path: 'other/page' }), true)
-  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-3', path: 'other/page' }), false)
+  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-2', path: 'other/page', locale: 'en' }), true)
+  assert.equal(unlockedFor(req, SITE_ID, { id: 'page-3', path: 'other/page', locale: 'en' }), false)
 })
 
 /**
@@ -150,7 +156,7 @@ describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePage
         groups: {
           actorForRequest: () => ({ groupIds: ['editors'], permissions: [] }),
           checkAccess: (_actor: unknown, permission: string, page: { path: string }) =>
-            rulesAllow(rules, permission, { path: page.path })
+            rulesAllow(rules, permission, { path: page.path, locale: 'en', siteId: null })
         }
       }
     }
@@ -165,19 +171,28 @@ describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePage
   } as unknown as FastifyRequest
 
   test('bypasses under the general docs ALLOW, above the DENY subtree', () => {
-    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/getting-started' }), true)
+    assert.equal(
+      mayBypassPassword(req, SITE_ID, { path: 'docs/getting-started', locale: 'en' }),
+      true
+    )
   })
 
   test('does not bypass inside the DENY subtree', () => {
-    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive/2019-changelog' }), false)
+    assert.equal(
+      mayBypassPassword(req, SITE_ID, { path: 'docs/archive/2019-changelog', locale: 'en' }),
+      false
+    )
   })
 
   test('does not bypass on the DENY subtree root itself', () => {
-    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive' }), false)
+    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive', locale: 'en' }), false)
   })
 
   test('bypasses again on the exact page a FORCEALLOW reopens inside the denied subtree', () => {
-    assert.equal(mayBypassPassword(req, SITE_ID, { path: 'docs/archive/notice' }), true)
+    assert.equal(
+      mayBypassPassword(req, SITE_ID, { path: 'docs/archive/notice', locale: 'en' }),
+      true
+    )
   })
 
   test('sanity: resolvePageRule agrees with mayBypassPassword at every depth in this chain', () => {
@@ -187,9 +202,13 @@ describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePage
       ['docs/archive', false],
       ['docs/archive/notice', true]
     ] as const) {
-      const winner = resolvePageRule(rules, 'write:pages', { path })
+      const winner = resolvePageRule(rules, 'write:pages', { path, locale: 'en', siteId: null })
       assert.equal(winner ? winner.mode !== 'DENY' : false, expected, `path '${path}'`)
-      assert.equal(mayBypassPassword(req, SITE_ID, { path }), expected, `path '${path}'`)
+      assert.equal(
+        mayBypassPassword(req, SITE_ID, { path, locale: 'en' }),
+        expected,
+        `path '${path}'`
+      )
     }
   })
 })

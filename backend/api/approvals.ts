@@ -60,7 +60,7 @@ async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: 
 function reviewerFor(
   req: FastifyRequest,
   siteId: string,
-  page?: { path: string; tags?: string[] }
+  page?: { path: string; locale: string | null; tags?: string[] }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
     return { groupIds: [], reviewsAll: false }
@@ -70,7 +70,13 @@ function reviewerFor(
     groupIds: WIKI.models.approvals.getActorGroupIds(req),
     reviewsAll:
       actor.permissions.includes('manage:system') ||
-      WIKI.models.groups.checkAccess(actor, 'review:pages', { ...(page ?? { path: '' }), siteId }),
+      WIKI.models.groups.checkAccess(actor, 'review:pages', {
+        // -> deliberately `locale: null` for the site-wide queue's `{ path: '' }` fallback: a
+        //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
+        //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
+        ...(page ?? { path: '', locale: null }),
+        siteId
+      }),
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
     //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
     //    is right either way.
@@ -752,7 +758,11 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This page does not exist.')
       }
 
-      const scope = reviewerFor(req, req.params.siteId, { path: page.path, tags: page.tags ?? [] })
+      const scope = reviewerFor(req, req.params.siteId, {
+        path: page.path,
+        locale: page.locale,
+        tags: page.tags ?? []
+      })
       const canReview = await WIKI.models.approvals.canReviewPage(
         req.params.siteId,
         { path: page.path, tags: page.tags ?? [] },
@@ -843,6 +853,7 @@ async function routes(app: FastifyInstance) {
       const pageRef: ApprovalPageRef = {
         id: page.id,
         path: page.path,
+        locale: page.locale,
         tags: page.tags ?? [],
         allowContributions: page.allowContributions
       }
@@ -926,6 +937,7 @@ async function routes(app: FastifyInstance) {
       const pageRef: ApprovalPageRef = {
         id: page.id,
         path: page.path,
+        locale: page.locale,
         tags: page.tags ?? [],
         allowContributions: page.allowContributions
       }

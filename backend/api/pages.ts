@@ -21,6 +21,16 @@ function exportFilenameStem(path: string): string {
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
 }
 
+/**
+ * The locale content belongs to when the request does not say.
+ *
+ * Mirrors `api/tree.ts`'s own copy — a site always has a primary locale, so this is the answer for
+ * most requests rather than a fallback.
+ */
+function defaultLocale(siteId: string): string {
+  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+}
+
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
 function splitList(value?: string): string[] {
   return (
@@ -103,7 +113,7 @@ const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
 }
@@ -117,7 +127,7 @@ export function mayBypassPassword(
 export function unlockedFor(
   req: FastifyRequest,
   siteId: string,
-  page: { id: string; path: string; locale?: string; tags?: string[] }
+  page: { id: string; path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return (
     mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
@@ -139,7 +149,7 @@ export function mayOnPage(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
@@ -164,7 +174,7 @@ export function mayOnPage(
 export function pagePermissionsFor(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale?: string; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[] }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   /*
@@ -586,6 +596,7 @@ async function routes(app: FastifyInstance) {
         WIKI.models.approvals.pageViewerState(req, req.params.siteId, {
           id: page.id,
           path: page.path,
+          locale: page.locale,
           tags: page.tags ?? [],
           allowContributions: page.allowContributions
         }),
@@ -753,7 +764,7 @@ async function routes(app: FastifyInstance) {
       if (
         !mayOnPage(req, 'write:pages', req.params.siteId, {
           path: req.body.path,
-          locale: req.body.locale
+          locale: req.body.locale ?? defaultLocale(req.params.siteId)
         })
       ) {
         return reply.forbidden('You are not allowed to create a page here.')
@@ -823,7 +834,7 @@ async function routes(app: FastifyInstance) {
       if (
         !mayOnPage(req, 'write:pages', req.params.siteId, {
           path: req.query.path,
-          locale: req.query.locale
+          locale: req.query.locale ?? defaultLocale(req.params.siteId)
         })
       ) {
         return reply.forbidden('You are not allowed to write a page here.')
@@ -1650,7 +1661,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
-      return pagePermissionsFor(req, req.params.siteId, { path: req.body.path.replace(/^\/+/, '') })
+      // -> No `locale` param on this route yet (a later task adds one to the body); the site's
+      //    primary locale is the sensible interim default rather than failing every locale-scoped
+      //    rule closed for a caller who never had a way to say which locale they meant.
+      return pagePermissionsFor(req, req.params.siteId, {
+        path: req.body.path.replace(/^\/+/, ''),
+        locale: defaultLocale(req.params.siteId)
+      })
     }
   )
 }

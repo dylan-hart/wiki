@@ -600,7 +600,7 @@ class Pages {
     }
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const pageRef: RulePageRef = { path, locale, tags: input.tags }
+    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags }
     const { render, toc, text } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -794,6 +794,7 @@ class Pages {
     const existingRef: RulePageRef = {
       path: existing.path,
       locale: existing.locale,
+      siteId: existing.siteId,
       tags: existing.tags ?? []
     }
 
@@ -1152,8 +1153,8 @@ class Pages {
       siteId,
       pageId: page.id,
       permissions: {
-        scripts: hasPermission(actor, 'write:scripts', page),
-        styles: hasPermission(actor, 'write:styles', page)
+        scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
+        styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },
       requestedById: actor.id
     })
@@ -1244,7 +1245,14 @@ class Pages {
 
     const guestRules = WIKI.models.groups.rulesForGroups([WIKI.data.systemIds.guestsGroupId])
     return rows
-      .filter((row) => rulesAllow(guestRules, 'read:pages', row))
+      .filter((row) =>
+        rulesAllow(guestRules, 'read:pages', {
+          path: row.path,
+          locale: row.locale,
+          siteId,
+          tags: row.tags
+        })
+      )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
   }
 

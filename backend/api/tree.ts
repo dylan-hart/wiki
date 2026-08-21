@@ -92,7 +92,7 @@ const folderIdParam = {
  */
 export function visibleTreeItems<
   T extends { type?: string; folderPath?: string; fileName?: string }
->(req: FastifyRequest, siteId: string, items: T[]): T[] {
+>(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   return items.filter((item) => {
     const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : (item.fileName ?? '')
@@ -100,6 +100,7 @@ export function visibleTreeItems<
     return WIKI.models.groups.checkAccess(actor, permission, {
       path,
       siteId,
+      locale,
       tags: (item as any).tags ?? []
     })
   })
@@ -122,11 +123,13 @@ export function mayOnFolder(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  path: string
+  path: string,
+  locale: string
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     path,
-    siteId
+    siteId,
+    locale
   })
 }
 
@@ -238,7 +241,14 @@ async function routes(app: FastifyInstance) {
         includeAncestors: q.includeAncestors,
         includeRootFolders: q.includeRootFolders
       })
-      return visibleTreeItems(req, req.params.siteId, items)
+      // -> Task 6 makes the handler's resolved locale always-present; until then this is the same
+      //    fallback every other route in this file uses
+      return visibleTreeItems(
+        req,
+        req.params.siteId,
+        q.locale ?? defaultLocale(req.params.siteId),
+        items
+      )
     }
   )
 
@@ -307,10 +317,11 @@ async function routes(app: FastifyInstance) {
       if (!site.config?.features?.browse) {
         return reply.forbidden('Browsing is disabled on this site.')
       }
+      const locale = req.query.locale ?? defaultLocale(req.params.siteId)
       const level = await WIKI.models.tree.browse({
         siteId: req.params.siteId,
         path: req.query.path,
-        locale: req.query.locale ?? defaultLocale(req.params.siteId),
+        locale,
         publicOnly: !req.session?.authenticated
       })
       if (!level) {
@@ -327,7 +338,8 @@ async function routes(app: FastifyInstance) {
         items: level.items.filter((item) =>
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: item.path,
-            siteId: req.params.siteId
+            siteId: req.params.siteId,
+            locale
           })
         )
       }
@@ -461,7 +473,7 @@ async function routes(app: FastifyInstance) {
       }
       const folderPath = folderPathOf(folder)
       // -> Not visible is the same as not there, so it answers as the id had matched nothing
-      if (!mayOnFolder(req, 'read:pages', req.params.siteId, folderPath)) {
+      if (!mayOnFolder(req, 'read:pages', req.params.siteId, folderPath, folder.locale)) {
         return reply.notFound('This folder does not exist.')
       }
       return {
@@ -538,17 +550,23 @@ async function routes(app: FastifyInstance) {
         `parentId` the parent has to be looked up, and a missing one is left to the model to report.
       */
       let parentPath = req.body.parentPath ?? ''
+      let parent: Awaited<ReturnType<typeof WIKI.models.tree.getFolderById>> = null
       if (req.body.parentId) {
-        const parent = await WIKI.models.tree.getFolderById(req.body.parentId)
+        parent = await WIKI.models.tree.getFolderById(req.body.parentId)
         parentPath = parent ? folderPathOf(parent) : parentPath
       }
       const target = [parentPath, req.body.pathName].filter(Boolean).join('/')
-      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, target)) {
+      // -> Mirrors createFolder's own parent-wins locale rule (models/tree.ts:750-751): a folder
+      //    cannot be in a different locale than the one holding it
+      const locale = req.body.parentId
+        ? (parent?.locale ?? req.body.locale ?? defaultLocale(req.params.siteId))
+        : (req.body.locale ?? defaultLocale(req.params.siteId))
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, target, locale)) {
         return reply.forbidden('You are not allowed to create a folder here.')
       }
       const folder = await WIKI.models.tree.createFolder({
         siteId: req.params.siteId,
-        locale: req.body.locale ?? defaultLocale(req.params.siteId),
+        locale,
         parentId: req.body.parentId,
         parentPath: req.body.parentPath,
         pathName: req.body.pathName,
@@ -609,7 +627,15 @@ async function routes(app: FastifyInstance) {
       if (!existing || existing.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
-      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, folderPathOf(existing))) {
+      if (
+        !mayOnFolder(
+          req,
+          'manage:pages',
+          req.params.siteId,
+          folderPathOf(existing),
+          existing.locale
+        )
+      ) {
         return reply.forbidden('You are not allowed to rename this folder.')
       }
       const folder = await WIKI.models.tree.renameFolder({
@@ -666,7 +692,15 @@ async function routes(app: FastifyInstance) {
       if (!existing || existing.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
-      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, folderPathOf(existing))) {
+      if (
+        !mayOnFolder(
+          req,
+          'manage:pages',
+          req.params.siteId,
+          folderPathOf(existing),
+          existing.locale
+        )
+      ) {
         return reply.forbidden('You are not allowed to delete this folder.')
       }
       const removed = await WIKI.models.tree.deleteFolder(req.params.folderId)

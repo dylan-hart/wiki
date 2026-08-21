@@ -34,6 +34,8 @@ export interface ApprovalPageRef extends ApprovalPageMatch {
    * rule around it.
    */
   allowContributions: boolean
+  /** Passed through to `groups.checkAccess()`'s `RulePageRef` in `pageViewerState`, nowhere else. */
+  locale: string | null
 }
 
 /**
@@ -509,6 +511,7 @@ class Approvals {
               {
                 path: page.path,
                 siteId,
+                locale: page.locale,
                 tags: page.tags
               }
             ),

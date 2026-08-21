@@ -12,7 +12,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
-import { resolvePageRule } from '../helpers/pageRules.ts'
+import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
 
@@ -1086,6 +1086,10 @@ describe('POST /sites/:siteId/pages/import', () => {
     convertToMarkdown = mock.fn(async () => '# Converted\n')
 
     ;(globalThis as any).WIKI = {
+      // -> `defaultLocale()` reads `WIKI.sites[siteId]?.config?.locales?.primary`, falling back to
+      //    'en' -- an empty `sites` map is enough for that fallback to be exercised without throwing
+      //    on an undefined `WIKI.sites`.
+      sites: {},
       models: {
         groups: {
           actorForRequest: () => ({ id: null, permissions: [] }),
@@ -1277,7 +1281,7 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
         groups: {
           actorForRequest: () => ({ groupIds: ['fixture-group'], permissions: [] }),
           // -> The real rule-matching engine, not a stub answer — see file header.
-          checkAccess: (_actor: unknown, permission: string, page: { path: string }) => {
+          checkAccess: (_actor: unknown, permission: string, page: RulePageRef) => {
             const rule = resolvePageRule(rules, permission, page)
             return rule ? rule.mode !== 'DENY' : false
           }
@@ -1508,7 +1512,10 @@ describe('pages API — isEnabled guard (task 699)', () => {
       return true
     }
     try {
-      const result = mayOnPage({} as any, 'read:pages', ENABLED_SITE_ID, { path: 'foo/bar' })
+      const result = mayOnPage({} as any, 'read:pages', ENABLED_SITE_ID, {
+        path: 'foo/bar',
+        locale: 'en'
+      })
       assert.equal(result, true)
       assert.equal(calls.length, 1)
       assert.equal(calls[0].siteId, ENABLED_SITE_ID)
@@ -1530,7 +1537,7 @@ describe('pages API — isEnabled guard (task 699)', () => {
       return false
     }
     try {
-      pagePermissionsFor({} as any, ENABLED_SITE_ID, { path: 'foo/bar' })
+      pagePermissionsFor({} as any, ENABLED_SITE_ID, { path: 'foo/bar', locale: 'en' })
       assert.ok(calls.length > 0)
       for (const page of calls) {
         assert.equal(page.siteId, ENABLED_SITE_ID)

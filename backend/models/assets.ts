@@ -97,6 +97,7 @@ export interface Asset {
   hasPreview: boolean
   createdAt: Date
   updatedAt: Date
+  locale: string
 }
 
 /**
@@ -279,6 +280,7 @@ class Assets {
       return this.replace({
         id: occupant.id,
         siteId,
+        locale,
         folderPath: decodeTreePath(occupant.folderPath ?? '') ?? '',
         fileName: occupant.fileName,
         title: occupant.title,
@@ -356,7 +358,8 @@ class Assets {
       title: entry.title,
       hasPreview: Boolean(preview),
       createdAt: entry.createdAt,
-      updatedAt: entry.updatedAt
+      updatedAt: entry.updatedAt,
+      locale
     }
   }
 
@@ -375,6 +378,7 @@ class Assets {
   private async replace({
     id,
     siteId,
+    locale,
     folderPath,
     fileName,
     title,
@@ -387,6 +391,7 @@ class Assets {
   }: {
     id: string
     siteId: string
+    locale: string
     folderPath: string
     fileName: string
     title: string
@@ -455,6 +460,7 @@ class Assets {
         folderPath,
         title,
         hasPreview: Boolean(preview),
+        locale,
         createdAt: new Date(),
         updatedAt: new Date()
       }
@@ -477,6 +483,7 @@ class Assets {
         updatedAt: assetsTable.updatedAt,
         folderPath: treeTable.folderPath,
         title: treeTable.title,
+        locale: treeTable.locale,
         // -> Only whether there is one: the preview itself can be megabytes, and no caller of this
         //    wants it inlined
         hasPreview: sql<boolean>`${assetsTable.preview} IS NOT NULL`

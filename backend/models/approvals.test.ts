@@ -65,7 +65,7 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
   }
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
   }
 
   test('approves cleanly when the page has not moved since the submission was based on it', async () => {
@@ -269,7 +269,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
   }
 
   test('a rule requiring 2 approvals leaves the page untouched after the first, and writes it on the second from a different reviewer', async () => {
@@ -554,7 +554,7 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
   }
 
   /**
@@ -757,7 +757,7 @@ describe(
     })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-      return { id: page.id, path: page.path, tags: [], allowContributions: true }
+      return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
     }
 
     test('returns a rule when two enabled rules both match the same page for the same groups', async () => {
@@ -867,7 +867,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, tags: [], allowContributions: true }
+    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
   }
 
   test('two different guests suggesting an edit to the same page both persist', async () => {
@@ -1015,11 +1015,14 @@ describe('approvals pageViewerState siteId threading (task 678)', () => {
     await approvals.pageViewerState(req, '11111111-1111-4111-8111-111111111111', {
       id: 'page-1',
       path: 'engineering/onboarding',
+      locale: 'en',
       tags: [],
       allowContributions: false
     })
 
     assert.equal(checkAccessCalls.length, 1)
     assert.equal(checkAccessCalls[0].siteId, '11111111-1111-4111-8111-111111111111')
+    // -> Task 992: the ref's locale threads through too, same as siteId did for task 678
+    assert.equal(checkAccessCalls[0].locale, 'en')
   })
 })

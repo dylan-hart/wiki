@@ -42,10 +42,11 @@ export async function handleListNavigation(
     throw new McpToolError('Browsing is disabled on this site.')
   }
 
+  const locale = args.locale ?? defaultLocale(site)
   const level = await WIKI.models.tree.browse({
     siteId: site.id,
     path: args.path,
-    locale: args.locale ?? defaultLocale(site),
+    locale,
     // -> `tree.browse()`'s own filter is publish-state only (see `pageIsVisible()`); the real
     //    per-page grant is the `checkAccess()` filter below, same division of labor as the HTTP route
     publicOnly: false
@@ -58,7 +59,11 @@ export async function handleListNavigation(
   return toResult({
     ...level,
     items: level.items.filter((item) =>
-      WIKI.models.groups.checkAccess(actor, 'read:pages', { path: item.path, siteId: site.id })
+      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: item.path,
+        siteId: site.id,
+        locale
+      })
     )
   })
 }

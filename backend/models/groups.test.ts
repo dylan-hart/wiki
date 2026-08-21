@@ -123,6 +123,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'read:pages', {
         path: 'engineering/onboarding',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       true
@@ -131,6 +132,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'write:pages', {
         path: 'engineering/onboarding',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       true
@@ -139,6 +141,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'delete:pages', {
         path: 'engineering/onboarding',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       false
@@ -147,6 +150,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'read:pages', {
         path: 'marketing/onboarding',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       false
@@ -170,6 +174,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'read:pages', {
         path: 'public/readme',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       true
@@ -178,6 +183,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       groupsModel.checkAccess(actor, 'read:pages', {
         path: 'secret/plans',
         locale: 'en',
+        siteId: null,
         tags: []
       }),
       false
@@ -189,7 +195,12 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
     assert.equal(
-      groupsModel.checkAccess(actor, 'read:pages', { path: 'anything', locale: 'en', tags: [] }),
+      groupsModel.checkAccess(actor, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        tags: []
+      }),
       true
     )
   })
@@ -199,7 +210,12 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.checkAccess(actor, 'read:pages', { path: 'anything', locale: 'en', tags: [] }),
+      groupsModel.checkAccess(actor, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        tags: []
+      }),
       false
     )
   })
@@ -263,7 +279,12 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     for (const { path, expected, note } of GUEST_SCENARIO_CASES) {
       assert.equal(
-        groupsModel.checkAccess(actor, 'read:pages', { path, locale: 'en', tags: [] }),
+        groupsModel.checkAccess(actor, 'read:pages', {
+          path,
+          locale: 'en',
+          siteId: null,
+          tags: []
+        }),
         expected,
         `expected read:pages on '${path}' to be ${expected} (${note})`
       )
