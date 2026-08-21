@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { computeVisibleSubset, deriveFilterOptions } from './graphFilters.js'
+import {
+  buildPathHierarchyEdges,
+  buildTagHubEdges,
+  computeVisibleSubset,
+  deriveFilterOptions
+} from './graphFilters.js'
 
 const NODES = [
   { path: 'a', locale: 'en', tags: ['foo', 'bar'] },
@@ -127,5 +132,61 @@ describe('computeVisibleSubset (OpenProject #900)', () => {
       locale: null
     })
     expect(visibleEdges).toEqual(resolvedEdges)
+  })
+})
+
+describe('buildPathHierarchyEdges (OpenProject #998)', () => {
+  it('climbs a nested path to a synthetic root, synthesizing every missing segment', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'docs/child/page' }])
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs', 'docs/child'])
+    expect(edges).toEqual([
+      { source: 'docs/child', target: 'docs/child/page', type: 'path' },
+      { source: 'docs', target: 'docs/child', type: 'path' },
+      { source: '', target: 'docs', type: 'path' }
+    ])
+  })
+
+  it('gives a root-level page a single edge straight to the synthetic root', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([{ path: 'about' }])
+    expect(syntheticNodes).toEqual([{ path: '', title: '(root)', synthetic: true }])
+    expect(edges).toEqual([{ source: '', target: 'about', type: 'path' }])
+  })
+
+  it('de-dupes the shared parent edge for sibling pages under the same folder', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([
+      { path: 'docs/a' },
+      { path: 'docs/b' }
+    ])
+    expect(syntheticNodes.map((n) => n.path).sort()).toEqual(['', 'docs'])
+    expect(edges).toEqual([
+      { source: 'docs', target: 'docs/a', type: 'path' },
+      { source: '', target: 'docs', type: 'path' },
+      { source: 'docs', target: 'docs/b', type: 'path' }
+    ])
+  })
+
+  it('reuses a real page as its own folder node instead of synthesizing a duplicate', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([
+      { path: 'docs', title: 'Docs Index' },
+      { path: 'docs/child' }
+    ])
+    expect(syntheticNodes).toEqual([{ path: '', title: '(root)', synthetic: true }])
+    expect(edges).toEqual([
+      { source: 'docs', target: 'docs/child', type: 'path' },
+      { source: '', target: 'docs', type: 'path' }
+    ])
+  })
+
+  it('reuses a real home page (path "") as the root instead of synthesizing one', () => {
+    const { syntheticNodes, edges } = buildPathHierarchyEdges([
+      { path: '', title: 'Home' },
+      { path: 'about' }
+    ])
+    expect(syntheticNodes).toEqual([])
+    expect(edges).toEqual([{ source: '', target: 'about', type: 'path' }])
+  })
+
+  it('produces nothing for an empty node set', () => {
+    expect(buildPathHierarchyEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 })

@@ -63,3 +63,58 @@ export function computeVisibleSubset(nodes, edges, filters) {
 
   return { visibleNodes, visibleEdges }
 }
+
+/**
+ * Path-hierarchy synthetic nodes/edges (OpenProject #998, `edgeMode: 'paths'`, the default): every
+ * node connects to its immediate parent path segment, climbed all the way up to a synthetic root
+ * (`''`) -- "root fans out to everything," so even a wiki with zero authored relations/links renders
+ * a fully connected graph. A real page is reused as a folder's node when one exists at that exact
+ * path (so an index-style page at `docs` doesn't get a duplicate dot next to a synthetic `docs`
+ * marker); otherwise a bare `{ path, title, synthetic: true }` stand-in is synthesized. Edges are
+ * de-duped via a `Set` keyed on `"parent target"`, since many sibling pages under the same folder all
+ * climb through the same parent segment -- cheap to always climb every node fully to root rather than
+ * short-circuiting on "already wired," given the graph's confirmed real-world scale (low hundreds to
+ * low thousands of pages).
+ */
+export function buildPathHierarchyEdges(nodes) {
+  const byPath = new Map(nodes.map((n) => [n.path, n]))
+  const synthesized = new Map()
+  const edgeKeys = new Set()
+  const edges = []
+
+  function parentOf(path) {
+    const idx = path.lastIndexOf('/')
+    return idx === -1 ? '' : path.slice(0, idx)
+  }
+
+  function ensureFolderNode(path) {
+    if (byPath.has(path) || synthesized.has(path)) {
+      return
+    }
+    synthesized.set(path, {
+      path,
+      title: path === '' ? '(root)' : path.split('/').at(-1),
+      synthetic: true
+    })
+  }
+
+  const sorted = [...nodes].sort(
+    (a, b) => (b.path.match(/\//g) ?? []).length - (a.path.match(/\//g) ?? []).length
+  )
+
+  for (const node of sorted) {
+    let current = node.path
+    while (current !== '') {
+      const parent = parentOf(current)
+      ensureFolderNode(parent)
+      const key = `${parent} ${current}`
+      if (!edgeKeys.has(key)) {
+        edgeKeys.add(key)
+        edges.push({ source: parent, target: current, type: 'path' })
+      }
+      current = parent
+    }
+  }
+
+  return { syntheticNodes: [...synthesized.values()], edges }
+}
