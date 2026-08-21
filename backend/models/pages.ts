@@ -601,13 +601,14 @@ class Pages {
 
     const alias = await this.validateAlias(siteId, input.alias)
     const pageRef: RulePageRef = { path, locale, tags: input.tags }
-    const { render, toc, text } = await WIKI.models.rendering.postProcess(
+    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
       {
         scripts: hasPermission(actor, 'write:scripts', pageRef),
         styles: hasPermission(actor, 'write:styles', pageRef)
-      }
+      },
+      path
     )
 
     const pathParts = path.split('/')
@@ -636,6 +637,7 @@ class Pages {
         publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
         publishEndDate: input.publishEndDate ? new Date(input.publishEndDate) : null,
         relations: input.relations ?? [],
+        links,
         render,
         searchContent: text,
         scripts: this.buildScripts(input, actor, pageRef),
@@ -789,13 +791,19 @@ class Pages {
 
     // -> A render only means anything next to the content it came from, so the two move together
     if (patch.render !== undefined) {
-      const { render, toc, text } = await WIKI.models.rendering.postProcess(siteId, patch.render, {
-        scripts: hasPermission(actor, 'write:scripts', existingRef),
-        styles: hasPermission(actor, 'write:styles', existingRef)
-      })
+      const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+        siteId,
+        patch.render,
+        {
+          scripts: hasPermission(actor, 'write:scripts', existingRef),
+          styles: hasPermission(actor, 'write:styles', existingRef)
+        },
+        existing.path
+      )
       values.render = render
       values.toc = toc
       values.searchContent = text
+      values.links = links
     }
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
@@ -1151,13 +1159,19 @@ class Pages {
     siteId: string,
     id: string,
     html: string,
-    permissions: RenderPermissions
+    permissions: RenderPermissions,
+    pagePath: string
   ): Promise<void> {
-    const { render, toc, text } = await WIKI.models.rendering.postProcess(siteId, html, permissions)
+    const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
+      siteId,
+      html,
+      permissions,
+      pagePath
+    )
 
     const updated = await WIKI.db
       .update(pagesTable)
-      .set({ render, toc, searchContent: text, updatedAt: sql`now()` })
+      .set({ render, toc, searchContent: text, links, updatedAt: sql`now()` })
       .where(and(eq(pagesTable.id, id), eq(pagesTable.siteId, siteId)))
       .returning()
 
