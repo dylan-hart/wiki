@@ -74,6 +74,7 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
+import { deriveFilterOptions } from './graphFilters.js'
 
 /**
  * The knowledge graph view (OpenProject #848/#873): a full-viewport, canvas-rendered force graph
@@ -109,10 +110,11 @@ const activeFilters = reactive({
   locale: null
 })
 
-/** Populated for real by Task 24 (#899) from `deriveFilterOptions(nodes.value)`; empty here keeps
- *  the filter panel's `w-select`s functional (no options to pick) until that task lands. */
-const tagOptions = computed(() => [])
-const localeOptions = computed(() => [])
+/** The tag/locale values offered by the filter panel's `w-select`s, derived from whichever nodes
+ *  are currently loaded -- no separate endpoint (OpenProject #899). */
+const filterOptions = computed(() => deriveFilterOptions(nodes.value))
+const tagOptions = computed(() => filterOptions.value.tags)
+const localeOptions = computed(() => filterOptions.value.locales)
 
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
