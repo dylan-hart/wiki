@@ -7,6 +7,8 @@
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
+import { select } from 'd3-selection'
+import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { useSiteStore } from '@/stores/site'
 
 /**
@@ -159,6 +161,23 @@ function startSimulation() {
     .on('tick', redraw)
 }
 
+/*
+  `scaleExtent([0.1, 8])` is a starting point (wide enough to read a single node's label at max
+  zoom and see the whole graph at min zoom on a typical viewport) -- tune visually once there's
+  real data to zoom around in.
+*/
+function attachZoom() {
+  const selection = select(canvasRef.value)
+  const behavior = d3zoom()
+    .scaleExtent([0.1, 8])
+    .on('zoom', (event) => {
+      zoomTransform.value = event.transform
+      redraw()
+    })
+  selection.call(behavior)
+  zoomTransform.value = zoomIdentity
+}
+
 async function loadGraph() {
   isLoading.value = true
   loadError.value = null
@@ -168,6 +187,7 @@ async function loadGraph() {
     edges.value = graph.edges ?? []
     sizeCanvas()
     startSimulation()
+    attachZoom()
   } catch (err) {
     loadError.value = err
   } finally {
