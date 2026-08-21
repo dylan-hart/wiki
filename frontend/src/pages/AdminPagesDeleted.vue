@@ -305,7 +305,11 @@ function promptPath(row, overrides) {
       siteId: adminStore.currentSiteId,
       folderPath: '',
       itemTitle: row.title,
-      itemFileName: row.path
+      itemFileName: row.path,
+      // -> The locale the recovery itself will actually use -- an override from a prior locale
+      //    conflict (see `promptLocale`) if one exists, otherwise the locale this page was deleted
+      //    in. Same fallback `recover`'s own conflict message uses just above.
+      locale: overrides.locale ?? row.locale
     }
   }).onOk((target) => {
     recover(row, { ...overrides, path: target.path })
