@@ -161,7 +161,10 @@ describe('localizedPagePath', () => {
 
 describe('localePrefixStripTarget', () => {
   test('an explicit primary prefix is stripped', () => {
-    assert.equal(localePrefixStripTarget('/en/guides/x', locales({ forcePrefix: false })), '/guides/x')
+    assert.equal(
+      localePrefixStripTarget('/en/guides/x', locales({ forcePrefix: false })),
+      '/guides/x'
+    )
   })
   test('a bare locale-only primary path strips to the root', () => {
     assert.equal(localePrefixStripTarget('/en', locales({ forcePrefix: false })), '/')
@@ -173,10 +176,16 @@ describe('localePrefixStripTarget', () => {
     assert.equal(localePrefixStripTarget('/en/guides/x', locales({ forcePrefix: true })), null)
   })
   test('a mis-cased prefix canonicalizes to the code as stored', () => {
-    assert.equal(localePrefixStripTarget('/FR/guides/x', locales({ forcePrefix: false })), '/fr/guides/x')
+    assert.equal(
+      localePrefixStripTarget('/FR/guides/x', locales({ forcePrefix: false })),
+      '/fr/guides/x'
+    )
   })
   test('a single-active-locale site strips its own explicit prefix', () => {
-    assert.equal(localePrefixStripTarget('/en/guides/x', locales({ active: ['en'], forcePrefix: false })), '/guides/x')
+    assert.equal(
+      localePrefixStripTarget('/en/guides/x', locales({ active: ['en'], forcePrefix: false })),
+      '/guides/x'
+    )
   })
   test('an unprefixed path is not a candidate', () => {
     assert.equal(localePrefixStripTarget('/guides/x', locales({ forcePrefix: false })), null)
