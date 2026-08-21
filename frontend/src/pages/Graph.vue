@@ -63,6 +63,39 @@ function groupKeyFor(node) {
   return node.folder || '(root)'
 }
 
+/*
+  The `dataviz` skill's validated 8-slot categorical theme (references/palette.md), light-surface
+  hex values, in the skill's own fixed (CVD-safe adjacent-pair) order -- assigned in that order as
+  new group keys are first seen, never reordered per group. Graph.vue's canvas rendering has no
+  dark-mode color swap anywhere yet (drawEdges'/drawLabels' stroke/fill strings are hardcoded the
+  same way), so this palette isn't threaded through a light/dark variant either -- revisit together
+  if dark-mode canvas theming is ever added.
+*/
+const CATEGORICAL_PALETTE = [
+  '#2a78d6', // blue
+  '#eb6834', // orange
+  '#1baf7a', // aqua
+  '#eda100', // yellow
+  '#e87ba4', // magenta
+  '#008300', // green
+  '#4a3aa7', // violet
+  '#e34948' // red
+]
+
+const groupColors = new Map()
+
+/** Assigns the palette's next unused slot to a not-yet-seen group key, then always returns that
+ *  same color for that key going forward -- stable across redraws within a session, and stable
+ *  across a reload too since the backend returns nodes in a consistent order (insertion order
+ *  drives slot assignment). Past 8 distinct groups the palette wraps rather than leaving a group
+ *  undrawn -- a graph view has no "fold into Other" fallback the way a chart legend would. */
+function colorForGroup(key) {
+  if (!groupColors.has(key)) {
+    groupColors.set(key, CATEGORICAL_PALETTE[groupColors.size % CATEGORICAL_PALETTE.length])
+  }
+  return groupColors.get(key)
+}
+
 let simulation = null
 let ctx = null
 let resizeObserver = null
@@ -164,6 +197,10 @@ function redraw() {
     (d) => d.x,
     (d) => d.y
   )
+
+  for (const node of nodes.value) {
+    node.color = colorForGroup(groupKeyFor(node))
+  }
 
   if (!ctx) {
     return
