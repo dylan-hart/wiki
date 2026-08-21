@@ -24,9 +24,17 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  forceX,
+  forceY
+} from 'd3-force'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
@@ -284,6 +292,47 @@ function startSimulation() {
 }
 
 /*
+  Pulls each node toward a running centroid of its own group, layered on top of the link/charge/
+  collision forces above -- those alone don't produce visually coherent clusters (per the spec).
+  `0.05` is a starting point: low enough that the other forces still dominate local layout, this
+  is meant to be a bias toward clustering, not the dominant force -- tune visually once there's a
+  real graph on screen. Centroids are computed from the *previous* tick's settled positions (a
+  "running" centroid) rather than recomputed some other way, matching how every other d3-force
+  force reads node `x`/`y` mutated in place by the tick before it.
+*/
+function groupCentroids() {
+  const sums = new Map()
+  for (const node of nodes.value) {
+    if (node.x === undefined) {
+      continue
+    }
+    const key = groupKeyFor(node)
+    const entry = sums.get(key) ?? { x: 0, y: 0, count: 0 }
+    entry.x += node.x
+    entry.y += node.y
+    entry.count += 1
+    sums.set(key, entry)
+  }
+  const centroids = new Map()
+  for (const [key, { x, y, count }] of sums) {
+    centroids.set(key, { x: x / count, y: y / count })
+  }
+  return centroids
+}
+
+let centroids = new Map()
+
+function applyClusteringForce() {
+  if (!simulation) {
+    return
+  }
+  centroids = groupCentroids()
+  simulation
+    .force('clusterX', forceX((d) => centroids.get(groupKeyFor(d))?.x ?? 0).strength(0.05))
+    .force('clusterY', forceY((d) => centroids.get(groupKeyFor(d))?.y ?? 0).strength(0.05))
+}
+
+/*
   `scaleExtent([0.1, 8])` is a starting point (wide enough to read a single node's label at max
   zoom and see the whole graph at min zoom on a typical viewport) -- tune visually once there's
   real data to zoom around in.
@@ -309,6 +358,7 @@ async function loadGraph() {
     edges.value = graph.edges ?? []
     sizeCanvas()
     startSimulation()
+    applyClusteringForce()
     attachZoom()
   } catch (err) {
     loadError.value = err
@@ -316,6 +366,11 @@ async function loadGraph() {
     isLoading.value = false
   }
 }
+
+watch(groupBy, () => {
+  applyClusteringForce()
+  simulation?.alpha(0.3).restart()
+})
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(() => {
