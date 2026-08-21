@@ -210,10 +210,7 @@ function redraw() {
     (d) => d.y
   )
 
-  for (const node of nodes.value) {
-    node.color = colorForGroup(groupKeyFor(node))
-  }
-  computeClusters()
+  recomputeClusters()
 
   if (!ctx) {
     return
@@ -391,6 +388,16 @@ function computeClusters() {
   clusters.value = result
 }
 
+/** Single entry point Task 18's coloring and Task 20's hull computation both funnel through --
+ *  called every tick (from `redraw()`) so hulls/colors stay in step with the live layout, and
+ *  whenever the grouping dimension or the visible node set changes. */
+function recomputeClusters() {
+  for (const node of nodes.value) {
+    node.color = colorForGroup(groupKeyFor(node))
+  }
+  computeClusters()
+}
+
 /*
   `scaleExtent([0.1, 8])` is a starting point (wide enough to read a single node's label at max
   zoom and see the whole graph at min zoom on a typical viewport) -- tune visually once there's
@@ -428,6 +435,7 @@ async function loadGraph() {
 
 watch(groupBy, () => {
   applyClusteringForce()
+  recomputeClusters()
   simulation?.alpha(0.3).restart()
 })
 
