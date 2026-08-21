@@ -568,7 +568,7 @@ export const usePageStore = defineStore('page', {
     /**
      * PAGE - EDIT
      */
-    async pageEdit({ path, id, fromNavigate = false } = {}) {
+    async pageEdit({ path, id, locale, fromNavigate = false } = {}) {
       const editorStore = useEditorStore()
 
       const loadArgs = {
@@ -579,6 +579,13 @@ export const usePageStore = defineStore('page', {
         loadArgs.id = id
       } else if (path) {
         loadArgs.path = path
+        /*
+          A hash only identifies a page within a locale (`pageLoad`'s own comment above), so an editor
+          entry point addressed by path has to carry one along too -- `this.locale` is what App.vue's
+          router guard already resolved from `?locale=` for this route, or the site's primary when
+          none was given, so an un-migrated caller still gets today's behavior.
+        */
+        loadArgs.locale = locale ?? this.locale
       } else {
         loadArgs.id = this.id
       }

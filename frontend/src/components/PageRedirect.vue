@@ -74,6 +74,7 @@ import { loading } from '@/composables/loading'
 import { isFollowable, parseRedirect, REDIRECT_INTERSTITIAL_MS } from '@/helpers/pageRedirect'
 
 import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 /**
@@ -109,6 +110,7 @@ let hops = 0
 // STORES
 
 const pageStore = usePageStore()
+const siteStore = useSiteStore()
 const userStore = useUserStore()
 
 // ROUTER
@@ -258,6 +260,9 @@ function follow() {
 }
 
 function editPage() {
-  router.push(`/_edit/${pageStore.path}`)
+  router.push({
+    path: `/_edit/${pageStore.path}`,
+    query: siteStore.useLocales ? { locale: pageStore.locale } : undefined
+  })
 }
 </script>

@@ -411,6 +411,38 @@ describe('page store: pageLoad()', () => {
   })
 })
 
+describe('page store: pageEdit()', () => {
+  it('forwards the given locale to the pageLoad() request', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const editorStore = useEditorStore()
+    // -> Already loaded, so pageEdit()'s own fetchConfigs() call doesn't add a second GET to the mock
+    editorStore.$patch({ configIsLoaded: true })
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse())
+
+    const pageStore = usePageStore()
+    await pageStore.pageEdit({ path: '/some/page', locale: 'fr' })
+
+    const [, opts] = API_CLIENT.get.mock.calls[0]
+    expect(opts.searchParams).toEqual({ withContent: true, locale: 'fr' })
+  })
+
+  it('falls back to the store locale when none is given', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const editorStore = useEditorStore()
+    editorStore.$patch({ configIsLoaded: true })
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse())
+
+    const pageStore = usePageStore()
+    pageStore.$patch({ locale: 'de' })
+    await pageStore.pageEdit({ path: '/some/page' })
+
+    const [, opts] = API_CLIENT.get.mock.calls[0]
+    expect(opts.searchParams).toEqual({ withContent: true, locale: 'de' })
+  })
+})
+
 /** A site with two active locales, `en` primary — the shape `useLocales` and the prefix rule need. */
 function makeMultiLocaleSite({ forcePrefix = false } = {}) {
   const siteStore = useSiteStore()

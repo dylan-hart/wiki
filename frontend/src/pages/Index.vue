@@ -745,7 +745,11 @@ watch(
         return router.replace('/')
       }
       loading.show()
-      await pageStore.pageEdit({ path: route.params.pagePath, fromNavigate: true })
+      await pageStore.pageEdit({
+        path: route.params.pagePath,
+        locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
+        fromNavigate: true
+      })
       loading.hide()
       return
     }
