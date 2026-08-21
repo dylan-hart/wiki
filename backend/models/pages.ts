@@ -176,6 +176,23 @@ export interface PageInput {
   updatedAt?: string
 }
 
+/** One page's worth of raw data for the knowledge graph endpoint (OpenProject #872). */
+export interface GraphPageRow {
+  path: string
+  locale: string
+  title: string
+  icon: string | null
+  tags: string[]
+  relations: {
+    pos: 'left' | 'center' | 'right'
+    label: string
+    caption: string
+    icon: string
+    target: string
+  }[]
+  links: string[]
+}
+
 /**
  * Who is saving, and what they are allowed to put in a page.
  *
@@ -487,6 +504,26 @@ class Pages {
       })
       .from(pagesTable)
       .where(eq(pagesTable.siteId, siteId))
+  }
+
+  /**
+   * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
+   * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
+   * to build and permission-filter the graph once.
+   */
+  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+    return WIKI.db
+      .select({
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        title: pagesTable.title,
+        icon: pagesTable.icon,
+        tags: pagesTable.tags,
+        relations: pagesTable.relations,
+        links: pagesTable.links
+      })
+      .from(pagesTable)
+      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
   }
 
   /**
