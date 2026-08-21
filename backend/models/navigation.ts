@@ -790,6 +790,7 @@ class Navigation {
         UPDATE tree tt
         SET "navigationId" = ${cascadeTo}
         WHERE tt."siteId" = ${siteId}
+          AND tt."locale" = ${entry.locale}
           AND tt.tree IN ('page', 'folder')
           AND tt."folderPath" <@ ${fullPath}::ltree
           AND tt."navigationMode" = 'inherit'
@@ -797,6 +798,7 @@ class Navigation {
             SELECT 1
             FROM tree tc
             WHERE tc."siteId" = ${siteId}
+              AND tc."locale" = ${entry.locale}
               AND tc.tree IN ('page', 'folder')
               AND tc."folderPath" <@ ${fullPath}::ltree
               AND (tc."folderPath" || tc."fileName") @> tt."folderPath"

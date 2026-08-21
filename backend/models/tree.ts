@@ -842,7 +842,7 @@ class Tree {
           }
           throw err
         }
-        await this.countTowardsFolderAt(siteId, ancestor.folderPath, 1, db)
+        await this.countTowardsFolderAt(siteId, effectiveLocale, ancestor.folderPath, 1, db)
       }
     }
 
@@ -875,7 +875,7 @@ class Tree {
       throw err
     }
 
-    await this.countTowardsFolderAt(siteId, path, 1, db)
+    await this.countTowardsFolderAt(siteId, effectiveLocale, path, 1, db)
 
     WIKI.logger.debug(`Created folder ${inserted[0].id} successfully.`)
     return inserted[0] as TreeRow
@@ -952,29 +952,46 @@ class Tree {
 
     WIKI.logger.debug(`Renaming folder ${folder.id} from ${oldPath} to ${newPath}...`)
 
-    // -> Direct children carry the old path verbatim; deeper ones carry it as a prefix, and keep
-    //    whatever they had below it
-    await WIKI.db
-      .update(treeTable)
-      .set({ folderPath: newPath })
-      .where(and(eq(treeTable.siteId, folder.siteId), eq(treeTable.folderPath, oldPath)))
-    await WIKI.db
-      .update(treeTable)
-      .set({
-        folderPath: sql`${newPath}::ltree || subpath(${treeTable.folderPath}, nlevel(${newPath}::ltree))`
-      })
-      .where(
-        and(eq(treeTable.siteId, folder.siteId), sql`${treeTable.folderPath} <@ ${oldPath}::ltree`)
-      )
+    // -> Everything below is one logical move: partway through would leave some descendants renamed
+    //    and others not, or a folder row moved but its descendants' paths unrefreshed
+    const updated = await WIKI.db.transaction(async (tx) => {
+      // -> Direct children carry the old path verbatim; deeper ones carry it as a prefix, and keep
+      //    whatever they had below it. Scoped to this folder's own locale -- otherwise a same-named
+      //    folder in another locale, sharing the same path, would be dragged along with it (bug #932)
+      await tx
+        .update(treeTable)
+        .set({ folderPath: newPath })
+        .where(
+          and(
+            eq(treeTable.siteId, folder.siteId),
+            eq(treeTable.locale, folder.locale),
+            eq(treeTable.folderPath, oldPath)
+          )
+        )
+      await tx
+        .update(treeTable)
+        .set({
+          folderPath: sql`${newPath}::ltree || subpath(${treeTable.folderPath}, nlevel(${newPath}::ltree))`
+        })
+        .where(
+          and(
+            eq(treeTable.siteId, folder.siteId),
+            eq(treeTable.locale, folder.locale),
+            sql`${treeTable.folderPath} <@ ${oldPath}::ltree`
+          )
+        )
 
-    const fullPath = folder.folderPath ? `${decodeTreePath(folder.folderPath)}/${name}` : name
-    const updated = await WIKI.db
-      .update(treeTable)
-      .set({ fileName: name, title, hash: generateHash(fullPath), updatedAt: sql`now()` })
-      .where(eq(treeTable.id, folder.id))
-      .returning()
+      const fullPath = folder.folderPath ? `${decodeTreePath(folder.folderPath)}/${name}` : name
+      const renamed = await tx
+        .update(treeTable)
+        .set({ fileName: name, title, hash: generateHash(fullPath), updatedAt: sql`now()` })
+        .where(eq(treeTable.id, folder.id))
+        .returning()
 
-    await this.refreshDescendantPaths(folder.siteId, newPath)
+      await this.refreshDescendantPaths(folder.siteId, folder.locale, newPath, tx)
+
+      return renamed
+    })
 
     // -> Every asset under it is served from a different path now, and nothing about the assets
     //    themselves changed for the file cache to notice
@@ -1000,8 +1017,13 @@ class Tree {
    * from here. What is deliberately not touched is `updatedAt`: the folder moved, the pages under it
    * did not change, and marking a few hundred of them as freshly edited would say otherwise.
    */
-  private async refreshDescendantPaths(siteId: string, path: string): Promise<void> {
-    const rows = await WIKI.db
+  private async refreshDescendantPaths(
+    siteId: string,
+    locale: string,
+    path: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<void> {
+    const rows = await db
       .select({
         id: treeTable.id,
         type: treeTable.type,
@@ -1009,18 +1031,24 @@ class Tree {
         fileName: treeTable.fileName
       })
       .from(treeTable)
-      .where(and(eq(treeTable.siteId, siteId), sql`${treeTable.folderPath} <@ ${path}::ltree`))
+      .where(
+        and(
+          eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
 
     let pageCount = 0
     for (const row of rows) {
       const folderPath = decodeTreePath(row.folderPath ?? '')
       const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
-      await WIKI.db
+      await db
         .update(treeTable)
         .set({ hash: generateHash(fullPath) })
         .where(eq(treeTable.id, row.id))
       if (row.type === 'page') {
-        await WIKI.db
+        await db
           .update(pagesTable)
           .set({ path: fullPath, hash: generatePathHash(fullPath) })
           .where(eq(pagesTable.id, row.id))
@@ -1049,27 +1077,40 @@ class Tree {
     const path = childPathOf(folder)
     WIKI.logger.debug(`Deleting folder ${folder.id} at path ${path}...`)
 
-    // -> `<@` is "at or below", and the folder itself is not under its own child path, so this takes
-    //    the descendants and leaves the row that owns them
-    const deleted = await WIKI.db
-      .delete(treeTable)
-      .where(
-        and(eq(treeTable.siteId, folder.siteId), sql`${treeTable.folderPath} <@ ${path}::ltree`)
-      )
-      .returning({
-        id: treeTable.id,
-        type: treeTable.type,
-        folderPath: treeTable.folderPath,
-        fileName: treeTable.fileName,
-        locale: treeTable.locale
-      })
+    // -> The two deletes and the parent's child-count update are one logical delete; wrapped in a
+    //    transaction so a failure partway through cannot leave descendants gone but the folder row (or
+    //    its parent's count) still there, or vice versa.
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      // -> `<@` is "at or below", and the folder itself is not under its own child path, so this takes
+      //    the descendants and leaves the row that owns them. Scoped to this folder's own locale --
+      //    otherwise a same-named folder in another locale, sharing the same path, would be deleted
+      //    right along with it (bug #932)
+      const removed = await tx
+        .delete(treeTable)
+        .where(
+          and(
+            eq(treeTable.siteId, folder.siteId),
+            eq(treeTable.locale, folder.locale),
+            sql`${treeTable.folderPath} <@ ${path}::ltree`
+          )
+        )
+        .returning({
+          id: treeTable.id,
+          type: treeTable.type,
+          folderPath: treeTable.folderPath,
+          fileName: treeTable.fileName,
+          locale: treeTable.locale
+        })
 
-    await WIKI.db.delete(treeTable).where(eq(treeTable.id, folder.id))
+      await tx.delete(treeTable).where(eq(treeTable.id, folder.id))
+
+      await this.countTowardsFolderAt(folder.siteId, folder.locale, folder.folderPath ?? '', -1, tx)
+
+      return removed
+    })
 
     // -> Any of them may have owned a sidebar menu keyed by its own id, the folder included
     await WIKI.models.navigation.deleteNavForEntries([...deleted.map((n) => n.id), folder.id])
-
-    await this.countTowardsFolderAt(folder.siteId, folder.folderPath ?? '', -1)
 
     WIKI.logger.debug(`Deleted folder ${folder.id} and ${deleted.length} descendant(s).`)
 
@@ -1252,7 +1293,7 @@ class Tree {
       return false
     }
     await WIKI.db.delete(treeTable).where(eq(treeTable.id, id))
-    await this.countTowardsFolderAt(entry.siteId, entry.folderPath ?? '', -1)
+    await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1)
     return true
   }
 
@@ -1339,7 +1380,7 @@ class Tree {
       throw err
     }
 
-    await this.countTowardsFolderAt(siteId, path, 1, db)
+    await this.countTowardsFolderAt(siteId, locale, path, 1, db)
 
     return inserted[0] as TreeRow
   }
@@ -1430,6 +1471,7 @@ class Tree {
    */
   private async countTowardsFolderAt(
     siteId: string,
+    locale: string,
     path: string,
     delta: number,
     db: WikiDbOrTx = WIKI.db
@@ -1446,6 +1488,7 @@ class Tree {
       .where(
         and(
           eq(treeTable.siteId, siteId),
+          eq(treeTable.locale, locale),
           eq(treeTable.folderPath, location.folderPath),
           eq(treeTable.fileName, location.fileName),
           eq(treeTable.type, 'folder')
