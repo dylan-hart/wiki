@@ -20,11 +20,17 @@
           { label: 'Tag', value: 'tag' }
         ]" />
     </div>
+    <div class="graph-view-legend">
+      <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
+        <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
+        <span class="graph-view-legend-label">{{ entry.key }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   forceCenter,
@@ -104,6 +110,20 @@ function colorForGroup(key) {
   }
   return groupColors.get(key)
 }
+
+/** One entry per distinct group currently in the graph, in first-seen order -- the legend panel's
+ *  data source. Recomputes reactively off `nodes.value`/`groupBy` (via `groupKeyFor`), so toggling
+ *  the grouping selector updates the legend's entries and labels together with the canvas. */
+const legendEntries = computed(() => {
+  const seen = new Map()
+  for (const node of nodes.value) {
+    const key = groupKeyFor(node)
+    if (!seen.has(key)) {
+      seen.set(key, colorForGroup(key))
+    }
+  }
+  return [...seen.entries()].map(([key, color]) => ({ key, color }))
+})
 
 let simulation = null
 let ctx = null
@@ -475,6 +495,49 @@ onBeforeUnmount(() => {
   top: 16px;
   right: 16px;
   z-index: 1;
+}
+
+.graph-view-legend {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+  max-height: calc(100% - 96px);
+  overflow-y: auto;
+
+  @at-root .body--light & {
+    background: rgba(0, 0, 0, 0.05);
+  }
+  @at-root .body--dark & {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.graph-view-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graph-view-legend-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.graph-view-legend-label {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .graph-view-tooltip {
