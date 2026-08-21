@@ -756,6 +756,16 @@ class Tree {
       effectiveLocale = parent.locale
     }
 
+    // -> Only a root-level folder can shadow a locale prefix: a nested `fr/` never collides with the
+    //    URL parser, which only strips a locale code off the FIRST path segment
+    if (path === '' && (await WIKI.models.locales.isReservedLocaleCode(name))) {
+      throw new CustomError(
+        'treeReservedLocaleSegment',
+        `"${name}" is an installed locale code and cannot name a root folder.`,
+        400
+      )
+    }
+
     // -> A page here is not in the way: a folder alongside it is how `/guide` gets to be both a page
     //    and the way into `/guide/…`. An asset is, since it is served at that URL itself — the same
     //    rule `resolveName` applies coming the other way.
@@ -924,6 +934,18 @@ class Tree {
         .where(eq(treeTable.id, folder.id))
         .returning()
       return updated[0] as TreeRow
+    }
+
+    // -> Same root-only rule as `createFolder`: a folder already nested cannot collide with the
+    //    locale-prefix parser regardless of what it is renamed to. Checked only once the segment is
+    //    actually changing (above), so a title-only edit of an already-grandfathered root folder
+    //    (one that predates this rule) is not itself blocked.
+    if (!folder.folderPath && (await WIKI.models.locales.isReservedLocaleCode(name))) {
+      throw new CustomError(
+        'treeReservedLocaleSegment',
+        `"${name}" is an installed locale code and cannot name a root folder.`,
+        400
+      )
     }
 
     // -> As on the way in: a page may share the name, an asset may not

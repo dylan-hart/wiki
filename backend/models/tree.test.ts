@@ -1,6 +1,12 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
@@ -18,6 +24,9 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   before(async () => {
     fixtures = await setupTestDb()
+    // -> Seeded before any model call, so the very first `getLocales()` cache fill already sees them.
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
     ;({ tree: treeModel } = await import('./tree.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
@@ -189,5 +198,53 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     }
     const titles = items.map((item) => item.title).sort()
     assert.deepEqual(titles, ['Intro EN', 'Shared EN'])
+  })
+
+  /**
+   * Task 12 (#994): a root-level folder named after an installed locale code is unreachable — shadowed
+   * by the URL prefix parser exactly as a page at that path would be (`models/pages.test.ts`'s
+   * matching coverage). Only the first path segment shadows, so a folder nested under something else
+   * is unaffected.
+   */
+  test('createFolder refuses a root folder named after an installed locale code', async () => {
+    await assert.rejects(
+      treeModel.createFolder({
+        pathName: 'fr',
+        title: 'FR',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeReservedLocaleSegment'
+    )
+  })
+
+  test('createFolder allows a NESTED folder named after an installed locale code', async () => {
+    const parent = await treeModel.createFolder({
+      pathName: 'nested-parent',
+      title: 'Nested Parent',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const child = await treeModel.createFolder({
+      parentId: parent.id,
+      pathName: 'fr',
+      title: 'FR',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    assert.equal(child.fileName, 'fr')
+  })
+
+  test('renameFolder refuses renaming a root folder to an installed locale code', async () => {
+    const folder = await treeModel.createFolder({
+      pathName: 'renameable',
+      title: 'Renameable',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await assert.rejects(
+      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      (err: any) => err.name === 'treeReservedLocaleSegment'
+    )
   })
 })

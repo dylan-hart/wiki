@@ -1302,6 +1302,7 @@
   "admin.utilities.scanPageProblemsFailed": "The scan could not be completed.",
   "admin.utilities.scanPageProblemsHashDrift": "Hash drift",
   "admin.utilities.scanPageProblemsHint": "Scan all pages for invalid, missing or corrupted data.",
+  "admin.utilities.scanPageProblemsLocaleCollisions": "Locale-code collisions",
   "admin.utilities.scanPageProblemsNone": "No problems found.",
   "admin.utilities.scanPageProblemsOrphanPageRow": "/{path} — has no matching tree entry",
   "admin.utilities.scanPageProblemsOrphanTreeEntry": "/{path} — has no matching page",

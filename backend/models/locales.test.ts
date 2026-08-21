@@ -8,7 +8,13 @@ import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
 import { localeCode, computeCompleteness } from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
 
 // -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
 //    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns". That is only a runtime global
@@ -193,5 +199,44 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       50,
       'skip path must not clear or corrupt the last-computed value'
     )
+  })
+})
+
+/**
+ * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-
+ * insensitively — installed, not merely active on a given site, per the decision doc's item 4: a
+ * locale can be activated later, so a page created while it was only installed must already be
+ * unreachable-proof.
+ */
+describe('isReservedLocaleCode (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+    await seedLocale(fixtures.db, { code: 'pt-BR' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('matches an installed code case-insensitively', async () => {
+    assert.equal(await localesModel.isReservedLocaleCode('fr'), true)
+    assert.equal(await localesModel.isReservedLocaleCode('FR'), true)
+    assert.equal(await localesModel.isReservedLocaleCode('Fr'), true)
+    assert.equal(await localesModel.isReservedLocaleCode('pt-br'), true)
+    assert.equal(await localesModel.isReservedLocaleCode('PT-BR'), true)
+  })
+
+  test('returns false for a code that is not installed', async () => {
+    assert.equal(await localesModel.isReservedLocaleCode('de'), false)
+  })
+
+  test('returns false for an empty segment', async () => {
+    assert.equal(await localesModel.isReservedLocaleCode(''), false)
   })
 })

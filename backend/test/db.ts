@@ -31,6 +31,7 @@ import { randomBytes } from 'node:crypto'
 import { relations } from '../db/relations.ts'
 import {
   groups as groupsTable,
+  locales as localesTable,
   sites as sitesTable,
   tree as treeTable,
   users as usersTable
@@ -234,6 +235,40 @@ export async function teardownTestDb(): Promise<void> {
   await pool?.end()
   pool = null
   currentSchema = null
+}
+
+export interface SeedLocaleInput {
+  code: string
+  name?: string
+  nativeName?: string
+  region?: string
+  script?: string
+  isRTL?: boolean
+}
+
+/**
+ * Seed one `locales` row directly — the `locales` table starts empty for a fresh `setupTestDb()`
+ * schema, but `models/locales.ts#getLocales()` (and therefore `isReservedLocaleCode()`) reads
+ * through it, so a suite exercising the reserved-locale-segment checks needs at least the codes it
+ * asserts against actually installed. `code` is split on its first `-` into `language`/`region` the
+ * same way `models/locales.ts#localeCode` composes one — enough for every fixture's purposes (`en`,
+ * `fr`, `pt-BR`); pass `region`/`script` directly for anything more specific.
+ */
+export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
+  const [language, region] = input.code.split('-')
+  const [row] = await db
+    .insert(localesTable)
+    .values({
+      code: input.code,
+      name: input.name ?? input.code,
+      nativeName: input.nativeName ?? input.code,
+      language: language!,
+      region: input.region ?? region ?? '',
+      script: input.script ?? '',
+      isRTL: input.isRTL ?? false
+    })
+    .returning()
+  return row!
 }
 
 /**

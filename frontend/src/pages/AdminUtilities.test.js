@@ -37,6 +37,7 @@ const messages = {
     'admin.utilities.scanPageProblemsTreeDivergence': 'Tree / page divergence',
     'admin.utilities.scanPageProblemsDuplicatePaths': 'Duplicate paths',
     'admin.utilities.scanPageProblemsBrokenRelations': 'Broken relations',
+    'admin.utilities.scanPageProblemsLocaleCollisions': 'Locale-code collisions',
     'admin.utilities.scanPageProblemsOrphanTreeEntry': '/{path} — has no matching page',
     'admin.utilities.scanPageProblemsOrphanPageRow': '/{path} — has no matching tree entry',
     'admin.utilities.scanPageProblemsFailed': 'The scan could not be completed.',
@@ -156,6 +157,19 @@ describe('AdminUtilities scanPageProblems', () => {
     treeDivergence: { count: 0, entries: [] },
     duplicatePaths: { count: 0, entries: [] },
     brokenRelations: { count: 0, entries: [] },
+    localeCollisions: {
+      count: 1,
+      entries: [
+        {
+          table: 'pages',
+          id: 'p2',
+          siteId: 's1',
+          locale: 'en',
+          path: 'fr/shadowed',
+          collidingCode: 'fr'
+        }
+      ]
+    },
     scannedAt: '2026-08-17T00:00:00.000Z'
   }
 
@@ -191,6 +205,8 @@ describe('AdminUtilities scanPageProblems', () => {
     expect(wrapper.text()).toContain('Scan results')
     expect(wrapper.text()).toContain('Hash drift (1)')
     expect(wrapper.text()).toContain('/drifted — stored a, expected b')
+    expect(wrapper.text()).toContain('Locale-code collisions (1)')
+    expect(wrapper.text()).toContain('[pages] /fr/shadowed (en) — starts with locale code "fr"')
     expect(wrapper.text()).not.toContain('No problems found.')
   })
 
@@ -201,6 +217,7 @@ describe('AdminUtilities scanPageProblems', () => {
       treeDivergence: { count: 0, entries: [] },
       duplicatePaths: { count: 0, entries: [] },
       brokenRelations: { count: 0, entries: [] },
+      localeCollisions: { count: 0, entries: [] },
       scannedAt: '2026-08-17T00:00:00.000Z'
     }
     API_CLIENT.post.mockReturnValueOnce({

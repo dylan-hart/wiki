@@ -560,6 +560,14 @@ class Pages {
     }
 
     const path = normalizePath(input.path)
+    const firstSegment = path.split('/')[0] ?? ''
+    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+      throw new CustomError(
+        'pageReservedLocaleSegment',
+        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+        400
+      )
+    }
     const locale = input.locale || this.defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
@@ -911,6 +919,14 @@ class Pages {
       return null
     }
     const newPath = normalizePath(path)
+    const firstSegment = newPath.split('/')[0] ?? ''
+    if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
+      throw new CustomError(
+        'pageReservedLocaleSegment',
+        `"${firstSegment}" is an installed locale code and cannot begin a page path.`,
+        400
+      )
+    }
     const destLocale = locale ?? page.locale
     // -> Same rule as `createPage`: a locale that is not enabled on this site is not a place a page
     //    may end up, whether by being created there or by being moved there

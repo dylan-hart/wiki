@@ -1,7 +1,13 @@
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import {
@@ -26,6 +32,11 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
   before(async () => {
     fixtures = await setupTestDb()
+    // -> Seeded before any model call, so the very first `getLocales()` cache fill already sees them
+    //    — `isReservedLocaleCode()`'s "installed, not per-site-active" reserved-segment checks need at
+    //    least the site's own active codes to actually be installed.
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
     ;({ pages: pagesModel } = await import('./pages.ts'))
     actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
   })
@@ -192,6 +203,26 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       ),
       /pageInvalidLocale/
     )
+  })
+
+  test('a page path whose first segment is an installed locale code is rejected', async () => {
+    await assert.rejects(
+      pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'fr/shadowed', locale: 'en' }),
+        actor
+      ),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
+    )
+  })
+
+  test('a NESTED segment matching an installed locale code is fine — only the first segment shadows', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/fr/nested-ok', locale: 'en' }),
+      actor
+    )
+    assert.equal(page.path, 'docs/fr/nested-ok')
   })
 
   test('createPage() preserves PageInput.createdAt/updatedAt instead of stamping import time', async () => {
@@ -412,6 +443,18 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     await assert.rejects(
       pagesModel.movePage(fixtures.siteId, page.id, { path: 'move/badloc', locale: 'zz' }, actor),
       (err: any) => err.name === 'pageInvalidLocale'
+    )
+  })
+
+  test('movePage refuses a destination path starting with an installed locale code', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'move/ok', locale: 'en' }),
+      actor
+    )
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, page.id, { path: 'en/shadowed' }, actor),
+      (err: any) => err.name === 'pageReservedLocaleSegment'
     )
   })
 
