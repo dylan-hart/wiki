@@ -98,11 +98,7 @@ export function buildPathHierarchyEdges(nodes) {
     })
   }
 
-  const sorted = [...nodes].sort(
-    (a, b) => (b.path.match(/\//g) ?? []).length - (a.path.match(/\//g) ?? []).length
-  )
-
-  for (const node of sorted) {
+  for (const node of nodes) {
     let current = node.path
     while (current !== '') {
       const parent = parentOf(current)

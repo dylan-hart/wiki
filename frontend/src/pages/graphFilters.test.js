@@ -171,10 +171,13 @@ describe('buildPathHierarchyEdges (OpenProject #998)', () => {
       { path: 'docs/child' }
     ])
     expect(syntheticNodes).toEqual([{ path: '', title: '(root)', synthetic: true }])
-    expect(edges).toEqual([
-      { source: 'docs', target: 'docs/child', type: 'path' },
-      { source: '', target: 'docs', type: 'path' }
-    ])
+    expect(edges).toHaveLength(2)
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        { source: 'docs', target: 'docs/child', type: 'path' },
+        { source: '', target: 'docs', type: 'path' }
+      ])
+    )
   })
 
   it('reuses a real home page (path "") as the root instead of synthesizing one', () => {
