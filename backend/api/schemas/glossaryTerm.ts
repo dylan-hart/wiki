@@ -99,4 +99,47 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   })
+
+  /**
+   * GLOSSARY EXPORT TERM - The portable, external-editing-round-trip shape (OpenProject #1114):
+   * carries `path`, not `pageId`, since an id is meaningless once this JSON is edited outside the app
+   * and re-imported, possibly into a different instance. Shared as-is by export, import, and each
+   * stored version snapshot (OpenProject #1113).
+   */
+  app.addSchema({
+    $id: 'GlossaryExportTerm',
+    type: 'object',
+    required: ['term', 'definition'],
+    properties: {
+      term: { type: 'string' },
+      definition: { type: 'string' },
+      aliases: {
+        type: 'array',
+        items: { type: 'string' },
+        default: []
+      },
+      path: {
+        type: 'string',
+        nullable: true,
+        description:
+          "The canonical page's path, resolved against the site's primary locale. Null when unset."
+      }
+    }
+  })
+
+  /**
+   * GLOSSARY EXPORT - The whole-glossary JSON round-trip shape, and an import request body.
+   */
+  app.addSchema({
+    $id: 'GlossaryExport',
+    type: 'object',
+    required: ['terms'],
+    properties: {
+      formatVersion: { type: 'integer' },
+      terms: {
+        type: 'array',
+        items: { $ref: 'GlossaryExportTerm#' }
+      }
+    }
+  })
 }

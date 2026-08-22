@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import type { GlossaryExport } from '../models/glossary.ts'
 
 interface GlossaryTermBody {
   term?: string
@@ -235,6 +236,86 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This glossary term does not exist.')
       }
       return { ok: true }
+    }
+  )
+
+  /**
+   * EXPORT GLOSSARY AS JSON
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/glossary/export',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Export the glossary as portable JSON',
+        description:
+          'Every term, carrying its canonical page as a `path` rather than a `pageId` -- portable across instances, and round-trippable through `POST .../glossary/import` after external editing (OpenProject #1114).',
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: { $ref: 'GlossaryExport#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.glossary.exportTerms(req.params.siteId)
+    }
+  )
+
+  /**
+   * IMPORT GLOSSARY FROM JSON
+   */
+  app.post<{ Params: { siteId: string }; Body: GlossaryExport }>(
+    '/sites/:siteId/glossary/import',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Replace the glossary wholesale from portable JSON',
+        description:
+          'The imported term list REPLACES the entire existing glossary -- not a per-term merge. Every entry is validated, and every `path` resolved to a page, before anything is written, so a bad entry anywhere in the payload leaves the existing glossary untouched (OpenProject #1114).',
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        body: { $ref: 'GlossaryExport#' },
+        response: {
+          200: {
+            description: 'The glossary as it now stands',
+            type: 'array',
+            items: { $ref: 'GlossaryTerm#' }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
     }
   )
 }

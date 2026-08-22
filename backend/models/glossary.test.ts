@@ -308,4 +308,135 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, ['AL'])
     })
   })
+
+  describe('export / import (OpenProject #1114)', () => {
+    test('exportTerms() carries the canonical page as a path, not a pageId', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/export-linked' }),
+        actor
+      )
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'ExportedLinked',
+        definition: 'Has a page.',
+        aliases: ['EL'],
+        pageId: page.id
+      })
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'ExportedUnlinked',
+        definition: 'No page.'
+      })
+
+      const exported = await glossaryModel.exportTerms(fixtures.siteId)
+
+      assert.equal(exported.formatVersion, 1)
+      const linked = exported.terms.find((t) => t.term === 'ExportedLinked')
+      assert.deepEqual(linked, {
+        term: 'ExportedLinked',
+        definition: 'Has a page.',
+        aliases: ['EL'],
+        path: 'docs/export-linked'
+      })
+      const unlinked = exported.terms.find((t) => t.term === 'ExportedUnlinked')
+      assert.equal(unlinked?.path, null)
+    })
+
+    test('importTerms() replaces the glossary wholesale', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'PreExisting',
+        definition: 'Will be gone after import.'
+      })
+
+      const imported = await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [
+          { term: 'Imported One', definition: 'First.', aliases: ['IO'], path: null },
+          { term: 'Imported Two', definition: 'Second.', aliases: [], path: null }
+        ]
+      })
+
+      assert.equal(imported.length, 2)
+      const remaining = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(remaining.map((t) => t.term).sort(), ['Imported One', 'Imported Two'])
+    })
+
+    test('importTerms() resolves a path to a pageId against the site’s primary locale', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/import-target' }),
+        actor
+      )
+
+      const imported = await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [
+          { term: 'ImportLinked', definition: 'Resolves.', aliases: [], path: 'docs/import-target' }
+        ]
+      })
+
+      assert.equal(imported[0]!.pageId, page.id)
+    })
+
+    test('importTerms() rejects an unresolvable path, applying nothing', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'SurvivesFailedImport',
+        definition: 'Should still be here after.'
+      })
+
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [
+              {
+                term: 'BadPath',
+                definition: 'Points nowhere.',
+                aliases: [],
+                path: 'docs/does-not-exist-anywhere'
+              }
+            ]
+          }),
+        /does not resolve/
+      )
+
+      const remaining = await glossaryModel.listTerms(fixtures.siteId)
+      assert.ok(remaining.some((t) => t.term === 'SurvivesFailedImport'))
+      assert.ok(!remaining.some((t) => t.term === 'BadPath'))
+    })
+
+    test('importTerms() rejects two entries in the same payload sharing a surface form', async () => {
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [
+              { term: 'Dup A', definition: 'First.', aliases: ['Shared'], path: null },
+              { term: 'Dup B', definition: 'Second.', aliases: ['shared'], path: null }
+            ]
+          }),
+        /both resolve/
+      )
+    })
+
+    test('importTerms() rejects a malformed payload', async () => {
+      await assert.rejects(
+        // @ts-expect-error -- deliberately malformed, matching what an external editor could hand back
+        () => glossaryModel.importTerms(fixtures.siteId, { notTerms: [] }),
+        /"terms" array/
+      )
+    })
+
+    test('export -> import round-trips a glossary unchanged', async () => {
+      await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [{ term: 'RoundTrip', definition: 'Stable.', aliases: ['RT'], path: null }]
+      })
+
+      const exported = await glossaryModel.exportTerms(fixtures.siteId)
+      await glossaryModel.importTerms(fixtures.siteId, exported)
+
+      const after = await glossaryModel.exportTerms(fixtures.siteId)
+      assert.deepEqual(after.terms, exported.terms)
+    })
+  })
 })

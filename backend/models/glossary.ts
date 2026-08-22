@@ -1,6 +1,11 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { glossaryTerms as glossaryTermsTable, pages as pagesTable } from '../db/schema.ts'
-import { CustomError, localizedPagePath } from '../helpers/common.ts'
+import {
+  CustomError,
+  generatePathHash,
+  localizedPagePath,
+  normalizePagePath
+} from '../helpers/common.ts'
 
 export interface GlossaryTerm {
   id: string
@@ -25,6 +30,28 @@ export interface CachedGlossaryTerm {
   definition: string
   aliases: string[]
   link: string | null
+}
+
+/**
+ * The portable, external-editing-round-trip shape (OpenProject #1114): a `path`, not a `pageId`,
+ * since an id is meaningless once this JSON has been edited outside the app and re-imported --
+ * possibly into a different instance entirely. `formatVersion` bumps only if this shape ever changes
+ * incompatibly. Reused as-is for each stored version snapshot (OpenProject #1113) -- one
+ * representation shared by export, import, and versioning, per the spec.
+ */
+export const GLOSSARY_EXPORT_FORMAT_VERSION = 1
+
+export interface GlossaryExportTerm {
+  term: string
+  definition: string
+  aliases: string[]
+  /** The canonical page's path, resolved against the site's primary locale. Null when unset. */
+  path: string | null
+}
+
+export interface GlossaryExport {
+  formatVersion: number
+  terms: GlossaryExportTerm[]
 }
 
 function cacheKey(siteId: string): string {
@@ -156,6 +183,125 @@ class Glossary {
   }
 
   /**
+   * The full term list, portable and ready to hand to an external editor (OpenProject #1114) -- e.g.
+   * an LLM asked to iterate on definitions. See `GlossaryExportTerm`'s own comment for the shape.
+   */
+  async exportTerms(siteId: string): Promise<GlossaryExport> {
+    const rows = await WIKI.db
+      .select({
+        term: glossaryTermsTable.term,
+        definition: glossaryTermsTable.definition,
+        aliases: glossaryTermsTable.aliases,
+        pagePath: pagesTable.path
+      })
+      .from(glossaryTermsTable)
+      .leftJoin(pagesTable, eq(glossaryTermsTable.pageId, pagesTable.id))
+      .where(eq(glossaryTermsTable.siteId, siteId))
+      .orderBy(asc(glossaryTermsTable.term))
+
+    return {
+      formatVersion: GLOSSARY_EXPORT_FORMAT_VERSION,
+      terms: rows.map((row) => ({
+        term: row.term,
+        definition: row.definition,
+        aliases: row.aliases,
+        path: row.pagePath ?? null
+      }))
+    }
+  }
+
+  /**
+   * Replaces the site's ENTIRE term list with `data.terms` (OpenProject #1114) -- not a per-term
+   * merge. Every entry is validated, and every `path` resolved to a page, before anything is written,
+   * so a bad entry anywhere in the payload leaves the existing glossary untouched rather than applying
+   * partway through.
+   */
+  async importTerms(siteId: string, data: GlossaryExport): Promise<GlossaryTerm[]> {
+    if (!data || !Array.isArray(data.terms)) {
+      throw new CustomError(
+        'glossaryInvalidImport',
+        'Malformed glossary import: expected an object with a "terms" array.',
+        400
+      )
+    }
+
+    const resolved: {
+      term: string
+      definition: string
+      aliases: string[]
+      pageId: string | null
+    }[] = []
+    for (const raw of data.terms) {
+      const term = (raw?.term ?? '').trim()
+      const definition = (raw?.definition ?? '').trim()
+      if (!term) {
+        throw new CustomError('glossaryEmptyTerm', 'A term cannot be empty.', 400)
+      }
+      if (!definition) {
+        throw new CustomError(
+          'glossaryEmptyDefinition',
+          `Term "${term}" has an empty definition.`,
+          400
+        )
+      }
+      const aliases = normalizeAliases(raw?.aliases, term)
+      const pageId = await this.resolvePagePath(siteId, raw?.path, term)
+      resolved.push({ term, definition, aliases, pageId })
+    }
+
+    assertNoInternalSurfaceFormCollision(resolved)
+
+    return this.replaceAllRows(siteId, resolved)
+  }
+
+  /**
+   * Deletes every existing term for the site and inserts `rows` instead, in one transaction --
+   * shared by JSON import (`importTerms`) and, later, the admin staged-save/restore paths (OpenProject
+   * #1113), so every wholesale-replace caller applies the same all-or-nothing semantics. Callers are
+   * responsible for validating `rows` first (`assertNoInternalSurfaceFormCollision` above) -- a
+   * case-insensitive collision within `rows` itself would otherwise surface as an opaque unique-
+   * constraint violation from the bulk insert instead of a clear 400.
+   */
+  private async replaceAllRows(
+    siteId: string,
+    rows: { term: string; definition: string; aliases: string[]; pageId: string | null }[]
+  ): Promise<GlossaryTerm[]> {
+    const inserted = await WIKI.db.transaction(async (tx) => {
+      await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId))
+      if (!rows.length) {
+        return []
+      }
+      return tx
+        .insert(glossaryTermsTable)
+        .values(rows.map((row) => ({ siteId, ...row })))
+        .returning()
+    })
+    this.invalidateCache(siteId)
+    return inserted
+  }
+
+  /** Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it. */
+  private async resolvePagePath(
+    siteId: string,
+    path: string | null | undefined,
+    term: string
+  ): Promise<string | null> {
+    if (!path) {
+      return null
+    }
+    const normalized = normalizePagePath(path)
+    const page = await WIKI.models.pages.getPage({ siteId, hash: generatePathHash(normalized) })
+    if (!page) {
+      throw new CustomError(
+        'glossaryInvalidPage',
+        `Term "${term}"'s canonical page path "${path}" does not resolve to an existing page on this site.`,
+        400
+      )
+    }
+    return page.id
+  }
+
+  /**
    * The term list the rendering pipeline matches against — sorted longest-term-first isn't done here,
    * that is the markdown plugin's own concern (`renderers/modules/markdown-it-glossary.js`); this just
    * hands back every term with its definition and, when a canonical page is set, the link to it.
@@ -281,6 +427,33 @@ function normalizeAliases(aliases: string[] | undefined, term: string): string[]
     result.push(alias)
   }
   return result
+}
+
+/**
+ * Rejects two entries in the SAME list that share a case-insensitive surface form (own term or any
+ * alias) -- the within-payload counterpart to `Glossary#assertNoSurfaceFormCollision`, which checks
+ * one entry against every OTHER row already in the database. A wholesale import/save/restore payload
+ * has no existing rows to compare against yet (they are all about to be replaced together), so this
+ * is what catches two entries in the same submission claiming the same surface form.
+ */
+function assertNoInternalSurfaceFormCollision(
+  entries: { term: string; aliases: string[] }[]
+): void {
+  const claimedBy = new Map<string, string>()
+  for (const entry of entries) {
+    for (const form of [entry.term, ...entry.aliases]) {
+      const lower = form.toLowerCase()
+      const claimant = claimedBy.get(lower)
+      if (claimant) {
+        throw new CustomError(
+          'glossaryDuplicateTerm',
+          `"${entry.term}" and "${claimant}" both resolve to the surface form "${form}".`,
+          400
+        )
+      }
+      claimedBy.set(lower, entry.term)
+    }
+  }
 }
 
 export const glossary = new Glossary()
