@@ -54,6 +54,12 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            blocks/package-lock.json
+            e2e/package-lock.json
 
       - name: Set Build Variables
         run: |

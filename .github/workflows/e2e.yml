@@ -41,6 +41,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            e2e/package-lock.json
 
       # -> The e2e suite boots the built, production-shaped stack -- backend on :3000 serving
       #    frontend/'s `vite build` output from `assets/` -- not the dev-mode Vite proxy.

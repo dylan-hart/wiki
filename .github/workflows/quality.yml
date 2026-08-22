@@ -55,6 +55,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            blocks/package-lock.json
 
       - name: Install Backend Dependencies
         working-directory: backend
@@ -66,7 +71,7 @@ jobs:
 
       - name: Backend Lint
         working-directory: backend
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       - name: Backend Tests
         working-directory: backend
@@ -95,7 +100,7 @@ jobs:
 
       - name: Frontend Lint
         working-directory: frontend
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       - name: Frontend Tests
         working-directory: frontend
@@ -107,7 +112,7 @@ jobs:
 
       - name: Blocks Lint
         working-directory: blocks
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       - name: Blocks Tests
         working-directory: blocks
