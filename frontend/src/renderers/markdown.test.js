@@ -335,3 +335,104 @@ describe('MarkdownRenderer -- inline math braces are not consumed as markdown-it
     expect(html).toContain('<blockquote class="is-warning')
   })
 })
+
+/**
+ * OpenProject #870: site-wide glossary terms, matched case-insensitively and on whole words only
+ * against a cached term list, rendered as a hover tooltip (native `title`) that links through to the
+ * term's canonical page when one is set.
+ */
+describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
+  it('wraps a matched term as an <abbr> carrying its definition as the title', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+    const html = md.render('Call the API to fetch data.')
+
+    expect(html).toContain(
+      '<abbr title="Application Programming Interface" class="glossary-term">API</abbr>'
+    )
+  })
+
+  it('matches case-insensitively while preserving the casing actually written', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+    const html = md.render('This is an api, not an Api.')
+
+    expect(html).toContain(
+      '<abbr title="Application Programming Interface" class="glossary-term">api</abbr>'
+    )
+    expect(html).toContain(
+      '<abbr title="Application Programming Interface" class="glossary-term">Api</abbr>'
+    )
+  })
+
+  it('does not match a term inside a longer word ("log" must not match inside "login")', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [{ term: 'log', definition: 'A record of events.', link: null }]
+    })
+    const html = md.render('Please login to continue.')
+
+    expect(html).not.toContain('glossary-term')
+    expect(html).toContain('login')
+  })
+
+  it('renders a link through to the canonical page when one is set', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        { term: 'API', definition: 'Application Programming Interface', link: '/en/dev/api' }
+      ]
+    })
+    const html = md.render('The API is documented.')
+
+    expect(html).toContain(
+      '<a href="/en/dev/api" title="Application Programming Interface" class="glossary-term">API</a>'
+    )
+  })
+
+  it('prefers the longest matching term when two terms overlap the same span', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        { term: 'API', definition: 'Short definition.', link: null },
+        { term: 'REST API', definition: 'Long definition.', link: null }
+      ]
+    })
+    const html = md.render('Our REST API is versioned.')
+
+    expect(html).toContain('title="Long definition."')
+    expect(html).not.toContain('title="Short definition."')
+  })
+
+  it('matches every occurrence of a term across the document', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [{ term: 'widget', definition: 'A small reusable thing.', link: null }]
+    })
+    const html = md.render('A widget is a widget, no matter where you put the widget.')
+
+    expect(html.match(/class="glossary-term"/g)).toHaveLength(3)
+  })
+
+  it('does not match glossary terms inside a fenced code block', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+    const html = md.render('```\nconst API = 1\n```')
+
+    expect(html).not.toContain('glossary-term')
+  })
+
+  it('degrades to plain text with an empty glossary', () => {
+    const md = new MarkdownRenderer({ glossaryTerms: [] })
+    const html = md.render('Nothing here is a glossary term, not even API.')
+
+    expect(html).not.toContain('glossary-term')
+    expect(html).toContain('API')
+  })
+
+  it('degrades to plain text when no glossary config is given at all', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('Plain text, no glossary configured.')
+
+    expect(html).not.toContain('glossary-term')
+  })
+})

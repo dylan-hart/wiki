@@ -14,6 +14,7 @@ import mdMdc from 'markdown-it-mdc'
 import mdUnderline from './modules/markdown-it-underline'
 import mdImsize from './modules/markdown-it-imsize'
 import mdGithubAlerts from './modules/github-alerts'
+import mdGlossary from './modules/markdown-it-glossary'
 import twemoji from '@twemoji/api'
 
 import hljs from 'highlight.js'
@@ -385,6 +386,7 @@ export class MarkdownRenderer {
       .use(mdFootnote)
       .use(mdImsize)
       .use(mdGithubAlerts)
+      .use(mdGlossary, { terms: config.glossaryTerms })
 
     /*
       MDC's slot syntax, off for the same reason as inline components: it takes a line the author
