@@ -5,6 +5,7 @@ import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
 import { blockCredentials } from './blockCredentials.ts'
 import { blocks } from './blocks.ts'
+import { checklists } from './checklists.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
@@ -49,6 +50,7 @@ export default {
   authentication,
   blockCredentials,
   blocks,
+  checklists,
   commentProviders,
   comments,
   contentSync,
