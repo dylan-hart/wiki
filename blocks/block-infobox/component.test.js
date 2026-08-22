@@ -83,8 +83,12 @@ describe('block-infobox', () => {
     expect(el._error).toBe('')
     const dd = el.shadowRoot.querySelector('dd')
     expect(dd).not.toBeNull()
-    expect(dd.textContent.trim()).not.toBe('')
-    expect(dd.textContent).not.toContain('[object')
+    // -> Pins the parse to an actual `Date`, not merely "some non-empty, non-crashing text": js-yaml
+    //    5's `CORE_SCHEMA` has no `!!timestamp` type on its own, so a bare date parses to the plain
+    //    string "2020-01-01" unless the component opts a `timestampTag` back in -- which a fallback
+    //    string render would also satisfy trivially, without ever exercising `valueOf()`'s `Date`
+    //    branch this test exists to cover.
+    expect(dd.textContent.trim()).toBe('January 1, 2020')
     expect(el.shadowRoot.querySelector('.group')).toBeNull()
   })
 
