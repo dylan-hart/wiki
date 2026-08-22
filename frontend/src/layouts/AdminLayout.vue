@@ -305,11 +305,7 @@
                 <status-light :color="adminStore.info.isApiEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item
-              to="/_admin/audit"
-              active-class="bg-primary text-white"
-              disabled
-              v-if="flagsStore.experimental">
+            <w-item to="/_admin/audit" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-event-log.svg" />
               </w-item-section>
