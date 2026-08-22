@@ -79,6 +79,20 @@
             :aria-label="t(`common.header.graph`)">
             <w-tooltip>{{ t('common.header.graph') }}</w-tooltip>
           </w-btn>
+          <!--
+            -> 2.5.x parity (OpenProject #987, #1120): the only way into `/_tags` used to be clicking an
+               existing tag chip on an already-tagged page -- nothing pointed there for a reader who
+               isn't on one yet. No feature flag gates it, the same as the tag chips themselves.
+          -->
+          <w-btn
+            class="header-nav-btn"
+            flat
+            icon="la:hashtag"
+            color="deep-orange"
+            to="/_tags"
+            :aria-label="t(`common.header.browseTags`)">
+            <w-tooltip>{{ t('common.header.browseTags') }}</w-tooltip>
+          </w-btn>
           <w-btn
             v-if="userStore.authenticated"
             class="header-nav-btn"

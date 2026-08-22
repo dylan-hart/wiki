@@ -337,7 +337,10 @@ async function performSearch() {
 onMounted(async () => {
   state.loadingTags++
   try {
-    await siteStore.fetchTags()
+    // -> Force a refresh rather than reusing whatever siteStore.tags already held: a tag created (or
+    //    just applied) elsewhere in this session leaves the store's cache stale, and this screen's
+    //    whole purpose is showing the current tag list to browse by (OpenProject #1121).
+    await siteStore.fetchTags(true)
   } catch (err) {
     notify({
       type: 'warning',

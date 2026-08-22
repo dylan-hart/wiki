@@ -2690,7 +2690,7 @@
   "tags.retrievingResultsLoading": "Retrieving page results...",
   "tags.searchWithinResultsPlaceholder": "Search within results...",
   "tags.selectOneMoreTags": "Select one or more tags",
-  "tags.selectOneMoreTagsHint": "Select one or more tags on the left.",
+  "tags.selectOneMoreTagsHint": "Select one or more tags to browse by.",
   "tags.title": "Browse by Tag",
   "welcome.admin": "Administration Area",
   "welcome.createHome": "Create the homepage",
