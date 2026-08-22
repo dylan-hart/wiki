@@ -146,7 +146,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Delete a classification level',
         description:
-          'Refused with 400 when it is the last level left, or when any page still carries it.',
+          'Refused with 400 when it is the last level left, and with 409 when any page, or any API key/token still capped at it, still carries it.',
         tags: ['Classification'],
         params: {
           type: 'object',
@@ -161,7 +161,12 @@ async function routes(app: FastifyInstance) {
           400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' },
-          404: { $ref: 'ApiError#' }
+          404: { $ref: 'ApiError#' },
+          409: {
+            $ref: 'ApiError#',
+            description:
+              'This classification level is still used by at least one page, or as an API key/token cap (`classificationInUse`).'
+          }
         }
       }
     },
