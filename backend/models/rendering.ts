@@ -1070,7 +1070,10 @@ class Rendering {
           }
           const html = await renderer.render(
             page.content ?? '',
-            WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config ?? {},
+            {
+              ...WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config,
+              glossaryTerms: await WIKI.models.glossary.getCachedTerms(entry.siteId)
+            },
             { pagePath: page.path }
           )
           await WIKI.models.pages.storeRender(
