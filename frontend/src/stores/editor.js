@@ -128,10 +128,17 @@ export const useEditorStore = defineStore('editor', {
         // -> The editor configs are part of the site config, which is one request rather than a
         //    dedicated endpoint
         const siteInfo = await API_CLIENT.get(`sites/${siteStore.id}`).json()
+        // -> The resolved glossary term list (OpenProject #870): folded into the markdown editor's own
+        //    config bag rather than fetched separately at each `MarkdownRenderer` call site, since
+        //    every one of those already reads `editorStore.editors.markdown` for its config.
+        const glossaryTerms = await API_CLIENT.get(`sites/${siteStore.id}/glossary/terms`).json()
         this.$patch({
           editors: {
             asciidoc: siteInfo?.editors?.asciidoc?.config ?? {},
-            markdown: siteInfo?.editors?.markdown?.config ?? {},
+            markdown: {
+              ...siteInfo?.editors?.markdown?.config,
+              glossaryTerms: glossaryTerms ?? []
+            },
             wysiwyg: siteInfo?.editors?.wysiwyg?.config ?? {}
           },
           configIsLoaded: true
