@@ -17,3 +17,14 @@ if (!('adoptedStyleSheets' in document)) {
     configurable: true
   })
 }
+
+/**
+ * `Temporal` is native from Node 26 (this repo's engine requirement) but this sandbox runs Node
+ * 25.9, which lacks it -- block-countdown reads it as a bare global (the same way backend/frontend
+ * code does), so a test exercising it needs the same polyfill frontend/test/setup.js loads for its
+ * own Node 25.9 sandbox. A no-op on a real Node 26 runtime.
+ */
+if (typeof Temporal === 'undefined') {
+  const { Temporal } = await import('temporal-polyfill')
+  globalThis.Temporal = Temporal
+}

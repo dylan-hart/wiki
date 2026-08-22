@@ -41,6 +41,7 @@
     "oxlint": "1.77.0",
     "rollup": "4.62.4",
     "rollup-plugin-summary": "3.0.1",
+    "temporal-polyfill": "1.0.2",
     "vitest": "4.1.10"
   }
 }
