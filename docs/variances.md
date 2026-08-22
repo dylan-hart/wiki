@@ -264,18 +264,6 @@ parens, array/object wrapping — no `@click`-style inline-handler semicolon haz
 Style section), and deleted `.prettierignore`. `oxfmt --check backend frontend blocks` now exits 0
 tree-wide with no ignore file present, so that half of this entry is resolved and removed.
 
-## blocks/ oxlint pinned to backend's version, not a literal shared pin (task 769, feature 423)
-
-Task 769 called for pinning `blocks/`'s new `oxlint` devDependency "at the same version pinned in
-backend/package.json and frontend/package.json", assuming the two already agreed. They don't:
-backend has `oxlint: 1.77.0`, frontend has `oxlint: 1.76.0` — a pre-existing one-patch drift between
-the two workspaces, not something introduced here. `blocks/package.json` was pinned to `1.77.0`,
-matching backend, consistent with the precedent already established for `oxfmt` in
-`.github/workflows/quality.yml` (backend's install treated as the canonical one for repo-wide
-tooling versions; see that file's "Format Check" step comment). Resolution: a follow-up task should
-reconcile `frontend/package.json`'s `oxlint` pin up to `1.77.0` so all three workspaces genuinely
-share one version, then this entry can be deleted.
-
 ## Tajawal has no `latin-ext` subset upstream
 
 **Spec**: Task 715 (Feature 415, "Make code injection and font selection actually apply") requires
