@@ -7,19 +7,12 @@ import BlockCredentialDialog from './BlockCredentialDialog.vue'
 import { useAdminStore } from '@/stores/admin'
 import { queue as notifyQueue } from '@/composables/notify'
 
-/**
- * `useDialogComponent()` mounts the panel hidden and flips `dialogVisible` true on the tick after
- * mount (see `composables/dialog.js`), so the form isn't in the DOM until that settles.
- */
 async function mountDialog(props) {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  // -> `<w-dialog>` renders its panel through `<teleport to="body">` (see `WDialog.vue`), which moves
-  //    that DOM out from under the component's own root -- stubbing it keeps the panel in place so
-  //    `wrapper.find()` can still reach it.
   const wrapper = mount(BlockCredentialDialog, {
     props,
     global: { plugins: [i18n], stubs: { teleport: true } }
@@ -28,8 +21,15 @@ async function mountDialog(props) {
   return { wrapper, adminStore }
 }
 
+/** Types into the domain entry field and fires its `keyup:enter` custom emit, same as a real Enter key. */
+async function addDomain(wrapper, domain) {
+  const domainInput = wrapper.findAll('input').at(-1)
+  await domainInput.setValue(domain)
+  await domainInput.trigger('keyup.enter')
+}
+
 describe('BlockCredentialDialog (mode: create)', () => {
-  it('disables submit until both name and secret are filled in, enables once both are', async () => {
+  it('disables submit until name, secret and at least one domain are filled in', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
     const submit = () =>
       wrapper.findAll('button').find((btn) => btn.text() === 'admin.blocks.credentialAdd')
@@ -41,17 +41,43 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(submit().attributes('disabled')).toBeDefined()
 
     await inputs[1].setValue('sekret-token')
+    expect(submit().attributes('disabled')).toBeDefined()
+
+    await addDomain(wrapper, 'api.example.com')
     expect(submit().attributes('disabled')).toBeUndefined()
   })
 
-  it('creates the credential and emits it on success, secret never in the emitted payload', async () => {
+  it('adds a domain as a chip on Enter and clears the input, trimmed and deduplicated', async () => {
+    const { wrapper } = await mountDialog({ mode: 'create' })
+    await addDomain(wrapper, '  api.example.com  ')
+    expect(wrapper.text()).toContain('api.example.com')
+    await addDomain(wrapper, 'api.example.com')
+    expect(wrapper.findAll('.w-chip, [class*=chip]').length).toBeLessThanOrEqual(1)
+  })
+
+  it('removes a domain chip when its remove control is clicked', async () => {
+    const { wrapper } = await mountDialog({ mode: 'create' })
+    await addDomain(wrapper, 'api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual(['api.example.com'])
+    await wrapper.find('[aria-label], .w-chip__remove, button').exists()
+    wrapper.vm.removeDomain('api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual([])
+  })
+
+  it('creates the credential with the entered domains, secret never in the emitted payload', async () => {
     const { wrapper, adminStore } = await mountDialog({ mode: 'create' })
-    const created = { id: 'cred-1', siteId: 'site-1', name: 'Weather API' }
+    const created = {
+      id: 'cred-1',
+      siteId: 'site-1',
+      name: 'Weather API',
+      allowedDomains: ['api.example.com']
+    }
     API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue(created) })
 
     const inputs = wrapper.findAll('input')
     await inputs[0].setValue('Weather API')
     await inputs[1].setValue('sekret-token')
+    await addDomain(wrapper, 'api.example.com')
 
     const submit = wrapper
       .findAll('button')
@@ -62,7 +88,7 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       `sites/${adminStore.currentSiteId}/block-credentials`,
       {
-        json: { name: 'Weather API', secret: 'sekret-token' }
+        json: { name: 'Weather API', secret: 'sekret-token', allowedDomains: ['api.example.com'] }
       }
     )
     expect(wrapper.emitted('ok')).toEqual([[created]])
@@ -79,6 +105,7 @@ describe('BlockCredentialDialog (mode: create)', () => {
     const inputs = wrapper.findAll('input')
     await inputs[0].setValue('Weather API')
     await inputs[1].setValue('sekret-token')
+    await addDomain(wrapper, 'api.example.com')
     await wrapper
       .findAll('button')
       .find((btn) => btn.text() === 'admin.blocks.credentialAdd')
@@ -94,10 +121,10 @@ describe('BlockCredentialDialog (mode: create)', () => {
 })
 
 describe('BlockCredentialDialog (mode: rotate)', () => {
-  it('has no name field, only a secret field, and posts to the rotate route', async () => {
+  it('has no name field, no domain field, only a secret field, and posts to the rotate route', async () => {
     const { wrapper, adminStore } = await mountDialog({
       mode: 'rotate',
-      credential: { id: 'cred-1', name: 'Weather API' }
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['api.example.com'] }
     })
     API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({ ok: true }) })
 
@@ -115,5 +142,43 @@ describe('BlockCredentialDialog (mode: rotate)', () => {
       { json: { secret: 'new-secret' } }
     )
     expect(wrapper.emitted('ok')).toEqual([[undefined]])
+  })
+})
+
+describe('BlockCredentialDialog (mode: domains)', () => {
+  it("starts pre-filled with the credential's existing domains and posts the replaced list", async () => {
+    const { wrapper, adminStore } = await mountDialog({
+      mode: 'domains',
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['old.example.com'] }
+    })
+    expect(wrapper.text()).toContain('old.example.com')
+
+    wrapper.vm.removeDomain('old.example.com')
+    await addDomain(wrapper, 'new.example.com')
+
+    API_CLIENT.post.mockReturnValueOnce({ json: vi.fn().mockResolvedValue({ ok: true }) })
+    await wrapper
+      .findAll('button')
+      .find((btn) => btn.text() === 'admin.blocks.credentialDomains')
+      .trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      `sites/${adminStore.currentSiteId}/block-credentials/cred-1/allowed-domains`,
+      { json: { allowedDomains: ['new.example.com'] } }
+    )
+    expect(wrapper.emitted('ok')).toEqual([[undefined]])
+  })
+
+  it('allows submitting an empty domain list, deliberately disabling the credential', async () => {
+    const { wrapper } = await mountDialog({
+      mode: 'domains',
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['old.example.com'] }
+    })
+    const submit = () =>
+      wrapper.findAll('button').find((btn) => btn.text() === 'admin.blocks.credentialDomains')
+    wrapper.vm.removeDomain('old.example.com')
+    await wrapper.vm.$nextTick()
+    expect(submit().attributes('disabled')).toBeUndefined()
   })
 })
