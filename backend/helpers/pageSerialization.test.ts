@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, test } from 'node:test'
-import { extensionForContentType, injectFrontMatter } from './pageSerialization.ts'
+import {
+  extensionForContentType,
+  injectFrontMatter,
+  parseFrontMatter
+} from './pageSerialization.ts'
 
 /**
  * `injectFrontMatter` converts a page's `createdAt`/`updatedAt` via `Date#toTemporalInstant()`.
@@ -91,5 +95,60 @@ describe('injectFrontMatter', () => {
   test('treats missing content as an empty body', () => {
     const result = injectFrontMatter(undefined, { title: 'Empty' })
     assert.equal(result, '---\ntitle: Empty\n---\n\n')
+  })
+})
+
+describe('parseFrontMatter', () => {
+  test('round-trips what injectFrontMatter writes', () => {
+    const written = injectFrontMatter('# Hello\n\nBody text.', {
+      title: 'My Page',
+      description: 'A short description',
+      tags: ['alpha', 'beta']
+    })
+    const parsed = parseFrontMatter(written)
+    assert.equal(parsed.title, 'My Page')
+    assert.equal(parsed.description, 'A short description')
+    assert.deepEqual(parsed.tags, ['alpha', 'beta'])
+    assert.equal(parsed.content, '# Hello\n\nBody text.')
+  })
+
+  test('passes content through unchanged when there is no leading --- block', () => {
+    const parsed = parseFrontMatter('# Hello\n\nJust a page, no header.')
+    assert.equal(parsed.title, undefined)
+    assert.equal(parsed.description, undefined)
+    assert.equal(parsed.tags, undefined)
+    assert.equal(parsed.content, '# Hello\n\nJust a page, no header.')
+  })
+
+  test('omits title/description/tags the header does not carry', () => {
+    const parsed = parseFrontMatter('---\ntitle: Only A Title\n---\n\nBody.')
+    assert.equal(parsed.title, 'Only A Title')
+    assert.equal(parsed.description, undefined)
+    assert.equal(parsed.tags, undefined)
+    assert.equal(parsed.content, 'Body.')
+  })
+
+  test('falls back to the raw text when the header is not valid YAML', () => {
+    const raw = '---\ntitle: [unterminated\n---\n\nBody.'
+    const parsed = parseFrontMatter(raw)
+    assert.equal(parsed.title, undefined)
+    assert.equal(parsed.content, raw)
+  })
+
+  test('falls back to the raw text when the header parses to a non-object (a bare scalar or list)', () => {
+    const raw = '---\n- just\n- a\n- list\n---\n\nBody.'
+    const parsed = parseFrontMatter(raw)
+    assert.equal(parsed.title, undefined)
+    assert.equal(parsed.content, raw)
+  })
+
+  test('ignores non-string tags entries', () => {
+    const parsed = parseFrontMatter('---\ntitle: T\ntags:\n  - alpha\n  - 42\n---\n\nBody.')
+    assert.deepEqual(parsed.tags, ['alpha'])
+  })
+
+  test('drops an all-non-string tags list entirely rather than returning an empty array', () => {
+    const parsed = parseFrontMatter('---\ntitle: T\ntags:\n  - 1\n  - 2\n---\n\nBody.')
+    assert.equal(parsed.tags, undefined)
   })
 })
