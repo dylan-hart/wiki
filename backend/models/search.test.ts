@@ -997,4 +997,54 @@ describe('search.initActiveEngines()', () => {
     assert.deepEqual(dbCalls, ['init:site-ok:{}'])
     assert.ok(warnings.some((w) => w.includes('broken-engine')))
   })
+
+  /**
+   * OpenProject #920 follow-up: `init()` reaches an external service with no bound of its own, so a
+   * misconfigured host that never answers -- as opposed to one that actively refuses -- must not be
+   * allowed to stall this sequential loop forever and, with it, every site after the hung one.
+   */
+  test('treats a site whose init() never settles as a failure, rather than blocking every other site', async (t) => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const hangingModule: SearchModule = {
+      ...dbModule,
+      init: () => new Promise<void>(() => {}) // never resolves or rejects
+    }
+    const warnings: string[] = []
+    ;(globalThis as any).WIKI = {
+      sites: {
+        'site-hanging': {
+          id: 'site-hanging',
+          config: { search: { engine: 'hanging-engine', engines: {} } }
+        },
+        'site-ok': { id: 'site-ok', config: {} }
+      },
+      logger: {
+        info: () => {},
+        error: () => {},
+        warn: (msg: string) => warnings.push(msg),
+        debug: () => {}
+      }
+    }
+    search.modules.db = dbModule
+    search.modules['hanging-engine'] = hangingModule
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+
+    try {
+      const promise = search.initActiveEngines()
+      // -> The timeout race is set up only after `ensureModule`'s own await resolves, so a couple of
+      //    microtask/tick interleavings are needed before ticking meaningfully advances the clock --
+      //    same technique as `models/pdfExport.test.ts`'s equivalent hang case.
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve()
+        t.mock.timers.tick(20000)
+      }
+      await promise
+    } finally {
+      t.mock.timers.reset()
+    }
+
+    assert.deepEqual(dbCalls, ['init:site-ok:{}'])
+    assert.ok(warnings.some((w) => w.includes('hanging-engine')))
+    assert.ok(warnings.some((w) => w.includes('Timed out')))
+  })
 })

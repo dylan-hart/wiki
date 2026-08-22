@@ -15,6 +15,21 @@ import type { pages as pagesTable } from '../db/schema.ts'
 const DB_MODULE = 'db'
 
 /**
+ * How long `initActiveEngines()` waits on one site's `init()` before giving up on it (OpenProject
+ * #920 follow-up).
+ *
+ * `init()` reaches an external service (Azure/AWS/Elasticsearch/Algolia) with no bound of its own —
+ * a couple of these SDKs' underlying HTTP clients have no default request timeout at all, so a
+ * misconfigured host (firewalled, black-holed) can leave the promise neither resolving nor rejecting.
+ * `initActiveEngines()`'s own doc comment promises that "one site's bad credentials or unreachable
+ * service is logged and skipped, not allowed to abort boot for every other site" -- a bare `try`/
+ * `catch` only delivers that for a service that actively refuses, not one that never answers, since
+ * the `for` loop awaits each site in turn before moving to the next. This ceiling is what makes a hang
+ * behave the same as any other failure here.
+ */
+const ENGINE_INIT_TIMEOUT_MS = 30_000
+
+/**
  * `dictOverrides` only: `termHighlighting` used to live here too (task #563), but task #574 folded it
  * into the `db` engine's own per-engine config (`site.config.search.engines.db.termHighlighting`,
  * `getEngineConfig()` below) since it is already expressed as a normal boolean prop on `db`'s
@@ -548,13 +563,27 @@ class Search {
       if (!module) {
         continue
       }
+      let timer: NodeJS.Timeout | undefined
       try {
-        await module.init(siteId, this.getEngineConfig(siteId, key))
+        await Promise.race([
+          module.init(siteId, this.getEngineConfig(siteId, key)),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(
+                new Error(
+                  `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+                )
+              )
+            }, ENGINE_INIT_TIMEOUT_MS)
+          })
+        ])
       } catch (err: any) {
         WIKI.logger.warn(
           `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
         )
         WIKI.logger.warn(err.message)
+      } finally {
+        clearTimeout(timer)
       }
     }
   }
