@@ -14,6 +14,7 @@
               v-model="state.term"
               outlined
               dense
+              required
               :rules="termValidation"
               hide-bottom-space
               :label="t(`admin.glossary.term`)"
@@ -30,6 +31,7 @@
               type="textarea"
               outlined
               dense
+              required
               rows="3"
               :rules="definitionValidation"
               hide-bottom-space

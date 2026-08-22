@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
@@ -10,12 +10,26 @@ const PAGES = [
   { id: 'page-2', title: 'Getting Started', path: 'getting-started' }
 ]
 
+/*
+  `WDialog`'s content lives behind a `<teleport to="body">`, which lands it as a REAL child of
+  `document.body`, outside `@vue/test-utils`'s own tracked tree -- unmounting the wrapper is what
+  removes it again. Only the `required fields` test below reads real DOM (`document.body`) rather
+  than the component tree, so it is the one that would otherwise see every prior test's now-orphaned
+  dialog too.
+*/
+let currentWrapper = null
+afterEach(() => {
+  currentWrapper?.unmount()
+  currentWrapper = null
+})
+
 function mountDialog({ siteId = 'site-1', term = null, pages = PAGES } = {}) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-  return mount(GlossaryTermDialog, {
+  currentWrapper = mount(GlossaryTermDialog, {
     props: { siteId, term, pages },
     global: { plugins: [i18n], stubs: { BlueprintIcon: true } }
   })
+  return currentWrapper
 }
 
 /**
@@ -172,6 +186,24 @@ describe('GlossaryTermDialog - edit', () => {
       'sites/site-1/glossary/term-1',
       expect.objectContaining({ json: expect.objectContaining({ pageId: null }) })
     )
+  })
+})
+
+describe('GlossaryTermDialog - required fields (OpenProject #1111)', () => {
+  it('marks Term and Definition required, so Canonical Page reads as optional by contrast', async () => {
+    mountDialog()
+    await flushPromises()
+
+    // -> `WDialog` teleports its content to `document.body` (see the file header comment), so this
+    //    reads real DOM rather than the component tree. `WInput`'s `required` prop surfaces as
+    //    `aria-required` on the underlying control (its own header comment) -- exactly the two fields
+    //    `termValidation`/`definitionValidation` already enforce as non-empty, and none of the others
+    //    (the alias-add field, the canonical-page select). Term (an <input>) and Definition (a
+    //    <textarea>) are the form's first two controls in DOM order, ahead of the alias-add field.
+    const controls = document.body.querySelectorAll('input, textarea')
+    expect(controls[0].getAttribute('aria-required')).toBe('true')
+    expect(controls[1].getAttribute('aria-required')).toBe('true')
+    expect(document.body.querySelectorAll('[aria-required="true"]')).toHaveLength(2)
   })
 })
 
