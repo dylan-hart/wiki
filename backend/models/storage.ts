@@ -330,11 +330,11 @@ export interface StorageModule {
  * what it needs configured. Every site gets a row per module (see `syncSite`), so a target always
  * has a stable ID whether or not it has ever been enabled.
  *
- * `dispatch()` queues a sync job on every write-path change, but no module ships an implementation yet
- * — pages and assets are still read and written straight from the database, and `ensureModule()`
- * returns null for every one of them, so every queued job resolves to a no-op logged by the
- * `dispatchStorage` task. What this model handles beyond that is the configuration those modules will
- * read once they exist.
+ * `dispatch()` queues a sync job on every write-path change for a target whose module implements the
+ * write path (see `supportsContentSync` — `disk` and `sftp` only implement their own explicit actions,
+ * not the write-path handlers `dispatch()` queues for). `ensureModule()` loads each module's
+ * `storage.ts` on first use and caches it; pages and assets are still read and written straight from
+ * the database first, with a target's own sync/mirror happening asynchronously through the queued job.
  */
 class Storage {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */

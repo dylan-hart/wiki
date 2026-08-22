@@ -355,6 +355,33 @@ describe('mail template senders', () => {
     assert.match(msg.text, /Ada/)
   })
 
+  test('sendWelcomeEmail links at the reset-password screen with the given token, on the instance default base URL when no siteId is given', async () => {
+    await mail.sendWelcomeEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok789' })
+    const msg = sendCalls[0]
+    assert.equal(msg.to, 'ada@example.com')
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/login\/reset-password\/tok789/)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com\/login\/reset-password\/tok789/)
+    assert.match(msg.text, /Ada/)
+  })
+
+  test('sendWelcomeEmail links at the given siteId hostname instead of the instance default', async () => {
+    await mail.sendWelcomeEmail({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok789',
+      siteId: DEFAULT_SITE_ID
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/login\/reset-password\/tok789/)
+  })
+
+  test('sendWelcomeEmail includes an expiry notice matching the resetPwd token TTL', async () => {
+    await mail.sendWelcomeEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok789' })
+    const msg = sendCalls[0]
+    assert.match(msg.text, /24 hours/i)
+    assert.match(msg.html, /24 hours/i)
+  })
+
   test('sendForgotPassword includes an expiry notice matching the token TTL', async () => {
     await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok456' })
     const msg = sendCalls[0]

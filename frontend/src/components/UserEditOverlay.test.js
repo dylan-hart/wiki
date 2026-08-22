@@ -283,9 +283,11 @@ describe('UserEditOverlay unassignGroup', () => {
 })
 
 /**
- * Regression coverage for OpenProject #798: mail delivery isn't implemented in the backend at all
- * yet, so the "Send Welcome Email" proceed button (which calls a no-op `sendWelcomeEmail()` stub)
- * must render disabled with an explanatory caption rather than appearing actionable.
+ * Regression coverage for OpenProject #798, still true after OpenProject #961 implemented welcome
+ * mail for user *creation* (`UserCreateDialog.vue`, `POST /_api/users`): resending a welcome email
+ * to an *existing* user has no backend endpoint at all, so this overlay's own "Send Welcome Email"
+ * proceed button (which calls a no-op `sendWelcomeEmail()` stub) must still render disabled with an
+ * explanatory caption rather than appearing actionable.
  */
 describe('UserEditOverlay operations panel send welcome email', () => {
   it('renders the proceed button disabled', async () => {
