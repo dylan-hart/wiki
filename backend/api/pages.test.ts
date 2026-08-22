@@ -2134,6 +2134,93 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
 })
 
 /**
+ * Route-level test for `GET /sites/:siteId/pages/:pageId/translations` (OpenProject #1026): the
+ * query the move/rename dialog uses to decide whether to offer `includeTranslations` at all, and
+ * how many. Gated on `manage:pages` on the page -- the same permission actually moving it needs.
+ */
+describe('GET /sites/:siteId/pages/:pageId/translations', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let mayOnPageResult = true
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'docs/source',
+            hash: 'hash-1',
+            locale: 'en',
+            title: 'Source',
+            tags: []
+          }),
+          getTranslations: async () => [
+            { id: 'fr-id', locale: 'fr', path: 'docs/source', title: 'Source FR' }
+          ]
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          checkAccess: () => mayOnPageResult
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    mayOnPageResult = true
+  })
+
+  test('returns the twins as a flat list', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/translations`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), [
+      { id: 'fr-id', locale: 'fr', path: 'docs/source', title: 'Source FR' }
+    ])
+  })
+
+  test('403 when the caller may not manage this page', async () => {
+    mayOnPageResult = false
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/translations`
+    })
+    assert.equal(res.statusCode, 403)
+  })
+})
+
+/**
  * Regression test for bug #949 / task 995: `POST .../pages/userPermissions` used to default the
  * ref's locale to the site primary unconditionally (task 4's interim), so a caller asking about a
  * path in a non-primary locale got the PRIMARY locale's rule answer instead of the real one — rules

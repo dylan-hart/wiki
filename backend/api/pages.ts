@@ -1142,6 +1142,66 @@ async function routes(app: FastifyInstance) {
   )
 
   /**
+   * PAGE TRANSLATIONS
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/translations',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and `manage:pages` here is
+        a page permission granted by a rule. Checked against this page below instead.
+      */
+      schema: {
+        summary: "Get a page's translations",
+        description:
+          "Other locales' pages sharing this page's path -- the translation link this data model uses (see docs/decisions/locale-translation-linking.md). What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: "This page's translations, one entry per other locale sharing its path",
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                locale: { type: 'string' },
+                path: { type: 'string' },
+                title: { type: 'string' }
+              }
+            }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const target = await WIKI.models.pages.getPage({
+        siteId: req.params.siteId,
+        id: req.params.pageId
+      })
+      if (!target) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to manage this page.')
+      }
+      const translations = await WIKI.models.pages.getTranslations(
+        req.params.siteId,
+        target.path,
+        target.id
+      )
+      return translations.map((translation) => ({
+        id: translation.id,
+        locale: translation.locale,
+        path: translation.path,
+        title: translation.title
+      }))
+    }
+  )
+
+  /**
    * RE-RENDER PAGE
    */
   app.post<{ Params: { siteId: string; pageId: string } }>(
