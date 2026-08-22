@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
@@ -150,6 +150,37 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
     expect(wrapper.vm.state.selectedTags).toEqual([])
     expect(wrapper.vm.state.results).toEqual([])
     expect(router.currentRoute.value.query.tags).toBeUndefined()
+  })
+
+  it('defaults order direction per field -- title ascending, everything else newest-first', async () => {
+    vi.useFakeTimers()
+    try {
+      const { wrapper } = await mountTagsBrowse('/_tags?tags=equipment', {
+        results: [FIXTURE_PAGE],
+        totalHits: 1,
+        suggestion: null
+      })
+
+      expect(API_CLIENT.get).toHaveBeenCalledWith(
+        'sites/site-1/pages/search',
+        expect.objectContaining({
+          searchParams: expect.objectContaining({ orderBy: 'title', orderByDirection: 'asc' })
+        })
+      )
+
+      API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(EMPTY_RESULTS) })
+      wrapper.vm.state.orderBy = 'updatedAt'
+      await vi.advanceTimersByTimeAsync(400)
+
+      expect(API_CLIENT.get).toHaveBeenLastCalledWith(
+        'sites/site-1/pages/search',
+        expect.objectContaining({
+          searchParams: expect.objectContaining({ orderBy: 'updatedAt', orderByDirection: 'desc' })
+        })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('recovers from a search failure without throwing', async () => {

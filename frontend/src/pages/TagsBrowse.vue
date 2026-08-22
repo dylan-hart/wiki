@@ -213,7 +213,6 @@ const state = reactive({
   filterLocale: '',
   filterQuery: '',
   orderBy: 'title',
-  orderByDirection: 'asc',
   results: [],
   total: 0
 })
@@ -236,6 +235,15 @@ const orderByOptions = computed(() => [
 
 const hasResultFilters = computed(() => Boolean(state.filterQuery || state.filterLocale))
 
+/*
+ * `title` reads naturally A-Z; every other field (currently just `updatedAt`) reads naturally
+ * newest-first, same per-field default `Search.vue` uses for its own order-by. There is no
+ * direction toggle here -- unlike `Search.vue`, this screen has no control for it -- so getting the
+ * one direction each field gets is what stands between "Last Modified" and always showing the
+ * oldest-updated page first.
+ */
+const orderByDirection = computed(() => (state.orderBy === 'title' ? 'asc' : 'desc'))
+
 // WATCHERS
 
 /*
@@ -253,10 +261,7 @@ watch(
   { immediate: true }
 )
 
-watch(
-  () => [state.filterLocale, state.filterQuery, state.orderBy, state.orderByDirection],
-  debounce(performSearch, 400)
-)
+watch(() => [state.filterLocale, state.filterQuery, state.orderBy], debounce(performSearch, 400))
 
 // METHODS
 
@@ -308,7 +313,7 @@ async function performSearch() {
         ...(state.filterQuery ? { query: state.filterQuery } : {}),
         ...(state.filterLocale ? { locales: state.filterLocale } : {}),
         orderBy: state.orderBy,
-        orderByDirection: state.orderByDirection,
+        orderByDirection: orderByDirection.value,
         limit: RESULTS_LIMIT
       }
     }).json()
