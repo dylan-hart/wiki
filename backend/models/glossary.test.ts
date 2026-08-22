@@ -3,6 +3,28 @@ import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
+// -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via `Date#toTemporalInstant()`
+//    + `Temporal.Instant.compare()`, matching CLAUDE.md's "Backend patterns". That is only a runtime
+//    global on Node 26+; this sandbox's Node is 25.9, where both are simply absent -- see
+//    `locales.test.ts`'s identical shim for the fuller explanation. Feature-detected so this is a no-op
+//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
+if (typeof Temporal === 'undefined') {
+  class FakeInstant {
+    epochMs: number
+    constructor(epochMs: number) {
+      this.epochMs = epochMs
+    }
+  }
+  ;(globalThis as any).Temporal = {
+    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
+  }
+  if (!(Date.prototype as any).toTemporalInstant) {
+    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+      return new FakeInstant(this.getTime())
+    }
+  }
+}
+
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
  * constraint, an update, a delete, and a join resolving each term's canonical page to a link — so a
@@ -219,5 +241,494 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     await glossaryModel.getCachedTerms(fixtures.siteId)
 
     assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
+  })
+
+  describe('aliases (OpenProject #1110)', () => {
+    test('createTerm() trims, dedupes case-insensitively, and drops an alias matching the term', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Hot Strip Mill',
+        definition: 'A rolling mill.',
+        aliases: ['  HSM  ', 'Hot Mill', 'hsm', 'Hot Strip Mill']
+      })
+
+      assert.deepEqual(created.aliases, ['HSM', 'Hot Mill'])
+    })
+
+    test('createTerm() rejects an alias that collides with another term', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Standalone',
+        definition: 'Standalone term.'
+      })
+
+      await assert.rejects(async () => {
+        try {
+          await glossaryModel.createTerm(fixtures.siteId, {
+            term: 'Uses Standalone As Alias',
+            definition: 'A rolling mill.',
+            aliases: ['Standalone']
+          })
+        } catch (err: any) {
+          assert.equal(err.statusCode, 409)
+          throw err
+        }
+      }, /already exists/)
+    })
+
+    test('createTerm() rejects an alias that collides with another term’s alias', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'First Mill',
+        definition: 'First.',
+        aliases: ['Mill Alias A']
+      })
+
+      await assert.rejects(
+        () =>
+          glossaryModel.createTerm(fixtures.siteId, {
+            term: 'Second Mill',
+            definition: 'Second.',
+            aliases: ['mill alias a']
+          }),
+        /already exists/
+      )
+    })
+
+    test('updateTerm() re-checks the full surface-form set when only aliases change', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, { term: 'Taken', definition: 'Exists.' })
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Other',
+        definition: 'Another term.'
+      })
+
+      await assert.rejects(
+        () => glossaryModel.updateTerm(fixtures.siteId, created.id, { aliases: ['taken'] }),
+        /already exists/
+      )
+    })
+
+    test('updateTerm() allows re-saving a term’s own existing aliases unchanged', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Stable',
+        definition: 'Has aliases.',
+        aliases: ['Alias One']
+      })
+
+      const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
+        definition: 'Updated.'
+      })
+
+      assert.deepEqual(updated.aliases, ['Alias One'])
+    })
+
+    test('updateTerm() drops an alias that a term rename now collides with', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Rename Collides Mill',
+        definition: 'A rolling mill.',
+        aliases: ['RCM']
+      })
+
+      const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
+        term: 'rcm'
+      })
+
+      assert.deepEqual(updated.aliases, [])
+    })
+
+    test('getCachedTerms() carries each entry’s aliases through', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Aliased',
+        definition: 'Has aliases.',
+        aliases: ['AL']
+      })
+
+      const cached = await glossaryModel.getCachedTerms(fixtures.siteId)
+      assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, ['AL'])
+    })
+  })
+
+  describe('export / import (OpenProject #1114)', () => {
+    test('exportTerms() carries the canonical page as a path, not a pageId', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/export-linked' }),
+        actor
+      )
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'ExportedLinked',
+        definition: 'Has a page.',
+        aliases: ['EL'],
+        pageId: page.id
+      })
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'ExportedUnlinked',
+        definition: 'No page.'
+      })
+
+      const exported = await glossaryModel.exportTerms(fixtures.siteId)
+
+      assert.equal(exported.formatVersion, 1)
+      const linked = exported.terms.find((t) => t.term === 'ExportedLinked')
+      assert.deepEqual(linked, {
+        term: 'ExportedLinked',
+        definition: 'Has a page.',
+        aliases: ['EL'],
+        path: 'docs/export-linked'
+      })
+      const unlinked = exported.terms.find((t) => t.term === 'ExportedUnlinked')
+      assert.equal(unlinked?.path, null)
+    })
+
+    test('importTerms() replaces the glossary wholesale', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'PreExisting',
+        definition: 'Will be gone after import.'
+      })
+
+      const imported = await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [
+          { term: 'Imported One', definition: 'First.', aliases: ['IO'], path: null },
+          { term: 'Imported Two', definition: 'Second.', aliases: [], path: null }
+        ]
+      })
+
+      assert.equal(imported.length, 2)
+      const remaining = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(remaining.map((t) => t.term).sort(), ['Imported One', 'Imported Two'])
+    })
+
+    test('importTerms() resolves a path to a pageId against the site’s primary locale', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/import-target' }),
+        actor
+      )
+
+      const imported = await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [
+          { term: 'ImportLinked', definition: 'Resolves.', aliases: [], path: 'docs/import-target' }
+        ]
+      })
+
+      assert.equal(imported[0]!.pageId, page.id)
+    })
+
+    test('importTerms() rejects an unresolvable path, applying nothing', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'SurvivesFailedImport',
+        definition: 'Should still be here after.'
+      })
+
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [
+              {
+                term: 'BadPath',
+                definition: 'Points nowhere.',
+                aliases: [],
+                path: 'docs/does-not-exist-anywhere'
+              }
+            ]
+          }),
+        /does not resolve/
+      )
+
+      const remaining = await glossaryModel.listTerms(fixtures.siteId)
+      assert.ok(remaining.some((t) => t.term === 'SurvivesFailedImport'))
+      assert.ok(!remaining.some((t) => t.term === 'BadPath'))
+    })
+
+    test('importTerms() rejects two entries in the same payload sharing a surface form', async () => {
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [
+              { term: 'Dup A', definition: 'First.', aliases: ['Shared'], path: null },
+              { term: 'Dup B', definition: 'Second.', aliases: ['shared'], path: null }
+            ]
+          }),
+        /both resolve/
+      )
+    })
+
+    test('importTerms() rejects a malformed payload', async () => {
+      await assert.rejects(
+        // @ts-expect-error -- deliberately malformed, matching what an external editor could hand back
+        () => glossaryModel.importTerms(fixtures.siteId, { notTerms: [] }),
+        /"terms" array/
+      )
+    })
+
+    test('export -> import round-trips a glossary unchanged', async () => {
+      await glossaryModel.importTerms(fixtures.siteId, {
+        formatVersion: 1,
+        terms: [{ term: 'RoundTrip', definition: 'Stable.', aliases: ['RT'], path: null }]
+      })
+
+      const exported = await glossaryModel.exportTerms(fixtures.siteId)
+      await glossaryModel.importTerms(fixtures.siteId, exported)
+
+      const after = await glossaryModel.exportTerms(fixtures.siteId)
+      assert.deepEqual(after.terms, exported.terms)
+    })
+  })
+
+  describe('versioning (OpenProject #1113)', () => {
+    let glossaryActor: { id: string | null; name: string }
+
+    before(() => {
+      glossaryActor = { id: fixtures.userId, name: 'Test Admin' }
+    })
+
+    test('saveVersion() atomically replaces the glossary and records a version', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'BeforeSave',
+        definition: 'Will be replaced.'
+      })
+
+      const { terms, version } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [
+          { term: 'Saved One', definition: 'First.', aliases: ['S1'] },
+          { term: 'Saved Two', definition: 'Second.' }
+        ],
+        glossaryActor
+      )
+
+      assert.equal(terms.length, 2)
+      assert.equal(version.termCount, 2)
+      assert.equal(version.actorName, 'Test Admin')
+
+      const live = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(live.map((t) => t.term).sort(), ['Saved One', 'Saved Two'])
+    })
+
+    test('saveVersion() rolls back the term replace too when recording the version fails (OpenProject #1113 "atomically")', async () => {
+      const before = await glossaryModel.listTerms(fixtures.siteId)
+
+      // -> A non-existent actorId trips glossaryVersions' FK constraint, forcing the version-record
+      //    half of saveVersion() to fail. If the replace and the record are NOT sharing one
+      //    transaction, the term replace below would already be committed by this point.
+      await assert.rejects(() =>
+        glossaryModel.saveVersion(
+          fixtures.siteId,
+          [{ term: 'ShouldNotStick', definition: 'Never actually saved.' }],
+          { id: '00000000-0000-0000-0000-000000000000', name: 'Ghost Actor' }
+        )
+      )
+
+      const after = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(
+        after.map((t) => t.id),
+        before.map((t) => t.id)
+      )
+      assert.ok(!after.some((t) => t.term === 'ShouldNotStick'))
+    })
+
+    test('saveVersion() resolves a `path` to a pageId, the same shape importTerms takes (OpenProject #1112)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/save-version-target' }),
+        actor
+      )
+
+      const { terms } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [
+          { term: 'SaveLinked', definition: 'Resolves via path.', path: 'docs/save-version-target' }
+        ],
+        glossaryActor
+      )
+
+      assert.equal(terms[0]!.pageId, page.id)
+    })
+
+    test('saveVersion() rejects an empty term, applying nothing', async () => {
+      const before = await glossaryModel.listTerms(fixtures.siteId)
+
+      await assert.rejects(
+        () =>
+          glossaryModel.saveVersion(
+            fixtures.siteId,
+            [{ term: '   ', definition: 'Bad.' }],
+            glossaryActor
+          ),
+        /cannot be empty/
+      )
+
+      const after = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(
+        after.map((t) => t.id),
+        before.map((t) => t.id)
+      )
+    })
+
+    test('listVersions() returns most-recent-first summaries with no snapshot payload', async () => {
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'ListVersionsA', definition: 'First save.' }],
+        glossaryActor
+      )
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'ListVersionsB', definition: 'Second save.' }],
+        glossaryActor
+      )
+
+      const versions = await glossaryModel.listVersions(fixtures.siteId)
+      assert.ok(versions.length >= 2)
+      assert.ok(
+        Temporal.Instant.compare(
+          versions[0]!.createdAt.toTemporalInstant(),
+          versions[1]!.createdAt.toTemporalInstant()
+        ) >= 0
+      )
+      assert.ok(!('snapshot' in versions[0]!))
+    })
+
+    test('getVersion() returns the full snapshot', async () => {
+      const { version } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'] }],
+        glossaryActor
+      )
+
+      const fetched = await glossaryModel.getVersion(fixtures.siteId, version.id)
+      assert.deepEqual(fetched?.snapshot.terms, [
+        { term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'], path: null }
+      ])
+    })
+
+    test('getVersion() returns null for an id that does not exist', async () => {
+      const fetched = await glossaryModel.getVersion(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000'
+      )
+      assert.equal(fetched, null)
+    })
+
+    test('restoreVersion() applies the old term list AND records a new version, not rewriting history', async () => {
+      const { version: v1 } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'RestoreTarget', definition: 'From the past.' }],
+        glossaryActor
+      )
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'RestoreLatest', definition: 'Current state.' }],
+        glossaryActor
+      )
+
+      const { terms, version: v3 } = await glossaryModel.restoreVersion(
+        fixtures.siteId,
+        v1.id,
+        glossaryActor
+      )
+
+      assert.deepEqual(
+        terms.map((t) => t.term),
+        ['RestoreTarget']
+      )
+      assert.notEqual(v3.id, v1.id)
+
+      // -> The version restored FROM is untouched -- restoring is additive, not destructive.
+      const originalStillThere = await glossaryModel.getVersion(fixtures.siteId, v1.id)
+      assert.deepEqual(
+        originalStillThere?.snapshot.terms.map((t) => t.term),
+        ['RestoreTarget']
+      )
+    })
+
+    test('restoreVersion() rejects an id that does not exist', async () => {
+      await assert.rejects(
+        () =>
+          glossaryModel.restoreVersion(
+            fixtures.siteId,
+            '00000000-0000-0000-0000-000000000000',
+            glossaryActor
+          ),
+        /does not exist/
+      )
+    })
+  })
+
+  describe('audit log instrumentation (OpenProject #1115)', () => {
+    let auditLogModel: typeof import('./auditLog.ts').auditLog
+    const glossaryActor = { id: null, name: 'Audit Tester', ip: '127.0.0.1' }
+
+    before(async () => {
+      ;({ auditLog: auditLogModel } = await import('./auditLog.ts'))
+    })
+
+    test('createTerm() records a glossaryTerm.created entry only when an actor is given', async () => {
+      const withoutActor = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditNoActor',
+        definition: 'No actor passed.'
+      })
+      const withActor = await glossaryModel.createTerm(
+        fixtures.siteId,
+        { term: 'AuditWithActor', definition: 'Actor passed.' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.created' })
+      assert.ok(
+        entries.some((e) => e.targetId === withActor.id && e.targetLabel === 'AuditWithActor')
+      )
+      assert.ok(!entries.some((e) => e.targetId === withoutActor.id))
+    })
+
+    test('updateTerm() records which fields changed', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditUpdateMe',
+        definition: 'Before.'
+      })
+
+      await glossaryModel.updateTerm(
+        fixtures.siteId,
+        created.id,
+        { definition: 'After.' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.updated' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.deepEqual(entry?.detail.changedFields, ['definition'])
+    })
+
+    test('updateTerm() records aliases as changed when a term rename drops one, even though aliases wasn’t passed', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Audit Hot Strip Mill',
+        definition: 'A rolling mill.',
+        aliases: ['Audit HSM']
+      })
+
+      await glossaryModel.updateTerm(
+        fixtures.siteId,
+        created.id,
+        { term: 'audit hsm' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.updated' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.deepEqual(entry?.detail.changedFields, ['term', 'aliases'])
+    })
+
+    test('deleteTerm() records the deleted term’s label', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditDeleteMe',
+        definition: 'Gone soon.'
+      })
+
+      await glossaryModel.deleteTerm(fixtures.siteId, created.id, glossaryActor)
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.deleted' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.equal(entry?.targetLabel, 'AuditDeleteMe')
+    })
   })
 })

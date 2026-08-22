@@ -416,6 +416,15 @@ export const glossaryTerms = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     term: varchar({ length: 255 }).notNull(),
     definition: text().notNull(),
+    // -> Alternate surface forms (acronyms, alternate names) that resolve to this same term's
+    //    `definition`/`pageId` -- no per-alias override (OpenProject #1110). Uniqueness across this
+    //    column combined with `term`, and across rows, is enforced at the application level in
+    //    `models/glossary.ts` -- a plain index cannot express "unique across an array column + a
+    //    scalar column, combined, across every row".
+    aliases: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
     siteId: uuid()
@@ -428,8 +437,43 @@ export const glossaryTerms = pgTable(
   (table) => [
     index('glossaryTerms_siteId_idx').on(table.siteId),
     // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
-    //    differ only by case are a duplicate, not two distinct terms.
+    //    differ only by case are a duplicate, not two distinct terms. This only guards `term` itself --
+    //    alias collisions (with another row's term OR aliases) are checked in `models/glossary.ts`.
     uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
+  ]
+)
+
+// GLOSSARY VERSIONS --------------------
+/**
+ * One row per saved snapshot of a site's ENTIRE glossary term list (OpenProject #1113) -- not a
+ * per-term history mirroring `pageHistory`. Written whenever the admin staged-edit workflow saves,
+ * an import replaces the glossary, or a version is restored, each of which goes through
+ * `models/glossary.ts`'s `saveVersion()`. Append-only: nothing ever updates a row; nothing currently
+ * prunes them either, unlike `auditLog`'s retention job -- a glossary's version count is small and
+ * human-triggered, not one row per API call.
+ */
+export const glossaryVersions = pgTable(
+  'glossaryVersions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> The GlossaryExport shape (`models/glossary.ts`) -- the SAME JSON representation
+    //    export/import use (OpenProject #1114), so a version can be exported or restored through the
+    //    exact same wholesale-replace path as an import.
+    snapshot: jsonb().notNull(),
+    termCount: integer().notNull(),
+    // -> Same reasoning as `auditLog.actorId`/`actorName`: `set null` so a log entry survives its
+    //    actor, `actorName` snapshotted at write time so a renamed/deleted account doesn't rewrite
+    //    history that already happened under the old name.
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    actorName: varchar({ length: 255 }).notNull().default(''),
+    createdAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    index('glossaryVersions_siteId_idx').on(table.siteId),
+    index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
   ]
 )
 

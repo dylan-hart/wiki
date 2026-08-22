@@ -306,8 +306,9 @@ kind a name belongs to decides how it may be enforced, so it is the first thing 
 any permission you touch.
 
 **Global permissions** are held site-wide, bound to no path: `access:admin`, `manage:users`,
-`manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`, `manage:system`. That list is
-the whole of it — the one offered by the group editor (`GroupEditOverlay.vue`). They live on a
+`manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`, `manage:glossary`,
+`manage:system`. That list is the whole of it — the one offered by the group editor
+(`GroupEditOverlay.vue`). They live on a
 group's `permissions` column, are flattened onto `req.session.permissions` at login
 (`models/users.ts` → `updateSession`), and are what the per-route `config.permissions` hook
 checks. `manage:system` bypasses every check everywhere.

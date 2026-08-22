@@ -22,6 +22,9 @@ export const AUDIT_EVENTS = [
   'apiKey.revoked',
   'site.settingsUpdated',
   'storage.targetUpdated',
+  'glossaryTerm.created',
+  'glossaryTerm.updated',
+  'glossaryTerm.deleted',
   'login.success',
   'login.failed',
   /**
@@ -42,7 +45,8 @@ export const AUDIT_TARGET_TYPES = [
   'apiKey',
   'site',
   'storageTarget',
-  'page'
+  'page',
+  'glossaryTerm'
 ] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]

@@ -819,6 +819,13 @@ const permissions = [
     disabled: false
   },
   {
+    permission: 'manage:glossary',
+    hint: 'Can create / manage the glossary (terms, aliases, versions)',
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
     permission: 'manage:system',
     hint: 'Can manage and access everything. Root administrator.',
     warning: true,

@@ -19,6 +19,8 @@ const SITE_1_ID = randomUUID()
 const UNKNOWN_SITE_ID = randomUUID()
 const TERM_ID = randomUUID()
 
+const VERSION_ID = randomUUID()
+
 let app: FastifyInstance
 let listTermsCalls: any[]
 let getCachedTermsCalls: any[]
@@ -26,6 +28,13 @@ let createTermCalls: any[]
 let updateTermCalls: any[]
 let deleteTermCalls: any[]
 let deleteTermResult: boolean
+let exportTermsCalls: any[]
+let importTermsCalls: any[]
+let saveVersionCalls: any[]
+let listVersionsCalls: any[]
+let getVersionCalls: any[]
+let getVersionResult: any
+let restoreVersionCalls: any[]
 
 before(async () => {
   app = fastify()
@@ -67,6 +76,36 @@ before(async () => {
         deleteTerm: async (siteId: string, id: string) => {
           deleteTermCalls.push({ siteId, id })
           return deleteTermResult
+        },
+        exportTerms: async (siteId: string) => {
+          exportTermsCalls.push(siteId)
+          return { formatVersion: 1, terms: [] }
+        },
+        importTerms: async (siteId: string, data: any) => {
+          importTermsCalls.push({ siteId, data })
+          return [{ id: 'imported-1', ...data.terms[0] }]
+        },
+        saveVersion: async (siteId: string, terms: any, actor: any) => {
+          saveVersionCalls.push({ siteId, terms, actor })
+          return {
+            terms: terms.map((t: any, i: number) => ({ id: `saved-${i}`, ...t })),
+            version: { id: VERSION_ID, termCount: terms.length, actorId: null, actorName: '' }
+          }
+        },
+        listVersions: async (siteId: string) => {
+          listVersionsCalls.push(siteId)
+          return [{ id: VERSION_ID, termCount: 1, actorId: null, actorName: '' }]
+        },
+        getVersion: async (siteId: string, versionId: string) => {
+          getVersionCalls.push({ siteId, versionId })
+          return getVersionResult
+        },
+        restoreVersion: async (siteId: string, versionId: string, actor: any) => {
+          restoreVersionCalls.push({ siteId, versionId, actor })
+          return {
+            terms: [],
+            version: { id: 'restored-version', termCount: 0, actorId: null, actorName: '' }
+          }
         }
       }
     }
@@ -85,6 +124,19 @@ beforeEach(() => {
   updateTermCalls = []
   deleteTermCalls = []
   deleteTermResult = true
+  exportTermsCalls = []
+  importTermsCalls = []
+  saveVersionCalls = []
+  listVersionsCalls = []
+  getVersionCalls = []
+  getVersionResult = {
+    id: VERSION_ID,
+    termCount: 0,
+    actorId: null,
+    actorName: '',
+    snapshot: { formatVersion: 1, terms: [] }
+  }
+  restoreVersionCalls = []
 })
 
 test('GET /sites/:siteId/glossary answers 404 for an unknown site', async () => {
@@ -125,11 +177,16 @@ test('POST /sites/:siteId/glossary answers 404 for an unknown site', async () =>
   assert.equal(createTermCalls.length, 0)
 })
 
-test('POST /sites/:siteId/glossary forwards term/definition/pageId to createTerm', async () => {
+test('POST /sites/:siteId/glossary forwards term/definition/aliases/pageId to createTerm', async () => {
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_1_ID}/glossary`,
-    payload: { term: 'API', definition: 'Application Programming Interface.', pageId: TERM_ID }
+    payload: {
+      term: 'API',
+      definition: 'Application Programming Interface.',
+      aliases: ['REST API'],
+      pageId: TERM_ID
+    }
   })
   assert.equal(res.statusCode, 200)
   assert.equal(createTermCalls.length, 1)
@@ -137,8 +194,19 @@ test('POST /sites/:siteId/glossary forwards term/definition/pageId to createTerm
   assert.deepEqual(createTermCalls[0].values, {
     term: 'API',
     definition: 'Application Programming Interface.',
+    aliases: ['REST API'],
     pageId: TERM_ID
   })
+})
+
+test('POST /sites/:siteId/glossary defaults aliases to an empty array when omitted', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary`,
+    payload: { term: 'API', definition: 'Application Programming Interface.' }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(createTermCalls[0].values.aliases, [])
 })
 
 test('POST /sites/:siteId/glossary rejects a body missing term or definition', async () => {
@@ -192,4 +260,102 @@ test('DELETE /sites/:siteId/glossary/:termId answers 404 when nothing was delete
     url: `/sites/${SITE_1_ID}/glossary/${TERM_ID}`
   })
   assert.equal(res.statusCode, 404)
+})
+
+/**
+ * Export / import / save / versions (OpenProject #1113, #1114) -- same fake-model, route-forwarding
+ * coverage as the CRUD routes above.
+ */
+
+test('GET /sites/:siteId/glossary/export answers 404 for an unknown site', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${UNKNOWN_SITE_ID}/glossary/export` })
+  assert.equal(res.statusCode, 404)
+  assert.equal(exportTermsCalls.length, 0)
+})
+
+test('GET /sites/:siteId/glossary/export forwards to exportTerms', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_1_ID}/glossary/export` })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(exportTermsCalls, [SITE_1_ID])
+  assert.deepEqual(res.json(), { formatVersion: 1, terms: [] })
+})
+
+test('POST /sites/:siteId/glossary/import forwards the body to importTerms', async () => {
+  const payload = { formatVersion: 1, terms: [{ term: 'API', definition: 'Def.', path: null }] }
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/import`,
+    payload
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(importTermsCalls.length, 1)
+  assert.equal(importTermsCalls[0].siteId, SITE_1_ID)
+  // -> The body schema defaults each term's `aliases` to `[]` when omitted, same as the create route
+  assert.deepEqual(importTermsCalls[0].data, {
+    ...payload,
+    terms: [{ ...payload.terms[0], aliases: [] }]
+  })
+})
+
+test('POST /sites/:siteId/glossary/save forwards terms and the resolved actor to saveVersion', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/save`,
+    payload: { terms: [{ term: 'API', definition: 'Def.' }] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(saveVersionCalls.length, 1)
+  assert.equal(saveVersionCalls[0].siteId, SITE_1_ID)
+  assert.equal(saveVersionCalls[0].terms[0].term, 'API')
+  // -> No session/API key on a bare `inject()` call -- actorFromRequest resolves to the "nobody" shape
+  assert.deepEqual(saveVersionCalls[0].actor, { id: null, name: '', ip: '127.0.0.1' })
+  assert.equal(res.json().version.id, VERSION_ID)
+})
+
+test('POST /sites/:siteId/glossary/save rejects a term missing a definition', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/save`,
+    payload: { terms: [{ term: 'API' }] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(saveVersionCalls.length, 0)
+})
+
+test('GET /sites/:siteId/glossary/versions forwards to listVersions', async () => {
+  const res = await app.inject({ method: 'GET', url: `/sites/${SITE_1_ID}/glossary/versions` })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(listVersionsCalls, [SITE_1_ID])
+  assert.equal(res.json()[0].id, VERSION_ID)
+})
+
+test('GET /sites/:siteId/glossary/versions/:versionId answers 404 when the version is missing', async () => {
+  getVersionResult = null
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_1_ID}/glossary/versions/${VERSION_ID}`
+  })
+  assert.equal(res.statusCode, 404)
+})
+
+test('GET /sites/:siteId/glossary/versions/:versionId returns the full version', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${SITE_1_ID}/glossary/versions/${VERSION_ID}`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(getVersionCalls, [{ siteId: SITE_1_ID, versionId: VERSION_ID }])
+  assert.equal(res.json().id, VERSION_ID)
+})
+
+test('POST /sites/:siteId/glossary/versions/:versionId/restore forwards to restoreVersion', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_1_ID}/glossary/versions/${VERSION_ID}/restore`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(restoreVersionCalls.length, 1)
+  assert.deepEqual(restoreVersionCalls[0].siteId, SITE_1_ID)
+  assert.equal(restoreVersionCalls[0].versionId, VERSION_ID)
+  assert.equal(res.json().version.id, 'restored-version')
 })

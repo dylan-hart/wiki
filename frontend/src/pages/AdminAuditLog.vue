@@ -236,6 +236,9 @@ const AUDIT_EVENTS = [
   'apiKey.revoked',
   'site.settingsUpdated',
   'storage.targetUpdated',
+  'glossaryTerm.created',
+  'glossaryTerm.updated',
+  'glossaryTerm.deleted',
   'login.success',
   'login.failed',
   'page.classificationChanged'

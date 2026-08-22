@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import AdminGlossary from './AdminGlossary.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
+import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
 import { useAdminStore } from '@/stores/admin'
 import { dialog, confirm } from '@/composables/dialog'
 
@@ -18,23 +19,35 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
   confirm: vi.fn(() => ({ onOk: (cb) => cb() }))
 }))
 
-const TERMS = [
-  { id: 'term-1', term: 'API', definition: 'Application Programming Interface.', pageId: null },
-  { id: 'term-2', term: 'REST', definition: 'Representational State Transfer.', pageId: 'page-1' }
+const fileSave = vi.fn()
+const fileOpen = vi.fn()
+vi.mock('browser-fs-access', () => ({
+  fileSave: (...args) => fileSave(...args),
+  fileOpen: (...args) => fileOpen(...args)
+}))
+
+// -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so unlike
+//    `API_CLIENT` -- rebuilt fresh per test by `test/setup.js` -- these two need their own call
+//    history cleared here, or an earlier test's call would still be there for a later `not
+//    .toHaveBeenCalled()` assertion to trip over.
+beforeEach(() => {
+  fileSave.mockClear()
+  fileOpen.mockClear()
+})
+
+const EXPORT_TERMS = [
+  { term: 'API', definition: 'Application Programming Interface.', aliases: [], path: null },
+  { term: 'REST', definition: 'Representational State Transfer.', aliases: ['R'], path: 'dev/api' }
 ]
 
-const PAGE_SEARCH_RESULTS = {
-  results: [{ id: 'page-1', title: 'API Docs', path: 'dev/api', locale: 'en' }],
-  totalHits: 1
-}
-
-function mountAdminGlossary(terms = TERMS) {
+function mountAdminGlossary(terms = EXPORT_TERMS) {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
 
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(terms) })
-  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(PAGE_SEARCH_RESULTS) })
+  API_CLIENT.get.mockReturnValue({
+    json: () => Promise.resolve({ formatVersion: 1, terms })
+  })
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
@@ -48,30 +61,26 @@ function mountAdminGlossary(terms = TERMS) {
 }
 
 /**
- * OpenProject #870 admin CRUD screen: loads the term list and the canonical-page candidates
- * together, and wires the New/Edit/Delete affordances to `GlossaryTermDialog` and a confirmation.
+ * Glossary admin editing is a staged workflow (OpenProject #1113): every add/edit/delete touches only
+ * the local `state.terms` working copy, and nothing reaches the API until `saveGlossary()` -- these
+ * tests cover that split directly, rather than the pre-#1113 immediate-apply behavior.
  */
 describe('AdminGlossary: load()', () => {
-  it("fetches this site's terms and a candidate page list for the picker", async () => {
+  it('loads via the export endpoint -- the SAME shape save/import both take (OpenProject #1114)', async () => {
     mountAdminGlossary()
     await flushPromises()
 
-    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary')
-    expect(API_CLIENT.get).toHaveBeenCalledWith(
-      'sites/site-1/pages/search',
-      expect.objectContaining({
-        searchParams: { orderBy: 'title', orderByDirection: 'asc', limit: 100 }
-      })
-    )
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/export')
   })
 
-  it('renders every term with its definition', async () => {
+  it('renders every term with its definition and aliases', async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
     expect(wrapper.text()).toContain('API')
     expect(wrapper.text()).toContain('Application Programming Interface.')
     expect(wrapper.text()).toContain('REST')
+    expect(wrapper.text()).toContain('R')
   })
 
   it('shows the empty-state banner with no terms', async () => {
@@ -80,52 +89,270 @@ describe('AdminGlossary: load()', () => {
 
     expect(wrapper.text()).toContain('admin.glossary.noTerms')
   })
+
+  it('is not dirty right after loading', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+
+    expect(wrapper.vm.isDirty).toBe(false)
+  })
 })
 
-describe('AdminGlossary: create/edit', () => {
+describe('AdminGlossary: staged create/edit (no API call)', () => {
   it('opens GlossaryTermDialog with no term prop for a new term', async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
-    await wrapper.vm.createTerm()
+    wrapper.vm.createTerm()
 
     expect(dialog).toHaveBeenCalledWith(
       expect.objectContaining({
         component: GlossaryTermDialog,
-        componentProps: expect.objectContaining({ siteId: 'site-1' })
+        componentProps: { siteId: 'site-1' }
       })
     )
-    expect(dialog.mock.calls[0][0].componentProps.term).toBeUndefined()
   })
 
-  it('opens GlossaryTermDialog seeded with the term being edited', async () => {
+  it("appends the dialog's result to the staged list and marks it dirty, without calling the API", async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    API_CLIENT.post.mockClear()
+
+    dialog.mockReturnValueOnce({
+      onOk: (cb) => cb({ term: 'New', definition: 'A new term.', aliases: [], path: null })
+    })
+    wrapper.vm.createTerm()
+
+    expect(wrapper.vm.state.terms.map((t) => t.term)).toEqual(['API', 'REST', 'New'])
+    expect(wrapper.vm.isDirty).toBe(true)
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+
+  it('opens GlossaryTermDialog seeded with the staged term being edited', async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
-    await wrapper.vm.editTerm(TERMS[0])
+    wrapper.vm.editTerm(wrapper.vm.state.terms[0])
 
     expect(dialog).toHaveBeenCalledWith(
       expect.objectContaining({
-        componentProps: expect.objectContaining({ term: TERMS[0] })
+        componentProps: expect.objectContaining({ term: expect.objectContaining({ term: 'API' }) })
       })
     )
   })
+
+  it('replaces the edited entry in place, keeping its position, without calling the API', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    API_CLIENT.put.mockClear()
+
+    dialog.mockReturnValueOnce({
+      onOk: (cb) => cb({ term: 'API', definition: 'Updated definition.', aliases: [], path: null })
+    })
+    wrapper.vm.editTerm(wrapper.vm.state.terms[0])
+
+    expect(wrapper.vm.state.terms[0].definition).toBe('Updated definition.')
+    expect(wrapper.vm.state.terms.map((t) => t.term)).toEqual(['API', 'REST'])
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+  })
 })
 
-describe('AdminGlossary: delete', () => {
-  it('deletes the term and reloads the list once the confirmation is accepted', async () => {
+describe('AdminGlossary: staged delete (no API call)', () => {
+  it('removes the term locally once confirmed, without calling the API', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    API_CLIENT.delete.mockClear()
+
+    wrapper.vm.deleteTerm(wrapper.vm.state.terms[0])
+
+    expect(confirm).toHaveBeenCalled()
+    expect(wrapper.vm.state.terms.map((t) => t.term)).toEqual(['REST'])
+    expect(API_CLIENT.delete).not.toHaveBeenCalled()
+    expect(wrapper.vm.isDirty).toBe(true)
+  })
+})
+
+describe('AdminGlossary: saveGlossary()', () => {
+  it('posts the stripped staged terms to .../glossary/save, then reloads', async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
 
-    API_CLIENT.delete.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([TERMS[1]]) })
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(PAGE_SEARCH_RESULTS) })
+    wrapper.vm.state.terms.push({
+      term: 'New',
+      definition: 'A new term.',
+      aliases: [],
+      path: null,
+      _key: 'local-only'
+    })
 
-    await wrapper.vm.deleteTerm(TERMS[0])
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          terms: [],
+          version: { id: 'v1', termCount: 3, actorId: null, actorName: '' }
+        })
+    })
+
+    await wrapper.vm.saveGlossary()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      'sites/site-1/glossary/save',
+      expect.objectContaining({
+        json: {
+          terms: [
+            {
+              term: 'API',
+              definition: 'Application Programming Interface.',
+              aliases: [],
+              path: null
+            },
+            {
+              term: 'REST',
+              definition: 'Representational State Transfer.',
+              aliases: ['R'],
+              path: 'dev/api'
+            },
+            { term: 'New', definition: 'A new term.', aliases: [], path: null }
+          ]
+        }
+      })
+    )
+    // -> Reloads from `export` right after -- see the component's own comment on why
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/export')
+  })
+
+  it('is dirty before saving and clean again after a successful save', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    wrapper.vm.state.terms[0].definition = 'Changed.'
+    expect(wrapper.vm.isDirty).toBe(true)
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          terms: [],
+          version: { id: 'v1', termCount: 2, actorId: null, actorName: '' }
+        })
+    })
+    await wrapper.vm.saveGlossary()
+
+    expect(wrapper.vm.isDirty).toBe(false)
+  })
+})
+
+describe('AdminGlossary: discardChanges()', () => {
+  it('confirms, then reloads from the server, discarding local edits', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    wrapper.vm.state.terms[0].definition = 'Locally changed, not saved.'
+    expect(wrapper.vm.isDirty).toBe(true)
+
+    wrapper.vm.discardChanges()
     await flushPromises()
 
     expect(confirm).toHaveBeenCalled()
-    expect(API_CLIENT.delete).toHaveBeenCalledWith('sites/site-1/glossary/term-1')
-    expect(wrapper.vm.state.terms).toEqual([TERMS[1]])
+    expect(wrapper.vm.state.terms[0].definition).toBe('Application Programming Interface.')
+    expect(wrapper.vm.isDirty).toBe(false)
+  })
+})
+
+describe('AdminGlossary: export/import (OpenProject #1114)', () => {
+  it('exportGlossary() re-fetches the export and hands it to fileSave', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+
+    await wrapper.vm.exportGlossary()
+
+    expect(fileSave).toHaveBeenCalledTimes(1)
+    const [blob, opts] = fileSave.mock.calls[0]
+    expect(blob).toBeInstanceOf(Blob)
+    expect(opts.fileName).toBe('glossary.json')
+  })
+
+  it('exportGlossary() refuses to export an empty glossary', async () => {
+    const wrapper = mountAdminGlossary([])
+    await flushPromises()
+
+    await wrapper.vm.exportGlossary()
+
+    expect(fileSave).not.toHaveBeenCalled()
+  })
+
+  it('importGlossary() reads the picked file, confirms, then POSTs to .../glossary/import', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+
+    const payload = {
+      formatVersion: 1,
+      terms: [{ term: 'X', definition: 'Y', aliases: [], path: null }]
+    }
+    fileOpen.mockResolvedValueOnce({ text: () => Promise.resolve(JSON.stringify(payload)) })
+    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+    await wrapper.vm.importGlossary()
+
+    expect(confirm).toHaveBeenCalled()
+    expect(API_CLIENT.post).toHaveBeenCalledWith(
+      'sites/site-1/glossary/import',
+      expect.objectContaining({ json: payload })
+    )
+  })
+
+  it('importGlossary() rejects a file with no "terms" array', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    API_CLIENT.post.mockClear()
+
+    fileOpen.mockResolvedValueOnce({
+      text: () => Promise.resolve(JSON.stringify({ notTerms: [] }))
+    })
+
+    await wrapper.vm.importGlossary()
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+
+  it('importGlossary() does nothing when the file picker is cancelled', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+    API_CLIENT.post.mockClear()
+
+    fileOpen.mockRejectedValueOnce(new Error('AbortError'))
+
+    await wrapper.vm.importGlossary()
+
+    expect(API_CLIENT.post).not.toHaveBeenCalled()
+  })
+})
+
+describe('AdminGlossary: version history', () => {
+  it('opens GlossaryVersionHistoryDialog with the current staged terms', async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+
+    wrapper.vm.openVersionHistory()
+
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: GlossaryVersionHistoryDialog,
+        componentProps: {
+          siteId: 'site-1',
+          currentTerms: [
+            {
+              term: 'API',
+              definition: 'Application Programming Interface.',
+              aliases: [],
+              path: null
+            },
+            {
+              term: 'REST',
+              definition: 'Representational State Transfer.',
+              aliases: ['R'],
+              path: 'dev/api'
+            }
+          ]
+        }
+      })
+    )
   })
 })

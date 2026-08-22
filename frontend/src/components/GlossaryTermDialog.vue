@@ -14,6 +14,7 @@
               v-model="state.term"
               outlined
               dense
+              required
               :rules="termValidation"
               hide-bottom-space
               :label="t(`admin.glossary.term`)"
@@ -30,6 +31,7 @@
               type="textarea"
               outlined
               dense
+              required
               rows="3"
               :rules="definitionValidation"
               hide-bottom-space
@@ -39,27 +41,64 @@
           </w-item-section>
         </w-item>
         <w-item>
-          <blueprint-icon icon="link" />
+          <blueprint-icon icon="matches" />
           <w-item-section>
-            <w-select
-              v-model="state.pageId"
+            <div class="flex flex-wrap gap-1 mb-2" v-if="state.aliases.length > 0">
+              <w-chip
+                v-for="alias of state.aliases"
+                :key="alias"
+                square
+                dense
+                removable
+                @remove="removeAlias(alias)">
+                {{ alias }}
+              </w-chip>
+            </div>
+            <w-input
+              v-model="state.aliasInput"
               outlined
               dense
-              use-input
-              :options="pageOptions"
-              option-value="id"
-              option-label="title"
-              emit-value
-              map-options
-              options-dense
+              hide-bottom-space
+              :label="t(`admin.glossary.aliases`)"
+              :hint="t(`admin.glossary.aliasesHint`)"
+              @keyup:enter="addAlias">
+              <template #append>
+                <w-btn
+                  flat
+                  round
+                  dense
+                  icon="la:plus"
+                  :aria-label="t('common.actions.add')"
+                  @click="addAlias" />
+              </template>
+            </w-input>
+          </w-item-section>
+        </w-item>
+        <w-item>
+          <blueprint-icon icon="link" />
+          <w-item-section>
+            <w-input
+              v-model="state.path"
+              outlined
+              dense
               hide-bottom-space
               :label="t(`admin.glossary.canonicalPage`)"
-              :hint="t(`admin.glossary.canonicalPageHint`)">
-              <template #option="{ opt }">
-                <w-item-label>{{ opt.title }}</w-item-label>
-                <w-item-label v-if="opt.path" caption>/{{ opt.path }}</w-item-label>
+              :hint="pathHint"
+              :prefix="state.path.trim() ? '/' : ''">
+              <template #append>
+                <w-spinner v-if="state.pathStatus === 'checking'" size="16px" />
+                <w-icon
+                  v-else-if="state.pathStatus === 'valid'"
+                  name="la:check-circle"
+                  size="xs"
+                  color="positive" />
+                <w-icon
+                  v-else-if="state.pathStatus === 'invalid'"
+                  name="la:exclamation-triangle"
+                  size="xs"
+                  color="negative" />
               </template>
-            </w-select>
+            </w-input>
           </w-item-section>
         </w-item>
       </w-form>
@@ -77,7 +116,6 @@
           :label="isEdit ? t(`common.actions.save`) : t(`common.actions.create`)"
           color="primary"
           padding="xs md"
-          :loading="state.isLoading"
           @click="save" />
       </w-card-actions>
     </w-card>
@@ -86,11 +124,28 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { debounce } from 'es-toolkit/function'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
-import { notify } from '@/composables/notify'
-import { apiErrorMessage } from '@/helpers/apiError'
+import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+
+/**
+ * Collects/edits ONE glossary entry and hands it back to the caller (`AdminGlossary.vue`) via
+ * `onDialogOK` -- it makes no API call of its own. Glossary admin editing is a staged workflow
+ * (OpenProject #1113): every add/edit/delete is applied to a local working copy, and nothing reaches
+ * the server until that screen's own "Save" action, which atomically replaces the whole glossary and
+ * records a version. This dialog's only job is producing one valid, staged entry.
+ *
+ * The canonical-page field is a plain, live-validated path input (OpenProject #1112) rather than a
+ * `<w-select>` dropdown fed by a capped candidate list -- a dropdown has no way to offer every page on
+ * a wiki with more than a couple hundred, and silently made an already-assigned page outside that cap
+ * unreachable. Typing a path debounces a lookup against the same by-hash page endpoint a page view
+ * itself resolves a URL through (`pagePathHash` mirrors the backend's `generatePathHash` bit for bit),
+ * showing whether it currently resolves -- but resolution is NOT enforced here: the final bulk Save
+ * is what actually validates every entry, exactly like a JSON import does, so a path can be staged
+ * before its target page exists yet without blocking the rest of this edit.
+ */
 
 // PROPS
 
@@ -99,15 +154,10 @@ const props = defineProps({
     type: String,
     required: true
   },
-  /** The term being edited, or null to create one. */
+  /** The staged entry being edited (`{ term, definition, aliases, path }`), or null to create one. */
   term: {
     type: Object,
     default: null
-  },
-  /** Candidate pages for the canonical-page picker, loaded once by the page rather than per dialog. */
-  pages: {
-    type: Array,
-    default: () => []
   }
 })
 
@@ -130,8 +180,12 @@ const { t } = useI18n()
 const state = reactive({
   term: props.term?.term ?? '',
   definition: props.term?.definition ?? '',
-  pageId: props.term?.pageId ?? null,
-  isLoading: false
+  aliases: [...(props.term?.aliases ?? [])],
+  aliasInput: '',
+  path: props.term?.path ?? '',
+  /** 'empty' | 'checking' | 'valid' | 'invalid' -- the live path lookup's current state. */
+  pathStatus: 'empty',
+  pathPageTitle: ''
 })
 
 // REFS
@@ -143,13 +197,18 @@ const iptTerm = ref(null)
 
 const isEdit = computed(() => Boolean(props.term))
 
-// -> `w-select` has no `clearable` prop (see its own header comment on scope) -- an explicit "none"
-//    entry is how every other nullable-FK picker in this app (`WebhookEditDialog.vue`'s site picker)
-//    lets the field go back to null.
-const pageOptions = computed(() => [
-  { id: null, title: t('admin.glossary.noCanonicalPage'), path: '' },
-  ...props.pages
-])
+const pathHint = computed(() => {
+  if (state.pathStatus === 'checking') {
+    return t('admin.glossary.canonicalPageChecking')
+  }
+  if (state.pathStatus === 'valid') {
+    return t('admin.glossary.canonicalPageFound', { title: state.pathPageTitle })
+  }
+  if (state.pathStatus === 'invalid') {
+    return t('admin.glossary.canonicalPageNotFound')
+  }
+  return t('admin.glossary.canonicalPageHint')
+})
 
 // VALIDATION RULES
 
@@ -159,38 +218,69 @@ const definitionValidation = [
   (val) => (val ?? '').trim().length > 0 || t('admin.glossary.definitionRequired')
 ]
 
+// WATCHERS
+
+watch(() => state.path, debounce(checkPath, 400))
+
 // METHODS
 
-async function save() {
-  state.isLoading = true
-  try {
-    const isFormValid = await termForm.value.validate(true)
-    if (!isFormValid) {
-      throw new Error(t('admin.glossary.formInvalid'))
-    }
-
-    const payload = {
-      term: state.term.trim(),
-      definition: state.definition.trim(),
-      pageId: state.pageId
-    }
-    const resp = isEdit.value
-      ? await API_CLIENT.put(`sites/${props.siteId}/glossary/${props.term.id}`, {
-          json: payload
-        }).json()
-      : await API_CLIENT.post(`sites/${props.siteId}/glossary`, { json: payload }).json()
-
-    notify({
-      type: 'positive',
-      message: isEdit.value ? t('admin.glossary.updateSuccess') : t('admin.glossary.createSuccess')
-    })
-    onDialogOK(resp)
-  } catch (err) {
-    notify({
-      type: 'negative',
-      message: apiErrorMessage(err)
-    })
+function addAlias() {
+  const value = state.aliasInput.trim()
+  state.aliasInput = ''
+  const lower = value.toLowerCase()
+  // -> Mirrors `normalizeAliases()` server-side (`models/glossary.ts`), which silently drops an
+  //    alias matching the term itself -- it would only ever be a no-op surface form, never a
+  //    genuinely distinct one. Rejecting it here too means a chip never appears just to vanish,
+  //    unexplained, the next time this entry round-trips through Save.
+  if (
+    !value ||
+    lower === state.term.trim().toLowerCase() ||
+    state.aliases.some((a) => a.toLowerCase() === lower)
+  ) {
+    return
   }
-  state.isLoading = false
+  state.aliases.push(value)
 }
+
+function removeAlias(alias) {
+  state.aliases = state.aliases.filter((a) => a !== alias)
+}
+
+/** Debounced (see the WATCHERS block): resolves `state.path` against this site's primary locale. */
+async function checkPath() {
+  const raw = state.path.trim()
+  if (!raw) {
+    state.pathStatus = 'empty'
+    state.pathPageTitle = ''
+    return
+  }
+  state.pathStatus = 'checking'
+  try {
+    const hash = pagePathHash(normalizePagePath(raw))
+    const page = await API_CLIENT.get(`sites/${props.siteId}/pages/${hash}`).json()
+    state.pathStatus = 'valid'
+    state.pathPageTitle = page.title
+  } catch {
+    state.pathStatus = 'invalid'
+    state.pathPageTitle = ''
+  }
+}
+
+async function save() {
+  const isFormValid = await termForm.value.validate(true)
+  if (!isFormValid) {
+    return
+  }
+
+  onDialogOK({
+    term: state.term.trim(),
+    definition: state.definition.trim(),
+    aliases: state.aliases,
+    path: state.path.trim() || null
+  })
+}
+
+// MOUNTED
+
+onMounted(checkPath)
 </script>
