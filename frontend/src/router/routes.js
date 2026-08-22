@@ -63,6 +63,11 @@ const routes = [
     component: () => import('@/pages/Search.vue')
   },
   {
+    path: '/_tags',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [{ path: '', component: () => import('@/pages/TagsBrowse.vue') }]
+  },
+  {
     path: '/_admin',
     component: () => import('@/layouts/AdminLayout.vue'),
     children: [
