@@ -39,11 +39,14 @@
             </w-chip>
           </div>
           <w-input
+            ref="domainInputRef"
             outlined
             v-model="state.domainInput"
             :autofocus="mode === 'domains'"
             :label="t('admin.blocks.credentialAllowedDomains')"
             :hint="t('admin.blocks.credentialAllowedDomainsHint')"
+            :rules="domainValidation"
+            lazy-rules="ondemand"
             @keyup:enter="addDomain">
             <template #append>
               <w-btn
@@ -81,12 +84,13 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useAdminStore } from '@/stores/admin'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { isValidDomainPattern } from '@/helpers/domainPattern'
 
 // PROPS
 
@@ -129,6 +133,20 @@ const state = reactive({
   isLoading: false
 })
 
+const domainInputRef = ref(null)
+
+/**
+ * Matches `hostnameMatchesAllowlist`'s own accepted syntax (see `helpers/domainPattern.js`) rather
+ * than accepting anything non-empty (OpenProject #1099): a malformed entry used to be stored silently
+ * and just never match any real hostname at resolve time.
+ */
+const domainValidation = [
+  (value) =>
+    !(value ?? '').trim() ||
+    isValidDomainPattern(value.trim()) ||
+    t('admin.blocks.credentialAllowedDomainsInvalid')
+]
+
 const dialogTitle = computed(() => {
   if (props.mode === 'rotate') return t('admin.blocks.credentialRotate')
   if (props.mode === 'domains') return t('admin.blocks.credentialDomains')
@@ -161,8 +179,14 @@ const submitDisabled = computed(() => {
 
 function addDomain() {
   const value = state.domainInput.trim().toLowerCase()
+  if (!value) {
+    return
+  }
+  if (!domainInputRef.value?.validate()) {
+    return
+  }
   state.domainInput = ''
-  if (!value || state.allowedDomains.includes(value)) {
+  if (state.allowedDomains.includes(value)) {
     return
   }
   state.allowedDomains.push(value)

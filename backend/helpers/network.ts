@@ -88,3 +88,46 @@ export function hostnameMatchesAllowlist(hostname: string, allowedDomains: strin
     return target === normalized
   })
 }
+
+/**
+ * A DNS label: 1-63 chars, alphanumeric, hyphens allowed except at either end. Both cases are spelled
+ * out explicitly (rather than relying on a regex `i` flag) so this same source string can be embedded
+ * directly as a JSON Schema `pattern` -- Ajv applies a schema's `pattern` with no flags, so a
+ * case-insensitive source only works if it never needed the flag to begin with.
+ */
+const DOMAIN_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+const DOMAIN_HOSTNAME = `${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})*`
+/**
+ * A loose IPv6 literal: hex groups separated by colons, `::` collapse included. Deliberately not a
+ * fully RFC 4291-compliant pattern -- the actual enforcement of "does this credential's secret get
+ * sent here" is `hostnameMatchesAllowlist`'s exact-string match at resolve time; this only guards
+ * against an admin fat-fingering the syntax `hostnameMatchesAllowlist` accepts, so a slightly
+ * permissive match costs nothing a strict one would have caught anyway.
+ */
+const DOMAIN_IPV6 = '(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}'
+
+/**
+ * The regex source for one `allowedDomains` entry -- either (optionally `*.`-prefixed) a hostname, or
+ * a bare IPv6 literal. An IPv4 literal is already covered by the hostname branch: each octet is just
+ * digits, which is a valid `DOMAIN_LABEL` on its own (OpenProject #1099).
+ *
+ * Kept as a string (not just the compiled `DOMAIN_PATTERN` below) specifically so
+ * `api/blockCredentials.ts` can splice it straight into the JSON Schema `pattern` for
+ * `allowedDomains` items -- the backend route and this helper's own `isValidDomainPattern` share one
+ * definition of "valid" rather than risking two that quietly drift apart.
+ */
+export const DOMAIN_PATTERN_SOURCE = `^(?:\\*\\.)?${DOMAIN_HOSTNAME}$|^${DOMAIN_IPV6}$`
+
+const DOMAIN_PATTERN = new RegExp(DOMAIN_PATTERN_SOURCE)
+
+/**
+ * Whether `value` is syntactically a valid `allowedDomains` entry -- the same shape
+ * `hostnameMatchesAllowlist` actually matches against: an exact hostname, a `*.`-prefixed wildcard,
+ * an IPv4 literal (matches as a hostname), or an IPv6 literal. Used by both the block-credential route
+ * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
+ * workspace layout) `frontend/src/helpers/domainPattern.js`'s copy for `BlockCredentialDialog.vue`'s
+ * inline validation (OpenProject #1099).
+ */
+export function isValidDomainPattern(value: string): boolean {
+  return DOMAIN_PATTERN.test(value)
+}

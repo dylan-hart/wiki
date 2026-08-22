@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { DOMAIN_PATTERN_SOURCE } from '../helpers/network.ts'
 
 /**
  * Whether this caller may create, rotate or delete this site's block credentials.
@@ -99,7 +100,7 @@ async function routes(app: FastifyInstance) {
             },
             allowedDomains: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: '^\\S+$' },
+              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
               minItems: 1,
               description:
                 "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. At least one is required."
@@ -215,7 +216,7 @@ async function routes(app: FastifyInstance) {
           properties: {
             allowedDomains: {
               type: 'array',
-              items: { type: 'string', minLength: 1, pattern: '^\\S+$' },
+              items: { type: 'string', minLength: 1, pattern: DOMAIN_PATTERN_SOURCE },
               description:
                 "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. May be empty."
             }

@@ -55,6 +55,18 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(wrapper.findAll('.w-chip, [class*=chip]').length).toBeLessThanOrEqual(1)
   })
 
+  it('rejects a malformed domain, shows an inline error, and does not add a chip (OpenProject #1099)', async () => {
+    const { wrapper } = await mountDialog({ mode: 'create' })
+    await addDomain(wrapper, 'https://api.example.com/')
+    expect(wrapper.vm.state.allowedDomains).toEqual([])
+    expect(wrapper.text()).toContain('admin.blocks.credentialAllowedDomainsInvalid')
+
+    // Fixing the value and retrying succeeds, and the error clears.
+    await addDomain(wrapper, 'api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual(['api.example.com'])
+    expect(wrapper.text()).not.toContain('admin.blocks.credentialAllowedDomainsInvalid')
+  })
+
   it('removes a domain chip when its remove control is clicked', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
     await addDomain(wrapper, 'api.example.com')

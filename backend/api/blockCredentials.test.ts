@@ -221,6 +221,21 @@ describe('block credentials API (site-scoped delegation)', () => {
     assert.equal(createCredentialCalls.length, 0)
   })
 
+  test('rejects creating a credential with a malformed allowed-domains entry (OpenProject #1099)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: {
+        name: 'Prod API',
+        secret: 'sekret-abc',
+        allowedDomains: ['https://api.example.com/']
+      }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(createCredentialCalls.length, 0)
+  })
+
   test('rotate: 404s when the model reports no matching credential', async () => {
     rotateSecretResult = false
     const res = await app.inject({
@@ -297,6 +312,17 @@ describe('block credentials API (site-scoped delegation)', () => {
       payload: { allowedDomains: [] }
     })
     assert.equal(res.statusCode, 200)
+  })
+
+  test('update domains: rejects a malformed entry (OpenProject #1099)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { allowedDomains: ['*.*.example.com'] }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateAllowedDomainsCalls.length, 0)
   })
 
   test('update domains: requires manage:sites or site:blocks on this site', async () => {
