@@ -1313,3 +1313,30 @@ content shape already exists one layer down (`markdown.test.js`'s footnote-refer
 paginated-print concern this codebase has no visual-regression/PDF-rendering harness to exercise
 automatically. A human reviewer with a real PDF export in hand should confirm the fix visually before
 this ships; that is the only verification method that would actually observe it.
+
+## Audit log login history: only the local/LDAP form-based failure path is recorded
+
+**Date:** 2026-08-22
+**Feature:** #989 (Instance-wide audit/activity log)
+**Decision:** `login.failed` is recorded from exactly one place — the `else` branch of
+`models/users.ts#login()`'s `catch`, which is what a wrong password or a rejected local/LDAP
+credential goes through. `login.success` is recorded once, centrally, in `afterLoginChecks()`, which
+every login path (local, OAuth/OIDC provider, passkey, and the 2FA/change-password continuations)
+funnels through on success — so success coverage is complete. Failure coverage is not: an OAuth/OIDC
+provider callback that errors (`api/authentication.ts`'s `/login/:strategyId/callback` catch), a wrong
+TFA code (`loginTFA()`), and a failed passkey assertion never reach `login()`'s catch at all, so none
+of those record `login.failed`.
+
+Left as a gap rather than instrumented, for two reasons specific to this run rather than a scope
+decision made in advance: first, the specification only asks for "login history" without spelling out
+success/failure/per-strategy granularity, and the single choke point this fork already has
+(`afterLoginChecks()`) only covers the success side — there is no equivalent single point for failure,
+since each strategy fails on its own path before ever reaching a shared method. Second, threading
+`auditLog.record()` into the OAuth callback, TFA verification, and passkey verification paths each
+needs its own actor/target shape (an OAuth failure has no local user yet; a TFA/passkey failure has one
+but no fresh credential to log) and its own test coverage, which this pass did not have room for
+without compromising the review/verification bar on the rest of the feature. A failed local/LDAP
+login — the highest-volume, most actionable case (credential stuffing, password guessing) — is
+covered; a follow-up work package should extend `login.failed` to the OAuth callback, `loginTFA()`,
+and passkey verification catches, following the same `actorFromRequest`-less, no-local-user shape the
+local-strategy failure site already uses (`{ id: null, name: <best available identifier>, ip }`).
