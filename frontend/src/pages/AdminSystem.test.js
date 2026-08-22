@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import AdminSystem from './AdminSystem.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
+import { isActive as loadingIsActive } from '@/composables/loading'
+import { queue } from '@/composables/notify'
 
 /**
  * Task 605 verification pass: `GET /_api/system/info` (`system.ts:77-216`) surfaces `isSchedulerHealthy`
@@ -110,6 +112,41 @@ describe('AdminSystem diagnostics fields', () => {
 
     expect(wrapper.text()).toContain('Automatic Upgrades')
     expect(wrapper.text()).toContain('Enabled')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #947: `load()` ran `await API_CLIENT.get('system/info')` bare between `loading.show()`
+ * and `loading.hide()`, unlike every sibling admin page's own `load()` -- a network blip, 403, or
+ * restarting backend left the full-screen blocking overlay stuck up forever with the error only in
+ * the console.
+ */
+describe('AdminSystem load() error handling (OpenProject #947)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('hides the loading overlay and notifies instead of leaving it stuck when load() rejects', async () => {
+    queue.splice(0, queue.length)
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.reject(new Error('Network error'))
+    })
+
+    const wrapper = mountPage()
+    // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually elapse
+    //    for `isActive` to ever flip `true` at all; advancing past it is what would have caught the
+    //    overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never reaches the
+    //    matching `loading.hide()` below it.
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(loadingIsActive.value).toBe(false)
+    expect(queue.at(-1)).toMatchObject({ type: 'negative', caption: 'Network error' })
 
     wrapper.unmount()
   })

@@ -475,6 +475,25 @@ let siteBlocks = []
  */
 let debouncedContentChange = null
 let debouncedCursorPositionChange = null
+/**
+ * Stop handles for the two collab watchers started in `onMounted`, kept for the same reason as the
+ * debounced handlers above: both are created after this hook's first `await` (the settings/blocks
+ * fetch), and Vue only auto-binds a `watch()` to the component's effect scope when it is created
+ * synchronously during setup -- one created after an `await` is never auto-stopped on unmount, and
+ * fires on for the life of the store. Left running past unmount, the `status` watcher calls
+ * `editor.updateOptions()` against an editor `onBeforeUnmount` has already `dispose()`d (a console
+ * error on every exit from a collab-enabled edit), and the `lastSave` watcher fires once per past
+ * mount for a save from another collaborator -- duplicate "saved by X" notifications (OpenProject
+ * #942). Explicitly `stop()`ed below instead.
+ */
+let stopCollabStatusWatch = null
+let stopCollabLastSaveWatch = null
+/**
+ * The pending `editor.focus()` timeout `insertAssetClb` schedules 500ms after an insert, kept so
+ * `onBeforeUnmount` can `clearTimeout()` it -- left to fire after unmount it calls `.focus()` on an
+ * editor `dispose()` has already torn down (OpenProject #943's related minor).
+ */
+let insertAssetFocusTimeout = null
 const monacoRef = ref(null)
 const editorPreviewContainerRef = ref(null)
 const editorMidRef = ref(null)
@@ -665,7 +684,8 @@ function insertAssetClb(opts) {
     }
   }
   insertAtCursor({ content, focus: false })
-  setTimeout(() => {
+  clearTimeout(insertAssetFocusTimeout)
+  insertAssetFocusTimeout = setTimeout(() => {
     editor.focus()
   }, 500)
 }
@@ -2059,7 +2079,7 @@ onMounted(async () => {
     editor.updateOptions({ readOnly: true })
     startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
 
-    watch(
+    stopCollabStatusWatch = watch(
       () => collabStore.status,
       (status) => {
         const effects = collabStatusEffects(status, collabStore.hasSynced)
@@ -2086,7 +2106,7 @@ onMounted(async () => {
       Somebody else saved the page. The editor state has already been put back to "nothing pending" by
       the session -- this is only so that the author is told why their Save button went quiet.
     */
-    watch(
+    stopCollabLastSaveWatch = watch(
       () => collabStore.lastSave,
       (lastSave) => {
         if (lastSave && lastSave.authorId !== userStore.id) {
@@ -2137,6 +2157,13 @@ onBeforeUnmount(() => {
   //    returns `null`, and the cursor handler crashed reading `.lineNumber` off it (OpenProject #808).
   debouncedContentChange?.cancel()
   debouncedCursorPositionChange?.cancel()
+  clearTimeout(insertAssetFocusTimeout)
+  // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- these were
+  //    started after `onMounted`'s first `await` so Vue never auto-bound them to this component's
+  //    effect scope, and left running they fire past unmount against a disposed editor (OpenProject
+  //    #942).
+  stopCollabStatusWatch?.()
+  stopCollabLastSaveWatch?.()
   // -> Before the editor goes: the binding is holding the model, and leaving the room is what takes
   //    this author's avatar out of everyone else's header
   stopCollabSession()

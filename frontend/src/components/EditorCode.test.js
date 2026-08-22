@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { nextTick } from 'vue'
 
+import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 
@@ -57,11 +58,13 @@ function mountEditor(initialContent = '') {
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
+  const editorStore = useEditorStore()
+
   const wrapper = mount(EditorCode, {
     global: { plugins: [i18n] }
   })
 
-  return { wrapper, pageStore, siteStore }
+  return { wrapper, pageStore, siteStore, editorStore }
 }
 
 /** The debounced content-change handler `EditorCode.vue` registers, captured off the fake editor. */
@@ -175,6 +178,47 @@ describe('EditorCode', () => {
 
     EVENT_BUS.emit('insertAsset', { type: 'asset', mimeType: 'image/png', title: 'x' })
     expect(fakeEditor.executeEdits).not.toHaveBeenCalled()
+  })
+
+  /**
+   * OpenProject #943: `pageSave()` calls `editorStore.contentFlusher?.()` before saving specifically
+   * because the content-change handler is debounced -- without a registered flusher, typing then
+   * immediately clicking Save (or Ctrl+S) within the 500ms window saves the page without the last
+   * edits (the #806 bug class).
+   */
+  it('registers a contentFlusher that writes the editor value immediately, bypassing the debounce', () => {
+    const { pageStore, editorStore } = mountEditor('')
+    fakeEditor.getValue.mockReturnValue('<h1>Flushed</h1>')
+
+    expect(editorStore.contentFlusher).toBeTypeOf('function')
+    editorStore.contentFlusher()
+
+    expect(pageStore.content).toBe('<h1>Flushed</h1>')
+    expect(pageStore.render).toBe('<h1>Flushed</h1>')
+  })
+
+  it('clears its own contentFlusher on unmount', () => {
+    const { wrapper, editorStore } = mountEditor('')
+
+    wrapper.unmount()
+
+    expect(editorStore.contentFlusher).toBe(null)
+  })
+
+  /**
+   * OpenProject #943, the #808 bug class: a debounced content-change call still pending at unmount
+   * used to fire ~500ms later against the already-disposed editor. Typing then unmounting within the
+   * debounce window must not touch the store afterward.
+   */
+  it('cancels the pending debounced content change on unmount instead of firing it later', () => {
+    const { wrapper, pageStore } = mountEditor('original')
+    fakeEditor.getValue.mockReturnValue('typed but not yet flushed')
+
+    changeHandler()()
+    wrapper.unmount()
+    vi.advanceTimersByTime(500)
+
+    expect(pageStore.content).toBe('original')
   })
 
   /**

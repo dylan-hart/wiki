@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -10,6 +10,7 @@ import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+import { isActive as loadingIsActive } from '@/composables/loading'
 
 /**
  * Regression test: `<blueprint-icon indicator ...>` (a bare attribute, no `:` binding) always sends
@@ -442,5 +443,52 @@ describe('AdminGeneral save() hostname-rename handling', () => {
     // -> The success toast from the save itself is the LAST thing notified in this branch -- no
     //    warning toast follows it, unlike the rename case above.
     expect(notifyQueue.at(-1)?.type).toBe('positive')
+  })
+})
+
+/**
+ * OpenProject #947: `load()` ran `await API_CLIENT.get(...)` bare between `loading.show()`/
+ * `loading.hide()`, unlike every sibling admin page's own `load()` -- a network blip, 403, or
+ * restarting backend left the full-screen blocking overlay stuck up forever with the error only in
+ * the console.
+ */
+describe('AdminGeneral load() error handling (OpenProject #947)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('hides the loading overlay and notifies instead of leaving it stuck when load() rejects', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.currentSiteId = 'site-1'
+    const userStore = useUserStore()
+    userStore.permissions = ['manage:sites']
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.reject(new Error('Network error')) })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/_admin/:siteid/general', component: { template: '<div />' } }]
+    })
+    router.push('/_admin/site-1/general')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(AdminGeneral, { global: { plugins: [router, i18n] } })
+    // -> `loading.show()`'s own 500ms delay -- see `composables/loading.js` -- has to actually
+    //    elapse for `isActive` to ever flip `true` at all; advancing past it is what would have
+    //    caught the overlay stuck on `true` forever pre-fix, since a bare, unguarded `await` never
+    //    reaches the matching `loading.hide()` below it.
+    await vi.advanceTimersByTimeAsync(600)
+
+    expect(loadingIsActive.value).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative', caption: 'Network error' })
+
+    wrapper.unmount()
   })
 })

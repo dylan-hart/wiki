@@ -1738,6 +1738,7 @@
   "common.error.disabled.title": "Site Disabled",
   "common.error.generic.hint": "Oops, something went wrong...",
   "common.error.generic.title": "Unexpected Error",
+  "common.error.navigationFailed": "Navigation failed. Please try again, or reload the page.",
   "common.error.notfound.hint": "That page doesn't exist or is not available.",
   "common.error.notfound.title": "Not Found",
   "common.error.title": "Error",

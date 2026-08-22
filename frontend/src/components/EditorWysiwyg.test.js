@@ -237,4 +237,181 @@ describe('EditorWysiwyg', () => {
 
     wrapper.unmount()
   })
+
+  /**
+   * OpenProject #944, item 1: the Image toolbar button only ever opened the File Manager -- nothing
+   * listened for the `insertAsset` event it emits back, so a picked image was silently dropped.
+   */
+  describe('inserting assets from the file manager (OpenProject #944)', () => {
+    it('inserts a real image node for an image asset', async () => {
+      const { wrapper } = mountEditor('<p></p>')
+      await nextTick()
+
+      EVENT_BUS.emit('insertAsset', {
+        type: 'asset',
+        mimeType: 'image/png',
+        title: 'Photo',
+        folderPath: 'media',
+        fileName: 'photo.png'
+      })
+      await nextTick()
+
+      const json = wrapper.vm.editor.getJSON()
+      const imageNode = json.content.flatMap((n) => n.content ?? n).find((n) => n.type === 'image')
+      expect(imageNode?.attrs.src).toBe('/media/photo.png')
+      expect(imageNode?.attrs.alt).toBe('Photo')
+
+      wrapper.unmount()
+    })
+
+    it('links inserted text for a non-image asset', async () => {
+      const { wrapper } = mountEditor('')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection(1)
+
+      EVENT_BUS.emit('insertAsset', {
+        type: 'asset',
+        mimeType: 'application/pdf',
+        title: 'Report',
+        folderPath: '',
+        fileName: 'report.pdf'
+      })
+      await nextTick()
+
+      const linked = findLinkTextNode(wrapper.vm.editor)
+      expect(linked?.text).toBe('Report')
+      const mark = linked.marks.find((m) => m.type.name === 'link')
+      expect(mark.attrs.href).toBe('/report.pdf')
+
+      wrapper.unmount()
+    })
+
+    it('links inserted text for a page', async () => {
+      const { wrapper } = mountEditor('')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection(1)
+
+      EVENT_BUS.emit('insertAsset', {
+        type: 'page',
+        title: 'Getting Started',
+        folderPath: 'docs',
+        fileName: 'getting-started'
+      })
+      await nextTick()
+
+      const linked = findLinkTextNode(wrapper.vm.editor)
+      expect(linked?.text).toBe('Getting Started')
+      const mark = linked.marks.find((m) => m.type.name === 'link')
+      expect(mark.attrs.href).toBe('/docs/getting-started')
+
+      wrapper.unmount()
+    })
+
+    it('stops listening once unmounted', async () => {
+      const { wrapper } = mountEditor('<p></p>')
+      await nextTick()
+
+      wrapper.unmount()
+      EVENT_BUS.emit('insertAsset', { type: 'asset', mimeType: 'image/png', title: 'x' })
+
+      // -> No assertion beyond "does not throw": the destroyed editor's commands would throw against
+      //    a torn-down view if the listener were still wired.
+    })
+  })
+
+  /**
+   * OpenProject #944, item 2: every "Text Color" entry called `toggleHighlight()` with no color, and
+   * every "Highlight" entry called it with no `{ color }` despite `Highlight.configure({ multicolor:
+   * true })` -- so all 16 entries produced the identical default highlight, and neither dropdown's
+   * `isActive` matched a real mark name.
+   */
+  describe('text color and highlight (OpenProject #944)', () => {
+    function findMenuItem(wrapper, key) {
+      return wrapper.vm.menuBar.find((item) => item.key === key)
+    }
+
+    function findChild(wrapper, key, childKey) {
+      return findMenuItem(wrapper, key).children.find((child) => child.key === childKey)
+    }
+
+    it('applies a distinct color per Text Color entry via setColor, not toggleHighlight', async () => {
+      const { wrapper } = mountEditor('Hello')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection({ from: 1, to: 6 })
+
+      findChild(wrapper, 'color', 'color-blue').action()
+      await nextTick()
+      expect(wrapper.vm.editor.getAttributes('textStyle').color).toBe('#1976D2')
+      expect(wrapper.vm.editor.isActive('highlight')).toBe(false)
+
+      findChild(wrapper, 'color', 'color-red').action()
+      await nextTick()
+      expect(wrapper.vm.editor.getAttributes('textStyle').color).toBe('#D32F2F')
+
+      findChild(wrapper, 'color', 'color-remove').action()
+      await nextTick()
+      expect(wrapper.vm.editor.getAttributes('textStyle').color).toBeFalsy()
+
+      wrapper.unmount()
+    })
+
+    it('applies a distinct background per Highlight entry via toggleHighlight({ color })', async () => {
+      const { wrapper } = mountEditor('Hello')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection({ from: 1, to: 6 })
+
+      findChild(wrapper, 'highlight', 'highlight-yellow').action()
+      await nextTick()
+      expect(wrapper.vm.editor.getAttributes('highlight').color).toBe('#FFF59D')
+
+      findChild(wrapper, 'highlight', 'highlight-blue').action()
+      await nextTick()
+      expect(wrapper.vm.editor.getAttributes('highlight').color).toBe('#90CAF9')
+
+      findChild(wrapper, 'highlight', 'highlight-remove').action()
+      await nextTick()
+      expect(wrapper.vm.editor.isActive('highlight')).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it("lights up each entry's own isActive only when its own color is applied", async () => {
+      const { wrapper } = mountEditor('Hello')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection({ from: 1, to: 6 })
+
+      findChild(wrapper, 'color', 'color-green').action()
+      await nextTick()
+
+      expect(findChild(wrapper, 'color', 'color-green').isActive()).toBe(true)
+      expect(findChild(wrapper, 'color', 'color-red').isActive()).toBe(false)
+      expect(findMenuItem(wrapper, 'color').isActive()).toBe(true)
+
+      wrapper.unmount()
+    })
+  })
+
+  /**
+   * OpenProject #944, item 3: `TextAlign` was registered unconfigured, so its default `types: []`
+   * made `setTextAlign()` map over an empty node-type list and every alignment button a no-op.
+   */
+  describe('text alignment (OpenProject #944)', () => {
+    it('actually sets alignment on the current paragraph', async () => {
+      const { wrapper } = mountEditor('Hello world')
+      await nextTick()
+      wrapper.vm.editor.commands.setTextSelection(1)
+
+      const alignItem = wrapper.vm.menuBar.find((item) => item.key === 'align')
+      const centerChild = alignItem.children.find((child) => child.key === 'align-center')
+
+      expect(centerChild.isActive()).toBe(false)
+      centerChild.action()
+      await nextTick()
+
+      expect(centerChild.isActive()).toBe(true)
+      expect(wrapper.vm.editor.getAttributes('paragraph').textAlign).toBe('center')
+
+      wrapper.unmount()
+    })
+  })
 })

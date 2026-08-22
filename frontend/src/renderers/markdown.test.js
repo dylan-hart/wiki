@@ -499,3 +499,27 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
     expect(html).not.toContain('glossary-term')
   })
 })
+
+/**
+ * `lineCount > 1 && 'line-numbers'` interpolated the boolean `false` itself into the class attribute
+ * for any single-line fence, since `&&` short-circuits to its left operand rather than an empty
+ * string. Since this render is both the live preview AND what gets saved to the page, that literal
+ * class `false` used to be written into every page's stored HTML permanently (OpenProject #946).
+ */
+describe('MarkdownRenderer -- codeblock class attribute (OpenProject #946)', () => {
+  it('never interpolates the literal string "false" for a single-line code block', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('```js\nconst x = 1\n```')
+
+    expect(html).toContain('class="codeblock hljs"')
+    expect(html).not.toMatch(/class="codeblock hljs[^"]*false/)
+  })
+
+  it('adds the line-numbers class for a multi-line code block, with no stray "false"', () => {
+    const md = new MarkdownRenderer({})
+    const html = md.render('```js\nconst x = 1\nconst y = 2\n```')
+
+    expect(html).toContain('class="codeblock hljs line-numbers"')
+    expect(html).not.toContain('false')
+  })
+})

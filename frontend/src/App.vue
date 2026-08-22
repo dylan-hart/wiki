@@ -511,4 +511,22 @@ router.afterEach(() => {
   }
   commonStore.routerLoading = false
 })
+
+/*
+  `beforeEach` sets `routerLoading = true` and `afterEach` above is what clears it -- but Vue Router
+  does not run `afterEach` when a navigation ERRORS (as opposed to being aborted/cancelled, which
+  `afterEach` DOES still fire for -- see its own comment above). A lazily-imported route chunk
+  failing to load (a redeploy that changed the built asset's hash out from under a tab that already
+  had the app open) or an exception thrown inside a guard lands in `router.onError` instead, and
+  with no handler registered anywhere, the header spinner spins forever with nothing telling the
+  reader why (OpenProject #951).
+*/
+router.onError((err) => {
+  commonStore.routerLoading = false
+  notify({
+    type: 'negative',
+    message: i18n.t('common.error.navigationFailed'),
+    caption: err.message
+  })
+})
 </script>

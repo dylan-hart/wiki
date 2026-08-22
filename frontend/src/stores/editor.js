@@ -112,7 +112,11 @@ export const useEditorStore = defineStore('editor', {
         this.pendingAssets.push({
           id: fileId,
           kind: 'blob',
-          file: new File(data, fileName, { type: data.type }),
+          // -> The `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` -- `data`
+          //    wrapped in an array is what a raw Blob (e.g. canvas `toBlob` output) needs here;
+          //    passing it directly threw `The "sources" argument must be a sequence`
+          //    (OpenProject #952).
+          file: new File([data], fileName, { type: data.type }),
           fileName,
           blobUrl
         })

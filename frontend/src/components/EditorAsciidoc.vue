@@ -84,6 +84,14 @@ const { t } = useI18n()
 // STATE
 
 let editor
+/**
+ * The `debounce()`-wrapped content-change handler, kept only so `onBeforeUnmount` can `cancel()` it.
+ * Without this, a debounced call still pending when the component unmounts fires ~500ms later,
+ * reading `editor.getValue()` off the already-`dispose()`d editor and potentially patching
+ * `pageStore.content` after the session has ended (the #808 bug class; see `EditorMarkdown.vue`'s
+ * matching comment) (OpenProject #943).
+ */
+let debouncedContentChange = null
 const monacoRef = ref(null)
 const renderer = new AsciidocRenderer()
 
@@ -224,17 +232,16 @@ onMounted(() => {
   })
 
   // -> Handle content change
-  editor.onDidChangeModelContent(
-    debounce(() => {
-      editorStore.$patch({
-        lastChangeTimestamp: Temporal.Now.instant()
-      })
-      // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-      //    the guard in `pageSave`
-      pageStore.contentLoaded = true
-      flushEditorContent()
-    }, 500)
-  )
+  debouncedContentChange = debounce(() => {
+    editorStore.$patch({
+      lastChangeTimestamp: Temporal.Now.instant()
+    })
+    // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+    //    the guard in `pageSave`
+    pageStore.contentLoaded = true
+    flushEditorContent()
+  }, 500)
+  editor.onDidChangeModelContent(debouncedContentChange)
 
   editor.focus()
 
@@ -246,6 +253,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
+  // -> A pending debounced call left uncancelled fires ~500ms after unmount, against an editor that
+  //    `dispose()` (below) has already torn down (OpenProject #943, the #808 bug class).
+  debouncedContentChange?.cancel()
   if (editor) {
     editor.dispose()
   }

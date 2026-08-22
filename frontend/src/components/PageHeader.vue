@@ -664,7 +664,9 @@ async function saveChanges(closeAfter = false) {
 }
 
 async function saveChangesCommit(closeAfter = false) {
-  await processPendingAssets()
+  if (!(await processPendingAssets())) {
+    return
+  }
   loading.show()
   try {
     const result = await pageStore.pageSave()
@@ -721,7 +723,9 @@ async function saveChangesCommit(closeAfter = false) {
 async function createPage() {
   // Handle home page creation flow
   if (pageStore.path === 'home') {
-    await processPendingAssets()
+    if (!(await processPendingAssets())) {
+      return
+    }
     loading.show()
     try {
       await pageStore.pageSave()
@@ -755,7 +759,9 @@ async function createPage() {
       locale: pageStore.locale
     }
   }).onOk(async ({ path, title }) => {
-    await processPendingAssets()
+    if (!(await processPendingAssets())) {
+      return
+    }
 
     loading.show()
     try {
@@ -782,19 +788,30 @@ async function createPage() {
   })
 }
 
+/**
+ * Uploads whatever assets are pending, if any. Resolves `true` when the caller may proceed with the
+ * save/create it was about to do, `false` when the upload was cancelled or failed and the caller
+ * should stop instead.
+ *
+ * Resolves rather than rejecting on cancel: `dialog()`'s `.onCancel(cb)` invokes `cb` with no
+ * argument (`composables/dialog.js`'s `closeDialog`), so `.onCancel(reject)` used to reject this
+ * promise with `undefined` as the reason -- every one of the three call sites below awaits this
+ * outside a try/catch (their own enclosing handlers are not awaited by whatever triggered them
+ * either), so a cancelled/failed upload surfaced as an unhandled promise rejection with no message
+ * (OpenProject #945).
+ */
 async function processPendingAssets() {
-  if (editorStore.pendingAssets?.length > 0) {
-    return new Promise((resolve, reject) => {
-      dialog({
-        component: defineAsyncComponent(
-          () => import('../components/UploadPendingAssetsDialog.vue')
-        ),
-        persistent: true
-      })
-        .onOk(resolve)
-        .onCancel(reject)
-    })
+  if (!(editorStore.pendingAssets?.length > 0)) {
+    return true
   }
+  return new Promise((resolve) => {
+    dialog({
+      component: defineAsyncComponent(() => import('../components/UploadPendingAssetsDialog.vue')),
+      persistent: true
+    })
+      .onOk(() => resolve(true))
+      .onCancel(() => resolve(false))
+  })
 }
 
 async function editPage() {
