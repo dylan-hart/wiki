@@ -62,8 +62,15 @@ const nanoid = customAlphabet('1234567890abcdef', 10)
  * Files a browser or a crawler asks for at the root by convention, rather than because the wiki has a
  * page there. Kept out of the page URL rules below — `txt` is a page extension on a default site, and
  * answering `/robots.txt` with a redirect to `/robots` would be answering the wrong question.
+ *
+ * `metrics` rides along for the same reason despite not being a "file": `controllers/metrics.ts`
+ * registers an unprefixed `/metrics` for Prometheus's fixed scrape convention, which without this
+ * entry `isPageUrl()` below reads as a page navigation — a scrape against a hostname mapping to no
+ * site (or a disabled one) would 302 to `/_error/unknownsite` / `/_error/disabled` before ever
+ * reaching the registered route, and Prometheus follows redirects by default, so it would fail
+ * parsing the SPA shell instead of getting a scrape failure that says why (OpenProject #938).
  */
-const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml'])
+const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml', 'metrics'])
 
 /**
  * First path segments the SERVER itself answers — every prefix registered in `initHTTPServer`.
