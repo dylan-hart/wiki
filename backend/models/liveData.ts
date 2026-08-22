@@ -68,10 +68,11 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  */
 class LiveData {
   /**
-   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, an unmatched JSONPath, or
-   *   a URL resolving to a private/loopback/link-local address, `Not Found` (404) for a `credentialId`
-   *   with no matching row on this site, `Bad Gateway` (502) for a network failure, a non-2xx
-   *   response, or a response body that isn't JSON.
+   * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, an unmatched JSONPath, a
+   *   URL resolving to a private/loopback/link-local address, or a URL outside a given credential's
+   *   allowed domains, `Not Found` (404) for a `credentialId` with no matching row on this site,
+   *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
+   *   JSON.
    */
   async resolve(siteId: string, request: LiveDataRequest): Promise<LiveDataResult> {
     let url: URL
