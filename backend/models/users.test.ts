@@ -5,7 +5,9 @@ import { eq } from 'drizzle-orm'
 import { matchRecoveryCode, users } from './users.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
+  assets as assetsTable,
   authentication as authenticationTable,
+  pages as pagesTable,
   userKeys,
   users as usersTable
 } from '../db/schema.ts'
@@ -1445,5 +1447,201 @@ describe('users.login (form-based provider auto-provisioning)', () => {
       /ERR_INVALID_STRATEGY/
     )
     assert.equal(findOrCreate.mock.calls.length, 0)
+  })
+})
+
+/**
+ * `reassignContent`'s three refusals (same user, unknown target, target is a system account) all run
+ * before the method ever opens its transaction, off nothing but `getById()`'s return value — so they
+ * are tested by mocking that one collaborator, the same way `users.loginTFA`'s suite above mocks its
+ * own collaborators, rather than paying for a database connection to prove a branch that never issues
+ * a query.
+ */
+describe('users.reassignContent validation', () => {
+  test('refuses to reassign a user onto themselves, without looking the target up', async (t) => {
+    const getById = t.mock.method(users, 'getById', async () => {
+      throw new Error('should not be called')
+    })
+
+    await assert.rejects(users.reassignContent('user-1', 'user-1'), /ERR_REASSIGN_SAME_USER/)
+    assert.equal(getById.mock.callCount(), 0)
+  })
+
+  test('refuses a target user that does not exist', async (t) => {
+    t.mock.method(users, 'getById', async () => null)
+
+    await assert.rejects(users.reassignContent('user-1', 'user-2'), /ERR_INVALID_USER/)
+  })
+
+  test('refuses a target user that is a system account', async (t) => {
+    t.mock.method(users, 'getById', async () => ({ id: 'user-2', isSystem: true }))
+
+    await assert.rejects(users.reassignContent('user-1', 'user-2'), /ERR_REASSIGN_TARGET_IS_SYSTEM/)
+  })
+})
+
+/**
+ * `reassignContent` is SQL orchestration over two tables inside one transaction — exactly the
+ * `models/pages.test.ts`-style case CLAUDE.md calls out for a real database rather than a query
+ * builder mock. Pages and assets are seeded with raw inserts (bypassing `pages.createPage()`/the
+ * asset upload path entirely) since only the `authorId`/`creatorId`/`ownerId` columns this method
+ * touches matter here.
+ */
+describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+  let targetUserId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+
+    const [target] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'target@example.com',
+        name: 'Target User',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    targetUserId = target!.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function rawPageRow(overrides: {
+    path: string
+    authorId: string
+    creatorId: string
+    ownerId: string
+  }) {
+    return {
+      locale: 'en',
+      path: overrides.path,
+      hash: `reassign-hash-${overrides.path}`,
+      title: 'Reassign Me',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: overrides.authorId,
+      creatorId: overrides.creatorId,
+      ownerId: overrides.ownerId,
+      siteId: fixtures.siteId
+    }
+  }
+
+  function rawAssetRow(overrides: { fileName: string; authorId: string }) {
+    return {
+      fileName: overrides.fileName,
+      fileExt: 'png',
+      authorId: overrides.authorId,
+      siteId: fixtures.siteId
+    }
+  }
+
+  test('reassigns a page that names the departing user in only one of authorId/creatorId/ownerId', async () => {
+    const [page] = await fixtures.db
+      .insert(pagesTable)
+      .values(
+        rawPageRow({
+          path: 'reassign/single-column',
+          authorId: fixtures.userId,
+          creatorId: targetUserId,
+          ownerId: targetUserId
+        })
+      )
+      .returning()
+
+    const result = await usersModel.reassignContent(fixtures.userId, targetUserId)
+
+    assert.equal(result.pagesReassigned, 1)
+    const [reloaded] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(eq(pagesTable.id, page!.id))
+    assert.equal(reloaded!.authorId, targetUserId)
+    assert.equal(reloaded!.creatorId, targetUserId)
+    assert.equal(reloaded!.ownerId, targetUserId)
+  })
+
+  test('reassigns a page naming the departing user in all three columns, counted once', async () => {
+    const [page] = await fixtures.db
+      .insert(pagesTable)
+      .values(
+        rawPageRow({
+          path: 'reassign/all-columns',
+          authorId: fixtures.userId,
+          creatorId: fixtures.userId,
+          ownerId: fixtures.userId
+        })
+      )
+      .returning()
+
+    const result = await usersModel.reassignContent(fixtures.userId, targetUserId)
+
+    assert.equal(result.pagesReassigned, 1)
+    const [reloaded] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(eq(pagesTable.id, page!.id))
+    assert.equal(reloaded!.authorId, targetUserId)
+    assert.equal(reloaded!.creatorId, targetUserId)
+    assert.equal(reloaded!.ownerId, targetUserId)
+  })
+
+  test('does not touch a page that never named the departing user', async () => {
+    const [untouched] = await fixtures.db
+      .insert(pagesTable)
+      .values(
+        rawPageRow({
+          path: 'reassign/untouched',
+          authorId: targetUserId,
+          creatorId: targetUserId,
+          ownerId: targetUserId
+        })
+      )
+      .returning()
+
+    await usersModel.reassignContent(fixtures.userId, targetUserId)
+
+    const [reloaded] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(eq(pagesTable.id, untouched!.id))
+    assert.equal(reloaded!.authorId, targetUserId)
+  })
+
+  test('reassigns every asset the departing user authored', async () => {
+    const [asset] = await fixtures.db
+      .insert(assetsTable)
+      .values(rawAssetRow({ fileName: 'reassign-me.png', authorId: fixtures.userId }))
+      .returning()
+
+    const result = await usersModel.reassignContent(fixtures.userId, targetUserId)
+
+    assert.equal(result.assetsReassigned, 1)
+    const [reloaded] = await fixtures.db
+      .select()
+      .from(assetsTable)
+      .where(eq(assetsTable.id, asset!.id))
+    assert.equal(reloaded!.authorId, targetUserId)
+  })
+
+  test('reports zero for both counts when the departing user owns nothing', async () => {
+    const [freshUser] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'nothing-owned@example.com',
+        name: 'Nothing Owned',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+
+    const result = await usersModel.reassignContent(freshUser!.id, targetUserId)
+
+    assert.deepEqual(result, { pagesReassigned: 0, assetsReassigned: 0 })
   })
 })
