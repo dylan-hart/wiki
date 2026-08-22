@@ -188,6 +188,63 @@ describe('block-checklist', () => {
     expect(globalThis.API_CLIENT.post).not.toHaveBeenCalled()
   })
 
+  describe('run history', () => {
+    it('fetches and shows past executions on toggle, once, lazily', async () => {
+      globalThis.API_CLIENT.get = vi
+        .fn()
+        .mockReturnValueOnce({ json: () => Promise.resolve(null) })
+        .mockReturnValueOnce({
+          json: () =>
+            Promise.resolve([
+              stubExecution({
+                id: 'exec-old',
+                checkedCount: 2,
+                completedAt: '2026-01-01T09:00:00.000Z',
+                completedByName: 'Bob'
+              })
+            ])
+        })
+
+      const el = await mountChecklist()
+      expect(el.shadowRoot.querySelector('.history')).toBeNull()
+
+      el.shadowRoot.querySelector('.history-toggle').click()
+      await el.updateComplete
+      await new Promise((resolve) => queueMicrotask(resolve))
+      await el.updateComplete
+
+      expect(globalThis.API_CLIENT.get).toHaveBeenCalledTimes(2)
+      expect(globalThis.API_CLIENT.get).toHaveBeenLastCalledWith(
+        `sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/executions`
+      )
+      const row = el.shadowRoot.querySelector('.history li')
+      expect(row.textContent).toContain('Bob')
+      expect(row.textContent).toContain('2 of 2 checked')
+
+      // -> Closing and reopening must not fetch a second time
+      el.shadowRoot.querySelector('.history-toggle').click()
+      await el.updateComplete
+      el.shadowRoot.querySelector('.history-toggle').click()
+      await el.updateComplete
+      expect(globalThis.API_CLIENT.get).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows an empty state for a checklist with no previous runs', async () => {
+      globalThis.API_CLIENT.get = vi
+        .fn()
+        .mockReturnValueOnce({ json: () => Promise.resolve(null) })
+        .mockReturnValueOnce({ json: () => Promise.resolve([]) })
+
+      const el = await mountChecklist()
+      el.shadowRoot.querySelector('.history-toggle').click()
+      await el.updateComplete
+      await new Promise((resolve) => queueMicrotask(resolve))
+      await el.updateComplete
+
+      expect(el.shadowRoot.querySelector('.history').textContent).toContain('No previous runs')
+    })
+  })
+
   describe('dark mode', () => {
     beforeEach(() => {
       document.body.classList.remove('body--dark')

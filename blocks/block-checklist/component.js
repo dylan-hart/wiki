@@ -130,6 +130,32 @@ export class BlockChecklistElement extends LitElement {
         opacity: 0.65;
       }
 
+      .history-toggle {
+        margin-top: 0.75rem;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        font-size: 0.8em;
+        color: var(--q-primary, #1976d2);
+        cursor: pointer;
+      }
+
+      .history {
+        margin-top: 0.6rem;
+        padding-top: 0.6rem;
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+        gap: 0.4rem;
+      }
+      :host([dark]) .history {
+        border-color: rgba(255, 255, 255, 0.15);
+      }
+
+      .history li {
+        font-size: 0.8em;
+        opacity: 0.85;
+      }
+
       .error {
         color: var(--q-negative, #c10015);
         border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
@@ -152,7 +178,10 @@ export class BlockChecklistElement extends LitElement {
       _execution: { state: true },
       _loading: { state: true },
       _error: { state: true },
-      _pending: { state: true }
+      _pending: { state: true },
+      _historyOpen: { state: true },
+      _history: { state: true },
+      _historyLoading: { state: true }
     }
   }
 
@@ -165,6 +194,10 @@ export class BlockChecklistElement extends LitElement {
     this._loading = true
     this._error = ''
     this._pending = new Set()
+    this._historyOpen = false
+    // -> `null` means "not fetched yet", told apart from an empty array (fetched, no runs at all).
+    this._history = null
+    this._historyLoading = false
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
@@ -244,6 +277,55 @@ export class BlockChecklistElement extends LitElement {
     }
   }
 
+  /**
+   * Opens or closes the run history — the per-execution view the spec calls for ("run started at X,
+   * completed by Y, N of M items checked"), one row per past run. Fetched once, lazily, and cached
+   * for the life of this element: a run log an author is reviewing does not change out from under
+   * them mid-read, and re-fetching on every toggle would only cost a round trip for no benefit.
+   */
+  async _toggleHistory() {
+    this._historyOpen = !this._historyOpen
+    if (!this._historyOpen || this._history !== null) {
+      return
+    }
+    this._historyLoading = true
+    try {
+      this._history = await globalThis.API_CLIENT.get(`${this._basePath}/executions`).json()
+    } catch {
+      this._history = []
+      this._error = 'The run history could not be loaded.'
+    }
+    this._historyLoading = false
+  }
+
+  _renderHistoryRow(execution) {
+    const status = execution.completedAt
+      ? html`completed by ${execution.completedByName ?? 'someone'} at
+        ${formatInstant(execution.completedAt)}`
+      : html`in progress`
+    return html`
+      <li>
+        Started by ${execution.startedByName ?? 'someone'} at ${formatInstant(execution.startedAt)}
+        — ${execution.checkedCount} of ${execution.itemCount} checked, ${status}
+      </li>
+    `
+  }
+
+  _renderHistory() {
+    if (!this._historyOpen) {
+      return null
+    }
+    if (this._historyLoading) {
+      return html`<div class="history">Loading…</div>`
+    }
+    if (!this._history || this._history.length === 0) {
+      return html`<div class="history">No previous runs.</div>`
+    }
+    return html`<ul class="history">
+      ${this._history.map((execution) => this._renderHistoryRow(execution))}
+    </ul>`
+  }
+
   _renderSummary() {
     if (!this._execution) {
       return html`Not started yet — ${this._items.length} item${this._items.length === 1 ? '' : 's'}`
@@ -298,6 +380,10 @@ export class BlockChecklistElement extends LitElement {
         <ul>
           ${this._items.map((item) => this._renderItem(item))}
         </ul>
+        <button type="button" class="history-toggle" @click=${() => this._toggleHistory()}>
+          ${this._historyOpen ? 'Hide run history' : 'View run history'}
+        </button>
+        ${this._renderHistory()}
       </div>
     `
   }
