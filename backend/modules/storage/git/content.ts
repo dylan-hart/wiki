@@ -38,18 +38,6 @@ export function covers(target: StorageTarget, bucket: string): boolean {
 }
 
 /**
- * The `contentTypes.activeTypes` bucket an asset's `kind` classifies into.
- *
- * Exported for `actions.ts`: `syncUntracked`'s walk over every asset of the site needs the same
- * bucket gate a write-path event is checked against.
- */
-export function assetBucket(kind: string | undefined): string {
-  if (kind === 'image') return 'images'
-  if (kind === 'document') return 'documents'
-  return 'others'
-}
-
-/**
  * The locale segment a page's file path is written under, mirroring 2.5.x's namespacing: a page in
  * the site's primary locale is written bare, any other locale gets its own folder — so a single-locale
  * wiki (the common case) never sees a locale segment in its repo at all.
@@ -275,12 +263,21 @@ export async function deleted(target: StorageTarget, data: Record<string, any>):
   await git.commit(`docs: delete ${data.path}`, [relPath], authorOption(author))
 }
 
-/** An asset was created, or an existing one had its bytes replaced. */
+/**
+ * An asset was created, or an existing one had its bytes replaced.
+ *
+ * No `covers()` re-check here — unlike the page handlers above, an asset's bucket is size-aware
+ * (`models/storage.ts`'s `targetCoversEvent`, checked once before `Storage.dispatch()` ever queues
+ * this call), and a kind-only re-check here would disagree with it for a "large" file, silently
+ * dropping the event for a target configured to cover `large` but not the file's own kind bucket, or
+ * vice versa (OpenProject #924). `dispatchStorage` never calls this for a target dispatch already
+ * decided is not covered, matching the convention the `s3`/`azure`/`gcs` write-path handlers already
+ * follow — they trust the same gate rather than re-deriving it.
+ */
 export async function assetUploaded(
   target: StorageTarget,
   data: Record<string, any>
 ): Promise<void> {
-  if (!covers(target, assetBucket(data.kind))) return
   const { git, repoPath } = await ensureRepo(target)
   const content = await WIKI.models.assets.getContent(data.id)
   if (!content) return
@@ -289,12 +286,15 @@ export async function assetUploaded(
   await writeAndCommit(git, repoPath, relPath, content.data, `docs: upload ${relPath}`, author)
 }
 
-/** An asset moved to a new name — a git rename in a single commit, same reasoning as `renamed`. */
+/**
+ * An asset moved to a new name — a git rename in a single commit, same reasoning as `renamed`.
+ *
+ * No `covers()` re-check — see `assetUploaded`'s doc for why (OpenProject #924).
+ */
 export async function assetRenamed(
   target: StorageTarget,
   data: Record<string, any>
 ): Promise<void> {
-  if (!covers(target, assetBucket(data.kind))) return
   const { git, repoPath } = await ensureRepo(target)
   const oldRelPath = assetRelPath(data.folderPath, data.previousFileName)
   const newRelPath = assetRelPath(data.folderPath, data.fileName)
@@ -323,12 +323,15 @@ export async function assetRenamed(
   )
 }
 
-/** An asset was deleted. */
+/**
+ * An asset was deleted.
+ *
+ * No `covers()` re-check — see `assetUploaded`'s doc for why (OpenProject #924).
+ */
 export async function assetDeleted(
   target: StorageTarget,
   data: Record<string, any>
 ): Promise<void> {
-  if (!covers(target, assetBucket(data.kind))) return
   const { git, repoPath } = await ensureRepo(target)
   const relPath = assetRelPath(data.folderPath, data.fileName)
   if (!(await fileExists(path.join(repoPath, relPath)))) return

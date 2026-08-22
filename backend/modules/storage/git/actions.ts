@@ -5,11 +5,18 @@
  * All three reuse the plumbing built for the write-path handlers and `sync`, rather than
  * re-implementing it:
  *  - `ensureRepo` (`storage.ts`, task 504) for repo lifecycle/auth.
- *  - `pageRelPath`/`assetRelPath`/`assetBucket`/`covers`/`resolveAuthor`/`authorOption`
- *    (`content.ts`, task 506) for the DB→file mapping the forward direction already established.
+ *  - `pageRelPath`/`assetRelPath`/`covers`/`resolveAuthor`/`authorOption` (`content.ts`, task 506)
+ *    for the DB→file mapping the forward direction already established.
  *  - `processDiffEntry`/`resolveImportActor`/`DiffEntry` (`sync.ts`, task 507) for the file→DB upsert
  *    the reverse direction already established — `importAll` feeds it synthetic entries (see below)
  *    instead of a real `git diffSummary` line.
+ *
+ * `syncUntracked`'s asset walk gates on `belongsInTarget` (`helpers/blobTarget.ts`), the same
+ * size-aware bucket classification `Storage.dispatch()` gates a write-path event on and the
+ * `s3`/`azure`/`gcs` modules' own `exportAll` gates their bulk push on — not `content.ts`'s
+ * kind-only `covers(target, assetBucket(...))`, which would silently skip (or wrongly include) a
+ * "large" asset for a target that covers `large` but not the asset's own kind bucket, or vice versa
+ * (OpenProject #924).
  *
  * Verified against 2.5.x's own `syncUntracked`/`importAll`/`purge` (`server/modules/storage/git/
  * storage.js`, fetched and read directly rather than recalled from memory) for the shape each action
@@ -21,14 +28,8 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { SimpleGit } from 'simple-git'
 import type { StorageTarget } from '../../../models/storage.ts'
-import {
-  assetBucket,
-  assetRelPath,
-  authorOption,
-  covers,
-  pageRelPath,
-  resolveAuthor
-} from './content.ts'
+import { belongsInTarget } from '../../../helpers/blobTarget.ts'
+import { assetRelPath, authorOption, covers, pageRelPath, resolveAuthor } from './content.ts'
 import { processDiffEntry, resolveImportActor } from './sync.ts'
 import type { DiffEntry } from './sync.ts'
 import { ensureRepo, resolveRepoPath } from './storage.ts'
@@ -100,7 +101,7 @@ export async function syncUntracked(target: StorageTarget): Promise<void> {
 
   const assets = await WIKI.models.assets.listAllForSite(target.siteId)
   for (const asset of assets) {
-    if (!covers(target, assetBucket(asset.kind))) continue
+    if (!belongsInTarget(asset, target.contentTypes)) continue
     try {
       const relPath = assetRelPath(asset.folderPath, asset.fileName)
       const content = await WIKI.models.assets.getContent(asset.id)

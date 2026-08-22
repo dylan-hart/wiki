@@ -517,19 +517,23 @@ class Assets {
    */
   async listAllForSite(
     siteId: string
-  ): Promise<{ id: string; kind: AssetKind; folderPath: string; fileName: string }[]> {
+  ): Promise<
+    { id: string; kind: AssetKind; folderPath: string; fileName: string; fileSize: number }[]
+  > {
     const rows = await WIKI.db
       .select({
         id: assetsTable.id,
         kind: assetsTable.kind,
         folderPath: treeTable.folderPath,
-        fileName: assetsTable.fileName
+        fileName: assetsTable.fileName,
+        fileSize: assetsTable.fileSize
       })
       .from(assetsTable)
       .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
       .where(eq(assetsTable.siteId, siteId))
     return rows.map((row) => ({
       ...row,
+      fileSize: row.fileSize ?? 0,
       folderPath: decodeTreePath(row.folderPath ?? '') ?? ''
     }))
   }

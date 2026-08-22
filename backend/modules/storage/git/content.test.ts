@@ -423,17 +423,24 @@ describe('git storage content handlers', () => {
       assert.equal(commit?.message, 'docs: upload images/pic.png')
     })
 
-    test('does nothing when the target does not cover this asset kind', async () => {
+    // -> OpenProject #924: the handler no longer re-checks the target's content-type coverage —
+    //    `Storage.dispatch()` already gated this (size-aware) before queuing the job that calls it,
+    //    so a target whose row disagrees with dispatch's classification (e.g. edited between queueing
+    //    and delivery) is not second-guessed here. Matches `s3`/`azure`/`gcs`'s own write-path
+    //    handlers, which never re-check either.
+    test('writes the asset even though the target row itself would not cover this kind, trusting the dispatch that already gated it', async () => {
       installWiki(rootPath, {
-        assets: { a1: { data: Buffer.from('x'), mimeType: 'image/png', fileName: 'pic.png' } }
+        assets: {
+          a1: { data: Buffer.from('binarydata'), mimeType: 'image/png', fileName: 'pic.png' }
+        }
       })
-      const imagesOnlyTarget = makeTarget({
+      const documentsOnlyTarget = makeTarget({
         config: { ...target.config },
         contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
       })
-      const { repoPath } = await ensureRepo(imagesOnlyTarget)
+      const { repoPath } = await ensureRepo(documentsOnlyTarget)
 
-      await assetUploaded(imagesOnlyTarget, {
+      await assetUploaded(documentsOnlyTarget, {
         id: 'a1',
         fileName: 'pic.png',
         folderPath: '',
@@ -441,7 +448,7 @@ describe('git storage content handlers', () => {
         kind: 'image'
       })
 
-      await assert.rejects(fs.access(path.join(repoPath, 'pic.png')))
+      assert.equal(await fs.readFile(path.join(repoPath, 'pic.png'), 'utf8'), 'binarydata')
     })
   })
 
