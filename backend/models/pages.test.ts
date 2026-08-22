@@ -644,6 +644,42 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(untouchedFr!.path, 'docs/cascade-abort')
   })
 
+  test("movePage with includeTranslations: primary changing locale into a twin's own locale aborts the whole batch (OpenProject #1026)", async () => {
+    // -> The pre-transaction probes only see the DB as it is right now, so this collision -- the
+    //    primary landing in the SAME locale a twin is cascading into, at the SAME destination path --
+    //    isn't caught by either probe. It has to be caught by the `pages_siteId_locale_path_idx`
+    //    unique index firing mid-transaction and being translated to the same 409, the way a plain
+    //    two-request race already is.
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-swap', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-swap', locale: 'fr' }),
+      actor
+    )
+
+    await assert.rejects(
+      pagesModel.movePage(
+        fixtures.siteId,
+        en.id,
+        { path: 'docs/cascade-locale-swap-b', locale: 'fr', includeTranslations: true },
+        actor
+      ),
+      (err: any) => err.statusCode === 409 && err.name === 'pageDuplicatePath'
+    )
+
+    // -> Neither moved, and neither changed locale
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-locale-swap')
+    assert.equal(untouchedEn!.locale, 'en')
+    const untouchedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(untouchedFr!.path, 'docs/cascade-locale-swap')
+    assert.equal(untouchedFr!.locale, 'fr')
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
