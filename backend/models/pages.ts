@@ -608,8 +608,12 @@ class Pages {
    * "Immediate parent only" is the floor invariant's own scope (OpenProject #1080): a page is checked
    * against its immediate parent's classification, not the whole ancestor chain, since a real parent
    * already satisfies the floor against ITS OWN parent by induction.
+   *
+   * Public rather than private: `api/pages.ts`'s classification-conflicts resolve route needs it to
+   * enforce the same floor invariant against an admin-chosen target level (see that route's own
+   * comment on why `bulkSetClassification` alone was not enough).
    */
-  private async parentClassification(
+  async parentClassification(
     siteId: string,
     locale: string,
     path: string,

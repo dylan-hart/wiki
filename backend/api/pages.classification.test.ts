@@ -41,6 +41,8 @@ describe('pages API — classification (OpenProject #1080)', () => {
   let grantedPermissions: Set<string>
   let bulkSetClassificationCalls: any[] = []
   let auditLogCalls: any[] = []
+  /** `WIKI.models.pages.parentClassification`'s stubbed return -- null (no parent) by default. */
+  let parentClassificationFloor: string | null = null
 
   let app: FastifyInstance
   let previousTemporal: any
@@ -104,7 +106,10 @@ describe('pages API — classification (OpenProject #1080)', () => {
           bulkSetClassification: async (siteId: string, ids: string[], classification: string) => {
             bulkSetClassificationCalls.push({ siteId, ids, classification })
             return ids.length
-          }
+          },
+          // -> No parent by default (root-level page in these fixtures) -- overridden per-test where
+          //    the floor-invariant enforcement in the resolve route is what's under test.
+          parentClassification: async () => parentClassificationFloor
         },
         groups: {
           actorForRequest: () => ({ permissions: [] }),
@@ -117,7 +122,11 @@ describe('pages API — classification (OpenProject #1080)', () => {
         classificationLevels: {
           byId: (id: string) =>
             SORT_ORDER[id] !== undefined ? { id, sortOrder: SORT_ORDER[id] } : null,
-          isLowerThan: (a: string, b: string) => SORT_ORDER[a] < SORT_ORDER[b]
+          isLowerThan: (a: string, b: string) => SORT_ORDER[a] < SORT_ORDER[b],
+          meetsFloor: (candidateId: string, floorId: string) =>
+            SORT_ORDER[candidateId] !== undefined &&
+            SORT_ORDER[floorId] !== undefined &&
+            SORT_ORDER[candidateId] >= SORT_ORDER[floorId]
         },
         auditLog: {
           record: async (args: any) => {
@@ -165,6 +174,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
     checkAccessCalls = []
     bulkSetClassificationCalls = []
     auditLogCalls = []
+    parentClassificationFloor = null
     grantedPermissions = new Set(['write:pages'])
   })
 
@@ -307,6 +317,61 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(auditLogCalls.length, 1)
       assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
       assert.deepEqual(auditLogCalls[0].detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
+    })
+
+    /*
+      This endpoint is not restricted to the resolve dialog's own callers, which only ever ask for a
+      raise -- a bare `write:pages` caller passing an actually-lower target must be refused the same
+      way the PATCH route refuses one, not silently allowed just because it arrived here instead.
+    */
+    test('refuses to lower a target classification without manage:classification', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        // -> The fixture page starts at INTERNAL_ID; PUBLIC_ID is a lowering.
+        payload: { pageIds: [PAGE_ID], classification: PUBLIC_ID }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(bulkSetClassificationCalls.length, 0)
+    })
+
+    test('allows a lowering once the actor also holds manage:classification', async () => {
+      grantedPermissions = new Set(['write:pages', 'manage:classification'])
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: [PAGE_ID], classification: PUBLIC_ID }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(bulkSetClassificationCalls.length, 1)
+    })
+
+    test('refuses a target classification below the page’s own immediate parent floor', async () => {
+      parentClassificationFloor = RESTRICTED_ID
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        // -> INTERNAL_ID is a raise relative to the fixture page's own current level, but still
+        //    below a RESTRICTED_ID parent floor.
+        payload: { pageIds: [PAGE_ID], classification: INTERNAL_ID }
+      })
+      assert.equal(res.statusCode, 400)
+      assert.equal(bulkSetClassificationCalls.length, 0)
+    })
+
+    test('a target classification at the parent floor is accepted', async () => {
+      parentClassificationFloor = RESTRICTED_ID
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/classification-conflicts/resolve`,
+        headers: sessionHeader,
+        payload: { pageIds: [PAGE_ID], classification: RESTRICTED_ID }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(bulkSetClassificationCalls.length, 1)
     })
   })
 })

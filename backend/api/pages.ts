@@ -1263,8 +1263,15 @@ async function routes(app: FastifyInstance) {
    * The other half of the retroactive-parent-raise flow above: bumps the named descendants to a
    * classification an admin chose (typically the new parent floor `classificationConflicts` reported,
    * but not required to be — see the dialog's own doc comment for why leaving that open is deliberate).
-   * No floor check here: bringing a page UP is never itself a floor violation, and each target is still
-   * required to be a real, currently-configured level.
+   *
+   * The dialog only ever asks for a raise, but this endpoint takes an arbitrary target level from the
+   * request body and only gates it on `write:pages` — a caller is not the dialog, so both guarantees
+   * `updatePage`'s own PATCH route enforces have to be checked here too, per page, rather than assumed:
+   * the floor invariant against EACH target's own immediate parent (a bulk write does not get to skip
+   * the check a single one would have to pass), and the declassification guardrail
+   * (`manage:classification`) whenever the chosen level is actually more open than a given target's
+   * current one. `bulkSetClassification` itself still does neither -- this is what makes that safe to
+   * call afterwards.
    */
   app.post<{
     Params: { siteId: string }
@@ -1276,7 +1283,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Bump a set of pages to a classification level',
         description:
-          "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each — this only ever raises a page's classification, so the declassification guardrail (manage:classification) does not apply here.",
+          "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each; lowering one below its current level also needs manage:classification on it, the same declassification guardrail the PATCH route enforces. The chosen level may never leave a page below its own immediate parent's floor.",
         tags: ['Pages'],
         params: siteIdParam,
         body: {
@@ -1313,6 +1320,36 @@ async function routes(app: FastifyInstance) {
         }
         if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
           return reply.forbidden('You are not allowed to edit one of these pages.')
+        }
+        // -> Same declassification guardrail as the PATCH route: bringing a page UP needs nothing
+        //    extra, but this endpoint is not restricted to raises the way the dialog that drives it
+        //    is -- a caller asking for an actual lowering still needs manage:classification on it.
+        if (
+          WIKI.models.classificationLevels.isLowerThan(
+            req.body.classification,
+            target.classification
+          ) &&
+          !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+        ) {
+          return reply.forbidden(
+            'Lowering this page’s classification requires the manage:classification permission on it.'
+          )
+        }
+        // -> Same floor invariant every other classification write enforces: this bulk write does
+        //    not get to leave a page below its own immediate parent's floor just because it arrived
+        //    through the resolve flow rather than a single PATCH.
+        const floorId = await WIKI.models.pages.parentClassification(
+          req.params.siteId,
+          target.locale,
+          target.path
+        )
+        if (
+          floorId &&
+          !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
+        ) {
+          return reply.badRequest(
+            "A page's classification cannot be more open than its parent page's."
+          )
         }
         targets.push(target)
       }
