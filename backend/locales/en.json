@@ -170,6 +170,8 @@
   "admin.audit.event.group.updated": "Group Updated",
   "admin.audit.event.login.failed": "Login Failed",
   "admin.audit.event.login.success": "Login Succeeded",
+  "admin.audit.event.mcp.sessionOpened": "MCP Session Opened",
+  "admin.audit.event.mcp.writeToolCalled": "MCP Write Tool Called",
   "admin.audit.event.site.settingsUpdated": "Site Settings Updated",
   "admin.audit.event.storage.targetUpdated": "Storage Target Updated",
   "admin.audit.event.user.created": "User Created",

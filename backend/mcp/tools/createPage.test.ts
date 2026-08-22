@@ -9,6 +9,7 @@ const GROUP_ID = 'group-a'
 let previousWiki: any
 let createCalls: any[]
 let checkAccessCalls: any[]
+let auditCalls: any[]
 
 function ctx({
   userId = 'user-1' as string | null,
@@ -17,6 +18,7 @@ function ctx({
 } = {}) {
   createCalls = []
   checkAccessCalls = []
+  auditCalls = []
   ;(globalThis as any).WIKI = {
     sites: {
       [SITE_ID]: {
@@ -44,6 +46,11 @@ function ctx({
             publishState: input.publishState ?? 'published',
             updatedAt: new Date('2026-01-01T00:00:00Z')
           }
+        }
+      },
+      auditLog: {
+        record: async (entry: any) => {
+          auditCalls.push(entry)
         }
       }
     }
@@ -104,6 +111,32 @@ test('handleCreatePage: creates a page and attributes it to the token owner', as
   const page = textOf(result)
   assert.equal(page.id, 'page-1')
   assert.equal(page.title, 'New Page')
+})
+
+test('handleCreatePage: records an mcp.writeToolCalled audit log entry naming the new page', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  await handleCreatePage(c, {
+    path: 'new-page',
+    title: 'New Page',
+    content: 'Hello',
+    siteId: SITE_ID
+  })
+  assert.equal(auditCalls.length, 1)
+  assert.equal(auditCalls[0].event, 'mcp.writeToolCalled')
+  assert.deepEqual(auditCalls[0].actor, { id: null, name: 'API Key key-1' })
+  assert.equal(auditCalls[0].targetType, 'page')
+  assert.equal(auditCalls[0].targetId, 'page-1')
+  assert.equal(auditCalls[0].targetLabel, 'new-page')
+  assert.deepEqual(auditCalls[0].detail, { tool: 'create_page' })
+  assert.equal(auditCalls[0].siteId, SITE_ID)
+})
+
+test('handleCreatePage: refused calls never reach the audit log', async () => {
+  const c = ctx({ access: [] })
+  await assert.rejects(() =>
+    handleCreatePage(c, { path: 'new-page', title: 'New Page', content: 'Hello' })
+  )
+  assert.equal(auditCalls.length, 0)
 })
 
 test('handleCreatePage: honors an explicit editor and publishState', async () => {

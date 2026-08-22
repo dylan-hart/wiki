@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   actorFor,
+  auditActorFor,
   McpToolError,
   pageActorFor,
   type McpAuthContext,
@@ -103,6 +104,18 @@ export async function handleUpdatePage(
   if (!page) {
     throw new McpToolError('This page does not exist.')
   }
+
+  // -> #1118: same reasoning as `createPage.ts`'s own instrumentation -- instance-wide visibility that
+  //   an agent wrote this, separate from `pageHistory`'s own per-page attribution (#1119).
+  await WIKI.models.auditLog.record({
+    event: 'mcp.writeToolCalled',
+    actor: auditActorFor(ctx),
+    targetType: 'page',
+    targetId: page.id,
+    targetLabel: page.path,
+    detail: { tool: 'update_page' },
+    siteId: site.id
+  })
 
   return toResult({
     id: page.id,

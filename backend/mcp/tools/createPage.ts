@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import {
   actorFor,
+  auditActorFor,
   McpToolError,
   pageActorFor,
   type McpAuthContext,
@@ -110,6 +111,19 @@ export async function handleCreatePage(
   } catch (err: any) {
     throw new McpToolError(err.message)
   }
+
+  // -> #1118: instance-wide visibility that an agent wrote this, separate from the page's own
+  //   `pageHistory` attribution (#1119) -- see `models/auditLog.ts`'s `AUDIT_EVENTS` doc comment for
+  //   why only the write tools log here, not every read.
+  await WIKI.models.auditLog.record({
+    event: 'mcp.writeToolCalled',
+    actor: auditActorFor(ctx),
+    targetType: 'page',
+    targetId: page.id,
+    targetLabel: page.path,
+    detail: { tool: 'create_page' },
+    siteId: site.id
+  })
 
   return toResult({
     id: page.id,

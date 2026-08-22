@@ -237,7 +237,9 @@ const AUDIT_EVENTS = [
   'site.settingsUpdated',
   'storage.targetUpdated',
   'login.success',
-  'login.failed'
+  'login.failed',
+  'mcp.sessionOpened',
+  'mcp.writeToolCalled'
 ]
 
 const headers = [

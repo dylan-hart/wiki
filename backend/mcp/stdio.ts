@@ -36,7 +36,7 @@ console.info = console.error.bind(console)
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { bootstrapMcpRuntime } from './bootstrap.ts'
-import { authenticateApiKey } from './auth.ts'
+import { auditActorFor, authenticateApiKey } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
 
@@ -78,6 +78,20 @@ async function main(): Promise<void> {
     await shutdown(1)
     return
   }
+
+  // -> #1118: this process IS the session for its whole lifetime (unlike `mcp/http.ts`, which opens
+  //   one per `initialize` request) -- logged once, right after the one auth check above succeeds, so
+  //   it lands in the audit log exactly like an HTTP session's own `mcp.sessionOpened` entry does. No
+  //   `req`/IP to read here (this transport has no HTTP request), hence no `actorIp`.
+  await WIKI.models.auditLog.record({
+    event: 'mcp.sessionOpened',
+    actor: auditActorFor(ctx),
+    targetType: 'apiKey',
+    targetId: ctx.keyId,
+    targetLabel: `API Key ${ctx.keyId}`,
+    detail: { transport: 'stdio' },
+    siteId: ctx.siteId
+  })
 
   const server = createMcpServer(WIKI.version)
   // -> Fixed for the process's whole lifetime, unlike `mcp/http.ts`'s per-request-refreshed getter —
