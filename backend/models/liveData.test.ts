@@ -283,3 +283,104 @@ describe('LiveData.resolve', () => {
     assert.equal(setCall.arguments[2], 10)
   })
 })
+
+describe('LiveData.resolve rate limiting (OpenProject #1050)', () => {
+  let getCredentialForResolve: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    getCredentialForResolve = mock.fn(async () => ({
+      secret: 's3cr3t-token',
+      allowedDomains: ['example.com']
+    }))
+    ;(WIKI.models.blockCredentials.getCredentialForResolve as any) = getCredentialForResolve
+    mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
+  })
+
+  afterEach(() => {
+    mock.restoreAll()
+    ;(WIKI.cache as any).flushAll()
+  })
+
+  /** Exhausts a credential's per-window cap, always missing the response cache (a distinct url each
+   *  time), so `count` fresh fetches actually go out. */
+  async function exhaust(credentialId: string, count: number) {
+    for (let i = 0; i < count; i++) {
+      await liveData.resolve('site-1', {
+        credentialId,
+        url: `https://example.com/metrics?i=${i}`,
+        jsonPath: '$.v'
+      })
+    }
+  }
+
+  test('allows up to the per-credential cap of fresh fetches within one window', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.doesNotReject(exhaust('cred-rate-1', 120))
+  })
+
+  test('throws Too Many Requests once a credential exceeds its fresh-fetch rate limit', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await exhaust('cred-rate-2', 120)
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-rate-2',
+        url: 'https://example.com/metrics?i=over',
+        jsonPath: '$.v'
+      }),
+      (err: any) => {
+        assert.equal(err.statusCode, 429)
+        return true
+      }
+    )
+  })
+
+  test('does not call fetch once the rate limit is exceeded', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await exhaust('cred-rate-3', 120)
+    const callsBefore = fetchMock.mock.calls.length
+    await assert.rejects(
+      liveData.resolve('site-1', {
+        credentialId: 'cred-rate-3',
+        url: 'https://example.com/metrics?i=over',
+        jsonPath: '$.v'
+      })
+    )
+    assert.equal(fetchMock.mock.calls.length, callsBefore)
+  })
+
+  test('a cache hit (repeat identical request) does not count against the rate limit', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    const request = {
+      credentialId: 'cred-rate-4',
+      url: 'https://example.com/metrics',
+      jsonPath: '$.v',
+      refreshInterval: 60
+    }
+    for (let i = 0; i < 200; i++) {
+      await liveData.resolve('site-1', request)
+    }
+    assert.equal(fetchMock.mock.calls.length, 1)
+  })
+
+  test('a different credential has an independent rate limit', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await exhaust('cred-rate-5a', 120)
+    const result = await liveData.resolve('site-1', {
+      credentialId: 'cred-rate-5b',
+      url: 'https://example.com/metrics?fresh=1',
+      jsonPath: '$.v'
+    })
+    assert.equal(result.value, 1)
+  })
+
+  test('a request with no credentialId is never rate limited', async () => {
+    mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    for (let i = 0; i < 150; i++) {
+      await liveData.resolve('site-1', {
+        url: `https://example.com/metrics?i=${i}`,
+        jsonPath: '$.v'
+      })
+    }
+    assert.equal(getCredentialForResolve.mock.calls.length, 0)
+  })
+})
