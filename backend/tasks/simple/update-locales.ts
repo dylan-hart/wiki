@@ -3,6 +3,12 @@ import { sql } from 'drizzle-orm'
 import { locales as localesTable } from '../../db/schema.ts'
 
 export async function task(): Promise<void> {
+  if (WIKI.config.offline) {
+    WIKI.logger.info(
+      'Skipping localization data update: this instance is in offline mode. Sideload locale packs into <dataPath>/locales/ instead — see docs/offline-deployment.md.'
+    )
+    return
+  }
   if (WIKI.config.update?.locales === false) {
     return
   }

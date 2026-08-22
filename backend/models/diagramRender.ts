@@ -274,6 +274,14 @@ class DiagramRender {
     server: string | undefined,
     format: DiagramFormat
   ): Promise<DiagramRenderResult> {
+    if (WIKI.config.offline) {
+      throw new CustomError(
+        'diagramRenderOffline',
+        'Wiki.js is in offline mode and cannot reach a PlantUML server to render this diagram.',
+        503
+      )
+    }
+
     const url = this.plantumlUrl(source, server, format)
     if (url.length > MAX_PLANTUML_URL_LENGTH) {
       throw new CustomError(
