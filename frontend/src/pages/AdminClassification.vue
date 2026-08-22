@@ -115,9 +115,42 @@
         </w-card>
       </div>
       <div class="col-span-12 lg:col-span-4">
-        <w-banner rounded :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
+        <w-banner
+          class="mb-4"
+          rounded
+          :class="dark.isActive ? `bg-dark-4 text-white` : `bg-blue-1 text-dark`">
           {{ t('admin.classification.hint') }}
         </w-banner>
+        <!--
+          OpenProject #1081: "everything currently classified as X" -- the auditability half of the
+          epic, alongside the classificationChanged events now feeding the audit log
+          (`AdminAuditLog.vue`). Every level shown even at zero, matching the report endpoint's own
+          reasoning: a level nothing is classified as is itself worth seeing.
+        -->
+        <w-card>
+          <w-card-header>{{ t('admin.classification.coverageTitle') }}</w-card-header>
+          <w-list separator>
+            <w-item
+              v-for="row of state.report"
+              :key="row.levelId"
+              clickable
+              :disable="row.count === 0"
+              @click="openReport(row)">
+              <w-item-section>
+                <w-item-label>{{ row.name }}</w-item-label>
+              </w-item-section>
+              <w-item-section side>
+                <w-chip
+                  dense
+                  square
+                  :color="row.count > 0 ? `primary` : `grey-5`"
+                  text-color="white">
+                  {{ row.count }}
+                </w-chip>
+              </w-item-section>
+            </w-item>
+          </w-list>
+        </w-card>
       </div>
     </div>
   </w-page>
@@ -125,12 +158,12 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { defineAsyncComponent, onMounted, reactive } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
-import { confirm } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
 
 import { useSiteStore } from '@/stores/site'
@@ -157,6 +190,7 @@ useMeta({
 
 const state = reactive({
   levels: [],
+  report: [],
   isLoading: false,
   editingId: null,
   editingName: ''
@@ -167,7 +201,12 @@ const state = reactive({
 async function load() {
   state.isLoading = true
   try {
-    state.levels = (await API_CLIENT.get('classification-levels').json()) ?? []
+    const [levels, report] = await Promise.all([
+      API_CLIENT.get('classification-levels').json(),
+      API_CLIENT.get('pages/classification-report').json()
+    ])
+    state.levels = levels ?? []
+    state.report = report ?? []
   } catch (err) {
     notify({
       type: 'negative',
@@ -176,6 +215,18 @@ async function load() {
     })
   }
   state.isLoading = false
+}
+
+function openReport(row) {
+  dialog({
+    component: defineAsyncComponent(
+      () => import('../components/ClassificationReportDrillDialog.vue')
+    ),
+    componentProps: {
+      levelId: row.levelId,
+      levelName: row.name
+    }
+  })
 }
 
 async function createLevel() {

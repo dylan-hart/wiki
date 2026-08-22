@@ -40,6 +40,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
   /** Which permissions `checkAccess` grants, by permission name — every test overrides what it needs. */
   let grantedPermissions: Set<string>
   let bulkSetClassificationCalls: any[] = []
+  let auditLogCalls: any[] = []
 
   let app: FastifyInstance
   let previousTemporal: any
@@ -117,6 +118,11 @@ describe('pages API — classification (OpenProject #1080)', () => {
           byId: (id: string) =>
             SORT_ORDER[id] !== undefined ? { id, sortOrder: SORT_ORDER[id] } : null,
           isLowerThan: (a: string, b: string) => SORT_ORDER[a] < SORT_ORDER[b]
+        },
+        auditLog: {
+          record: async (args: any) => {
+            auditLogCalls.push(args)
+          }
         }
       },
       sites: { [SITE_ID]: {} },
@@ -158,6 +164,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
     updatePageCalls = []
     checkAccessCalls = []
     bulkSetClassificationCalls = []
+    auditLogCalls = []
     grantedPermissions = new Set(['write:pages'])
   })
 
@@ -179,6 +186,12 @@ describe('pages API — classification (OpenProject #1080)', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(updatePageCalls.length, 1)
     assert.ok(!checkAccessCalls.includes('manage:classification'))
+    // -> OpenProject #1081: every actual classification change is recorded to the audit log.
+    assert.equal(auditLogCalls.length, 1)
+    assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
+    assert.equal(auditLogCalls[0].targetType, 'page')
+    assert.equal(auditLogCalls[0].targetId, PAGE_ID)
+    assert.deepEqual(auditLogCalls[0].detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
   })
 
   test('lowering the classification without manage:classification is refused with 403, before updatePage runs', async () => {
@@ -212,6 +225,8 @@ describe('pages API — classification (OpenProject #1080)', () => {
       payload: { classification: INTERNAL_ID, title: 'Onboarding' }
     })
     assert.equal(res.statusCode, 200)
+    // -> from === to: recordClassificationChange() is a documented no-op here.
+    assert.equal(auditLogCalls.length, 0)
   })
 
   test('a save that does not touch classification at all is unaffected', async () => {
@@ -223,6 +238,7 @@ describe('pages API — classification (OpenProject #1080)', () => {
     })
     assert.equal(res.statusCode, 200)
     assert.equal(updatePageCalls.length, 1)
+    assert.equal(auditLogCalls.length, 0)
   })
 
   test('raising the classification surfaces classificationConflicts from descendantsBelowFloor', async () => {
@@ -285,6 +301,12 @@ describe('pages API — classification (OpenProject #1080)', () => {
       assert.equal(bulkSetClassificationCalls.length, 1)
       assert.deepEqual(bulkSetClassificationCalls[0].ids, [PAGE_ID])
       assert.equal(bulkSetClassificationCalls[0].classification, RESTRICTED_ID)
+      // -> OpenProject #1081: a bulk resolve records one audit entry per page bumped, `from` being
+      //    that page's OWN classification as fetched during the permission-check loop (INTERNAL_ID
+      //    here, from the shared `getPage` stub).
+      assert.equal(auditLogCalls.length, 1)
+      assert.equal(auditLogCalls[0].event, 'page.classificationChanged')
+      assert.deepEqual(auditLogCalls[0].detail, { from: INTERNAL_ID, to: RESTRICTED_ID })
     })
   })
 })

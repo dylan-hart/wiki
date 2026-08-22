@@ -12,6 +12,7 @@ import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helper
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
  * A safe filename stem for a page export, from its path.
@@ -173,6 +174,33 @@ export function mayOnPage(
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
     classification: page.classification ?? null,
+    siteId
+  })
+}
+
+/**
+ * Records a `page.classificationChanged` audit log entry (OpenProject #1081) -- called from every
+ * site a page's classification actually changes: the PATCH route (an explicit set, raise or lower),
+ * the move route (an auto-bump onto a stricter parent), and the classification-conflicts resolve
+ * route (a bulk bump). A no-op when `from === to`, so a caller does not have to re-check that itself.
+ */
+async function recordClassificationChange(
+  req: FastifyRequest,
+  siteId: string,
+  page: { id: string; path: string },
+  from: string,
+  to: string
+): Promise<void> {
+  if (from === to) {
+    return
+  }
+  await WIKI.models.auditLog.record({
+    event: 'page.classificationChanged',
+    actor: actorFromRequest(req),
+    targetType: 'page',
+    targetId: page.id,
+    targetLabel: page.path,
+    detail: { from, to },
     siteId
   })
 }
@@ -1193,6 +1221,13 @@ async function routes(app: FastifyInstance) {
         authorId: actor.id,
         authorName: page.authorName ?? ''
       })
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
       /*
         Retroactive parent classification raise (OpenProject #1080): raising THIS page's own
         classification does not cascade to its descendants -- some may now sit below the new floor.
@@ -1270,6 +1305,7 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
         return reply.badRequest('This classification level does not exist.')
       }
+      const targets: { id: string; path: string; classification: string }[] = []
       for (const pageId of req.body.pageIds) {
         const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
         if (!target) {
@@ -1278,13 +1314,133 @@ async function routes(app: FastifyInstance) {
         if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
           return reply.forbidden('You are not allowed to edit one of these pages.')
         }
+        targets.push(target)
       }
       const updated = await WIKI.models.pages.bulkSetClassification(
         req.params.siteId,
         req.body.pageIds,
         req.body.classification
       )
+      for (const target of targets) {
+        await recordClassificationChange(
+          req,
+          req.params.siteId,
+          target,
+          target.classification,
+          req.body.classification
+        )
+      }
       return { ok: true, updated }
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT (OpenProject #1081)
+   *
+   * "Everything currently classified as X", instance-wide by default -- the coverage half of the
+   * epic's auditability goal, alongside the `page.classificationChanged` events now feeding OpenProject
+   * #989's audit log. `manage:system` only: this deliberately bypasses every page rule (it exists to
+   * show an administrator what the rules are protecting, not to be gated by them), the same reasoning
+   * `api/auditLog.ts` uses for its own listing.
+   */
+  app.get<{ Querystring: { siteId?: string } }>(
+    '/pages/classification-report',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'How many pages currently carry each classification level',
+        description:
+          'Every configured level is included, even at zero, in level order. Instance-wide unless siteId narrows it to one site.',
+        tags: ['Pages'],
+        querystring: {
+          type: 'object',
+          properties: { siteId: { type: 'string', format: 'uuid' } }
+        },
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                levelId: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                sortOrder: { type: 'integer' },
+                count: { type: 'integer' }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.classificationReport(req.query.siteId)
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT — DRILL DOWN (OpenProject #1081)
+   */
+  app.get<{
+    Params: { levelId: string }
+    Querystring: { siteId?: string; limit?: number; offset?: number }
+  }>(
+    '/pages/classification-report/:levelId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'List every page currently at one classification level',
+        description: 'Paginated, newest-updated first. Instance-wide unless siteId narrows it.',
+        tags: ['Pages'],
+        params: {
+          type: 'object',
+          properties: { levelId: { type: 'string', format: 'uuid' } },
+          required: ['levelId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+            offset: { type: 'integer', minimum: 0, default: 0 }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              total: { type: 'integer' },
+              entries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    locale: { type: 'string' },
+                    title: { type: 'string' },
+                    siteId: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.listByClassification(req.params.levelId, {
+        siteId: req.query.siteId,
+        limit: req.query.limit,
+        offset: req.query.offset
+      })
     }
   )
 
@@ -1421,6 +1577,19 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
+      // -> Only ever fires from the floor-invariant auto-bump (OpenProject #1080): an ordinary move
+      //    (or a title/locale-only one) never touches classification, so `from === to` there and
+      //    `recordClassificationChange` is a no-op. Covers the primary page only -- `movePage()`
+      //    returns just that one, not an `includeTranslations` twin also auto-bumped in the same
+      //    call, so a twin's own bump goes unlogged here. Narrow, documented gap rather than
+      //    threading the whole batch back out through the model for this alone.
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
       return {
         ok: true,
         message: 'Page moved successfully.',

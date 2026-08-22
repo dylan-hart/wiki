@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
@@ -1658,8 +1658,72 @@ class Pages {
   }
 
   /**
-   * A site's page paths and last-updated times, for `/sitemap.xml` — the only bulk listing this model
-   * offers, because nothing else needs to see every page of a site at once.
+   * How many pages currently carry each classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the coverage half of the epic's auditability goal: what does the wiki
+   * actually consider sensitive, at a glance, before drilling into any one level's pages.
+   *
+   * Every level is included even at zero, in level order (most-open first) -- a level nothing is
+   * classified as is itself worth an admin seeing, not a row silently missing from the report.
+   */
+  async classificationReport(
+    siteId?: string
+  ): Promise<{ levelId: string; name: string; sortOrder: number; count: number }[]> {
+    const rows = await WIKI.db
+      .select({ classification: pagesTable.classification, count: sql<number>`count(*)::int` })
+      .from(pagesTable)
+      .where(siteId ? eq(pagesTable.siteId, siteId) : undefined)
+      .groupBy(pagesTable.classification)
+    const counts = new Map(rows.map((row) => [row.classification, row.count]))
+    return WIKI.models.classificationLevels.list().map((level) => ({
+      levelId: level.id,
+      name: level.name,
+      sortOrder: level.sortOrder,
+      count: counts.get(level.id) ?? 0
+    }))
+  }
+
+  /**
+   * Every page currently at one classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the drill-down `classificationReport()`'s counts point into. Paginated,
+   * newest-updated first; metadata only, matching `listAllForSite()`'s own reasoning for staying out
+   * of content.
+   */
+  async listByClassification(
+    levelId: string,
+    { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}
+  ): Promise<{
+    total: number
+    entries: { id: string; path: string; locale: string; title: string; siteId: string }[]
+  }> {
+    const conditions = [
+      eq(pagesTable.classification, levelId),
+      ...(siteId ? [eq(pagesTable.siteId, siteId)] : [])
+    ]
+    const where = and(...conditions)
+    const [totals, rows] = await Promise.all([
+      WIKI.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(pagesTable)
+        .where(where),
+      WIKI.db
+        .select({
+          id: pagesTable.id,
+          path: pagesTable.path,
+          locale: pagesTable.locale,
+          title: pagesTable.title,
+          siteId: pagesTable.siteId
+        })
+        .from(pagesTable)
+        .where(where)
+        .orderBy(desc(pagesTable.updatedAt))
+        .limit(limit)
+        .offset(offset)
+    ])
+    return { total: totals[0]?.total ?? 0, entries: rows }
+  }
+
+  /**
+   * A site's page paths and last-updated times, for `/sitemap.xml`.
    *
    * `publishState`/`isBrowsable` are cheap column filters that describe every anonymous reader at
    * once, but they are not the whole of what a guest may see: an administrator can lock a published,

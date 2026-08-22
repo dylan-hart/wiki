@@ -1044,6 +1044,75 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const resolved = await pagesModel.getPathFromAlias(fixtures.siteId, 'no-such-alias')
     assert.equal(resolved, null)
   })
+
+  /**
+   * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
+   * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
+   * one site.
+   */
+  describe('classificationReport / listByClassification (OpenProject #1081)', () => {
+    test('every configured level is included, even at zero, in level order', async () => {
+      const report = await pagesModel.classificationReport()
+      assert.equal(report.length, 3)
+      assert.deepEqual(
+        report.map((r) => r.sortOrder),
+        [0, 1, 2]
+      )
+      assert.ok(report.every((r) => typeof r.count === 'number'))
+    })
+
+    test('counts and drill-down entries reflect what was actually created', async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      const restricted = levels[levels.length - 1]!
+
+      const before = await pagesModel.classificationReport(fixtures.siteId)
+      const beforeCount = before.find((r) => r.levelId === restricted.id)!.count
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classification-report/one', classification: restricted.id }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classification-report/two', classification: restricted.id }),
+        actor
+      )
+
+      const after = await pagesModel.classificationReport(fixtures.siteId)
+      assert.equal(after.find((r) => r.levelId === restricted.id)!.count, beforeCount + 2)
+
+      const drillDown = await pagesModel.listByClassification(restricted.id, {
+        siteId: fixtures.siteId
+      })
+      assert.equal(drillDown.total, beforeCount + 2)
+      const paths = drillDown.entries.map((e) => e.path)
+      assert.ok(paths.includes('classification-report/one'))
+      assert.ok(paths.includes('classification-report/two'))
+    })
+
+    test('listByClassification paginates with limit/offset', async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const publicLevel = classificationLevels.defaultLevel()
+
+      for (let i = 0; i < 3; i++) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: `classification-page/${i}`, classification: publicLevel.id }),
+          actor
+        )
+      }
+
+      const firstPage = await pagesModel.listByClassification(publicLevel.id, {
+        siteId: fixtures.siteId,
+        limit: 2,
+        offset: 0
+      })
+      assert.equal(firstPage.entries.length, 2)
+      assert.ok(firstPage.total >= 3)
+    })
+  })
 })
 
 /**
