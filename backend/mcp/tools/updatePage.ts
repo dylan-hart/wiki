@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { actorFor, McpToolError, pageActorFor, type McpAuthContext } from '../auth.ts'
+import {
+  actorFor,
+  McpToolError,
+  pageActorFor,
+  type McpAuthContext,
+  type McpAuthContextGetter
+} from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 
 const updatePageInputSchema = {
@@ -108,7 +114,7 @@ export async function handleUpdatePage(
   })
 }
 
-export function registerUpdatePageTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerUpdatePageTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'update_page',
     {
@@ -116,6 +122,6 @@ export function registerUpdatePageTool(server: McpServer, ctx: McpAuthContext): 
         'Update an existing wiki page. Accepts any subset of the fields; omitted ones are left unchanged. Requires a personal access token and `write:pages` on the page.',
       inputSchema: updatePageInputSchema
     },
-    (args) => handleUpdatePage(ctx, args)
+    (args) => handleUpdatePage(getCtx(), args)
   )
 }

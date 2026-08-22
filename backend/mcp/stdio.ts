@@ -80,7 +80,9 @@ async function main(): Promise<void> {
   }
 
   const server = createMcpServer(WIKI.version)
-  registerAllTools(server, ctx)
+  // -> Fixed for the process's whole lifetime, unlike `mcp/http.ts`'s per-request-refreshed getter —
+  //    see `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`.
+  registerAllTools(server, () => ctx)
 
   const transport = new StdioServerTransport()
   // -> The client closes stdin when it disconnects; the SDK's transport surfaces that as `onclose`

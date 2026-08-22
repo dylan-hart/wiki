@@ -46,6 +46,19 @@ export interface McpAuthContext {
 }
 
 /**
+ * Resolves an `McpAuthContext` at call time rather than closing over one fixed value. Every
+ * `register*Tool()` (`mcp/tools/*.ts`) takes one of these instead of a plain `McpAuthContext`, so that
+ * a tool call made partway through a long-lived HTTP session (`mcp/http.ts`) is authorized against
+ * THAT REQUEST's own freshly-verified identity — not the identity captured back when the session was
+ * first opened. `mcp/http.ts` updates its session's stored context on every request before dispatching
+ * into the transport, so a revoked/regrouped personal access token stops granting what it used to on
+ * the very next call, not only once the session itself is torn down. The stdio transport
+ * (`mcp/stdio.ts`), whose identity is fixed for the life of the process, just wraps its one resolved
+ * context in a getter that always returns it.
+ */
+export type McpAuthContextGetter = () => McpAuthContext
+
+/**
  * Map a verified `ApiKeyIdentity` onto the shape an MCP tool call is authorized against. Exported for
  * `mcp/http.ts`, which verifies a token itself (to also run it through `helpers/rateLimit.ts`'s
  * `limitApiKey()`, which expects the raw identity) rather than through `authenticateApiKey()` above.

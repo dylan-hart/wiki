@@ -1,7 +1,13 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { actorFor, McpToolError, pageActorFor, type McpAuthContext } from '../auth.ts'
+import {
+  actorFor,
+  McpToolError,
+  pageActorFor,
+  type McpAuthContext,
+  type McpAuthContextGetter
+} from '../auth.ts'
 import { defaultLocale, resolveRequestedSite } from '../site.ts'
 
 const createPageInputSchema = {
@@ -70,7 +76,11 @@ export async function handleCreatePage(
       'Creating a page requires a personal access token — an admin-issued key has no user to attribute the page to.'
     )
   }
-  const locale = args.locale ?? defaultLocale(site)
+  // -> Resolved once and reused for both the permission check below and the actual write, so they can
+  //    never land on different locales — `||`, not `??`, to mirror `models/pages.ts#createPage()`'s own
+  //    `input.locale || this.defaultLocale(siteId)` fallback exactly: an empty-string `locale` argument
+  //    is "unset" there too, not a locale of its own.
+  const locale = args.locale || defaultLocale(site)
   if (
     !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
       path: args.path,
@@ -90,7 +100,7 @@ export async function handleCreatePage(
         title: args.title,
         editor: args.editor ?? 'markdown',
         content: args.content,
-        locale: args.locale,
+        locale,
         description: args.description,
         tags: args.tags,
         publishState: args.publishState ?? 'published'
@@ -111,7 +121,7 @@ export async function handleCreatePage(
   })
 }
 
-export function registerCreatePageTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerCreatePageTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'create_page',
     {
@@ -119,6 +129,6 @@ export function registerCreatePageTool(server: McpServer, ctx: McpAuthContext): 
         'Create a new wiki page from source content. Requires a personal access token — the page is attributed to its owner — and `write:pages` on the target path. Refused if a page already exists there.',
       inputSchema: createPageInputSchema
     },
-    (args) => handleCreatePage(ctx, args)
+    (args) => handleCreatePage(getCtx(), args)
   )
 }

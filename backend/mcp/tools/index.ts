@@ -1,5 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { McpAuthContext } from '../auth.ts'
+import type { McpAuthContextGetter } from '../auth.ts'
 import { registerListSitesTool } from './listSites.ts'
 import { registerSearchPagesTool } from './searchPages.ts'
 import { registerGetPageTool } from './getPage.ts'
@@ -10,15 +10,18 @@ import { registerUpdatePageTool } from './updatePage.ts'
 /**
  * The whole MCP tool surface: read (search, read a page, browse the tree, and the site-discovery
  * helper the others lean on) plus write (create/update a page). Every tool is registered regardless of
- * what `ctx` grants — `create_page`/`update_page` refuse at call time for anything but a personal
+ * what `getCtx()` grants — `create_page`/`update_page` refuse at call time for anything but a personal
  * access token (`pageActorFor()` in `mcp/auth.ts`), the same way the read tools refuse per page rather
  * than being hidden from a caller who cannot use them.
+ *
+ * `getCtx` rather than a plain `McpAuthContext`: see that type's doc comment in `mcp/auth.ts` for why a
+ * long-lived HTTP session re-resolves it per request instead of fixing it at session-open time.
  */
-export function registerAllTools(server: McpServer, ctx: McpAuthContext): void {
-  registerListSitesTool(server, ctx)
-  registerSearchPagesTool(server, ctx)
-  registerGetPageTool(server, ctx)
-  registerListNavigationTool(server, ctx)
-  registerCreatePageTool(server, ctx)
-  registerUpdatePageTool(server, ctx)
+export function registerAllTools(server: McpServer, getCtx: McpAuthContextGetter): void {
+  registerListSitesTool(server, getCtx)
+  registerSearchPagesTool(server, getCtx)
+  registerGetPageTool(server, getCtx)
+  registerListNavigationTool(server, getCtx)
+  registerCreatePageTool(server, getCtx)
+  registerUpdatePageTool(server, getCtx)
 }

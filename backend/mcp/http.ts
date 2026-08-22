@@ -27,7 +27,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { limitApiKey } from '../helpers/rateLimit.ts'
-import { contextFromIdentity } from './auth.ts'
+import { contextFromIdentity, type McpAuthContext } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
 
@@ -35,6 +35,14 @@ interface McpSession {
   transport: StreamableHTTPServerTransport
   /** The key that opened this session — a later request naming this session must be the same key. */
   keyId: string
+  /**
+   * The identity every tool call on this session is currently authorized against. Mutable, and
+   * updated to that request's own freshly-verified context right before each POST is dispatched (see
+   * the `onRequest` hook above and `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`) — a session
+   * living longer than one request must not keep authorizing every later call against however things
+   * stood when it was opened.
+   */
+  ctx: McpAuthContext
 }
 
 /** Process-local: an HTTP/SSE session belongs to whichever instance's request created it. */
@@ -100,21 +108,32 @@ async function routes(app: FastifyInstance) {
       }
 
       const server = createMcpServer(WIKI.version)
-      registerAllTools(server, ctx)
+      const newSession: McpSession = { transport: undefined as any, keyId: ctx.keyId, ctx }
+      // -> Tools read the identity through `newSession.ctx`, not the `ctx` captured above, so a later
+      //    request on this same session (below) authorizes against ITS OWN fresh verification rather
+      //    than whichever identity happened to open the session.
+      registerAllTools(server, () => newSession.ctx)
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sid) => {
-          sessions.set(sid, { transport, keyId: ctx.keyId })
+          sessions.set(sid, newSession)
         }
       })
+      newSession.transport = transport
       transport.onclose = () => {
         if (transport.sessionId) {
           sessions.delete(transport.sessionId)
         }
       }
       await server.connect(transport)
-      session = { transport, keyId: ctx.keyId }
+      session = newSession
     }
+
+    // -> Refresh the session's identity to this request's own verification before dispatching — see
+    //    `McpSession.ctx`'s doc comment. A no-op for the branch above (already `ctx`), and what makes a
+    //    revoked/regrouped personal access token stop granting what it used to on the very next call
+    //    of an existing session, not only once the session itself is torn down.
+    session.ctx = ctx
 
     reply.hijack()
     await session.transport.handleRequest(req.raw, reply.raw, req.body)
@@ -133,6 +152,8 @@ async function routes(app: FastifyInstance) {
     if (session.keyId !== ctx.keyId) {
       return { session: null, error: 'forbidden' }
     }
+    // -> Same refresh as the POST handler — see `McpSession.ctx`'s doc comment.
+    session.ctx = ctx
     return { session, error: null }
   }
 

@@ -21,13 +21,19 @@ describe('mcp/http', () => {
 
   const TOKEN_A = 'token-a'
   const TOKEN_B = 'token-b'
+  const SITE_X = 'site-x'
+  const SITE_Y = 'site-y'
+
+  /** Mutated mid-test to prove a session re-reads it on every request. See the 'reflects a token's
+   *  freshly re-verified scope' test below. */
+  let tokenASiteId: string | null
 
   function identityFor(token: string) {
     if (token === TOKEN_A) {
       return {
         id: 'key-a',
         permissions: [],
-        siteId: null,
+        siteId: tokenASiteId,
         groupIds: ['group-a'],
         userId: 'user-a'
       }
@@ -47,7 +53,10 @@ describe('mcp/http', () => {
   before(async () => {
     ;(globalThis as any).WIKI = {
       version: '3.0.0-test',
-      sites: {},
+      sites: {
+        [SITE_X]: { id: SITE_X, hostname: 'x.example.com', isEnabled: true, config: {} },
+        [SITE_Y]: { id: SITE_Y, hostname: 'y.example.com', isEnabled: true, config: {} }
+      },
       logger: { debug: () => {} },
       models: {
         apiKeys: {
@@ -76,6 +85,7 @@ describe('mcp/http', () => {
   beforeEach(() => {
     verifyCalls = []
     rateLimitAllowed = true
+    tokenASiteId = null
   })
 
   function initializeRequest() {
@@ -185,6 +195,44 @@ describe('mcp/http', () => {
     const message = sseResult(res.body)
     assert.equal(message.result.serverInfo.name, 'wikijs-mcp')
     assert.equal(message.result.serverInfo.version, '3.0.0-test')
+  })
+
+  test('a follow-up POST on an existing session re-authorizes against that request own fresh verification, not the identity that opened it', async () => {
+    // Token A opens the session unscoped (siteId null) and sees both sites.
+    const opened = await openSession()
+    const sessionId = opened.headers['mcp-session-id'] as string
+
+    async function listSites() {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/',
+        headers: {
+          authorization: `Bearer ${TOKEN_A}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-session-id': sessionId
+        },
+        payload: {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'list_sites', arguments: {} }
+        }
+      })
+      assert.equal(res.statusCode, 200)
+      const message = sseResult(res.body)
+      return JSON.parse(message.result.content[0].text) as Array<{ id: string }>
+    }
+
+    assert.deepEqual((await listSites()).map((s) => s.id).sort(), [SITE_X, SITE_Y])
+
+    // An admin narrows this same key's scope to one site — no new session, same bearer token.
+    tokenASiteId = SITE_X
+    const scoped = await listSites()
+    assert.deepEqual(
+      scoped.map((s) => s.id),
+      [SITE_X]
+    )
   })
 
   test('a follow-up POST on the same session id reaches the same MCP session', async () => {

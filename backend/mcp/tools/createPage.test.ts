@@ -8,6 +8,7 @@ const GROUP_ID = 'group-a'
 
 let previousWiki: any
 let createCalls: any[]
+let checkAccessCalls: any[]
 
 function ctx({
   userId = 'user-1' as string | null,
@@ -15,6 +16,7 @@ function ctx({
   access = [] as string[]
 } = {}) {
   createCalls = []
+  checkAccessCalls = []
   ;(globalThis as any).WIKI = {
     sites: {
       [SITE_ID]: {
@@ -26,7 +28,10 @@ function ctx({
     },
     models: {
       groups: {
-        checkAccess: (_actor: any, permission: string) => access.includes(permission)
+        checkAccess: (_actor: any, permission: string, page: any) => {
+          checkAccessCalls.push(page)
+          return access.includes(permission)
+        }
       },
       pages: {
         createPage: async (siteId: string, input: any, actor: any) => {
@@ -111,6 +116,20 @@ test('handleCreatePage: honors an explicit editor and publishState', async () =>
     publishState: 'draft'
   })
   assert.equal(createCalls[0].input.publishState, 'draft')
+})
+
+test('handleCreatePage: an omitted locale resolves to the site default for both the permission check and the write', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  await handleCreatePage(c, { path: 'new-page', title: 'New Page', content: 'Hello' })
+  assert.equal(checkAccessCalls[0].locale, 'en')
+  assert.equal(createCalls[0].input.locale, 'en')
+})
+
+test('handleCreatePage: an empty-string locale falls back to the site default too, consistently for both', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  await handleCreatePage(c, { path: 'new-page', title: 'New Page', content: 'Hello', locale: '' })
+  assert.equal(checkAccessCalls[0].locale, 'en')
+  assert.equal(createCalls[0].input.locale, 'en')
 })
 
 test('handleCreatePage: wraps a model validation failure as an McpToolError', async () => {

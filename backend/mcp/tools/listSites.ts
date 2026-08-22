@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import type { McpAuthContext } from '../auth.ts'
+import type { McpAuthContext, McpAuthContextGetter } from '../auth.ts'
 import { defaultLocale, type McpSite } from '../site.ts'
 
 function toResult(payload: unknown): CallToolResult {
@@ -32,7 +32,7 @@ export function handleListSites(ctx: McpAuthContext): CallToolResult {
   return toResult(listed)
 }
 
-export function registerListSitesTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerListSitesTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'list_sites',
     {
@@ -40,6 +40,6 @@ export function registerListSitesTool(server: McpServer, ctx: McpAuthContext): v
         'List the wiki sites this server can reach, with their id, hostname and default locale. Use the id as `siteId` on the other tools.',
       inputSchema: {}
     },
-    () => handleListSites(ctx)
+    () => handleListSites(getCtx())
   )
 }
