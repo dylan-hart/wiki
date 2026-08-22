@@ -528,6 +528,122 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(treeEntry!.fileName, 'txn-source')
   })
 
+  test('movePage with includeTranslations moves every twin along with the primary (OpenProject #1026)', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'en', title: 'English' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'fr', title: 'Français' }),
+      actor
+    )
+
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      en.id,
+      { path: 'docs/cascade-b', title: 'English, Renamed', includeTranslations: true },
+      actor
+    )
+    // -> The primary's own title change is its own -- the twin keeps its own title, only its path
+    //    moves along
+    assert.equal(moved!.path, 'docs/cascade-b')
+    assert.equal(moved!.title, 'English, Renamed')
+
+    const movedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(movedFr!.path, 'docs/cascade-b')
+    assert.equal(movedFr!.locale, 'fr')
+    assert.equal(movedFr!.title, 'Français')
+
+    // -> Both tree entries actually moved, not just the pages rows
+    const enTree = await WIKI.models.tree.getById(en.id)
+    assert.equal(enTree!.fileName, 'cascade-b')
+    const frTree = await WIKI.models.tree.getById(fr.id)
+    assert.equal(frTree!.fileName, 'cascade-b')
+
+    // -> The old path is free again in both locales
+    const reoccupied = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'en', title: 'Reoccupied' }),
+      actor
+    )
+    assert.equal(reoccupied.path, 'docs/cascade-a')
+  })
+
+  test('movePage with includeTranslations leaves twins untouched when it does not exist', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-solo', locale: 'en' }),
+      actor
+    )
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      en.id,
+      { path: 'docs/cascade-solo-moved', includeTranslations: true },
+      actor
+    )
+    assert.equal(moved!.path, 'docs/cascade-solo-moved')
+  })
+
+  test('movePage with includeTranslations does not cascade a locale-only move', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-only', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-only-fr', locale: 'fr' }),
+      actor
+    )
+    await pagesModel.movePage(
+      fixtures.siteId,
+      fr.id,
+      { path: 'docs/cascade-locale-only-fr', title: 'Retitled', includeTranslations: true },
+      actor
+    )
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-locale-only')
+  })
+
+  test('movePage with includeTranslations: a third-locale occupant at the destination aborts the whole batch', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort', locale: 'fr' }),
+      actor
+    )
+    // -> Sitting at the destination path, in the twin's own locale, occupied by neither the primary
+    //    nor the twin -- exactly what should make the whole batch fail rather than only the twin
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort-taken', locale: 'fr', title: 'Already Here' }),
+      actor
+    )
+
+    await assert.rejects(
+      pagesModel.movePage(
+        fixtures.siteId,
+        en.id,
+        { path: 'docs/cascade-abort-taken', includeTranslations: true },
+        actor
+      ),
+      (err: any) =>
+        err.statusCode === 409 && err.name === 'pageDuplicatePath' && /fr/.test(err.message)
+    )
+
+    // -> Neither the primary nor the untouched twin moved
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-abort')
+    const untouchedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(untouchedFr!.path, 'docs/cascade-abort')
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,

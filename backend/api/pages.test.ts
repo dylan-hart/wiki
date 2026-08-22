@@ -1975,6 +1975,165 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
 })
 
 /**
+ * Route-level test for `PUT /sites/:siteId/pages/:pageId/path`'s `includeTranslations` gate
+ * (OpenProject #1026, spec item 3): the batch needs `manage:pages` on source AND destination for
+ * EVERY twin, not just the primary page -- checked here, before the model is asked to do anything,
+ * so a caller who may manage `en` cannot drag a `de` translation they have no rule over along for
+ * the ride.
+ */
+describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permission gate', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+  const FR_ID = '33333333-3333-4333-8333-333333333333'
+  const DE_ID = '44444444-4444-4444-8444-444444444444'
+
+  /** Manage `en` and `fr`, nothing else -- `de` is deliberately left ungoverned. */
+  const manageEnAndFr: GroupRule = {
+    id: 'manage-en-fr',
+    name: 'Manage EN+FR',
+    roles: ['manage:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: ['en', 'fr'],
+    sites: []
+  }
+
+  const realCheckAccess = (_actor: unknown, permission: string, page: RulePageRef) => {
+    const rule = resolvePageRule([manageEnAndFr], permission, page)
+    return rule ? rule.mode !== 'DENY' : false
+  }
+
+  let app: FastifyInstance
+  let movePageCalls: any[] = []
+  let translations: Array<{
+    id: string
+    path: string
+    locale: string
+    title: string
+    tags: string[]
+  }>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr', 'de'] } } } },
+      models: {
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'docs/source',
+            hash: 'hash-1',
+            locale: 'en',
+            title: 'Source',
+            tags: []
+          }),
+          getTranslations: async () => translations,
+          movePage: async (siteId: string, id: string, patch: any) => {
+            movePageCalls.push({ siteId, id, patch })
+            return {
+              id,
+              path: patch.path,
+              locale: patch.locale ?? 'en',
+              title: 'Source',
+              hash: 'hash-2'
+            }
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          groupIdsForRequest: () => ['g1'],
+          checkAccess: realCheckAccess
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    movePageCalls = []
+    translations = []
+    ;(globalThis as any).WIKI.models.groups.checkAccess = realCheckAccess
+  })
+
+  test('no twins: includeTranslations reaches the model with nothing to permission-check', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+    assert.equal(movePageCalls[0].patch.includeTranslations, true)
+  })
+
+  test('every twin permitted: the batch reaches the model', async () => {
+    translations = [{ id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] }]
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+  })
+
+  test('a twin outside every rule refuses the whole batch, naming its locale, before the model is asked', async () => {
+    translations = [
+      { id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] },
+      { id: DE_ID, path: 'docs/source', locale: 'de', title: 'Source DE', tags: [] }
+    ]
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /"de"/)
+    assert.equal(movePageCalls.length, 0)
+  })
+
+  test('includeTranslations is ignored on a locale-only move: getTranslations is never consulted', async () => {
+    let getTranslationsCalled = false
+    ;(globalThis as any).WIKI.models.pages.getTranslations = async () => {
+      getTranslationsCalled = true
+      return []
+    }
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', title: 'Retitled', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(getTranslationsCalled, false)
+  })
+})
+
+/**
  * Regression test for bug #949 / task 995: `POST .../pages/userPermissions` used to default the
  * ref's locale to the site primary unconditionally (task 4's interim), so a caller asking about a
  * path in a non-primary locale got the PRIMARY locale's rule answer instead of the real one — rules
