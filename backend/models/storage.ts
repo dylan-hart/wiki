@@ -3,6 +3,7 @@ import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
 import { parseModuleProps } from '../helpers/common.ts'
+import { parseLargeThreshold } from '../helpers/blobTarget.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { HookEvent } from './hooks.ts'
@@ -88,24 +89,6 @@ const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
   'asset:edit': 'assetUploaded',
   'asset:rename': 'assetRenamed',
   'asset:delete': 'assetDeleted'
-}
-
-/** Byte multiplier per unit of a `contentTypes.largeThreshold` string, e.g. `"5MB"`. */
-const SIZE_MULTIPLIERS: Record<string, number> = {
-  B: 1,
-  KB: 1024,
-  MB: 1024 ** 2,
-  GB: 1024 ** 3,
-  TB: 1024 ** 4
-}
-
-/** Parses a `largeThreshold`-shaped size string to bytes. Unparsable input never counts as "large". */
-function parseSizeToBytes(size: string): number {
-  const match = /^(\d+(?:\.\d+)?)\s?(B|KB|MB|GB|TB)$/i.exec(size)
-  if (!match) {
-    return Number.POSITIVE_INFINITY
-  }
-  return Number.parseFloat(match[1]) * SIZE_MULTIPLIERS[match[2].toUpperCase()]
 }
 
 /** An action a module knows how to run on demand, as declared by its `definition.yml`. */
@@ -787,9 +770,14 @@ class Storage {
    *
    * A page is always the `pages` bucket. An asset is classified by `data.kind` (`image` / `document`
    * / `other`, mirroring `models/assets.ts`'s `AssetKind`) into `images` / `documents` / `others` —
-   * unless `data.fileSize` is given and clears *this target's own* `largeThreshold`, in which case the
-   * target is asked about `large` instead of its kind-based bucket. The threshold lives on the target,
-   * not the module, so the same file can be "large" for one target and not another.
+   * unless `data.fileSize` is given and is at or above *this target's own* `largeThreshold`, in which
+   * case the target is asked about `large` instead of its kind-based bucket. The threshold lives on
+   * the target, not the module, so the same file can be "large" for one target and not another.
+   *
+   * Threshold parsing and the at-or-above comparison both go through `helpers/blobTarget.ts`'s
+   * `parseLargeThreshold` — the single parser every `largeThreshold` reader shares (OpenProject #927)
+   * — so this size-aware classification, the one the blob targets' own `exportAll`/`belongsInTarget`
+   * gate on, and the git module's `syncUntracked` (`actions.ts`) all agree on exactly the same file.
    */
   targetCoversEvent(target: StorageTarget, event: HookEvent, data: Record<string, any>): boolean {
     if (event.startsWith('page:')) {
@@ -812,7 +800,8 @@ class Storage {
     }
     if (
       typeof data.fileSize === 'number' &&
-      data.fileSize > parseSizeToBytes(target.contentTypes.largeThreshold)
+      data.fileSize >=
+        parseLargeThreshold(target.contentTypes.largeThreshold, Number.POSITIVE_INFINITY)
     ) {
       return target.contentTypes.activeTypes.includes('large')
     }
