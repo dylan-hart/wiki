@@ -54,21 +54,33 @@ import type { SourceRecord } from '../connector.ts'
  * (and only safe if that row doesn't already have its own separate `s3` config), which is out of this
  * mapper's per-row scope and left as the NO DESTINATION case the doc already calls it.
  *
- * ## Dropped fields, explicitly reported
+ * ## `mode` / `syncInterval`, now mapped
  *
- * 2.x's `mode` (`'sync'|'push'|'pull'`) and `syncInterval` describe sync direction and schedule; per
- * both mapping docs, 3.0's `storage` table has no column for either, and no shipped module prop
- * declares anything equivalent (`git`'s own `definition.yml` comment: "Synchronization (direction and
- * schedule) is not modelled yet"). Rather than the `authentication` mapper's precedent for its own
- * unmapped column (`order`, silently never read at all — see that module's doc), this task calls for
- * an explicit, non-silent report: every `'updated'` result carries `droppedFields: { mode,
- * syncInterval }` with the exact source values that were not carried across, so a caller building a
- * migration report (Feature 421) can surface them to an administrator instead of the row's history
- * simply vanishing. `state` is left untouched by this mapper for the same "no clean transform"
- * reason: 2.x's `state` was module-defined free-form json with no setup-wizard concept, whereas 3.0
- * pins the shape to `{ setup: 'notconfigured'|'pendinginstall'|'configured' }` — there is no source
- * value that means anything in that shape, so the row's already-synced `state` (set by `syncSite`)
- * is left as-is rather than guessing at a mapping that doesn't exist.
+ * `StorageTarget.sync.mode` and `sync.scheduleOverride` (`backend/models/storage.ts`) gave these two
+ * a real 3.0 destination, closing the gap `docs/variances.md` used to track. `mode` copies straight
+ * across as `syncMode` when the source value is one of the target module's own declared
+ * `supportedModes` (`disk`/`s3`/`sftp`/`azure`/`gcs`/`db` only ever support `push`; `git` supports
+ * `sync`/`push`/`pull`, matching what 2.x itself constrained the field to be in practice, per
+ * `docs/migration/2.5x-source-schema.md`'s note on the `mode` column). `syncInterval` needs an actual
+ * conversion, not a rename: 2.x stored it as a raw five-field cron expression (confirmed by
+ * `migration/mappers/fixtures/2.5x-storage.json`'s real-shaped sample, e.g. `*\/15 * * * *`), while
+ * 3.0's `scheduleOverride` is a plain ISO-8601 duration (`PT15M`) — a repeating interval, not a full
+ * cron trigger. `convertSyncInterval` below converts the two cron shapes that have a lossless
+ * duration equivalent ("every N minutes", "every N hours"); anything else a cron expression can
+ * express (a specific minute/hour, a day-of-week restriction, …) has no duration equivalent at all.
+ *
+ * Either conversion can still come up empty — an unsupported `mode`, or a `syncInterval` cron shape
+ * outside the two convertible ones — and that source value genuinely has nowhere to go. Rather than
+ * the `authentication` mapper's precedent for its own unmapped column (`order`, silently never read
+ * at all — see that module's doc), this mapper reports whichever of the two remain unconverted:
+ * `droppedFields.mode` and/or `droppedFields.syncInterval` are set only for a field that had a source
+ * value but could not be mapped, so a caller building a migration report (Feature 421) can still
+ * surface exactly what was lost instead of it silently vanishing. `state` is left untouched by this
+ * mapper for the same "no clean transform" reason: 2.x's `state` was module-defined free-form json
+ * with no setup-wizard concept, whereas 3.0 pins the shape to `{ setup:
+ * 'notconfigured'|'pendinginstall'|'configured' }` — there is no source value that means anything in
+ * that shape, so the row's already-synced `state` (set by `syncSite`) is left as-is rather than
+ * guessing at a mapping that doesn't exist.
  *
  * ## Per-site replay, no cross-call state
  *
@@ -96,12 +108,15 @@ export interface SourceStorageRow extends SourceRecord {
   key: string
   isEnabled: boolean
   /** `'sync' | 'push' | 'pull'` in practice, but the 2.x column was never a checked enum (see the
-   * source-schema doc) — dropped and reported, never interpreted. */
+   * source-schema doc) — mapped to `syncMode` when it is one of the target module's own
+   * `supportedModes`, reported in `droppedFields.mode` otherwise. */
   mode: unknown
   config: unknown
-  /** Dropped and reported, never interpreted — see the module doc. */
+  /** A raw five-field cron expression in practice (see the module doc) — converted to an ISO-8601
+   * `scheduleOverride` where the shape allows it, reported in `droppedFields.syncInterval`
+   * otherwise. */
   syncInterval: unknown
-  /** Left untouched by this mapper — see the module doc's "Dropped fields" section. */
+  /** Left untouched by this mapper — see the module doc's "mode / syncInterval" section. */
   state: unknown
 }
 
@@ -115,8 +130,8 @@ export interface SourceStorageRow extends SourceRecord {
 
 export interface StorageModuleResolver {
   /** `null` when no module on disk declares this key — the unsupported-module signal this mapper
-   * reports on rather than guessing at. */
-  getDefinition(key: string): { title: string } | null
+   * reports on rather than guessing at. `supportedModes` is what `mode` is validated against. */
+  getDefinition(key: string): { title: string; supportedModes: string[] } | null
   buildConfig(
     moduleKey: string,
     incoming?: Record<string, any>,
@@ -255,8 +270,10 @@ function transformConfig(module: string, rawConfig: unknown): Record<string, unk
 export type StorageRowStatus = 'updated' | 'unsupported' | 'flagged'
 
 /** What this mapper's output is applied with — an `UPDATE ... WHERE siteId = ? AND module = ?`, never
- * an insert. `values` only ever names `isEnabled`/`config`: the only two 2.x columns with a real 3.0
- * destination on the existing row (see the module doc). Deliberately not derived from
+ * an insert. `values` names `isEnabled`/`config` unconditionally, plus `syncMode`/`scheduleOverride`
+ * when `mode`/`syncInterval` actually converted (see the module doc) — omitted, not written as
+ * `undefined`, when they didn't, so an unconvertible source value leaves the row's existing/default
+ * sync settings alone rather than clobbering them with nothing. Deliberately not derived from
  * `typeof storageTable.$inferInsert` — the `jsonb()` `config` column has no declared shape there
  * (it infers as `{}`), which is far narrower than the `Record<string, any>` a module's actual props
  * produce. */
@@ -266,6 +283,8 @@ export interface StorageUpdatePayload {
   values: {
     isEnabled: boolean
     config: Record<string, any>
+    syncMode?: string
+    scheduleOverride?: string
   }
 }
 
@@ -278,10 +297,11 @@ export interface StorageRowResult {
   status: StorageRowStatus
   /** Present only when `status === 'updated'`. */
   update?: StorageUpdatePayload
-  /** Present only when `status === 'updated'` — the source's `mode`/`syncInterval` values, dropped
-   * because neither has any 3.0 destination, reported here rather than silently discarded. Absent for
-   * `unsupported`/`flagged` rows, since nothing about that row transferred at all. */
-  droppedFields?: { mode: unknown; syncInterval: unknown }
+  /** Only the field(s) that had a source value but could not be converted — an unsupported `mode`, or
+   * a `syncInterval` cron shape outside the two convertible ones (see the module doc). Absent
+   * entirely once both convert cleanly, and always absent for `unsupported`/`flagged` rows, since
+   * nothing about that row transferred at all. */
+  droppedFields?: { mode?: unknown; syncInterval?: unknown }
   /** Required for every non-`updated` status. */
   message?: string
 }
@@ -299,6 +319,52 @@ export interface MapStorageRowOptions {
   /** The 3.0 site this source row's config is being replayed against. Required, and carries no
    * cross-call state — see the module doc's "Per-site replay, no cross-call state" section. */
   siteId: string
+}
+
+// ---------------------------------------------------------------------------
+// mode / syncInterval conversion — see the module doc's "mode / syncInterval, now mapped" section
+// ---------------------------------------------------------------------------
+
+/** `mode` maps straight across, but only when the target module actually declares it — an
+ * unsupported value (or a module that only ever runs one mode) is left unmapped. */
+function convertSyncMode(value: unknown, supportedModes: readonly string[]): string | null {
+  return typeof value === 'string' && supportedModes.includes(value) ? value : null
+}
+
+const EVERY_N_MINUTES = /^\*\/(\d+) \* \* \* \*$/
+const EVERY_N_HOURS = /^0 \*\/(\d+) \* \* \*$/
+
+/**
+ * Converts 2.x's cron-shaped `syncInterval` into the ISO-8601 duration `scheduleOverride` expects.
+ * Only "every N minutes" (`*\/N * * * *`) and "every N hours" (`0 *\/N * * *`) have a lossless
+ * duration equivalent — anything else a cron expression can express (a pinned minute/hour, a
+ * day-of-week restriction, …) has none, and is left unconverted. An already-ISO-8601 value passes
+ * through as-is (verified with the same `Temporal.Duration.from()` parse `models/storage.ts` itself
+ * validates `scheduleOverride` with), in case a source ever holds one directly.
+ */
+function convertSyncInterval(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  if (trimmed.length === 0) {
+    return null
+  }
+  try {
+    Temporal.Duration.from(trimmed)
+    return trimmed
+  } catch {
+    // -> Not already an ISO-8601 duration; fall through to the cron-shape check below
+  }
+  const everyNMinutes = EVERY_N_MINUTES.exec(trimmed)
+  if (everyNMinutes) {
+    return `PT${everyNMinutes[1]}M`
+  }
+  const everyNHours = EVERY_N_HOURS.exec(trimmed)
+  if (everyNHours) {
+    return `PT${everyNHours[1]}H`
+  }
+  return null
 }
 
 /** Maps one 2.x `storage` row. See the module doc for the full policy; `mapStorageRows` is the usual
@@ -336,14 +402,29 @@ export function mapStorageRow(
     }
   }
 
-  const update: StorageUpdatePayload = {
-    siteId,
-    module,
-    values: {
-      isEnabled: !!row.isEnabled,
-      config: resolver.buildConfig(module, incoming, {})
-    }
+  const syncMode = convertSyncMode(row.mode, definition.supportedModes)
+  const scheduleOverride = convertSyncInterval(row.syncInterval)
+
+  const values: StorageUpdatePayload['values'] = {
+    isEnabled: !!row.isEnabled,
+    config: resolver.buildConfig(module, incoming, {})
   }
+  if (syncMode !== null) {
+    values.syncMode = syncMode
+  }
+  if (scheduleOverride !== null) {
+    values.scheduleOverride = scheduleOverride
+  }
+
+  const droppedFields: { mode?: unknown; syncInterval?: unknown } = {}
+  if (syncMode === null && row.mode !== undefined && row.mode !== null) {
+    droppedFields.mode = row.mode
+  }
+  if (scheduleOverride === null && row.syncInterval !== undefined && row.syncInterval !== null) {
+    droppedFields.syncInterval = row.syncInterval
+  }
+
+  const update: StorageUpdatePayload = { siteId, module, values }
 
   return {
     sourceKey: module,
@@ -351,7 +432,7 @@ export function mapStorageRow(
     siteId,
     status: 'updated',
     update,
-    droppedFields: { mode: row.mode, syncInterval: row.syncInterval }
+    ...(Object.keys(droppedFields).length > 0 ? { droppedFields } : {})
   }
 }
 

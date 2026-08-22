@@ -256,26 +256,6 @@ first have to stop being generated/vendored output — e.g. hand-authoring a rep
 vendored font stylesheet — at which point its `ignorePatterns` entry should be deleted along with
 this note.
 
-The other 44 files task 766 found already formatted-debt (mostly `frontend/` components/boot files
-never run through oxfmt, plus a handful in `backend/` and `blocks/`) were a dated snapshot recorded
-via a root `.prettierignore`, not a permanent exclusion — task 771 (this same feature) ran `oxfmt`
-in write mode over that exact file list, reviewed the diffs (style-only: spacing, quoting, arrow-fn
-parens, array/object wrapping — no `@click`-style inline-handler semicolon hazards per CLAUDE.md's
-Style section), and deleted `.prettierignore`. `oxfmt --check backend frontend blocks` now exits 0
-tree-wide with no ignore file present, so that half of this entry is resolved and removed.
-
-## blocks/ oxlint pinned to backend's version, not a literal shared pin (task 769, feature 423)
-
-Task 769 called for pinning `blocks/`'s new `oxlint` devDependency "at the same version pinned in
-backend/package.json and frontend/package.json", assuming the two already agreed. They don't:
-backend has `oxlint: 1.77.0`, frontend has `oxlint: 1.76.0` — a pre-existing one-patch drift between
-the two workspaces, not something introduced here. `blocks/package.json` was pinned to `1.77.0`,
-matching backend, consistent with the precedent already established for `oxfmt` in
-`.github/workflows/quality.yml` (backend's install treated as the canonical one for repo-wide
-tooling versions; see that file's "Format Check" step comment). Resolution: a follow-up task should
-reconcile `frontend/package.json`'s `oxlint` pin up to `1.77.0` so all three workspaces genuinely
-share one version, then this entry can be deleted.
-
 ## Tajawal has no `latin-ext` subset upstream
 
 **Spec**: Task 715 (Feature 415, "Make code injection and font selection actually apply") requires
@@ -967,14 +947,6 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   still-unchanged response landing after the click. Worked around in `e2e/tests/rtl.spec.js` (an
   explicit "Refresh" + wait for its own `aria-busy` to clear, before touching the toggle); not fixed in
   app code since it is a pre-existing timing issue unrelated to RTL.
-- **`EditorWysiwyg.vue` is not reachable at all right now.** `pages/Index.vue`'s `editorComponents` map
-  has its `wysiwyg` entry commented out (only `markdown` and `redirect` are registered), so
-  `/_create/wysiwyg` never mounts the component — under any locale or direction, with no console error
-  to say so. Discovered live during this task's walk (task 727's brief asks to validate "both the
-  Markdown and WYSIWYG editors"); not something this task can validate under RTL as a result, since
-  there is currently nothing there to validate. Wiring up a whole editor mode is outside an RTL task's
-  scope — `e2e/tests/rtl.spec.js` only asserts `dir` survives the navigation, with a comment explaining
-  why it stops there.
 - **The Markdown editor's toolbar buttons carry no `aria-label`.** `t('editor.markup.bold')` and its
   siblings only ever render into a `<w-tooltip>` (hover-only) — there is no accessible name on the
   buttons themselves for a screen reader, RTL or not. `e2e/tests/rtl.spec.js` checks the translated
