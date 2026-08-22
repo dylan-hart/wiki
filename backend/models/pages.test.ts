@@ -1046,6 +1046,149 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
+   * OpenProject #1080: the floor invariant itself, exercised through `createPage`/`updatePage`/
+   * `movePage` against a real parent/child hierarchy -- `models/classificationLevels.test.ts` only
+   * covers the pure `meetsFloor`/`stricterOf` math, and `api/pages.classification.test.ts` stubs the
+   * model entirely, so nothing else proves `resolveCreateClassification`'s parent lookup or
+   * `moveOnePageInTx`'s auto-bump actually run against real rows.
+   */
+  describe('classification floor invariant (OpenProject #1080)', () => {
+    let internalId: string
+    let restrictedId: string
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      internalId = levels.find((l) => l.name === 'Internal')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+    })
+
+    test('a root-level page with no explicit classification defaults to the most-open level', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/root-default' }),
+        actor
+      )
+      assert.equal(page.classification, fixtures.classificationId)
+    })
+
+    test('a child page with no explicit classification inherits its immediate parent', async () => {
+      const parent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/inherit-parent', classification: restrictedId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `${parent.path}/child` }),
+        actor
+      )
+      assert.equal(child.classification, restrictedId)
+    })
+
+    test('an explicit classification more open than the parent is rejected', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/reject-parent', classification: restrictedId }),
+        actor
+      )
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({
+            path: 'floor/reject-parent/child',
+            classification: fixtures.classificationId
+          }),
+          actor
+        ),
+        /classificationBelowFloor/
+      )
+    })
+
+    test('an explicit classification at or above the parent floor succeeds', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/accept-parent', classification: internalId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/accept-parent/child', classification: restrictedId }),
+        actor
+      )
+      assert.equal(child.classification, restrictedId)
+    })
+
+    test('updatePage rejects lowering below the immediate parent floor', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/update-parent', classification: restrictedId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/update-parent/child', classification: restrictedId }),
+        actor
+      )
+      await assert.rejects(
+        pagesModel.updatePage(
+          fixtures.siteId,
+          child.id,
+          { classification: fixtures.classificationId },
+          actor
+        ),
+        /classificationBelowFloor/
+      )
+    })
+
+    test('movePage auto-bumps a page onto a new, stricter parent floor', async () => {
+      const strictParent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/move-strict-parent', classification: restrictedId }),
+        actor
+      )
+      const openPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'floor/move-open-page',
+          classification: fixtures.classificationId
+        }),
+        actor
+      )
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        openPage.id,
+        { path: `${strictParent.path}/moved-in` },
+        actor
+      )
+      assert.equal(moved!.classification, restrictedId)
+    })
+
+    test('movePage never lowers a page already at or above the new floor', async () => {
+      const openParent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'floor/move-open-parent',
+          classification: fixtures.classificationId
+        }),
+        actor
+      )
+      const strictPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/move-strict-page', classification: restrictedId }),
+        actor
+      )
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        strictPage.id,
+        { path: `${openParent.path}/moved-in` },
+        actor
+      )
+      assert.equal(moved!.classification, restrictedId)
+    })
+  })
+
+  /**
    * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
    * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
    * one site.
