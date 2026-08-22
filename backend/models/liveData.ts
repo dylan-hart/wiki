@@ -1,7 +1,7 @@
 import dns from 'node:dns/promises'
 import { CustomError } from '../helpers/common.ts'
 import { extractJsonPathValue } from '../helpers/jsonPath.ts'
-import { isPrivateAddress } from '../helpers/network.ts'
+import { hostnameMatchesAllowlist, isPrivateAddress } from '../helpers/network.ts'
 
 /** A `block-live-data` instance's props, as posted to the resolve route. */
 export interface LiveDataRequest {
@@ -60,6 +60,11 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * any resolved address is private, loopback, or link-local: otherwise `write:pages` alone would let
  * an author turn this into an SSRF proxy into the wiki's own network, optionally carrying a stored
  * credential's secret along with it.
+ *
+ * A credential's `allowedDomains` is a second, independent guard, checked once a `credentialId` is
+ * given: even an author who legitimately knows a credential's id may not point it at any URL — only
+ * ones the admin who created that credential explicitly allowed. This is what stops a `write:pages`
+ * author from exfiltrating a `manage:sites`-gated secret to a URL of their own choosing.
  */
 class LiveData {
   /**
@@ -96,6 +101,13 @@ class LiveData {
       )
       if (credential === undefined) {
         throw new CustomError('Not Found', 'No such credential on this site.', 404)
+      }
+      if (!hostnameMatchesAllowlist(url.hostname, credential.allowedDomains)) {
+        throw new CustomError(
+          'Bad Request',
+          "url is not in this credential's allowed domains.",
+          400
+        )
       }
       headers.Authorization = `Bearer ${credential.secret}`
     }
