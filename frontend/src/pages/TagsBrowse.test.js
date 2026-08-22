@@ -183,6 +183,29 @@ describe('TagsBrowse.vue (OpenProject #987)', () => {
     }
   })
 
+  /**
+   * OpenProject #1121: `siteStore.fetchTags()` short-circuits when `tagsLoaded` is already true, so a
+   * tag list cached from earlier in the session (the editor, `PageTags.vue`, …) used to go stale here
+   * -- a tag created elsewhere never showed up in the sidebar until a full page reload reset the
+   * store. This screen forces a refresh instead of trusting the cache.
+   */
+  it('force-refreshes the tag list on mount even when the store already has a cached (stale) one', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    // -> Simulate a stale cache left behind by an earlier visit to the editor or PageTags.vue.
+    siteStore.$patch({ tags: [{ tag: 'stale-only', usageCount: 1 }], tagsLoaded: true })
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(FIXTURE_TAGS) })
+
+    const router = await createTestRouter('/_tags')
+    mount(TagsBrowse, { global: { plugins: [router, createTestI18n()] } })
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/tags')
+    expect(siteStore.tags).toEqual(FIXTURE_TAGS)
+  })
+
   it('recovers from a search failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

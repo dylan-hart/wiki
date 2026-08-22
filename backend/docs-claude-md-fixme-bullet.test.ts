@@ -1,36 +1,31 @@
-// Drift check for CLAUDE.md's "Pre-existing bugs are preserved, not fixed" bullet (task #782).
-//
-// That bullet used to tell readers to "Search `FIXME:` under `backend/` for the list — they are
-// genuine open bugs, not type-checker noise." Four of those markers (`sites.ts`'s
-// `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in `scheduler.ts`) were the
-// ones sibling feature #422 exists to close — but this branch fixed the same bugs independently
-// while standing up its own test infrastructure (commit c608b179), which also deleted their
-// `FIXME:` comments. See docs/variances.md's "## TODO/FIXME audit" section for the full account.
-//
-// That leaves the bullet pointing at a "list" that, as of this branch, does not exist: grep
-// `backend/` for `FIXME:` and nothing comes back. This test is that grep, automated, checked
-// against what the bullet actually claims — so if a future change adds a new preserved-bug FIXME
-// (or removes the last one, as already happened here), the bullet's wording has to be reconciled
-// rather than silently going stale again.
-//
-// Run directly:
-//   node --test docs/claude-md-fixme-bullet.test.mjs
-
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const docsDir = path.dirname(fileURLToPath(import.meta.url))
-const repoRoot = path.join(docsDir, '..')
-const claudeMdPath = path.join(repoRoot, 'CLAUDE.md')
-const backendDir = path.join(repoRoot, 'backend')
+/**
+ * Drift check for CLAUDE.md's "Pre-existing bugs are preserved, not fixed" bullet (task #782).
+ *
+ * That bullet used to tell readers to search `FIXME:` under `backend/` "for the list — they are
+ * genuine open bugs, not type-checker noise." All four of those original markers were fixed
+ * independently and their `FIXME:` comments removed with them, which left the bullet pointing at a
+ * "list" that briefly did not exist. This test is that grep, automated, checked against what the
+ * bullet actually claims -- so a future change adding or removing a preserved-bug FIXME has to
+ * reconcile the bullet's wording rather than let it go stale again either direction.
+ *
+ * Was docs/claude-md-fixme-bullet.test.mjs, unrun by anything (OpenProject #959). Moved into
+ * backend/, logic unchanged, so `npm run test` actually runs it.
+ */
+
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const claudeMdPath = path.join(REPO_ROOT, 'CLAUDE.md')
+const backendDir = path.join(REPO_ROOT, 'backend')
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'compiled'])
 const SKIP_FILE_SUFFIXES = ['.test.ts', '.test.js', '.test.mjs']
 
-function walk(dir, out) {
+function walk(dir: string, out: string[]): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     const st = statSync(full)
@@ -45,10 +40,10 @@ function walk(dir, out) {
   return out
 }
 
-function countBackendFixmeMarkers() {
+function countBackendFixmeMarkers(): number {
   let count = 0
   for (const file of walk(backendDir, [])) {
-    let content
+    let content: string
     try {
       content = readFileSync(file, 'utf8')
     } catch {
@@ -60,7 +55,7 @@ function countBackendFixmeMarkers() {
   return count
 }
 
-function extractBullet(claudeMd) {
+function extractBullet(claudeMd: string): string | null {
   const start = claudeMd.indexOf('**Pre-existing bugs are preserved, not fixed')
   if (start === -1) return null
   // Bullet runs from its own "- **" marker to the next top-level "- **" bullet or heading.
@@ -84,21 +79,21 @@ describe("CLAUDE.md's FIXME-preservation bullet stays honest about backend/'s ac
   })
 
   test('bullet still describes the narrow-cast-plus-FIXME-comment convention for future migrations', () => {
-    assert.match(bullet, /narrow cast/i)
-    assert.match(bullet, /FIXME:/)
+    assert.match(bullet!, /narrow cast/i)
+    assert.match(bullet!, /FIXME:/)
   })
 
   test('bullet does not claim a searchable FIXME "list" exists under backend/ when none does', () => {
     if (backendFixmeCount === 0) {
       assert.doesNotMatch(
-        bullet,
+        bullet!,
         /for the list/i,
         `backend/ currently has zero FIXME: markers, but the bullet still points readers at ` +
           `"the list" to search for — that claim is stale and must be trimmed`
       )
     } else {
       // If markers do exist, the bullet pointing readers at them is accurate again.
-      assert.match(bullet, /FIXME:/)
+      assert.match(bullet!, /FIXME:/)
     }
   })
 })

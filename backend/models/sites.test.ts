@@ -458,12 +458,19 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
 
 /**
  * Regression test for task 686: `createSite` unconditionally gives every site its own root
- * navigation row (`navigation.ensureSiteNav`, keyed by `id = siteId`), but until this fix
- * `deleteSite` never cleaned it up — so a brand-new site with zero pages still hit the `navigation`
- * table's FK (no cascade) and failed to delete with a 23503, reported by the route as a 409 "still
- * holds content" conflict. This suite runs the real `deleteSite`/`createPage` methods against a
- * migrated, per-run-fresh database (see `test/db.ts`) rather than mocking the query builder, since
- * the behavior under test is the FK interaction itself.
+ * navigation row (`navigation.ensureSiteNav`), but until this fix `deleteSite` never cleaned it up —
+ * so a brand-new site with zero pages still hit the `navigation` table's FK (no cascade) and failed
+ * to delete with a 23503, reported by the route as a 409 "still holds content" conflict. This suite
+ * runs the real `deleteSite`/`createPage` methods against a migrated, per-run-fresh database (see
+ * `test/db.ts`) rather than mocking the query builder, since the behavior under test is the FK
+ * interaction itself.
+ *
+ * Since #990 (locale-scoped site menus), `ensureSiteNav`'s row is addressed by its own
+ * `defaultRandom()` `id` and by the `siteId` column the FK constraint actually checks — `id` is
+ * never `= siteId`. The "deletes cleanly" case below asserts against `siteId`, not `id`, for exactly
+ * that reason (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows
+ * whether or not `deleteSite` ever ran, since a random nav-row id practically never collides with a
+ * site id — that query would pass even if `deleteSite` had never been fixed at all.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -504,7 +511,7 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const remainingNav = await fixtures.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
-      .where(eq(navigationTable.id, siteId))
+      .where(eq(navigationTable.siteId, siteId))
     assert.equal(remainingNav.length, 0)
   })
 

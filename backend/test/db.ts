@@ -66,6 +66,10 @@ export function hasTestDatabase(): boolean {
 
 let pool: Pool | null = null
 let currentSchema: string | null = null
+/** Whatever `globalThis.WIKI` held before `installTestWiki()` overwrote it — `undefined` if unset.
+ *  Captured once per `setupTestDb()` call so `teardownTestDb()` can put it back rather than leaving
+ *  this fixture's `WIKI` in place for whatever runs next in the same file (see #1021). */
+let previousWiki: WikiGlobal | undefined
 
 /**
  * Connect, create a fresh schema, migrate, install `WIKI`, and seed one site/user/group.
@@ -262,6 +266,8 @@ export async function teardownTestDb(): Promise<void> {
   await pool?.end()
   pool = null
   currentSchema = null
+  global.WIKI = previousWiki as WikiGlobal
+  previousWiki = undefined
 }
 
 export interface SeedLocaleInput {
@@ -305,6 +311,7 @@ export async function seedLocale(db: WikiDb, input: SeedLocaleInput) {
  * flake for a cause unrelated to the code under test.
  */
 function installTestWiki(db: WikiDb, models: typeof import('../models/index.ts').default): void {
+  previousWiki = global.WIKI
   global.WIKI = {
     IS_DEBUG: false,
     ROOTPATH: process.cwd(),
