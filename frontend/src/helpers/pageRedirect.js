@@ -8,6 +8,8 @@
  * the editor round-trips through it, and the page view follows what it returns.
  */
 
+import { localizedPagePath, parseLocalePrefix } from './pagePaths'
+
 /**
  * How long the interstitial is shown before the reader is taken on, in milliseconds.
  *
@@ -45,6 +47,38 @@ export function serializeRedirect({ kind, target, showInterstitial } = {}) {
     target: (target ?? '').trim(),
     showInterstitial: showInterstitial === true
   })
+}
+
+/**
+ * Resolve a parsed page-kind redirection's `target` to what should actually be followed and shown --
+ * either left exactly as authored, or, for a bare in-app path with no locale prefix of its own,
+ * localized to the reader's current locale.
+ *
+ * `PageRedirect.vue`'s only caller: pulled out here so the one tricky case (a malformed, non-slash-
+ * leading stored target) has a unit test rather than only a component one. The author picks a target
+ * through `LinkPickerDialog`, which already prefixes it for the locale it was chosen in -- so a target
+ * that already carries an active-locale prefix (`parseLocalePrefix` matches it) is left exactly as
+ * written; the author addressed a specific translation, and re-prefixing it would double up or
+ * override that choice. A bare, WELL-FORMED target (slash-leading, no locale prefix -- content saved
+ * before locale scoping existed, or written by hand) has no locale of its own to have meant, so it is
+ * localized to the reader's current locale, the same rule any other in-app link in this app follows.
+ * A MALFORMED target -- doesn't even start with `/` -- is passed through completely untouched:
+ * stripping a leading slash that isn't there would eat a real character and mangle the diagnostic
+ * caption a broken redirect shows for it, and `isFollowable` already refuses to follow anything that
+ * doesn't start with `/`, so leaving it as-is changes nothing about whether it's followed.
+ *
+ * A URL-kind redirection has no page locale to carry and is never passed through this.
+ *
+ * @param target The parsed redirection's own `target` (`parseRedirect(...).target`)
+ * @param activeLocaleCodes The site's active locale codes, as `parseLocalePrefix` takes them
+ * @param currentLocale The locale to localize an unprefixed bare target into
+ * @param siteLocales The site's locale routing config, as `localizedPagePath` takes it
+ */
+export function resolveRedirectTarget(target, activeLocaleCodes, currentLocale, siteLocales) {
+  if (!target || parseLocalePrefix(target, activeLocaleCodes) || !target.startsWith('/')) {
+    return target
+  }
+  return localizedPagePath(target.slice(1), currentLocale, siteLocales)
 }
 
 /**
