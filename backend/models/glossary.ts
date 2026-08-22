@@ -212,7 +212,11 @@ class Glossary {
       const nextTerm = values.term ?? current.term
       const aliases = normalizeAliases(input.aliases ?? current.aliases, nextTerm)
       values.aliases = aliases
-      if (input.aliases !== undefined) {
+      // -> Recorded whenever the STORED set actually changes, not only when the caller explicitly
+      //    passed `aliases` -- renaming a term to match one of its own existing aliases silently
+      //    drops that alias too (see `normalizeAliases`'s own doc), and the audit log's whole point
+      //    (OpenProject #1115) is reporting what actually changed, not just what the caller asked for.
+      if (JSON.stringify(aliases) !== JSON.stringify(current.aliases)) {
         changedFields.push('aliases')
       }
       await this.assertNoSurfaceFormCollision(siteId, nextTerm, aliases, id)

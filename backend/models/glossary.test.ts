@@ -319,6 +319,20 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       assert.deepEqual(updated.aliases, ['Alias One'])
     })
 
+    test('updateTerm() drops an alias that a term rename now collides with', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Rename Collides Mill',
+        definition: 'A rolling mill.',
+        aliases: ['RCM']
+      })
+
+      const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
+        term: 'rcm'
+      })
+
+      assert.deepEqual(updated.aliases, [])
+    })
+
     test('getCachedTerms() carries each entry’s aliases through', async () => {
       await glossaryModel.createTerm(fixtures.siteId, {
         term: 'Aliased',
@@ -661,6 +675,25 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       const { entries } = await auditLogModel.list({ event: 'glossaryTerm.updated' })
       const entry = entries.find((e) => e.targetId === created.id)
       assert.deepEqual(entry?.detail.changedFields, ['definition'])
+    })
+
+    test('updateTerm() records aliases as changed when a term rename drops one, even though aliases wasn’t passed', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Audit Hot Strip Mill',
+        definition: 'A rolling mill.',
+        aliases: ['Audit HSM']
+      })
+
+      await glossaryModel.updateTerm(
+        fixtures.siteId,
+        created.id,
+        { term: 'audit hsm' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.updated' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.deepEqual(entry?.detail.changedFields, ['term', 'aliases'])
     })
 
     test('deleteTerm() records the deleted term’s label', async () => {
