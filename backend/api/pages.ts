@@ -1164,7 +1164,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          "Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.\n\n`includeTranslations` cascades the path change to every other locale's page sharing this page's current path (its translations -- see docs/decisions/locale-translation-linking.md). All-or-nothing: the caller needs `manage:pages` on source AND destination for every one of them too, and a 409 or 403 on any single translation aborts the whole batch, naming which locale it was.",
+          "Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND `write:pages` on where it is going -- the same destination check `POST .../deleted/:versionId/recover` makes, since arriving somewhere is a write there whether the page came from a fresh create or from moving out of another branch.\n\n`includeTranslations` cascades the path change to every other locale's page sharing this page's current path (its translations -- see docs/decisions/locale-translation-linking.md). All-or-nothing: the caller needs `manage:pages` on each twin's own path AND `write:pages` on the shared destination, and a 409 or 403 on any single translation aborts the whole batch, naming which locale it was.",
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1230,16 +1230,19 @@ async function routes(app: FastifyInstance) {
       }
       // -> Where it is going is its own question: rules are matched on path AND locale, so being
       //    allowed to manage a page where it sits now says nothing about the destination. Checked
-      //    against the same permission, since arriving somewhere is as much a change to that place as
-      //    leaving is to this one. The ref carries the page's tags because they travel with it, so a
-      //    rule that grants by tag applies at the destination exactly as it does at the source; the
+      //    against `write:pages`, not `manage:pages` -- the group editor's own hint for `manage:pages`
+      //    promises "other locations the user has WRITE ACCESS to", and `write:pages` is exactly the
+      //    permission `POST .../deleted/:versionId/recover` already checks against its own target
+      //    path for the same reason: landing a page somewhere is a write there, whatever put it in
+      //    motion (OpenProject #937). The ref carries the page's tags because they travel with it, so
+      //    a rule that grants by tag applies at the destination exactly as it does at the source; the
       //    path is normalized the way `movePage` will store it, so that a leading slash in the body
       //    cannot make a rule miss.
       const destPath = normalizePagePath(req.body.path)
       const destLocale = req.body.locale ?? target.locale
       if (destPath !== target.path || destLocale !== target.locale) {
         const destRef = { path: destPath, locale: destLocale, tags: target.tags }
-        if (!mayOnPage(req, 'manage:pages', req.params.siteId, destRef)) {
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, destRef)) {
           return reply.forbidden('You are not allowed to move this page there.')
         }
       }
@@ -1247,7 +1250,9 @@ async function routes(app: FastifyInstance) {
       //    path -- checked here, before the model is asked to do anything, because a batch move is
       //    "everyone involved may go" or nothing: a rule that lets this caller manage `en` but not
       //    `fr` must not let them drag the `fr` translation along for the ride just because they may
-      //    manage the primary page.
+      //    manage the primary page. Each twin still needs `manage:pages` to be moved away from its OWN
+      //    path, same as the primary; the shared destination needs `write:pages`, same reasoning as
+      //    above.
       if (req.body.includeTranslations && destPath !== target.path) {
         const translations = await WIKI.models.pages.getTranslations(
           req.params.siteId,
@@ -1263,7 +1268,7 @@ async function routes(app: FastifyInstance) {
           const destRef = { path: destPath, locale: translation.locale, tags: translation.tags }
           if (
             !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
-            !mayOnPage(req, 'manage:pages', req.params.siteId, destRef)
+            !mayOnPage(req, 'write:pages', req.params.siteId, destRef)
           ) {
             return reply.forbidden(
               `You are not allowed to move the "${translation.locale}" translation of this page.`
