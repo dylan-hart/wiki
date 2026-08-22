@@ -141,6 +141,13 @@ describe('ruleMatchesPage', () => {
       assert.equal(ruleMatchesPage(rule, page({ locale: null })), false)
     })
 
+    test('a ref with an empty-string locale is excluded by a locale-scoped rule, same as null (fail closed)', () => {
+      // -> `refLocale = page.locale?.toLowerCase()` turns '' into '' -- still falsy -- so an empty
+      //   string fails closed exactly like `null` does, not like a real (if unmatched) code would.
+      const rule = makeRule({ match: 'START', path: '', locales: ['en'] })
+      assert.equal(ruleMatchesPage(rule, page({ locale: '' })), false)
+    })
+
     test('a locale-scoped rule matches case-insensitively', () => {
       const rule = makeRule({ match: 'START', path: '', locales: ['pt-BR'] })
       assert.equal(ruleMatchesPage(rule, page({ locale: 'pt-br' })), true)
@@ -167,6 +174,17 @@ describe('ruleMatchesPage', () => {
     test('a ref with an explicitly unknown siteId is excluded by a site-scoped rule (fail closed)', () => {
       const rule = makeRule({ match: 'START', path: '', sites: ['site-a'] })
       assert.equal(ruleMatchesPage(rule, page({ siteId: null })), false)
+    })
+
+    test('a site-scoped rule matches case-SENSITIVELY, unlike locale scoping', () => {
+      // -> `rule.sites.includes(page.siteId)` -- a bare array membership check, no `.toLowerCase()`
+      //   on either side -- deliberately unlike locale scoping just above. Site ids are UUIDs in
+      //   practice, where casing is not meaningful, but the comparison itself draws no such
+      //   exception: pinned here so a future "make it consistent with locale" cleanup has to be a
+      //   deliberate choice, not an accidental regression.
+      const rule = makeRule({ match: 'START', path: '', sites: ['Site-A'] })
+      assert.equal(ruleMatchesPage(rule, page({ siteId: 'Site-A' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ siteId: 'site-a' })), false)
     })
   })
 

@@ -71,8 +71,13 @@ import { useI18n } from 'vue-i18n'
 
 import { loading } from '@/composables/loading'
 
-import { isFollowable, parseRedirect, REDIRECT_INTERSTITIAL_MS } from '@/helpers/pageRedirect'
-import { localizedPagePath, parseLocalePrefix } from '@/helpers/pagePaths'
+import {
+  isFollowable,
+  parseRedirect,
+  REDIRECT_INTERSTITIAL_MS,
+  resolveRedirectTarget
+} from '@/helpers/pageRedirect'
+import { parseLocalePrefix } from '@/helpers/pagePaths'
 
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -141,29 +146,23 @@ const chainStopped = ref(false)
 const activeLocaleCodes = computed(() => siteStore.locales.active.map((locale) => locale.code))
 
 /**
- * The stored redirection, with an in-app target resolved to a locale it actually carries.
- *
- * The author picks a target through `LinkPickerDialog`, which already prefixes it for
- * `pageStore.locale` at the time it was chosen -- so a target that already carries an active-locale
- * prefix (`parseLocalePrefix` matches it) is left exactly as written; the author addressed a specific
- * translation, and re-prefixing it would double up or override that choice. A bare target -- content
- * saved before that scoping existed, or written by hand -- has no locale of its own to have meant, so
- * it stays within the redirect page's OWN locale by default, the same rule any other in-app link in
- * this app follows.
- *
- * A URL target leaves the app entirely and has no page locale to carry.
+ * The stored redirection, with an in-app target resolved to a locale it actually carries. See
+ * `resolveRedirectTarget` for the resolution rules (including the malformed-target caption fix);
+ * a URL target leaves the app entirely and has no page locale to carry, so it passes through as-is.
  */
 const redirect = computed(() => {
   const parsed = parseRedirect(pageStore.content)
   if (parsed.kind === 'url' || !parsed.target) {
     return parsed
   }
-  if (parseLocalePrefix(parsed.target, activeLocaleCodes.value)) {
-    return parsed
-  }
   return {
     ...parsed,
-    target: localizedPagePath(parsed.target.slice(1), pageStore.locale, siteStore.localeRouting)
+    target: resolveRedirectTarget(
+      parsed.target,
+      activeLocaleCodes.value,
+      pageStore.locale,
+      siteStore.localeRouting
+    )
   }
 })
 

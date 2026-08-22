@@ -53,7 +53,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       locale: 'en',
       siteId: fixtures.siteId
     })
-    const fr = await treeModel.createFolder({
+    await treeModel.createFolder({
       pathName: 'docs',
       title: 'Docs',
       locale: 'fr',
@@ -84,8 +84,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       locale: 'en'
     })
     assert.ok(enPage, 'the en page must have moved to guides/intro')
-    const frFolder = await treeModel.getFolderById(fr.id)
-    assert.equal(frFolder!.fileName, 'docs')
+    // -> The real cascade-scope claim: the fr PAGE's own tree row is still filed under the
+    //   untouched `docs` folder, not swept along by the `en`-only rename. Checking `fr`'s FOLDER
+    //   row's `fileName` (as this used to) is vacuous -- that row was never a candidate for the
+    //   cascade in the first place, since `renameFolder` was only ever given `en.id`.
+    const frPageTreeRow = await treeModel.getById(frPage!.id)
+    assert.equal(frPageTreeRow!.folderPath, 'docs')
   })
 
   test('deleting a folder deletes only its own locale (bug #932)', async () => {
@@ -198,6 +202,45 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     }
     const titles = items.map((item) => item.title).sort()
     assert.deepEqual(titles, ['Intro EN', 'Shared EN'])
+  })
+
+  /**
+   * `includeRootFolders` adds its own OR-branch to the location filter (`getTree`'s `locations`
+   * array), separate from the branch a `parentPath`/`parentId`/`includeAncestors` listing builds —
+   * so it is worth its own regression test that the branch doesn't slip past the outer, unconditional
+   * `eq(treeTable.locale, locale)` this suite's #992 fix put in place. Structurally it can't (the
+   * locale condition ANDs every OR-branch alike), but the #992 bug was exactly this kind of filter
+   * silently not applying to a branch it should have -- worth locking down directly rather than only
+   * by inspection.
+   */
+  test('getTree with includeRootFolders still filters root folders by locale', async () => {
+    await treeModel.createFolder({
+      pathName: 'root-en-only',
+      title: 'Root EN Only',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await treeModel.createFolder({
+      pathName: 'root-fr-only',
+      title: 'Root FR Only',
+      locale: 'fr',
+      siteId: fixtures.siteId
+    })
+
+    const items = await treeModel.getTree({
+      siteId: fixtures.siteId,
+      locale: 'en',
+      parentPath: 'shared',
+      includeRootFolders: true,
+      depth: 1
+    })
+
+    const titles = items.map((item) => item.title)
+    assert.ok(titles.includes('Root EN Only'), 'the en root folder should be included')
+    assert.ok(
+      !titles.includes('Root FR Only'),
+      'an fr root folder must not appear in an en-only includeRootFolders listing'
+    )
   })
 
   /**

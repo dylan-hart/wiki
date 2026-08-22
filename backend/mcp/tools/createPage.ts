@@ -79,8 +79,8 @@ export async function handleCreatePage(
   }
   // -> Resolved once and reused for both the permission check below and the actual write, so they can
   //    never land on different locales — `||`, not `??`, to mirror `models/pages.ts#createPage()`'s own
-  //    `input.locale || this.defaultLocale(siteId)` fallback exactly: an empty-string `locale` argument
-  //    is "unset" there too, not a locale of its own.
+  //    `input.locale || defaultLocale(siteId)` fallback exactly: an empty-string `locale` argument is
+  //    "unset" there too, not a locale of its own.
   const locale = args.locale || defaultLocale(site)
   if (
     !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', {

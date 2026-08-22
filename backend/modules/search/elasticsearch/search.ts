@@ -383,7 +383,8 @@ export class ElasticsearchSearchModule implements SearchModule {
    * move never touches (`models/pages.ts`'s `movePage` updates the row in place). A rename is
    * therefore an ordinary re-index of the same document via `client.index`, same as `created`/
    * `updated` -- the identical reasoning already recorded for the Algolia module's `renamed()` in
-   * `docs/variances.md`.
+   * `docs/variances.md`. A locale change is rewritten by the same reindex, which is why this module
+   * needs no `previousLocale` of its own either.
    */
   async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)
