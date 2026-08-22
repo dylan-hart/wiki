@@ -11,7 +11,9 @@
  */
 export const GLOBAL_PERMISSIONS: string[] = [
   'access:admin',
+  'read:users',
   'manage:users',
+  'read:groups',
   'manage:groups',
   'manage:navigation',
   'manage:theme',

@@ -92,13 +92,12 @@ function isReviewerSession(req: FastifyRequest): boolean {
 /**
  * Whether this caller may read this site's approval rules — i.e. reach `AdminApprovals.vue` for it.
  *
- * `read:sites` and `manage:sites` keep working exactly as before delegation existed; `site:approvals`
+ * `manage:sites` keeps working exactly as before delegation existed; `site:approvals`
  * (see `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
  */
 function mayReadApprovalRules(req: FastifyRequest, siteId: string): boolean {
   const actor = WIKI.models.groups.actorForRequest(req)
   return (
-    actor.permissions.includes('read:sites') ||
     actor.permissions.includes('manage:sites') ||
     WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
   )

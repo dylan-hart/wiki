@@ -1681,7 +1681,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['create:users', 'manage:users']
+        permissions: ['manage:users']
       },
       schema: {
         summary: 'Create a new user',

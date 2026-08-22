@@ -86,7 +86,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Create a new group',
@@ -206,7 +206,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Update a group',
@@ -524,7 +524,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId/users/:userId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Assign a user to a group',
@@ -619,7 +619,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId/users/:userId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Unassign a user from a group',

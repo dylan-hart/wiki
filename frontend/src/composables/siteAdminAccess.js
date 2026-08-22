@@ -17,10 +17,8 @@ import { useUserStore } from '@/stores/user'
  *   - `site:navigation`: `manage:navigation` ONLY — deliberately not `manage:sites`. That mirrors
  *     `canManageNavigation` in `backend/api/navigation.ts`, which has never accepted `manage:sites`
  *     for this surface, before or after delegation existed.
- *   - `site:approvals`: `manage:sites` OR `read:sites` — see `mayReadApprovalRules` in
- *     `backend/api/approvals.ts`. (`read:sites` is presently ungrantable through the group editor —
- *     see CLAUDE.md's closed global-permission list — so in practice this behaves as `manage:sites`
- *     alone; listed anyway for exact backend parity.)
+ *   - `site:approvals`: `manage:sites` alone — see `mayReadApprovalRules` in
+ *     `backend/api/approvals.ts`.
  *
  * Getting one of these combos wrong in either direction is a real bug: too narrow hides a page from
  * someone the backend would actually let in, too broad shows a page — or a save button — that then
@@ -34,7 +32,7 @@ const GLOBAL_FALLBACKS = {
   'site:editors': ['manage:sites'],
   'site:blocks': ['manage:sites'],
   'site:navigation': ['manage:navigation'],
-  'site:approvals': ['manage:sites', 'read:sites']
+  'site:approvals': ['manage:sites']
 }
 
 /**
