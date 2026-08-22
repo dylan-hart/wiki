@@ -108,6 +108,53 @@ describe.each(['savePage', 'duplicatePage', 'renamePage'])(
 )
 
 /**
+ * OpenProject #1013: the only way to create a new folder is right-clicking an existing folder in the
+ * tree pane, which nothing in the dialog otherwise communicates. A hint line makes that discoverable.
+ */
+describe('TreeBrowserDialog new-folder hint', () => {
+  it('shows a hint explaining how to create a new folder', async () => {
+    // -> `w-dialog` teleports its content to `document.body`, so it is queried there rather than off
+    //    the mounted wrapper's own subtree -- the same pattern `EditorPickerDialog.test.js` uses.
+    mountDialog({})
+    await flushPromises()
+
+    const hint = document.body.querySelector('.page-save-dialog-hint')
+    expect(hint).not.toBeNull()
+    expect(hint.textContent.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * OpenProject #1025: Path Name holds only the leaf slug -- the folder comes from the tree browser
+ * (#1013), not from `/`-separated segments typed here. A slash is rejected live, pre-submit, rather
+ * than only inside save()'s post-submit `pathInvalid` notification.
+ */
+describe('TreeBrowserDialog Path Name rejects slashes', () => {
+  it('the Save button is disabled while the field holds a slash', async () => {
+    const wrapper = mountDialog({})
+    await flushPromises()
+
+    wrapper.vm.state.title = 'A Title'
+    wrapper.vm.state.path = 'foo'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.pathHasSlash).toBe(false)
+
+    wrapper.vm.state.path = 'foo/bar'
+    await wrapper.vm.$nextTick()
+    expect(wrapper.vm.pathHasSlash).toBe(true)
+  })
+
+  it('the Path Name rule rejects a value containing a slash', async () => {
+    const wrapper = mountDialog({})
+    await flushPromises()
+
+    const [rule] = wrapper.vm.pathRules
+    expect(rule('plain-slug')).toBe(true)
+    expect(rule('foo/bar')).not.toBe(true)
+  })
+})
+
+/**
  * `includeTranslations` (OpenProject #1026): `renamePage` mode fetches this page's translations on
  * mount to decide whether "Also move N translation(s)" has anything to offer, default checked.
  */
