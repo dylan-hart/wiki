@@ -186,7 +186,7 @@
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
               active-class="bg-primary text-white"
-              v-if="userStore.can(`manage:sites`)">
+              v-if="userStore.can(`manage:glossary`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
               </w-item-section>

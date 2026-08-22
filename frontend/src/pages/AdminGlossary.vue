@@ -111,9 +111,10 @@ import { apiErrorMessage } from '@/helpers/apiError'
   No `useSiteAdminAccess()` here: that composable exists for the nine surfaces
   `composables/siteAdminAccess.js`'s `GLOBAL_FALLBACKS` names, none of which is this one. Glossary is
   gated the same way `AdminComments.vue` / `AdminAnalytics.vue` are -- the sidebar entry checks
-  `manage:sites` (see `AdminLayout.vue`), and the API route enforces the same permission server-side;
-  there is no client-side redirect to add on top for a page that carries no additional site-admin
-  delegation of its own.
+  `manage:glossary` (see `AdminLayout.vue`), and every `api/glossary.ts` admin route enforces the same
+  permission server-side (OpenProject #1116 -- a dedicated permission rather than piggybacking on
+  `manage:sites`, which also grants site creation/deletion/config editing); there is no client-side
+  redirect to add on top for a page that carries no additional site-admin delegation of its own.
 */
 
 // COMPOSABLES

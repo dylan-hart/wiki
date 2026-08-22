@@ -12,12 +12,13 @@ interface GlossaryTermBody {
 /**
  * Glossary API Routes (OpenProject #870)
  *
- * The admin list/create/update/delete routes are gated behind `manage:sites`, matching every other
- * site-config surface that has no delegated `site:*` permission of its own (see CLAUDE.md's
- * Permissions section). `GET .../terms` is the one exception: it carries no route-level permission,
- * the same way `api/tags.ts` doesn't, because it is what the editor's own live preview and save-time
- * render pull from to match against — refusing it there would refuse rendering, not just the admin
- * screen.
+ * Every admin route (list/create/update/delete, export/import, save, versions) is gated behind its
+ * own `manage:glossary` global permission (OpenProject #1116) -- not `manage:sites`, which also
+ * grants site creation/deletion/config editing, far more than glossary management needs.
+ * `manage:system` still bypasses every check regardless, per the shared permission hook. `GET
+ * .../terms` is the one exception: it carries no route-level permission, the same way `api/tags.ts`
+ * doesn't, because it is what the editor's own live preview and save-time render pull from to match
+ * against — refusing it there would refuse rendering, not just the admin screen.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -27,7 +28,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'List a site’s glossary terms',
@@ -109,7 +110,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Create a glossary term',
@@ -161,7 +162,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/:termId',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Update a glossary term',
@@ -211,7 +212,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/:termId',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Delete a glossary term',
@@ -260,7 +261,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/export',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Export the glossary as portable JSON',
@@ -297,7 +298,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/import',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Replace the glossary wholesale from portable JSON',
@@ -340,7 +341,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/save',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Apply staged glossary edits and save a new version',
@@ -397,7 +398,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/versions',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'List saved glossary versions',
@@ -437,7 +438,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/versions/:versionId',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Get a saved glossary version, including its full term list',
@@ -477,7 +478,7 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/glossary/versions/:versionId/restore',
     {
       config: {
-        permissions: ['manage:sites']
+        permissions: ['manage:glossary']
       },
       schema: {
         summary: 'Restore a saved glossary version as the live glossary',
