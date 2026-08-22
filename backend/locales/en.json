@@ -258,6 +258,7 @@
   "admin.blocks.credentialAdd": "Add Credential",
   "admin.blocks.credentialAddSubtitle": "The secret is written once, here — it cannot be viewed again afterwards, only rotated.",
   "admin.blocks.credentialAllowedDomains": "Allowed Domains",
+  "admin.blocks.credentialAllowedDomainsEmpty": "No allowed domains — this credential cannot be used by any block.",
   "admin.blocks.credentialAllowedDomainsHint": "Type a domain (e.g. api.example.com, or *.example.com for its subdomains) and press Enter. Required: an empty list means this credential can never be used.",
   "admin.blocks.credentialAllowedDomainsRequired": "At least one allowed domain is required.",
   "admin.blocks.credentialCopyFailed": "Could not copy the credential id.",

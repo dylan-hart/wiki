@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -10,6 +10,12 @@ import WBtn from '@/components/shared/WBtn.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
+import { dialog } from '@/composables/dialog'
+
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
 
 /**
  * Regression coverage for the admin "Content Blocks" page's per-block "Server" field: only a block
@@ -220,6 +226,44 @@ describe('AdminBlocks credentials list', () => {
     const wrapper = await mountAdminBlocks([], [])
 
     expect(wrapper.text()).toContain('admin.blocks.credentialsEmpty')
+  })
+
+  it('opens BlockCredentialDialog in mode "domains" with the clicked credential when Edit Domains is clicked', async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [
+        {
+          id: 'cred-1',
+          siteId: 'site-1',
+          name: 'Weather API',
+          allowedDomains: ['api.example.com'],
+          createdAt: '',
+          updatedAt: ''
+        }
+      ]
+    )
+
+    const editDomainsBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('admin.blocks.credentialDomains'))
+    expect(editDomainsBtn).toBeTruthy()
+    await editDomainsBtn.trigger('click')
+
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: {
+          mode: 'domains',
+          credential: {
+            id: 'cred-1',
+            siteId: 'site-1',
+            name: 'Weather API',
+            allowedDomains: ['api.example.com'],
+            createdAt: '',
+            updatedAt: ''
+          }
+        }
+      })
+    )
   })
 })
 

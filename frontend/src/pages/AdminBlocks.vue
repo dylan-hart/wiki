@@ -192,6 +192,26 @@
                   <w-tooltip>{{ t(`admin.blocks.credentialCopyId`) }}</w-tooltip>
                 </w-btn>
               </w-item-label>
+              <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
+                <w-icon name="la:globe" size="14px" class="mr-1" />
+                <span v-if="credential.allowedDomains?.length" class="text-caption">
+                  {{ credential.allowedDomains.join(', ') }}
+                </span>
+                <span v-else class="text-caption text-negative">{{
+                  t('admin.blocks.credentialAllowedDomainsEmpty')
+                }}</span>
+              </w-item-label>
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                class="mr-2"
+                icon="la:globe"
+                :label="t(`admin.blocks.credentialDomains`)"
+                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                outline
+                no-caps
+                padding="xs md"
+                @click="editDomains(credential)" />
             </w-item-section>
             <w-item-section side>
               <w-btn
@@ -391,6 +411,15 @@ function rotateCredential(credential) {
   dialog({
     component: BlockCredentialDialog,
     componentProps: { mode: 'rotate', credential }
+  })
+}
+
+function editDomains(credential) {
+  dialog({
+    component: BlockCredentialDialog,
+    componentProps: { mode: 'domains', credential }
+  }).onOk(() => {
+    loadCredentials()
   })
 }
 
