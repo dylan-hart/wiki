@@ -476,6 +476,27 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
     assert.equal(uploadCalls[0].folderId, RESOLVED_FOLDER_ID)
   })
 
+  test('normalizes `parentPath` before both the permission check and the resolve-or-create call, so they can never diverge', async () => {
+    getFolderCalls = []
+    uploadCalls = []
+    checkAccessCalls = []
+    const res = await app.inject({
+      method: 'POST',
+      // -> Mixed case and a wrapping slash: `getFolder`/`createFolder` would resolve and create
+      //    this at the same normalized path as `guides/setup` regardless, so the permission check
+      //    must be run against that same normalized string, not the raw one, or a page rule written
+      //    (as every page path is) in normalized form could be evaded just by changing the casing.
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&parentPath=%2FGuides%2FSetup%2F`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(checkAccessCalls.length, 1)
+    assert.equal(checkAccessCalls[0].path, 'guides/setup/photo.png')
+    assert.equal(getFolderCalls.length, 1)
+    assert.equal(getFolderCalls[0].path, 'guides/setup')
+  })
+
   test('an empty `parentPath` (root-level page) uploads to the asset root, unchanged', async () => {
     getFolderCalls = []
     uploadCalls = []

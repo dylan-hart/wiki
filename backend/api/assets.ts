@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
-import { decodeTreePath, guardSiteEnabled } from '../helpers/common.ts'
+import { decodeTreePath, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
 import { INLINE_EXTS } from '../models/assets.ts'
 
 const assetIdParam = {
@@ -158,16 +158,24 @@ async function routes(app: FastifyInstance) {
         with any missing ancestor) below, but only once the permission check against that path has
         passed, so an unprivileged upload never has the side effect of creating a folder it wasn't
         allowed to write into.
+
+        `parentPath` is normalized the same way a page path is (`normalizePagePath`) before it is
+        used for anything: `getFolder`/`createFolder` resolve and create against the lowercased,
+        trimmed form regardless (`encodeTreePath`), so checking the permission against the raw,
+        as-sent string would check a different path than the one the folder actually gets created
+        at — a page rule written (as every page path is) in normalized form could then be bypassed
+        just by sending `parentPath` with different casing or stray slashes.
       */
       const folder = req.query.folderId
         ? await WIKI.models.tree.getFolderById(req.query.folderId)
         : null
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
+      const parentPath = req.query.parentPath ? normalizePagePath(req.query.parentPath) : ''
       const destination = req.query.folderId
         ? folder
           ? [folderPath, folder.fileName].filter(Boolean).join('/')
           : ''
-        : (req.query.parentPath ?? '')
+        : parentPath
       if (
         !mayOnAsset(req, 'write:assets', req.params.siteId, {
           folderPath: destination,
@@ -180,10 +188,10 @@ async function routes(app: FastifyInstance) {
 
       const folderId = req.query.folderId
         ? req.query.folderId
-        : req.query.parentPath
+        : parentPath
           ? (
               await WIKI.models.tree.getFolder({
-                path: req.query.parentPath,
+                path: parentPath,
                 locale,
                 siteId: req.params.siteId,
                 createIfMissing: true
