@@ -1,0 +1,1 @@
+ALTER TABLE "blockCredentials" ADD COLUMN "allowedDomains" text[] DEFAULT ARRAY[]::text[] NOT NULL;

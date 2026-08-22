@@ -345,6 +345,8 @@ export const blockCode = pgTable('blockCode', {
  * (OpenProject #868) is the first, and so far only, consumer. A block prop stores this row's `id`
  * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s `getSecret()`)
  * and it is never serialized back into an API response — see that model's header comment.
+ * `allowedDomains` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
+ * block's configured URL against before ever attaching the secret — see that file's header comment.
  */
 export const blockCredentials = pgTable(
   'blockCredentials',
@@ -355,6 +357,10 @@ export const blockCredentials = pgTable(
       .references(() => sites.id),
     name: varchar({ length: 255 }).notNull(),
     secret: text().notNull(),
+    allowedDomains: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow()
   },
