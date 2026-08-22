@@ -14,7 +14,6 @@ export const useAdminStore = defineStore('admin', {
       clusterTotal: 0,
       groupsTotal: 0,
       pagesTotal: 0,
-      tagsTotal: 0,
       usersTotal: 0,
       webhooksTotal: 0,
       loginsPastDay: 0,
@@ -58,7 +57,7 @@ export const useAdminStore = defineStore('admin', {
       this.info.activeWorkers = resp?.activeWorkers ?? 0
       this.info.clusterTotal = resp?.clusterTotal ?? 0
       this.info.groupsTotal = resp?.groupsTotal ?? 0
-      this.info.tagsTotal = resp?.tagsTotal ?? 0
+      this.info.pagesTotal = resp?.pagesTotal ?? 0
       this.info.usersTotal = resp?.usersTotal ?? 0
       this.info.webhooksTotal = resp?.webhooksTotal ?? 0
       this.info.loginsPastDay = resp?.loginsPastDay ?? 0

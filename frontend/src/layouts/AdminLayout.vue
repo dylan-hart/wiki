@@ -235,10 +235,6 @@
                 <w-icon name="img:/_assets/icons/fluent-ssd.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
-              <w-item-section side>
-                <!-- TODO: Reflect site storage status -->
-                <status-light :color="true ? `positive` : `warning`" :pulse="false" />
-              </w-item-section>
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
