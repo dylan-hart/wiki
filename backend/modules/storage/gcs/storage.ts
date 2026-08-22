@@ -195,14 +195,12 @@ async function exportAll(target: StorageTarget): Promise<void> {
  * scoped to `action: 'read'` on a short expiry — the same shape as `s3`'s presigned GET and `azure`'s
  * read-only SAS URL.
  *
- * This module only supplies the URL-generation half of that: `s3`/`azure`/`gcs` are the only targets
- * that declare `assetDelivery.isDirectAccessSupported: true`, and nothing calls this yet — the
- * `/content` serving path that would (Feature 368) and the write-path dispatch hook that would keep a
- * target's bucket in sync in the first place (Feature 370) both land separately.
+ * Called by `models/assets.ts`'s `directUrlFor()`, per `StorageModule.getDirectUrl` — asset first,
+ * target second, matching every other `StorageModule` handler's argument order.
  */
-async function getDirectAccessUrl(
-  target: StorageTarget,
-  asset: { folderPath: string; fileName: string }
+async function getDirectUrl(
+  asset: { folderPath: string; fileName: string },
+  target: StorageTarget
 ): Promise<string> {
   const bucket = await getClient(target)
   const key = keyFor(target, asset.folderPath, asset.fileName)
@@ -220,7 +218,7 @@ const gcsStorage: StorageModule = {
   assetDeleted,
   assetRenamed,
   exportAll,
-  getDirectAccessUrl
+  getDirectUrl
 }
 
 export default gcsStorage

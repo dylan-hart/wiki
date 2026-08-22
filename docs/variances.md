@@ -342,30 +342,6 @@ of `block-kroki`'s supported diagram types, and `block-diagram` already exists i
 specifically as the URL-free alternative, so the guard's error message can point at working,
 already-shipped functionality rather than a future feature.
 
-## Git storage `sync` always runs two-way; no `push`/`pull`-only mode yet (task 507, feature 372)
-
-Task 507 ("sync action: bidirectional pull-rebase, push, and remote-change import") specifies:
-"Read whatever sync-direction config Feature 370 introduces (push-only/pull-only/two-way) and skip
-the irrelevant half of the sequence accordingly." Feature 370 ("Content Dispatch & Sync Engine") is
-the feature that lands that config — a `sync.mode` field on `StorageTarget`, backed by a real
-`storage` table column — but its work exists only on the sibling `feature/content-dispatch-sync-engine`
-branch, not on `feature/git-storage-target` (confirmed directly: this branch's `StorageTarget`
-interface and `git/definition.yml` have no sync-mode concept at all — `definition.yml` says so in its
-own comment). Per this repo's branch-isolation rule, `feature/git-storage-target` may not merge,
-cherry-pick, or otherwise copy that config from the sibling branch; and no coordination channel to
-that feature's own work was reachable when this task ran.
-
-`backend/modules/storage/git/sync.ts`'s `sync()` therefore always runs the full two-way sequence —
-pull-rebase, push, then reverse-import the pull's changes — unconditionally. This matches 2.5.x's own
-`mode: 'sync'` behavior (verified directly against `server/modules/storage/git/storage.js`), and is
-the only mode this fork's `git/definition.yml` exposes today: its `sync` action has no mode selector
-of its own to read.
-
-Resolution: once Feature 370 lands `StorageTarget.sync.mode` on this branch, wrap the pull half and
-the push half of `sync()` each behind a mode check — mirroring 2.5.x's own
-`if (_.includes(['sync', 'pull'], mode))` / `if (_.includes(['sync', 'push'], mode))` guards — so a
-`push`-only or `pull`-only target skips the irrelevant half instead of always doing both.
-
 ## LDAP / SAML / CAS provider modules (Feature 354)
 
 ### CAS 1.0 cannot provision or log in any account
@@ -1194,14 +1170,18 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
   (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
-  What was genuinely unguarded is a different race the same upstream report describes: `dispatchStorage`
-  jobs run in a 3-worker thread pool by default (`scheduler.workers`, `base.yml`) with no shared JS
-  memory, so two jobs for the *same* storage target — a write-path push and a scheduled `sync`'s
-  pull/push, say — could run their `git` commands against the one on-disk working copy concurrently,
-  with no in-process mutex able to serialize across threads. Fixed with a Postgres advisory lock keyed
-  by `targetId`, wrapping the handler call in `tasks/workers/dispatch-storage.ts` (new
+  What was genuinely unguarded is a different race the same upstream report describes: the scheduler
+  claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
+  runs more than one instance, so two `dispatchStorage` jobs for the *same* storage target — a
+  write-path push and a scheduled `sync`'s pull/push, say — could run their `git` commands against the
+  one on-disk working copy concurrently, with no in-process mutex able to serialize across either
+  interleaved `await`s or separate instances. Fixed with a Postgres advisory lock keyed by `targetId`,
+  wrapping the handler call in `tasks/simple/dispatch-storage.ts` (new
   `backend/helpers/advisoryLock.ts`) — the single choke point every storage-module dispatch already
-  passes through, so this is not git-specific plumbing.
+  passes through, so this is not git-specific plumbing. (`dispatch-storage.ts` moved from
+  `tasks/workers/` to `tasks/simple/` under OpenProject #917, fixing a separate bug — the worker-thread
+  `WIKI` global the modules' handlers reach into for `WIKI.models.pages`/`.assets`/... etc. never
+  carried them — but it does not change this race, which was never about threads specifically.)
 
 **Confirmed not applicable, each verified rather than assumed:**
 

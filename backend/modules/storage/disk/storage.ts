@@ -18,6 +18,8 @@ import { asc, and, eq, inArray } from 'drizzle-orm'
 import { create as createTarball } from 'tar'
 import { CustomError, decodeTreePath, normalizePagePath } from '../../../helpers/common.ts'
 import { tree as treeTable } from '../../../db/schema.ts'
+import { getContentTypeFromExtension } from '../../../models/storage.ts'
+import { getEditorForContentType } from '../../../models/pages.ts'
 import type { StorageModule, StorageTarget } from '../../../models/storage.ts'
 
 /** File extension a dumped page is written with, keyed by its `contentType`. */
@@ -29,6 +31,23 @@ const PAGE_EXTENSIONS: Record<string, string> = {
   //    not prose, so it round-trips through a plain `.json` file rather than one of the editor
   //    extensions above.
   redirect: 'json'
+}
+
+/**
+ * The page `contentType` an import-time extension maps back to, or `null` when the extension is not
+ * one `dump()` ever writes a page under (i.e. this is an asset).
+ *
+ * `.md`/`.adoc`/`.html` reuse `models/storage.ts`'s shared `getContentTypeFromExtension` — the same
+ * reverse mapping the git module reads its own remote changes back through — since those three mean
+ * the same thing on disk as they do in a git working copy. `.json` is disk-specific (see
+ * `PAGE_EXTENSIONS`'s `redirect` entry above): `getContentTypeFromExtension` knows nothing about it,
+ * since no other file-backed module ever writes a redirect page as one.
+ */
+function pageContentTypeFromExtension(ext: string): string | null {
+  if (ext === 'json') {
+    return 'redirect'
+  }
+  return getContentTypeFromExtension(ext)
 }
 
 /** Extension a dumped page falls back to for a `contentType` not listed above. */
@@ -219,7 +238,7 @@ export interface ImportAllResult {
 }
 
 /** Who `importAll()` writes pages and assets as, since it runs with no session behind it (see
- *  `Storage.executeAction()` / the `dispatchStorage` worker, neither of which carry an actor). The
+ *  `Storage.executeAction()` / the `dispatchStorage` task, neither of which carry an actor). The
  *  wiki's own root admin, seeded at first run and guaranteed to exist — see `SystemIds.userAdminId`
  *  in `models/types.ts`. `manage:system` is what lets it write pages that carry scripts or styles
  *  without a real reviewer in the loop, the same bypass every other `manage:system` check gets. */
@@ -228,8 +247,10 @@ function importActor(): { id: string; groupIds: string[]; permissions: string[] 
 }
 
 /**
- * Import one markdown file as a page, at the path its position in the tree implies — the inverse of
- * `dump()`'s `<path>/<locale>/<page.path>.md`.
+ * Import one page file — markdown, asciidoc, HTML, or a redirect's JSON — at the path its position
+ * in the tree implies and with the editor its `contentType` implies (`getEditorForContentType`,
+ * `models/pages.ts`) — the inverse of `dump()`'s `<path>/<locale>/<page.path>.<ext>`, for whichever
+ * `ext` its `contentType` maps to (`PAGE_EXTENSIONS` / `pageContentTypeFromExtension`).
  *
  * A path already holding a page (or anything else) is left alone: `pagesSkipped` is incremented
  * rather than the existing page touched, which is what makes re-running `importAll` after a partial
@@ -238,7 +259,7 @@ function importActor(): { id: string; groupIds: string[]; permissions: string[] 
  * for them, documented here since there was nowhere else to put it.
  *
  * The render is left empty and queued for the same headless-browser re-render `queueRerender()` uses
- * for a stored page whose HTML has gone stale — imported content is exactly that case: real markdown,
+ * for a stored page whose HTML has gone stale — imported content is exactly that case: real content,
  * no render yet. Queueing is best-effort: a wiki with no Puppeteer extension installed still gets the
  * page, just not a render of it yet (`WIKI.logger.warn`, not a failure of the import).
  */
@@ -247,6 +268,7 @@ async function importPage(
   siteId: string,
   locale: string,
   pathSegments: string[],
+  contentType: string,
   result: ImportAllResult
 ): Promise<void> {
   const pagePath = normalizePagePath(pathSegments.join('/'))
@@ -264,7 +286,13 @@ async function importPage(
   const actor = importActor()
   const page = await WIKI.models.pages.createPage(
     siteId,
-    { path: pagePath, title: startCase(fileName), editor: 'markdown', content, locale },
+    {
+      path: pagePath,
+      title: startCase(fileName),
+      editor: getEditorForContentType(contentType),
+      content,
+      locale
+    },
     actor
   )
   result.pagesCreated++
@@ -348,12 +376,14 @@ async function importAsset(
 }
 
 /**
- * Walk one locale's folder recursively, importing every file it finds — a `.md` file as a page (see
- * `importPage`), anything else as an asset (see `importAsset`). A dotfile (`.DS_Store` and the like —
- * never something `dump()` writes, and `sanitizeFileName` would silently rename it into a real asset
- * rather than refuse it) is reported in `unrecognized` instead of imported under a mangled name, and so
- * is a symlink, a device file, or anything else that is neither a plain file nor a directory. A single
- * file failing — an invalid page path, empty markdown, a folder name the tree rejects — is logged and
+ * Walk one locale's folder recursively, importing every file it finds — a `.md`/`.adoc`/`.html`/
+ * `.json` file as a page, in the content type its extension implies (see `importPage` and
+ * `pageContentTypeFromExtension` — every extension `dump()` ever writes a page under, not just
+ * `.md`), anything else as an asset (see `importAsset`). A dotfile (`.DS_Store` and the like — never
+ * something `dump()` writes, and `sanitizeFileName` would silently rename it into a real asset rather
+ * than refuse it) is reported in `unrecognized` instead of imported under a mangled name, and so is a
+ * symlink, a device file, or anything else that is neither a plain file nor a directory. A single file
+ * failing — an invalid page path, empty content, a folder name the tree rejects — is logged and
  * reported the same way rather than aborting the rest of the walk.
  */
 async function importLocaleDir(
@@ -396,9 +426,11 @@ async function importLocaleDir(
 
     const filePath = path.join(dir, entry.name)
     const ext = path.extname(entry.name).slice(1).toLowerCase()
+    const contentType = pageContentTypeFromExtension(ext)
     try {
-      if (ext === 'md') {
-        await importPage(filePath, siteId, locale, [...segments, entry.name.slice(0, -3)], result)
+      if (contentType) {
+        const baseName = entry.name.slice(0, entry.name.length - ext.length - 1)
+        await importPage(filePath, siteId, locale, [...segments, baseName], contentType, result)
       } else {
         await importAsset(filePath, siteId, locale, segments, entry.name, folderIds, result)
       }

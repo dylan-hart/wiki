@@ -364,6 +364,91 @@ test('importAll imports a markdown file as a new page', async () => {
   }
 })
 
+// -> OpenProject #926: dump() writes pages in every PAGE_EXTENSIONS extension, so importAll must
+//    reverse all of them, not just .md — the rest previously fell through to importAsset and came
+//    back as a binary asset row instead of a page.
+test('importAll imports an asciidoc file as a page with the asciidoc editor', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'foo', 'home.adoc')
+  await fs.writeFile(filePath, '= Hello')
+
+  const createPageCalls: any[] = []
+  fakeImportDeps({
+    createPage: async (siteId, input, actor) => {
+      createPageCalls.push({ siteId, input, actor })
+      return { id: 'new-page-id' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.assetsWritten, 0)
+    assert.equal(createPageCalls.length, 1)
+    assert.equal(createPageCalls[0].input.path, 'foo/home')
+    assert.equal(createPageCalls[0].input.editor, 'asciidoc')
+    assert.equal(createPageCalls[0].input.content, '= Hello')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll imports an html file as a page, not an asset', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'foo', 'home.html')
+  await fs.writeFile(filePath, '<p>Hello</p>')
+
+  const createPageCalls: any[] = []
+  const uploadCalls: any[] = []
+  fakeImportDeps({
+    createPage: async (siteId, input, actor) => {
+      createPageCalls.push({ siteId, input, actor })
+      return { id: 'new-page-id' } as any
+    },
+    upload: async (args) => {
+      uploadCalls.push(args)
+      return {} as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.assetsWritten, 0)
+    assert.equal(uploadCalls.length, 0)
+    assert.equal(createPageCalls[0].input.path, 'foo/home')
+    assert.equal(createPageCalls[0].input.content, '<p>Hello</p>')
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('importAll imports a redirect page (.json) as a page with the redirect editor', async () => {
+  const dir = await makeTempDir()
+  const filePath = await writeFile(dir, 'en', 'old.json')
+  const redirectContent = JSON.stringify({ target: '/new-path' })
+  await fs.writeFile(filePath, redirectContent)
+
+  const createPageCalls: any[] = []
+  fakeImportDeps({
+    createPage: async (siteId, input, actor) => {
+      createPageCalls.push({ siteId, input, actor })
+      return { id: 'new-page-id' } as any
+    }
+  })
+
+  try {
+    const result = await importAll(makeImportTarget(dir))
+    assert.equal(result.pagesCreated, 1)
+    assert.equal(result.assetsWritten, 0)
+    assert.equal(createPageCalls[0].input.path, 'old')
+    assert.equal(createPageCalls[0].input.editor, 'redirect')
+    assert.equal(createPageCalls[0].input.content, redirectContent)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
 test('importAll skips a markdown file whose page path already exists, and does not call createPage', async () => {
   const dir = await makeTempDir()
   const filePath = await writeFile(dir, 'en', 'home.md')

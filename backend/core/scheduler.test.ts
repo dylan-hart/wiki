@@ -210,6 +210,24 @@ describe('addScheduled (fake WIKI)', () => {
       )
     }
   })
+
+  // -> OpenProject #929: reapStaleJobs() no longer produces a scheduled row with a null waitUntil
+  //    (see core/scheduler.test.ts's DB-backed reapStaleJobs suite), but this loop must not crash if
+  //    one exists anyway -- pre-fix, `j.waitUntil.getTime()` throwing on the very first `.some()`
+  //    comparison against such a row was silently swallowed by the surrounding `catch { break }`,
+  //    which stopped this task's loop before adding a single one of its due iterations.
+  test('a null waitUntil among existingJobs does not crash the dedupe check or block scheduling', async () => {
+    scheduleJobsMock = [{ task: 'testTask', cron: '* * * * *', payload: {} }]
+    existingJobsMock = [{ task: 'testTask', waitUntil: null }]
+
+    await scheduler.addScheduled()
+
+    assert.equal(insertedJobs.length, 10)
+    for (const job of insertedJobs) {
+      assert.equal(job.task, 'testTask')
+      assert.ok(job.waitUntil instanceof Date)
+    }
+  })
 })
 
 /**
@@ -383,6 +401,31 @@ describe(
         .where(eq(jobsTable.id, row.id))
       assert.ok(requeuedJob, 'a fresh row must exist in jobs for the next instance to pick up')
       assert.equal(requeuedJob.task, 'stuckTask')
+      // -> OpenProject #929: a null waitUntil here crashes addScheduled()'s dedupe check
+      //    (`j.waitUntil.getTime()`) the next time it runs, for any scheduled row of the same task.
+      assert.ok(
+        requeuedJob.waitUntil instanceof Date,
+        'a requeued row must carry an explicit waitUntil, never null'
+      )
+    })
+
+    test('requeues a scheduled job (wasScheduled: true) with a non-null waitUntil', async () => {
+      const row = await insertActiveHistory({ wasScheduled: true, task: 'scheduledTask' })
+      historyIds.push(row.id)
+
+      await scheduler.reapStaleJobs()
+      jobIds.push(row.id)
+
+      const [requeuedJob] = await fixtures.db
+        .select()
+        .from(jobsTable)
+        .where(eq(jobsTable.id, row.id))
+      assert.ok(requeuedJob)
+      assert.equal(requeuedJob.isScheduled, true)
+      assert.ok(
+        requeuedJob.waitUntil instanceof Date,
+        'a requeued scheduled row must never have a null waitUntil (OpenProject #929)'
+      )
     })
 
     test('does not requeue a stale job that has exhausted its retries', async () => {

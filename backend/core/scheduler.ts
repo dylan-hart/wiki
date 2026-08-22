@@ -520,6 +520,16 @@ export default {
           retries: job.attempt,
           maxRetries: job.maxRetries,
           isScheduled: job.wasScheduled,
+          // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
+          //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
+          //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
+          //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
+          //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
+          //    on `null`), silently pausing cron seeding for this task until this row is claimed
+          //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
+          //    ever produces satisfying that invariant, rather than defending against `null` at every
+          //    site that reads it.
+          waitUntil: new Date(),
           createdBy: WIKI.INSTANCE_ID
         })
         requeued++
@@ -578,10 +588,18 @@ export default {
               while (plannedIterations.hasNext()) {
                 try {
                   const next = plannedIterations.next()
-                  // -> Ensure this iteration isn't already scheduled
+                  // -> Ensure this iteration isn't already scheduled. `j.waitUntil &&` guards against
+                  //    a scheduled row with a null `waitUntil` — `reapStaleJobs` no longer produces
+                  //    one (OpenProject #929), but a null here must never crash this loop (silently
+                  //    pausing cron seeding for every task after it) regardless of how it got there:
+                  //    at worst, treating it as "not a match" schedules one harmless extra occurrence
+                  //    instead.
                   if (
                     !existingJobs.some(
-                      (j: any) => j.task === job.task && j.waitUntil.getTime() === next.getTime()
+                      (j: any) =>
+                        j.task === job.task &&
+                        j.waitUntil &&
+                        j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
                     this.addJob({

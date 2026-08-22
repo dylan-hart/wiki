@@ -390,6 +390,48 @@ test("dispatch does not classify a small asset as large, even when only 'large' 
   assert.equal(jobs.length, 0)
 })
 
+// -> OpenProject #927: dispatch's large-file classification must agree with the blob targets' own
+//    (helpers/blobTarget.ts's belongsInTarget/categoryOf) on both decimal thresholds and the boundary.
+test('dispatch classifies an asset at exactly the largeThreshold as large (an at-or-above boundary, not strictly over)', async () => {
+  fakeDispatchDeps([
+    makeRow('disk', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
+  ])
+  const queued = await storage.dispatch('asset:upload', {
+    id: 'a1',
+    siteId: 'site-1',
+    kind: 'image',
+    fileSize: 1024
+  })
+  assert.equal(queued, 1)
+})
+
+test('dispatch classifies an asset over a decimal largeThreshold (e.g. "2.5MB") as large', async () => {
+  fakeDispatchDeps([
+    makeRow('disk', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
+  ])
+  const queued = await storage.dispatch('asset:upload', {
+    id: 'a1',
+    siteId: 'site-1',
+    kind: 'image',
+    fileSize: 3 * 1024 * 1024
+  })
+  assert.equal(queued, 1)
+})
+
+test('dispatch does not classify an asset under a decimal largeThreshold as large', async () => {
+  const jobs = fakeDispatchDeps([
+    makeRow('disk', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
+  ])
+  const queued = await storage.dispatch('asset:upload', {
+    id: 'a1',
+    siteId: 'site-1',
+    kind: 'image',
+    fileSize: 2 * 1024 * 1024
+  })
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
 test('dispatch is a no-op for an event with no storage handler', async () => {
   const jobs = fakeDispatchDeps([makeRow('git', { activeTypes: ['pages'], syncMode: 'sync' })])
   const queued = await storage.dispatch('comment:new' as any, { id: 'c1', siteId: 'site-1' })

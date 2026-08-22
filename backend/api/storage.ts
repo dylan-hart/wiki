@@ -275,8 +275,8 @@ async function routes(app: FastifyInstance) {
 
       // -> A sync-shaped action may do a real network round-trip (a git push/pull, an S3 listing),
       //    which the request thread must not wait on -- queued the same way `dispatchStorage` events
-      //    and `storageSyncTick` are, and delivered by the same worker task. Anything else (e.g.
-      //    `purge`) is expected to be fast and stays synchronous.
+      //    and `storageSyncTick` are, and delivered by the same task. Anything else (e.g. `purge`) is
+      //    expected to be fast and stays synchronous.
       if ((SYNC_SHAPED_ACTIONS as readonly string[]).includes(req.params.action)) {
         const added = await WIKI.scheduler.addJob({
           task: 'dispatchStorage',
