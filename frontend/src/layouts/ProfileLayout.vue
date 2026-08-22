@@ -118,7 +118,12 @@ useMeta(() => {
 
 // DATA
 
-const sidenav = [
+// -> A computed, not a plain array evaluated once at setup: `t()` inside a plain array is only ever
+//    run in the language active when this layout mounts, so switching interface language would leave
+//    these labels stuck in the old one until a remount. AdminLayout's sidenav evaluates `t()` in the
+//    template for the same reason; this one has to build a list rather than iterate keys directly, so
+//    a computed is what gets the same freshness.
+const sidenav = computed(() => [
   {
     key: 'info',
     label: t('profile.title'),
@@ -162,7 +167,7 @@ const sidenav = [
     icon: 'la:history',
     disabled: true
   }
-]
+])
 
 const state = reactive({
   /** Whether the section list is open. Only consulted below 900px, where it is a disclosure. */
@@ -189,7 +194,7 @@ const isNavCollapsed = computed(() => !isAtLeast900.value)
  */
 const currentSection = computed(() => {
   return (
-    sidenav.find((item) => route.path === `/_profile/${item.key}`) ?? {
+    sidenav.value.find((item) => route.path === `/_profile/${item.key}`) ?? {
       label: t('profile.title'),
       icon: 'la:user-circle'
     }

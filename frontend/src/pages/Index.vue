@@ -42,11 +42,13 @@
       -->
       <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
         <template v-if="pageStore.publishState === 'draft'">
-          <div class="text-caption text-accent"><strong>Unpublished</strong></div>
+          <div class="text-caption text-accent">
+            <strong>{{ t(`common.page.unpublished`) }}</strong>
+          </div>
           <w-separator class="mx-2" vertical />
         </template>
         <div class="text-caption text-grey-6">
-          Last modified on <strong>{{ lastModified }}</strong>
+          {{ t(`common.page.lastModifiedOn`) }} <strong>{{ lastModified }}</strong>
         </div>
       </div>
     </div>
@@ -619,7 +621,13 @@ const lastModified = computed(() => {
  * written into the markup, so the bar takes a single flat list.
  */
 const breadcrumbs = computed(() => [
-  { key: 'home', icon: 'la:home', to: '/', ariaLabel: 'Home', tooltip: 'Home' },
+  {
+    key: 'home',
+    icon: 'la:home',
+    to: '/',
+    ariaLabel: t(`common.header.home`),
+    tooltip: t(`common.header.home`)
+  },
   ...pageStore.breadcrumbs.map((brd) => ({
     key: brd.id,
     icon: brd.icon,
@@ -722,7 +730,7 @@ watch(
       if (!route.params.editor) {
         notify({
           type: 'negative',
-          message: 'No editor specified!'
+          message: t(`editor.noEditorSpecified`)
         })
         return router.replace('/')
       }

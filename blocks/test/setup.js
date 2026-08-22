@@ -23,7 +23,8 @@ if (!('adoptedStyleSheets' in document)) {
   25.9, same caveat `frontend/test/setup.js` documents for the same reason. `block-countdown` is the
   one block that touches it at runtime, relying in production on `frontend/src/boot/temporal.js`
   having already polyfilled `window.Temporal` before any block loads -- which a block's own test has
-  no such boot sequence to inherit, so it is polyfilled here the identical way.
+  no such boot sequence to inherit, so it is polyfilled here the identical way. A no-op on a real
+  Node 26 runtime.
 */
 if (typeof Temporal === 'undefined') {
   const { Temporal } = await import('temporal-polyfill')

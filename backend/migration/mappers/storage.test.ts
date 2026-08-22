@@ -21,6 +21,14 @@ import {
  */
 
 before(async () => {
+  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
+  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime — same
+  //    pattern `models/storage.test.ts`'s own `before()` uses. `convertSyncInterval` (in `storage.ts`)
+  //    parses with `Temporal.Duration.from()`, exactly like `models/storage.ts` itself does.
+  if (typeof Temporal === 'undefined') {
+    const polyfill = await import('@js-temporal/polyfill')
+    ;(globalThis as any).Temporal = polyfill.Temporal
+  }
   ;(globalThis as any).WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..', '..'),
     logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
@@ -82,17 +90,64 @@ describe('mapStorageRow: unsupported source keys', () => {
   })
 })
 
-describe('mapStorageRow: mode/syncInterval are dropped and explicitly reported', () => {
-  test('an updated row reports the dropped mode/syncInterval values, never silently discards them', async () => {
-    const result = mapStorageRow(baseRow({ key: 'disk', mode: 'sync', syncInterval: 'PT5M' }), {
+describe('mapStorageRow: mode/syncInterval mapping', () => {
+  test('mode maps straight across as syncMode when the module supports it, syncInterval already ISO-8601 passes through as scheduleOverride', async () => {
+    const result = mapStorageRow(baseRow({ key: 'git', mode: 'sync', syncInterval: 'PT5M' }), {
       resolver: await resolver(),
       siteId: SITE_A
     })
     assert.equal(result.status, 'updated')
-    assert.deepEqual(result.droppedFields, { mode: 'sync', syncInterval: 'PT5M' })
-    // -> And neither leaks into the update payload itself
-    assert.ok(!('mode' in result.update!.values))
-    assert.ok(!('syncInterval' in result.update!.values))
+    assert.equal(result.update!.values.syncMode, 'sync')
+    assert.equal(result.update!.values.scheduleOverride, 'PT5M')
+    assert.equal(result.droppedFields, undefined)
+  })
+
+  test('a cron "every N minutes" syncInterval converts to an ISO-8601 duration', async () => {
+    const result = mapStorageRow(baseRow({ key: 'git', syncInterval: '*/15 * * * *' }), {
+      resolver: await resolver(),
+      siteId: SITE_A
+    })
+    assert.equal(result.update!.values.scheduleOverride, 'PT15M')
+  })
+
+  test('a cron "every N hours" syncInterval converts to an ISO-8601 duration', async () => {
+    const result = mapStorageRow(baseRow({ key: 'git', syncInterval: '0 */3 * * *' }), {
+      resolver: await resolver(),
+      siteId: SITE_A
+    })
+    assert.equal(result.update!.values.scheduleOverride, 'PT3H')
+  })
+
+  test('a mode the target module does not support is dropped and reported, not written', async () => {
+    // -> disk only ever supports 'push' -- 'sync' is not one of its supportedModes
+    const result = mapStorageRow(baseRow({ key: 'disk', mode: 'sync' }), {
+      resolver: await resolver(),
+      siteId: SITE_A
+    })
+    assert.equal(result.status, 'updated')
+    assert.ok(!('syncMode' in result.update!.values))
+    assert.deepEqual(result.droppedFields, { mode: 'sync' })
+  })
+
+  test('a cron shape with no duration equivalent (a pinned time of day) is dropped and reported, not written', async () => {
+    const result = mapStorageRow(baseRow({ key: 'git', syncInterval: '30 9 * * 1' }), {
+      resolver: await resolver(),
+      siteId: SITE_A
+    })
+    assert.equal(result.status, 'updated')
+    assert.ok(!('scheduleOverride' in result.update!.values))
+    assert.deepEqual(result.droppedFields, { syncInterval: '30 9 * * 1' })
+  })
+
+  test('a null/absent mode and syncInterval map to nothing, and are not reported as dropped', async () => {
+    const result = mapStorageRow(baseRow({ key: 'disk', mode: null, syncInterval: null }), {
+      resolver: await resolver(),
+      siteId: SITE_A
+    })
+    assert.equal(result.status, 'updated')
+    assert.ok(!('syncMode' in result.update!.values))
+    assert.ok(!('scheduleOverride' in result.update!.values))
+    assert.equal(result.droppedFields, undefined)
   })
 })
 

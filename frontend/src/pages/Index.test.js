@@ -74,7 +74,21 @@ async function mountIndex() {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> Real English messages for the couple of keys these tests assert the rendered text of
+  //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
+  //    component renders as its bare key, same as before this list existed, which none of these
+  //    tests reads.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        common: {
+          page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
+        }
+      }
+    }
+  })
 
   const wrapper = mount(Index, {
     global: {

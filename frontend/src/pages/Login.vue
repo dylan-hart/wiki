@@ -3,7 +3,7 @@
     <div class="auth-content">
       <div class="auth-logo"><img :src="`/_site/current/logo`" :alt="siteStore.title" /></div>
       <h2 class="auth-site-title" v-if="siteStore.logoText">{{ siteStore.title }}</h2>
-      <p class="text-grey-7">Login to continue</p>
+      <p class="text-grey-7">{{ t('auth.loginToContinue') }}</p>
       <auth-login-panel />
     </div>
     <div class="auth-bg" aria-hidden="true"><img :src="`/_site/current/loginBg`" alt="" /></div>

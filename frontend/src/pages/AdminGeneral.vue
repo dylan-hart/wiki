@@ -571,7 +571,7 @@ const { t } = useI18n()
 // META
 
 useMeta({
-  title: t('admin.dashboard.title')
+  title: t('admin.general.title')
 })
 
 // DATA
