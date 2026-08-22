@@ -355,19 +355,18 @@ class Sites {
   async deleteSite(id: string): Promise<boolean> {
     // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
     //    rather than to its content, and their FK has no cascade, so they would otherwise block the
-    //    delete. The site's own root
-    //    navigation row (`navigation.id = siteId`, created by `createSite` via
-    //    `navigation.ensureSiteNav`) is the same story and is cleaned up the same way — note this
-    //    filters by `id`, not `siteId`, so it only ever removes that one row and leaves per-page
-    //    navigation rows (keyed by tree entry id) alone. Content tables (pages, assets, the page
-    //    tree, and any navigation row still owned by one of them) deliberately still lack a cascade
-    //    — see the conflict handling in the route.
+    //    delete. Every navigation row this site owns — one per active locale's site-wide menu
+    //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
+    //    siteId`) plus any per-page override/hide row still standing — is the same story and is
+    //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
+    //    Content tables (pages, assets, the page tree) deliberately still lack a cascade — see the
+    //    conflict handling in the route.
     await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
     await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
     await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
     await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
     await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
-    await WIKI.db.delete(navigationTable).where(eq(navigationTable.id, id))
+    await WIKI.db.delete(navigationTable).where(eq(navigationTable.siteId, id))
 
     const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
     if ((deletedResult.rowCount ?? 0) < 1) {
