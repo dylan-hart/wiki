@@ -644,8 +644,7 @@ const state = reactive({
   currentFileId: null,
   /**
    * The content locale currently being browsed -- distinct from `commonStore.locale` (the UI
-   * language). Initialized in `onMounted` to `pageStore.locale || siteStore.locales.primary` and
-   * changed only by `selectLocale`.
+   * language). Initialized in `onMounted` to `pageStore.locale` and changed only by `selectLocale`.
    */
   locale: null,
   /**
@@ -1673,7 +1672,9 @@ function handleKeyPress(ev) {
 onMounted(async () => {
   window.addEventListener('keydown', handleKeyPress)
 
-  state.locale = pageStore.locale || siteStore.locales.primary
+  // -> pageStore.locale is always a real code (App.vue's resolveRouteLocale never leaves it empty,
+  //    and its own store default is the site's primary), so there is no fallback case to cover here.
+  state.locale = pageStore.locale
 
   const pathParts = pageStore.path.split('/')
   const parentPath = pathParts.slice(0, -1).join('/')
