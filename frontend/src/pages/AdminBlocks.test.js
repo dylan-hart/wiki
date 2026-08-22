@@ -47,7 +47,7 @@ const GALLERY_BLOCK = {
   template: ''
 }
 
-async function mountAdminBlocks(blocks) {
+async function mountAdminBlocks(blocks, credentials = []) {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
@@ -68,6 +68,7 @@ async function mountAdminBlocks(blocks) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(blocks) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(credentials) })
 
   const wrapper = mount(AdminBlocks, {
     global: {
@@ -196,6 +197,29 @@ describe('AdminBlocks Configure affordance', () => {
       .filter((btn) => btn.text() === 'admin.blocks.configure')
 
     expect(configureButtons).toHaveLength(1)
+  })
+})
+
+/**
+ * OpenProject #868: the per-site block credentials list. `state.credentials` is loaded from
+ * `GET sites/:siteId/block-credentials` inside `load()`, alongside the blocks list itself.
+ */
+describe('AdminBlocks credentials list', () => {
+  it("shows each credential's name and id, and never a secret field", async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [{ id: 'cred-1', siteId: 'site-1', name: 'Weather API', createdAt: '', updatedAt: '' }]
+    )
+
+    expect(wrapper.text()).toContain('Weather API')
+    expect(wrapper.text()).toContain('cred-1')
+    expect(wrapper.html()).not.toContain('secret')
+  })
+
+  it('shows the empty-state message when the site has no credentials', async () => {
+    const wrapper = await mountAdminBlocks([], [])
+
+    expect(wrapper.text()).toContain('admin.blocks.credentialsEmpty')
   })
 })
 
