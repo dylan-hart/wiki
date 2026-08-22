@@ -935,7 +935,8 @@ export class AwsCloudSearchModule implements SearchModule {
    * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
    * under a new key. Same reasoning `azure-search`'s own `renamed` documents — unlike the `db` engine,
    * whose `ts` vector never stores the path at all, this module's index does store `path` as a
-   * filterable field, so it does need rewriting here.
+   * filterable field, so it does need rewriting here. A locale change is rewritten by the same
+   * reindex, which is why this module needs no `previousLocale` of its own either.
    */
   async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)

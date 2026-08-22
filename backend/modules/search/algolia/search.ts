@@ -354,7 +354,9 @@ export class AlgoliaSearchModule implements SearchModule {
    * rename had to `deleteObject` the old id and `addObject` a new one -- this schema's `pages.id` is a
    * stable UUID a move never touches (`models/pages.ts`'s `movePage` updates the row in place). A
    * rename is therefore an ordinary update of the same Algolia object via `saveObject`, which keeps the
-   * page continuously findable instead of briefly missing between a delete and an add.
+   * page continuously findable instead of briefly missing between a delete and an add. A locale
+   * change is rewritten by the same update, which is why this module needs no `previousLocale` of
+   * its own either.
    */
   async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)
