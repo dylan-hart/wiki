@@ -290,7 +290,7 @@
   "admin.dev.graphiql.title": "GraphiQL",
   "admin.dev.title": "Developer Tools",
   "admin.dev.voyager.title": "Voyager",
-  "admin.editors.asciidocDescription": "Write raw AsciiDoc source. No preview pane -- rendering support is not yet implemented.",
+  "admin.editors.asciidocDescription": "Write raw AsciiDoc source, rendered to HTML on save. No live preview pane.",
   "admin.editors.asciidocName": "AsciiDoc Editor",
   "admin.editors.codeDescription": "Write raw HTML directly. No preview pane — the source is the render.",
   "admin.editors.codeName": "Code Editor",

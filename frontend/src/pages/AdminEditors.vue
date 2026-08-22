@@ -147,12 +147,13 @@ const editors = reactive([
   {
     id: 'asciidoc',
     icon: 'asciidoc',
-    // -> Task 491: a real, if minimal, editor now exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
-    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. No `hasConfig`: it
-    //    has no configuration overlay, matching the equally no-frills `code` row. `useRendering` stays
-    //    off because there is no AsciiDoc-to-HTML rendering pipeline yet -- that's a later Feature; the
+    // -> Task 491: a real, if minimal, editor exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
+    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. OpenProject #988
+    //    added the AsciiDoc-to-HTML render pipeline (`renderers/asciidoc.js`), so `useRendering` is on
+    //    like `markdown`'s and `code`'s. No `hasConfig`: it has no configuration overlay, matching the
+    //    equally no-frills `code` row -- and unlike `markdown`, still no live preview pane; the
     //    description below says so.
-    useRendering: false
+    useRendering: true
   },
   {
     id: 'code',
