@@ -273,6 +273,108 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #930: `scope` used to only ever be applied to the GLOBAL `permissions` list
+   * (`apiKeys.ts#narrowToScope`) -- never to a page-rule permission decided here, so a key "scoped"
+   * to `read:pages` still held whatever `write:pages` its groups' rules granted. `checkAccess()` now
+   * refuses a permission outside `actor.scope` before a rule is even resolved.
+   */
+  test('a scoped actor is refused a page-rule permission outside its scope, even though a rule grants it (OpenProject #930)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'], mode: 'ALLOW' })])
+
+    const unscoped = { groupIds: [fixtures.groupId], permissions: [] }
+    const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
+
+    assert.equal(
+      groupsModel.checkAccess(unscoped, 'write:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+    assert.equal(
+      groupsModel.checkAccess(scoped, 'write:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      false
+    )
+    assert.equal(
+      groupsModel.checkAccess(scoped, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+  })
+
+  test('mayHoldPermissionSomewhere respects scope too (OpenProject #930)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], mode: 'ALLOW' })])
+
+    const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
+  })
+
+  /**
+   * OpenProject #1055: a `maxClassification`-capped actor may never be granted a page permission on
+   * a page classified stricter than the cap, regardless of what its groups' rules say.
+   */
+  test('a maxClassification-capped actor is refused on a page classified above the cap, even though a rule grants it (OpenProject #1055)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted', sortOrder: 99 })
+
+    const capped = {
+      groupIds: [fixtures.groupId],
+      permissions: [],
+      maxClassification: fixtures.classificationId
+    }
+    const publicPage = {
+      path: 'public-page',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+    const restrictedPage = {
+      path: 'restricted-page',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', publicPage), true)
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', restrictedPage), false)
+    // -> An uncapped actor is unaffected -- the same rule grants it on both pages
+    const uncapped = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkAccess(uncapped, 'read:pages', restrictedPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  test('maxClassification does not gate a page whose own classification is unknown (null)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const capped = {
+      groupIds: [fixtures.groupId],
+      permissions: [],
+      maxClassification: fixtures.classificationId
+    }
+    assert.equal(
+      groupsModel.checkAccess(capped, 'read:pages', {
+        path: 'some-asset',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+  })
+
+  /**
    * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
    * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
    * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory

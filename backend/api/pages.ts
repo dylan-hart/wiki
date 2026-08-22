@@ -90,7 +90,9 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
     return {
       id: req.apiKey.userId,
       permissions: req.apiKey.permissions,
-      groupIds: req.apiKey.groupIds
+      groupIds: req.apiKey.groupIds,
+      scope: req.apiKey.scope,
+      maxClassification: req.apiKey.maxClassification
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {

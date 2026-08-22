@@ -1,0 +1,2 @@
+ALTER TABLE "apiKeys" ADD COLUMN "maxClassification" uuid;--> statement-breakpoint
+ALTER TABLE "apiKeys" ADD CONSTRAINT "apiKeys_maxClassification_classificationLevels_id_fkey" FOREIGN KEY ("maxClassification") REFERENCES "classificationLevels"("id");

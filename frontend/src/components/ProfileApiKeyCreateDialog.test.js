@@ -46,6 +46,7 @@ describe('ProfileApiKeyCreateDialog', () => {
           name: 'My Token',
           expiration: '90d',
           scope: null,
+          maxClassification: null,
           siteId: null
         }
       })
@@ -86,6 +87,56 @@ describe('ProfileApiKeyCreateDialog', () => {
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'users/profile/api-keys',
       expect.objectContaining({ json: expect.objectContaining({ scope: ['read:pages'] }) })
+    )
+  })
+
+  /**
+   * OpenProject #1055: same "No Limit" (id: null) prepend `siteOptions` gets above, for the
+   * classification-cap picker.
+   */
+  it('prepends a "No Limit" (id: null) entry to the fetched classification levels', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.vm.classificationOptions).toEqual([
+      { id: null, name: 'profile.api.newKeyMaxClassificationNoLimit' },
+      { id: 'level-public', name: 'Public', sortOrder: 0 },
+      { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+    ])
+  })
+
+  it('sends a picked classification cap, not null', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
+    })
+
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    wrapper.vm.state.keyName = 'My Token'
+    wrapper.vm.state.keyMaxClassification = 'level-restricted'
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.create()
+
+    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
+      'users/profile/api-keys',
+      expect.objectContaining({
+        json: expect.objectContaining({ maxClassification: 'level-restricted' })
+      })
     )
   })
 })

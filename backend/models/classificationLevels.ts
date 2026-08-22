@@ -1,5 +1,9 @@
 import { asc, eq, sql } from 'drizzle-orm'
-import { classificationLevels as levelsTable, pages as pagesTable } from '../db/schema.ts'
+import {
+  apiKeys as apiKeysTable,
+  classificationLevels as levelsTable,
+  pages as pagesTable
+} from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { SystemIds } from './types.ts'
 
@@ -100,6 +104,21 @@ class ClassificationLevels {
     return candidate.sortOrder < other.sortOrder
   }
 
+  /**
+   * Whether `candidateId` is at or below a classification ceiling `maxId` -- an API key's
+   * `maxClassification` cap (OpenProject #1055): `candidate` is a page's classification, `max` the
+   * key's cap, and this asks whether the page is within what the key may touch. Unknown ids fail
+   * closed (neither can be compared, so this is not satisfied), the same as `meetsFloor`.
+   */
+  withinMax(candidateId: string, maxId: string): boolean {
+    const candidate = this.byId(candidateId)
+    const max = this.byId(maxId)
+    if (!candidate || !max) {
+      return false
+    }
+    return candidate.sortOrder <= max.sortOrder
+  }
+
   async create(input: { name: string; sortOrder?: number }): Promise<ClassificationLevel> {
     const name = input.name.trim()
     if (name.length < 1) {
@@ -155,10 +174,12 @@ class ClassificationLevels {
    * Delete a level.
    *
    * Refused when it is the last one left -- every page always has a classification, so removing the
-   * only level would leave nothing for that invariant to point at -- and refused when any page still
-   * carries it. The `pages.classification` FK is already `RESTRICT` (see `db/schema.ts`), so the
-   * database would refuse this anyway; the explicit check here is what turns that into a message an
-   * admin can act on instead of a raw constraint-violation error.
+   * only level would leave nothing for that invariant to point at -- and refused when any page, or
+   * any API key/token still capped at it (`apiKeys.maxClassification`, OpenProject #1055), still
+   * references it. Both FKs are already `RESTRICT` (see `db/schema.ts`), so the database would
+   * refuse this anyway; the explicit check here is what turns that into a message an admin can act on
+   * instead of a raw constraint-violation error -- and, for the key case, what stops a level's
+   * deletion from silently un-capping a key that pointed at it if the FK were ever loosened later.
    */
   async delete(id: string): Promise<boolean> {
     if (levelsCache.length <= 1) {
@@ -167,15 +188,27 @@ class ClassificationLevels {
         'At least one classification level must exist.'
       )
     }
-    const inUse = await WIKI.db
+    const inUseByPages = await WIKI.db
       .select({ id: pagesTable.id })
       .from(pagesTable)
       .where(eq(pagesTable.classification, id))
       .limit(1)
-    if (inUse.length > 0) {
+    if (inUseByPages.length > 0) {
       throw new CustomError(
         'classificationInUse',
         'This classification level is still used by at least one page.',
+        409
+      )
+    }
+    const inUseByKeys = await WIKI.db
+      .select({ id: apiKeysTable.id })
+      .from(apiKeysTable)
+      .where(eq(apiKeysTable.maxClassification, id))
+      .limit(1)
+    if (inUseByKeys.length > 0) {
+      throw new CustomError(
+        'classificationInUse',
+        'This classification level is still used as the cap on at least one API key.',
         409
       )
     }

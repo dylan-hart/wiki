@@ -61,6 +61,9 @@
                   ? t('profile.api.newKeyFullAccess')
                   : t('profile.api.scopedTo', { scope: key.scope.join(', ') })
               }}</w-item-label>
+              <w-item-label v-if="key.maxClassification" caption>{{
+                t('profile.api.cappedAt', { level: classificationLevelName(key.maxClassification) })
+              }}</w-item-label>
               <w-item-label caption>{{
                 t('profile.api.keySite', { site: siteName(key) })
               }}</w-item-label>
@@ -141,6 +144,7 @@ const state = reactive({
   loading: 0,
   keys: [],
   sites: [],
+  classificationLevels: [],
   /** When the signing keypair was generated -- what an invalidated token is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -205,6 +209,11 @@ function siteName(key) {
   return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
 }
 
+/** A classification level's name, by id -- falling back to the id for a level since deleted. */
+function classificationLevelName(id) {
+  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
 async function load() {
   state.loading++
   try {
@@ -230,6 +239,14 @@ async function load() {
     state.sites = (await API_CLIENT.get('sites').json()) ?? []
   } catch {
     state.sites = []
+  }
+  // -> Public-access (needs no permission), so this one is not wrapped in the same "degrade
+  //    silently" reasoning as `sites` above -- it should always succeed, but still fails soft into
+  //    `classificationLevelName()`'s own id fallback rather than take down the token list.
+  try {
+    state.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
+  } catch {
+    state.classificationLevels = []
   }
   state.loading--
 }

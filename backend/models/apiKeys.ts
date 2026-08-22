@@ -90,6 +90,10 @@ export interface ApiKey {
   // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
   //    carries the full union of its groups' permissions). See `narrowToScope()`.
   scope: string[] | null
+  // -> A classification-level ceiling (OpenProject #1055), or null for unrestricted (today's only
+  //    behavior for a key created before this existed, and the default). Checked in
+  //    `groups.checkAccess()` alongside `scope` above, on every page-rule decision.
+  maxClassification: string | null
   // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
   //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
   siteId: string | null
@@ -124,6 +128,12 @@ export interface ApiKeyListEntry extends ApiKey {
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
+  // -> The raw permission-name allow-list this key/token is scoped to, or null for none -- carried
+  //    separately from `permissions` above (which is ALREADY narrowed to this, for the group-wide
+  //    check) because page-rule checking needs the same narrowing applied a second time, against a
+  //    permission a RULE grants rather than the group-wide list (OpenProject #930's fix — see
+  //    `groups.checkAccess()`).
+  scope: string[] | null
   // -> The groups this identity speaks for. A page permission (`read:pages` and the rest of
   //    `PAGE_PERMISSIONS`) is granted by a group's RULES, not by its group-wide `permissions` column
   //    that `permissions` above is resolved from — so page-rule-checking code (`groups.checkAccess()`
@@ -132,6 +142,10 @@ export interface ApiKeyIdentity {
   //    guests group's rules for every page permission, regardless of what the key's own groups (or, for
   //    a personal token, its owner's current groups) actually granted.
   groupIds: string[]
+  // -> Classification-level ceiling (OpenProject #1055), or null for unrestricted. Carried straight
+  //    through from the row -- unlike `groupIds`/`permissions`, this is never resolved live from
+  //    anything, so there is nothing to differ between an admin-issued key and a personal token here.
+  maxClassification: string | null
   // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
@@ -151,6 +165,7 @@ const keySelection = {
   keyShort: apiKeysTable.keyShort,
   groups: apiKeysTable.groups,
   scope: apiKeysTable.scope,
+  maxClassification: apiKeysTable.maxClassification,
   siteId: apiKeysTable.siteId,
   userId: apiKeysTable.userId,
   expiration: apiKeysTable.expiration,
@@ -305,6 +320,7 @@ class ApiKeys {
     expiration,
     groups = [],
     scope = null,
+    maxClassification = null,
     siteId = null,
     userId = null
   }: {
@@ -314,6 +330,8 @@ class ApiKeys {
     groups?: string[]
     /** An explicit permission allow-list to narrow the key to, or null for no narrowing. */
     scope?: string[] | null
+    /** A classification-level ceiling (OpenProject #1055), or null for unrestricted. */
+    maxClassification?: string | null
     /** The single site to pin the key to, or null for instance-wide (every site). */
     siteId?: string | null
     /** The user this is a personal access token for, or null for an admin-issued key. */
@@ -343,6 +361,7 @@ class ApiKeys {
       keyShort: key.slice(-8),
       groups: effectiveGroups,
       scope,
+      maxClassification,
       siteId,
       userId,
       expiration: new Date(expiresAt.epochMilliseconds),
@@ -525,6 +544,8 @@ class ApiKeys {
         userId: key.userId,
         groupIds: owner.groupIds,
         permissions: narrowToScope(owner.permissions, key.scope),
+        scope: key.scope,
+        maxClassification: key.maxClassification,
         siteId
       }
     }
@@ -535,6 +556,8 @@ class ApiKeys {
       userId: null,
       groupIds,
       permissions: await this.resolvePermissions(groupIds, key.scope),
+      scope: key.scope,
+      maxClassification: key.maxClassification,
       siteId
     }
   }

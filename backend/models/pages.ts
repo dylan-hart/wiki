@@ -215,6 +215,9 @@ export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
+  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1055) — see that type. */
+  scope?: string[] | null
+  maxClassification?: string | null
 }
 
 /**

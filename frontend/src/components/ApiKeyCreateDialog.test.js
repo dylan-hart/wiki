@@ -101,4 +101,56 @@ describe('ApiKeyCreateDialog site picker', () => {
       expect.objectContaining({ json: expect.objectContaining({ siteId: 'site-1' }) })
     )
   })
+
+  /**
+   * OpenProject #1055: same "No Limit" (id: null) prepend `siteOptions` gets above, for the
+   * classification-cap picker.
+   */
+  it('prepends a "No Limit" (id: null) entry to the fetched classification levels', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([{ id: 'level-restricted', name: 'Restricted', sortOrder: 1 }])
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(wrapper.vm.classificationOptions).toEqual([
+      { id: null, name: 'admin.api.newKeyMaxClassificationNoLimit' },
+      { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+    ])
+  })
+
+  it('sends a picked classification cap, not null', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'groups') {
+        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
+    })
+
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    wrapper.vm.state.keyName = 'My Key'
+    wrapper.vm.state.keyGroups = ['group-1']
+    wrapper.vm.state.keyMaxClassification = 'level-restricted'
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.create()
+
+    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
+      'api-keys',
+      expect.objectContaining({
+        json: expect.objectContaining({ maxClassification: 'level-restricted' })
+      })
+    )
+  })
 })

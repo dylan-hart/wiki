@@ -44,6 +44,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'An explicit permission allow-list the key is narrowed to, or null for no narrowing at all — the key then carries the full union of its groups. Can only narrow, never grant beyond what the groups already hold.',
         items: { $ref: 'ApiKeyScopePermission#' }
       },
+      maxClassification: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description:
+          'A classification-level id ceiling (OpenProject #1055), or null for unrestricted. The key may never be granted a page permission on a page classified stricter than this.'
+      },
       siteId: {
         type: ['string', 'null'],
         format: 'uuid',

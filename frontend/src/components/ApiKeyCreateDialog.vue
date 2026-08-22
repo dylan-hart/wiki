@@ -142,6 +142,30 @@
               :hint="t(`admin.api.newKeyScopeHint`)" />
           </w-item-section>
         </w-item>
+        <w-item>
+          <blueprint-icon icon="secure" />
+          <w-item-section>
+            <!--
+              OpenProject #1055: left at "No Limit", the key may reach anything its scope/groups'
+              rules otherwise grant. Picking a level caps it -- the key may never be granted a page
+              permission on a page classified stricter than this, whatever the rules say.
+            -->
+            <w-select
+              v-model="state.keyMaxClassification"
+              outlined
+              :options="classificationOptions"
+              map-options
+              option-value="id"
+              option-label="name"
+              emit-value
+              options-dense
+              dense
+              hide-bottom-space
+              :label="t(`admin.api.newKeyMaxClassification`)"
+              :hint="t(`admin.api.newKeyMaxClassificationHint`)"
+              :loading="state.loadingClassificationLevels" />
+          </w-item-section>
+        </w-item>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
@@ -203,6 +227,10 @@ const state = reactive({
   loadingGroups: false,
   sites: [],
   loadingSites: false,
+  // -> null is "No Limit" -- unrestricted, same as a key created before this existed.
+  keyMaxClassification: null,
+  classificationLevels: [],
+  loadingClassificationLevels: false,
   loading: 0
 })
 
@@ -268,6 +296,14 @@ const siteOptions = computed(() => {
   return [{ id: null, title: t('admin.api.newKeySiteAllSites') }, ...state.sites]
 })
 
+/** The classification select's own "No Limit" entry (`id: null`) is prepended, same pattern as sites. */
+const classificationOptions = computed(() => {
+  return [
+    { id: null, name: t('admin.api.newKeyMaxClassificationNoLimit') },
+    ...state.classificationLevels
+  ]
+})
+
 // VALIDATION RULES
 
 const keyNameValidation = [
@@ -313,6 +349,23 @@ async function loadSites() {
   state.loading--
 }
 
+async function loadClassificationLevels() {
+  state.loading++
+  state.loadingClassificationLevels = true
+  try {
+    const resp = await API_CLIENT.get('classification-levels').json()
+    state.classificationLevels = resp ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.api.loadFailed'),
+      caption: err.message
+    })
+  }
+  state.loadingClassificationLevels = false
+  state.loading--
+}
+
 async function create() {
   state.loading++
   try {
@@ -326,6 +379,7 @@ async function create() {
         expiration: state.keyExpiration,
         groups: state.keyGroups,
         scope: state.keyScope.length > 0 ? state.keyScope : null,
+        maxClassification: state.keyMaxClassification,
         siteId: state.keySiteId
       }
     }).json()
@@ -359,5 +413,6 @@ async function create() {
 onMounted(() => {
   loadGroups()
   loadSites()
+  loadClassificationLevels()
 })
 </script>

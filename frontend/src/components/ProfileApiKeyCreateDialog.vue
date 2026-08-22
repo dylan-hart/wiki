@@ -92,6 +92,32 @@
               :hint="t(`profile.api.newKeyScopeHint`)" />
           </w-item-section>
         </w-item>
+        <w-item>
+          <blueprint-icon icon="secure" />
+          <w-item-section>
+            <!--
+              OpenProject #1055: left at "No Limit", the token may reach anything its own scope/rules
+              otherwise grant. Picking a level caps it -- the token may never be granted a page
+              permission on a page classified stricter than this, whatever the rules say. This is the
+              control that resolves the "an agent authenticating with my token can read my password
+              pages too" concern the feature exists for.
+            -->
+            <w-select
+              v-model="state.keyMaxClassification"
+              outlined
+              :options="classificationOptions"
+              map-options
+              option-value="id"
+              option-label="name"
+              emit-value
+              options-dense
+              dense
+              hide-bottom-space
+              :label="t(`profile.api.newKeyMaxClassification`)"
+              :hint="t(`profile.api.newKeyMaxClassificationHint`)"
+              :loading="state.loadingClassificationLevels" />
+          </w-item-section>
+        </w-item>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
@@ -148,6 +174,10 @@ const state = reactive({
   keySiteId: null,
   sites: [],
   loadingSites: false,
+  // -> null is "No Limit" -- unrestricted, today's only behavior for a token minted without this.
+  keyMaxClassification: null,
+  classificationLevels: [],
+  loadingClassificationLevels: false,
   loading: 0
 })
 
@@ -202,6 +232,14 @@ const siteOptions = computed(() => {
   return [{ id: null, title: t('profile.api.newKeySiteAllSites') }, ...state.sites]
 })
 
+/** The classification select's own "No Limit" entry (`id: null`) is prepended, same pattern as sites. */
+const classificationOptions = computed(() => {
+  return [
+    { id: null, name: t('profile.api.newKeyMaxClassificationNoLimit') },
+    ...state.classificationLevels
+  ]
+})
+
 // VALIDATION RULES
 
 const keyNameValidation = [
@@ -228,6 +266,21 @@ async function loadSites() {
   state.loading--
 }
 
+/** Same read-access-blind-eye treatment as `loadSites()` above -- the level list is public-access
+ *  (`GET /classification-levels` needs no permission), but this stays defensive either way. */
+async function loadClassificationLevels() {
+  state.loading++
+  state.loadingClassificationLevels = true
+  try {
+    const resp = await API_CLIENT.get('classification-levels').json()
+    state.classificationLevels = resp ?? []
+  } catch {
+    state.classificationLevels = []
+  }
+  state.loadingClassificationLevels = false
+  state.loading--
+}
+
 async function create() {
   state.loading++
   try {
@@ -240,6 +293,7 @@ async function create() {
         name: state.keyName,
         expiration: state.keyExpiration,
         scope: state.keyScope.length > 0 ? state.keyScope : null,
+        maxClassification: state.keyMaxClassification,
         siteId: state.keySiteId
       }
     }).json()
@@ -273,5 +327,6 @@ async function create() {
 
 onMounted(() => {
   loadSites()
+  loadClassificationLevels()
 })
 </script>
