@@ -14,14 +14,12 @@
  * the same regex 2.5.x runs over each `file.file` entry to pull the old/new halves out of git's
  * `old => new` / `dir/{old => new}/rest` rename notation. No separate rename-detection API call.
  *
- * Sync-direction config (push-only / pull-only / two-way): Feature 370 is the one landing
- * `StorageTarget.sync.mode`, and it had not reached this branch when this task was implemented (its
- * config lives only on the sibling `feature/content-dispatch-sync-engine` branch, which this branch
- * may not merge from). `sync()` therefore always runs the full two-way sequence below, matching
- * 2.5.x's `mode: 'sync'` — the only mode this fork's `definition.yml` exposes today (its `sync`
- * action is declared without a mode selector). See `docs/variances.md` for the tracked follow-up:
- * once `target.sync.mode` exists, the two `if (_.includes(['sync', 'pull'], mode))`-style guards
- * 2.5.x uses around the pull half and the push half belong here too.
+ * Sync-direction config (push-only / pull-only / two-way): `StorageTarget.sync.mode` (Feature 370)
+ * has since landed on this branch and `definition.yml` declares `supportedModes: [sync, push,
+ * pull]`, but this function does not read it yet — it still always runs the full two-way sequence
+ * below, matching 2.5.x's `mode: 'sync'` behavior regardless of the target's configured mode. See
+ * `docs/variances.md` for the tracked follow-up: wrap the pull half and the push half each behind a
+ * mode check, the way 2.5.x's own `if (_.includes(['sync', 'pull'], mode))`-style guards do.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'

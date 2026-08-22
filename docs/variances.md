@@ -322,27 +322,27 @@ of `block-kroki`'s supported diagram types, and `block-diagram` already exists i
 specifically as the URL-free alternative, so the guard's error message can point at working,
 already-shipped functionality rather than a future feature.
 
-## Git storage `sync` always runs two-way; no `push`/`pull`-only mode yet (task 507, feature 372)
+## Git storage `sync()` still runs two-way even though `sync.mode` now exists (task 507, feature 372)
 
 Task 507 ("sync action: bidirectional pull-rebase, push, and remote-change import") specifies:
 "Read whatever sync-direction config Feature 370 introduces (push-only/pull-only/two-way) and skip
-the irrelevant half of the sequence accordingly." Feature 370 ("Content Dispatch & Sync Engine") is
-the feature that lands that config — a `sync.mode` field on `StorageTarget`, backed by a real
-`storage` table column — but its work exists only on the sibling `feature/content-dispatch-sync-engine`
-branch, not on `feature/git-storage-target` (confirmed directly: this branch's `StorageTarget`
-interface and `git/definition.yml` have no sync-mode concept at all — `definition.yml` says so in its
-own comment). Per this repo's branch-isolation rule, `feature/git-storage-target` may not merge,
-cherry-pick, or otherwise copy that config from the sibling branch; and no coordination channel to
-that feature's own work was reachable when this task ran.
+the irrelevant half of the sequence accordingly." Feature 370 ("Content Dispatch & Sync Engine") has
+since landed on this branch: `StorageTarget.sync.mode` is a real, validated field
+(`models/storage.ts`'s `validateTarget`/`patchTarget`, backed by the `storage.syncMode` column), and
+`git/definition.yml` declares `supportedModes: [sync, push, pull]` — this branch's previous "no
+sync-mode concept at all" premise (recorded when Feature 370 lived only on a sibling,
+branch-isolated feature branch) is no longer true, and `git/definition.yml`'s `sync` action hint
+already tells administrators "The sync direction is respected."
 
-`backend/modules/storage/git/sync.ts`'s `sync()` therefore always runs the full two-way sequence —
-pull-rebase, push, then reverse-import the pull's changes — unconditionally. This matches 2.5.x's own
-`mode: 'sync'` behavior (verified directly against `server/modules/storage/git/storage.js`), and is
-the only mode this fork's `git/definition.yml` exposes today: its `sync` action has no mode selector
-of its own to read.
+That claim is not yet accurate, though: `backend/modules/storage/git/sync.ts`'s `sync()` (confirmed
+directly, not from memory) still runs the full two-way sequence — pull-rebase, push, then
+reverse-import the pull's changes — unconditionally, with no read of `target.sync.mode` anywhere in
+it. `models/storage.ts`'s `tickScheduledSyncs()` does skip queuing a scheduled `sync` job for a
+`push`-only target entirely, but a `pull`-only target is still scheduled with the `sync` handler and
+gets the unwanted push half run anyway, and the admin "Force Sync" button always invokes the same
+unconditional `sync()` regardless of the target's configured mode.
 
-Resolution: once Feature 370 lands `StorageTarget.sync.mode` on this branch, wrap the pull half and
-the push half of `sync()` each behind a mode check — mirroring 2.5.x's own
+Resolution: wrap the pull half and the push half of `sync()` each behind a mode check — mirroring
 `if (_.includes(['sync', 'pull'], mode))` / `if (_.includes(['sync', 'push'], mode))` guards — so a
 `push`-only or `pull`-only target skips the irrelevant half instead of always doing both.
 
