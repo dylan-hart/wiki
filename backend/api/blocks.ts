@@ -7,7 +7,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
  * Only the ones a group really is granted as a blanket. Writing a page is NOT among them, however much
  * it sounds like it belongs: page permissions come from a group's rules, and are read below.
  */
-const LIST_PERMISSIONS = ['read:sites', 'manage:sites', 'manage:system']
+const LIST_PERMISSIONS = ['manage:sites', 'manage:system']
 
 /** The page rules that make somebody an author, i.e. able to put a block into a page directly. */
 const AUTHOR_ROLES = ['write:pages', 'manage:pages']

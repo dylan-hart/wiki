@@ -44,7 +44,8 @@ test('handleListSites: an unscoped key lists every enabled site, disabled ones e
     permissions: [],
     siteId: null,
     groupIds: [],
-    userId: null
+    userId: null,
+    scope: null
   })
   const sites = textOf(result)
   assert.deepEqual(
@@ -59,7 +60,8 @@ test('handleListSites: reports the default locale, falling back to en', () => {
     permissions: [],
     siteId: null,
     groupIds: [],
-    userId: null
+    userId: null,
+    scope: null
   })
   const sites = textOf(result)
   assert.equal(sites.find((s: any) => s.id === 'site-a').defaultLocale, 'en')
@@ -72,7 +74,8 @@ test('handleListSites: a site-scoped key only lists its own site', () => {
     permissions: [],
     siteId: 'site-b',
     groupIds: [],
-    userId: null
+    userId: null,
+    scope: null
   })
   const sites = textOf(result)
   assert.deepEqual(

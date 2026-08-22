@@ -36,7 +36,8 @@ function install({ permissions = [] as string[] } = {}) {
     permissions,
     siteId: null as string | null,
     groupIds: [GROUP_ID],
-    userId: null as string | null
+    userId: null as string | null,
+    scope: null as string[] | null
   }
 }
 
@@ -63,7 +64,7 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
   assert.deepEqual(call.actor, {
     groupIds: [GROUP_ID],
     permissions: [],
-    scope: undefined,
+    scope: null,
     maxClassification: undefined
   })
 })

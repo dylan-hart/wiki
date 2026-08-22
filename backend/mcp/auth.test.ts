@@ -38,7 +38,7 @@ before(() => {
               siteId: 'site-1',
               groupIds: [],
               userId: null,
-              scope: null,
+              scope: ['read:pages'],
               maxClassification: null
             }
           }
@@ -83,6 +83,11 @@ test('authenticateApiKey: resolves a valid token to its keyId, permissions, site
     scope: null,
     maxClassification: null
   })
+})
+
+test('authenticateApiKey: a scoped token carries its scope through', async () => {
+  const ctx = await authenticateApiKey('scoped-token')
+  assert.deepEqual(ctx.scope, ['read:pages'])
 })
 
 test('authenticateApiKey: a personal access token carries its owner userId through', async () => {
@@ -130,6 +135,7 @@ function ctx(overrides: Partial<Parameters<typeof actorFor>[0]> = {}) {
     siteId: null as string | null,
     groupIds: [] as string[],
     userId: null as string | null,
+    scope: null as string[] | null,
     ...overrides
   }
 }
@@ -139,7 +145,7 @@ test('actorFor: resolves to the identity own groups, carrying the key permission
   assert.deepEqual(actor, {
     groupIds: ['group-a'],
     permissions: ['manage:system'],
-    scope: undefined,
+    scope: null,
     maxClassification: undefined
   })
 })
@@ -149,7 +155,7 @@ test('actorFor: an admin-issued key with no configured groups grants no page rul
   assert.deepEqual(actor, {
     groupIds: [],
     permissions: ['read:pages'],
-    scope: undefined,
+    scope: null,
     maxClassification: undefined
   })
 })
@@ -206,7 +212,7 @@ test('pageActorFor: a personal access token is attributed to its owner, tagged v
     id: 'user-1',
     permissions: ['write:pages'],
     groupIds: ['group-a'],
-    scope: undefined,
+    scope: null,
     maxClassification: undefined,
     via: 'mcp'
   })

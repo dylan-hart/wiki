@@ -1697,7 +1697,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['create:users', 'manage:users']
+        permissions: ['manage:users']
       },
       schema: {
         summary: 'Create a new user',
@@ -2008,6 +2008,13 @@ async function routes(app: FastifyInstance) {
         }
         if (req.body.auth !== undefined) {
           await WIKI.models.users.setUserAuthFlags(req.params.userId, req.body.auth)
+        }
+        // -> OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login,
+        //    otherwise live for up to the 30-day cookie age -- deactivating an account or changing
+        //    its group membership must end its open sessions now, the same way a personal API token
+        //    already revalidates `isActive` live on every request (`models/apiKeys.ts`).
+        if (patch.isActive === false || req.body.groups !== undefined) {
+          await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
         }
         await WIKI.models.auditLog.record({
           event: 'user.updated',

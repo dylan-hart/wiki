@@ -128,12 +128,6 @@ export interface ApiKeyListEntry extends ApiKey {
 export interface ApiKeyIdentity {
   id: string
   permissions: string[]
-  // -> The raw permission-name allow-list this key/token is scoped to, or null for none -- carried
-  //    separately from `permissions` above (which is ALREADY narrowed to this, for the group-wide
-  //    check) because page-rule checking needs the same narrowing applied a second time, against a
-  //    permission a RULE grants rather than the group-wide list (OpenProject #930's fix — see
-  //    `groups.checkAccess()`).
-  scope: string[] | null
   // -> The groups this identity speaks for. A page permission (`read:pages` and the rest of
   //    `PAGE_PERMISSIONS`) is granted by a group's RULES, not by its group-wide `permissions` column
   //    that `permissions` above is resolved from — so page-rule-checking code (`groups.checkAccess()`
@@ -142,6 +136,14 @@ export interface ApiKeyIdentity {
   //    guests group's rules for every page permission, regardless of what the key's own groups (or, for
   //    a personal token, its owner's current groups) actually granted.
   groupIds: string[]
+  // -> The key's own scope narrowing (the stored `ApiKey.scope`), unnarrowed by anything above:
+  //    `permissions` is already the intersection against it (`narrowToScope()`), but `groupIds` is
+  //    still the identity's full, unnarrowed group membership. `models/groups.ts`'s `AccessActor`
+  //    carries this through so `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` can
+  //    intersect a page/site permission against it too before pooling rules from those groups --
+  //    without this, a key scoped to `['read:pages']` still held every page permission its groups'
+  //    rules granted, since scope was never consulted on the rule-pooling path (OpenProject #930).
+  scope: string[] | null
   // -> Classification-level ceiling (OpenProject #1055), or null for unrestricted. Carried straight
   //    through from the row -- unlike `groupIds`/`permissions`, this is never resolved live from
   //    anything, so there is nothing to differ between an admin-issued key and a personal token here.

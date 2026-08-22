@@ -57,6 +57,7 @@ let app: FastifyInstance
 
 before(async () => {
   ;(globalThis as any).WIKI = {
+    sites: { [SITE_ID]: { id: SITE_ID } },
     models: {
       groups: { actorForRequest, checkSiteAccess },
       navigation: {
@@ -65,7 +66,13 @@ before(async () => {
           navigationMode: opts.mode,
           navigationId: 'resulting-nav-id'
         }),
-        getNav: async () => DEEP_NAV_TREE
+        getNav: async () => DEEP_NAV_TREE,
+        getMode: async () => 'static',
+        ensureSiteNav: async () => 'default-nav-id',
+        siteRoots: async () => [{ locale: 'en', navigationId: 'root-nav-id' }],
+        listOverrides: async () => [],
+        setNavItems: async () => {},
+        copyNav: async () => {}
       }
     },
     logger: { warn: () => {} }
@@ -183,6 +190,165 @@ test('a menu nested three levels deep reaches the response intact', async () => 
   assert.equal(body[0].children[0].children[0].id, 'grandchild')
 })
 
+/**
+ * OpenProject #933: six navigation endpoints still declared route-level `permissions:
+ * ['manage:navigation']` after task #683 introduced `site:navigation` delegation — the global
+ * `preHandler` hook resolves that from `session.permissions` only, so `checkSiteAccess()` could
+ * never run for these, and a `site:navigation`-only caller got a 403 from every one of them despite
+ * `AdminNavigation.vue` showing them the page. Each now checks `canManageNavigation()` in-handler,
+ * the same way their siblings above already did.
+ */
+describe('site:navigation delegation on the six previously route-gated endpoints (task #933)', () => {
+  const NAV_ID = 'c3d4e5f6-a7b8-49ab-cdef-012345678901'
+
+  test('GET .../navigation/:navId/mode', async () => {
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/mode`,
+      headers: { 'x-test-permissions': 'manage:sites' }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/mode`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` }
+    })
+    assert.equal(allowed.statusCode, 200)
+    assert.equal(allowed.json().mode, 'static')
+  })
+
+  test('GET .../navigation/default', async () => {
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/default?locale=en`,
+      headers: { 'x-test-permissions': 'manage:sites' }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/default?locale=en`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` }
+    })
+    assert.equal(allowed.statusCode, 200)
+  })
+
+  test('GET .../navigation/roots', async () => {
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/roots`,
+      headers: { 'x-test-permissions': 'manage:sites' }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/roots`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` }
+    })
+    assert.equal(allowed.statusCode, 200)
+  })
+
+  test('GET .../navigation/overrides', async () => {
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/overrides`,
+      headers: { 'x-test-permissions': 'manage:sites' }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/overrides`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` }
+    })
+    assert.equal(allowed.statusCode, 200)
+  })
+
+  test('PUT .../navigation/:navId', async () => {
+    const forbidden = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { items: [] }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: { items: [] }
+    })
+    assert.equal(allowed.statusCode, 200)
+  })
+
+  test('POST .../navigation/:targetNavId/copy', async () => {
+    const forbidden = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(forbidden.statusCode, 403)
+
+    const allowed = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: { sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(allowed.statusCode, 200)
+  })
+
+  /**
+   * OpenProject #933 follow-up: `site:navigation` is granted per site (`helpers/siteRules.ts`), so a
+   * cross-site copy (`sourceSiteId` different from the path's `:siteId`) must not let a caller
+   * delegated ONLY on the target read and duplicate a DIFFERENT site's menu with no permission on
+   * that site at all.
+   */
+  test('POST .../copy with a different sourceSiteId requires site:navigation on BOTH sites', async () => {
+    const OTHER_SITE_ID = 'b2c3d4e5-f6a7-4890-9abc-def012345679'
+
+    const targetOnly = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: { sourceSiteId: OTHER_SITE_ID, sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(targetOnly.statusCode, 403)
+
+    const both = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: {
+        'x-test-site-permissions': `site:navigation@${SITE_ID},site:navigation@${OTHER_SITE_ID}`
+      },
+      payload: { sourceSiteId: OTHER_SITE_ID, sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(both.statusCode, 200)
+  })
+
+  test('site:navigation on a DIFFERENT site grants none of the six', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/roots`,
+      headers: { 'x-test-site-permissions': 'site:navigation@some-other-site' }
+    })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('manage:navigation (group-wide) still works on all six, unchanged', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/roots`,
+      headers: { 'x-test-permissions': 'manage:navigation' }
+    })
+    assert.equal(res.statusCode, 200)
+  })
+})
+
 describe('manage:navigation permission surface on GET/PUT .../navigation/:navId (Task 472)', () => {
   /**
    * No session plugin is registered in this isolated app (see comment above), so a test seeds
@@ -253,10 +419,12 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
             lastSetNavItemsCall = { siteId, navId, items }
           }
         },
-        // -> The GET route's `full=true` branch checks `canManageNavigation()` in-handler (it has no
-        //    route-level `config.permissions`, unlike PUT below) -- this stub answers that from the
-        //    same `x-test-session` header `permissionPreHandler` reads, and never grants
-        //    `site:navigation`, since no test in this describe exercises that delegation path.
+        // -> Both the GET route's `full=true` branch and the PUT route below check
+        //    `canManageNavigation()` in-handler (task #933 moved PUT off route-level
+        //    `config.permissions` too) -- this stub answers that from the same `x-test-session`
+        //    header `permissionPreHandler` reads, and never grants `site:navigation`, since no test
+        //    in this describe exercises that delegation path (see the task #933 describe above for
+        //    that coverage).
         groups: {
           actorForRequest: (req: any) => ({
             groupIds: [],
@@ -389,12 +557,16 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
   })
 
   test('an anonymous request is refused a save', async () => {
+    // -> 403, not 401: task #933 moved this route off route-level `config.permissions` (whose
+    //    preHandler hook distinguishes "nobody home" from "wrong permission") onto the same
+    //    in-handler `canManageNavigation()` check every sibling delegated route already uses, which
+    //    answers a flat forbidden() either way -- see the task #933 describe above.
     const res = await app.inject({
       method: 'PUT',
       url: `/sites/${SITE_ID}/navigation/${NAV_ID}`,
       payload: { items: storedItems }
     })
-    assert.equal(res.statusCode, 401)
+    assert.equal(res.statusCode, 403)
     assert.equal(lastSetNavItemsCall, null)
   })
 })

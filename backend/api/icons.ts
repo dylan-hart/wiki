@@ -1,12 +1,39 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
- * Permissions for looking icons up and storing them.
+ * Group-wide permissions that carry picker access on their own.
+ *
+ * `write:pages`/`manage:pages` are deliberately NOT here: those are page-rule permissions, granted
+ * per-path by a group's `rules`, not by its group-wide `permissions` column — see
+ * `mayUseIconPicker()` below for how an ordinary author is actually recognized.
+ */
+const PICKER_GLOBAL_PERMISSIONS = ['manage:sites', 'manage:system']
+
+/** The page rules that make somebody an author, i.e. able to put an icon into a page directly. */
+const PICKER_AUTHOR_ROLES = ['write:pages', 'manage:pages']
+
+/**
+ * Whether this caller has any business looking icons up or having them stored.
  *
  * Anyone who can put an icon somewhere — a page, a navigation item, a page relation — needs to be able
  * to search for one and have it stored, which is what makes it servable from this instance afterwards.
+ * That "somewhere" is deliberately not narrowed to one page or site here: the picker itself is not
+ * page-scoped (it has no path to check a rule against), so this asks the coarser question
+ * `mayHoldPermissionSomewhere()` answers — "is this actor generally the kind of person who holds
+ * write:pages/manage:pages ANYWHERE" — the same way `api/blocks.ts`'s `mayListBlocks()` does for the
+ * block picker.
+ *
+ * `config.permissions` cannot express this on its own: it reads the group-wide permission list only,
+ * and `write:pages`/`manage:pages` are granted by a group's page rules instead — declaring them there
+ * silently refused every author, since nobody's group-wide list legitimately carries either.
  */
-const PICKER_PERMISSIONS = ['write:pages', 'manage:pages', 'manage:sites', 'manage:system']
+function mayUseIconPicker(req: FastifyRequest): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
+    return true
+  }
+  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES)
+}
 
 /**
  * Icons API Routes
@@ -18,12 +45,11 @@ async function routes(app: FastifyInstance) {
   /**
    * LIST ADDED ICON SETS
    */
+  // No route-level permissions: this is picker access, granted by a page rule
+  // (write:pages/manage:pages) as much as by a group-wide one — see mayUseIconPicker() above.
   app.get(
     '/sets',
     {
-      config: {
-        permissions: PICKER_PERMISSIONS
-      },
       schema: {
         summary: 'List the icon sets added to this wiki',
         description:
@@ -40,7 +66,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async () => {
+    async (req, reply) => {
+      if (!mayUseIconPicker(req)) {
+        return reply.forbidden()
+      }
       return WIKI.models.icons.getSets()
     }
   )
@@ -320,12 +349,10 @@ async function routes(app: FastifyInstance) {
   /**
    * SEARCH ICONS
    */
+  // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.get<{ Querystring: { query: string; prefixes?: string; limit?: number } }>(
     '/search',
     {
-      config: {
-        permissions: PICKER_PERMISSIONS
-      },
       schema: {
         summary: 'Search icons across the enabled icon sets',
         description:
@@ -373,6 +400,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!mayUseIconPicker(req)) {
+        return reply.forbidden()
+      }
       try {
         const icons = await WIKI.models.icons.searchIcons({
           query: req.query.query,
@@ -390,12 +420,10 @@ async function routes(app: FastifyInstance) {
   /**
    * LIST THE ICONS OF ONE SET
    */
+  // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.get<{ Params: { prefix: string } }>(
     '/sets/:prefix/icons',
     {
-      config: {
-        permissions: PICKER_PERMISSIONS
-      },
       schema: {
         summary: 'List every icon name in an enabled set',
         description:
@@ -434,6 +462,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!mayUseIconPicker(req)) {
+        return reply.forbidden()
+      }
       const prefix = req.params.prefix.toLowerCase()
       try {
         return { prefix, icons: await WIKI.models.icons.listSetIcons(prefix) }
@@ -447,12 +478,10 @@ async function routes(app: FastifyInstance) {
   /**
    * MATERIALIZE ICONS
    */
+  // No route-level permissions: picker access — see mayUseIconPicker() above.
   app.post<{ Body: { icons: string[] } }>(
     '/materialize',
     {
-      config: {
-        permissions: PICKER_PERMISSIONS
-      },
       schema: {
         summary: 'Store icons so this instance can serve them',
         description:
@@ -500,7 +529,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!mayUseIconPicker(req)) {
+        return reply.forbidden()
+      }
       const failed = await WIKI.models.icons.materializeIcons(req.body.icons)
       return {
         ok: failed.length < 1,

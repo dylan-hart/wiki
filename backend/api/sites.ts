@@ -186,7 +186,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['read:sites', 'access:admin']
+        permissions: ['access:admin']
       },
       schema: {
         summary: 'List all sites',
@@ -324,7 +324,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['create:sites', 'manage:sites']
+        permissions: ['manage:sites']
       },
       schema: {
         summary: 'Create a new site',

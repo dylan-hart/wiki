@@ -45,12 +45,15 @@ export interface McpAuthContext {
   /** The user this key acts as (a personal access token), or null for an admin-issued key. */
   userId: string | null
   /**
-   * Raw permission-name allow-list (OpenProject #930), threaded through to `actorFor()`'s
-   * `AccessActor` so `checkAccess()` narrows a page-rule decision by it -- an MCP call is exactly the
-   * kind of caller a scoped token exists to restrict. Optional (defaulting to unscoped when absent),
-   * matching `AccessActor`'s own field -- `contextFromIdentity()` is the one real code path building
-   * this from a verified token and always sets it; the many hand-built fixtures across `mcp/*.test.ts`
-   * that do not care about scoping are not forced to.
+   * The key's own scope narrowing (`ApiKeyIdentity.scope`), unnarrowed by anything above — `groupIds`
+   * is still the identity's full, unnarrowed group membership. Carried through to `actorFor()`/
+   * `pageActorFor()` so `checkAccess()`/`mayHoldPermissionSomewhere()` narrow an MCP call's page/site
+   * permissions the same way `/_api/`'s `WIKI.models.groups.actorForRequest()` does (OpenProject
+   * #930) — without this, a key scoped to `['read:pages']` still held every page permission its
+   * groups' rules granted when reached through an MCP tool call. Optional (defaulting to unscoped
+   * when absent) so the many hand-built fixtures across `mcp/*.test.ts` that do not care about
+   * scoping are not forced to set it -- `contextFromIdentity()` is the one real code path building
+   * this from a verified token and always sets it.
    */
   scope?: string[] | null
   /**

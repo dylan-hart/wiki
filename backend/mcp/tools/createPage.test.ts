@@ -60,7 +60,8 @@ function ctx({
     permissions,
     siteId: null as string | null,
     groupIds: [GROUP_ID],
-    userId
+    userId,
+    scope: null as string[] | null
   }
 }
 
@@ -111,7 +112,7 @@ test('handleCreatePage: creates a page and attributes it to the token owner', as
     id: 'user-1',
     permissions: [],
     groupIds: [GROUP_ID],
-    scope: undefined,
+    scope: null,
     maxClassification: undefined,
     via: 'mcp'
   })

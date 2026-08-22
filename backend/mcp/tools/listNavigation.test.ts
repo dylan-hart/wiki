@@ -10,7 +10,8 @@ const CTX = {
   permissions: [] as string[],
   siteId: null as string | null,
   groupIds: [GUEST_GROUP_ID],
-  userId: null as string | null
+  userId: null as string | null,
+  scope: null as string[] | null
 }
 
 const LEVEL = {

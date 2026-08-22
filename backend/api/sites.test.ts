@@ -623,7 +623,7 @@ test('site:general does not grant DELETE /:siteId, which stays manage:sites-only
       // -> A held but unrelated global permission, so the route-level hook's "some permission held"
       //    401 branch is not what refuses this -- the "not one of the route's permissions" 403
       //    branch is, which is the thing this test is actually about.
-      'x-test-permissions': 'read:sites',
+      'x-test-permissions': 'manage:navigation',
       'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
     }
   })
