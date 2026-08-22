@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   localizedPagePath,
   matchLocaleCode,
+  pagePathHash,
   parseLocalePrefix,
   resolveRouteLocale,
   shouldPrefixLocale
@@ -140,5 +141,22 @@ describe('shouldPrefixLocale', () => {
     expect(shouldPrefixLocale('fr', { useLocales: true, primary: 'en', forcePrefix: false })).toBe(
       true
     )
+  })
+})
+
+describe('pagePathHash', () => {
+  it('matches known output from the backend implementation it mirrors', () => {
+    // -> Fixed values from `backend/helpers/common.ts`'s `generatePathHash` — a regression guard
+    //    against the two drifting apart, not just an internal self-consistency check.
+    expect(pagePathHash('docs/getting-started')).toBe('19df0d1c3f8026')
+    expect(pagePathHash('home')).toBe('1867eaf483ceab')
+  })
+
+  it('is deterministic for the same input', () => {
+    expect(pagePathHash('some/page')).toBe(pagePathHash('some/page'))
+  })
+
+  it('differs for different paths', () => {
+    expect(pagePathHash('some/page')).not.toBe(pagePathHash('some/other-page'))
   })
 })

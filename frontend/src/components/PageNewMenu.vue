@@ -44,6 +44,10 @@
         <blueprint-icon icon="new-document" />
         <w-item-section class="pr-2">{{ t('pages.import.menuLabel') }}</w-item-section>
       </w-item>
+      <w-item clickable @click="openImportBatch" v-if="siteStore.extensionsStatus.pandoc">
+        <blueprint-icon icon="merge-files" />
+        <w-item-section class="pr-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
+      </w-item>
       <template v-if="props.hideAssetBtn === false">
         <w-separator class="my-2" inset />
         <w-item clickable @click="openFileManager">
@@ -70,6 +74,7 @@ import { dialog } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 
 import ImportPageDialog from '@/components/ImportPageDialog.vue'
+import ImportBatchPageDialog from '@/components/ImportBatchPageDialog.vue'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -136,6 +141,19 @@ function openImport() {
     emit('newPage')
     await pageStore.pageCreate({ editor: 'markdown', basePath: props.basePath, title, content })
     loading.hide()
+  })
+}
+
+function openImportBatch() {
+  // -> Unlike `openImport` above, this dialog saves every page itself rather than handing content
+  //    back through `.onOk()` -- there is no single new page to navigate into, so the menu just
+  //    closes as soon as the dialog opens, the same way it does for every other item here.
+  emit('newPage')
+  dialog({
+    component: ImportBatchPageDialog,
+    componentProps: {
+      basePath: props.basePath
+    }
   })
 }
 

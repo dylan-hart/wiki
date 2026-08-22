@@ -1,7 +1,12 @@
 import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
-import { MAX_IMPORT_SIZE, SUPPORTED_IMPORT_FORMATS } from '../models/import.ts'
+import {
+  MAX_IMPORT_BATCH_FILES,
+  MAX_IMPORT_SIZE,
+  SUPPORTED_IMPORT_FORMATS
+} from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
 import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
@@ -237,6 +242,22 @@ async function routes(app: FastifyInstance) {
       done(null, body)
     }
   )
+
+  // -> IMPORT PAGES (BATCH)'s body carries several files in one request, which the raw-bytes approach
+  //    above has no room for — `@fastify/multipart` claims `multipart/form-data` specifically, which
+  //    Fastify matches ahead of the generic `'*'` parser above regardless of registration order.
+  //    `throwFileSizeLimit: false` (OpenProject #849 fix): the default `true` makes an oversized
+  //    file's `toBuffer()` reject as documented below, but the plugin ALSO latches that rejection as
+  //    `lastError` and replays it out of `req.files()`'s own iterator on the very next `for await`
+  //    step — even one that only advances past files already handled — which turned "one bad file
+  //    fails independently" into "one oversized file 413s the whole batch, however many files came
+  //    after it converted fine". Disabled, a stream still stops accepting bytes past the limit and
+  //    `file.file.truncated` still flips true; the route below reads that flag itself instead of
+  //    trusting `toBuffer()` to throw.
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: MAX_IMPORT_SIZE, files: MAX_IMPORT_BATCH_FILES, fields: 0 },
+    throwFileSizeLimit: false
+  })
 
   /**
    * LIST PAGES
@@ -851,6 +872,132 @@ async function routes(app: FastifyInstance) {
         ok: true,
         message: 'File converted successfully.',
         markdown
+      }
+    }
+  )
+
+  /**
+   * IMPORT PAGES (BATCH)
+   */
+  app.post<{
+    Params: { siteId: string }
+    Querystring: { format: string; path: string; locale?: string }
+  }>(
+    '/sites/:siteId/pages/import/batch',
+    {
+      /*
+        No route-level `permissions`: same reasoning as IMPORT PAGE CONTENT above — `write:pages` is
+        granted by a group's page RULES, checked in the handler against the declared `path`.
+      */
+      schema: {
+        summary: 'Convert several uploaded files to Markdown in one request',
+        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), one \`format\` shared across the whole batch, each file converted independently. At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        tags: ['Pages'],
+        consumes: ['multipart/form-data'],
+        params: siteIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            format: {
+              type: 'string',
+              enum: [...SUPPORTED_IMPORT_FORMATS],
+              description: "The uploaded files' format, shared by the whole batch."
+            },
+            path: {
+              type: 'string',
+              maxLength: 255,
+              pattern: '^/?[a-zA-Z0-9-_/]*$',
+              description:
+                'Where the converted content would be saved. Used only to check permission — nothing is written here.'
+            },
+            locale: {
+              type: 'string',
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            }
+          },
+          required: ['format', 'path']
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              results: {
+                type: 'array',
+                items: { $ref: 'PageImportBatchItem#' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Importing a page requires a logged in user.')
+      }
+      if (
+        !mayOnPage(req, 'write:pages', req.params.siteId, {
+          path: req.query.path,
+          locale: req.query.locale ?? defaultLocale(req.params.siteId)
+        })
+      ) {
+        return reply.forbidden('You are not allowed to write a page here.')
+      }
+
+      /*
+        Read every file off the request before converting any of them: `req.files()` is a streaming
+        iterator over the one multipart body, and its next part is only available once the current
+        file's stream has been consumed (`@fastify/busboy`'s own constraint) — so buffering has to
+        happen one file at a time, in the order they arrived, before conversion can run in parallel
+        below. Checked via `file.file.truncated` after `toBuffer()` resolves, not by catching a
+        throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
+        letting an oversized file throw here would still fail the whole batch anyway.
+      */
+      const uploads: ({ fileName: string; data: Buffer } | { fileName: string; error: string })[] =
+        []
+      for await (const file of req.files()) {
+        const data = await file.toBuffer()
+        if (file.file.truncated) {
+          uploads.push({
+            fileName: file.filename,
+            error: 'This file is larger than the import limit.'
+          })
+        } else {
+          uploads.push({ fileName: file.filename, data })
+        }
+      }
+      if (uploads.length < 1) {
+        return reply.badRequest('No files were sent.')
+      }
+
+      const results = await Promise.all(
+        uploads.map(async (upload) => {
+          if ('error' in upload) {
+            return { fileName: upload.fileName, ok: false, message: upload.error }
+          }
+          try {
+            const markdown = await WIKI.models.pageImport.convertToMarkdown({
+              format: req.query.format,
+              data: upload.data
+            })
+            return { fileName: upload.fileName, ok: true, markdown }
+          } catch (err: any) {
+            return {
+              fileName: upload.fileName,
+              ok: false,
+              message: err.message || 'This file could not be converted.'
+            }
+          }
+        })
+      )
+
+      return {
+        ok: true,
+        message: `${results.filter((r) => r.ok).length} of ${results.length} file(s) converted successfully.`,
+        results
       }
     }
   )
