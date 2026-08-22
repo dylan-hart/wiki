@@ -152,6 +152,37 @@ describe('TreeBrowserDialog Path Name rejects slashes', () => {
     expect(rule('plain-slug')).toBe(true)
     expect(rule('foo/bar')).not.toBe(true)
   })
+
+  it("the Path Name field's Enter handler does not submit while a slash is present -- the disabled Save button is not the only way to trigger save()", async () => {
+    const wrapper = mountDialog({})
+    await flushPromises()
+
+    wrapper.vm.state.title = 'A Title'
+    // -> Marks the field dirty first, same as a real focus event -- otherwise the title-to-slug
+    //    watcher (`!state.pathDirty` in the title watcher) overwrites our manual path on the next
+    //    tick, same as a user would avoid by actually clicking into the field before typing.
+    wrapper.vm.onPathFocus()
+    wrapper.vm.state.path = 'foo/bar'
+    await wrapper.vm.$nextTick()
+
+    await wrapper.vm.onPathEnter()
+
+    expect(wrapper.emitted('ok')).toBeFalsy()
+  })
+
+  it("the Path Name field's Enter handler still submits once the slash is gone", async () => {
+    const wrapper = mountDialog({})
+    await flushPromises()
+
+    wrapper.vm.state.title = 'A Title'
+    wrapper.vm.onPathFocus()
+    wrapper.vm.state.path = 'plain-slug'
+    await wrapper.vm.$nextTick()
+
+    await wrapper.vm.onPathEnter()
+
+    expect(wrapper.emitted('ok')).toBeTruthy()
+  })
 })
 
 /**
