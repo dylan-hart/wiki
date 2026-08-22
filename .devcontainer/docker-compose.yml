@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Update 'VARIANT' to pick an LTS version of Node.js: 18, 16, 14, 12.
+        # Update 'VARIANT' to pick a Node.js version (26+ required — see root CLAUDE.md).
         # Append -bullseye or -buster to pin to an OS version.
         # Use -bullseye variants on local arm64/Apple Silicon.
         VARIANT: 26
@@ -38,7 +38,7 @@ services:
       POSTGRES_DB: postgres
 
   pgadmin:
-    image: dpage/pgadmin4:latest
+    image: dpage/pgadmin4:9.13.0
     environment:
       - PGADMIN_DEFAULT_EMAIL=dev@js.wiki
       - PGADMIN_DEFAULT_PASSWORD=123123
