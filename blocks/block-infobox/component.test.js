@@ -70,4 +70,44 @@ describe('block-infobox', () => {
     expect(link.getAttribute('href')).toBe('https://montreal.ca/')
     expect(link.textContent).toBe('montreal.ca')
   })
+
+  /*
+    Regression coverage for OpenProject #956: js-yaml's default schema parses a bare date into a
+    `Date` instance, which `rowsOf`'s `Object.entries()` used to treat as a nested mapping — an empty
+    one, since `Object.entries(dateObj)` is `[]` — and `render()` crashed reading `rows[0].label` off
+    it. A date is common infobox input ("Founded: 2020-01-01"), not a corner case.
+  */
+  it('renders a bare YAML date as locale-formatted text rather than crashing', async () => {
+    const el = await mountInfobox('Founded: 2020-01-01')
+
+    expect(el._error).toBe('')
+    const dd = el.shadowRoot.querySelector('dd')
+    expect(dd).not.toBeNull()
+    expect(dd.textContent.trim()).not.toBe('')
+    expect(dd.textContent).not.toContain('[object')
+    expect(el.shadowRoot.querySelector('.group')).toBeNull()
+  })
+
+  // Regression coverage for OpenProject #956: an empty mapping value used to hit the same
+  // `rows[0].label`-on-an-empty-array crash as a bare date.
+  it('renders an empty YAML mapping value as an empty row rather than crashing', async () => {
+    const el = await mountInfobox('Key: {}')
+
+    expect(el._error).toBe('')
+    const dt = el.shadowRoot.querySelector('dt')
+    const dd = el.shadowRoot.querySelector('dd')
+    expect(dt.textContent).toBe('Key')
+    expect(dd.textContent.trim()).toBe('')
+    expect(el.shadowRoot.querySelector('.group')).toBeNull()
+  })
+
+  // Regression coverage for OpenProject #956: a valueless key ("City:") parses to `null`, which
+  // `valueOf`'s bare `String()` used to render as the literal text "null".
+  it('renders a valueless key as an empty value rather than the text "null"', async () => {
+    const el = await mountInfobox('City:')
+
+    expect(el._error).toBe('')
+    const dd = el.shadowRoot.querySelector('dd')
+    expect(dd.textContent.trim()).toBe('')
+  })
 })
