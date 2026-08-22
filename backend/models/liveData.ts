@@ -90,11 +90,14 @@ class LiveData {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
-      const secret = await WIKI.models.blockCredentials.getSecret(siteId, request.credentialId)
-      if (secret === undefined) {
+      const credential = await WIKI.models.blockCredentials.getCredentialForResolve(
+        siteId,
+        request.credentialId
+      )
+      if (credential === undefined) {
         throw new CustomError('Not Found', 'No such credential on this site.', 404)
       }
-      headers.Authorization = `Bearer ${secret}`
+      headers.Authorization = `Bearer ${credential.secret}`
     }
 
     let response: Response

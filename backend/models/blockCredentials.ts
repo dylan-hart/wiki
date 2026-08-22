@@ -9,6 +9,7 @@ export interface BlockCredential {
   id: string
   siteId: string
   name: string
+  allowedDomains: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -17,20 +18,28 @@ const publicSelection = {
   id: blockCredentialsTable.id,
   siteId: blockCredentialsTable.siteId,
   name: blockCredentialsTable.name,
+  allowedDomains: blockCredentialsTable.allowedDomains,
   createdAt: blockCredentialsTable.createdAt,
   updatedAt: blockCredentialsTable.updatedAt
 }
 
 /**
- * Block credentials model (OpenProject #868)
+ * Block credentials model (OpenProject #868, hardened by the #868 domain-allowlist follow-up)
  *
  * A block prop lives in a page's own markdown, readable by anyone holding `read:source` on that
  * page — not a safe place for an endpoint's auth token. This model is the credential store `block
  * -live-data` (and any future server-fetching block) points at instead: a block prop carries a
- * credential's `id` alone, and only this model's `getSecret()` ever reads the `secret` column back
- * out, for the server-side fetch that resolves the block's data (`models/liveData.ts`). Every other
- * method here — the ones an API route can reach — returns {@link BlockCredential}, which has no
- * `secret` field to leak.
+ * credential's `id` alone, and only this model's `getCredentialForResolve()` ever reads the
+ * `secret` column back out, for the server-side fetch that resolves the block's data
+ * (`models/liveData.ts`). Every other method here — the ones an API route can reach — returns
+ * {@link BlockCredential}, which has no `secret` field to leak.
+ *
+ * `allowedDomains` is a second, independent boundary: even a caller who legitimately knows a
+ * credential's id (any `write:pages` author who can read a page already using it) can only have
+ * that credential sent to a domain the admin who created it explicitly allowed —
+ * `models/liveData.ts#resolve()` is what enforces this, this model just stores and returns the
+ * list. `createCredential` requires at least one domain; `updateAllowedDomains` may reduce that to
+ * zero (deliberately disabling the credential — fail-closed, not a new hole).
  */
 class BlockCredentials {
   /** A site's stored credentials, secrets excluded. What the admin credential list is built from. */
@@ -43,30 +52,43 @@ class BlockCredentials {
   }
 
   /**
-   * The secret itself, for the server-side fetch alone — never routed through an API response.
+   * The secret and its allowlist, for the server-side fetch alone — the secret is never routed
+   * through an API response.
    *
    * @returns `undefined` when no such credential exists on this site, so a caller cannot use this to
    *   probe whether an id from another site exists.
    */
-  async getSecret(siteId: string, id: string): Promise<string | undefined> {
+  async getCredentialForResolve(
+    siteId: string,
+    id: string
+  ): Promise<{ secret: string; allowedDomains: string[] } | undefined> {
     const [row] = await WIKI.db
-      .select({ secret: blockCredentialsTable.secret })
+      .select({
+        secret: blockCredentialsTable.secret,
+        allowedDomains: blockCredentialsTable.allowedDomains
+      })
       .from(blockCredentialsTable)
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
-    return row?.secret
+    return row
   }
 
-  async createCredential(siteId: string, name: string, secret: string): Promise<BlockCredential> {
+  async createCredential(
+    siteId: string,
+    name: string,
+    secret: string,
+    allowedDomains: string[]
+  ): Promise<BlockCredential> {
     const [row] = await WIKI.db
       .insert(blockCredentialsTable)
-      .values({ siteId, name, secret })
+      .values({ siteId, name, secret, allowedDomains })
       .returning(publicSelection)
     return row!
   }
 
   /**
-   * Replace a credential's secret, keeping its id and name. Reissuing a leaked or expiring token
-   * without an author having to update every block prop that references this credential's id.
+   * Replace a credential's secret, keeping its id, name and allowlist. Reissuing a leaked or
+   * expiring token without an author having to update every block prop that references this
+   * credential's id.
    *
    * @returns Whether a matching row was found and updated
    */
@@ -74,6 +96,26 @@ class BlockCredentials {
     const result = await WIKI.db
       .update(blockCredentialsTable)
       .set({ secret, updatedAt: new Date() })
+      .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
+    return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Replace a credential's allowed-domains list, keeping its id, name and secret. Unlike creation,
+   * this may reduce the list to empty — an admin deliberately disabling the credential rather than
+   * deleting it, which is safe (the credential simply stops resolving for every URL) rather than a
+   * new exposure.
+   *
+   * @returns Whether a matching row was found and updated
+   */
+  async updateAllowedDomains(
+    siteId: string,
+    id: string,
+    allowedDomains: string[]
+  ): Promise<boolean> {
+    const result = await WIKI.db
+      .update(blockCredentialsTable)
+      .set({ allowedDomains, updatedAt: new Date() })
       .where(and(eq(blockCredentialsTable.siteId, siteId), eq(blockCredentialsTable.id, id)))
     return (result.rowCount ?? 0) > 0
   }

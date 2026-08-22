@@ -343,8 +343,9 @@ export const blockCode = pgTable('blockCode', {
  * A secret held server-side only, for a block whose props (embedded in a page's own markdown, plainly
  * readable by anyone holding `read:source`) must never carry the credential itself — `block-live-data`
  * (OpenProject #868) is the first, and so far only, consumer. A block prop stores this row's `id`
- * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s `getSecret()`)
- * and it is never serialized back into an API response — see that model's header comment.
+ * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s
+ * `getCredentialForResolve()`) and it is never serialized back into an API response — see that
+ * model's header comment.
  * `allowedDomains` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
  * block's configured URL against before ever attaching the secret — see that file's header comment.
  */
