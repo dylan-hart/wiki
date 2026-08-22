@@ -23,6 +23,7 @@ const page = (overrides: Partial<RulePageRef> = {}): RulePageRef => ({
   path: 'geography/countries/france',
   locale: 'en',
   siteId: null,
+  classification: null,
   tags: [],
   ...overrides
 })
@@ -166,6 +167,39 @@ describe('ruleMatchesPage', () => {
     test('a ref with an explicitly unknown siteId is excluded by a site-scoped rule (fail closed)', () => {
       const rule = makeRule({ match: 'START', path: '', sites: ['site-a'] })
       assert.equal(ruleMatchesPage(rule, page({ siteId: null })), false)
+    })
+  })
+
+  describe('CLASSIFICATION (OpenProject #1079)', () => {
+    test('matches a page whose classification is in the rule list', () => {
+      const rule = makeRule({
+        match: 'CLASSIFICATION',
+        classifications: ['internal', 'restricted']
+      })
+      assert.equal(ruleMatchesPage(rule, page({ classification: 'internal' })), true)
+      assert.equal(ruleMatchesPage(rule, page({ classification: 'restricted' })), true)
+    })
+
+    test('does not match a page whose classification is not in the rule list', () => {
+      const rule = makeRule({ match: 'CLASSIFICATION', classifications: ['restricted'] })
+      assert.equal(ruleMatchesPage(rule, page({ classification: 'public' })), false)
+    })
+
+    test('a ref with an unknown classification fails closed', () => {
+      const rule = makeRule({ match: 'CLASSIFICATION', classifications: ['public'] })
+      assert.equal(ruleMatchesPage(rule, page({ classification: null })), false)
+    })
+
+    test('reads none of path/tags -- a rule with no path still matches on classification alone', () => {
+      const rule = makeRule({
+        match: 'CLASSIFICATION',
+        path: '',
+        classifications: ['restricted']
+      })
+      assert.equal(
+        ruleMatchesPage(rule, page({ path: 'anywhere/at/all', classification: 'restricted' })),
+        true
+      )
     })
   })
 })
@@ -408,5 +442,68 @@ describe('resolvePageRule / rulesAllow', () => {
     const target = page({ siteId: 'site-a' })
     assert.equal(resolvePageRule([scopedToOtherSite], 'read:pages', target), null)
     assert.equal(rulesAllow([scopedToOtherSite], 'read:pages', target), false)
+  })
+
+  describe('CLASSIFICATION precedence (OpenProject #1079)', () => {
+    test('a CLASSIFICATION DENY overrides a path ALLOW regardless of specificity', () => {
+      // -> The path ALLOW is maximally specific (an EXACT match on the page's own path) -- under the
+      //    ordinary path/tag specificity rules this would win outright. CLASSIFICATION's own tier is
+      //    what has to override that, not a coincidence of ranking.
+      const exactAllow = makeRule({
+        id: 'exact-allow',
+        match: 'EXACT',
+        path: 'secrets/rotation-plan',
+        mode: 'ALLOW'
+      })
+      const classificationDeny = makeRule({
+        id: 'classification-deny',
+        match: 'CLASSIFICATION',
+        mode: 'DENY',
+        classifications: ['restricted']
+      })
+      const target = page({ path: 'secrets/rotation-plan', classification: 'restricted' })
+      const winner = resolvePageRule([exactAllow, classificationDeny], 'read:pages', target)
+      assert.equal(winner?.id, 'classification-deny')
+      assert.equal(rulesAllow([exactAllow, classificationDeny], 'read:pages', target), false)
+    })
+
+    test('a CLASSIFICATION rule that does not match the page falls through to the path rule', () => {
+      const exactAllow = makeRule({
+        id: 'exact-allow',
+        match: 'EXACT',
+        path: 'notes/team-lunch',
+        mode: 'ALLOW'
+      })
+      const classificationDeny = makeRule({
+        id: 'classification-deny',
+        match: 'CLASSIFICATION',
+        mode: 'DENY',
+        classifications: ['restricted']
+      })
+      // -> Same rules, but this page is `public` -- the CLASSIFICATION rule does not match it at all,
+      //    so the path ALLOW is free to decide as usual.
+      const target = page({ path: 'notes/team-lunch', classification: 'public' })
+      const winner = resolvePageRule([exactAllow, classificationDeny], 'read:pages', target)
+      assert.equal(winner?.id, 'exact-allow')
+      assert.equal(rulesAllow([exactAllow, classificationDeny], 'read:pages', target), true)
+    })
+
+    test('two matching CLASSIFICATION rules break their tie by mode, same as any other tier', () => {
+      const allow = makeRule({
+        id: 'c-allow',
+        match: 'CLASSIFICATION',
+        mode: 'ALLOW',
+        classifications: ['internal']
+      })
+      const deny = makeRule({
+        id: 'c-deny',
+        match: 'CLASSIFICATION',
+        mode: 'DENY',
+        classifications: ['internal']
+      })
+      const target = page({ classification: 'internal' })
+      const winner = resolvePageRule([allow, deny], 'read:pages', target)
+      assert.equal(winner?.id, 'c-deny')
+    })
   })
 })

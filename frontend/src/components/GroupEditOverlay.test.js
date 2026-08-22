@@ -258,3 +258,73 @@ describe('GroupEditOverlay assignUser partial failure', () => {
     expect(names.join(' ')).not.toContain('User Three')
   })
 })
+
+/**
+ * OpenProject #1079: the rule editor's match dropdown gains a `CLASSIFICATION` option, which reads
+ * `rule.classifications` (a level-id multi-select) rather than `rule.path` (the plain text input
+ * every other match kind shares) -- `PagePropertiesDialog.vue`'s own picker is covered separately, at
+ * the model layer this reaches (`backend/helpers/pageRules.test.ts`); this is about which control the
+ * rule editor shows for which match kind.
+ */
+describe('GroupEditOverlay rule editor: CLASSIFICATION match kind', () => {
+  async function mountWithClassificationRule() {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-classification' }
+    adminStore.sites = []
+    adminStore.locales = []
+    adminStore.classificationLevels = [
+      { id: 'level-public', name: 'Public', sortOrder: 0 },
+      { id: 'level-internal', name: 'Internal', sortOrder: 1 }
+    ]
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-classification',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: [
+            {
+              id: 'rule-1',
+              name: 'Internal-only rule',
+              mode: 'DENY',
+              roles: ['read:pages'],
+              sites: [],
+              match: 'CLASSIFICATION',
+              path: '',
+              locales: [],
+              classifications: ['level-internal']
+            }
+          ]
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/rules')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    return wrapper
+  }
+
+  it('shows the classification picker, not the plain path input, for a CLASSIFICATION rule', async () => {
+    const wrapper = await mountWithClassificationRule()
+
+    expect(wrapper.find('[aria-label="admin.groups.ruleClassifications"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="admin.groups.rulePath"]').exists()).toBe(false)
+  })
+})

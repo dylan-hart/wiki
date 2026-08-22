@@ -399,7 +399,10 @@ export class ElasticsearchSearchModule implements SearchModule {
             path: hit._source!.path,
             locale: hit._source!.locale,
             siteId,
-            tags: hit._source!.tags ?? []
+            tags: hit._source!.tags ?? [],
+            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
+            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
+            classification: null
           })
         )
       : hits

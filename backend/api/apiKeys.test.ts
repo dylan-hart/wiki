@@ -18,6 +18,7 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 
 const GROUP_ID = '11111111-1111-4111-8111-111111111111'
 const SITE_ID = '22222222-2222-4222-8222-222222222222'
+const LEVEL_ID = '33333333-3333-4333-8333-333333333333'
 let createKeyCalls: any[] = []
 
 let app: FastifyInstance
@@ -33,6 +34,9 @@ before(async () => {
           createKeyCalls.push(args)
           return { id: 'new-key-id', key: 'signed.jwt.token' }
         }
+      },
+      classificationLevels: {
+        byId: (id: string) => (id === LEVEL_ID ? { id, name: 'Restricted', sortOrder: 2 } : null)
       },
       auditLog: {
         record: mock.fn(async () => {})
@@ -135,6 +139,54 @@ test('rejects a siteId that names no real site', async () => {
   })
   assert.equal(res.statusCode, 400)
   assert.equal(createKeyCalls.length, 0)
+})
+
+test('rejects a maxClassification that names no real level (OpenProject #1055)', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      maxClassification: '99999999-9999-4999-8999-999999999999'
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createKeyCalls.length, 0)
+})
+
+test('accepts a maxClassification naming a real level and persists it (OpenProject #1055)', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      maxClassification: LEVEL_ID
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+  assert.equal(createKeyCalls[0].maxClassification, LEVEL_ID)
+})
+
+test('omitting maxClassification creates an unrestricted key (null) (OpenProject #1055)', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls[0].maxClassification, null)
 })
 
 test('accepts a siteId naming a real site and persists it', async () => {

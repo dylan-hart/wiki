@@ -37,7 +37,10 @@ describe('resolveAssetFolderPaths + writeImportedAsset', { skip: !hasTestDatabas
       siteId,
       authModuleId: randomUUID(),
       userAdminId: fixtures.userId,
-      userGuestId: randomUUID()
+      userGuestId: randomUUID(),
+      classificationPublicId: randomUUID(),
+      classificationInternalId: randomUUID(),
+      classificationRestrictedId: randomUUID()
     }
   })
 

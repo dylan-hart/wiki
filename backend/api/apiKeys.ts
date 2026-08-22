@@ -45,6 +45,7 @@ async function routes(app: FastifyInstance) {
       expiration: KeyExpiration
       groups: string[]
       scope?: string[] | null
+      maxClassification?: string | null
       siteId?: string | null
     }
   }>(
@@ -85,6 +86,13 @@ async function routes(app: FastifyInstance) {
               description:
                 'An explicit permission allow-list to narrow the key to. Omit or pass null for no narrowing — the key then carries the full union of the groups given. Can only narrow: a permission here that none of the groups grant still grants nothing.',
               items: { $ref: 'ApiKeyScopePermission#' }
+            },
+            maxClassification: {
+              type: ['string', 'null'],
+              format: 'uuid',
+              default: null,
+              description:
+                "A classification-level id ceiling (OpenProject #1055): the key may never be granted a page permission on a page classified stricter than this. Omit or pass null for unrestricted — today's only behavior, and the default."
             },
             siteId: {
               type: ['string', 'null'],
@@ -147,11 +155,20 @@ async function routes(app: FastifyInstance) {
         return reply.badRequest('This site does not exist.')
       }
 
+      // -> null is unrestricted; any other value must name a real classification level
+      if (
+        req.body.maxClassification != null &&
+        !WIKI.models.classificationLevels.byId(req.body.maxClassification)
+      ) {
+        return reply.badRequest('This classification level does not exist.')
+      }
+
       const { id, key } = await WIKI.models.apiKeys.createKey({
         name: req.body.name,
         expiration: req.body.expiration,
         groups: req.body.groups,
         scope: req.body.scope ?? null,
+        maxClassification: req.body.maxClassification ?? null,
         siteId: req.body.siteId ?? null
       })
 

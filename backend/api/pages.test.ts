@@ -2005,7 +2005,9 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 403)
-    assert.deepEqual(seenTargets, [{ path: 'overridden', locale: 'fr', siteId: SITE_ID }])
+    assert.deepEqual(seenTargets, [
+      { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
+    ])
   })
 
   test('POST recover recreates the page and returns it', async () => {

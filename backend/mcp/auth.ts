@@ -43,6 +43,22 @@ export interface McpAuthContext {
   groupIds: string[]
   /** The user this key acts as (a personal access token), or null for an admin-issued key. */
   userId: string | null
+  /**
+   * Raw permission-name allow-list (OpenProject #930), threaded through to `actorFor()`'s
+   * `AccessActor` so `checkAccess()` narrows a page-rule decision by it -- an MCP call is exactly the
+   * kind of caller a scoped token exists to restrict. Optional (defaulting to unscoped when absent),
+   * matching `AccessActor`'s own field -- `contextFromIdentity()` is the one real code path building
+   * this from a verified token and always sets it; the many hand-built fixtures across `mcp/*.test.ts`
+   * that do not care about scoping are not forced to.
+   */
+  scope?: string[] | null
+  /**
+   * Classification-level ceiling (OpenProject #1055), threaded the same way -- this is the primitive
+   * that resolves the coworker's original concern (`McpAuthContext`'s own doc comment): a token minted
+   * with a cap keeps an MCP agent away from anything classified above it, regardless of what the
+   * token owner's groups otherwise grant.
+   */
+  maxClassification?: string | null
 }
 
 /**
@@ -69,7 +85,9 @@ export function contextFromIdentity(identity: ApiKeyIdentity): McpAuthContext {
     permissions: identity.permissions,
     siteId: identity.siteId,
     groupIds: identity.groupIds,
-    userId: identity.userId
+    userId: identity.userId,
+    scope: identity.scope,
+    maxClassification: identity.maxClassification
   }
 }
 
@@ -99,7 +117,9 @@ export async function authenticateApiKey(token: string): Promise<McpAuthContext>
 export function actorFor(ctx: McpAuthContext): AccessActor {
   return {
     groupIds: ctx.groupIds,
-    permissions: ctx.permissions
+    permissions: ctx.permissions,
+    scope: ctx.scope,
+    maxClassification: ctx.maxClassification
   }
 }
 
@@ -115,7 +135,13 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
   if (!ctx.userId) {
     return null
   }
-  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds }
+  return {
+    id: ctx.userId,
+    permissions: ctx.permissions,
+    groupIds: ctx.groupIds,
+    scope: ctx.scope,
+    maxClassification: ctx.maxClassification
+  }
 }
 
 /**

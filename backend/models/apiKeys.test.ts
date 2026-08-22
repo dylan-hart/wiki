@@ -419,6 +419,7 @@ describe(
           path: 'anything',
           locale: 'en',
           siteId: null,
+          classification: null,
           tags: []
         }),
         true
@@ -429,6 +430,7 @@ describe(
           path: 'anything',
           locale: 'en',
           siteId: null,
+          classification: null,
           tags: []
         }),
         false

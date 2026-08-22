@@ -24,6 +24,13 @@ export const usePageStore = defineStore('page', {
     allowRatings: true,
     authorId: 0,
     authorName: '',
+    /**
+     * Classification level id (OpenProject #1079). Empty on a page not loaded yet; on `pageCreate`
+     * it stays empty deliberately -- the server resolves the default (the parent page's own level,
+     * or the most-open configured one) when the create request omits it, rather than this store
+     * guessing at a value the picker component has not shown yet.
+     */
+    classification: '',
     commentsCount: 0,
     content: '',
     /**
@@ -325,6 +332,7 @@ export const usePageStore = defineStore('page', {
         createdAt: '',
         updatedAt: '',
         publishState: '',
+        classification: '',
         isLocked: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
@@ -453,6 +461,10 @@ export const usePageStore = defineStore('page', {
         icon: DEFAULT_PAGE_ICON,
         alias: '',
         publishState: 'published',
+        // -> Left unset: the server resolves the default (the parent page's own level, or the
+        //    most-open configured one) when the create request omits it. Explicitly reset here so a
+        //    new page does not start on whatever the previously-open page's picker showed.
+        classification: '',
         relations: [],
         tags: [],
         content: content ?? '',
@@ -716,6 +728,7 @@ export const usePageStore = defineStore('page', {
             'allowComments',
             'allowContributions',
             'allowRatings',
+            'classification',
             'content',
             'description',
             'icon',
@@ -761,8 +774,19 @@ export const usePageStore = defineStore('page', {
           delete body.content
           console.warn('Page source was never loaded; saving without touching the stored content.')
         }
+        /*
+          OpenProject #1079: an unset classification on create means "let the server pick the
+          default" (the parent page's own level, or the most-open configured one) -- an empty string
+          would fail the API's uuid format validation, so this is dropped rather than sent. A page
+          already loaded always has a real value here (the server never omits it), so this never
+          fires on a save that is not a create.
+        */
+        if (!this.classification) {
+          delete body.classification
+        }
 
         let pageData
+        let classificationConflicts = []
         if (editorStore.mode === 'create') {
           const resp = unwrap(
             await API_CLIENT.post(`sites/${siteStore.id}/pages`, {
@@ -794,6 +818,9 @@ export const usePageStore = defineStore('page', {
           if (!pageData?.id) {
             throw new Error('ERR_PAGE_NOT_FOUND')
           }
+          // -> OpenProject #1080: only ever present on an update that raised the page's own
+          //    classification and left descendants below the new floor -- see the PATCH route.
+          classificationConflicts = resp?.classificationConflicts ?? []
         }
 
         // Update page store
@@ -829,6 +856,8 @@ export const usePageStore = defineStore('page', {
           */
           await this.router.replace(this.editorExitPath)
         }
+
+        return { classificationConflicts }
       } catch (err) {
         /*
           Somebody else saved this page first. The server's reply carries the page as it now stands

@@ -320,6 +320,12 @@
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
             </w-item>
+            <w-item to="/_admin/classification" active-class="bg-primary text-white">
+              <w-item-section avatar>
+                <w-icon name="la:shield-alt" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
+            </w-item>
             <w-item to="/_admin/extensions" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-module.svg" />
@@ -731,6 +737,7 @@ onMounted(async () => {
   }
 
   adminStore.fetchLocales()
+  adminStore.fetchClassificationLevels()
   await adminStore.fetchSites()
   if (route.params.siteid) {
     adminStore.$patch({

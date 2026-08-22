@@ -156,7 +156,12 @@ describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePage
         groups: {
           actorForRequest: () => ({ groupIds: ['editors'], permissions: [] }),
           checkAccess: (_actor: unknown, permission: string, page: { path: string }) =>
-            rulesAllow(rules, permission, { path: page.path, locale: 'en', siteId: null })
+            rulesAllow(rules, permission, {
+              path: page.path,
+              locale: 'en',
+              siteId: null,
+              classification: null
+            })
         }
       }
     }
@@ -202,7 +207,12 @@ describe('mayBypassPassword: nested paths with DENY-mode rules (real resolvePage
       ['docs/archive', false],
       ['docs/archive/notice', true]
     ] as const) {
-      const winner = resolvePageRule(rules, 'write:pages', { path, locale: 'en', siteId: null })
+      const winner = resolvePageRule(rules, 'write:pages', {
+        path,
+        locale: 'en',
+        siteId: null,
+        classification: null
+      })
       assert.equal(winner ? winner.mode !== 'DENY' : false, expected, `path '${path}'`)
       assert.equal(
         mayBypassPassword(req, SITE_ID, { path, locale: 'en' }),

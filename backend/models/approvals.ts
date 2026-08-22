@@ -36,6 +36,8 @@ export interface ApprovalPageRef extends ApprovalPageMatch {
   allowContributions: boolean
   /** Passed through to `groups.checkAccess()`'s `RulePageRef` in `pageViewerState`, nowhere else. */
   locale: string | null
+  /** Likewise passed through to `RulePageRef` -- see `helpers/pageRules.ts` (OpenProject #1079). */
+  classification: string | null
 }
 
 /**
@@ -512,6 +514,7 @@ class Approvals {
                 path: page.path,
                 siteId,
                 locale: page.locale,
+                classification: page.classification,
                 tags: page.tags
               }
             ),

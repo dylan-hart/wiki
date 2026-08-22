@@ -57,6 +57,25 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
  * it is scoped out. Locale comparison is case-insensitive.
  *
  * ---------------------------------------------------------------------------------------------
+ * CLASSIFICATION (OpenProject #1079)
+ * ---------------------------------------------------------------------------------------------
+ *
+ * A `CLASSIFICATION` rule addresses page metadata rather than a page's address: it matches when the
+ * page's `classification` is one of the level ids listed in the rule's `classifications`. It gains a
+ * fourth tier above the three already described, evaluated FIRST rather than folded into
+ * specificity: **any matching CLASSIFICATION rule outranks every path/tag rule, regardless of how
+ * specific the path rule is.** A classification-based DENY therefore overrides a path/tag ALLOW no
+ * matter how deep the path rule addresses — a stronger guarantee than the ordinary most-specific-wins
+ * rule between two path/tag rules, which is exactly the point: classification survives a page
+ * move/rename, and a rule written against it should not lose to one written against wherever the
+ * page happens to live today. Two CLASSIFICATION rules matching the same page still break their own
+ * tie by MODE (tier 3 below) — there is no path/match-type axis within this tier to break it first.
+ *
+ * Like locale/site scoping, this fails CLOSED: a ref with no known classification (`classification:
+ * null` on `RulePageRef` — a page that does not exist yet, most commonly) matches no CLASSIFICATION
+ * rule at all, the same as if the page held a level the rule doesn't name.
+ *
+ * ---------------------------------------------------------------------------------------------
  *
  * `manage:system` is not evaluated here: it bypasses this entirely, and does so before any rule is
  * read. See `models/groups.ts`.
@@ -64,13 +83,19 @@ import type { GroupRule, GroupRuleMatch, GroupRuleMode } from '../models/groups.
 
 /** A page as a rule sees it. `locale`, `siteId` and `path` place it; `tags` are what tag rules match on.
  *
- * `locale` and `siteId` are REQUIRED: a caller that genuinely has no locale (or site) context says
- * `null` explicitly — and a locale-scoped (site-scoped) rule then does not match, i.e. the rules
- * fail CLOSED. The old optional fields let a dozen call sites silently skip locale scoping. */
+ * `locale`, `siteId` and `classification` are REQUIRED: a caller that genuinely has no locale (or
+ * site, or classification) context says `null` explicitly — and a locale-scoped (site-scoped,
+ * CLASSIFICATION-matched) rule then does not match, i.e. the rules fail CLOSED. The old optional
+ * fields let a dozen call sites silently skip locale scoping. `classification` is a page that does
+ * not exist yet's genuine answer (a create-permission check, before any classification has been
+ * computed for it) as much as it is a caller that forgot to fetch one — both fail closed the same
+ * way. */
 export interface RulePageRef {
   path: string
   locale: string | null
   siteId: string | null
+  /** Classification level id (OpenProject #1079), or null when genuinely unknown/not-yet-decided. */
+  classification: string | null
   tags?: string[]
 }
 
@@ -78,7 +103,18 @@ export interface RulePageRef {
  * Match kinds from weakest to strongest, used to break a tie between equally specific rules. The
  * index IS the priority, so the order of this array is the order documented above.
  */
-const MATCH_PRIORITY: GroupRuleMatch[] = ['TAG', 'TAGALL', 'START', 'END', 'REGEX', 'EXACT']
+// -> CLASSIFICATION never reaches this tie-break in practice (it never ties on specificity with a
+//    path/tag rule -- see the tier in `resolvePageRule`), but is listed for completeness of the
+//    closed `GroupRuleMatch` union.
+const MATCH_PRIORITY: GroupRuleMatch[] = [
+  'TAG',
+  'TAGALL',
+  'START',
+  'END',
+  'REGEX',
+  'EXACT',
+  'CLASSIFICATION'
+]
 
 /**
  * Modes from weakest to strongest, used to break a tie between rules of the same kind. Exported so
@@ -108,7 +144,7 @@ function normalizePath(value: string): string {
  * naming a page.
  */
 function specificityOf(rule: GroupRule): number {
-  if (rule.match === 'TAG' || rule.match === 'TAGALL') {
+  if (rule.match === 'TAG' || rule.match === 'TAGALL' || rule.match === 'CLASSIFICATION') {
     return 0
   }
   return normalizePath(rule.path).length
@@ -129,6 +165,14 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
   // -> Same fail-closed treatment for sites
   if (rule.sites?.length > 0 && (!page.siteId || !rule.sites.includes(page.siteId))) {
     return false
+  }
+
+  // -> CLASSIFICATION reads none of path/tags below -- it matches page metadata, not the page's
+  //    address. Same fail-closed treatment: an unknown classification matches nothing.
+  if (rule.match === 'CLASSIFICATION') {
+    return (
+      Boolean(page.classification) && (rule.classifications ?? []).includes(page.classification!)
+    )
   }
 
   const pagePath = normalizePath(page.path)
@@ -173,13 +217,18 @@ export function resolvePageRule(
   page: RulePageRef
 ): GroupRule | null {
   let winner: GroupRule | null = null
-  let winnerRank: [number, number, number] = [-1, -1, -1]
+  let winnerRank: [number, number, number, number] = [-1, -1, -1, -1]
 
   for (const rule of rules) {
     if (!rule.roles?.includes(permission) || !ruleMatchesPage(rule, page)) {
       continue
     }
-    const rank: [number, number, number] = [
+    // -> CLASSIFICATION gets its own tier, evaluated before specificity rather than folded into it
+    //    (tier 0 for every path/tag rule, tier 1 for a matching CLASSIFICATION rule) -- see the
+    //    module doc comment's CLASSIFICATION section for why this outranks path specificity
+    //    unconditionally rather than merely tying for it.
+    const rank: [number, number, number, number] = [
+      rule.match === 'CLASSIFICATION' ? 1 : 0,
       specificityOf(rule),
       MATCH_PRIORITY.indexOf(rule.match),
       MODE_PRIORITY.indexOf(rule.mode)
@@ -189,7 +238,9 @@ export function resolvePageRule(
     if (
       rank[0] > winnerRank[0] ||
       (rank[0] === winnerRank[0] &&
-        (rank[1] > winnerRank[1] || (rank[1] === winnerRank[1] && rank[2] > winnerRank[2])))
+        (rank[1] > winnerRank[1] ||
+          (rank[1] === winnerRank[1] &&
+            (rank[2] > winnerRank[2] || (rank[2] === winnerRank[2] && rank[3] > winnerRank[3])))))
     ) {
       winner = rule
       winnerRank = rank

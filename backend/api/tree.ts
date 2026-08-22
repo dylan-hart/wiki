@@ -101,7 +101,11 @@ export function visibleTreeItems<
       path,
       siteId,
       locale,
-      tags: (item as any).tags ?? []
+      tags: (item as any).tags ?? [],
+      // -> The tree listing is a lightweight table with no classification column of its own (that
+      //    lives on `pages`, joined nowhere here) -- a CLASSIFICATION rule never matches a tree
+      //    item today. Flagged for OpenProject #1082's cross-surface enforcement audit.
+      classification: null
     })
   })
 }
@@ -129,7 +133,10 @@ export function mayOnFolder(
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     path,
     siteId,
-    locale
+    locale,
+    // -> A folder is not a page and carries no classification of its own -- same treatment as
+    //    `mayOnAsset` in `api/assets.ts`.
+    classification: null
   })
 }
 
@@ -333,7 +340,10 @@ async function routes(app: FastifyInstance) {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: item.path,
             siteId: req.params.siteId,
-            locale
+            locale,
+            // -> Same tree-listing gap as `visibleTreeItems` above: no classification is joined in
+            //    here. Flagged for OpenProject #1082's cross-surface enforcement audit.
+            classification: null
           })
         )
       }
@@ -437,7 +447,10 @@ async function routes(app: FastifyInstance) {
         WIKI.models.groups.checkAccess(actor, 'read:pages', {
           path: page.path,
           siteId: req.params.siteId,
-          locale: req.query.locale ?? defaultLocale(req.params.siteId)
+          locale: req.query.locale ?? defaultLocale(req.params.siteId),
+          // -> `tree.listPages` reads the `tree` table, which carries no classification --
+          //    flagged for OpenProject #1082's cross-surface enforcement audit.
+          classification: null
         })
       )
     }

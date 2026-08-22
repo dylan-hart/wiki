@@ -95,6 +95,7 @@ const routes = [
       // -> System
       { path: 'api', component: () => import('@/pages/AdminApi.vue') },
       { path: 'audit', component: () => import('@/pages/AdminAuditLog.vue') },
+      { path: 'classification', component: () => import('@/pages/AdminClassification.vue') },
       { path: 'cluster', component: () => import('@/pages/AdminCluster.vue') },
       { path: 'extensions', component: () => import('@/pages/AdminExtensions.vue') },
       { path: 'icons', component: () => import('@/pages/AdminIcons.vue') },

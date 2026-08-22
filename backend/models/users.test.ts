@@ -1528,7 +1528,8 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
       authorId: overrides.authorId,
       creatorId: overrides.creatorId,
       ownerId: overrides.ownerId,
-      siteId: fixtures.siteId
+      siteId: fixtures.siteId,
+      classification: fixtures.classificationId
     }
   }
 

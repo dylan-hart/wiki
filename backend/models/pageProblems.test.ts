@@ -148,7 +148,8 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
       authorId: fixtures.userId,
       creatorId: fixtures.userId,
       ownerId: fixtures.userId,
-      siteId: fixtures.siteId
+      siteId: fixtures.siteId,
+      classification: fixtures.classificationId
     }
     await fixtures.db.insert(pagesTable).values(common)
     await assert.rejects(
@@ -228,7 +229,8 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
         authorId: fixtures.userId,
         creatorId: fixtures.userId,
         ownerId: fixtures.userId,
-        siteId: fixtures.siteId
+        siteId: fixtures.siteId,
+        classification: fixtures.classificationId
       })
       .returning()
 

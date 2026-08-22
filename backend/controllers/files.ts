@@ -49,7 +49,10 @@ async function routes(app: FastifyInstance) {
       !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
         path: asset.folderPath ? `${asset.folderPath}/${asset.fileName}` : asset.fileName,
         siteId: site.id,
-        locale: asset.locale
+        locale: asset.locale,
+        // -> An asset carries no classification of its own -- same treatment as `mayOnAsset` in
+        //    `api/assets.ts`.
+        classification: null
       })
     ) {
       return reply.notFound('File not found')

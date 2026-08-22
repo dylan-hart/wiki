@@ -223,6 +223,8 @@ async function postBoot() {
   await WIKI.models.groups.reloadCache()
   // -> Likewise: every page view asks whether the page takes suggestions and who reviews it
   await WIKI.models.approvals.reloadCache()
+  // -> The floor invariant (#1080) is checked on every page create/move, so this is in memory too
+  await WIKI.models.classificationLevels.reloadCache()
 
   // -> Must follow the sites cache: every site gets a row per installed block
   await WIKI.models.blocks.refreshFromDisk()

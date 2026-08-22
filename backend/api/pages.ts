@@ -12,6 +12,7 @@ import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helper
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
  * A safe filename stem for a page export, from its path.
@@ -90,7 +91,9 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
     return {
       id: req.apiKey.userId,
       permissions: req.apiKey.permissions,
-      groupIds: req.apiKey.groupIds
+      groupIds: req.apiKey.groupIds,
+      scope: req.apiKey.scope,
+      maxClassification: req.apiKey.maxClassification
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -118,7 +121,7 @@ const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): boolean {
   return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
 }
@@ -132,7 +135,13 @@ export function mayBypassPassword(
 export function unlockedFor(
   req: FastifyRequest,
   siteId: string,
-  page: { id: string; path: string; locale: string | null; tags?: string[] }
+  page: {
+    id: string
+    path: string
+    locale: string | null
+    tags?: string[]
+    classification?: string | null
+  }
 ): boolean {
   return (
     mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
@@ -154,10 +163,44 @@ export function mayOnPage(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: {
+    path: string
+    locale: string | null
+    tags?: string[]
+    /** Absent for a page that does not exist yet (a create-permission check) -- see `RulePageRef`. */
+    classification?: string | null
+  }
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
+    classification: page.classification ?? null,
+    siteId
+  })
+}
+
+/**
+ * Records a `page.classificationChanged` audit log entry (OpenProject #1081) -- called from every
+ * site a page's classification actually changes: the PATCH route (an explicit set, raise or lower),
+ * the move route (an auto-bump onto a stricter parent), and the classification-conflicts resolve
+ * route (a bulk bump). A no-op when `from === to`, so a caller does not have to re-check that itself.
+ */
+async function recordClassificationChange(
+  req: FastifyRequest,
+  siteId: string,
+  page: { id: string; path: string },
+  from: string,
+  to: string
+): Promise<void> {
+  if (from === to) {
+    return
+  }
+  await WIKI.models.auditLog.record({
+    event: 'page.classificationChanged',
+    actor: actorFromRequest(req),
+    targetType: 'page',
+    targetId: page.id,
+    targetLabel: page.path,
+    detail: { from, to },
     siteId
   })
 }
@@ -179,7 +222,7 @@ export function mayOnPage(
 export function pagePermissionsFor(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   /*
@@ -191,7 +234,11 @@ export function pagePermissionsFor(
     return PAGE_PERMISSIONS
   }
   return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, { ...page, siteId })
+    WIKI.models.groups.checkAccess(actor, permission, {
+      ...page,
+      classification: page.classification ?? null,
+      siteId
+    })
   )
 }
 
@@ -619,7 +666,8 @@ async function routes(app: FastifyInstance) {
           path: page.path,
           locale: page.locale,
           tags: page.tags ?? [],
-          allowContributions: page.allowContributions
+          allowContributions: page.allowContributions,
+          classification: page.classification
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         WIKI.models.pageWatching.isWatching(page.id, actorId),
@@ -1037,7 +1085,21 @@ async function routes(app: FastifyInstance) {
             properties: {
               ok: { type: 'boolean' },
               message: { type: 'string' },
-              page: { $ref: 'Page#' }
+              page: { $ref: 'Page#' },
+              classificationConflicts: {
+                type: 'array',
+                description:
+                  "Present only when this save raised the page's own classification and left one or more descendants below the new floor (OpenProject #1080) -- not cascaded automatically. Resolve via POST …/classification-conflicts/resolve.",
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    title: { type: 'string' },
+                    classification: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -1081,6 +1143,26 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
+      }
+      /*
+        Declassification guardrail (OpenProject #1080): lowering a page's classification (making it
+        MORE open) is not covered by `write:pages`/`manage:pages` alone -- it needs `manage:classification`
+        ON THIS PAGE too, so an editor who can write the page cannot silently declassify it by editing
+        metadata. Raising it needs nothing beyond the ordinary write permission already checked above;
+        the floor-invariant/level-exists validation itself happens in `updatePage()`.
+      */
+      if (
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(
+          req.body.classification,
+          target.classification
+        ) &&
+        !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Lowering this page’s classification requires the manage:classification permission on it.'
+        )
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -1139,11 +1221,263 @@ async function routes(app: FastifyInstance) {
         authorId: actor.id,
         authorName: page.authorName ?? ''
       })
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
+      /*
+        Retroactive parent classification raise (OpenProject #1080): raising THIS page's own
+        classification does not cascade to its descendants -- some may now sit below the new floor.
+        Rather than silently leaving them there, or silently bumping them, this surfaces the list for
+        an admin to resolve explicitly (`ClassificationResolutionDialog.vue`), via
+        `POST …/classification-conflicts/resolve`. Only computed when the classification actually got
+        stricter -- a lower/unchanged classification can only ever WIDEN what the old floor already
+        permitted, so there is nothing new to surface.
+      */
+      const classificationConflicts =
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(target.classification, req.body.classification)
+          ? await WIKI.models.pages.descendantsBelowFloor(
+              req.params.siteId,
+              page.locale,
+              page.path,
+              page.classification
+            )
+          : []
       return {
         ok: true,
         message: 'Page updated successfully.',
-        page
+        page,
+        ...(classificationConflicts.length > 0 ? { classificationConflicts } : {})
       }
+    }
+  )
+
+  /**
+   * RESOLVE CLASSIFICATION CONFLICTS
+   *
+   * The other half of the retroactive-parent-raise flow above: bumps the named descendants to a
+   * classification an admin chose (typically the new parent floor `classificationConflicts` reported,
+   * but not required to be — see the dialog's own doc comment for why leaving that open is deliberate).
+   *
+   * The dialog only ever asks for a raise, but this endpoint takes an arbitrary target level from the
+   * request body and only gates it on `write:pages` — a caller is not the dialog, so both guarantees
+   * `updatePage`'s own PATCH route enforces have to be checked here too, per page, rather than assumed:
+   * the floor invariant against EACH target's own immediate parent (a bulk write does not get to skip
+   * the check a single one would have to pass), and the declassification guardrail
+   * (`manage:classification`) whenever the chosen level is actually more open than a given target's
+   * current one. `bulkSetClassification` itself still does neither -- this is what makes that safe to
+   * call afterwards.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { pageIds: string[]; classification: string }
+  }>(
+    '/sites/:siteId/pages/classification-conflicts/resolve',
+    {
+      // -> No route-level permissions: page-rule permissions, checked per page below.
+      schema: {
+        summary: 'Bump a set of pages to a classification level',
+        description:
+          "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each; lowering one below its current level also needs manage:classification on it, the same declassification guardrail the PATCH route enforces. The chosen level may never leave a page below its own immediate parent's floor.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        body: {
+          type: 'object',
+          required: ['pageIds', 'classification'],
+          properties: {
+            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            classification: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { ok: { type: 'boolean' }, updated: { type: 'integer' } }
+          },
+          400: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Resolving a classification conflict requires a logged in user.')
+      }
+      if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
+        return reply.badRequest('This classification level does not exist.')
+      }
+      const targets: { id: string; path: string; classification: string }[] = []
+      for (const pageId of req.body.pageIds) {
+        const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
+        if (!target) {
+          return reply.notFound('One of these pages does not exist.')
+        }
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+          return reply.forbidden('You are not allowed to edit one of these pages.')
+        }
+        // -> Same declassification guardrail as the PATCH route: bringing a page UP needs nothing
+        //    extra, but this endpoint is not restricted to raises the way the dialog that drives it
+        //    is -- a caller asking for an actual lowering still needs manage:classification on it.
+        if (
+          WIKI.models.classificationLevels.isLowerThan(
+            req.body.classification,
+            target.classification
+          ) &&
+          !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+        ) {
+          return reply.forbidden(
+            'Lowering this page’s classification requires the manage:classification permission on it.'
+          )
+        }
+        // -> Same floor invariant every other classification write enforces: this bulk write does
+        //    not get to leave a page below its own immediate parent's floor just because it arrived
+        //    through the resolve flow rather than a single PATCH.
+        const floorId = await WIKI.models.pages.parentClassification(
+          req.params.siteId,
+          target.locale,
+          target.path
+        )
+        if (
+          floorId &&
+          !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
+        ) {
+          return reply.badRequest(
+            "A page's classification cannot be more open than its parent page's."
+          )
+        }
+        targets.push(target)
+      }
+      const updated = await WIKI.models.pages.bulkSetClassification(
+        req.params.siteId,
+        req.body.pageIds,
+        req.body.classification
+      )
+      for (const target of targets) {
+        await recordClassificationChange(
+          req,
+          req.params.siteId,
+          target,
+          target.classification,
+          req.body.classification
+        )
+      }
+      return { ok: true, updated }
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT (OpenProject #1081)
+   *
+   * "Everything currently classified as X", instance-wide by default -- the coverage half of the
+   * epic's auditability goal, alongside the `page.classificationChanged` events now feeding OpenProject
+   * #989's audit log. `manage:system` only: this deliberately bypasses every page rule (it exists to
+   * show an administrator what the rules are protecting, not to be gated by them), the same reasoning
+   * `api/auditLog.ts` uses for its own listing.
+   */
+  app.get<{ Querystring: { siteId?: string } }>(
+    '/pages/classification-report',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'How many pages currently carry each classification level',
+        description:
+          'Every configured level is included, even at zero, in level order. Instance-wide unless siteId narrows it to one site.',
+        tags: ['Pages'],
+        querystring: {
+          type: 'object',
+          properties: { siteId: { type: 'string', format: 'uuid' } }
+        },
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                levelId: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                sortOrder: { type: 'integer' },
+                count: { type: 'integer' }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.classificationReport(req.query.siteId)
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT — DRILL DOWN (OpenProject #1081)
+   */
+  app.get<{
+    Params: { levelId: string }
+    Querystring: { siteId?: string; limit?: number; offset?: number }
+  }>(
+    '/pages/classification-report/:levelId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'List every page currently at one classification level',
+        description: 'Paginated, newest-updated first. Instance-wide unless siteId narrows it.',
+        tags: ['Pages'],
+        params: {
+          type: 'object',
+          properties: { levelId: { type: 'string', format: 'uuid' } },
+          required: ['levelId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+            offset: { type: 'integer', minimum: 0, default: 0 }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              total: { type: 'integer' },
+              entries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    locale: { type: 'string' },
+                    title: { type: 'string' },
+                    siteId: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.listByClassification(req.params.levelId, {
+        siteId: req.query.siteId,
+        limit: req.query.limit,
+        offset: req.query.offset
+      })
     }
   )
 
@@ -1280,6 +1614,19 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
+      // -> Only ever fires from the floor-invariant auto-bump (OpenProject #1080): an ordinary move
+      //    (or a title/locale-only one) never touches classification, so `from === to` there and
+      //    `recordClassificationChange` is a no-op. Covers the primary page only -- `movePage()`
+      //    returns just that one, not an `includeTranslations` twin also auto-bumped in the same
+      //    call, so a twin's own bump goes unlogged here. Narrow, documented gap rather than
+      //    threading the whole batch back out through the model for this alone.
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
       return {
         ok: true,
         message: 'Page moved successfully.',

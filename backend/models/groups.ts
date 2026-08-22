@@ -10,8 +10,20 @@ import type { FastifyRequest } from 'fastify'
 /** The permission that bypasses every check, and the one the guards below exist to protect. */
 export const SYSTEM_PERMISSION = 'manage:system'
 
-/** How a rule's `path` is compared against the page path. */
-export type GroupRuleMatch = 'START' | 'END' | 'REGEX' | 'TAG' | 'TAGALL' | 'EXACT'
+/**
+ * How a rule's `path` is compared against the page path. `CLASSIFICATION` is the odd one out
+ * (OpenProject #1079): it does not read `path` at all, and matches page metadata that survives a
+ * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
+ * `ruleMatchesPage` in `helpers/pageRules.ts`.
+ */
+export type GroupRuleMatch =
+  | 'START'
+  | 'END'
+  | 'REGEX'
+  | 'TAG'
+  | 'TAGALL'
+  | 'EXACT'
+  | 'CLASSIFICATION'
 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
@@ -26,6 +38,13 @@ export interface GroupRule {
   path: string
   locales: string[]
   sites: string[]
+  /**
+   * Classification level ids this rule addresses -- read only when `match === 'CLASSIFICATION'`, the
+   * same way `path` is read as a comma list only for `TAG`/`TAGALL`. A separate field rather than
+   * reusing `path`, because a level is an id from the admin-configurable
+   * `WIKI.models.classificationLevels` list, not free text a rule author types.
+   */
+  classifications?: string[]
 }
 
 /** A group row, joined with the number of users assigned to it. */
@@ -106,10 +125,18 @@ const groupSelection = {
  *
  * `permissions` is the group-wide list — `manage:system`, `access:admin` and the rest — which is a
  * different thing from the page permissions the rules decide.
+ *
+ * `scope` and `maxClassification` are an API key's own narrowing (`models/apiKeys.ts`), null for a
+ * session (which narrows nothing): `scope` is a permission-name allow-list (OpenProject #930's fix —
+ * previously only ever applied to the GLOBAL `permissions` list, never to a page-rule permission
+ * decided here), `maxClassification` a classification-level ceiling (OpenProject #1055) the key may
+ * never be granted a page permission above, regardless of what its groups' rules say.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
+  scope?: string[] | null
+  maxClassification?: string | null
 }
 
 /**
@@ -202,7 +229,9 @@ class Groups {
       groupIds: this.groupIdsForRequest(req),
       // -> An API key stands in for a session and carries its own permissions, as it does in the
       //    route-level check
-      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? []
+      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? [],
+      scope: req.apiKey?.scope ?? null,
+      maxClassification: req.apiKey?.maxClassification ?? null
     }
   }
 
@@ -220,6 +249,33 @@ class Groups {
     //    wiki whose only administrator had denied themselves would have nobody left to fix it
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    /*
+      OpenProject #930: a scoped API key's `scope` is an allow-list of permission NAMES -- previously
+      applied only to the group-wide `permissions` list (`apiKeys.ts#narrowToScope`), never to a
+      page-rule permission decided here, so a key "scoped" to `read:pages` still held whatever
+      write:pages/delete:pages its groups' rules granted wherever they matched. Checked before any
+      rule is even resolved: a permission outside the scope is refused regardless of what the rules
+      would otherwise say.
+    */
+    if (actor.scope != null && !actor.scope.includes(permission)) {
+      return false
+    }
+    /*
+      OpenProject #1055: a classification-capped key/token may never be granted a page permission on
+      a page classified stricter than its cap, regardless of what its groups' rules say -- checked the
+      same way `scope` is, before any rule is resolved. Skipped when the page's own classification is
+      unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
+      there is nothing to compare the cap against, and this is a narrowing on top of the rules, not a
+      rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule match
+      does in `helpers/pageRules.ts`.
+    */
+    if (
+      actor.maxClassification != null &&
+      page.classification != null &&
+      !WIKI.models.classificationLevels.withinMax(page.classification, actor.maxClassification)
+    ) {
+      return false
     }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
     return rule ? rule.mode !== 'DENY' : false
@@ -244,8 +300,18 @@ class Groups {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
+    // -> OpenProject #930: same scope narrowing as `checkAccess()`, applied before any rule is read
+    //    rather than after — a scoped key must not read as "generally holds `permission`" for a name
+    //    outside its own scope, whatever its groups' rules say. `maxClassification` has no equivalent
+    //    here: this method is path- and page-blind by design (see the doc comment above), so there is
+    //    no single page's classification to compare the cap against.
+    const held =
+      actor.scope != null ? permissions.filter((p) => actor.scope!.includes(p)) : permissions
+    if (held.length < 1) {
+      return false
+    }
     const rules = this.rulesForGroups(actor.groupIds)
-    return permissions.some((permission) =>
+    return held.some((permission) =>
       rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
   }

@@ -12,4 +12,7 @@ export interface SystemIds {
   authModuleId: string
   userAdminId: string
   userGuestId: string
+  classificationPublicId: string
+  classificationInternalId: string
+  classificationRestrictedId: string
 }

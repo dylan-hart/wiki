@@ -23,13 +23,27 @@ export const AUDIT_EVENTS = [
   'site.settingsUpdated',
   'storage.targetUpdated',
   'login.success',
-  'login.failed'
+  'login.failed',
+  /**
+   * OpenProject #1081: a page's classification changed, either way -- a raise or a lowering
+   * (`manage:classification`-guarded), an auto-bump on move, or a bulk resolve of a classification
+   * conflict. `detail` carries `{ from, to }` (level ids) so the listing can say what changed without
+   * a second lookup.
+   */
+  'page.classificationChanged'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
 
 /** What kind of thing an event happened to. */
-export const AUDIT_TARGET_TYPES = ['user', 'group', 'apiKey', 'site', 'storageTarget'] as const
+export const AUDIT_TARGET_TYPES = [
+  'user',
+  'group',
+  'apiKey',
+  'site',
+  'storageTarget',
+  'page'
+] as const
 
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number]
 

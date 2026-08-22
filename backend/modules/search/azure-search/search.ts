@@ -651,7 +651,10 @@ export class AzureSearchModule implements SearchModule {
             path: row.document.path as string,
             locale: row.document.locale as string,
             siteId,
-            tags: (row.document.tags ?? []) as string[]
+            tags: (row.document.tags ?? []) as string[],
+            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
+            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
+            classification: null
           })
         )
       : rows

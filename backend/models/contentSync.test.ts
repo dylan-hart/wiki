@@ -6,6 +6,7 @@ import { Pool } from 'pg'
 import { relations } from '../db/relations.ts'
 import {
   assets as assetsTable,
+  classificationLevels as classificationLevelsTable,
   pages as pagesTable,
   sites as sitesTable,
   storage as storageTable,
@@ -32,6 +33,7 @@ let siteId: string
 let userId: string
 let pageTargetId: string
 let otherTargetId: string
+let classificationId: string
 
 before(async () => {
   if (!DATABASE_URL) {
@@ -63,6 +65,12 @@ before(async () => {
     .returning({ id: usersTable.id })
   userId = user.id
 
+  const [classification] = await WIKI.db
+    .insert(classificationLevelsTable)
+    .values({ name: 'Public', sortOrder: 0 })
+    .returning({ id: classificationLevelsTable.id })
+  classificationId = classification.id
+
   const targets = await WIKI.db
     .insert(storageTable)
     .values([
@@ -85,6 +93,9 @@ after(async () => {
   await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, siteId))
   await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, siteId))
   await WIKI.db.delete(usersTable).where(eq(usersTable.id, userId))
+  await WIKI.db
+    .delete(classificationLevelsTable)
+    .where(eq(classificationLevelsTable.id, classificationId))
   await pool.end()
 })
 
@@ -102,7 +113,8 @@ async function makePage(path: string): Promise<string> {
       contentType: 'markdown',
       authorId: userId,
       creatorId: userId,
-      ownerId: userId
+      ownerId: userId,
+      classification: classificationId
     })
     .returning({ id: pagesTable.id })
   return row.id

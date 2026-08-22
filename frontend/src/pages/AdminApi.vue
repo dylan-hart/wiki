@@ -123,6 +123,13 @@
                     : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
                 }}</w-item-label>
                 <!--
+                  OpenProject #1055: `null` is unrestricted, the same as every key before this
+                  existed -- same "no cap" treatment as `scope` above, rather than a blank line.
+                -->
+                <w-item-label v-if="key.maxClassification" caption>{{
+                  t('admin.api.cappedAt', { level: classificationLevelName(key.maxClassification) })
+                }}</w-item-label>
+                <!--
                   Which site the key is pinned to: `null` is instance-wide, the same as every key
                   before site-pinning existed, so it gets the same "All Sites" wording the picker
                   itself uses rather than reading as a missing value.
@@ -226,6 +233,7 @@ const state = reactive({
   groups: [],
   sites: [],
   users: [],
+  classificationLevels: [],
   /** When the signing keypair was generated — what an invalidated key is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -309,6 +317,11 @@ function ownerName(key) {
   return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
 }
 
+/** A classification level's name, by id -- falling back to the id for a level since deleted. */
+function classificationLevelName(id) {
+  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
 async function load() {
   state.loading++
   loading.show()
@@ -318,18 +331,21 @@ async function load() {
     //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
     //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
     //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
-    const [keys, apiState, groups, sites, certs, usersResp] = await Promise.all([
-      API_CLIENT.get('api-keys').json(),
-      API_CLIENT.get('system/api').json(),
-      API_CLIENT.get('groups').json(),
-      API_CLIENT.get('sites').json(),
-      API_CLIENT.get('system/certificates').json(),
-      API_CLIENT.get('users', { searchParams: { limit: 100 } }).json()
-    ])
+    const [keys, apiState, groups, sites, certs, usersResp, classificationLevels] =
+      await Promise.all([
+        API_CLIENT.get('api-keys').json(),
+        API_CLIENT.get('system/api').json(),
+        API_CLIENT.get('groups').json(),
+        API_CLIENT.get('sites').json(),
+        API_CLIENT.get('system/certificates').json(),
+        API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
+        API_CLIENT.get('classification-levels').json()
+      ])
     state.keys = keys ?? []
     state.groups = groups ?? []
     state.sites = sites ?? []
     state.users = usersResp?.users ?? []
+    state.classificationLevels = classificationLevels ?? []
     state.enabled = apiState?.isEnabled === true
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
     // -> Keeps the status light in the admin sidebar in step without another round trip

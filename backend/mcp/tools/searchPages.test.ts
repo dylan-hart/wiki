@@ -60,7 +60,12 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
   assert.deepEqual(call.locales, ['en'])
   assert.deepEqual(call.tags, ['hr'])
   assert.equal(call.limit, 5)
-  assert.deepEqual(call.actor, { groupIds: [GROUP_ID], permissions: [] })
+  assert.deepEqual(call.actor, {
+    groupIds: [GROUP_ID],
+    permissions: [],
+    scope: undefined,
+    maxClassification: undefined
+  })
 })
 
 test('handleSearchPages: a caller with no write:pages/manage:pages hides drafts and protected excerpts', async () => {

@@ -24,11 +24,21 @@ before(() => {
               permissions: ['read:pages'],
               siteId: null,
               groupIds: ['group-a'],
-              userId: null
+              userId: null,
+              scope: null,
+              maxClassification: null
             }
           }
           if (token === 'scoped-token') {
-            return { id: 'key-2', permissions: [], siteId: 'site-1', groupIds: [], userId: null }
+            return {
+              id: 'key-2',
+              permissions: [],
+              siteId: 'site-1',
+              groupIds: [],
+              userId: null,
+              scope: null,
+              maxClassification: null
+            }
           }
           if (token === 'personal-token') {
             return {
@@ -36,7 +46,9 @@ before(() => {
               permissions: ['read:pages'],
               siteId: null,
               groupIds: ['group-owner'],
-              userId: 'user-1'
+              userId: 'user-1',
+              scope: null,
+              maxClassification: null
             }
           }
           throw new ApiKeyError('API key has been revoked.')
@@ -65,7 +77,9 @@ test('authenticateApiKey: resolves a valid token to its keyId, permissions, site
     permissions: ['read:pages'],
     siteId: null,
     groupIds: ['group-a'],
-    userId: null
+    userId: null,
+    scope: null,
+    maxClassification: null
   })
 })
 
@@ -81,14 +95,18 @@ test('contextFromIdentity: maps an already-verified ApiKeyIdentity the same way'
     permissions: ['manage:system'],
     siteId: null,
     groupIds: ['group-x'],
-    userId: null
+    userId: null,
+    scope: null,
+    maxClassification: null
   })
   assert.deepEqual(ctx, {
     keyId: 'key-9',
     permissions: ['manage:system'],
     siteId: null,
     groupIds: ['group-x'],
-    userId: null
+    userId: null,
+    scope: null,
+    maxClassification: null
   })
 })
 
@@ -116,12 +134,39 @@ function ctx(overrides: Partial<Parameters<typeof actorFor>[0]> = {}) {
 
 test('actorFor: resolves to the identity own groups, carrying the key permissions along', () => {
   const actor = actorFor(ctx({ permissions: ['manage:system'], groupIds: ['group-a'] }))
-  assert.deepEqual(actor, { groupIds: ['group-a'], permissions: ['manage:system'] })
+  assert.deepEqual(actor, {
+    groupIds: ['group-a'],
+    permissions: ['manage:system'],
+    scope: undefined,
+    maxClassification: undefined
+  })
 })
 
 test('actorFor: an admin-issued key with no configured groups grants no page rules', () => {
   const actor = actorFor(ctx({ permissions: ['read:pages'], groupIds: [] }))
-  assert.deepEqual(actor, { groupIds: [], permissions: ['read:pages'] })
+  assert.deepEqual(actor, {
+    groupIds: [],
+    permissions: ['read:pages'],
+    scope: undefined,
+    maxClassification: undefined
+  })
+})
+
+test('actorFor: threads scope and maxClassification through, for checkAccess to narrow by (OpenProject #930/#1055)', () => {
+  const actor = actorFor(
+    ctx({
+      permissions: ['read:pages'],
+      groupIds: ['group-a'],
+      scope: ['read:pages'],
+      maxClassification: 'level-internal'
+    })
+  )
+  assert.deepEqual(actor, {
+    groupIds: ['group-a'],
+    permissions: ['read:pages'],
+    scope: ['read:pages'],
+    maxClassification: 'level-internal'
+  })
 })
 
 test('maySeeEverything: true when the actor holds write:pages or manage:pages anywhere', () => {

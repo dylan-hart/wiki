@@ -1,4 +1,4 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
@@ -11,7 +11,7 @@ import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
-import type { WikiTx } from '../core/db.ts'
+import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -60,6 +60,7 @@ export interface UnlockPageRef {
   path: string
   locale: string
   tags: string[]
+  classification: string
 }
 
 /** Fields kept in the `config` blob rather than as columns, and flattened again on the way out. */
@@ -123,6 +124,8 @@ export interface Page {
   authorName: string
   createdAt: Date
   updatedAt: Date
+  /** Classification level id (OpenProject #1079) -- never absent, there is no unclassified state. */
+  classification: string
 }
 
 /** Everything a page can be created with. */
@@ -145,6 +148,12 @@ export interface PageInput {
   password?: string
   relations?: any[]
   tags?: string[]
+  /**
+   * Classification level id (OpenProject #1079). Absent on create defaults to the immediate parent
+   * page's own level (or the most-open configured level, with no parent page to inherit from) — see
+   * `resolveCreateClassification`. Absent on update leaves the page's classification untouched.
+   */
+  classification?: string
   allowComments?: boolean
   allowContributions?: boolean
   allowRatings?: boolean
@@ -206,6 +215,9 @@ export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
+  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1055) — see that type. */
+  scope?: string[] | null
+  maxClassification?: string | null
 }
 
 /**
@@ -374,7 +386,8 @@ class Pages {
       authorId: row.authorId,
       authorName: row.authorName ?? '',
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
+      classification: row.classification
     }
   }
 
@@ -463,7 +476,8 @@ class Pages {
       id: row.page.id,
       path: row.page.path,
       locale: row.page.locale,
-      tags: row.page.tags
+      tags: row.page.tags,
+      classification: row.page.classification
     }
     const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
     const includePassword =
@@ -588,6 +602,130 @@ class Pages {
   }
 
   /**
+   * The immediate parent PAGE's classification, or null when there is none -- either because `path`
+   * is at the root, or because nothing is actually published at the parent path (an empty folder).
+   *
+   * "Immediate parent only" is the floor invariant's own scope (OpenProject #1080): a page is checked
+   * against its immediate parent's classification, not the whole ancestor chain, since a real parent
+   * already satisfies the floor against ITS OWN parent by induction.
+   *
+   * Public rather than private: `api/pages.ts`'s classification-conflicts resolve route needs it to
+   * enforce the same floor invariant against an admin-chosen target level (see that route's own
+   * comment on why `bulkSetClassification` alone was not enough).
+   */
+  async parentClassification(
+    siteId: string,
+    locale: string,
+    path: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<string | null> {
+    const parentPath = path.split('/').slice(0, -1).join('/')
+    if (!parentPath) {
+      return null
+    }
+    const rows = await db
+      .select({ classification: pagesTable.classification })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.locale, locale),
+          eq(pagesTable.path, parentPath)
+        )
+      )
+      .limit(1)
+    return rows[0]?.classification ?? null
+  }
+
+  /**
+   * The classification a new page should be created with, and the floor-invariant check on an
+   * explicitly requested one (OpenProject #1079/#1080).
+   *
+   * No parent page to inherit a floor from (root-level, or an empty folder) means no constraint: an
+   * explicit request is honored as given, and the default is the most-open configured level.
+   */
+  private async resolveCreateClassification(
+    siteId: string,
+    locale: string,
+    path: string,
+    requested: string | undefined
+  ): Promise<string> {
+    const floorId = await this.parentClassification(siteId, locale, path)
+    if (requested) {
+      if (!WIKI.models.classificationLevels.byId(requested)) {
+        throw new CustomError(
+          'classificationInvalid',
+          'This classification level does not exist.',
+          400
+        )
+      }
+      if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
+        throw new CustomError(
+          'classificationBelowFloor',
+          "A page's classification cannot be more open than its parent page's.",
+          400
+        )
+      }
+      return requested
+    }
+    return floorId ?? WIKI.models.classificationLevels.defaultLevel().id
+  }
+
+  /**
+   * Every published page under `parentPath` (any depth) whose classification sits below `floorId` --
+   * what a retroactive parent-classification raise surfaces for an admin to resolve explicitly rather
+   * than cascading silently (OpenProject #1080's "classification resolution dialog").
+   */
+  async descendantsBelowFloor(
+    siteId: string,
+    locale: string,
+    parentPath: string,
+    floorId: string
+  ): Promise<{ id: string; path: string; title: string; classification: string }[]> {
+    const prefix = `${parentPath}/`
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        title: pagesTable.title,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.locale, locale),
+          sql`${pagesTable.path} LIKE ${prefix + '%'}`
+        )
+      )
+    return rows.filter(
+      (row) => !WIKI.models.classificationLevels.meetsFloor(row.classification, floorId)
+    )
+  }
+
+  /**
+   * Bump a set of pages (by id, all on this site) to a classification, in one transaction -- what
+   * resolving a classification-resolution-dialog conflict actually does to the descendants an admin
+   * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
+   * place that decides who may call this and validates the target level, the same layering
+   * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   */
+  async bulkSetClassification(
+    siteId: string,
+    ids: string[],
+    classification: string
+  ): Promise<number> {
+    if (ids.length < 1) {
+      return 0
+    }
+    const result = await WIKI.db
+      .update(pagesTable)
+      .set({ classification, updatedAt: sql`now()` })
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
+    return result.rowCount ?? 0
+  }
+
+  /**
    * Create a page.
    *
    * @param actor Who is saving it. Their permissions decide what survives sanitizing.
@@ -646,7 +784,18 @@ class Pages {
     }
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags }
+    const classification = await this.resolveCreateClassification(
+      siteId,
+      locale,
+      path,
+      input.classification
+    )
+    // -> `classification: null` here, deliberately, even though the value the page is ABOUT to be
+    //    created with is already known: `write:scripts`/`write:styles` are checked against the page
+    //    as it exists right now, which is not at all -- see `RulePageRef`'s own doc comment on why a
+    //    not-yet-existing page fails closed rather than reaching for a value that describes the page
+    //    it is about to become.
+    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -667,6 +816,7 @@ class Pages {
           authorId: actor.id,
           creatorId: actor.id,
           ownerId: actor.id,
+          classification,
           config: this.buildConfig(input, siteId),
           content,
           contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
@@ -838,12 +988,36 @@ class Pages {
     if (patch.tags !== undefined) {
       values.tags = patch.tags
     }
+    // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
+    //    checked one layer up, in `api/pages.ts` -- the same layering every other page-rule
+    //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
+    //    page's classification, whichever direction it moves, may never end up below its immediate
+    //    parent's floor.
+    if (patch.classification !== undefined) {
+      if (!WIKI.models.classificationLevels.byId(patch.classification)) {
+        throw new CustomError(
+          'classificationInvalid',
+          'This classification level does not exist.',
+          400
+        )
+      }
+      const floorId = await this.parentClassification(siteId, existing.locale, existing.path)
+      if (floorId && !WIKI.models.classificationLevels.meetsFloor(patch.classification, floorId)) {
+        throw new CustomError(
+          'classificationBelowFloor',
+          "A page's classification cannot be more open than its parent page's.",
+          400
+        )
+      }
+      values.classification = patch.classification
+    }
 
     const existingRef: RulePageRef = {
       path: existing.path,
       locale: existing.locale,
       siteId: existing.siteId,
-      tags: existing.tags ?? []
+      tags: existing.tags ?? [],
+      classification: existing.classification
     }
 
     // -> A render only means anything next to the content it came from, so the two move together
@@ -976,12 +1150,29 @@ class Pages {
     { path: newPath, title, locale: destLocale }: { path: string; title?: string; locale: string },
     actor: PageActor
   ): Promise<{ rawMoved: typeof pagesTable.$inferSelect; changedFields: string[] }> {
+    /*
+      Floor invariant on move (OpenProject #1080): unlike create/update, a move that lands a page
+      under a stricter parent auto-bumps it rather than refusing the move outright -- "no separate
+      confirmation step for a move" is the spec's own words. `stricterOf` is a no-op when the page is
+      already at or above the new floor (its own classification IS the stricter of the two already).
+      Read inside the transaction (`tx`, not `WIKI.db`) so a concurrent move of the parent cannot land
+      between this read and the write below.
+    */
+    const newFloorId =
+      newPath !== current.path || destLocale !== current.locale
+        ? await this.parentClassification(siteId, destLocale, newPath, tx)
+        : null
+    const classification = newFloorId
+      ? WIKI.models.classificationLevels.stricterOf(current.classification, newFloorId)
+      : current.classification
+
     const rawMovedRows = await tx
       .update(pagesTable)
       .set({
         path: newPath,
         hash: generatePathHash(newPath),
         locale: destLocale,
+        classification,
         ...(title !== undefined ? { title: title.trim() } : {}),
         authorId: actor.id,
         updatedAt: sql`now()`
@@ -1471,8 +1662,72 @@ class Pages {
   }
 
   /**
-   * A site's page paths and last-updated times, for `/sitemap.xml` — the only bulk listing this model
-   * offers, because nothing else needs to see every page of a site at once.
+   * How many pages currently carry each classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the coverage half of the epic's auditability goal: what does the wiki
+   * actually consider sensitive, at a glance, before drilling into any one level's pages.
+   *
+   * Every level is included even at zero, in level order (most-open first) -- a level nothing is
+   * classified as is itself worth an admin seeing, not a row silently missing from the report.
+   */
+  async classificationReport(
+    siteId?: string
+  ): Promise<{ levelId: string; name: string; sortOrder: number; count: number }[]> {
+    const rows = await WIKI.db
+      .select({ classification: pagesTable.classification, count: sql<number>`count(*)::int` })
+      .from(pagesTable)
+      .where(siteId ? eq(pagesTable.siteId, siteId) : undefined)
+      .groupBy(pagesTable.classification)
+    const counts = new Map(rows.map((row) => [row.classification, row.count]))
+    return WIKI.models.classificationLevels.list().map((level) => ({
+      levelId: level.id,
+      name: level.name,
+      sortOrder: level.sortOrder,
+      count: counts.get(level.id) ?? 0
+    }))
+  }
+
+  /**
+   * Every page currently at one classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the drill-down `classificationReport()`'s counts point into. Paginated,
+   * newest-updated first; metadata only, matching `listAllForSite()`'s own reasoning for staying out
+   * of content.
+   */
+  async listByClassification(
+    levelId: string,
+    { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}
+  ): Promise<{
+    total: number
+    entries: { id: string; path: string; locale: string; title: string; siteId: string }[]
+  }> {
+    const conditions = [
+      eq(pagesTable.classification, levelId),
+      ...(siteId ? [eq(pagesTable.siteId, siteId)] : [])
+    ]
+    const where = and(...conditions)
+    const [totals, rows] = await Promise.all([
+      WIKI.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(pagesTable)
+        .where(where),
+      WIKI.db
+        .select({
+          id: pagesTable.id,
+          path: pagesTable.path,
+          locale: pagesTable.locale,
+          title: pagesTable.title,
+          siteId: pagesTable.siteId
+        })
+        .from(pagesTable)
+        .where(where)
+        .orderBy(desc(pagesTable.updatedAt))
+        .limit(limit)
+        .offset(offset)
+    ])
+    return { total: totals[0]?.total ?? 0, entries: rows }
+  }
+
+  /**
+   * A site's page paths and last-updated times, for `/sitemap.xml`.
    *
    * `publishState`/`isBrowsable` are cheap column filters that describe every anonymous reader at
    * once, but they are not the whole of what a guest may see: an administrator can lock a published,
@@ -1490,6 +1745,7 @@ class Pages {
         path: pagesTable.path,
         locale: pagesTable.locale,
         tags: pagesTable.tags,
+        classification: pagesTable.classification,
         updatedAt: pagesTable.updatedAt
       })
       .from(pagesTable)
@@ -1508,7 +1764,8 @@ class Pages {
           path: row.path,
           locale: row.locale,
           siteId,
-          tags: row.tags
+          tags: row.tags,
+          classification: row.classification
         })
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))

@@ -237,7 +237,8 @@ const AUDIT_EVENTS = [
   'site.settingsUpdated',
   'storage.targetUpdated',
   'login.success',
-  'login.failed'
+  'login.failed',
+  'page.classificationChanged'
 ]
 
 const headers = [

@@ -64,6 +64,7 @@ export default {
     await WIKI.models.sites.reloadCache()
     await WIKI.models.groups.reloadCache()
     await WIKI.models.approvals.reloadCache()
+    await WIKI.models.classificationLevels.reloadCache()
 
     WIKI.logger.info('Flushed all caches [ OK ]')
   },
