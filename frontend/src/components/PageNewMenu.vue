@@ -37,14 +37,16 @@
         <blueprint-icon icon="advance" />
         <w-item-section class="pr-2">New Redirection</w-item-section>
       </w-item>
-      <!-- -> Gated on the Pandoc extension being installed, not on an editor toggle: it doesn't
-              author its own format, it converts into the markdown editor's, so there is nothing
-              here for a site to turn off independently of Pandoc itself -->
-      <w-item clickable @click="openImport" v-if="siteStore.extensionsStatus.pandoc">
+      <!-- -> Always offered, not gated on an editor toggle or the Pandoc extension
+              (OpenProject #1092): a `format: 'markdown'` import needs neither -- it is a
+              pass-through read of the file's own bytes, not a conversion into some editor's own
+              format. Formats that DO still need Pandoc stay gated at conversion time instead,
+              inside the dialogs themselves, the same 503 they always answered without it. -->
+      <w-item clickable @click="openImport">
         <blueprint-icon icon="new-document" />
         <w-item-section class="pr-2">{{ t('pages.import.menuLabel') }}</w-item-section>
       </w-item>
-      <w-item clickable @click="openImportBatch" v-if="siteStore.extensionsStatus.pandoc">
+      <w-item clickable @click="openImportBatch">
         <blueprint-icon icon="merge-files" />
         <w-item-section class="pr-2">{{ t('pages.importBatch.menuLabel') }}</w-item-section>
       </w-item>
@@ -67,7 +69,6 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
@@ -136,10 +137,17 @@ function openImport() {
     componentProps: {
       basePath: props.basePath
     }
-  }).onOk(async ({ content, title }) => {
+  }).onOk(async ({ content, title, description, tags }) => {
     loading.show()
     emit('newPage')
-    await pageStore.pageCreate({ editor: 'markdown', basePath: props.basePath, title, content })
+    await pageStore.pageCreate({
+      editor: 'markdown',
+      basePath: props.basePath,
+      title,
+      description,
+      tags,
+      content
+    })
     loading.hide()
   })
 }
@@ -156,14 +164,4 @@ function openImportBatch() {
     }
   })
 }
-
-// MOUNTED
-
-onMounted(() => {
-  // -> Whether Pandoc is installed doesn't come with `editors` above -- that's per-site config,
-  //    this is a system-wide tool this instance may not have at all -- so it's asked separately here
-  //    rather than at every app boot. `fetchExtensionsStatus` caches its answer, so mounting this
-  //    menu again elsewhere on the page costs nothing further.
-  siteStore.fetchExtensionsStatus()
-})
 </script>

@@ -1084,7 +1084,7 @@ describe('POST /sites/:siteId/pages/import', () => {
 
   before(async () => {
     checkAccess = mock.fn(() => true)
-    convertToMarkdown = mock.fn(async () => '# Converted\n')
+    convertToMarkdown = mock.fn(async () => ({ markdown: '# Converted\n' }))
 
     ;(globalThis as any).WIKI = {
       // -> `defaultLocale()` reads `WIKI.sites[siteId]?.config?.locales?.primary`, falling back to
@@ -1135,7 +1135,7 @@ describe('POST /sites/:siteId/pages/import', () => {
     checkAccess.mock.resetCalls()
     checkAccess.mock.mockImplementation(() => true)
     convertToMarkdown.mock.resetCalls()
-    convertToMarkdown.mock.mockImplementation(async () => '# Converted\n')
+    convertToMarkdown.mock.mockImplementation(async () => ({ markdown: '# Converted\n' }))
   })
 
   function importUrl(query: Record<string, string> = {}) {
@@ -1218,6 +1218,36 @@ describe('POST /sites/:siteId/pages/import', () => {
     assert.equal(res.statusCode, 400)
     assert.equal(convertToMarkdown.mock.callCount(), 0)
   })
+
+  test("accepts format=markdown and passes the model's parsed title/description/tags through", async () => {
+    convertToMarkdown.mock.mockImplementation(async () => ({
+      markdown: '# Body\n',
+      title: 'From Front Matter',
+      description: 'A summary',
+      tags: ['alpha', 'beta']
+    }))
+
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ format: 'markdown' }),
+      headers: { 'content-type': 'text/markdown' },
+      payload: Buffer.from('---\ntitle: From Front Matter\n---\n\n# Body\n')
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      ok: true,
+      message: 'File converted successfully.',
+      markdown: '# Body\n',
+      title: 'From Front Matter',
+      description: 'A summary',
+      tags: ['alpha', 'beta']
+    })
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'markdown'
+    )
+  })
 })
 
 /**
@@ -1257,7 +1287,9 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
 
   before(async () => {
     checkAccess = mock.fn(() => true)
-    convertToMarkdown = mock.fn(async ({ data }: { data: Buffer }) => `# ${data.toString()}\n`)
+    convertToMarkdown = mock.fn(async ({ data }: { data: Buffer }) => ({
+      markdown: `# ${data.toString()}\n`
+    }))
 
     ;(globalThis as any).WIKI = {
       sites: {},
@@ -1302,9 +1334,9 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     checkAccess.mock.resetCalls()
     checkAccess.mock.mockImplementation(() => true)
     convertToMarkdown.mock.resetCalls()
-    convertToMarkdown.mock.mockImplementation(
-      async ({ data }: { data: Buffer }) => `# ${data.toString()}\n`
-    )
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => ({
+      markdown: `# ${data.toString()}\n`
+    }))
   })
 
   function batchUrl(query: Record<string, string> = {}) {
@@ -1396,7 +1428,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
           400
         )
       }
-      return `# ${data.toString()}\n`
+      return { markdown: `# ${data.toString()}\n` }
     })
     const { payload, contentType } = await buildMultipartPayload([
       { fileName: 'good.mediawiki', content: 'good' },
@@ -1459,6 +1491,47 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
       ok: true,
       markdown: '# = Fine =\n'
     })
+  })
+
+  test("accepts format=markdown and passes each result's parsed title/description/tags through", async () => {
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => ({
+      markdown: '# Body\n',
+      title: `Title for ${data.toString()}`,
+      tags: ['imported']
+    }))
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'one.md', content: 'one' },
+      { fileName: 'two.md', content: 'two' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl({ format: 'markdown' }),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.results, [
+      {
+        fileName: 'one.md',
+        ok: true,
+        markdown: '# Body\n',
+        title: 'Title for one',
+        tags: ['imported']
+      },
+      {
+        fileName: 'two.md',
+        ok: true,
+        markdown: '# Body\n',
+        title: 'Title for two',
+        tags: ['imported']
+      }
+    ])
+    for (const call of convertToMarkdown.mock.calls) {
+      assert.equal((call.arguments[0] as { format: string }).format, 'markdown')
+    }
   })
 })
 

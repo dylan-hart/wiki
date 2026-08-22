@@ -863,7 +863,7 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Convert an uploaded file to Markdown',
-        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`format\` says what the bytes are; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`format\` says what the bytes are; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through — the file's own bytes, with a leading YAML front-matter block (if any) split off into \`title\`/\`description\`/\`tags\` — and needs no Pandoc extension. Every other format still needs Pandoc, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['*/*'],
         params: siteIdParam,
@@ -912,14 +912,17 @@ async function routes(app: FastifyInstance) {
       if (!Buffer.isBuffer(data) || data.length < 1) {
         return reply.badRequest('No file was sent.')
       }
-      const markdown = await WIKI.models.pageImport.convertToMarkdown({
+      const result = await WIKI.models.pageImport.convertToMarkdown({
         format: req.query.format,
         data
       })
       return {
         ok: true,
         message: 'File converted successfully.',
-        markdown
+        markdown: result.markdown,
+        title: result.title,
+        description: result.description,
+        tags: result.tags
       }
     }
   )
@@ -939,7 +942,7 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Convert several uploaded files to Markdown in one request',
-        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), one \`format\` shared across the whole batch, each file converted independently. At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), one \`format\` shared across the whole batch, each file converted independently. At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['multipart/form-data'],
         params: siteIdParam,
@@ -1027,11 +1030,18 @@ async function routes(app: FastifyInstance) {
             return { fileName: upload.fileName, ok: false, message: upload.error }
           }
           try {
-            const markdown = await WIKI.models.pageImport.convertToMarkdown({
+            const result = await WIKI.models.pageImport.convertToMarkdown({
               format: req.query.format,
               data: upload.data
             })
-            return { fileName: upload.fileName, ok: true, markdown }
+            return {
+              fileName: upload.fileName,
+              ok: true,
+              markdown: result.markdown,
+              title: result.title,
+              description: result.description,
+              tags: result.tags
+            }
           } catch (err: any) {
             return {
               fileName: upload.fileName,

@@ -194,16 +194,25 @@ import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 
 /**
- * Pick several files in one of Pandoc's supported formats, convert them all in one request through
- * `POST sites/:siteId/pages/import/batch` (OpenProject #849), then save each converted result as its
- * own new page through the ordinary `POST sites/:siteId/pages` — the same endpoint the ordinary
- * "New Page" flow uses. Unlike `ImportPageDialog.vue`, this dialog saves the pages itself rather than
- * handing content back to a caller: opening N editors for N files is not a usable flow, so review and
- * save both happen here, with each file's own progress and outcome shown independently.
+ * Pick several files — Wiki.js's own Markdown, or one of Pandoc's supported formats — convert them
+ * all in one request through `POST sites/:siteId/pages/import/batch` (OpenProject #849), then save
+ * each converted result as its own new page through the ordinary `POST sites/:siteId/pages` — the
+ * same endpoint the ordinary "New Page" flow uses. Unlike `ImportPageDialog.vue`, this dialog saves
+ * the pages itself rather than handing content back to a caller: opening N editors for N files is not
+ * a usable flow, so review and save both happen here, with each file's own progress and outcome shown
+ * independently.
+ *
+ * `format: 'markdown'` (OpenProject #1092) needs no Pandoc extension, and a dropped **folder** of
+ * markdown files (an Obsidian vault, a Hugo/Jekyll content directory, a whole docs-as-markdown repo)
+ * is the flow this exists for: `onDrop` below walks the browser's FileSystem Entry API to preserve
+ * that folder's relative structure into each row's destination path automatically, rather than
+ * flattening every file straight into `basePath`. Front matter parsed server-side into
+ * title/description/tags flows through to each row exactly like it does in `ImportPageDialog.vue`.
  */
 
 /** Kept in step by hand with `ImportPageDialog.vue`'s own copy — see that file's header comment. */
 const FORMATS = [
+  { value: 'markdown', label: 'Markdown (.md)' },
   { value: 'mediawiki', label: 'MediaWiki' },
   { value: 'textile', label: 'Textile' },
   { value: 'docbook', label: 'DocBook' },
@@ -213,6 +222,8 @@ const FORMATS = [
 ]
 
 const EXTENSION_FORMATS = {
+  md: 'markdown',
+  markdown: 'markdown',
   wiki: 'mediawiki',
   mediawiki: 'mediawiki',
   textile: 'textile',
@@ -351,11 +362,82 @@ function onFilesSelected(ev) {
   ev.target.value = null
 }
 
-function onDrop(ev) {
+/**
+ * Reads every `FileSystemEntry` a drop's `DataTransferItemList` names, in the shape the standard
+ * (non-Chromium-only) `.webkitGetAsEntry()` exposes it — walking into directories rather than only
+ * reading the top-level drop, which is what lets `onDrop` below preserve a dropped folder's relative
+ * structure (OpenProject #1092).
+ *
+ * @returns Each file paired with its path relative to the drop root — `'notes.md'` for a bare file,
+ *   `'docs/guide/intro.md'` for one found inside a dropped folder.
+ */
+async function filesFromDataTransfer(dataTransfer) {
+  const items = [...(dataTransfer?.items ?? [])]
+  const topEntries = items
+    .map((item) => (typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null))
+    .filter(Boolean)
+
+  // -> No FileSystem Entry API support at all (older Firefox): fall back to the flat file list, the
+  //    same shape this dropzone always handled before folder support existed.
+  if (topEntries.length === 0) {
+    return [...(dataTransfer?.files ?? [])]
+      .filter((file) => file.size > 0)
+      .map((file) => ({ file, relativePath: file.name }))
+  }
+
+  const collected = []
+  async function readAllEntries(reader) {
+    const all = []
+    // -> `readEntries()` returns entries in batches (a browser-imposed cap per call, not "all of
+    //    them"), signalled by an empty array once the directory is exhausted -- has to be called
+    //    repeatedly, not just once, to see every child of a large directory.
+    for (;;) {
+      const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject))
+      if (batch.length === 0) {
+        break
+      }
+      all.push(...batch)
+    }
+    return all
+  }
+  async function walk(entry, prefix) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject))
+      if (file.size > 0) {
+        collected.push({ file, relativePath })
+      }
+    } else if (entry.isDirectory) {
+      const children = await readAllEntries(entry.createReader())
+      for (const child of children) {
+        await walk(child, relativePath)
+      }
+    }
+  }
+  for (const entry of topEntries) {
+    await walk(entry, '')
+  }
+  return collected
+}
+
+async function onDrop(ev) {
   state.isDraggingOver = false
-  const dropped = [...(ev.dataTransfer?.files ?? [])].filter((f) => f.size > 0)
+  const dropped = await filesFromDataTransfer(ev.dataTransfer)
   if (dropped.length) {
-    addFiles(dropped)
+    /*
+      `File` carries no built-in notion of "the folder it was dropped from" -- `webkitRelativePath` is
+      the closest native equivalent, but it is a getter-only IDL attribute on `File.prototype` in every
+      engine that implements it, and this file's `<script setup>` runs in strict-mode ES module scope,
+      where assigning to a getter-only property throws rather than silently no-opping. A plain own
+      property under a name of this dialog's own choosing sidesteps that entirely -- `defaultPath`
+      below reads it back the same way regardless of how the folder structure reached this dialog.
+    */
+    for (const { file, relativePath } of dropped) {
+      if (relativePath !== file.name) {
+        file.relativePath = relativePath
+      }
+    }
+    addFiles(dropped.map((d) => d.file))
   }
 }
 
@@ -386,17 +468,30 @@ async function convert() {
       body: form
     }).json()
 
-    state.results = (resp?.results ?? []).map((item) => ({
-      id: uuid(),
-      fileName: item.fileName,
-      ok: Boolean(item.ok),
-      markdown: item.markdown ?? '',
-      convertMessage: item.message ?? '',
-      title: item.ok ? defaultTitle(item.fileName) : '',
-      path: item.ok ? defaultPath(item.fileName) : '',
-      saveStatus: item.ok ? 'pending' : 'skipped',
-      saveMessage: ''
-    }))
+    /*
+      Zipped by index against `state.files`, not looked up by name: the batch endpoint returns one
+      result per file "in the order they were sent" (its own schema description), and `state.files`
+      was sent in that same order by the loop just above -- the only place `relativePath`
+      (OpenProject #1092's folder-structure carrier, set by `onDrop`) is still reachable from.
+    */
+    state.results = (resp?.results ?? []).map((item, idx) => {
+      const file = state.files[idx]
+      return {
+        id: uuid(),
+        fileName: item.fileName,
+        ok: Boolean(item.ok),
+        markdown: item.markdown ?? '',
+        convertMessage: item.message ?? '',
+        // -> A markdown import's own front matter (OpenProject #1092) names the real title -- used
+        //    over the file-name default whenever the server found one.
+        title: item.ok ? item.title || defaultTitle(item.fileName) : '',
+        path: item.ok ? defaultPath(file ?? { name: item.fileName }) : '',
+        description: item.description ?? '',
+        tags: item.tags ?? [],
+        saveStatus: item.ok ? 'pending' : 'skipped',
+        saveMessage: ''
+      }
+    })
     state.step = 'review'
   } catch (err) {
     notify({
@@ -412,9 +507,18 @@ function defaultTitle(fileName) {
   return fileName.replace(/\.[^.]+$/, '')
 }
 
-function defaultPath(fileName) {
-  const slug = slugify(defaultTitle(fileName), { lower: true, strict: true })
-  return [props.basePath, slug].filter(Boolean).join('/')
+/**
+ * Builds a row's destination path from its source file, preserving a dropped folder's relative
+ * structure into the wiki automatically (OpenProject #1092): `file.relativePath` — set by `onDrop`'s
+ * directory walk, absent for a plain browse-button selection — carries any folder segments ahead of
+ * the file name, each slugified independently the same way the file name itself always has been.
+ */
+function defaultPath(file) {
+  const segments = (file.relativePath || file.name).split('/').filter(Boolean)
+  const fileName = segments.pop()
+  const fileSlug = slugify(defaultTitle(fileName), { lower: true, strict: true })
+  const dirSlugs = segments.map((segment) => slugify(segment, { lower: true, strict: true }))
+  return [props.basePath, ...dirSlugs, fileSlug].filter(Boolean).join('/')
 }
 
 /**
@@ -459,6 +563,8 @@ async function overwriteExisting(row, render) {
   const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${existing.id}`, {
     json: {
       title: row.title,
+      description: row.description,
+      tags: row.tags,
       content: row.markdown,
       render,
       expectedUpdatedAt: existing.updatedAt
@@ -494,6 +600,8 @@ async function saveRow(row) {
       editor: 'markdown',
       path: row.path,
       title: row.title,
+      description: row.description,
+      tags: row.tags,
       content: row.markdown,
       render
     })
@@ -536,6 +644,8 @@ async function saveRow(row) {
         editor: 'markdown',
         path: attemptPath,
         title: row.title,
+        description: row.description,
+        tags: row.tags,
         content: row.markdown,
         render
       })

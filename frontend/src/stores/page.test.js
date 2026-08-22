@@ -634,6 +634,32 @@ describe('page store: pageCreate()', () => {
 
     expect(editorStore.hasPendingChanges).toBe(false)
   })
+
+  /**
+   * OpenProject #1092: a `format: 'markdown'` import's front-matter tags need somewhere to land --
+   * `tags` used to be hardcoded to `[]` here regardless of what was passed in.
+   */
+  it('carries an explicit tags argument through, instead of always starting empty', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown', tags: ['alpha', 'beta'] })
+
+    expect(pageStore.tags).toEqual(['alpha', 'beta'])
+  })
+
+  it('defaults tags to an empty array when none is passed', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.tags).toEqual([])
+  })
 })
 
 /**

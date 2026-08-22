@@ -1,4 +1,4 @@
-import { dump } from 'js-yaml'
+import { dump, load } from 'js-yaml'
 
 /**
  * Turning a database page row into a file on a filesystem-like storage target.
@@ -81,4 +81,73 @@ export function injectFrontMatter(
   //    would otherwise silently corrupt the header for anything past ~80 characters.
   const header = dump(frontMatter, { lineWidth: -1 }).trimEnd()
   return `---\n${header}\n---\n\n${content ?? ''}`
+}
+
+/** What `parseFrontMatter` pulls back out of a leading YAML header, plus the body left behind. */
+export interface ParsedFrontMatter {
+  title?: string
+  description?: string
+  tags?: string[]
+  content: string
+}
+
+/**
+ * Matches a leading `---\n...\n---\n` block, capturing the header and everything after it. The
+ * trailing `\r?\n+` (one or more) rather than `\r?\n?` (at most one) is deliberate: `injectFrontMatter`
+ * itself writes a blank line between the closing `---` and the body (`---\n\n${content}`), and a file
+ * with no blank separator there is just as valid — either way, none of those newlines belong in the
+ * parsed `content`.
+ */
+const FRONT_MATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n+([\s\S]*)$/
+
+/**
+ * The inverse of `injectFrontMatter`: pull `title`/`description`/`tags` back out of a file's leading
+ * YAML front-matter block, for the markdown import path (OpenProject #1092) where the bytes ARE
+ * already a page's content and the only "conversion" left is separating metadata from body — the same
+ * shape Hugo, Jekyll and Obsidian all write on export.
+ *
+ * Only `title`/`description`/`tags` are read back — `dateCreated`/`dateModified` are informational on
+ * the way out (`injectFrontMatter` writes them from an existing page row) but an import is creating a
+ * brand new page, whose `createdAt`/`updatedAt` are for the database to set, not a file to dictate.
+ *
+ * A file with no leading `---` block, or one whose header isn't valid YAML or isn't a plain object, is
+ * passed through with its content untouched — front matter is an enhancement to detect when present,
+ * not a requirement imported markdown must satisfy.
+ */
+export function parseFrontMatter(raw: string): ParsedFrontMatter {
+  const match = FRONT_MATTER_PATTERN.exec(raw)
+  if (!match) {
+    return { content: raw }
+  }
+
+  let data: unknown
+  try {
+    // -> `maxAliases: 0` (js-yaml's default is -1, unlimited) refuses any `*alias` reference outright
+    //    rather than merely capping it: this header is user-uploaded, untrusted content, and a
+    //    legitimate title/description/tags block never needs YAML anchors/aliases at all, so there is
+    //    no reason to allow the "billion laughs" shape (a handful of nested anchors expanding to
+    //    millions of elements) any budget to begin with.
+    data = load(match[1], { maxAliases: 0 })
+  } catch {
+    return { content: raw }
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { content: raw }
+  }
+
+  const header = data as Record<string, unknown>
+  const result: ParsedFrontMatter = { content: match[2] }
+  if (typeof header.title === 'string' && header.title.trim()) {
+    result.title = header.title
+  }
+  if (typeof header.description === 'string' && header.description.trim()) {
+    result.description = header.description
+  }
+  if (Array.isArray(header.tags)) {
+    const tags = header.tags.filter((tag): tag is string => typeof tag === 'string')
+    if (tags.length > 0) {
+      result.tags = tags
+    }
+  }
+  return result
 }
