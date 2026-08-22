@@ -23,7 +23,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: "Resolve a block-live-data instance's value",
         description:
-          "Fetches the given URL server-side — with the stored credential's secret as a bearer token, when `credentialId` is given — and extracts one value from the JSON response by JSONPath. Cached per site/credential/url/jsonPath for the given `refreshInterval` (clamped to 10s–24h), so several readers with the same block open share one upstream request. Gated by the site's `live-data` block toggle, same as every other block.",
+          "Fetches the given URL server-side — with the stored credential's secret as a bearer token, when `credentialId` is given — and extracts one value from the JSON response by JSONPath. Cached per site/credential/url/jsonPath for the given `refreshInterval` (clamped to 10s–24h), so several readers with the same block open share one upstream request. When `credentialId` is given, fresh (cache-miss) fetches against it are also rate-limited independent of that cache — see `models/liveData.ts`. Gated by the site's `live-data` block toggle, same as every other block.",
         tags: ['Blocks'],
         params: {
           type: 'object',
@@ -63,6 +63,10 @@ async function routes(app: FastifyInstance) {
           },
           400: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' },
+          429: {
+            $ref: 'ApiError#',
+            description: "The given credential's fresh-fetch rate limit was exceeded."
+          },
           502: { $ref: 'ApiError#', description: 'The endpoint could not be reached or answered.' }
         }
       }

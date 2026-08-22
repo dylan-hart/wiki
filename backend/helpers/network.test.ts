@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { hostnameMatchesAllowlist, isPrivateAddress } from './network.ts'
+import { hostnameMatchesAllowlist, isPrivateAddress, isValidDomainPattern } from './network.ts'
 
 describe('isPrivateAddress', () => {
   test('flags IPv4 loopback', () => {
@@ -99,5 +99,80 @@ describe('hostnameMatchesAllowlist', () => {
 
   test('matches when any one of several patterns matches', () => {
     assert.equal(hostnameMatchesAllowlist('api.example.com', ['other.com', '*.example.com']), true)
+  })
+})
+
+describe('isValidDomainPattern', () => {
+  test('accepts a plain hostname', () => {
+    assert.equal(isValidDomainPattern('api.example.com'), true)
+    assert.equal(isValidDomainPattern('example.com'), true)
+    assert.equal(isValidDomainPattern('localhost'), true)
+  })
+
+  test('accepts a *.-prefixed wildcard', () => {
+    assert.equal(isValidDomainPattern('*.example.com'), true)
+  })
+
+  test('accepts an IPv4 literal', () => {
+    assert.equal(isValidDomainPattern('203.0.113.5'), true)
+  })
+
+  test('accepts a bracketed IPv6 literal', () => {
+    assert.equal(isValidDomainPattern('[::1]'), true)
+    assert.equal(isValidDomainPattern('[fe80::1]'), true)
+    assert.equal(isValidDomainPattern('[2606:4700:10::6814:179a]'), true)
+  })
+
+  // -> `URL.prototype.hostname` always brackets an IPv6-literal authority
+  //    (`new URL('http://[::1]/').hostname === '[::1]'`), and `hostnameMatchesAllowlist` compares an
+  //    entry against that hostname by exact string -- an unbracketed entry would validate but could
+  //    then never actually match at resolve time (OpenProject #1099 follow-up regression check).
+  test('rejects an unbracketed IPv6 literal, since it could never match a real request hostname', () => {
+    assert.equal(isValidDomainPattern('::1'), false)
+    assert.equal(isValidDomainPattern('2606:4700:10::6814:179a'), false)
+  })
+
+  test('a validated IPv6 entry actually matches the hostname a real IPv6 URL produces', () => {
+    const hostname = new URL('https://[2606:4700:10::6814:179a]/path').hostname
+    const entry = '[2606:4700:10::6814:179a]'
+    assert.equal(isValidDomainPattern(entry), true)
+    assert.equal(hostnameMatchesAllowlist(hostname, [entry]), true)
+  })
+
+  test('rejects a URL rather than a bare hostname', () => {
+    assert.equal(isValidDomainPattern('https://api.example.com'), false)
+    assert.equal(isValidDomainPattern('api.example.com/path'), false)
+  })
+
+  test('rejects a trailing slash', () => {
+    assert.equal(isValidDomainPattern('api.example.com/'), false)
+  })
+
+  test('rejects more than one wildcard label', () => {
+    assert.equal(isValidDomainPattern('*.*.example.com'), false)
+  })
+
+  test('rejects a wildcard not at the start', () => {
+    assert.equal(isValidDomainPattern('api.*.example.com'), false)
+    assert.equal(isValidDomainPattern('example.com*'), false)
+  })
+
+  test('rejects an empty label', () => {
+    assert.equal(isValidDomainPattern('a..b.com'), false)
+    assert.equal(isValidDomainPattern('.example.com'), false)
+  })
+
+  test('rejects a label starting or ending with a hyphen', () => {
+    assert.equal(isValidDomainPattern('-example.com'), false)
+    assert.equal(isValidDomainPattern('example-.com'), false)
+  })
+
+  test('rejects whitespace', () => {
+    assert.equal(isValidDomainPattern('api example.com'), false)
+    assert.equal(isValidDomainPattern(' api.example.com'), false)
+  })
+
+  test('rejects an empty string', () => {
+    assert.equal(isValidDomainPattern(''), false)
   })
 })

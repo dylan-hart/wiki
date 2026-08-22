@@ -55,6 +55,18 @@ describe('BlockCredentialDialog (mode: create)', () => {
     expect(wrapper.findAll('.w-chip, [class*=chip]').length).toBeLessThanOrEqual(1)
   })
 
+  it('rejects a malformed domain, shows an inline error, and does not add a chip (OpenProject #1099)', async () => {
+    const { wrapper } = await mountDialog({ mode: 'create' })
+    await addDomain(wrapper, 'https://api.example.com/')
+    expect(wrapper.vm.state.allowedDomains).toEqual([])
+    expect(wrapper.text()).toContain('admin.blocks.credentialAllowedDomainsInvalid')
+
+    // Fixing the value and retrying succeeds, and the error clears.
+    await addDomain(wrapper, 'api.example.com')
+    expect(wrapper.vm.state.allowedDomains).toEqual(['api.example.com'])
+    expect(wrapper.text()).not.toContain('admin.blocks.credentialAllowedDomainsInvalid')
+  })
+
   it('removes a domain chip when its remove control is clicked', async () => {
     const { wrapper } = await mountDialog({ mode: 'create' })
     await addDomain(wrapper, 'api.example.com')
@@ -142,6 +154,22 @@ describe('BlockCredentialDialog (mode: rotate)', () => {
       { json: { secret: 'new-secret' } }
     )
     expect(wrapper.emitted('ok')).toEqual([[undefined]])
+  })
+
+  it('reveals and hides the secret via its reveal toggle (OpenProject #1098)', async () => {
+    const { wrapper } = await mountDialog({
+      mode: 'rotate',
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['api.example.com'] }
+    })
+    const secretInput = wrapper.find('input')
+    expect(secretInput.attributes('type')).toBe('password')
+
+    const revealBtn = wrapper.find('[aria-label="admin.blocks.credentialSecretReveal"]')
+    expect(revealBtn.exists()).toBe(true)
+
+    await revealBtn.trigger('click')
+    expect(secretInput.attributes('type')).toBe('text')
+    expect(wrapper.find('[aria-label="admin.blocks.credentialSecretHide"]').exists()).toBe(true)
   })
 })
 

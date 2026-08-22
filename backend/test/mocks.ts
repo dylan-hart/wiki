@@ -18,15 +18,29 @@ import { mock } from 'node:test'
 /** A `WIKI.cache`-shaped stub: enough of `NodeCache`'s surface for code that calls `get`/`set`/`has`. */
 export function createCacheStub(): any {
   const store = new Map<string, unknown>()
+  // -> Real expiry timestamps (ms since epoch), not just a truncated `ttl` argument: `getTtl` below
+  //    needs to answer "when does this key expire" for real, since `models/liveData.ts`'s
+  //    per-credential rate limiter (OpenProject #1050) reads it to keep a fixed rate-limit window
+  //    rather than sliding it forward on every request.
+  const expiresAt = new Map<string, number>()
   return {
     get: mock.fn((key: string) => store.get(key)),
-    set: mock.fn((key: string, value: unknown) => {
+    set: mock.fn((key: string, value: unknown, ttl?: number) => {
       store.set(key, value)
+      if (ttl) {
+        expiresAt.set(key, Date.now() + ttl * 1000)
+      } else {
+        expiresAt.delete(key)
+      }
       return true
     }),
     has: mock.fn((key: string) => store.has(key)),
     del: mock.fn((key: string) => store.delete(key)),
-    flushAll: mock.fn(() => store.clear())
+    getTtl: mock.fn((key: string) => (store.has(key) ? (expiresAt.get(key) ?? 0) : undefined)),
+    flushAll: mock.fn(() => {
+      store.clear()
+      expiresAt.clear()
+    })
   }
 }
 

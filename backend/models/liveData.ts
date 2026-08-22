@@ -34,6 +34,28 @@ const DEFAULT_REFRESH_SECONDS = 60
 const FETCH_TIMEOUT_MS = 10000
 
 const CACHE_PREFIX = 'liveData:'
+const RATE_LIMIT_PREFIX = 'liveDataRate:'
+
+/**
+ * The per-credential fresh-fetch rate limit window and cap (OpenProject #1050).
+ *
+ * The response cache already collapses repeat requests for the *same* site/credential/url/jsonPath
+ * onto one upstream fetch per `refreshInterval` — but nothing stopped a caller who has merely learned
+ * a credential's id (its allowed domains are not a secret — every admin managing the site can see
+ * them, and the id itself travels in plain page markdown as a block prop, readable by anyone with
+ * `read:source`) from varying the url or jsonPath on every request to always miss that cache and
+ * force a fresh outbound fetch, unthrottled, for as long as the credential's domain allowlist would
+ * accept the url. This caps *that*: total fresh (cache-miss) fetches attributable to one credential,
+ * independent of which url/jsonPath each one names.
+ *
+ * The cap is sized for legitimate multi-block use, not just one: several distinct `block-live-data`
+ * instances can share one credential, each polling its own url/jsonPath as often as the
+ * {@link MIN_REFRESH_SECONDS} floor allows -- a dozen such blocks at that floor is already 72
+ * fresh fetches/minute. 120/minute leaves headroom above that while still bounding a caller that is
+ * deliberately varying the request to bypass the response cache.
+ */
+const RATE_LIMIT_WINDOW_SECONDS = 60
+const RATE_LIMIT_MAX_PER_WINDOW = 120
 
 function clampRefreshSeconds(seconds: number | undefined): number {
   if (!Number.isFinite(seconds)) {
@@ -65,12 +87,20 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * given: even an author who legitimately knows a credential's id may not point it at any URL — only
  * ones the admin who created that credential explicitly allowed. This is what stops a `write:pages`
  * author from exfiltrating a `manage:sites`-gated secret to a URL of their own choosing.
+ *
+ * A per-credential rate limit is a third, independent guard (OpenProject #1050): the resolve route
+ * this backs is deliberately unauthenticated (see `api/liveData.ts`'s header comment), and a
+ * credential's allowlist narrows *where* its secret may be sent but not *how often* — without this, a
+ * caller who has merely learned a credential's id could vary the url/jsonPath on every request to
+ * bypass the response cache and drive unlimited fresh fetches against whatever the allowed domain
+ * hosts. See {@link RATE_LIMIT_MAX_PER_WINDOW}.
  */
 class LiveData {
   /**
    * @throws {CustomError} `Bad Request` (400) for a malformed URL/JSONPath, an unmatched JSONPath, a
    *   URL resolving to a private/loopback/link-local address, or a URL outside a given credential's
    *   allowed domains, `Not Found` (404) for a `credentialId` with no matching row on this site,
+   *   `Too Many Requests` (429) once a credential has exceeded its fresh-fetch rate limit,
    *   `Bad Gateway` (502) for a network failure, a non-2xx response, or a response body that isn't
    *   JSON.
    */
@@ -96,6 +126,7 @@ class LiveData {
 
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (request.credentialId) {
+      this.assertWithinRateLimit(request.credentialId)
       const credential = await WIKI.models.blockCredentials.getCredentialForResolve(
         siteId,
         request.credentialId
@@ -157,6 +188,37 @@ class LiveData {
     }
     WIKI.cache.set(cacheKey, result, refreshSeconds)
     return result
+  }
+
+  /**
+   * Counts this fresh (cache-miss) fetch against `credentialId`'s rate limit and throws once the
+   * window's cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}.
+   *
+   * A fixed window, not a sliding one: `WIKI.cache.getTtl` reports when the current window's key
+   * actually expires, and that expiry is preserved (via `WIKI.cache.set`'s own `ttl` argument) on
+   * every increment rather than reset — resetting it on every request would mean a credential at
+   * exactly its cap, with requests still arriving, would never see the window lapse and would stay
+   * throttled forever instead of recovering once the offending traffic actually stops.
+   *
+   * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
+   */
+  private assertWithinRateLimit(credentialId: string): void {
+    const key = `${RATE_LIMIT_PREFIX}${credentialId}`
+    const now = Date.now()
+    const expiresAt = WIKI.cache.getTtl(key)
+    const windowIsFresh = !expiresAt || expiresAt <= now
+    const count = (windowIsFresh ? 0 : (WIKI.cache.get<number>(key) ?? 0)) + 1
+    const remainingSeconds = windowIsFresh
+      ? RATE_LIMIT_WINDOW_SECONDS
+      : Math.max(1, Math.ceil((expiresAt - now) / 1000))
+    WIKI.cache.set(key, count, remainingSeconds)
+    if (count > RATE_LIMIT_MAX_PER_WINDOW) {
+      throw new CustomError(
+        'Too Many Requests',
+        'This credential is being used to fetch too frequently. Try again shortly.',
+        429
+      )
+    }
   }
 
   /**
