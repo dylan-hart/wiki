@@ -492,7 +492,7 @@ describe(
       })
       const identity = await apiKeys.verify(key)
       const actor = groupsModel.actorForRequest({ apiKey: identity } as any)
-      const page = { path: 'anything', locale: 'en', siteId: null, tags: [] }
+      const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
 
       assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
       assert.equal(groupsModel.checkAccess(actor, 'write:pages', page), false)

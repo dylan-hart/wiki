@@ -105,7 +105,8 @@ describe('groups.actorForRequest', () => {
     assert.deepEqual(groups.actorForRequest(req), {
       groupIds: ['key-group'],
       permissions: ['read:pages'],
-      scope: ['read:pages']
+      scope: ['read:pages'],
+      maxClassification: null
     })
   })
 
@@ -380,7 +381,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('checkAccess is unrestricted for a null/absent scope', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'] })])
 
-    const page = { path: 'anything', locale: 'en', siteId: null, tags: [] }
+    const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
     assert.equal(
       groupsModel.checkAccess(
         { groupIds: [fixtures.groupId], permissions: [], scope: null },
@@ -412,6 +413,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'anything',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
