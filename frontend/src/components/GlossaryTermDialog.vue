@@ -39,6 +39,40 @@
           </w-item-section>
         </w-item>
         <w-item>
+          <blueprint-icon icon="matches" />
+          <w-item-section>
+            <div class="flex flex-wrap gap-1 mb-2" v-if="state.aliases.length > 0">
+              <w-chip
+                v-for="alias of state.aliases"
+                :key="alias"
+                square
+                dense
+                removable
+                @remove="removeAlias(alias)">
+                {{ alias }}
+              </w-chip>
+            </div>
+            <w-input
+              v-model="state.aliasInput"
+              outlined
+              dense
+              hide-bottom-space
+              :label="t(`admin.glossary.aliases`)"
+              :hint="t(`admin.glossary.aliasesHint`)"
+              @keyup:enter="addAlias">
+              <template #append>
+                <w-btn
+                  flat
+                  round
+                  dense
+                  icon="la:plus"
+                  :aria-label="t('common.actions.add')"
+                  @click="addAlias" />
+              </template>
+            </w-input>
+          </w-item-section>
+        </w-item>
+        <w-item>
           <blueprint-icon icon="link" />
           <w-item-section>
             <w-select
@@ -130,6 +164,8 @@ const { t } = useI18n()
 const state = reactive({
   term: props.term?.term ?? '',
   definition: props.term?.definition ?? '',
+  aliases: [...(props.term?.aliases ?? [])],
+  aliasInput: '',
   pageId: props.term?.pageId ?? null,
   isLoading: false
 })
@@ -161,6 +197,19 @@ const definitionValidation = [
 
 // METHODS
 
+function addAlias() {
+  const value = state.aliasInput.trim()
+  state.aliasInput = ''
+  if (!value || state.aliases.some((a) => a.toLowerCase() === value.toLowerCase())) {
+    return
+  }
+  state.aliases.push(value)
+}
+
+function removeAlias(alias) {
+  state.aliases = state.aliases.filter((a) => a !== alias)
+}
+
 async function save() {
   state.isLoading = true
   try {
@@ -172,6 +221,7 @@ async function save() {
     const payload = {
       term: state.term.trim(),
       definition: state.definition.trim(),
+      aliases: state.aliases,
       pageId: state.pageId
     }
     const resp = isEdit.value

@@ -435,6 +435,37 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
     expect(html).not.toContain('title="Short definition."')
   })
 
+  it('matches an alias to the same definition and link as its parent term (OpenProject #1110)', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        {
+          term: 'Hot Strip Mill',
+          definition: 'A rolling mill.',
+          aliases: ['HSM'],
+          link: '/en/dev/hsm'
+        }
+      ]
+    })
+    const html = md.render('The HSM was down for maintenance.')
+
+    expect(html).toContain(
+      '<a href="/en/dev/hsm" title="A rolling mill." class="glossary-term">HSM</a>'
+    )
+  })
+
+  it('prefers the longest surface form across every term and alias combined', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        { term: 'API', definition: 'Short definition.', aliases: [], link: null },
+        { term: 'Interface', definition: 'Long definition.', aliases: ['REST API'], link: null }
+      ]
+    })
+    const html = md.render('Our REST API is versioned.')
+
+    expect(html).toContain('title="Long definition."')
+    expect(html).not.toContain('title="Short definition."')
+  })
+
   it('matches every occurrence of a term across the document', () => {
     const md = new MarkdownRenderer({
       glossaryTerms: [{ term: 'widget', definition: 'A small reusable thing.', link: null }]

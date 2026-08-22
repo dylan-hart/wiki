@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify'
 interface GlossaryTermBody {
   term?: string
   definition?: string
+  aliases?: string[]
   pageId?: string | null
 }
 
@@ -141,6 +142,7 @@ async function routes(app: FastifyInstance) {
       return WIKI.models.glossary.createTerm(req.params.siteId, {
         term: req.body.term!,
         definition: req.body.definition!,
+        aliases: req.body.aliases,
         pageId: req.body.pageId
       })
     }
@@ -185,6 +187,7 @@ async function routes(app: FastifyInstance) {
       return WIKI.models.glossary.updateTerm(req.params.siteId, req.params.termId, {
         term: req.body.term,
         definition: req.body.definition,
+        aliases: req.body.aliases,
         pageId: req.body.pageId
       })
     }

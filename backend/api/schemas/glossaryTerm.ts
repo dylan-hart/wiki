@@ -20,6 +20,13 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         minLength: 1,
         description: 'Shown as the hover tooltip on every matched mention.'
       },
+      aliases: {
+        type: 'array',
+        items: { type: 'string', minLength: 1, maxLength: 255 },
+        default: [],
+        description:
+          'Alternate surface forms (acronyms, alternate names) matched the same way as `term`, all resolving to this same definition and canonical page -- no per-alias override.'
+      },
       pageId: {
         type: 'string',
         format: 'uuid',
@@ -45,6 +52,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       definition: {
         type: 'string'
+      },
+      aliases: {
+        type: 'array',
+        items: { type: 'string' }
       },
       pageId: {
         type: 'string',
@@ -76,6 +87,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       definition: {
         type: 'string'
+      },
+      aliases: {
+        type: 'array',
+        items: { type: 'string' }
       },
       link: {
         type: 'string',

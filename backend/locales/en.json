@@ -524,6 +524,8 @@
   "admin.general.uploadTypesHint": "{typeList} or {lastType} files only",
   "admin.general.uploads": "Uploads",
   "admin.general.urlHandling": "URL Handling",
+  "admin.glossary.aliases": "Aliases",
+  "admin.glossary.aliasesHint": "Alternate names or acronyms (e.g. an abbreviation) that match to this same definition. Press Enter to add.",
   "admin.glossary.canonicalPage": "Canonical Page",
   "admin.glossary.canonicalPageHint": "Optional. Matched mentions link through to this page.",
   "admin.glossary.createSuccess": "Term created successfully.",

@@ -220,4 +220,92 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
     assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
   })
+
+  describe('aliases (OpenProject #1110)', () => {
+    test('createTerm() trims, dedupes case-insensitively, and drops an alias matching the term', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Hot Strip Mill',
+        definition: 'A rolling mill.',
+        aliases: ['  HSM  ', 'Hot Mill', 'hsm', 'Hot Strip Mill']
+      })
+
+      assert.deepEqual(created.aliases, ['HSM', 'Hot Mill'])
+    })
+
+    test('createTerm() rejects an alias that collides with another term', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Standalone',
+        definition: 'Standalone term.'
+      })
+
+      await assert.rejects(async () => {
+        try {
+          await glossaryModel.createTerm(fixtures.siteId, {
+            term: 'Uses Standalone As Alias',
+            definition: 'A rolling mill.',
+            aliases: ['Standalone']
+          })
+        } catch (err: any) {
+          assert.equal(err.statusCode, 409)
+          throw err
+        }
+      }, /already exists/)
+    })
+
+    test('createTerm() rejects an alias that collides with another term’s alias', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'First Mill',
+        definition: 'First.',
+        aliases: ['Mill Alias A']
+      })
+
+      await assert.rejects(
+        () =>
+          glossaryModel.createTerm(fixtures.siteId, {
+            term: 'Second Mill',
+            definition: 'Second.',
+            aliases: ['mill alias a']
+          }),
+        /already exists/
+      )
+    })
+
+    test('updateTerm() re-checks the full surface-form set when only aliases change', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, { term: 'Taken', definition: 'Exists.' })
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Other',
+        definition: 'Another term.'
+      })
+
+      await assert.rejects(
+        () => glossaryModel.updateTerm(fixtures.siteId, created.id, { aliases: ['taken'] }),
+        /already exists/
+      )
+    })
+
+    test('updateTerm() allows re-saving a term’s own existing aliases unchanged', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Stable',
+        definition: 'Has aliases.',
+        aliases: ['Alias One']
+      })
+
+      const updated = await glossaryModel.updateTerm(fixtures.siteId, created.id, {
+        definition: 'Updated.'
+      })
+
+      assert.deepEqual(updated.aliases, ['Alias One'])
+    })
+
+    test('getCachedTerms() carries each entry’s aliases through', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'Aliased',
+        definition: 'Has aliases.',
+        aliases: ['AL']
+      })
+
+      const cached = await glossaryModel.getCachedTerms(fixtures.siteId)
+      assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, ['AL'])
+    })
+  })
 })

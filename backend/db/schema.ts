@@ -389,6 +389,15 @@ export const glossaryTerms = pgTable(
     id: uuid().primaryKey().defaultRandom(),
     term: varchar({ length: 255 }).notNull(),
     definition: text().notNull(),
+    // -> Alternate surface forms (acronyms, alternate names) that resolve to this same term's
+    //    `definition`/`pageId` -- no per-alias override (OpenProject #1110). Uniqueness across this
+    //    column combined with `term`, and across rows, is enforced at the application level in
+    //    `models/glossary.ts` -- a plain index cannot express "unique across an array column + a
+    //    scalar column, combined, across every row".
+    aliases: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
     siteId: uuid()
@@ -401,7 +410,8 @@ export const glossaryTerms = pgTable(
   (table) => [
     index('glossaryTerms_siteId_idx').on(table.siteId),
     // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
-    //    differ only by case are a duplicate, not two distinct terms.
+    //    differ only by case are a duplicate, not two distinct terms. This only guards `term` itself --
+    //    alias collisions (with another row's term OR aliases) are checked in `models/glossary.ts`.
     uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
   ]
 )

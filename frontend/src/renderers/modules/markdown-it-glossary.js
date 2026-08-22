@@ -8,8 +8,10 @@
  * into an inline token's `children` as `glossary_open` / `text` / `glossary_close`, working from the
  * end of the array so replacing one match does not invalidate the indices of the ones still to come.
  *
- * `terms` come in as `{ term, definition, link }[]` — already resolved (see
- * `backend/models/glossary.ts#getCachedTerms`), so this plugin does no page lookups of its own.
+ * `terms` come in as `{ term, definition, aliases, link }[]` — already resolved (see
+ * `backend/models/glossary.ts#getCachedTerms`), so this plugin does no page lookups of its own. Every
+ * alias is just another surface form matched the same way `term` is, resolving to the SAME entry (same
+ * `definition`/`link`) -- there is no per-alias override (OpenProject #1110).
  */
 export default function glossaryPlugin(md, options = {}) {
   const terms = (options.terms ?? []).filter((entry) => entry?.term?.trim())
@@ -29,12 +31,20 @@ export default function glossaryPlugin(md, options = {}) {
   const UNICODE_SPACE_RE = md.utils.lib.ucmicro.Z.source
   const BOUNDARY = `${UNICODE_PUNCT_RE}|${UNICODE_SPACE_RE}|[${OTHER_CHARS.split('').map(escapeRE).join('')}]`
 
-  // -> Longest term first: where two terms could both match the same span (a term "API" and a term
-  //    "REST API"), the more specific one has to win, and regex alternation tries its branches in the
-  //    order they are written -- see the acceptance note in the OpenProject spec.
-  const sortedTerms = [...terms].sort((a, b) => b.term.length - a.term.length)
-  const byLowerTerm = new Map(sortedTerms.map((entry) => [entry.term.toLowerCase(), entry]))
-  const alternation = sortedTerms.map((entry) => escapeRE(entry.term)).join('|')
+  // -> Every surface form -- a term's own name, plus each of its aliases -- flattened into one list of
+  //    `{ literal, entry }` pairs, each pointing back at the entry it resolves to. Sorted longest-first
+  //    ACROSS the whole flattened list, not per-entry: where two surface forms could both match the
+  //    same span (a term "API" and an alias "REST API" on some other entry), the more specific one has
+  //    to win, and regex alternation tries its branches in the order they are written -- see the
+  //    acceptance note in the OpenProject spec.
+  const surfaceForms = terms.flatMap((entry) =>
+    [entry.term, ...(entry.aliases ?? [])].map((literal) => ({ literal, entry }))
+  )
+  const sortedForms = surfaceForms.sort((a, b) => b.literal.length - a.literal.length)
+  const byLowerForm = new Map(
+    sortedForms.map(({ literal, entry }) => [literal.toLowerCase(), entry])
+  )
+  const alternation = sortedForms.map(({ literal }) => escapeRE(literal)).join('|')
   const pattern = new RegExp(`(^|${BOUNDARY})(${alternation})($|${BOUNDARY})`, 'gi')
 
   function glossaryReplace(state) {
@@ -83,7 +93,7 @@ export default function glossaryPlugin(md, options = {}) {
         const nodes = []
         let match
         while ((match = pattern.exec(text))) {
-          const entry = byLowerTerm.get(match[2].toLowerCase())
+          const entry = byLowerForm.get(match[2].toLowerCase())
 
           if (match.index > 0 || match[1].length > 0) {
             const before = new state.Token('text', '', 0)

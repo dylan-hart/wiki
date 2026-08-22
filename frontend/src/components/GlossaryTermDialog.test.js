@@ -43,7 +43,12 @@ describe('GlossaryTermDialog - create', () => {
     expect(API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/glossary',
       expect.objectContaining({
-        json: { term: 'API', definition: 'Application Programming Interface', pageId: null }
+        json: {
+          term: 'API',
+          definition: 'Application Programming Interface',
+          aliases: [],
+          pageId: null
+        }
       })
     )
   })
@@ -147,7 +152,7 @@ describe('GlossaryTermDialog - edit', () => {
     expect(API_CLIENT.put).toHaveBeenCalledWith(
       'sites/site-1/glossary/term-1',
       expect.objectContaining({
-        json: { term: 'API', definition: 'Updated definition.', pageId: 'page-1' }
+        json: { term: 'API', definition: 'Updated definition.', aliases: [], pageId: 'page-1' }
       })
     )
   })
@@ -166,6 +171,71 @@ describe('GlossaryTermDialog - edit', () => {
     expect(API_CLIENT.put).toHaveBeenCalledWith(
       'sites/site-1/glossary/term-1',
       expect.objectContaining({ json: expect.objectContaining({ pageId: null }) })
+    )
+  })
+})
+
+describe('GlossaryTermDialog - aliases (OpenProject #1110)', () => {
+  it('adds a trimmed alias as a chip and clears the input', () => {
+    const wrapper = mountDialog()
+    wrapper.vm.state.aliasInput = '  HSM  '
+
+    wrapper.vm.addAlias()
+
+    expect(wrapper.vm.state.aliases).toEqual(['HSM'])
+    expect(wrapper.vm.state.aliasInput).toBe('')
+  })
+
+  it('ignores an empty or case-insensitively duplicate alias', () => {
+    const wrapper = mountDialog()
+    wrapper.vm.state.aliases = ['HSM']
+
+    wrapper.vm.state.aliasInput = '   '
+    wrapper.vm.addAlias()
+    wrapper.vm.state.aliasInput = 'hsm'
+    wrapper.vm.addAlias()
+
+    expect(wrapper.vm.state.aliases).toEqual(['HSM'])
+  })
+
+  it('removes an alias chip', () => {
+    const wrapper = mountDialog()
+    wrapper.vm.state.aliases = ['HSM', 'Hot Mill']
+
+    wrapper.vm.removeAlias('HSM')
+
+    expect(wrapper.vm.state.aliases).toEqual(['Hot Mill'])
+  })
+
+  it('seeds aliases from the term being edited, and sends them on save', async () => {
+    const wrapper = mountDialog({
+      term: {
+        id: 'term-1',
+        term: 'Hot Strip Mill',
+        definition: 'A rolling mill.',
+        aliases: ['HSM'],
+        pageId: null
+      }
+    })
+    expect(wrapper.vm.state.aliases).toEqual(['HSM'])
+    await flushPromises()
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'term-1',
+          term: 'Hot Strip Mill',
+          definition: 'A rolling mill.',
+          aliases: ['HSM'],
+          pageId: null
+        })
+    })
+
+    await wrapper.vm.save()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      'sites/site-1/glossary/term-1',
+      expect.objectContaining({ json: expect.objectContaining({ aliases: ['HSM'] }) })
     )
   })
 })

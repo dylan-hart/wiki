@@ -58,6 +58,9 @@
                 <strong>{{ term.term }}</strong>
               </w-item-label>
               <w-item-label caption>{{ term.definition }}</w-item-label>
+              <div v-if="term.aliases?.length" class="flex flex-wrap gap-1 mt-1">
+                <w-chip v-for="alias of term.aliases" :key="alias" square dense>{{ alias }}</w-chip>
+              </div>
               <w-item-label v-if="term.pageId" caption>
                 <w-icon name="la:link" size="12px" class="mr-1" />
                 {{ pageLabel(term.pageId) }}
