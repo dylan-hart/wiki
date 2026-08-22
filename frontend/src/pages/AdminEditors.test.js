@@ -66,6 +66,23 @@ describe('AdminEditors', () => {
     expect(asciidocEditor.isDisabled).toBeFalsy()
   })
 
+  /**
+   * Regression coverage for OpenProject #988: `asciidoc`'s row flipped `useRendering` on when the
+   * real AsciiDoc-to-HTML pipeline (`renderers/asciidoc.js`) landed -- before that it was `false`
+   * because there was nothing to render with. `useRendering` is what shows the "uses the rendering
+   * pipeline" caption on the row (see the template just above `editors` in `AdminEditors.vue`), so a
+   * regression here would silently misrepresent AsciiDoc as still raw-source-only again.
+   */
+  it('flags the asciidoc row as using the rendering pipeline (OpenProject #988)', async () => {
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ editors: {} }) })
+    const { wrapper } = await mountPage()
+    await flushPromises()
+
+    const asciidocEditor = wrapper.vm.editors.find((e) => e.id === 'asciidoc')
+    expect(asciidocEditor.useRendering).toBe(true)
+    expect(wrapper.text()).toContain('admin.editors.useRenderingPipeline')
+  })
+
   it('load()/save() round-trip editors.asciidoc.isActive through the site config', async () => {
     API_CLIENT.get.mockReturnValueOnce({
       json: () => Promise.resolve({ editors: { asciidoc: { isActive: true } } })
