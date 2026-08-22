@@ -833,6 +833,24 @@ describe('azure-search module: rebuild()', () => {
 
       assert.match(client.searches[0]!.options.filter, /siteId eq 'site-1'/)
     })
+
+    test('chunks deleteDocuments at REBUILD_BATCH_SIZE, mirroring the upload loop above', async () => {
+      const ghostCount = REBUILD_BATCH_SIZE + 1
+      const rows = Array.from({ length: ghostCount }, (_, i) => ({
+        document: { id: `ghost-${i}` },
+        score: 1
+      }))
+      const client = fakeQueryClient([{ count: ghostCount, rows }])
+      const source = fakePageSource({ en: [] })
+      const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+      await azureSearch.rebuild('site-1')
+
+      assert.equal(client.deleted.length, 2)
+      assert.equal(client.deleted[0]!.keyValues.length, REBUILD_BATCH_SIZE)
+      assert.equal(client.deleted[1]!.keyValues.length, 1)
+      assert.equal(client.deleted.flatMap((d) => d.keyValues).length, ghostCount)
+    })
   })
 })
 

@@ -1,4 +1,5 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
+import { chunk } from 'es-toolkit/array'
 import { and, asc, eq } from 'drizzle-orm'
 import { pages as pagesTable } from '../../../db/schema.ts'
 import type { SearchIndex } from '@azure/search-documents'
@@ -814,7 +815,10 @@ export class AzureSearchModule implements SearchModule {
    * so a page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc
    * comment names as what a later rebuild is supposed to put right -- stayed in the index forever.
    * Every id currently in the index for this site (`fetchAllIds`, a siteId-filtered query) that was not
-   * just re-uploaded is stale and gets removed with `deleteDocuments`.
+   * just re-uploaded is stale and gets removed with `deleteDocuments`, itself chunked to
+   * `REBUILD_BATCH_SIZE` per call the same way the upload loop above is -- a site whose deletions
+   * outnumber Azure's own per-request action/payload limits would otherwise fail the single call this
+   * used to make outright.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
@@ -847,7 +851,9 @@ export class AzureSearchModule implements SearchModule {
 
     const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
     if (staleIds.length > 0) {
-      await client.deleteDocuments('id', staleIds)
+      for (const idBatch of chunk(staleIds, REBUILD_BATCH_SIZE)) {
+        await client.deleteDocuments('id', idBatch)
+      }
       WIKI.logger.info(
         `Purged ${staleIds.length} stale document(s) from the Azure AI Search index.`
       )
