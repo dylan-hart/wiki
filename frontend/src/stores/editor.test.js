@@ -156,3 +156,45 @@ describe('editor store: addPendingAsset() (OpenProject #806 follow-up)', () => {
     expect(store.pendingAssets[0].fileName.endsWith('.webp')).toBe(true)
   })
 })
+
+/**
+ * OpenProject #952: the `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` --
+ * `new File(data, fileName, ...)` with a raw Blob threw `The "sources" argument must be a sequence`
+ * rather than queuing it. This branch is currently dead in the app (the only caller,
+ * `EditorMarkdown.vue`'s paste/drop handling, always passes real `File` instances), but the moment
+ * any future caller hands it a raw Blob (e.g. canvas `toBlob()` output), it must queue successfully
+ * rather than throw.
+ */
+describe('editor store: addPendingAsset() Blob branch (OpenProject #952)', () => {
+  it('queues a raw (non-File) Blob without throwing', () => {
+    const store = useEditorStore()
+    const blob = new Blob(['a'], { type: 'image/png' })
+
+    expect(() => store.addPendingAsset(blob)).not.toThrow()
+    expect(store.pendingAssets).toHaveLength(1)
+  })
+
+  it('wraps the Blob in a real File, named from the mime-type table', () => {
+    const store = useEditorStore()
+    const blob = new Blob(['a'], { type: 'image/webp' })
+
+    store.addPendingAsset(blob)
+
+    const asset = store.pendingAssets[0]
+    expect(asset.kind).toBe('blob')
+    expect(asset.file).toBeInstanceOf(File)
+    expect(asset.file.type).toBe('image/webp')
+    expect(asset.fileName.endsWith('.webp')).toBe(true)
+    expect(asset.file.name).toBe(asset.fileName)
+  })
+
+  it('preserves the blob content in the wrapped File', async () => {
+    const store = useEditorStore()
+    const blob = new Blob(['hello blob'], { type: 'text/plain' })
+
+    store.addPendingAsset(blob)
+
+    const text = await store.pendingAssets[0].file.text()
+    expect(text).toBe('hello blob')
+  })
+})
