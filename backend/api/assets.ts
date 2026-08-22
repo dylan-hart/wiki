@@ -63,7 +63,7 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Params: { siteId: string }
-    Querystring: { fileName: string; folderId?: string; locale?: string }
+    Querystring: { fileName: string; folderId?: string; parentPath?: string; locale?: string }
   }>(
     '/sites/:siteId/assets',
     {
@@ -97,7 +97,13 @@ async function routes(app: FastifyInstance) {
             folderId: {
               type: 'string',
               format: 'uuid',
-              description: 'The folder to upload into. The site root when absent.'
+              description: 'The folder to upload into. Wins over `parentPath`.'
+            },
+            parentPath: {
+              type: 'string',
+              maxLength: 2048,
+              description:
+                'Slash-separated path of the folder to upload into, created (with any missing ancestor) if it does not exist yet. The site root when absent, same as an empty string.'
             },
             locale: {
               type: 'string',
@@ -145,11 +151,23 @@ async function routes(app: FastifyInstance) {
 
       const locale =
         req.query.locale ?? WIKI.sites[req.params.siteId]?.config?.locales?.primary ?? 'en'
+
+      /*
+        `folderId` wins when given, exactly as it did before `parentPath` existed. Otherwise
+        `parentPath` names the destination as a page's own folder does — resolved (and created, along
+        with any missing ancestor) below, but only once the permission check against that path has
+        passed, so an unprivileged upload never has the side effect of creating a folder it wasn't
+        allowed to write into.
+      */
       const folder = req.query.folderId
         ? await WIKI.models.tree.getFolderById(req.query.folderId)
         : null
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
-      const destination = folder ? [folderPath, folder.fileName].filter(Boolean).join('/') : ''
+      const destination = req.query.folderId
+        ? folder
+          ? [folderPath, folder.fileName].filter(Boolean).join('/')
+          : ''
+        : (req.query.parentPath ?? '')
       if (
         !mayOnAsset(req, 'write:assets', req.params.siteId, {
           folderPath: destination,
@@ -159,10 +177,24 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to upload a file here.')
       }
+
+      const folderId = req.query.folderId
+        ? req.query.folderId
+        : req.query.parentPath
+          ? (
+              await WIKI.models.tree.getFolder({
+                path: req.query.parentPath,
+                locale,
+                siteId: req.params.siteId,
+                createIfMissing: true
+              })
+            ).id
+          : undefined
+
       const asset = await WIKI.models.assets.upload({
         siteId: req.params.siteId,
         locale,
-        folderId: req.query.folderId,
+        folderId,
         fileName: req.query.fileName,
         mimeType: req.headers['content-type'],
         data,

@@ -345,3 +345,188 @@ describe('disabled-site guard (task 699)', () => {
     }
   })
 })
+
+/**
+ * UPLOAD ASSET: `parentPath` resolution (OpenProject #879)
+ *
+ * A pending-asset upload now names its destination folder by the page's own parent path rather than
+ * an already-known folder ID. Exercised at the HTTP layer via `app.inject()`, standing in for
+ * `@fastify/session` the same way `pages.test.ts` does — a preHandler reads an authenticated session
+ * off the `x-test-session` header, since the upload route requires one.
+ */
+describe('upload route: parentPath resolution (OpenProject #879)', () => {
+  const SITE_ID = '44444444-4444-4444-8444-444444444444'
+  const RESOLVED_FOLDER_ID = '55555555-5555-4555-8555-555555555555'
+
+  const uploadedAsset = {
+    id: '66666666-6666-4666-8666-666666666666',
+    fileName: 'photo.png',
+    fileExt: 'png',
+    kind: 'image',
+    mimeType: 'image/png',
+    fileSize: 3,
+    folderPath: 'guides.setup',
+    title: 'photo',
+    hasPreview: false,
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    updatedAt: new Date('2024-01-01T00:00:00Z'),
+    locale: 'en'
+  }
+
+  let getFolderCalls: any[]
+  let getFolderByIdCalls: any[]
+  let checkAccessCalls: any[]
+  let uploadCalls: any[]
+  let checkAccessResult: boolean
+
+  let app: FastifyInstance
+
+  before(async () => {
+    getFolderCalls = []
+    getFolderByIdCalls = []
+    checkAccessCalls = []
+    uploadCalls = []
+    checkAccessResult = true
+
+    ;(globalThis as any).WIKI = {
+      sites: {
+        [SITE_ID]: { id: SITE_ID, isEnabled: true, config: { locales: { primary: 'en' } } }
+      },
+      config: { security: {} },
+      models: {
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: (_actor: any, _permission: string, page: any) => {
+            checkAccessCalls.push(page)
+            return checkAccessResult
+          }
+        },
+        tree: {
+          getFolderById: async (id: string) => {
+            getFolderByIdCalls.push(id)
+            return null
+          },
+          getFolder: async (opts: any) => {
+            getFolderCalls.push(opts)
+            return { id: RESOLVED_FOLDER_ID, folderPath: 'guides', fileName: 'setup', locale: 'en' }
+          }
+        },
+        assets: {
+          upload: async (opts: any) => {
+            uploadCalls.push(opts)
+            return uploadedAsset
+          }
+        }
+      }
+    }
+
+    app = fastify()
+    await app.register(fastifySensible)
+    app.addHook('preHandler', (req, _reply, done) => {
+      const raw = req.headers['x-test-session']
+      if (typeof raw === 'string') {
+        ;(req as any).session = JSON.parse(raw)
+      }
+      done()
+    })
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await app.register(routes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  function sessionHeader() {
+    return {
+      'x-test-session': JSON.stringify({
+        authenticated: true,
+        user: { id: 'user-1' },
+        permissions: []
+      })
+    }
+  }
+
+  test('resolves-or-creates the folder from `parentPath` and uploads into it, in one request', async () => {
+    getFolderCalls = []
+    uploadCalls = []
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&parentPath=guides%2Fsetup`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(getFolderCalls.length, 1)
+    assert.equal(getFolderCalls[0].path, 'guides/setup')
+    assert.equal(getFolderCalls[0].siteId, SITE_ID)
+    assert.equal(getFolderCalls[0].createIfMissing, true)
+    assert.equal(uploadCalls.length, 1)
+    assert.equal(uploadCalls[0].folderId, RESOLVED_FOLDER_ID)
+  })
+
+  test('an empty `parentPath` (root-level page) uploads to the asset root, unchanged', async () => {
+    getFolderCalls = []
+    uploadCalls = []
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&parentPath=`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(getFolderCalls.length, 0)
+    assert.equal(uploadCalls.length, 1)
+    assert.equal(uploadCalls[0].folderId, undefined)
+  })
+
+  test('`folderId` wins over `parentPath` when both are sent, and never resolves by path', async () => {
+    getFolderCalls = []
+    getFolderByIdCalls = []
+    uploadCalls = []
+    const explicitFolderId = '77777777-7777-4777-8777-777777777777'
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/assets?fileName=photo.png&folderId=${explicitFolderId}&parentPath=guides%2Fsetup`,
+      headers: { ...sessionHeader(), 'content-type': 'image/png' },
+      payload: Buffer.from([1, 2, 3])
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(getFolderByIdCalls, [explicitFolderId])
+    assert.equal(getFolderCalls.length, 0)
+    assert.equal(uploadCalls[0].folderId, explicitFolderId)
+  })
+
+  test('a denied permission never resolves-or-creates the folder: no side effect from an unauthorized upload', async () => {
+    getFolderCalls = []
+    uploadCalls = []
+    checkAccessCalls = []
+    checkAccessResult = false
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/assets?fileName=photo.png&parentPath=guides%2Fsetup`,
+        headers: { ...sessionHeader(), 'content-type': 'image/png' },
+        payload: Buffer.from([1, 2, 3])
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(checkAccessCalls.length, 1)
+      assert.equal(checkAccessCalls[0].path, 'guides/setup/photo.png')
+      assert.equal(getFolderCalls.length, 0)
+      assert.equal(uploadCalls.length, 0)
+    } finally {
+      checkAccessResult = true
+    }
+  })
+})
