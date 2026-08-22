@@ -541,6 +541,8 @@ export class BlockPdfElement extends LitElement {
     this._observer = null
     this._resizeObserver?.disconnect()
     this._resizeObserver = null
+    cancelAnimationFrame(this._resizeFrame)
+    this._resizeFrame = null
   }
 
   /**

@@ -193,14 +193,14 @@ export class BlockIndexElement extends LitElement {
         box-shadow: 0 3px 8px 0 rgba(0, 0, 0, 0.25);
       }
       li:hover {
-        background-color: var(--q-primary);
+        background-color: var(--q-primary, #1976d2);
         background-image: linear-gradient(to bottom, #fff, rgba(255, 255, 255, 0.95));
-        border-left-color: var(--q-primary);
+        border-left-color: var(--q-primary, #1976d2);
         cursor: pointer;
       }
       :host([dark]) li:hover {
         background-image: linear-gradient(to bottom, #1e232a, #161b22);
-        border-left-color: var(--q-primary);
+        border-left-color: var(--q-primary, #1976d2);
       }
       /*
         -> The row runs across rather than down, so an icon can sit beside the writing rather than
@@ -209,7 +209,7 @@ export class BlockIndexElement extends LitElement {
       */
       li a {
         display: flex;
-        color: var(--q-primary);
+        color: var(--q-primary, #1976d2);
         /* -> Vertical only: the horizontal inset is what the arrow's own offset is set against */
         padding: 0.75rem 1rem;
         text-decoration: none;
@@ -275,7 +275,7 @@ export class BlockIndexElement extends LitElement {
 
       .no-links {
         margin-bottom: 16px;
-        color: var(--q-negative);
+        color: var(--q-negative, #c10015);
         border: 1px dashed color-mix(in srgb, currentColor 50%, transparent);
         border-radius: 5px;
         padding: 1rem;
