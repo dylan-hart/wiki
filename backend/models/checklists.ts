@@ -13,6 +13,15 @@ const checkedByUsers = alias(usersTable, 'checklistCheckedByUsers')
 /** How many executions {@link Checklists.listExecutions} answers with when the caller sets no cap. */
 const DEFAULT_HISTORY_LIMIT = 50
 
+/**
+ * `blocks/block-checklist/component.js` keys every item by its position (`item-0`, `item-1`, ...).
+ * `checkItem` enforces this shape — and that the position is within the execution's own `itemCount` —
+ * so a request cannot complete an execution by checking off keys that do not correspond to any real
+ * item on the block: without this, `itemCount`-many *distinct* keys of any shape would satisfy the
+ * completion threshold in {@link Checklists.checkItem}, regardless of whether they named real items.
+ */
+const ITEM_KEY_PATTERN = /^item-(\d+)$/
+
 /** One item checked off within an execution, as {@link Checklists.getExecutionDetail} returns it. */
 export interface ChecklistItemCheck {
   itemKey: string
@@ -78,6 +87,10 @@ class Checklists {
    * not the most recent click. When this check brings the execution's checked count up to its
    * `itemCount`, the execution completes automatically, attributed to whoever just checked the last
    * item.
+   *
+   * `itemKey` must name a real position within the active execution (`item-0` .. `item-{itemCount-1}`,
+   * see {@link ITEM_KEY_PATTERN}) — otherwise the checked-count threshold below could be satisfied by
+   * `itemCount`-many arbitrary distinct keys that never corresponded to the checklist's actual items.
    */
   async checkItem({
     siteId,
@@ -108,6 +121,14 @@ class Checklists {
       itemCount,
       userId
     })
+
+    // -> Validated against the execution's OWN itemCount, not the possibly-stale `itemCount` argument
+    //    above — that one is only used to start a brand new execution; an active execution someone
+    //    else already started keeps the count it was started with.
+    const match = ITEM_KEY_PATTERN.exec(itemKey)
+    if (!match || Number(match[1]) >= execution.itemCount) {
+      throw new Error(`itemKey must be a valid item position for this checklist, e.g. "item-0".`)
+    }
 
     await WIKI.db
       .insert(checklistItemChecksTable)

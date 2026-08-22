@@ -68,6 +68,86 @@ describe('checklists model — validation (no database)', () => {
 })
 
 /**
+ * `itemKey` shape validation runs after `_ensureActiveExecution`, which needs `WIKI.db` — so unlike
+ * the guards above, these two need the DB-backed fixture even though what they are asserting is pure
+ * input validation, not SQL behavior.
+ */
+describe('checklists model — itemKey validation (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let checklistsModel: typeof import('./checklists.ts').checklists
+  let pagesModel: typeof import('./pages.ts').pages
+  let pageId: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    await seedLocale(fixtures.db, { code: 'en' })
+    ;({ checklists: checklistsModel } = await import('./checklists.ts'))
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+
+    const actor: PageActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'ops/itemkey-validation',
+        title: 'ItemKey Validation',
+        editor: 'markdown',
+        content: '#'
+      },
+      actor
+    )
+    pageId = page.id
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('rejects an itemKey that is not the "item-N" position shape', async () => {
+    await assert.rejects(
+      checklistsModel.checkItem({
+        siteId: fixtures.siteId,
+        pageId,
+        blockKey: 'malformed-key',
+        itemKey: 'not-a-position',
+        itemCount: 3,
+        userId: fixtures.userId
+      }),
+      /itemKey must be a valid item position/
+    )
+  })
+
+  test('rejects an itemKey whose position is out of range for the active execution', async () => {
+    const blockKey = 'out-of-range-key'
+    // -> Starts a real 2-item execution first, so the execution's stored itemCount (not just the
+    //    argument on this call) is what the out-of-range check runs against.
+    await checklistsModel.checkItem({
+      siteId: fixtures.siteId,
+      pageId,
+      blockKey,
+      itemKey: 'item-0',
+      itemCount: 2,
+      userId: fixtures.userId
+    })
+
+    await assert.rejects(
+      checklistsModel.checkItem({
+        siteId: fixtures.siteId,
+        pageId,
+        blockKey,
+        itemKey: 'item-5',
+        itemCount: 2,
+        userId: fixtures.userId
+      }),
+      /itemKey must be a valid item position/
+    )
+
+    const execution = await checklistsModel.getLatestExecution(pageId, blockKey)
+    assert.equal(execution!.checkedCount, 1, 'the out-of-range attempt recorded nothing')
+    assert.equal(execution!.completedAt, null, 'and did not spuriously complete the execution')
+  })
+})
+
+/**
  * `models/checklists.ts` is almost entirely SQL orchestration — an insert guarded by a partial unique
  * index, a conflict-driven idempotent check, a threshold-triggered update, joins across two tables —
  * so a mock of the query builder would mostly be re-describing the code under test rather than
