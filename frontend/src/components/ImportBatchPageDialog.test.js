@@ -44,6 +44,52 @@ async function selectFiles(files) {
   await input.trigger('change')
 }
 
+/** A fake `FileSystemFileEntry`, as `.webkitGetAsEntry()` would return it for a dropped file. */
+function makeFileEntry(name, content) {
+  return {
+    isFile: true,
+    isDirectory: false,
+    name,
+    file: (resolve) => resolve(new File([content], name, { type: 'text/markdown' }))
+  }
+}
+
+/**
+ * A fake `FileSystemDirectoryEntry` -- its `createReader().readEntries()` hands back `children` on
+ * the first call and an empty array on every call after, the same "batches, terminated by empty"
+ * contract the real one has.
+ */
+function makeDirEntry(name, children) {
+  let exhausted = false
+  return {
+    isFile: false,
+    isDirectory: true,
+    name,
+    createReader: () => ({
+      readEntries: (resolve) => {
+        if (exhausted) {
+          resolve([])
+        } else {
+          exhausted = true
+          resolve(children)
+        }
+      }
+    })
+  }
+}
+
+/** Dispatches a real `drop` event carrying fake `FileSystemEntry` objects at the dropzone. */
+async function dropEntries(entries) {
+  const dropzone = body().find('.import-batch-dropzone').element
+  const event = new Event('drop', { bubbles: true, cancelable: true })
+  event.dataTransfer = {
+    items: entries.map((entry) => ({ webkitGetAsEntry: () => entry })),
+    files: []
+  }
+  dropzone.dispatchEvent(event)
+  await flushPromises()
+}
+
 /**
  * Opens the one visible `w-select` (only one is ever on screen at a time in this dialog) and picks
  * the option whose label matches. `optionText` is the raw i18n key, not translated prose — the test
@@ -327,5 +373,92 @@ describe('ImportBatchPageDialog', () => {
       })
     )
     expect(body().find('.import-batch-row').text()).toContain('Saved')
+  })
+
+  it('accepts format=markdown, auto-detected from a .md extension, needing no Pandoc extension', async () => {
+    await mountDialog()
+
+    await selectFiles([new File(['# Hi'], 'notes.md', { type: 'text/markdown' })])
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+  })
+
+  it('saves each row with the front matter title/description/tags a markdown import returned', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [
+          {
+            fileName: 'notes.md',
+            ok: true,
+            markdown: '# Body\n',
+            title: 'From Front Matter',
+            description: 'A summary',
+            tags: ['alpha', 'beta']
+          }
+        ]
+      })
+    })
+    await selectFiles([new File(['---\ntitle: X\n---\n\n# Body\n'], 'notes.md')])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/from-front-matter' } })
+    })
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    const createCall = globalThis.API_CLIENT.post.mock.calls.at(-1)
+    expect(createCall[1].json).toMatchObject({
+      title: 'From Front Matter',
+      description: 'A summary',
+      tags: ['alpha', 'beta']
+    })
+  })
+
+  it("preserves a dropped folder's structure into each row's default destination path (OpenProject #1092)", async () => {
+    await mountDialog()
+    const introEntry = makeFileEntry('intro.md', '# Intro')
+    const guideDir = makeDirEntry('guide', [makeFileEntry('start.md', '# Start')])
+    const notesDir = makeDirEntry('notes', [introEntry, guideDir])
+
+    await dropEntries([notesDir])
+
+    // -> Both files landed in the picker, and the markdown format auto-detected off their extension
+    const fileRows = body().findAll('.w-item')
+    expect(fileRows.map((r) => r.text())).toEqual([
+      expect.stringContaining('intro.md'),
+      expect.stringContaining('start.md')
+    ])
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [
+          { fileName: 'intro.md', ok: true, markdown: '# Intro\n' },
+          { fileName: 'start.md', ok: true, markdown: '# Start\n' }
+        ]
+      })
+    })
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p', path: 'whatever' } })
+    })
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    const createCalls = globalThis.API_CLIENT.post.mock.calls.filter(
+      (c) => c[0] === 'sites/site-1/pages'
+    )
+    expect(createCalls).toHaveLength(2)
+    expect(createCalls[0][1].json.path).toBe('docs/notes/intro')
+    expect(createCalls[1][1].json.path).toBe('docs/notes/guide/start')
   })
 })

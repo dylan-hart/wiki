@@ -369,6 +369,7 @@ export const usePageStore = defineStore('page', {
       basePath,
       title = '',
       description = '',
+      tags = [],
       content = '',
       fromNavigate = false
     } = {}) {
@@ -454,7 +455,7 @@ export const usePageStore = defineStore('page', {
         alias: '',
         publishState: 'published',
         relations: [],
-        tags: [],
+        tags: tags ?? [],
         content: content ?? '',
         // -> A page being created has no stored source to lose: whatever it starts with IS the source
         contentLoaded: true,

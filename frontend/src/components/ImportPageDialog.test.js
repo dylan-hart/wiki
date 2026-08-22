@@ -88,7 +88,46 @@ describe('ImportPageDialog', () => {
 
     await body().find('.import-confirm-btn').trigger('click')
 
-    expect(wrapper.emitted('ok')).toEqual([[{ content: '# Converted heading\n', title: 'notes' }]])
+    expect(wrapper.emitted('ok')).toEqual([
+      [{ content: '# Converted heading\n', title: 'notes', description: '', tags: [] }]
+    ])
+  })
+
+  it('auto-detects the markdown format from a .md extension, needing no Pandoc extension', async () => {
+    await mountDialog()
+    await selectFile(new File(['# Hi'], 'notes.md', { type: 'text/markdown' }))
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+  })
+
+  it('prefers the front matter title/description/tags a markdown import returns over the file name default', async () => {
+    const wrapper = await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        markdown: '# Body\n',
+        title: 'From Front Matter',
+        description: 'A summary',
+        tags: ['alpha', 'beta']
+      })
+    })
+
+    await selectFile(new File(['---\ntitle: From Front Matter\n---\n\n# Body\n'], 'notes.md'))
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    await body().find('.import-confirm-btn').trigger('click')
+
+    expect(wrapper.emitted('ok')).toEqual([
+      [
+        {
+          content: '# Body\n',
+          title: 'From Front Matter',
+          description: 'A summary',
+          tags: ['alpha', 'beta']
+        }
+      ]
+    ])
   })
 
   it('surfaces a failed conversion as a negative toast instead of advancing to the preview', async () => {

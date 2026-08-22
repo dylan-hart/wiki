@@ -80,31 +80,29 @@ describe('PageNewMenu', () => {
 })
 
 describe('PageNewMenu: import menu item', () => {
-  it('fetches the extensions status once opened, to decide whether to show itself', () => {
-    globalThis.API_CLIENT.get.mockReturnValueOnce({
-      json: vi.fn().mockResolvedValue({ pandoc: false })
-    })
+  /*
+    Regression coverage for OpenProject #1092: both items used to be hidden behind
+    `siteStore.extensionsStatus.pandoc`, so an instance with no Pandoc extension installed had no
+    bulk-add-pages path at all -- even though `format: 'markdown'` needs no Pandoc and is available
+    unconditionally. Neither item reads `extensionsStatus` any more, so it's never fetched here
+    either (unlike this suite's own pre-#1092 version, which asserted the opposite).
+  */
+  it('always offers "Import Page" and "Import Multiple Pages", with no extensions-status fetch', async () => {
+    const { wrapper } = mountMenu()
+    await flushPromises()
 
-    mountMenu()
-
-    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith('system/extensions/status')
+    expect(wrapper.text()).toContain('pages.import.menuLabel')
+    expect(wrapper.text()).toContain('pages.importBatch.menuLabel')
+    expect(globalThis.API_CLIENT.get).not.toHaveBeenCalledWith('system/extensions/status')
   })
 
-  it('hides the "Import Page" item when Pandoc is not installed', async () => {
+  it("still offers both items when a site's extensionsStatus explicitly says Pandoc is missing", async () => {
     const { wrapper } = mountMenu()
     const siteStore = useSiteStore()
     siteStore.extensionsStatus = { pandoc: false }
     await wrapper.vm.$nextTick()
 
-    expect(wrapper.text()).not.toContain('pages.import.menuLabel')
-  })
-
-  it('shows the "Import Page" item when Pandoc is installed', async () => {
-    const { wrapper } = mountMenu()
-    const siteStore = useSiteStore()
-    siteStore.extensionsStatus = { pandoc: true }
-    await wrapper.vm.$nextTick()
-
     expect(wrapper.text()).toContain('pages.import.menuLabel')
+    expect(wrapper.text()).toContain('pages.importBatch.menuLabel')
   })
 })
