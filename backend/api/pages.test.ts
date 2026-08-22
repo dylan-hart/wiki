@@ -12,6 +12,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
+import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
@@ -1421,6 +1422,43 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     assert.equal(body.results[1].fileName, 'bad.mediawiki')
     assert.equal(body.results[1].ok, false)
     assert.match(body.results[1].message, /no usable content/)
+  })
+
+  /**
+   * Regression test (OpenProject #849 fix): `@fastify/multipart`'s default `throwFileSizeLimit: true`
+   * makes an oversized file's `toBuffer()` reject as the route's own comment describes, but it ALSO
+   * latches that rejection and replays it out of `req.files()`'s iterator on the very next
+   * `for await` step — even one that only advances past files already handled locally — turning "one
+   * bad file fails independently" into a 413 for the whole batch regardless of how many files after
+   * it converted fine. This sends a real oversized file (`MAX_IMPORT_SIZE`-plus-one, so the size
+   * limit itself trips rather than being mocked) ahead of a good one and asserts the batch still
+   * answers 200 with one failed entry and one successful one, not a request-level failure.
+   */
+  test('an oversized file fails only its own entry, not the whole batch', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'toobig.mediawiki', content: 'x'.repeat(MAX_IMPORT_SIZE + 1) },
+      { fileName: 'fine.mediawiki', content: '= Fine =' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.results.length, 2)
+    assert.equal(body.results[0].fileName, 'toobig.mediawiki')
+    assert.equal(body.results[0].ok, false)
+    assert.match(body.results[0].message, /larger than the import limit/)
+    assert.deepEqual(body.results[1], {
+      fileName: 'fine.mediawiki',
+      ok: true,
+      markdown: '# = Fine =\n'
+    })
   })
 })
 

@@ -246,8 +246,17 @@ async function routes(app: FastifyInstance) {
   // -> IMPORT PAGES (BATCH)'s body carries several files in one request, which the raw-bytes approach
   //    above has no room for — `@fastify/multipart` claims `multipart/form-data` specifically, which
   //    Fastify matches ahead of the generic `'*'` parser above regardless of registration order.
+  //    `throwFileSizeLimit: false` (OpenProject #849 fix): the default `true` makes an oversized
+  //    file's `toBuffer()` reject as documented below, but the plugin ALSO latches that rejection as
+  //    `lastError` and replays it out of `req.files()`'s own iterator on the very next `for await`
+  //    step — even one that only advances past files already handled — which turned "one bad file
+  //    fails independently" into "one oversized file 413s the whole batch, however many files came
+  //    after it converted fine". Disabled, a stream still stops accepting bytes past the limit and
+  //    `file.file.truncated` still flips true; the route below reads that flag itself instead of
+  //    trusting `toBuffer()` to throw.
   await app.register(fastifyMultipart, {
-    limits: { fileSize: MAX_IMPORT_SIZE, files: MAX_IMPORT_BATCH_FILES, fields: 0 }
+    limits: { fileSize: MAX_IMPORT_SIZE, files: MAX_IMPORT_BATCH_FILES, fields: 0 },
+    throwFileSizeLimit: false
   })
 
   /**
@@ -943,20 +952,21 @@ async function routes(app: FastifyInstance) {
         iterator over the one multipart body, and its next part is only available once the current
         file's stream has been consumed (`@fastify/busboy`'s own constraint) — so buffering has to
         happen one file at a time, in the order they arrived, before conversion can run in parallel
-        below. An oversized file rejects `toBuffer()` with `RequestFileTooLargeError` rather than
-        aborting the whole request, which is why that failure is caught per file here rather than
-        left to bubble up.
+        below. Checked via `file.file.truncated` after `toBuffer()` resolves, not by catching a
+        throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
+        letting an oversized file throw here would still fail the whole batch anyway.
       */
       const uploads: ({ fileName: string; data: Buffer } | { fileName: string; error: string })[] =
         []
       for await (const file of req.files()) {
-        try {
-          uploads.push({ fileName: file.filename, data: await file.toBuffer() })
-        } catch (err: any) {
+        const data = await file.toBuffer()
+        if (file.file.truncated) {
           uploads.push({
             fileName: file.filename,
-            error: err.message || 'This file is larger than the import limit.'
+            error: 'This file is larger than the import limit.'
           })
+        } else {
+          uploads.push({ fileName: file.filename, data })
         }
       }
       if (uploads.length < 1) {
