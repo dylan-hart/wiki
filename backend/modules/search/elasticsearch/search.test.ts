@@ -12,6 +12,7 @@ import {
   buildEsQuery,
   getTlsOptions,
   pageToDocument,
+  toSniffIntervalMs,
   type ElasticsearchPageDocument
 } from './search.ts'
 import type { AccessActor } from '../../../models/groups.ts'
@@ -155,6 +156,32 @@ describe('getTlsOptions()', () => {
       tlsCertPath: path.join(os.tmpdir(), 'does-not-exist-and-is-never-read.pem')
     })
     assert.deepEqual(options, { rejectUnauthorized: false, ca: [] })
+  })
+})
+
+/**
+ * OpenProject #923: `definition.yml` documents `sniffInterval` as seconds ("Interval in seconds to
+ * check for an updated list of nodes..."), but `@elastic/elasticsearch`'s own client option is
+ * milliseconds -- a value entered as "300 seconds" was passed straight through and made the client
+ * sniff cluster topology every 300ms, a 1000x more aggressive poll than configured.
+ */
+describe('toSniffIntervalMs()', () => {
+  test('multiplies a positive value by 1000 to convert seconds to milliseconds', () => {
+    assert.equal(toSniffIntervalMs(300), 300_000)
+    assert.equal(toSniffIntervalMs(1), 1000)
+  })
+
+  test('0 disables sniffing, matching definition.yml’s own "0 disables it"', () => {
+    assert.equal(toSniffIntervalMs(0), false)
+  })
+
+  test('a negative value also disables sniffing rather than producing a negative interval', () => {
+    assert.equal(toSniffIntervalMs(-5), false)
+  })
+
+  test('a non-number (unset config) disables sniffing rather than throwing', () => {
+    assert.equal(toSniffIntervalMs(undefined), false)
+    assert.equal(toSniffIntervalMs(null), false)
   })
 })
 
