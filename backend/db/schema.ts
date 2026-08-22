@@ -276,6 +276,29 @@ export const blockCode = pgTable('blockCode', {
   updatedAt: timestamp().notNull().defaultNow()
 })
 
+// BLOCK CREDENTIALS --------------------
+/**
+ * A secret held server-side only, for a block whose props (embedded in a page's own markdown, plainly
+ * readable by anyone holding `read:source`) must never carry the credential itself — `block-live-data`
+ * (OpenProject #868) is the first, and so far only, consumer. A block prop stores this row's `id`
+ * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s `getSecret()`)
+ * and it is never serialized back into an API response — see that model's header comment.
+ */
+export const blockCredentials = pgTable(
+  'blockCredentials',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    name: varchar({ length: 255 }).notNull(),
+    secret: text().notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [index('blockCredentials_siteId_idx').on(table.siteId)]
+)
+
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),

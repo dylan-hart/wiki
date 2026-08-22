@@ -3,6 +3,7 @@ import { apiKeys } from './apiKeys.ts'
 import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
+import { blockCredentials } from './blockCredentials.ts'
 import { blocks } from './blocks.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
@@ -17,6 +18,7 @@ import { icons } from './icons.ts'
 import { pageImport } from './import.ts'
 import { importModel as siteImportModel } from './siteImport.ts'
 import { jobs } from './jobs.ts'
+import { liveData } from './liveData.ts'
 import { locales } from './locales.ts'
 import { mail } from './mail.ts'
 import { navigation } from './navigation.ts'
@@ -45,6 +47,7 @@ export default {
   approvals,
   assets,
   authentication,
+  blockCredentials,
   blocks,
   commentProviders,
   comments,
@@ -59,6 +62,7 @@ export default {
   pageImport,
   import: siteImportModel,
   jobs,
+  liveData,
   locales,
   mail,
   navigation,
