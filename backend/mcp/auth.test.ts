@@ -206,6 +206,8 @@ test('pageActorFor: a personal access token is attributed to its owner, tagged v
     id: 'user-1',
     permissions: ['write:pages'],
     groupIds: ['group-a'],
+    scope: undefined,
+    maxClassification: undefined,
     via: 'mcp'
   })
 })
