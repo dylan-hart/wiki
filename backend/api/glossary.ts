@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import type { GlossaryExport, GlossaryTermInput } from '../models/glossary.ts'
+import type { GlossaryExport, GlossaryExportTermInput } from '../models/glossary.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 interface GlossaryTermBody {
@@ -337,7 +337,7 @@ async function routes(app: FastifyInstance) {
   /**
    * SAVE STAGED GLOSSARY EDITS
    */
-  app.post<{ Params: { siteId: string }; Body: { terms: GlossaryTermInput[] } }>(
+  app.post<{ Params: { siteId: string }; Body: { terms: GlossaryExportTermInput[] } }>(
     '/sites/:siteId/glossary/save',
     {
       config: {
@@ -346,7 +346,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Apply staged glossary edits and save a new version',
         description:
-          "The admin glossary screen's Save action (OpenProject #1113): edits are staged locally and NOT applied to the live glossary until this is called, which atomically replaces the whole term list with `terms` and records the result as a new version. Not a per-term merge -- the same wholesale-replace semantics as `POST .../glossary/import`, just addressed by `pageId` rather than `path` since the admin UI already has one resolved.",
+          "The admin glossary screen's Save action (OpenProject #1113): edits are staged locally and NOT applied to the live glossary until this is called, which atomically replaces the whole term list with `terms` and records the result as a new version. Not a per-term merge -- the same wholesale-replace semantics, and the same `GlossaryExportTerm` shape (`path`, not `pageId`), as `POST .../glossary/import` -- the admin UI's own canonical-page picker is a live-validated path input, not a dropdown (OpenProject #1112), so its staged edits are already in this shape.",
         tags: ['Glossary'],
         params: {
           type: 'object',
@@ -361,12 +361,7 @@ async function routes(app: FastifyInstance) {
           properties: {
             terms: {
               type: 'array',
-              items: {
-                allOf: [
-                  { $ref: 'GlossaryTermInput#' },
-                  { type: 'object', required: ['term', 'definition'] }
-                ]
-              }
+              items: { $ref: 'GlossaryExportTerm#' }
             }
           }
         },

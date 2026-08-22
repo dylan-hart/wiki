@@ -492,6 +492,24 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       assert.deepEqual(live.map((t) => t.term).sort(), ['Saved One', 'Saved Two'])
     })
 
+    test('saveVersion() resolves a `path` to a pageId, the same shape importTerms takes (OpenProject #1112)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/save-version-target' }),
+        actor
+      )
+
+      const { terms } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [
+          { term: 'SaveLinked', definition: 'Resolves via path.', path: 'docs/save-version-target' }
+        ],
+        glossaryActor
+      )
+
+      assert.equal(terms[0]!.pageId, page.id)
+    })
+
     test('saveVersion() rejects an empty term, applying nothing', async () => {
       const before = await glossaryModel.listTerms(fixtures.siteId)
 

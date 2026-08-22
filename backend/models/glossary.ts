@@ -58,6 +58,18 @@ export interface GlossaryExport {
   terms: GlossaryExportTerm[]
 }
 
+/**
+ * The writable counterpart to `GlossaryExportTerm`: what `importTerms`/`saveVersion` accept, where
+ * `aliases`/`path` are optional (a malformed/partial payload is a validation error at runtime, not a
+ * type error at the call site) -- mirroring how `GlossaryTermInput` relates to `GlossaryTerm`.
+ */
+export interface GlossaryExportTermInput {
+  term: string
+  definition: string
+  aliases?: string[]
+  path?: string | null
+}
+
 /** Who saved/restored a glossary version -- a session user, mirroring `auditLog`'s actor shape. */
 export interface GlossaryActor {
   id: string | null
@@ -303,14 +315,28 @@ class Glossary {
         400
       )
     }
+    const resolved = await this.resolveExportTerms(siteId, data.terms)
+    return this.replaceAllRows(siteId, resolved)
+  }
 
+  /**
+   * Validates a list of `GlossaryExportTerm`s -- the same shape whether it came from a JSON import
+   * (`importTerms`) or the admin staged-edit UI's Save action (`saveVersion`, OpenProject #1112/#1113:
+   * the canonical-page picker there is a live-validated path input, not a dropdown, so the admin UI's
+   * own edits are already in this shape too) -- trimming/checking each entry, resolving `path` to a
+   * `pageId`, and rejecting a within-payload surface-form collision, before anything is written.
+   */
+  private async resolveExportTerms(
+    siteId: string,
+    terms: GlossaryExportTermInput[]
+  ): Promise<{ term: string; definition: string; aliases: string[]; pageId: string | null }[]> {
     const resolved: {
       term: string
       definition: string
       aliases: string[]
       pageId: string | null
     }[] = []
-    for (const raw of data.terms) {
+    for (const raw of terms) {
       const term = (raw?.term ?? '').trim()
       const definition = (raw?.definition ?? '').trim()
       if (!term) {
@@ -329,8 +355,7 @@ class Glossary {
     }
 
     assertNoInternalSurfaceFormCollision(resolved)
-
-    return this.replaceAllRows(siteId, resolved)
+    return resolved
   }
 
   /**
@@ -384,43 +409,21 @@ class Glossary {
   /**
    * Applies a staged set of edits as the new, complete term list -- the admin UI's "Save" action
    * (OpenProject #1113): not immediate-apply per create/edit/delete, but one atomic replace of the
-   * whole glossary, paired with a version snapshot of the result. `pageId`-based (unlike
-   * `importTerms`'s `path`-based shape), since the admin UI already has a resolved id from its own
-   * canonical-page picker (OpenProject #1112) -- no need to round-trip through a path here.
+   * whole glossary, paired with a version snapshot of the result. `GlossaryExportTerm`-shaped
+   * (`path`, not `pageId`), the SAME shape `importTerms` takes: the admin UI's canonical-page picker
+   * is a live-validated path input, not a dropdown (OpenProject #1112), so its own staged edits are
+   * already in this shape -- resolving `path` here (rather than requiring the client to resolve it
+   * itself first) is what keeps that one round-trip instead of two.
    */
   async saveVersion(
     siteId: string,
-    inputs: GlossaryTermInput[],
+    terms: GlossaryExportTermInput[],
     actor: GlossaryActor
   ): Promise<{ terms: GlossaryTerm[]; version: GlossaryVersionSummary }> {
-    const resolved: {
-      term: string
-      definition: string
-      aliases: string[]
-      pageId: string | null
-    }[] = []
-    for (const raw of inputs) {
-      const term = (raw?.term ?? '').trim()
-      const definition = (raw?.definition ?? '').trim()
-      if (!term) {
-        throw new CustomError('glossaryEmptyTerm', 'A term cannot be empty.', 400)
-      }
-      if (!definition) {
-        throw new CustomError(
-          'glossaryEmptyDefinition',
-          `Term "${term}" has an empty definition.`,
-          400
-        )
-      }
-      const aliases = normalizeAliases(raw?.aliases, term)
-      const pageId = await this.validatePageId(siteId, raw?.pageId)
-      resolved.push({ term, definition, aliases, pageId })
-    }
-    assertNoInternalSurfaceFormCollision(resolved)
-
-    const terms = await this.replaceAllRows(siteId, resolved)
+    const resolved = await this.resolveExportTerms(siteId, terms)
+    const savedTerms = await this.replaceAllRows(siteId, resolved)
     const version = await this.recordVersion(siteId, actor)
-    return { terms, version }
+    return { terms: savedTerms, version }
   }
 
   /** Every saved version's metadata, most recent first -- no `snapshot` payload; see `getVersion`. */
