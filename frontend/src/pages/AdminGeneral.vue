@@ -682,16 +682,27 @@ watch(
 async function load() {
   state.loading++
   loading.show()
-  const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-  state.config = toMerged(defaultConfig(), {
-    ...resp,
-    pageExtensions: resp.pageExtensions.join(',')
-  })
-  state.hasLogo = resp?.assets?.logo ?? false
-  state.hasFavicon = resp?.assets?.favicon ?? false
-  // -> The hostname this site was actually serving as of this load, so save() can tell a real
-  //    rename apart from every other field change. See the comment in save() for why that matters.
-  loadedHostname = resp?.hostname ?? ''
+  // -> Unlike every sibling admin page's own `load()`, this ran bare between `loading.show()`/
+  //    `hide()` with no try/catch -- a network blip, 403, or restarting backend left the full-screen
+  //    overlay stuck over the whole admin area with no error shown (OpenProject #947).
+  try {
+    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
+    state.config = toMerged(defaultConfig(), {
+      ...resp,
+      pageExtensions: resp.pageExtensions.join(',')
+    })
+    state.hasLogo = resp?.assets?.logo ?? false
+    state.hasFavicon = resp?.assets?.favicon ?? false
+    // -> The hostname this site was actually serving as of this load, so save() can tell a real
+    //    rename apart from every other field change. See the comment in save() for why that matters.
+    loadedHostname = resp?.hostname ?? ''
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: 'Failed to load site configuration.',
+      caption: err.message
+    })
+  }
   loading.hide()
   state.loading--
 }

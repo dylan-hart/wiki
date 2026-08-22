@@ -734,8 +734,18 @@ watch(
       if (route.query.locale) {
         pageCreateArgs.locale = route.query.locale
       }
-      await pageStore.pageCreate(pageCreateArgs)
-      loading.hide()
+      // -> Unlike the plain page-load branch below (whose own catch handles every error this store
+      //    can throw), this had none at all -- `pageCreate` can reject (its own `fetchConfigs()` call
+      //    is a network request), which left the full-screen loading overlay up forever with the
+      //    error only in the console (OpenProject #947).
+      try {
+        await pageStore.pageCreate(pageCreateArgs)
+      } catch (err) {
+        notify({ type: 'negative', message: err.message })
+        router.replace('/')
+      } finally {
+        loading.hide()
+      }
       return
     }
 
@@ -745,12 +755,30 @@ watch(
         return router.replace('/')
       }
       loading.show()
-      await pageStore.pageEdit({
-        path: route.params.pagePath,
-        locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
-        fromNavigate: true
-      })
-      loading.hide()
+      // -> `pageEdit` throws `ERR_PAGE_NOT_FOUND`/`ERR_PAGE_UNAUTHORIZED` for a bad path (it calls
+      //    `pageLoad` internally, the same one the plain page-load branch below guards) -- left
+      //    unguarded here, `/_edit/<bad-path>` stranded the app behind the loading overlay forever
+      //    (OpenProject #947).
+      try {
+        await pageStore.pageEdit({
+          path: route.params.pagePath,
+          locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
+          fromNavigate: true
+        })
+      } catch (err) {
+        if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
+          router.replace('/_error/unauthorized')
+        } else {
+          notify({
+            type: 'negative',
+            message:
+              err.message === 'ERR_PAGE_NOT_FOUND' ? 'This page does not exist.' : err.message
+          })
+          router.replace('/')
+        }
+      } finally {
+        loading.hide()
+      }
       return
     }
 
@@ -1004,8 +1032,13 @@ async function createPage() {
     return
   }
   loading.show()
-  await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
-  loading.hide()
+  try {
+    await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
+  } catch (err) {
+    notify({ type: 'negative', message: err.message })
+  } finally {
+    loading.hide()
+  }
 }
 
 /**

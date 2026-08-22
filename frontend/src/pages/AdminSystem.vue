@@ -401,7 +401,18 @@ const clientViewport = computed(() => {
 async function load() {
   state.loading++
   loading.show()
-  state.info = await API_CLIENT.get('system/info').json()
+  // -> Unlike every sibling admin page's own `load()`, this ran bare between `loading.show()`/
+  //    `hide()` with no try/catch -- a network blip, 403, or restarting backend left the full-screen
+  //    overlay stuck over the whole admin area with no error shown (OpenProject #947).
+  try {
+    state.info = await API_CLIENT.get('system/info').json()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: 'Failed to load system information.',
+      caption: err.message
+    })
+  }
   loading.hide()
   state.loading--
 }
