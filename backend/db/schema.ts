@@ -989,6 +989,13 @@ export const pageHistory = pgTable(
      * kind of change later does not need a migration.
      */
     action: varchar({ length: 16 }).notNull().default('updated'),
+    /**
+     * What actually made this change: the standard editor, or an MCP tool call (`create_page`/
+     * `update_page`, OpenProject #1119). A varchar rather than an enum, same reasoning as `action`
+     * above -- a new source should not need a migration. `models/pageHistory.ts`'s `pageHistoryVia`
+     * is the closed list callers are expected to use today.
+     */
+    via: varchar({ length: 16 }).notNull().default('editor'),
     /** Which fields this change touched, so a history list can summarise it without diffing. */
     changedFields: text()
       .array()

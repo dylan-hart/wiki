@@ -9,6 +9,7 @@ const PAGE_ID = 'page-1'
 
 let previousWiki: any
 let updateCalls: any[]
+let auditCalls: any[]
 
 function ctx({
   userId = 'user-1' as string | null,
@@ -17,6 +18,7 @@ function ctx({
   pageExists = true
 } = {}) {
   updateCalls = []
+  auditCalls = []
   ;(globalThis as any).WIKI = {
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
@@ -40,6 +42,11 @@ function ctx({
             publishState: patch.publishState ?? 'published',
             updatedAt: new Date('2026-01-02T00:00:00Z')
           }
+        }
+      },
+      auditLog: {
+        record: async (entry: any) => {
+          auditCalls.push(entry)
         }
       }
     }
@@ -104,10 +111,30 @@ test('handleUpdatePage: updates only the given fields, attributed to the token o
     permissions: [],
     groupIds: [GROUP_ID],
     scope: undefined,
-    maxClassification: undefined
+    maxClassification: undefined,
+    via: 'mcp'
   })
   const page = textOf(result)
   assert.equal(page.title, 'New Title')
+})
+
+test('handleUpdatePage: records an mcp.writeToolCalled audit log entry naming the page', async () => {
+  const c = ctx({ access: ['write:pages'] })
+  await handleUpdatePage(c, { pageId: PAGE_ID, title: 'New Title' })
+  assert.equal(auditCalls.length, 1)
+  assert.equal(auditCalls[0].event, 'mcp.writeToolCalled')
+  assert.deepEqual(auditCalls[0].actor, { id: null, name: 'API Key key-1' })
+  assert.equal(auditCalls[0].targetType, 'page')
+  assert.equal(auditCalls[0].targetId, PAGE_ID)
+  assert.equal(auditCalls[0].targetLabel, 'docs/existing')
+  assert.deepEqual(auditCalls[0].detail, { tool: 'update_page' })
+  assert.equal(auditCalls[0].siteId, SITE_ID)
+})
+
+test('handleUpdatePage: refused calls never reach the audit log', async () => {
+  const c = ctx({ access: [] })
+  await assert.rejects(() => handleUpdatePage(c, { pageId: PAGE_ID, title: 'New Title' }))
+  assert.equal(auditCalls.length, 0)
 })
 
 test('handleUpdatePage: wraps a model validation failure as an McpToolError', async () => {

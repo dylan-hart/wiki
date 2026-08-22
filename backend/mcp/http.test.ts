@@ -18,6 +18,7 @@ describe('mcp/http', () => {
   let app: FastifyInstance
   let verifyCalls: string[]
   let rateLimitAllowed: boolean
+  let auditCalls: any[]
 
   const TOKEN_A = 'token-a'
   const TOKEN_B = 'token-b'
@@ -67,6 +68,11 @@ describe('mcp/http', () => {
         },
         rateLimits: {
           consume: async () => ({ allowed: rateLimitAllowed, hits: 1, retryAfter: 42 })
+        },
+        auditLog: {
+          record: async (entry: any) => {
+            auditCalls.push(entry)
+          }
         }
       }
     }
@@ -86,6 +92,7 @@ describe('mcp/http', () => {
     verifyCalls = []
     rateLimitAllowed = true
     tokenASiteId = null
+    auditCalls = []
   })
 
   function initializeRequest() {
@@ -195,6 +202,37 @@ describe('mcp/http', () => {
     const message = sseResult(res.body)
     assert.equal(message.result.serverInfo.name, 'wikijs-mcp')
     assert.equal(message.result.serverInfo.version, '3.0.0-test')
+  })
+
+  test('initialize records an mcp.sessionOpened audit log entry, attributed like any other apiKey-authenticated request', async () => {
+    const res = await openSession(TOKEN_A)
+    const sessionId = res.headers['mcp-session-id'] as string
+
+    assert.equal(auditCalls.length, 1)
+    assert.equal(auditCalls[0].event, 'mcp.sessionOpened')
+    assert.deepEqual(auditCalls[0].actor, { id: null, name: 'API Key key-a', ip: '127.0.0.1' })
+    assert.equal(auditCalls[0].targetType, 'apiKey')
+    assert.equal(auditCalls[0].targetId, 'key-a')
+    assert.deepEqual(auditCalls[0].detail, { transport: 'http', sessionId })
+  })
+
+  test('a follow-up POST on an existing session does not open a second one, so it does not log a second mcp.sessionOpened entry', async () => {
+    const opened = await openSession()
+    const sessionId = opened.headers['mcp-session-id'] as string
+
+    await app.inject({
+      method: 'POST',
+      url: '/',
+      headers: {
+        authorization: `Bearer ${TOKEN_A}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-session-id': sessionId
+      },
+      payload: { jsonrpc: '2.0', id: 2, method: 'tools/list' }
+    })
+
+    assert.equal(auditCalls.length, 1)
   })
 
   test('a follow-up POST on an existing session re-authorizes against that request own fresh verification, not the identity that opened it', async () => {

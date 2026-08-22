@@ -241,7 +241,9 @@ const AUDIT_EVENTS = [
   'glossaryTerm.deleted',
   'login.success',
   'login.failed',
-  'page.classificationChanged'
+  'page.classificationChanged',
+  'mcp.sessionOpened',
+  'mcp.writeToolCalled'
 ]
 
 const headers = [

@@ -27,6 +27,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { limitApiKey } from '../helpers/rateLimit.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { contextFromIdentity, type McpAuthContext } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
@@ -115,8 +116,20 @@ async function routes(app: FastifyInstance) {
       registerAllTools(server, () => newSession.ctx)
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (sid) => {
+        onsessioninitialized: async (sid) => {
           sessions.set(sid, newSession)
+          // -> #1118: the one place an MCP session over HTTP actually comes into being. `actorFromRequest`
+          //   reads `req.apiKey` (set by the `onRequest` hook above) the same way it does for every other
+          //   apiKey-authenticated `/_api/` request, so this entry is attributed identically to those.
+          await WIKI.models.auditLog.record({
+            event: 'mcp.sessionOpened',
+            actor: actorFromRequest(req),
+            targetType: 'apiKey',
+            targetId: ctx.keyId,
+            targetLabel: `API Key ${ctx.keyId}`,
+            detail: { transport: 'http', sessionId: sid },
+            siteId: ctx.siteId
+          })
         }
       })
       newSession.transport = transport

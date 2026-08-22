@@ -384,6 +384,38 @@ describe('PageHistoryOverlay: languageOf for a redirect-editor page', () => {
  * unsaved page's `id` would fetch, were the overlay ever reached with one) must not crash indexing
  * `state.versions[0]`, and must not raise a "failed to load" toast either, since nothing failed.
  */
+/**
+ * OpenProject #1119: page-history provenance -- a reader looking at the timeline must be able to tell
+ * an MCP-authored version apart from one typed into the editor.
+ */
+describe('PageHistoryOverlay: MCP provenance marker', () => {
+  it('shows a "via MCP" badge on a version whose via is mcp', async () => {
+    const mcpVersion = { ...VERSION, via: 'mcp' }
+    await mountOverlay({
+      mockEndpoints: () => {
+        globalThis.API_CLIENT.get.mockImplementation((url) => {
+          if (String(url).endsWith('/history')) {
+            return { json: () => Promise.resolve([mcpVersion]) }
+          }
+          return { json: () => Promise.resolve({ ...FULL_VERSION, via: 'mcp' }) }
+        })
+      }
+    })
+
+    expect(document.body.querySelector('.page-history-timeline').textContent).toContain(
+      'history.viaMcp'
+    )
+  })
+
+  it('shows no badge on a version whose via is editor (or unset)', async () => {
+    await mountOverlay()
+
+    expect(document.body.querySelector('.page-history-timeline').textContent).not.toContain(
+      'history.viaMcp'
+    )
+  })
+})
+
 describe('PageHistoryOverlay: no history yet', () => {
   it('shows the empty-history notice instead of crashing on an empty version list', async () => {
     const { wrapper } = await mountOverlay({

@@ -77,8 +77,16 @@
                 </w-badge>
               </div>
               <div class="page-history-meta">{{ humanizeDate(version.versionDate) }}</div>
-              <div class="page-history-meta">
-                {{ version.author.name || t('history.unknownAuthor') }}
+              <div class="page-history-meta flex items-center gap-1">
+                <span>{{ version.author.name || t('history.unknownAuthor') }}</span>
+                <!--
+                  #1119: provenance -- did the person actually type this, or did an MCP tool call
+                  acting as them? `version.via` comes straight off the `pageHistory` row.
+                -->
+                <w-badge v-if="version.via === 'mcp'" outline color="grey-5" rounded>
+                  {{ t('history.viaMcp') }}
+                  <w-tooltip>{{ t('history.viaMcpHint') }}</w-tooltip>
+                </w-badge>
               </div>
               <!-- Where it went, which is the whole point of telling a move apart from an edit. -->
               <div class="page-history-meta" v-if="version.action === `moved`">
@@ -424,7 +432,10 @@ function sideCaption(version) {
   if (!version) {
     return ''
   }
-  const author = version.author.name || t('history.unknownAuthor')
+  const author =
+    version.via === 'mcp'
+      ? t('history.viaMcpAuthor', { author: version.author.name || t('history.unknownAuthor') })
+      : version.author.name || t('history.unknownAuthor')
   return version.reason ? `${author} — ${version.reason}` : author
 }
 

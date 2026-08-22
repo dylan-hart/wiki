@@ -2,6 +2,7 @@ import { ApiKeyError } from '../models/apiKeys.ts'
 import type { ApiKeyIdentity } from '../models/apiKeys.ts'
 import type { AccessActor } from '../models/groups.ts'
 import type { PageActor } from '../models/pages.ts'
+import type { AuditActor } from '../models/auditLog.ts'
 
 /**
  * Raised for anything that stops an MCP tool call before it reaches a model: an invalid/revoked/
@@ -130,6 +131,10 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
  * token (`ctx.userId` set) has one to offer — an admin-issued key has no user behind it to attribute
  * the page to, exactly as it grants no page-saving through `/_api/` either. `write:scripts`/
  * `write:styles` are page-rule-scoped, so `groupIds` travels with the actor the same way it does there.
+ *
+ * `via: 'mcp'` is what makes the resulting `pageHistory` row distinguishable from an edit made through
+ * the standard editor (OpenProject #1119) — `models/pages.ts`'s write methods thread `actor.via`
+ * straight through to `pageHistory.record()`.
  */
 export function pageActorFor(ctx: McpAuthContext): PageActor | null {
   if (!ctx.userId) {
@@ -140,7 +145,8 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
     permissions: ctx.permissions,
     groupIds: ctx.groupIds,
     scope: ctx.scope,
-    maxClassification: ctx.maxClassification
+    maxClassification: ctx.maxClassification,
+    via: 'mcp'
   }
 }
 
@@ -152,6 +158,17 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
  */
 export function maySeeEverything(actor: AccessActor): boolean {
   return WIKI.models.groups.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'])
+}
+
+/**
+ * Who a tool call audit-logs as (`models/auditLog.ts`, #1118) -- mirrors `actorFromRequest()`'s own
+ * `req.apiKey` branch (`models/auditLog.ts`) exactly: named by the key's id rather than resolving the
+ * personal token's owning user, so every apiKey-authenticated write -- MCP or `/_api/` -- is attributed
+ * the same way in this log. `ctx` carries no IP (a tool handler only ever sees the auth context, not
+ * the request), so `actorIp` is left at the model's own `''` default.
+ */
+export function auditActorFor(ctx: McpAuthContext): AuditActor {
+  return { id: null, name: `API Key ${ctx.keyId}` }
 }
 
 /**

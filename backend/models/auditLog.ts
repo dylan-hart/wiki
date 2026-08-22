@@ -33,7 +33,17 @@ export const AUDIT_EVENTS = [
    * conflict. `detail` carries `{ from, to }` (level ids) so the listing can say what changed without
    * a second lookup.
    */
-  'page.classificationChanged'
+  'page.classificationChanged',
+  // -> #1118: MCP activity. Deliberately only these two, not one per read tool call too -- a read on
+  //   a busy agent integration (`search_pages`/`get_page`/`list_navigation`/`list_sites`) would be
+  //   noisy at this table's granularity with little corresponding benefit, while a session opening and
+  //   a write are exactly the two things "what can an agent holding my token actually reach" needs
+  //   answered here. Instrumented in `mcp/http.ts` (session lifecycle, HTTP transport) and
+  //   `mcp/stdio.ts` (session lifecycle, stdio transport) for the former, and `mcp/tools/createPage.ts`
+  //   /`updatePage.ts` for the latter -- the write tools are the same handlers regardless of which
+  //   transport called them, so this fires for both.
+  'mcp.sessionOpened',
+  'mcp.writeToolCalled'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
@@ -45,6 +55,9 @@ export const AUDIT_TARGET_TYPES = [
   'apiKey',
   'site',
   'storageTarget',
+  // -> #1118: `mcp.writeToolCalled`'s target is the page the tool call wrote, not the calling key
+  //   (that's `mcp.sessionOpened`'s `apiKey` target) -- naming the page is what makes the log entry
+  //   answer "what did the agent write", not just "an agent wrote something".
   'page',
   'glossaryTerm'
 ] as const
