@@ -81,6 +81,7 @@ const SERVER_ROUTE_SEGMENTS = new Set([
   '_collab',
   '_files',
   '_icons',
+  '_mcp',
   '_render',
   '_site',
   '_terminal',
@@ -791,6 +792,9 @@ async function initHTTPServer() {
   app.register(import('./controllers/files.ts'), { prefix: '/_files' })
   app.register(import('./controllers/site.ts'), { prefix: '/_site' })
   app.register(import('./controllers/icons.ts'), { prefix: '/_icons' })
+  // -> The MCP server's HTTP/SSE transport (`mcp/http.ts`) — see that file's doc comment for the
+  //    session/auth model. `mcp/stdio.ts` is the other transport, run as its own OS process.
+  app.register(import('./mcp/http.ts'), { prefix: '/_mcp' })
   // -> Deliberate exception to the leading-underscore convention every other line here follows:
   //    Prometheus scrapes a fixed, unprefixed `/metrics`. See `controllers/metrics.ts` for the full
   //    scope decision (task 594).
