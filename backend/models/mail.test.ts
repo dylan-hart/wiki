@@ -14,10 +14,15 @@ const originalSend = mail.send.bind(mail)
 
 /** The default site a `siteId` in these tests resolves to — one non-primary locale (`fr`) active
  *  alongside the primary (`en`), so `sendPageWatchNotification`/`sendPageWatchDigest` have a real
- *  `locales` config to resolve `WIKI.sites[siteId]?.config?.locales` against. */
+ *  `locales` config to resolve `WIKI.sites[siteId]?.config?.locales` against. Its `hostname` is
+ *  deliberately distinct from `defaultBaseURL`'s host, so a test asserting on the per-site host
+ *  cannot pass by accident from the global fallback leaking through unnoticed. */
 const DEFAULT_SITE_ID = 'site-1'
 const DEFAULT_SITES = {
-  [DEFAULT_SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr'] } } }
+  [DEFAULT_SITE_ID]: {
+    hostname: 'de.wiki.example.com',
+    config: { locales: { primary: 'en', active: ['en', 'fr'] } }
+  }
 }
 
 function setMailConfig(cfg: Record<string, any> = {}, sites: Record<string, any> = DEFAULT_SITES) {
@@ -395,7 +400,7 @@ describe('mail template senders', () => {
     assert.equal(msg.to, 'ada@example.com')
   })
 
-  test('sendPageWatchNotification links to the page path with no locale segment for the primary locale', async () => {
+  test('sendPageWatchNotification links at the site hostname, not the instance defaultBaseURL', async () => {
     await mail.sendPageWatchNotification({
       to: 'ada@example.com',
       siteId: DEFAULT_SITE_ID,
@@ -406,8 +411,8 @@ describe('mail template senders', () => {
     })
     const msg = sendCalls[0]
     assert.equal(msg.to, 'ada@example.com')
-    assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
-    assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
   })
 
   test('sendPageWatchNotification for a non-primary-locale page links with the locale prefix', async () => {
@@ -420,8 +425,49 @@ describe('mail template senders', () => {
       actorName: 'Bob'
     })
     const msg = sendCalls[0]
-    assert.match(msg.html, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
-    assert.match(msg.text, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+    assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
+  })
+
+  test('sendPageWatchNotification falls back to defaultBaseURL when the site has no hostname on record', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: 'site-unresolvable',
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    assert.match(msg.text, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+  })
+
+  test('sendPageWatchNotification falls back to defaultBaseURL for the * catch-all site', async () => {
+    setMailConfig(
+      {
+        host: 'smtp.example.com',
+        senderEmail: 'wiki@example.com',
+        defaultBaseURL: 'https://wiki.example.com'
+      },
+      {
+        'catch-all-site': { hostname: '*', config: { locales: { primary: 'en', active: ['en'] } } }
+      }
+    )
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: 'catch-all-site',
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const msg = sendCalls[0]
+    assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    assert.doesNotMatch(msg.html, /https:\/\/\*\//)
   })
 
   test('sendPageWatchNotification summarises an edit as "edited: <fields>"', async () => {
@@ -491,7 +537,7 @@ describe('mail template senders', () => {
       assert.match(msg.text, /Bob/)
       assert.match(msg.text, /edited: title/)
       assert.match(msg.html, /edited: title/)
-      assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
     })
 
     test('a non-primary-locale item links with the locale prefix, alongside a primary-locale item with none', async () => {
@@ -514,9 +560,43 @@ describe('mail template senders', () => {
         ]
       })
       const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/docs\/getting-started/)
+      assert.match(msg.html, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
+      assert.match(msg.text, /https:\/\/de\.wiki\.example\.com\/fr\/docs\/getting-started/)
+    })
+
+    test('falls back to defaultBaseURL for the * catch-all site', async () => {
+      setMailConfig(
+        {
+          host: 'smtp.example.com',
+          senderEmail: 'wiki@example.com',
+          defaultBaseURL: 'https://wiki.example.com'
+        },
+        {
+          'catch-all-site': {
+            hostname: '*',
+            config: { locales: { primary: 'en', active: ['en'] } }
+          }
+        }
+      )
+      mail.send = (async (msg: any) => {
+        sendCalls.push(msg)
+      }) as any
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        siteId: 'catch-all-site',
+        items: [
+          {
+            page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
       assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
-      assert.match(msg.html, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
-      assert.match(msg.text, /https:\/\/wiki\.example\.com\/fr\/docs\/getting-started/)
+      assert.doesNotMatch(msg.html, /https:\/\/\*\//)
     })
 
     test('several items each contribute their own line, in the given order', async () => {

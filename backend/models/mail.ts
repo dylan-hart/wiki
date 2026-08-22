@@ -193,13 +193,32 @@ class MailModel {
   }
 
   /**
-   * Build `<defaultBaseURL><path>`, without a doubled-up slash. Every template link goes through
-   * this so a missing `defaultBaseURL` produces an obviously-relative (and obviously wrong) link
-   * rather than a silently broken one.
+   * Build `<base><path>`, without a doubled-up slash. Every template link goes through this so a
+   * missing base produces an obviously-relative (and obviously wrong) link rather than a silently
+   * broken one.
+   *
+   * @param baseURL Overrides `WIKI.config.mail.defaultBaseURL` — used by the page-watch templates to
+   *   link at the originating site's own hostname instead of the instance-wide default. See
+   *   {@link resolveMailBaseURL}.
    */
-  buildLink(path: string): string {
-    const base = (WIKI.config.mail?.defaultBaseURL ?? '').replace(/\/+$/, '')
+  buildLink(path: string, baseURL?: string): string {
+    const base = (baseURL ?? WIKI.config.mail?.defaultBaseURL ?? '').replace(/\/+$/, '')
     return `${base}${path}`
+  }
+
+  /**
+   * The base URL a page-watch email should link at: `https://<site hostname>` for a real site, or
+   * `WIKI.config.mail.defaultBaseURL` when there is no site to ask (no `siteId`, an unresolvable
+   * one) or the site is the `*` catch-all, which has no hostname of its own to link at. No per-site
+   * override setting exists for scheme/port (v1 scope decision, OpenProject #1023) — `https://` is
+   * assumed, matching how every other Wiki.js 3.x site link is built.
+   */
+  private resolveMailBaseURL(siteId?: string): string {
+    const hostname = siteId ? WIKI.sites[siteId]?.hostname : null
+    if (hostname && hostname !== '*') {
+      return `https://${hostname}`
+    }
+    return WIKI.config.mail?.defaultBaseURL ?? ''
   }
 
   /**
@@ -312,17 +331,20 @@ class MailModel {
    * @param locales The originating site's locale routing config, resolved by the caller
    *   (`sendPageWatchNotification` / `sendPageWatchDigest`) from `WIKI.sites[siteId]`, since a
    *   `pageWatchEvents` row outlives the page but the site config does not need re-resolving per row.
+   * @param baseURL The link's host, resolved by the caller via {@link resolveMailBaseURL} for the
+   *   same reason as `locales` — once per send, from the one `siteId` every item in a send shares.
    */
   private renderWatchEventLine(
     { page, action, changedFields, actorName }: WatchEventItem,
-    locales?: LocaleRoutingConfig | null
+    locales: LocaleRoutingConfig | null | undefined,
+    baseURL: string
   ): {
     text: string
     html: string
   } {
     const label = WATCH_ACTION_LABELS[action]
     const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
-    const link = this.buildLink(localizedPagePath(page.path, page.locale, locales))
+    const link = this.buildLink(localizedPagePath(page.path, page.locale, locales), baseURL)
     const safeTitle = escapeHtml(page.title)
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
@@ -354,8 +376,13 @@ class MailModel {
     actorName: string
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
+    const baseURL = this.resolveMailBaseURL(siteId)
     const label = WATCH_ACTION_LABELS[action]
-    const line = this.renderWatchEventLine({ page, action, changedFields, actorName }, locales)
+    const line = this.renderWatchEventLine(
+      { page, action, changedFields, actorName },
+      locales,
+      baseURL
+    )
     await this.send({
       to,
       subject: `Page ${label}: ${page.title}`,
@@ -387,7 +414,8 @@ class MailModel {
     items: WatchEventItem[]
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
-    const lines = items.map((item) => this.renderWatchEventLine(item, locales))
+    const baseURL = this.resolveMailBaseURL(siteId)
+    const lines = items.map((item) => this.renderWatchEventLine(item, locales, baseURL))
     const count = items.length
     const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
     const text = lines.map((line) => `- ${line.text}`).join('\n')
