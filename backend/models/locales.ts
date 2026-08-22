@@ -1,7 +1,8 @@
-import { stat, readFile } from 'node:fs/promises'
+import { stat, readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { locales as localesTable } from '../db/schema.ts'
 import { eq, sql } from 'drizzle-orm'
+import { isPlainObject } from 'es-toolkit/predicate'
 import type { LocalazyLanguage } from '../locales/metadata.d.ts'
 
 /**
@@ -48,10 +49,151 @@ export function computeCompleteness(
   return Math.round((100 * matching) / baseKeys.length)
 }
 
+/** One locale pack as a sideload JSON file must shape it — see `parseSideloadLocalePack`. */
+export interface SideloadLocalePack {
+  name: string
+  nativeName: string
+  language: string
+  region: string
+  script: string
+  isRTL: boolean
+  strings: Record<string, unknown>
+}
+
+/**
+ * Validates one parsed JSON file from `<dataPath>/locales/` (OpenProject #820's sideload
+ * mechanism — see `sideloadFromDataPath`) into a `SideloadLocalePack`, or an error string naming
+ * what is missing. A sideload file is self-contained (unlike the vendored files under
+ * `backend/locales/`, whose metadata comes from `locales/metadata.js`): it may name a code the
+ * built-in language table has never heard of, which is the whole point of letting an operator add
+ * a locale, not just update one. Only `name`, `language` and `strings` are required; the rest
+ * default the same way a fresh row would.
+ */
+export function parseSideloadLocalePack(
+  raw: unknown
+): { ok: true; pack: SideloadLocalePack } | { ok: false; error: string } {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: 'not a JSON object' }
+  }
+  const obj = raw as Record<string, unknown>
+  if (typeof obj.name !== 'string' || !obj.name) {
+    return { ok: false, error: 'missing required string field "name"' }
+  }
+  if (typeof obj.language !== 'string' || !obj.language) {
+    return { ok: false, error: 'missing required string field "language"' }
+  }
+  if (!isPlainObject(obj.strings)) {
+    return { ok: false, error: 'missing required object field "strings"' }
+  }
+  return {
+    ok: true,
+    pack: {
+      name: obj.name,
+      nativeName: typeof obj.nativeName === 'string' ? obj.nativeName : obj.name,
+      language: obj.language,
+      region: typeof obj.region === 'string' ? obj.region : '',
+      script: typeof obj.script === 'string' ? obj.script : '',
+      isRTL: obj.isRTL === true,
+      strings: obj.strings as Record<string, unknown>
+    }
+  }
+}
+
 /**
  * Locales model
  */
 class Locales {
+  /**
+   * `<dataPath>/locales` — a writeable directory an operator drops locale-pack JSON files into
+   * against a running instance's data volume, no rebuild/redeploy/network access needed. Read by
+   * `sideloadFromDataPath`, which `refreshFromDisk` calls on every boot; `POST
+   * /_api/locales/sideload` re-runs it on demand for an instance that is already up. See
+   * `docs/offline-deployment.md` (OpenProject #820).
+   */
+  sideloadPath(): string {
+    // -> Falls back to `base.yml`'s own default rather than requiring every caller (including a
+    //    `WIKI.config` fixture that has no reason to care about paths) to have merged it in.
+    return path.resolve(WIKI.ROOTPATH, WIKI.config.dataPath || './data', 'locales')
+  }
+
+  /**
+   * Loads every `<code>.json` file under `sideloadPath()` into the `locales` table, the same
+   * mtime-vs-`updatedAt` freshness check and `completeness` computation `refreshFromDisk` uses for
+   * the vendored files — a sideloaded pack updates an existing code, or adds a wholly new one that
+   * `locales/metadata.js` never declared. Missing directory is not an error: most instances have
+   * nothing sideloaded, and this runs unconditionally on every boot.
+   */
+  async sideloadFromDataPath({ force = false }: { force?: boolean } = {}): Promise<{
+    loaded: string[]
+    skipped: { code: string; error: string }[]
+  }> {
+    const dir = this.sideloadPath()
+    let files: string[]
+    try {
+      files = (await readdir(dir)).filter((f) => f.endsWith('.json'))
+    } catch {
+      return { loaded: [], skipped: [] }
+    }
+
+    const baseStrings = JSON.parse(
+      await readFile(path.join(WIKI.SERVERPATH, 'locales/en.json'), 'utf8')
+    )
+    const dbLocales = await WIKI.db
+      .select({ code: localesTable.code, updatedAt: localesTable.updatedAt })
+      .from(localesTable)
+
+    const loaded: string[] = []
+    const skipped: { code: string; error: string }[] = []
+
+    for (const file of files) {
+      const code = file.replace(/\.json$/, '')
+      const flPath = path.join(dir, file)
+      let raw: unknown
+      try {
+        raw = JSON.parse(await readFile(flPath, 'utf8'))
+      } catch (err: any) {
+        skipped.push({ code, error: `invalid JSON: ${err.message}` })
+        continue
+      }
+      const parsed = parseSideloadLocalePack(raw)
+      if (!parsed.ok) {
+        skipped.push({ code, error: parsed.error })
+        continue
+      }
+
+      const dbLang = dbLocales.find((l) => l.code === code)
+      if (dbLang && !force) {
+        const flStat = await stat(flPath)
+        const flUpdatedAt = flStat.mtime.toTemporalInstant()
+        if (Temporal.Instant.compare(dbLang.updatedAt.toTemporalInstant(), flUpdatedAt) >= 0) {
+          continue
+        }
+      }
+
+      const completeness =
+        code === 'en' ? 100 : computeCompleteness(baseStrings, parsed.pack.strings)
+      await WIKI.db
+        .insert(localesTable)
+        .values({ code, ...parsed.pack, completeness })
+        .onConflictDoUpdate({
+          target: localesTable.code,
+          set: { ...parsed.pack, completeness, updatedAt: sql`now()` }
+        })
+      loaded.push(code)
+      WIKI.logger.info(`Sideloaded locale ${code} from ${this.sideloadPath()}. [ OK ]`)
+    }
+
+    if (loaded.length > 0) {
+      await WIKI.models.locales.reloadCache()
+    }
+    if (skipped.length > 0) {
+      WIKI.logger.warn(
+        `${skipped.length} sideload locale file(s) were skipped: ${skipped.map((s) => `${s.code} (${s.error})`).join(', ')}`
+      )
+    }
+    return { loaded, skipped }
+  }
+
   async refreshFromDisk({ force = false }: { force?: boolean } = {}): Promise<false | void> {
     try {
       const localesMeta = (await import('../locales/metadata.js')).default
@@ -133,6 +275,8 @@ class Locales {
           `${localFilesSkipped} locales were defined in the metadata file but not found on disk. [ SKIPPED ]`
         )
       }
+
+      await this.sideloadFromDataPath({ force })
     } catch (err: any) {
       WIKI.logger.warn('Failed to load locales from disk: [ FAILED ]')
       WIKI.logger.warn(err)
