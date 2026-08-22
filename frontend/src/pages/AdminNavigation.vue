@@ -200,7 +200,15 @@ const state = reactive({
   search: '',
   /** `null` means every locale -- the "All Locales" option in `localeOptions`. */
   locale: null,
-  overrides: []
+  overrides: [],
+  /**
+   * The administered site's own active locales and primary locale, fetched fresh per
+   * `loadSiteLocales()` -- deliberately NOT `siteStore.locales`, which is the site currently serving
+   * this browser tab and can differ from `adminStore.currentSiteId`, the site actually being
+   * administered here (OpenProject #948). Read by `localeOptions` and `openDefaultMenu()` below.
+   */
+  siteLocales: [],
+  sitePrimaryLocale: 'en'
 })
 
 // HELPERS
@@ -263,7 +271,7 @@ function openNavEditor(navId, title) {
  * menu spanning every locale to fall back to instead.
  */
 async function openDefaultMenu() {
-  const locale = state.locale ?? siteStore.locales.primary
+  const locale = state.locale ?? state.sitePrimaryLocale
   let navigationId
   try {
     ;({ navigationId } = await API_CLIENT.get(
@@ -303,7 +311,7 @@ function openEntry(row) {
 
 const localeOptions = computed(() => [
   { code: null, name: t('admin.navigation.allLocales') },
-  ...siteStore.locales.active
+  ...state.siteLocales
 ])
 
 /** Path-only, per the task: the locale and mode columns are informational, not filterable here. */
@@ -345,6 +353,17 @@ const columns = [
 
 // WATCHERS
 
+/*
+  Every sibling site-scoped admin page (`AdminGeneral.vue`, `AdminApprovals.vue`,
+  `AdminPagesDeleted.vue`, `AdminLocale.vue`) watches `adminStore.currentSiteId` and refetches --
+  this one did not, so switching sites with the sidebar picker while on this screen left the
+  overrides table showing the previous site's rows while "Edit Default Menu" (reading
+  `adminStore.currentSiteId` at call time) silently edited the NEW site's menu (OpenProject #948).
+*/
+watch(() => adminStore.currentSiteId, load)
+watch(() => adminStore.currentSiteId, loadSiteLocales)
+// -> The locale filter itself: re-runs `load()` alone, not `loadSiteLocales()` -- the OPTIONS in the
+//    dropdown do not depend on which one is currently picked, only on which site is administered.
 watch(() => state.locale, load)
 
 // METHODS
@@ -370,9 +389,31 @@ async function load() {
   state.loading--
 }
 
+/**
+ * The administered site's own active/primary locales -- see `state.siteLocales`'s doc comment for
+ * why this is not read off `siteStore` directly. Kept as its own request (not folded into `load()`)
+ * so filtering the overrides table by locale does not also re-fetch the site's locale list on every
+ * change; only a site switch needs this to run again.
+ */
+async function loadSiteLocales() {
+  try {
+    const site = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
+    state.siteLocales = site?.locales?.active ?? []
+    state.sitePrimaryLocale = site?.locales?.primary ?? 'en'
+  } catch (err) {
+    // -> Non-fatal: the locale filter falling back to "All Locales" only is a degraded control, not
+    //    a broken page -- `load()`'s own error handling above covers the data this screen exists to
+    //    show.
+    state.siteLocales = []
+  }
+}
+
 // MOUNTED
 
-onMounted(load)
+onMounted(() => {
+  loadSiteLocales()
+  load()
+})
 </script>
 
 <style lang="scss"></style>
