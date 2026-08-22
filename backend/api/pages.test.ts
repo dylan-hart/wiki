@@ -1220,6 +1220,211 @@ describe('POST /sites/:siteId/pages/import', () => {
 })
 
 /**
+ * Builds a `multipart/form-data` body for `app.inject()`, using the platform's own `Response` to do
+ * the encoding (boundary, per-part headers) rather than hand-rolling it — the same bytes a browser's
+ * `fetch(..., { body: formData })` would send.
+ */
+async function buildMultipartPayload(
+  files: { fieldName?: string; fileName: string; content: string; type?: string }[]
+): Promise<{ payload: Buffer; contentType: string }> {
+  const form = new FormData()
+  for (const file of files) {
+    form.append(
+      file.fieldName ?? 'files',
+      new Blob([file.content], { type: file.type ?? 'text/plain' }),
+      file.fileName
+    )
+  }
+  const res = new Response(form)
+  const payload = Buffer.from(await res.arrayBuffer())
+  const contentType = res.headers.get('content-type')!
+  return { payload, contentType }
+}
+
+/**
+ * Route-level test for `POST /sites/:siteId/pages/import/batch` (OpenProject #849).
+ *
+ * Same division of labor as the single-file import route above: conversion itself is
+ * `models/import.ts`'s job, already covered by `models/import.test.ts`. What this suite checks is
+ * the route's own wiring — the `write:pages` permission gate, that every uploaded file reaches the
+ * model, and that one file failing does not stop the rest of the batch from converting.
+ */
+describe('POST /sites/:siteId/pages/import/batch', () => {
+  let app: FastifyInstance
+  let checkAccess: ReturnType<typeof mock.fn>
+  let convertToMarkdown: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    checkAccess = mock.fn(() => true)
+    convertToMarkdown = mock.fn(async ({ data }: { data: Buffer }) => `# ${data.toString()}\n`)
+
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      models: {
+        groups: {
+          actorForRequest: () => ({ id: null, permissions: [] }),
+          checkAccess,
+          groupIdsForRequest: () => []
+        },
+        pageImport: {
+          convertToMarkdown
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      if (req.headers['x-test-anon'] !== 'true') {
+        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      }
+      done()
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    checkAccess.mock.resetCalls()
+    checkAccess.mock.mockImplementation(() => true)
+    convertToMarkdown.mock.resetCalls()
+    convertToMarkdown.mock.mockImplementation(
+      async ({ data }: { data: Buffer }) => `# ${data.toString()}\n`
+    )
+  })
+
+  function batchUrl(query: Record<string, string> = {}) {
+    const params = new URLSearchParams({ format: 'mediawiki', path: 'docs/imported', ...query })
+    return `/sites/11111111-1111-1111-1111-111111111111/pages/import/batch?${params.toString()}`
+  }
+
+  test('an anonymous request is refused before any file is read', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'a.mediawiki', content: '= A =' }
+    ])
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType, 'x-test-anon': 'true' },
+      payload
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
+  test('refuses a caller without write:pages on the declared path', async () => {
+    checkAccess.mock.mockImplementation(() => false)
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'a.mediawiki', content: '= A =' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+    const [, permission, page] = checkAccess.mock.calls[0].arguments as [
+      unknown,
+      string,
+      { path: string }
+    ]
+    assert.equal(permission, 'write:pages')
+    assert.equal(page.path, 'docs/imported')
+  })
+
+  test('rejects a request with no files without asking the model to convert anything', async () => {
+    const { payload, contentType } = await buildMultipartPayload([])
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
+  test('converts every file in the batch, in order, sharing the one declared format', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'first.mediawiki', content: 'First' },
+      { fileName: 'second.mediawiki', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl({ format: 'mediawiki' }),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.deepEqual(body.results, [
+      { fileName: 'first.mediawiki', ok: true, markdown: '# First\n' },
+      { fileName: 'second.mediawiki', ok: true, markdown: '# Second\n' }
+    ])
+    assert.equal(convertToMarkdown.mock.callCount(), 2)
+    for (const call of convertToMarkdown.mock.calls) {
+      assert.equal((call.arguments[0] as { format: string }).format, 'mediawiki')
+    }
+  })
+
+  test('one file failing does not stop the rest of the batch from converting', async () => {
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => {
+      if (data.toString() === 'bad') {
+        throw new CustomError(
+          'importNoContent',
+          'Pandoc converted this file but produced no usable content.',
+          400
+        )
+      }
+      return `# ${data.toString()}\n`
+    })
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'good.mediawiki', content: 'good' },
+      { fileName: 'bad.mediawiki', content: 'bad' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.results.length, 2)
+    assert.deepEqual(body.results[0], {
+      fileName: 'good.mediawiki',
+      ok: true,
+      markdown: '# good\n'
+    })
+    assert.equal(body.results[1].fileName, 'bad.mediawiki')
+    assert.equal(body.results[1].ok, false)
+    assert.match(body.results[1].message, /no usable content/)
+  })
+})
+
+/**
  * Regression test for `GET .../pages/alias/:alias` (feature 357, task 446).
  *
  * `Pages.getPathFromAlias()` used to select only `{ id, path }`, so this route's

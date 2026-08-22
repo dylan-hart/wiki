@@ -14,6 +14,16 @@ const IMPORT_TIMEOUT = 30 * 1000
  */
 export const MAX_IMPORT_SIZE = 25 * 1024 * 1024
 
+/**
+ * The most files a single batch import request may carry.
+ *
+ * Each file spawns its own pandoc process (`convertToMarkdown` -> `runPandoc`), so this bounds how
+ * many concurrent conversions one request can trigger rather than any storage concern — generous
+ * enough for "a folder of exported wiki pages" while keeping one request from turning into an
+ * unbounded pandoc fork bomb.
+ */
+export const MAX_IMPORT_BATCH_FILES = 20
+
 /** How much of pandoc's stderr is kept when reporting a failure, taken from the end where the error is. */
 const importErrorLength = 800
 
