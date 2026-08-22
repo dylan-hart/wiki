@@ -1,4 +1,5 @@
 import { AzureKeyCredential, SearchClient, SearchIndexClient } from '@azure/search-documents'
+import { chunk } from 'es-toolkit/array'
 import { and, asc, eq } from 'drizzle-orm'
 import { pages as pagesTable } from '../../../db/schema.ts'
 import type { SearchIndex } from '@azure/search-documents'
@@ -74,6 +75,7 @@ export interface AzureSearchQueryOptions {
   skip?: number
   includeTotalCount?: boolean
   searchFields?: string[]
+  select?: string[]
   highlightFields?: string
   highlightPreTag?: string
   highlightPostTag?: string
@@ -425,9 +427,20 @@ export class AzureSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => AzureSearchIndexClient
   private readonly searchClientFactory: (config: Record<string, any>) => AzureSearchQueryClient
   private readonly pageSource: RebuildPageSource
-  /** One client per site: each site's `serviceName`/`adminApiKey` can point at a different service. */
-  private readonly clients = new Map<string, AzureSearchIndexClient>()
-  private readonly queryClients = new Map<string, AzureSearchQueryClient>()
+  /**
+   * One client per site, each tagged with the config (as JSON) it was built from -- the same
+   * `configKey` pattern `elasticsearch`/`algolia`'s `getClient()` already use -- so that changing
+   * `serviceName`/`adminApiKey`/`indexName` in the admin area invalidates the cached client on the very
+   * next call instead of silently keeping the old one until a process restart (OpenProject #922).
+   */
+  private readonly clients = new Map<
+    string,
+    { client: AzureSearchIndexClient; configKey: string }
+  >()
+  private readonly queryClients = new Map<
+    string,
+    { client: AzureSearchQueryClient; configKey: string }
+  >()
 
   constructor(
     clientFactory: (config: Record<string, any>) => AzureSearchIndexClient = defaultClientFactory,
@@ -442,20 +455,24 @@ export class AzureSearchModule implements SearchModule {
   }
 
   private clientFor(siteId: string, config: Record<string, any>): AzureSearchIndexClient {
-    let client = this.clients.get(siteId)
-    if (!client) {
-      client = this.clientFactory(config)
-      this.clients.set(siteId, client)
+    const configKey = JSON.stringify(config)
+    const cached = this.clients.get(siteId)
+    if (cached && cached.configKey === configKey) {
+      return cached.client
     }
+    const client = this.clientFactory(config)
+    this.clients.set(siteId, { client, configKey })
     return client
   }
 
   private queryClientFor(siteId: string, config: Record<string, any>): AzureSearchQueryClient {
-    let client = this.queryClients.get(siteId)
-    if (!client) {
-      client = this.searchClientFactory(config)
-      this.queryClients.set(siteId, client)
+    const configKey = JSON.stringify(config)
+    const cached = this.queryClients.get(siteId)
+    if (cached && cached.configKey === configKey) {
+      return cached.client
     }
+    const client = this.searchClientFactory(config)
+    this.queryClients.set(siteId, { client, configKey })
     return client
   }
 
@@ -560,6 +577,35 @@ export class AzureSearchModule implements SearchModule {
       rows.push(row)
     }
     return { rows, count: response.count ?? 0 }
+  }
+
+  /**
+   * Every document id currently in the index for a site, paginated `id`-only (`select`) so a large
+   * index is never pulled through in one request. `rebuild()`'s purge step (OpenProject #922) diffs
+   * this against what it just re-uploaded to find what should no longer be there.
+   */
+  private async fetchAllIds(client: AzureSearchQueryClient, siteId: string): Promise<string[]> {
+    const PAGE_SIZE = 1000
+    const ids: string[] = []
+    let skip = 0
+    for (;;) {
+      const { rows } = await this.runQuery(client, undefined, {
+        filter: buildFilter({ siteId }),
+        select: ['id'],
+        top: PAGE_SIZE,
+        skip,
+        includeTotalCount: false
+      })
+      if (rows.length === 0) {
+        break
+      }
+      ids.push(...rows.map((row) => row.document.id as string))
+      skip += rows.length
+      if (rows.length < PAGE_SIZE) {
+        break
+      }
+    }
+    return ids
   }
 
   /**
@@ -767,14 +813,25 @@ export class AzureSearchModule implements SearchModule {
    * Each locale's rows are paginated through `pageSource.pageBatch` (`REBUILD_BATCH_SIZE` at a time)
    * and every batch's documents are pushed through `mergeOrUploadDocuments` before the next page of
    * rows is read, so the working set stays one batch wide regardless of site size.
+   *
+   * Purges ghost documents afterwards (OpenProject #922): `mergeOrUploadDocuments` only ever upserts,
+   * so a page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc
+   * comment names as what a later rebuild is supposed to put right -- stayed in the index forever.
+   * Every id currently in the index for this site (`fetchAllIds`, a siteId-filtered query) that was not
+   * just re-uploaded is stale and gets removed with `deleteDocuments`, itself chunked to
+   * `REBUILD_BATCH_SIZE` per call the same way the upload loop above is -- a site whose deletions
+   * outnumber Azure's own per-request action/payload limits would otherwise fail the single call this
+   * used to make outright.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
     WIKI.logger.info(`Rebuilding the Azure AI Search index for ${locales.length} locale(s)...`)
+    const client = this.queryClientFor(siteId, this.configFor(siteId))
+    const existingIds = await this.fetchAllIds(client, siteId)
+    const uploadedIds = new Set<string>()
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
-      const client = this.queryClientFor(siteId, this.configFor(siteId))
       let offset = 0
       let localePages = 0
       let batch: SearchIndexablePage[]
@@ -782,6 +839,9 @@ export class AzureSearchModule implements SearchModule {
         batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
         if (batch.length > 0) {
           await client.mergeOrUploadDocuments(batch.map(toIndexDocument))
+          for (const page of batch) {
+            uploadedIds.add(page.id)
+          }
           localePages += batch.length
           offset += batch.length
         }
@@ -790,6 +850,16 @@ export class AzureSearchModule implements SearchModule {
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+    }
+
+    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+    if (staleIds.length > 0) {
+      for (const idBatch of chunk(staleIds, REBUILD_BATCH_SIZE)) {
+        await client.deleteDocuments('id', idBatch)
+      }
+      WIKI.logger.info(
+        `Purged ${staleIds.length} stale document(s) from the Azure AI Search index.`
+      )
     }
 
     WIKI.logger.info(`Azure AI Search index rebuild completed: ${result.pages} page(s) [ OK ]`)

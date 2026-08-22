@@ -242,6 +242,10 @@ async function postBoot() {
   //    (`site.config.search.engine`) rather than keeping a row per installed module, so there is no
   //    per-site sync step to run here the way there is for storage/blocks
   await WIKI.models.search.refreshFromDisk()
+  // -> Provisions whatever engine each site currently has active (OpenProject #920) -- covers a site
+  //    that selected a non-`db` engine before this existed, and every normal restart after, which each
+  //    module's idempotent `init()` is safe to run again for
+  await WIKI.models.search.initActiveEngines()
 
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it

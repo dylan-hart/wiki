@@ -105,6 +105,20 @@ export function getTlsOptions(config: Record<string, any>): TlsConnectionOptions
 }
 
 /**
+ * `sniffInterval` in milliseconds, the unit `@elastic/elasticsearch`'s client option actually expects
+ * (OpenProject #923) -- `definition.yml` documents and the admin area collects the value in *seconds*
+ * ("Interval in seconds to check for an updated list of nodes..."), so the stored config value has to
+ * be multiplied here rather than passed straight through. `0` (or anything not positive) still means
+ * "disabled", matching the definition's own "0 disables it" and the SDK's own `false` sentinel for that.
+ *
+ * Its own exported function -- like `getTlsOptions` above -- so the conversion is a plain unit test
+ * rather than something only checkable by inspecting a constructed `Client`'s internal transport state.
+ */
+export function toSniffIntervalMs(sniffInterval: unknown): number | false {
+  return typeof sniffInterval === 'number' && sniffInterval > 0 ? sniffInterval * 1000 : false
+}
+
+/**
  * A page row, as an Elasticsearch document. See `INDEX_MAPPINGS`'s doc comment for why `siteId`
  * travels on every document despite not being one of `SearchPagesParams`' own filters.
  */
@@ -254,9 +268,10 @@ interface SiteClient {
  * no reason to still be running. Recorded in `docs/variances.md`.
  *
  * State (`clients`) and lazy per-site resolution follow the Algolia module's `AlgoliaSearchModule`
- * exactly, for the same reason: `models/search.ts`'s dispatcher never actually calls `init()` before
- * the first `query`/`created`/etc. (see that module's class doc comment), so every hook here resolves
- * its own client through `getClient()` rather than depending on `init()` having run first.
+ * exactly, for the same reason: `models/search.ts`'s `selectEngine()`/`initActiveEngines()` do call
+ * `init()` now (OpenProject #920, see that module's class doc comment), but every hook here still
+ * resolves its own client through `getClient()` independently rather than depending on `init()` having
+ * run first.
  */
 export class ElasticsearchSearchModule implements SearchModule {
   private clients = new Map<string, SiteClient>()
@@ -274,7 +289,7 @@ export class ElasticsearchSearchModule implements SearchModule {
       nodes: hosts,
       tls: getTlsOptions(config),
       sniffOnStart: !!config.sniffOnStart,
-      sniffInterval: config.sniffInterval > 0 ? config.sniffInterval : false,
+      sniffInterval: toSniffIntervalMs(config.sniffInterval),
       name: 'wiki-js'
     })
   }

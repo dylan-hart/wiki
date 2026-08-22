@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import path from 'node:path'
-import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, mock, test } from 'node:test'
 import { FixedThreadPool } from 'poolifier'
 import { eq, inArray } from 'drizzle-orm'
 import {
@@ -28,7 +28,12 @@ function installFakeTemporal(): void {
     subtract: (d: any) => makeInstant(epochMs - durationToMs(d)),
     toString: () => new Date(epochMs).toISOString()
   })
-  ;(globalThis as any).Temporal = { Now: { instant: () => makeInstant(Date.now()) } }
+  ;(globalThis as any).Temporal = {
+    Now: { instant: () => makeInstant(Date.now()) },
+    // -> `expireCompletionPromises()` (OpenProject #928) compares two instants with `Instant.compare`,
+    //    per CLAUDE.md's own note that Temporal types have no `valueOf` and `<` throws.
+    Instant: { compare: (a: any, b: any) => Math.sign(a.epochMilliseconds - b.epochMilliseconds) }
+  }
 }
 
 let scheduler: any
@@ -227,6 +232,100 @@ describe('addScheduled (fake WIKI)', () => {
       assert.equal(job.task, 'testTask')
       assert.ok(job.waitUntil instanceof Date)
     }
+  })
+})
+
+/**
+ * `expireCompletionPromises()`, OpenProject #928: the only way an `addJob({ promise: true })` deferred
+ * ever otherwise settled was a `jobCompleted` NOTIFY -- and postgres NOTIFY is not durable, so one
+ * missed during a LISTEN reconnect left the deferred, and everything awaiting it, pending forever. This
+ * sweep rejects (and stops tracking) any entry older than its ceiling, driven entirely by
+ * `completionPromises`/`WIKI.config` -- no database or real timers involved, so it runs as a fast fake-
+ * WIKI unit test rather than needing the DB-backed fixture below.
+ */
+describe('expireCompletionPromises (fake WIKI)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  beforeEach(() => {
+    scheduler.completionPromises = []
+  })
+
+  /** A `CompletionPromise`-shaped entry `ageSeconds` in the past, recording whether/how it settled. */
+  function makeEntry(ageSeconds: number) {
+    const added = (globalThis as any).Temporal.Now.instant().subtract({ seconds: ageSeconds })
+    let rejectedWith: Error | undefined
+    let resolved = false
+    return {
+      entry: {
+        id: `job-aged-${ageSeconds}s`,
+        added,
+        resolve: () => {
+          resolved = true
+        },
+        reject: (err: Error) => {
+          rejectedWith = err
+        }
+      },
+      getRejection: () => rejectedWith,
+      wasResolved: () => resolved
+    }
+  }
+
+  test('rejects and drops an entry older than 2x staleJobTimeout', () => {
+    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    const { entry, getRejection } = makeEntry(25) // -> past the 20s (10 * 2) ceiling
+    scheduler.completionPromises.push(entry)
+
+    scheduler.expireCompletionPromises()
+
+    assert.equal(scheduler.completionPromises.length, 0)
+    assert.match(getRejection()!.message, /Timed out/)
+    assert.match(getRejection()!.message, /job-aged-25s/)
+  })
+
+  test('leaves an entry younger than the ceiling untouched', () => {
+    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    const { entry, getRejection, wasResolved } = makeEntry(5) // -> well under the 20s ceiling
+    scheduler.completionPromises.push(entry)
+
+    scheduler.expireCompletionPromises()
+
+    assert.equal(scheduler.completionPromises.length, 1)
+    assert.equal(getRejection(), undefined)
+    assert.equal(wasResolved(), false)
+  })
+
+  test('falls back to the default stale job timeout (doubled) when nothing is configured', () => {
+    ;(globalThis as any).WIKI = { config: { scheduler: {} } }
+    const { entry } = makeEntry(5) // -> far under the multi-hour default ceiling
+    scheduler.completionPromises.push(entry)
+
+    scheduler.expireCompletionPromises()
+
+    assert.equal(scheduler.completionPromises.length, 1)
+  })
+
+  test('only removes the expired entries, leaving fresh ones in place', () => {
+    ;(globalThis as any).WIKI = { config: { scheduler: { staleJobTimeout: 10 } } }
+    const stale = makeEntry(25)
+    const fresh = makeEntry(1)
+    scheduler.completionPromises.push(stale.entry, fresh.entry)
+
+    scheduler.expireCompletionPromises()
+
+    assert.deepEqual(
+      scheduler.completionPromises.map((p: any) => p.id),
+      [fresh.entry.id]
+    )
+    assert.ok(stale.getRejection())
   })
 })
 
@@ -444,6 +543,49 @@ describe(
       assert.equal(after1.state, 'interrupted')
       const stillQueued = await fixtures.db.select().from(jobsTable).where(eq(jobsTable.id, row.id))
       assert.equal(stillQueued.length, 0)
+    })
+
+    /**
+     * OpenProject #928: a job that is abandoned outright (no attempts left) is never picked up and run
+     * again by anything, so `runJob()`'s own `jobCompleted` NOTIFY -- the ordinary way a completion
+     * promise settles -- is never going to fire for it. `reapStaleJobs()` must send that NOTIFY itself
+     * for exactly this case, or the only thing standing between an `addJob({ promise: true })` caller
+     * and hanging forever is `expireCompletionPromises()`'s much longer ceiling.
+     *
+     * `WIKI.scheduler` here is `createSchedulerStub()`'s plain object (`test/db.ts`), not the real
+     * `scheduler` module under test -- `notifier` (module-scope in `scheduler.ts`) reads
+     * `WIKI.scheduler.pubsubClient` on every send, so handing that stub object a fake `query()` is what
+     * lets a NOTIFY attempt be observed without a second, real LISTEN/NOTIFY client.
+     */
+    test('sends a jobCompleted NOTIFY for a job it abandons, since nothing else ever will', async () => {
+      const row = await insertActiveHistory({
+        attempt: 3,
+        maxRetries: 2,
+        lastErrorMessage: null
+      })
+      historyIds.push(row.id)
+      const query = mock.fn(async (_sql: string, _params?: any[]) => ({}) as any)
+      WIKI.scheduler.pubsubClient = { query } as any
+
+      try {
+        await scheduler.reapStaleJobs()
+        // -> `notifier.send()` (helpers/pubsub.ts) is deliberately fire-and-forget -- queued behind a
+        //    promise chain `reapStaleJobs()` itself never awaits -- so a beat is needed for the queued
+        //    `query()` call to actually run before it can be asserted against.
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      } finally {
+        WIKI.scheduler.pubsubClient = null
+      }
+
+      assert.equal(query.mock.callCount(), 1)
+      const [sql, params] = query.mock.calls[0]!.arguments
+      assert.match(sql as string, /pg_notify/)
+      const [channel, payload] = params as [string, string]
+      assert.equal(channel, 'scheduler')
+      const decoded = JSON.parse(payload)
+      assert.equal(decoded.event, 'jobCompleted')
+      assert.equal(decoded.state, 'failed')
+      assert.equal(decoded.id, row.id)
     })
 
     test('two concurrent sweeps never both requeue the same stranded job', async () => {

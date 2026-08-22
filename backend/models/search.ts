@@ -15,6 +15,21 @@ import type { pages as pagesTable } from '../db/schema.ts'
 const DB_MODULE = 'db'
 
 /**
+ * How long `initActiveEngines()` waits on one site's `init()` before giving up on it (OpenProject
+ * #920 follow-up).
+ *
+ * `init()` reaches an external service (Azure/AWS/Elasticsearch/Algolia) with no bound of its own —
+ * a couple of these SDKs' underlying HTTP clients have no default request timeout at all, so a
+ * misconfigured host (firewalled, black-holed) can leave the promise neither resolving nor rejecting.
+ * `initActiveEngines()`'s own doc comment promises that "one site's bad credentials or unreachable
+ * service is logged and skipped, not allowed to abort boot for every other site" -- a bare `try`/
+ * `catch` only delivers that for a service that actively refuses, not one that never answers, since
+ * the `for` loop awaits each site in turn before moving to the next. This ceiling is what makes a hang
+ * behave the same as any other failure here.
+ */
+const ENGINE_INIT_TIMEOUT_MS = 30_000
+
+/**
  * `dictOverrides` only: `termHighlighting` used to live here too (task #563), but task #574 folded it
  * into the `db` engine's own per-engine config (`site.config.search.engines.db.termHighlighting`,
  * `getEngineConfig()` below) since it is already expressed as a normal boolean prop on `db`'s
@@ -499,6 +514,17 @@ class Search {
    * stored, keyed under the engine so a later switch back to it starts from what was last saved rather
    * than from the engine's bare defaults.
    *
+   * Also provisions the engine (OpenProject #920): before this, nothing anywhere ever called a
+   * `SearchModule`'s `init()` — `azure-search` and `aws-cloudsearch` put all of their index/domain
+   * provisioning exclusively there (unlike `algolia`/`elasticsearch`, which additionally provision
+   * lazily on first use), so selecting either left an operator with an index that was never created.
+   * Every implementation's `init()` is expected to be idempotent (each module's own doc comment says
+   * so), so calling it here on every selection -- including reselecting the engine that was already
+   * active -- is safe. Left uncaught on purpose: a provisioning failure (bad credentials, an
+   * unreachable service) is exactly what an operator picking an engine needs to see immediately, not a
+   * selection that silently saved but never works. `initActiveEngines()` below covers the boot-time
+   * half of the same gap.
+   *
    * @returns Whether the site was written
    */
   async selectEngine(
@@ -508,9 +534,58 @@ class Search {
   ): Promise<boolean> {
     const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
     const config = this.buildEngineConfig(key, incoming, stored)
-    return WIKI.models.sites.updateSite(siteId, {
+    const updated = await WIKI.models.sites.updateSite(siteId, {
       config: { search: { engine: key, engines: { [key]: config } } }
     })
+    if (updated) {
+      const module = await this.ensureModule(key)
+      if (module) {
+        await module.init(siteId, config)
+      }
+    }
+    return updated
+  }
+
+  /**
+   * Provision every site's currently active search engine, task #920's boot-time counterpart to
+   * `selectEngine()` above.
+   *
+   * Covers what a per-selection call cannot: a site whose non-`db` engine was already selected before
+   * this task existed (so `selectEngine()` never ran for it), and a normal restart, which every
+   * implementation's `init()` is safe to run again for. Each site is provisioned independently -- one
+   * site's bad credentials or unreachable service is logged and skipped, not allowed to abort boot for
+   * every other site.
+   */
+  async initActiveEngines(): Promise<void> {
+    for (const siteId of Object.keys(WIKI.sites)) {
+      const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+      const module = await this.ensureModule(key)
+      if (!module) {
+        continue
+      }
+      let timer: NodeJS.Timeout | undefined
+      try {
+        await Promise.race([
+          module.init(siteId, this.getEngineConfig(siteId, key)),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              reject(
+                new Error(
+                  `Timed out after ${ENGINE_INIT_TIMEOUT_MS / 1000}s waiting for "${key}" to initialize.`
+                )
+              )
+            }, ENGINE_INIT_TIMEOUT_MS)
+          })
+        ])
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
+        )
+        WIKI.logger.warn(err.message)
+      } finally {
+        clearTimeout(timer)
+      }
+    }
   }
 
   /**
