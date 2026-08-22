@@ -188,8 +188,10 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+import { MarkdownRenderer } from '@/renderers/markdown'
 
 import { useSiteStore } from '@/stores/site'
+import { useEditorStore } from '@/stores/editor'
 
 /**
  * Pick several files in one of Pandoc's supported formats, convert them all in one request through
@@ -252,6 +254,7 @@ const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
 // STORES
 
 const siteStore = useSiteStore()
+const editorStore = useEditorStore()
 
 // I18N
 
@@ -414,6 +417,29 @@ function defaultPath(fileName) {
   return [props.basePath, slug].filter(Boolean).join('/')
 }
 
+/**
+ * The HTML for one row's converted markdown, produced the same way `InboxReview.vue`'s
+ * `renderReviewed` does for an approval that also never passes through a mounted editor: the
+ * markdown pipeline lives in the frontend (`renderers/markdown.js`), so nothing server-side ever
+ * turns `content` into `render` on its own. Skipping this and sending `content` alone would save a
+ * page whose `render` is empty -- and a page view reads `render`, not `content`
+ * (`pages/Index.vue`'s `v-html="pageStore.render"`) -- so every imported page would show blank to
+ * a reader until somebody happened to open and re-save it in the editor.
+ *
+ * Site-specific config (line breaks, typographer, ...) comes bundled with the editor configs
+ * rather than on its own, so it is fetched once per dialog open, not per row.
+ *
+ * @throws Whatever `MarkdownRenderer#render` throws on unparsable source -- caught by the caller,
+ *   same as a failed save.
+ */
+async function renderMarkdown(markdown, pagePath) {
+  if (!editorStore.configIsLoaded) {
+    await editorStore.fetchConfigs()
+  }
+  const md = new MarkdownRenderer(editorStore.editors.markdown ?? {})
+  return md.render(markdown, { pagePath })
+}
+
 /** One `POST sites/:siteId/pages`, thrown as a plain Error on `{ ok: false }` even when ky itself did not throw (see `boot/api.js`'s 400 carve-out). */
 async function createPage(payload) {
   const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages`, { json: payload }).json()
@@ -428,12 +454,13 @@ async function fetchExistingPage(path) {
   return API_CLIENT.get(`sites/${siteStore.id}/pages/${hash}`).json()
 }
 
-async function overwriteExisting(row) {
+async function overwriteExisting(row, render) {
   const existing = await fetchExistingPage(row.path)
   const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${existing.id}`, {
     json: {
       title: row.title,
       content: row.markdown,
+      render,
       expectedUpdatedAt: existing.updatedAt
     }
   }).json()
@@ -452,12 +479,23 @@ async function overwriteExisting(row) {
 async function saveRow(row) {
   row.saveStatus = 'saving'
   row.saveMessage = ''
+
+  let render
+  try {
+    render = await renderMarkdown(row.markdown, row.path)
+  } catch (err) {
+    row.saveStatus = 'failed'
+    row.saveMessage = apiErrorMessage(err, 'Failed to render this page.')
+    return
+  }
+
   try {
     const page = await createPage({
       editor: 'markdown',
       path: row.path,
       title: row.title,
-      content: row.markdown
+      content: row.markdown,
+      render
     })
     row.path = page.path
     row.saveStatus = 'saved'
@@ -479,7 +517,7 @@ async function saveRow(row) {
 
   if (state.conflictBehavior === 'overwrite') {
     try {
-      const page = await overwriteExisting(row)
+      const page = await overwriteExisting(row, render)
       row.path = page.path
       row.saveStatus = 'saved'
     } catch (err) {
@@ -498,7 +536,8 @@ async function saveRow(row) {
         editor: 'markdown',
         path: attemptPath,
         title: row.title,
-        content: row.markdown
+        content: row.markdown,
+        render
       })
       row.path = page.path
       row.saveStatus = 'saved'

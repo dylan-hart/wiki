@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 
 import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
 import { useSiteStore } from '@/stores/site'
+import { useEditorStore } from '@/stores/editor'
 import { queue as notifyQueue } from '@/composables/notify'
 
 /*
@@ -21,6 +22,9 @@ async function mountDialog(props = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
+  // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking --
+  //    same pattern `InboxReview.test.js` uses for the same `MarkdownRenderer` config dependency
+  useEditorStore().configIsLoaded = true
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
@@ -162,7 +166,7 @@ describe('ImportBatchPageDialog', () => {
     return wrapper
   }
 
-  it('saves a converted row through the ordinary create-page endpoint', async () => {
+  it('saves a converted row through the ordinary create-page endpoint, rendered HTML included', async () => {
     await convertOneGoodFile()
 
     globalThis.API_CLIENT.post.mockReturnValueOnce({
@@ -179,7 +183,35 @@ describe('ImportBatchPageDialog', () => {
       title: 'good',
       content: '# Good\n'
     })
+    // -> Regression guard (OpenProject #849 fix): the markdown pipeline is a frontend concern
+    //    (`renderers/markdown.js`), and a page view reads `pageStore.render`, not `content` -- a
+    //    save with no `render` here published a page that showed blank to every reader.
+    expect(createCall[1].json.render).toEqual(expect.stringContaining('Good'))
+    expect(createCall[1].json.render).not.toBe('')
     expect(body().find('.import-batch-row').text()).toContain('Saved')
+  })
+
+  it('fails a row on its own when its markdown will not render, without touching the save endpoint', async () => {
+    await convertOneGoodFile()
+    // -> `MarkdownRenderer#render` throws on unparsable source; forcing that here proves a bad
+    //    render fails only this row rather than the request never reaching `createPage` at all
+    const renderSpy = vi
+      .spyOn(await import('@/renderers/markdown'), 'MarkdownRenderer')
+      .mockImplementation(() => ({
+        render: () => {
+          throw new Error('boom')
+        }
+      }))
+
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    expect(body().find('.import-batch-row').text()).toContain('Failed')
+    expect(body().find('.import-batch-row').text()).toContain('boom')
+    expect(
+      globalThis.API_CLIENT.post.mock.calls.filter((c) => c[0] === 'sites/site-1/pages')
+    ).toHaveLength(0)
+    renderSpy.mockRestore()
   })
 
   it('one row failing to save does not stop the others (independent per-file progress)', async () => {
