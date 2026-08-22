@@ -58,3 +58,33 @@ function isPrivateIPv6(address: string): boolean {
     firstGroup.startsWith('fd')
   )
 }
+
+/**
+ * Whether `hostname` is covered by any pattern in `allowedDomains` — the enforcement half of the
+ * per-credential domain allowlist (OpenProject #868 follow-up). An empty list matches nothing:
+ * `models/blockCredentials.ts` requires at least one domain at creation time specifically so this
+ * function is never the only thing standing between "credential exists" and "credential unusable."
+ *
+ * Matching is case-insensitive. A pattern starting with `*.` matches exactly one extra label before
+ * the given suffix — the same convention a TLS wildcard certificate uses (`*.example.com` matches
+ * `api.example.com`, not `example.com` itself and not `a.b.example.com`) — chosen because it is the
+ * behavior most people already carry an intuition for, and it does not silently cover a whole
+ * multi-level subtree an admin may not have intended. Any other pattern (including a bare IP
+ * literal, since a URL's `hostname` for an IP-literal address is the literal itself) matches only by
+ * exact string equality.
+ */
+export function hostnameMatchesAllowlist(hostname: string, allowedDomains: string[]): boolean {
+  const target = hostname.toLowerCase()
+  return allowedDomains.some((pattern) => {
+    const normalized = pattern.toLowerCase()
+    if (normalized.startsWith('*.')) {
+      const suffix = normalized.slice(1) // ".example.com"
+      if (!target.endsWith(suffix)) {
+        return false
+      }
+      const prefix = target.slice(0, target.length - suffix.length)
+      return prefix.length > 0 && !prefix.includes('.')
+    }
+    return target === normalized
+  })
+}

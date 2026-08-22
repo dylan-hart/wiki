@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isPrivateAddress } from './network.ts'
+import { hostnameMatchesAllowlist, isPrivateAddress } from './network.ts'
 
 describe('isPrivateAddress', () => {
   test('flags IPv4 loopback', () => {
@@ -55,5 +55,49 @@ describe('isPrivateAddress', () => {
   test('a non-IP-literal hostname is not itself flagged -- callers must resolve first', () => {
     assert.equal(isPrivateAddress('example.com'), false)
     assert.equal(isPrivateAddress('localhost'), false)
+  })
+})
+
+describe('hostnameMatchesAllowlist', () => {
+  test('matches an exact hostname', () => {
+    assert.equal(hostnameMatchesAllowlist('api.example.com', ['api.example.com']), true)
+  })
+
+  test('does not match a different hostname', () => {
+    assert.equal(hostnameMatchesAllowlist('evil.com', ['api.example.com']), false)
+  })
+
+  test('matches case-insensitively', () => {
+    assert.equal(hostnameMatchesAllowlist('API.Example.COM', ['api.example.com']), true)
+    assert.equal(hostnameMatchesAllowlist('api.example.com', ['API.EXAMPLE.COM']), true)
+  })
+
+  test('a wildcard pattern matches exactly one extra label', () => {
+    assert.equal(hostnameMatchesAllowlist('api.example.com', ['*.example.com']), true)
+  })
+
+  test('a wildcard pattern does not match the bare root domain', () => {
+    assert.equal(hostnameMatchesAllowlist('example.com', ['*.example.com']), false)
+  })
+
+  test('a wildcard pattern does not match two extra labels', () => {
+    assert.equal(hostnameMatchesAllowlist('a.b.example.com', ['*.example.com']), false)
+  })
+
+  test('a wildcard pattern does not match an unrelated suffix', () => {
+    assert.equal(hostnameMatchesAllowlist('api.notexample.com', ['*.example.com']), false)
+  })
+
+  test('matches a bare IP-literal entry by exact string', () => {
+    assert.equal(hostnameMatchesAllowlist('203.0.113.5', ['203.0.113.5']), true)
+    assert.equal(hostnameMatchesAllowlist('203.0.113.6', ['203.0.113.5']), false)
+  })
+
+  test('an empty allowlist matches nothing', () => {
+    assert.equal(hostnameMatchesAllowlist('api.example.com', []), false)
+  })
+
+  test('matches when any one of several patterns matches', () => {
+    assert.equal(hostnameMatchesAllowlist('api.example.com', ['other.com', '*.example.com']), true)
   })
 })
