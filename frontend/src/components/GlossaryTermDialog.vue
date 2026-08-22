@@ -227,7 +227,16 @@ watch(() => state.path, debounce(checkPath, 400))
 function addAlias() {
   const value = state.aliasInput.trim()
   state.aliasInput = ''
-  if (!value || state.aliases.some((a) => a.toLowerCase() === value.toLowerCase())) {
+  const lower = value.toLowerCase()
+  // -> Mirrors `normalizeAliases()` server-side (`models/glossary.ts`), which silently drops an
+  //    alias matching the term itself -- it would only ever be a no-op surface form, never a
+  //    genuinely distinct one. Rejecting it here too means a chip never appears just to vanish,
+  //    unexplained, the next time this entry round-trips through Save.
+  if (
+    !value ||
+    lower === state.term.trim().toLowerCase() ||
+    state.aliases.some((a) => a.toLowerCase() === lower)
+  ) {
     return
   }
   state.aliases.push(value)

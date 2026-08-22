@@ -168,6 +168,16 @@ describe('GlossaryTermDialog - aliases (OpenProject #1110)', () => {
     expect(wrapper.vm.state.aliases).toEqual(['HSM'])
   })
 
+  it('ignores an alias that only differs from the term by case (OpenProject #1110)', () => {
+    const wrapper = mountDialog()
+    wrapper.vm.state.term = 'API'
+
+    wrapper.vm.state.aliasInput = 'api'
+    wrapper.vm.addAlias()
+
+    expect(wrapper.vm.state.aliases).toEqual([])
+  })
+
   it('removes an alias chip', () => {
     const wrapper = mountDialog()
     wrapper.vm.state.aliases = ['HSM', 'Hot Mill']
