@@ -279,7 +279,12 @@ export class MarkdownRenderer {
               : ''
           // -> `lang` is escaped too: it is whatever the author typed after the backticks, and a quote
           //    in it would otherwise close the attribute and inject markup into the preview
-          return `<pre class="codeblock hljs ${lineCount > 1 && 'line-numbers'}"><code class="language-${escape(lang ?? '')}">${highlighted.value}${lineNums}</code></pre>`
+          // -> A ternary, not `&&`: for a single-line block (`lineCount > 1` false) `&&` short-circuits
+          //    to the boolean `false` itself, which then interpolated as the literal string "false"
+          //    into the class attribute -- and since this render is both preview AND what gets saved,
+          //    that literal class was written into every page's stored HTML permanently
+          //    (OpenProject #946).
+          return `<pre class="codeblock hljs${lineCount > 1 ? ' line-numbers' : ''}"><code class="language-${escape(lang ?? '')}">${highlighted.value}${lineNums}</code></pre>`
         }
       }
     })
