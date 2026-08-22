@@ -172,13 +172,24 @@ class Locales {
 
       const completeness =
         code === 'en' ? 100 : computeCompleteness(baseStrings, parsed.pack.strings)
-      await WIKI.db
-        .insert(localesTable)
-        .values({ code, ...parsed.pack, completeness })
-        .onConflictDoUpdate({
-          target: localesTable.code,
-          set: { ...parsed.pack, completeness, updatedAt: sql`now()` }
-        })
+      // -> A pack can pass shape validation (`parseSideloadLocalePack`) and still violate a column
+      //    constraint the DB enforces (e.g. `language`/`region`/`script` are short `varchar`s) — caught
+      //    here rather than left to propagate, so one such file is reported in `skipped` like any other
+      //    bad file instead of aborting the whole scan (at boot, taking every not-yet-processed vendored
+      //    locale down with it; via `POST /sideload`, turning into an opaque 500 instead of the specific
+      //    per-file report this endpoint exists to give).
+      try {
+        await WIKI.db
+          .insert(localesTable)
+          .values({ code, ...parsed.pack, completeness })
+          .onConflictDoUpdate({
+            target: localesTable.code,
+            set: { ...parsed.pack, completeness, updatedAt: sql`now()` }
+          })
+      } catch (err: any) {
+        skipped.push({ code, error: `could not be saved: ${err.message}` })
+        continue
+      }
       loaded.push(code)
       WIKI.logger.info(`Sideloaded locale ${code} from ${this.sideloadPath()}. [ OK ]`)
     }

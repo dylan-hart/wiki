@@ -369,6 +369,31 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(result.skipped[0]!.code, 'broken')
   })
 
+  test('skips a pack that violates a DB column constraint, without aborting the rest of the scan', async () => {
+    // -> Passes `parseSideloadLocalePack`'s shape validation (a string) but is far past `language`'s
+    //    `varchar(8)` column limit, so the insert itself is what has to catch this.
+    await writeFile(
+      path.join(sideloadDir, 'toolong.json'),
+      JSON.stringify({ name: 'Too Long', language: 'a'.repeat(20), strings: { key0: 'x' } })
+    )
+    await writeFile(
+      path.join(sideloadDir, 'es.json'),
+      JSON.stringify({ name: 'Spanish', language: 'es', strings: { key0: 'uno' } })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['es'])
+    assert.equal(result.skipped.length, 1)
+    assert.equal(result.skipped[0]!.code, 'toolong')
+    assert.match(result.skipped[0]!.error, /could not be saved/)
+
+    const [row] = await fixtures.db
+      .select()
+      .from(localesTable)
+      .where(eq(localesTable.code, 'toolong'))
+    assert.equal(row, undefined, 'the rejected row must not have been inserted')
+  })
+
   test('a missing sideload directory is not an error', async () => {
     const missingRoot = await mkdtemp(path.join(tmpdir(), 'wiki-sideload-missing-'))
     const previousDataPath = WIKI.config.dataPath
