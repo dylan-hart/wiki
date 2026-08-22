@@ -39,7 +39,7 @@
     "@tiptap/starter-kit": "3.30.2",
     "@tiptap/suggestion": "3.30.2",
     "@tiptap/vue-3": "3.30.2",
-    "@twemoji/api": "17.0.3",
+    "@twemoji/api": "17.0.2",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
     "asciidoctor": "4.0.11",
