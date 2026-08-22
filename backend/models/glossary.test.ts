@@ -600,4 +600,62 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       )
     })
   })
+
+  describe('audit log instrumentation (OpenProject #1115)', () => {
+    let auditLogModel: typeof import('./auditLog.ts').auditLog
+    const glossaryActor = { id: null, name: 'Audit Tester', ip: '127.0.0.1' }
+
+    before(async () => {
+      ;({ auditLog: auditLogModel } = await import('./auditLog.ts'))
+    })
+
+    test('createTerm() records a glossaryTerm.created entry only when an actor is given', async () => {
+      const withoutActor = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditNoActor',
+        definition: 'No actor passed.'
+      })
+      const withActor = await glossaryModel.createTerm(
+        fixtures.siteId,
+        { term: 'AuditWithActor', definition: 'Actor passed.' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.created' })
+      assert.ok(
+        entries.some((e) => e.targetId === withActor.id && e.targetLabel === 'AuditWithActor')
+      )
+      assert.ok(!entries.some((e) => e.targetId === withoutActor.id))
+    })
+
+    test('updateTerm() records which fields changed', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditUpdateMe',
+        definition: 'Before.'
+      })
+
+      await glossaryModel.updateTerm(
+        fixtures.siteId,
+        created.id,
+        { definition: 'After.' },
+        glossaryActor
+      )
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.updated' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.deepEqual(entry?.detail.changedFields, ['definition'])
+    })
+
+    test('deleteTerm() records the deleted term’s label', async () => {
+      const created = await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'AuditDeleteMe',
+        definition: 'Gone soon.'
+      })
+
+      await glossaryModel.deleteTerm(fixtures.siteId, created.id, glossaryActor)
+
+      const { entries } = await auditLogModel.list({ event: 'glossaryTerm.deleted' })
+      const entry = entries.find((e) => e.targetId === created.id)
+      assert.equal(entry?.targetLabel, 'AuditDeleteMe')
+    })
+  })
 })

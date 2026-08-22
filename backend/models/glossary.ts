@@ -108,7 +108,19 @@ class Glossary {
     return rows[0] ?? null
   }
 
-  async createTerm(siteId: string, input: GlossaryTermInput): Promise<GlossaryTerm> {
+  /**
+   * `actor` is optional -- a caller with no session to attribute to (a test, a future seed/migration
+   * path) simply gets no audit entry, rather than being forced to invent one. The single-term REST
+   * routes (`api/glossary.ts`) always pass `actorFromRequest(req)`, so every real admin edit through
+   * those routes IS attributed. Written from here rather than the API layer -- unlike every other
+   * `auditLog.record()` call site in this codebase -- per the OpenProject #1115 spec's explicit
+   * instruction to instrument these model methods directly.
+   */
+  async createTerm(
+    siteId: string,
+    input: GlossaryTermInput,
+    actor?: GlossaryActor
+  ): Promise<GlossaryTerm> {
     const term = input.term.trim()
     const definition = input.definition.trim()
     if (!term) {
@@ -134,21 +146,36 @@ class Glossary {
       throw err
     }
     this.invalidateCache(siteId)
-    return inserted[0]
+    const row = inserted[0]!
+    if (actor) {
+      await WIKI.models.auditLog.record({
+        event: 'glossaryTerm.created',
+        actor,
+        targetType: 'glossaryTerm',
+        targetId: row.id,
+        targetLabel: row.term,
+        detail: {},
+        siteId
+      })
+    }
+    return row
   }
 
   async updateTerm(
     siteId: string,
     id: string,
-    input: Partial<GlossaryTermInput>
+    input: Partial<GlossaryTermInput>,
+    actor?: GlossaryActor
   ): Promise<GlossaryTerm> {
     const values: Record<string, any> = { updatedAt: sql`now()` }
+    const changedFields: string[] = []
     if (input.term !== undefined) {
       const term = input.term.trim()
       if (!term) {
         throw new CustomError('glossaryEmptyTerm', 'A term cannot be empty.', 400)
       }
       values.term = term
+      changedFields.push('term')
     }
     if (input.definition !== undefined) {
       const definition = input.definition.trim()
@@ -156,9 +183,11 @@ class Glossary {
         throw new CustomError('glossaryEmptyDefinition', 'A definition cannot be empty.', 400)
       }
       values.definition = definition
+      changedFields.push('definition')
     }
     if (input.pageId !== undefined) {
       values.pageId = await this.validatePageId(siteId, input.pageId)
+      changedFields.push('pageId')
     }
 
     // -> A collision check needs the FULL post-update surface-form set, so when either `term` or
@@ -171,6 +200,9 @@ class Glossary {
       const nextTerm = values.term ?? current.term
       const aliases = normalizeAliases(input.aliases ?? current.aliases, nextTerm)
       values.aliases = aliases
+      if (input.aliases !== undefined) {
+        changedFields.push('aliases')
+      }
       await this.assertNoSurfaceFormCollision(siteId, nextTerm, aliases, id)
     }
 
@@ -191,16 +223,40 @@ class Glossary {
       throw new CustomError('glossaryNotFound', 'This glossary term does not exist.', 404)
     }
     this.invalidateCache(siteId)
-    return updated[0]
+    const row = updated[0]!
+    if (actor) {
+      await WIKI.models.auditLog.record({
+        event: 'glossaryTerm.updated',
+        actor,
+        targetType: 'glossaryTerm',
+        targetId: row.id,
+        targetLabel: row.term,
+        detail: { changedFields },
+        siteId
+      })
+    }
+    return row
   }
 
-  async deleteTerm(siteId: string, id: string): Promise<boolean> {
+  async deleteTerm(siteId: string, id: string, actor?: GlossaryActor): Promise<boolean> {
+    const existing = actor ? await this.getTerm(siteId, id) : null
     const deleted = await WIKI.db
       .delete(glossaryTermsTable)
       .where(and(eq(glossaryTermsTable.siteId, siteId), eq(glossaryTermsTable.id, id)))
       .returning({ id: glossaryTermsTable.id })
     if (deleted.length > 0) {
       this.invalidateCache(siteId)
+      if (actor && existing) {
+        await WIKI.models.auditLog.record({
+          event: 'glossaryTerm.deleted',
+          actor,
+          targetType: 'glossaryTerm',
+          targetId: existing.id,
+          targetLabel: existing.term,
+          detail: {},
+          siteId
+        })
+      }
     }
     return deleted.length > 0
   }

@@ -141,12 +141,16 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
-      return WIKI.models.glossary.createTerm(req.params.siteId, {
-        term: req.body.term!,
-        definition: req.body.definition!,
-        aliases: req.body.aliases,
-        pageId: req.body.pageId
-      })
+      return WIKI.models.glossary.createTerm(
+        req.params.siteId,
+        {
+          term: req.body.term!,
+          definition: req.body.definition!,
+          aliases: req.body.aliases,
+          pageId: req.body.pageId
+        },
+        actorFromRequest(req)
+      )
     }
   )
 
@@ -186,12 +190,17 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
-      return WIKI.models.glossary.updateTerm(req.params.siteId, req.params.termId, {
-        term: req.body.term,
-        definition: req.body.definition,
-        aliases: req.body.aliases,
-        pageId: req.body.pageId
-      })
+      return WIKI.models.glossary.updateTerm(
+        req.params.siteId,
+        req.params.termId,
+        {
+          term: req.body.term,
+          definition: req.body.definition,
+          aliases: req.body.aliases,
+          pageId: req.body.pageId
+        },
+        actorFromRequest(req)
+      )
     }
   )
 
@@ -232,7 +241,11 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
-      const deleted = await WIKI.models.glossary.deleteTerm(req.params.siteId, req.params.termId)
+      const deleted = await WIKI.models.glossary.deleteTerm(
+        req.params.siteId,
+        req.params.termId,
+        actorFromRequest(req)
+      )
       if (!deleted) {
         return reply.notFound('This glossary term does not exist.')
       }
