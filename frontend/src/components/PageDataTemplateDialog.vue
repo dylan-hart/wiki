@@ -42,13 +42,11 @@
           t('editor.pageData.templateFullRowTypes')
         }}</w-item-label>
         <div class="px-4">
-          <draggable
+          <sortable
+            ref="miscListRef"
             class="q-list rounded"
             :list="inventoryMisc"
-            :group="{ name: `shared`, pull: `clone`, put: false }"
-            :clone="cloneFieldType"
-            :sort="false"
-            :animation="150"
+            :options="paletteSortableOptions"
             @start="state.dragStarted = true"
             @end="state.dragStarted = false"
             item-key="id">
@@ -62,17 +60,15 @@
                 >
               </w-item>
             </template>
-          </draggable>
+          </sortable>
         </div>
         <w-item-label header>{{ t('editor.pageData.templateKeyValueTypes') }}</w-item-label>
         <div class="px-4 pb-4">
-          <draggable
+          <sortable
+            ref="kvListRef"
             class="q-list rounded"
             :list="inventoryKV"
-            :group="{ name: `shared`, pull: `clone`, put: false }"
-            :clone="cloneFieldType"
-            :sort="false"
-            :animation="150"
+            :options="paletteSortableOptions"
             @start="state.dragStarted = true"
             @end="state.dragStarted = false"
             item-key="id">
@@ -86,7 +82,7 @@
                 >
               </w-item>
             </template>
-          </draggable>
+          </sortable>
         </div>
       </div>
       <div class="min-w-0 flex-1 page-datatmpl-content">
@@ -128,13 +124,13 @@
                 v-if="state.tmpl.data.length < 1 && !state.dragStarted">
                 <em>{{ t('editor.pageData.dragDropHint') }}</em>
               </div>
-              <draggable
+              <sortable
                 class="q-list rounded"
                 :list="state.tmpl.data"
-                group="shared"
-                :animation="150"
-                handle=".handle"
+                :options="fieldListSortableOptions"
                 @end="state.dragStarted = false"
+                @add="onFieldAdded"
+                @update="onFieldReordered"
                 item-key="id">
                 <template #item="{ element }">
                   <w-item>
@@ -166,11 +162,11 @@
                         padding="xs"
                         icon="la:times"
                         flat
-                        @click="removeItem(item)" />
+                        @click="removeItem(element)" />
                     </w-item-section>
                   </w-item>
                 </template>
-              </draggable>
+              </sortable>
             </div>
           </div>
           <div class="page-datatmpl-scrollend" ref="scrollAreaEnd" />
@@ -199,7 +195,7 @@ import { useSiteStore } from '@/stores/site'
 import { v4 as uuid } from 'uuid'
 import { sortBy } from 'es-toolkit/array'
 import { cloneDeep } from 'es-toolkit/object'
-import draggable from 'vuedraggable'
+import { Sortable } from 'sortablejs-vue3'
 
 // PROPS
 
@@ -269,6 +265,32 @@ const inventoryKV = [
 
 const scrollAreaEnd = ref(null)
 const tmplTitleIpt = ref(null)
+const miscListRef = ref(null)
+const kvListRef = ref(null)
+
+/*
+  `sortablejs-vue3` is a thin wrapper over the real SortableJS instance -- unlike `vuedraggable`, it
+  does not reconcile `:list` across a cross-list drag itself; that's on `onFieldAdded`/
+  `onFieldReordered` below (see their own comments). `group`/`pull`/`put`/`sort`/`handle` all go inside
+  `options`, not as their own props on `<sortable>` (matching `NavItemEditor.vue`'s `sortableOptions`).
+
+  The two palette lists (misc/key-value field types) are drag SOURCES only: `sort: false` because
+  they never reorder themselves, `pull: 'clone'` so dragging OUT of them leaves the palette entry in
+  place, `put: false` so nothing can ever be dropped back into them.
+*/
+const paletteSortableOptions = {
+  group: { name: 'shared', pull: 'clone', put: false },
+  sort: false,
+  animation: 150
+}
+
+/** The template structure list: accepts clones from either palette (`group: 'shared'` defaults to
+ * pull/put both `true`) and reorders its own rows by their drag handle. */
+const fieldListSortableOptions = {
+  group: 'shared',
+  handle: '.handle',
+  animation: 150
+}
 
 // WATCHERS
 
@@ -308,6 +330,44 @@ function cloneFieldType(tp) {
 
 function removeItem(item) {
   state.tmpl.data = state.tmpl.data.filter((i) => i.id !== item.id)
+}
+
+/**
+ * A field type was dragged in from one of the two palette lists (`onAdd` fires on the RECEIVING
+ * list's `<sortable>` whenever a drag crosses from another list in the same `group`, clone or not).
+ *
+ * SortableJS itself already spliced a cloned DOM node into this list's container -- that clone is not
+ * a Vue-rendered element, so it never gets an `#item` slot's inputs/handlers and `state.tmpl.data`
+ * doesn't know it exists. `evt.item.remove()` undoes that raw insert; splicing the real field object
+ * into `state.tmpl.data` at `evt.newIndex` is what puts the actual (Vue-rendered, reactive) row in
+ * its place, the way `vuedraggable`'s `:clone` prop used to do automatically.
+ *
+ * Which palette the drag came from is read off `evt.from` against the two palette refs' exposed
+ * `containerRef.value` (`sortablejs-vue3` exposes the container element it mounted Sortable on, as a
+ * ref) -- `evt.oldIndex` is then that palette's own array index, safe to use directly since both
+ * palettes are `sort: false, put: false` and therefore never reordered or mutated themselves.
+ */
+function onFieldAdded(evt) {
+  evt.item.remove()
+  const sourceList =
+    evt.from === miscListRef.value?.containerRef?.value
+      ? inventoryMisc
+      : evt.from === kvListRef.value?.containerRef?.value
+        ? inventoryKV
+        : null
+  const sourceItem = sourceList?.[evt.oldIndex]
+  if (!sourceItem) {
+    return
+  }
+  state.tmpl.data.splice(evt.newIndex, 0, cloneFieldType(sourceItem))
+}
+
+/** Reordering within `state.tmpl.data` itself (`onUpdate` fires only for a same-list sort, never for
+ * a cross-list drag) -- same splice-out/splice-in `oldIndex`/`newIndex` pattern as
+ * `NavItemEditor.vue`'s `updateItemPosition`. */
+function onFieldReordered(evt) {
+  const item = state.tmpl.data.splice(evt.oldIndex, 1)[0]
+  state.tmpl.data.splice(evt.newIndex, 0, item)
 }
 
 function create() {
