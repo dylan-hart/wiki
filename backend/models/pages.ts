@@ -1019,22 +1019,47 @@ class Pages {
       }
     }
 
+    // -> Page row and tree entry are two tables standing in for one logical "where this page lives"
+    //    fact, so they move inside a single transaction: a failure partway through (the tree name
+    //    collision below, a dropped connection) rolls both back instead of leaving the page pointing
+    //    at a path the tree no longer has an entry for (OpenProject #1022).
     // -> `.returning()` gets the raw row for free off the same write, which is what
     //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
-    let rawMovedRows
+    let rawMoved: typeof pagesTable.$inferSelect
     try {
-      rawMovedRows = await WIKI.db
-        .update(pagesTable)
-        .set({
-          path: newPath,
-          hash: generatePathHash(newPath),
+      rawMoved = await WIKI.db.transaction(async (tx) => {
+        const rawMovedRows = await tx
+          .update(pagesTable)
+          .set({
+            path: newPath,
+            hash: generatePathHash(newPath),
+            locale: destLocale,
+            ...(title !== undefined ? { title: title.trim() } : {}),
+            authorId: actor.id,
+            updatedAt: sql`now()`
+          })
+          .where(eq(pagesTable.id, id))
+          .returning()
+
+        // -> The tree entry is what places the page in the site, so it is moved rather than
+        //    rewritten: dropping and re-adding would create the destination folders but leave the
+        //    old ones counted
+        const pathParts = newPath.split('/')
+        await WIKI.models.tree.deleteEntry(id, tx)
+        await WIKI.models.tree.addPage({
+          id,
+          parentPath: pathParts.slice(0, -1).join('/'),
+          fileName: pathParts.at(-1)!,
+          title: title !== undefined ? title.trim() : page.title,
           locale: destLocale,
-          ...(title !== undefined ? { title: title.trim() } : {}),
-          authorId: actor.id,
-          updatedAt: sql`now()`
+          siteId,
+          tags: page.tags,
+          meta: this.treeMeta({ ...page, path: newPath }),
+          db: tx
         })
-        .where(eq(pagesTable.id, id))
-        .returning()
+
+        return rawMovedRows[0]!
+      })
     } catch (err: any) {
       // -> The probe above already covers the common case; this catches the race it cannot close --
       //    two requests that both pass the probe before either updates
@@ -1043,22 +1068,6 @@ class Pages {
       }
       throw err
     }
-    const rawMoved = rawMovedRows[0]!
-
-    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
-    //    dropping and re-adding would create the destination folders but leave the old ones counted
-    const pathParts = newPath.split('/')
-    await WIKI.models.tree.deleteEntry(id)
-    await WIKI.models.tree.addPage({
-      id,
-      parentPath: pathParts.slice(0, -1).join('/'),
-      fileName: pathParts.at(-1)!,
-      title: title !== undefined ? title.trim() : page.title,
-      locale: destLocale,
-      siteId,
-      tags: page.tags,
-      meta: this.treeMeta({ ...page, path: newPath })
-    })
 
     const moved = (await this.getPage({ siteId, id })) as Page
 

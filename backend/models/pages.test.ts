@@ -499,6 +499,35 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('movePage rolls back the page row when the tree write fails partway through (OpenProject #1022)', async () => {
+    const source = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/txn-source' }),
+      actor
+    )
+    // -> An asset entry occupying the destination file name is invisible to the `pages`-table
+    //    duplicate-path probe (assets aren't pages), so the update proceeds and only the tree write,
+    //    a moment later inside the same transaction, hits the collision -- exactly the partial-failure
+    //    shape #1022 asks to no longer be able to happen.
+    await seedTreeEntry(fixtures.db, {
+      siteId: fixtures.siteId,
+      path: 'docs/txn-dest',
+      type: 'asset'
+    })
+
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, source.id, { path: 'docs/txn-dest' }, actor),
+      (err: any) => err.name === 'treeEntryDuplicate'
+    )
+
+    const untouched = await pagesModel.getPage({ siteId: fixtures.siteId, id: source.id })
+    assert.equal(untouched!.path, 'docs/txn-source')
+
+    const treeEntry = await WIKI.models.tree.getById(source.id)
+    assert.equal(treeEntry!.folderPath, 'docs')
+    assert.equal(treeEntry!.fileName, 'txn-source')
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
