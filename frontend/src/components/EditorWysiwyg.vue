@@ -86,6 +86,7 @@ import { useI18n } from 'vue-i18n'
 
 import { dialog } from '@/composables/dialog'
 
+import { assetPath } from '@/helpers/assets'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
@@ -143,6 +144,40 @@ const barStyle = {
   width: '9px',
   opacity: 1
 }
+/**
+ * The hex values behind the "Text Color" dropdown's named entries (OpenProject #944). `Color`
+ * (`@tiptap/extension-color`) writes whatever string `setColor()` is given straight onto the
+ * `textStyle` mark's `color` attribute as inline CSS, so any valid CSS color would work here --
+ * these are picked as a small, legible-on-white set rather than reusing `collabStore`'s cursor
+ * palette (`composables/collab.js`'s `USER_COLORS`), which exists for a different purpose (staying
+ * distinguishable against each other as cursors) and was never chosen for text legibility.
+ */
+const TEXT_COLORS = {
+  blue: '#1976D2',
+  brown: '#795548',
+  green: '#388E3C',
+  orange: '#F57C00',
+  pink: '#C2185B',
+  purple: '#7B1FA2',
+  red: '#D32F2F',
+  teal: '#00796B',
+  yellow: '#F9A825'
+}
+
+/**
+ * The hex values behind the "Highlight" dropdown's named entries (OpenProject #944). Lighter tints
+ * than `TEXT_COLORS` on purpose: `Highlight` (`@tiptap/extension-highlight`) paints these as a mark's
+ * *background*, and a highlighter is meant to sit behind text without swallowing it the way a
+ * full-saturation background would.
+ */
+const HIGHLIGHT_COLORS = {
+  blue: '#90CAF9',
+  green: '#A5D6A7',
+  orange: '#FFCC80',
+  pink: '#F48FB1',
+  yellow: '#FFF59D'
+}
+
 const menuBar = [
   {
     key: 'bold',
@@ -177,7 +212,7 @@ const menuBar = [
     icon: 'mdi:format-font',
     title: 'Font Family',
     type: 'dropdown',
-    isActive: () => editor.value.isActive('fontFamily'),
+    isActive: () => Boolean(editor.value.getAttributes('textStyle').fontFamily),
     children: [
       {
         key: 'fontunset',
@@ -198,70 +233,79 @@ const menuBar = [
     icon: 'mdi:palette',
     title: 'Text Color',
     type: 'dropdown',
-    isActive: () => editor.value.isActive('color'),
+    isActive: () => Boolean(editor.value.getAttributes('textStyle').color),
     children: [
       {
         key: 'color-blue',
         icon: 'mdi:palette',
         title: 'Blue',
         color: 'blue',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.blue }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.blue).run()
       },
       {
         key: 'color-brown',
         icon: 'mdi:palette',
         title: 'Brown',
         color: 'brown',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.brown }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.brown).run()
       },
       {
         key: 'color-green',
         icon: 'mdi:palette',
         title: 'Green',
         color: 'green',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.green }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.green).run()
       },
       {
         key: 'color-orange',
         icon: 'mdi:palette',
         title: 'Orange',
         color: 'orange',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.orange }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.orange).run()
       },
       {
         key: 'color-pink',
         icon: 'mdi:palette',
         title: 'Pink',
         color: 'pink',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.pink }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.pink).run()
       },
       {
         key: 'color-purple',
         icon: 'mdi:palette',
         title: 'Purple',
         color: 'purple',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.purple }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.purple).run()
       },
       {
         key: 'color-red',
         icon: 'mdi:palette',
         title: 'Red',
         color: 'red',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.red }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.red).run()
       },
       {
         key: 'color-teal',
         icon: 'mdi:palette',
         title: 'Teal',
         color: 'teal',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.teal }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.teal).run()
       },
       {
         key: 'color-yellow',
         icon: 'mdi:palette',
         title: 'Yellow',
         color: 'yellow',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('textStyle', { color: TEXT_COLORS.yellow }),
+        action: () => editor.value.chain().focus().setColor(TEXT_COLORS.yellow).run()
       },
       {
         type: 'divider'
@@ -271,7 +315,7 @@ const menuBar = [
         icon: 'mdi:palette',
         title: 'Default',
         color: 'grey',
-        action: () => editor.value.chain().focus().unsetHighlight().run()
+        action: () => editor.value.chain().focus().unsetColor().run()
       }
     ]
   },
@@ -287,35 +331,45 @@ const menuBar = [
         icon: 'mdi:marker',
         title: 'Yellow',
         color: 'yellow',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.yellow }),
+        action: () =>
+          editor.value.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLORS.yellow }).run()
       },
       {
         key: 'highlight-blue',
         icon: 'mdi:marker',
         title: 'Blue',
         color: 'blue',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.blue }),
+        action: () =>
+          editor.value.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLORS.blue }).run()
       },
       {
         key: 'highlight-pink',
         icon: 'mdi:marker',
         title: 'Pink',
         color: 'pink',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.pink }),
+        action: () =>
+          editor.value.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLORS.pink }).run()
       },
       {
         key: 'highlight-green',
         icon: 'mdi:marker',
         title: 'Green',
         color: 'green',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.green }),
+        action: () =>
+          editor.value.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLORS.green }).run()
       },
       {
         key: 'highlight-orange',
         icon: 'mdi:marker',
         title: 'Orange',
         color: 'orange',
-        action: () => editor.value.chain().focus().toggleHighlight().run()
+        isActive: () => editor.value.isActive('highlight', { color: HIGHLIGHT_COLORS.orange }),
+        action: () =>
+          editor.value.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLORS.orange }).run()
       },
       {
         type: 'divider'
@@ -648,30 +702,33 @@ const menuBar = [
 // METHODS
 
 /*
- * Live collaboration: deferred, not wired.
+ * Live collaboration: still deferred, not wired -- but both premises the original deferral rested on
+ * are now false, so this comment exists to say why the deferral itself still stands (OpenProject
+ * #944, item 4).
  *
- * Task 485 (feature 367) decided this stays deferred rather than being wired onto
- * `composables/collab.js`'s session (`startCollabSession`/`bindCollabEditor`) via TipTap's real
- * `@tiptap/extension-collaboration` + `@tiptap/extension-collaboration-cursor`, for two concrete,
- * checkable reasons rather than a guess:
+ * Task 485 (feature 367) originally deferred this for two concrete, checkable reasons:
  *
- *  - This component has no caller. `pages/Index.vue`'s `wysiwyg` async-component loader is commented
- *    out, and `EditorWysiwyg.vue` is not imported anywhere else in `src/` -- re-enabling that loader
- *    is explicitly the sibling Editor Selection feature's job, not this one's. Wiring collaboration
- *    into a component nothing mounts would be untestable end to end: there is no live editor to bind
- *    to, sync against a peer, or watch survive a reconnect, which is what every other room in this
- *    feature was actually proven against.
- *  - Its own dependencies are not installed. Every `@tiptap/*` import below (`@tiptap/vue-3`,
- *    `@tiptap/starter-kit`, etc.) is absent from `package.json`/`node_modules` -- this component does
- *    not build today even without collaboration. Adding `@tiptap/extension-collaboration` on top
- *    would be a second unused, unverifiable dependency stacked on the first.
+ *  - This component had no caller. That is no longer true: `pages/Index.vue`'s `wysiwyg` entry in
+ *    `editorComponents` is live (the sibling Editor Selection feature re-enabled it), so mounting
+ *    this editor is now a real, reachable path, not a dead one.
+ *  - Its `@tiptap/*` dependencies were not installed. They are now -- all eleven packages this file
+ *    imports resolve at v3.30.1 in `package.json`/`node_modules` (task 484 fixed the two v2-shaped
+ *    imports that kept this from building at all).
  *
- * What *did* ship here regardless, per the task's explicit instruction to do so either way: the dead
- * `Y.Doc`/`IndexeddbPersistence`/`WebsocketProvider` stub that used to sit in `init()` below is
- * removed, and `composables/collab.js`'s `bindCollabEditor` no longer hardcodes `y-monaco`'s
- * `MonacoBinding` -- it now takes a factory, so whichever editor eventually re-enables this component
- * can hand it a TipTap `Collaboration`-extension binding without another refactor first. See
- * `bindCollabEditor`'s doc comment in `composables/collab.js`.
+ * The re-decision: still not wired here, because turning it on is a materially bigger change than
+ * either premise going stale implies. `EditorMarkdown.vue`'s collab session binds a *Monaco* model
+ * through `y-monaco`'s `MonacoBinding`, which `bindCollabEditor`'s factory shape already
+ * accommodates -- but a TipTap document needs `@tiptap/extension-collaboration` (a currently
+ * uninstalled dependency of its own) plus `@tiptap/extension-collaboration-cursor` for remote
+ * cursors/awareness, both configured with the shared `Y.Doc` `startCollabSession` creates, and a
+ * decision about how this editor's per-keystroke `onUpdate` (which currently owns writing
+ * `pageStore.content`/`render` directly) coexists with a CRDT that wants to own the document instead.
+ * That is new design and testing surface belonging to a follow-up work item, not a byproduct of a
+ * toolbar bug-fix pass -- filed as OpenProject #1124. The dead `Y.Doc`/`IndexeddbPersistence`/
+ * `WebsocketProvider` stub that used to sit in `init()` below was already removed when this comment
+ * was first written, and `composables/collab.js`'s `bindCollabEditor` already takes a binding
+ * factory rather than hardcoding `y-monaco`, so #1124 has exactly this component's own `onUpdate`
+ * handoff left to design -- nothing to redo in `composables/collab.js` itself.
  */
 
 function init() {
@@ -725,7 +782,9 @@ function init() {
       TableCell,
       TaskList,
       TaskItem,
-      TextAlign,
+      // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
+      //    list, so every alignment button was a silent no-op (OpenProject #944).
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,
       Typography
     ],
@@ -778,6 +837,51 @@ function insertLink() {
   })
 }
 
+/**
+ * What the file manager handed back, applied to the document at the cursor.
+ *
+ * `EditorMarkdown.vue`/`EditorCode.vue`/`EditorAsciidoc.vue` each write their own source syntax for
+ * the same event; this editor's "source" is the TipTap document, so an image asset becomes a real
+ * `image` node (`setImage`) and everything else (a non-image asset, or a page) becomes a `link` mark
+ * over inserted text, the same image-vs-link distinction those editors draw (OpenProject #944 --
+ * previously this editor registered no `insertAsset` listener at all, so the File Manager's pick was
+ * silently dropped).
+ */
+function insertAssetClb(opts) {
+  const isImage = opts.type === 'asset' && opts.mimeType?.startsWith('image/')
+  if (isImage) {
+    editor.value
+      .chain()
+      .focus()
+      .setImage({ src: assetPath(opts.folderPath, opts.fileName), alt: opts.title })
+      .run()
+    return
+  }
+  const href =
+    opts.type === 'page'
+      ? `/${opts.folderPath ? `${opts.folderPath}/${opts.fileName}` : opts.fileName}`
+      : assetPath(opts.folderPath, opts.fileName)
+  const { from, to, empty } = editor.value.state.selection
+  if (empty) {
+    editor.value
+      .chain()
+      .focus()
+      .insertContentAt(from, opts.title)
+      .setTextSelection({ from, to: from + opts.title.length })
+      .extendMarkRange('link')
+      .setLink({ href })
+      .run()
+  } else {
+    editor.value
+      .chain()
+      .focus()
+      .setTextSelection({ from, to })
+      .extendMarkRange('link')
+      .setLink({ href })
+      .run()
+  }
+}
+
 function insertTable() {
   // this.ql.getModule('table').insertTable(3, 3)
 }
@@ -789,9 +893,11 @@ function snapshot() {
 
 onMounted(() => {
   // init()
+  EVENT_BUS.on('insertAsset', insertAssetClb)
 })
 
 onBeforeUnmount(() => {
+  EVENT_BUS.off('insertAsset', insertAssetClb)
   editor.value.destroy()
 })
 
@@ -800,7 +906,11 @@ init()
 // -> Exposed for tests only, so a mounted instance can drive the TipTap editor directly (e.g.
 //    `wrapper.vm.editor.chain().focus().insertContent(...).run()`) the way the toolbar's own
 //    handlers above do, rather than trying to simulate real keystrokes through happy-dom.
-defineExpose({ editor })
+// -> `menuBar` is exposed alongside it for the same reason: several of its entries are nested one or
+//    two `w-menu`/`w-item` levels below any `aria-label`, which is not worth simulating a real click
+//    path through happy-dom for when the toolbar row's own template already drives every entry's
+//    `action`/`isActive` off nothing but the entry object itself.
+defineExpose({ editor, menuBar })
 </script>
 
 <style lang="scss">
