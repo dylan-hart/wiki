@@ -12,7 +12,7 @@
         dense
         :clickable="!props.edit"
         :removable="props.edit"
-        @click="searchTag(tag)"
+        @click="browseTag(tag)"
         @remove="removeTag(tag)"
         v-for="tag of pageStore.tags"
         :key="`tag-` + tag">
@@ -152,17 +152,15 @@ function createTag(val) {
 }
 
 /**
- * Search the site for everything carrying this tag.
- *
- * As a `#tag` token in the query rather than as a parameter of its own, because that is how the search
- * page states a tag filter: it reads them back out of `q` to fill its own tag selector, so arriving
- * this way leaves the reader on a search they can widen or narrow from there.
+ * Browse the site for everything carrying this tag, via the dedicated tag-browse page
+ * (OpenProject #987) rather than `/_search`'s `#tag` query token -- a reader following a tag wants a
+ * faceted browse they can narrow with further tags, not a text search that happens to start with one.
  *
  * Only reachable in view mode -- WChip emits `click` only while `clickable`, which the editing chips
  * are not, their control being the remove button instead.
  */
-function searchTag(tag) {
-  router.push({ path: '/_search', query: { q: `#${tag}` } })
+function browseTag(tag) {
+  router.push({ path: '/_tags', query: { tags: tag } })
 }
 
 function removeTag(tag) {
