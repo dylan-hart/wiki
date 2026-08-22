@@ -36,6 +36,11 @@ describe('LiveData.resolve', () => {
   beforeEach(() => {
     getSecret = mock.fn(async () => undefined)
     ;(WIKI.models.blockCredentials.getSecret as any) = getSecret
+    // -> Stubbed to a public address by default so the SSRF guard (`assertNotPrivateAddress`) never
+    //    blocks a test that isn't specifically exercising it, and so no test here makes a real DNS
+    //    lookup. Individual tests below override this via `mock.method` again to exercise the guard
+    //    itself.
+    mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34'])
   })
 
   afterEach(() => {
@@ -97,6 +102,68 @@ describe('LiveData.resolve', () => {
       liveData.resolve('site-1', { url: 'not-a-url', jsonPath: '$.v' }),
       (err: any) => {
         assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+
+  test('throws Bad Request when the url resolves to a private address (SSRF guard)', async () => {
+    mock.method(liveData as any, 'resolveAddresses', async () => ['169.254.169.254'])
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://metadata.internal/latest', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('does not fetch when only one of several resolved addresses is private', async () => {
+    mock.method(liveData as any, 'resolveAddresses', async () => ['93.184.216.34', '127.0.0.1'])
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' })
+    )
+    assert.equal(fetchMock.mock.calls.length, 0)
+  })
+
+  test('lets the fetch itself fail when the hostname cannot be resolved at all', async () => {
+    mock.method(liveData as any, 'resolveAddresses', async () => {
+      throw new Error('getaddrinfo ENOTFOUND nowhere.invalid')
+    })
+    mock.method(globalThis, 'fetch', async () => {
+      throw new Error('fetch failed')
+    })
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://nowhere.invalid/metrics', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 502)
+        return true
+      }
+    )
+  })
+
+  test('fetches with redirect: "error" -- a redirect is never followed', async () => {
+    const fetchMock = mock.method(globalThis, 'fetch', async () => jsonResponse({ v: 1 }))
+    await liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' })
+    const [, init]: [unknown, RequestInit] = fetchMock.mock.calls[0].arguments as any
+    assert.equal(init.redirect, 'error')
+  })
+
+  test('throws Bad Gateway when the endpoint answers with a redirect', async () => {
+    mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
+      if (init.redirect === 'error') {
+        // -> What undici actually throws for a redirect response under `redirect: 'error'`.
+        throw new TypeError('fetch failed')
+      }
+      throw new Error('should never fetch without redirect: "error"')
+    })
+    await assert.rejects(
+      liveData.resolve('site-1', { url: 'https://example.com/metrics', jsonPath: '$.v' }),
+      (err: any) => {
+        assert.equal(err.statusCode, 502)
         return true
       }
     )
