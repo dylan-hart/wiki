@@ -302,6 +302,34 @@ describe('site:navigation delegation on the six previously route-gated endpoints
     assert.equal(allowed.statusCode, 200)
   })
 
+  /**
+   * OpenProject #933 follow-up: `site:navigation` is granted per site (`helpers/siteRules.ts`), so a
+   * cross-site copy (`sourceSiteId` different from the path's `:siteId`) must not let a caller
+   * delegated ONLY on the target read and duplicate a DIFFERENT site's menu with no permission on
+   * that site at all.
+   */
+  test('POST .../copy with a different sourceSiteId requires site:navigation on BOTH sites', async () => {
+    const OTHER_SITE_ID = 'b2c3d4e5-f6a7-4890-9abc-def012345679'
+
+    const targetOnly = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: { 'x-test-site-permissions': `site:navigation@${SITE_ID}` },
+      payload: { sourceSiteId: OTHER_SITE_ID, sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(targetOnly.statusCode, 403)
+
+    const both = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/navigation/${NAV_ID}/copy`,
+      headers: {
+        'x-test-site-permissions': `site:navigation@${SITE_ID},site:navigation@${OTHER_SITE_ID}`
+      },
+      payload: { sourceSiteId: OTHER_SITE_ID, sourceNavId: NAV_ID, mode: 'replace' }
+    })
+    assert.equal(both.statusCode, 200)
+  })
+
   test('site:navigation on a DIFFERENT site grants none of the six', async () => {
     const res = await app.inject({
       method: 'GET',

@@ -423,13 +423,16 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: same reasoning as the inherited-menu GET below — see
-        `canManageNavigation`. Checked against the path's own `:siteId` (the copy TARGET) only, same
-        as every sibling route here — the source side is not itself a resource this route mutates.
+        `canManageNavigation`. Checked against BOTH the target site and, when it differs, the
+        resolved source site: `site:navigation` is granted per site (OpenProject #933's own
+        `helpers/siteRules.ts` — a rule's `sites` array can scope it to exactly one), so a caller
+        delegated only on the target could otherwise use `sourceSiteId` to read and duplicate a
+        DIFFERENT site's menu into the target without ever holding a permission on that site at all.
       */
       schema: {
         summary: 'Copy a menu onto another',
         description:
-          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.\n\nRequires `manage:navigation`, or `site:navigation` on the target site.",
+          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.\n\nRequires `manage:navigation`, or `site:navigation` on the target site — and, when `sourceSiteId` names a different site, `site:navigation` on that site too.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -475,8 +478,12 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
+      const sourceSiteId = req.body.sourceSiteId ?? req.params.siteId
+      if (sourceSiteId !== req.params.siteId && !canManageNavigation(req, sourceSiteId)) {
+        return reply.forbidden()
+      }
       await WIKI.models.navigation.copyNav({
-        sourceSiteId: req.body.sourceSiteId ?? req.params.siteId,
+        sourceSiteId,
         sourceId: req.body.sourceNavId,
         targetSiteId: req.params.siteId,
         targetId: req.params.targetNavId,
