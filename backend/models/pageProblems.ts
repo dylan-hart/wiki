@@ -229,32 +229,39 @@ class PageProblemsModel {
     //    `models/tree.ts#createFolder`/`renameFolder`) — every code ever installed, not just active
     //    on a given site, since a row shadowed by activation later is exactly the case this guards.
     const installedLocales = await WIKI.models.locales.getLocales()
-    const codes = new Set(installedLocales.map((lc: any) => String(lc.code).toLowerCase()))
+    // -> Keyed by lowercased code (matching is case-insensitive -- a path segment collides
+    //    regardless of how it's cased) but valued with the code exactly as installed, so a report
+    //    names the real offender (`FR`) rather than an artifact of the matching (`fr`).
+    const codes = new Map(
+      installedLocales.map((lc: any) => [String(lc.code).toLowerCase(), String(lc.code)])
+    )
     const localeCollisions: LocaleCollisionEntry[] = []
     for (const p of pageRows) {
       const firstSegment = (p.path.split('/')[0] ?? '').toLowerCase()
-      if (codes.has(firstSegment)) {
+      const collidingCode = codes.get(firstSegment)
+      if (collidingCode) {
         localeCollisions.push({
           table: 'pages',
           id: p.id,
           siteId: p.siteId,
           locale: p.locale,
           path: p.path,
-          collidingCode: firstSegment
+          collidingCode
         })
       }
     }
     for (const t of treeRows) {
       const folderPath = decodeTreePath(t.folderPath) ?? ''
       const firstSegment = (folderPath ? folderPath.split('/')[0]! : t.fileName).toLowerCase()
-      if (codes.has(firstSegment)) {
+      const collidingCode = codes.get(firstSegment)
+      if (collidingCode) {
         localeCollisions.push({
           table: 'tree',
           id: t.id,
           siteId: t.siteId,
           locale: t.locale,
           path: folderPath ? `${folderPath}/${t.fileName}` : t.fileName,
-          collidingCode: firstSegment
+          collidingCode
         })
       }
     }

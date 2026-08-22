@@ -41,6 +41,10 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //    seeded before any model call, so the first `getLocales()` cache fill already sees them.
     await seedLocale(fixtures.db, { code: 'en' })
     await seedLocale(fixtures.db, { code: 'fr' })
+    // -> Mixed-cased on purpose (`localeCode` in `models/locales.ts` produces exactly this shape for
+    //   a region-qualified language, e.g. `pt-BR`) -- the collidingCode canonical-casing test below
+    //   needs an installed code whose casing actually differs from the lowercased path segment.
+    await seedLocale(fixtures.db, { code: 'fr-CA' })
     ;({ pageProblems: pageProblemsModel } = await import('./pageProblems.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
   })
@@ -274,6 +278,33 @@ describe('pageProblems.scan (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(entry!.table, 'tree')
     assert.equal(entry!.path, 'fr/nested-grandfathered')
     assert.equal(entry!.collidingCode, 'fr')
+  })
+
+  test("scan reports collidingCode in the installed code's own casing, not the lowercased path segment", async () => {
+    const [row] = await fixtures.db
+      .insert(pagesTable)
+      .values({
+        locale: 'en',
+        // -> Stored lowercased, same as every page path (`normalizePagePath`) -- `fr-CA` is
+        //   installed, so this collides even though nothing here is mixed-case itself.
+        path: 'fr-ca/grandfathered',
+        hash: 'irrelevant-for-this-check-2',
+        title: 'Grandfathered Mixed Case',
+        editor: 'markdown',
+        contentType: 'markdown',
+        authorId: fixtures.userId,
+        creatorId: fixtures.userId,
+        ownerId: fixtures.userId,
+        siteId: fixtures.siteId
+      })
+      .returning()
+
+    const report = await pageProblemsModel.scan()
+
+    const entry = report.localeCollisions.entries.find((e) => e.id === row!.id)
+    assert.ok(entry)
+    assert.equal(entry!.path, 'fr-ca/grandfathered')
+    assert.equal(entry!.collidingCode, 'fr-CA')
   })
 
   test('scan does not flag a normal page or tree row', async () => {
