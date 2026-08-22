@@ -186,14 +186,34 @@ describe('page-scoped comment routes', () => {
     return usersById[id] ?? null
   }
 
+  const NO_COMMENTS_PAGE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+
   const pagesById: Record<string, any> = {
-    [PAGE_ID]: { id: PAGE_ID, path: 'en/test-page', locale: 'en', tags: [], isLocked: false },
+    [PAGE_ID]: {
+      id: PAGE_ID,
+      path: 'en/test-page',
+      locale: 'en',
+      tags: [],
+      isLocked: false,
+      allowComments: true
+    },
     [LOCKED_PAGE_ID]: {
       id: LOCKED_PAGE_ID,
       path: 'en/locked-page',
       locale: 'en',
       tags: [],
-      isLocked: true
+      isLocked: true,
+      allowComments: true
+    },
+    // -> OpenProject #935: `allowComments: false` on the page itself, distinct from the site-wide
+    //    `features.comments` flag below -- either one alone must refuse POST.
+    [NO_COMMENTS_PAGE_ID]: {
+      id: NO_COMMENTS_PAGE_ID,
+      path: 'en/no-comments-page',
+      locale: 'en',
+      tags: [],
+      isLocked: false,
+      allowComments: false
     }
   }
 
@@ -349,6 +369,9 @@ describe('page-scoped comment routes', () => {
 
   before(async () => {
     ;(globalThis as any).WIKI = {
+      // -> OpenProject #935: the site-level `features.comments` flag POST now checks, defaulted on
+      //    so every pre-existing test in this describe keeps passing unchanged.
+      sites: { [SITE_ID]: { id: SITE_ID, config: { features: { comments: true } } } },
       models: {
         pages: { getPage },
         groups: { actorForRequest, checkAccess, groupIdsForRequest: () => [] },
@@ -525,6 +548,37 @@ describe('page-scoped comment routes', () => {
       payload: { content: 'Hello' }
     })
     assert.equal(res.statusCode, 403)
+  })
+
+  /**
+   * OpenProject #935: a page saved with `allowComments: false`, or a site with `features.comments`
+   * off, still accepted POST -- neither flag was checked anywhere but the client-side form.
+   */
+  test('POST create: 403 when the page itself has allowComments: false', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/${NO_COMMENTS_PAGE_ID}/comments`,
+      headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+      payload: { content: 'Hello' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(created.length, 0)
+  })
+
+  test('POST create: 403 when the site has features.comments off', async () => {
+    ;(globalThis as any).WIKI.sites[SITE_ID].config.features.comments = false
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/sites/${SITE_ID}/pages/${PAGE_ID}/comments`,
+        headers: { 'x-test-user-id': 'user-1', 'x-test-permissions': 'read:pages,write:comments' },
+        payload: { content: 'Hello' }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(created.length, 0)
+    } finally {
+      ;(globalThis as any).WIKI.sites[SITE_ID].config.features.comments = true
+    }
   })
 
   test('POST create: 400 when replyTo does not exist on this page', async () => {

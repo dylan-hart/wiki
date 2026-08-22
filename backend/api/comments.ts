@@ -484,7 +484,18 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to moderate comments on this page.')
       }
 
+      // -> `getWithPage()` above only selects enough to decide `manage:comments` against, not the
+      //    full row `emitCommentEvent` needs (`authorId` in particular) -- fetched fresh right before
+      //    delete rather than widening that query, the same two-lookup shape the page-scoped delete
+      //    below already uses (`comments.get()` after its own page-level gate).
+      const full = await WIKI.models.comments.get(comment.id)
       await WIKI.models.comments.delete(comment.id)
+      // -> Previously missing: the page-scoped delete below emits comment:delete, but this
+      //    site-wide moderation delete did not -- a webhook subscriber mirroring comments missed
+      //    every deletion done from the admin moderation screen (OpenProject #935).
+      if (full) {
+        await emitCommentEvent('comment:delete', full)
+      }
       return reply.code(204).send()
     }
   )
@@ -565,7 +576,9 @@ async function routes(app: FastifyInstance) {
           '**Anonymous** (no session): allowed only when the Guests group (or another rule matching ' +
           'this requester) grants `write:comments` on this page. `guestName` and `guestEmail` are then ' +
           'required in the body — there is no account to draw a name/address from — and the poster’s ' +
-          'IP is recorded for abuse tracking. `guestEmail` is validated as an email at the schema level.',
+          'IP is recorded for abuse tracking. `guestEmail` is validated as an email at the schema level.\n\n' +
+          'Refused with 403 when the site has comments turned off (`features.comments`) or this page ' +
+          'does (`allowComments`) — both otherwise only hide the form client-side.',
         tags: ['Comments'],
         params: pageIdParam,
         body: { $ref: 'CommentInput#' },
@@ -588,6 +601,15 @@ async function routes(app: FastifyInstance) {
       }
       if (page.isLocked) {
         return reply.forbidden('This page is password protected.')
+      }
+      // -> Both flags only ever hid the form client-side (`PageComments.vue` gates its own mount on
+      //    `siteStore.features.comments && pageStore.allowComments`) -- neither was checked here, so
+      //    a direct POST still stored the comment regardless of either being off (OpenProject #935).
+      if (!WIKI.sites[req.params.siteId]?.config?.features?.comments) {
+        return reply.forbidden('Comments are disabled for this site.')
+      }
+      if (!page.allowComments) {
+        return reply.forbidden('Comments are disabled for this page.')
       }
 
       // -> The guest-vs-authenticated split (task 609): an authenticated poster's identity comes
