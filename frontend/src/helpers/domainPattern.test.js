@@ -17,9 +17,18 @@ describe('isValidDomainPattern', () => {
     expect(isValidDomainPattern('203.0.113.5')).toBe(true)
   })
 
-  it('accepts an IPv6 literal', () => {
-    expect(isValidDomainPattern('::1')).toBe(true)
-    expect(isValidDomainPattern('fe80::1')).toBe(true)
+  it('accepts a bracketed IPv6 literal', () => {
+    expect(isValidDomainPattern('[::1]')).toBe(true)
+    expect(isValidDomainPattern('[fe80::1]')).toBe(true)
+  })
+
+  // -> `URL.prototype.hostname` always brackets an IPv6-literal authority, and the backend's
+  //    `hostnameMatchesAllowlist` compares an entry against that hostname by exact string -- an
+  //    unbracketed entry would validate here but could never actually match at resolve time
+  //    (OpenProject #1099 follow-up regression check).
+  it('rejects an unbracketed IPv6 literal, since it could never match a real request hostname', () => {
+    expect(isValidDomainPattern('::1')).toBe(false)
+    expect(isValidDomainPattern('fe80::1')).toBe(false)
   })
 
   it('rejects a URL rather than a bare hostname', () => {

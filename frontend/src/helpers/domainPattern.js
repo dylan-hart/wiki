@@ -11,7 +11,8 @@
  *
  * Accepts: a plain hostname (`api.example.com`), a `*.`-prefixed wildcard (`*.example.com`, matching
  * exactly one subdomain label -- the TLS-wildcard convention), an IPv4 literal (already covered by the
- * hostname branch -- each octet is just digits, a valid DNS label on its own), or an IPv6 literal.
+ * hostname branch -- each octet is just digits, a valid DNS label on its own), or a `[`/`]`-bracketed
+ * IPv6 literal (`[::1]`) -- bracketed to match how `URL.prototype.hostname` renders one.
  *
  * @param {string} value
  * @returns {boolean}
@@ -22,6 +23,11 @@ export function isValidDomainPattern(value) {
 
 const domainLabel = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
 const domainHostname = `${domainLabel}(?:\\.${domainLabel})*`
-const domainIpv6 = '(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}'
+// -> `[`/`]`-bracketed, matching how `URL.prototype.hostname` always renders an IPv6-literal
+//    authority (`new URL('http://[::1]/').hostname === '[::1]'`) -- an unbracketed entry would pass
+//    this check but could never actually match `hostnameMatchesAllowlist`'s exact-string comparison
+//    at resolve time, silently making every IPv6 allowlist entry unusable. Kept in sync with
+//    `backend/helpers/network.ts`'s `DOMAIN_IPV6` (OpenProject #1099 follow-up).
+const domainIpv6 = '\\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\\]'
 
 const domainPattern = new RegExp(`^(?:\\*\\.)?${domainHostname}$|^${domainIpv6}$`)

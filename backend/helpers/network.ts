@@ -98,13 +98,19 @@ export function hostnameMatchesAllowlist(hostname: string, allowedDomains: strin
 const DOMAIN_LABEL = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
 const DOMAIN_HOSTNAME = `${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL})*`
 /**
- * A loose IPv6 literal: hex groups separated by colons, `::` collapse included. Deliberately not a
- * fully RFC 4291-compliant pattern -- the actual enforcement of "does this credential's secret get
- * sent here" is `hostnameMatchesAllowlist`'s exact-string match at resolve time; this only guards
- * against an admin fat-fingering the syntax `hostnameMatchesAllowlist` accepts, so a slightly
- * permissive match costs nothing a strict one would have caught anyway.
+ * A loose IPv6 literal, `[`/`]`-bracketed: hex groups separated by colons, `::` collapse included.
+ * Deliberately not a fully RFC 4291-compliant pattern -- the actual enforcement of "does this
+ * credential's secret get sent here" is `hostnameMatchesAllowlist`'s exact-string match at resolve
+ * time; this only guards against an admin fat-fingering the syntax `hostnameMatchesAllowlist`
+ * accepts, so a slightly permissive match costs nothing a strict one would have caught anyway.
+ *
+ * The brackets are required, not optional: `URL.prototype.hostname` for an IPv6-literal authority
+ * always carries them (`new URL('http://[::1]/').hostname === '[::1]'`), and `hostnameMatchesAllowlist`
+ * compares an entry against that hostname by exact string -- an unbracketed entry would validate here
+ * but could then never actually match at resolve time, silently making every IPv6 allowlist entry
+ * unusable (OpenProject #1099 follow-up).
  */
-const DOMAIN_IPV6 = '(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}'
+const DOMAIN_IPV6 = '\\[(?:[0-9A-Fa-f]{0,4}:){2,7}[0-9A-Fa-f]{0,4}\\]'
 
 /**
  * The regex source for one `allowedDomains` entry -- either (optionally `*.`-prefixed) a hostname, or
@@ -123,7 +129,7 @@ const DOMAIN_PATTERN = new RegExp(DOMAIN_PATTERN_SOURCE)
 /**
  * Whether `value` is syntactically a valid `allowedDomains` entry -- the same shape
  * `hostnameMatchesAllowlist` actually matches against: an exact hostname, a `*.`-prefixed wildcard,
- * an IPv4 literal (matches as a hostname), or an IPv6 literal. Used by both the block-credential route
+ * an IPv4 literal (matches as a hostname), or a `[`/`]`-bracketed IPv6 literal. Used by both the block-credential route
  * schema and (mirrored, since `frontend/` cannot import from `backend/` -- see root `CLAUDE.md`'s
  * workspace layout) `frontend/src/helpers/domainPattern.js`'s copy for `BlockCredentialDialog.vue`'s
  * inline validation (OpenProject #1099).
