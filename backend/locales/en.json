@@ -2348,6 +2348,7 @@
   "pageDeleteDialog.pageId": "Page ID {id}",
   "pageDeleteDialog.title": "Confirm Page Deletion",
   "pageDuplicateDialog.title": "Duplicate and Save As...",
+  "pageRenameDialog.includeTranslations": "Also move 1 translation | Also move {count} translations",
   "pageRenameDialog.title": "Rename / Move to...",
   "pageSaveDialog.displayModePath": "Browse Using Paths",
   "pageSaveDialog.displayModeTitle": "Browse Using Titles",

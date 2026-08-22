@@ -684,6 +684,32 @@ describe('page store: pageMove()', () => {
 
     expect(pageStore.router.replace).not.toHaveBeenCalled()
   })
+
+  it('sends includeTranslations when the caller asks for the cascade (OpenProject #1026)', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere', includeTranslations: true })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'elsewhere', includeTranslations: true }
+    })
+  })
+
+  it('omits includeTranslations from the body when falsy', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere', includeTranslations: false })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'elsewhere' }
+    })
+  })
 })
 
 describe('page store: breadcrumbs', () => {

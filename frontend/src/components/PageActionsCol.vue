@@ -574,7 +574,8 @@ function renamePage() {
         await pageStore.pageMove({
           id: pageStore.id,
           path: renamedPageOpts.path,
-          title: renamedPageOpts.title
+          title: renamedPageOpts.title,
+          includeTranslations: renamedPageOpts.includeTranslations
         })
         notify({
           type: 'positive',

@@ -1152,7 +1152,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string; pageId: string }
-    Body: { path: string; title?: string; locale?: string }
+    Body: { path: string; title?: string; locale?: string; includeTranslations?: boolean }
   }>(
     '/sites/:siteId/pages/:pageId/path',
     {
@@ -1164,7 +1164,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          'Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.',
+          "Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.\n\n`includeTranslations` cascades the path change to every other locale's page sharing this page's current path (its translations -- see docs/decisions/locale-translation-linking.md). All-or-nothing: the caller needs `manage:pages` on source AND destination for every one of them too, and a 409 or 403 on any single translation aborts the whole batch, naming which locale it was.",
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1185,6 +1185,11 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               maxLength: 10,
               description: 'Move the page into this locale. Unchanged when absent.'
+            },
+            includeTranslations: {
+              type: 'boolean',
+              description:
+                "Move every other locale's page sharing this page's current path along with it. Ignored when the path is not actually changing -- a locale-only move has no translations to carry, since they are found by path."
             }
           }
         },
@@ -1238,6 +1243,34 @@ async function routes(app: FastifyInstance) {
           return reply.forbidden('You are not allowed to move this page there.')
         }
       }
+      // -> `includeTranslations` cascades to every other locale's page sharing this page's CURRENT
+      //    path -- checked here, before the model is asked to do anything, because a batch move is
+      //    "everyone involved may go" or nothing: a rule that lets this caller manage `en` but not
+      //    `fr` must not let them drag the `fr` translation along for the ride just because they may
+      //    manage the primary page.
+      if (req.body.includeTranslations && destPath !== target.path) {
+        const translations = await WIKI.models.pages.getTranslations(
+          req.params.siteId,
+          target.path,
+          target.id
+        )
+        for (const translation of translations) {
+          const sourceRef = {
+            path: translation.path,
+            locale: translation.locale,
+            tags: translation.tags
+          }
+          const destRef = { path: destPath, locale: translation.locale, tags: translation.tags }
+          if (
+            !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
+            !mayOnPage(req, 'manage:pages', req.params.siteId, destRef)
+          ) {
+            return reply.forbidden(
+              `You are not allowed to move the "${translation.locale}" translation of this page.`
+            )
+          }
+        }
+      }
       const page = await WIKI.models.pages.movePage(
         req.params.siteId,
         req.params.pageId,
@@ -1252,6 +1285,66 @@ async function routes(app: FastifyInstance) {
         message: 'Page moved successfully.',
         page
       }
+    }
+  )
+
+  /**
+   * PAGE TRANSLATIONS
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/translations',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and `manage:pages` here is
+        a page permission granted by a rule. Checked against this page below instead.
+      */
+      schema: {
+        summary: "Get a page's translations",
+        description:
+          "Other locales' pages sharing this page's path -- the translation link this data model uses (see docs/decisions/locale-translation-linking.md). What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: "This page's translations, one entry per other locale sharing its path",
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                locale: { type: 'string' },
+                path: { type: 'string' },
+                title: { type: 'string' }
+              }
+            }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const target = await WIKI.models.pages.getPage({
+        siteId: req.params.siteId,
+        id: req.params.pageId
+      })
+      if (!target) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to manage this page.')
+      }
+      const translations = await WIKI.models.pages.getTranslations(
+        req.params.siteId,
+        target.path,
+        target.id
+      )
+      return translations.map((translation) => ({
+        id: translation.id,
+        locale: translation.locale,
+        path: translation.path,
+        title: translation.title
+      }))
     }
   )
 

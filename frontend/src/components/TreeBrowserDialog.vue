@@ -85,6 +85,20 @@
               @keyup:enter="save" />
           </w-item-section>
         </w-item>
+        <!--
+          Only when there is something to offer: a locale-only rename (path staying put) has nothing
+          to cascade, since translations are found by path -- see the model-side comment in
+          `movePage`.
+        -->
+        <w-item v-if="props.mode === `renamePage` && state.translationsCount > 0">
+          <w-item-section>
+            <w-checkbox
+              v-model="state.includeTranslations"
+              :label="
+                t(`pageRenameDialog.includeTranslations`, { count: state.translationsCount })
+              " />
+          </w-item-section>
+        </w-item>
       </w-list>
       <w-card-actions class="card-actions px-4">
         <w-btn class="acrylic-btn" icon="la:ellipsis-h" color="blue-grey" padding="xs sm" flat>
@@ -236,7 +250,10 @@ const state = reactive({
   title: '',
   path: '',
   typesToFetch: [],
-  pathDirty: false
+  pathDirty: false,
+  /** How many other locales' pages share this page's current path -- see `fetchTranslationsCount`. */
+  translationsCount: 0,
+  includeTranslations: true
 })
 
 // REFS
@@ -327,8 +344,34 @@ async function save() {
     path:
       currentFolderPath.value.length > 1
         ? `${currentFolderPath.value.substring(1)}${state.path}`
-        : state.path
+        : state.path,
+    ...(props.mode === 'renamePage' ? { includeTranslations: state.includeTranslations } : {})
   })
+}
+
+/**
+ * How many other locales' pages share this page's current path -- what decides whether the
+ * "Also move N translation(s)" checkbox shows at all. Fetched only in `renamePage` mode, where
+ * `props.itemId` names a real, already-saved page; `savePage`/`duplicatePage` have no page here to
+ * ask about yet.
+ */
+async function fetchTranslationsCount() {
+  if (!props.itemId) {
+    return
+  }
+  try {
+    const siteId = props.siteId || siteStore.id
+    const translations = await API_CLIENT.get(
+      `sites/${siteId}/pages/${props.itemId}/translations`
+    ).json()
+    state.translationsCount = translations.length
+  } catch (err) {
+    // -> Missing entirely rather than defaulting to "may not move translations": a caller who
+    //    cannot even list them almost certainly cannot cascade to them either, and the checkbox
+    //    staying hidden is a safe, silent fallback -- the plain move/rename this dialog already
+    //    offers is unaffected either way.
+    console.warn(err)
+  }
 }
 
 async function treeLazyLoad(nodeId, isCurrent, { done }) {
@@ -510,6 +553,7 @@ onMounted(async () => {
     case 'renamePage': {
       state.typesToFetch = ['folder', 'page']
       state.pathDirty = true
+      fetchTranslationsCount()
       break
     }
   }

@@ -11,6 +11,7 @@ import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { WikiTx } from '../core/db.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -947,16 +948,153 @@ class Pages {
   }
 
   /**
+   * Other pages in this site sharing a path with `path`, excluding `excludeId` -- the translation
+   * link this data model uses (same `(siteId, path)`, other locales; see
+   * docs/decisions/locale-translation-linking.md). Used by `movePage`'s `includeTranslations`
+   * cascade to find the twins a rename has to carry along, and by the move/rename UI to offer it.
+   */
+  async getTranslations(siteId: string, path: string, excludeId: string): Promise<Page[]> {
+    const rows = await WIKI.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(
+        and(eq(pagesTable.siteId, siteId), eq(pagesTable.path, path), ne(pagesTable.id, excludeId))
+      )
+    const pages = await Promise.all(rows.map((row) => this.getPage({ siteId, id: row.id })))
+    return pages.filter((candidate): candidate is Page => candidate !== null)
+  }
+
+  /**
+   * The page + tree write for one page, run inside an already-open transaction -- shared between
+   * `movePage()`'s own move and its `includeTranslations` cascade, since a twin's move is exactly
+   * the same write against the twin's own current row, with its own (untouched) locale.
+   */
+  private async moveOnePageInTx(
+    tx: WikiTx,
+    siteId: string,
+    current: Page,
+    { path: newPath, title, locale: destLocale }: { path: string; title?: string; locale: string },
+    actor: PageActor
+  ): Promise<{ rawMoved: typeof pagesTable.$inferSelect; changedFields: string[] }> {
+    const rawMovedRows = await tx
+      .update(pagesTable)
+      .set({
+        path: newPath,
+        hash: generatePathHash(newPath),
+        locale: destLocale,
+        ...(title !== undefined ? { title: title.trim() } : {}),
+        authorId: actor.id,
+        updatedAt: sql`now()`
+      })
+      .where(eq(pagesTable.id, current.id))
+      .returning()
+
+    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
+    //    dropping and re-adding would create the destination folders but leave the old ones counted
+    const pathParts = newPath.split('/')
+    await WIKI.models.tree.deleteEntry(current.id, tx)
+    await WIKI.models.tree.addPage({
+      id: current.id,
+      parentPath: pathParts.slice(0, -1).join('/'),
+      fileName: pathParts.at(-1)!,
+      title: title !== undefined ? title.trim() : current.title,
+      locale: destLocale,
+      siteId,
+      tags: current.tags,
+      meta: this.treeMeta({ ...current, path: newPath }),
+      db: tx
+    })
+
+    // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
+    //    links, and a history list has to be able to say so
+    const changedFields = [
+      ...(newPath !== current.path ? ['path'] : []),
+      ...(destLocale !== current.locale ? ['locale'] : []),
+      ...(title !== undefined && title.trim() !== current.title ? ['title'] : [])
+    ]
+
+    return { rawMoved: rawMovedRows[0]!, changedFields }
+  }
+
+  /**
+   * The side effects one moved page fires once its transaction has committed -- history, watchers,
+   * search, hooks and storage dispatch, all keyed to what THIS page changed rather than the batch as
+   * a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if each had
+   * been moved on its own (spec item 2 of OpenProject #1026).
+   */
+  private async recordMoveSideEffects(
+    siteId: string,
+    previous: Page,
+    rawMoved: typeof pagesTable.$inferSelect,
+    changedFields: string[],
+    actor: PageActor
+  ): Promise<Page> {
+    const moved = (await this.getPage({ siteId, id: previous.id })) as Page
+    await WIKI.models.pageHistory.record({
+      siteId,
+      pageId: previous.id,
+      action: 'moved',
+      authorId: actor.id,
+      changedFields
+    })
+    await this.notifyWatchers(
+      siteId,
+      previous.id,
+      'moved',
+      actor.id,
+      { title: moved.title, path: moved.path, locale: moved.locale },
+      changedFields
+    )
+    await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
+    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
+    //    that has to find what the page used to be (the git target's own file for it, say) needs the
+    //    whole of where it was, not half of it
+    await WIKI.models.hooks.emit('page:rename', siteId, {
+      id: previous.id,
+      path: moved.path,
+      previousPath: previous.path,
+      locale: moved.locale,
+      previousLocale: previous.locale,
+      siteId,
+      authorId: actor.id
+    })
+    await WIKI.models.storage.dispatch('page:rename', {
+      id: previous.id,
+      path: moved.path,
+      previousPath: previous.path,
+      locale: moved.locale,
+      previousLocale: previous.locale,
+      siteId,
+      authorId: actor.id
+    })
+    return moved
+  }
+
+  /**
    * Move a page to another path and/or another locale, taking its tree entry with it.
    *
    * `locale` re-homes the page into another of the site's locales, which is a move in exactly the
    * sense a path change is: the page keeps its id, history and watchers, and the (siteId, locale,
    * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
+   *
+   * `includeTranslations` cascades a path change to every other locale's page sharing this page's
+   * CURRENT path (see `getTranslations` and docs/decisions/locale-translation-linking.md) -- the
+   * translation link this data model uses is the shared path itself, so a rename that moves only one
+   * locale's page silently strands its twins at the old one. All-or-nothing: every twin goes through
+   * the same reserved-segment and collision checks as the page being moved, and a 409 on any one of
+   * them aborts the whole batch, page and tree writes together (OpenProject #1026, built on the
+   * transaction OpenProject #1022 put under a single move). A locale-only move (path unchanged) never
+   * cascades -- twins are found by path, so they are unaffected by definition.
    */
   async movePage(
     siteId: string,
     id: string,
-    { path, title, locale }: { path: string; title?: string; locale?: string },
+    {
+      path,
+      title,
+      locale,
+      includeTranslations = false
+    }: { path: string; title?: string; locale?: string; includeTranslations?: boolean },
     actor: PageActor
   ): Promise<Page | null> {
     const page = await this.getPage({ siteId, id })
@@ -967,7 +1105,9 @@ class Pages {
     // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so a
     //    title-only (or locale-only) move of an already-grandfathered page — one whose path predates
     //    this rule — isn't itself blocked. The route's own schema advertises rename-via-move, and a
-    //    page whose shadowing first segment is untouched by this call isn't newly at risk.
+    //    page whose shadowing first segment is untouched by this call isn't newly at risk. Path-only,
+    //    so it applies identically to every twin the cascade below moves to the same destination --
+    //    no need to repeat it per twin.
     if (newPath !== page.path) {
       const firstSegment = newPath.split('/')[0] ?? ''
       if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
@@ -1019,95 +1159,93 @@ class Pages {
       }
     }
 
-    // -> `.returning()` gets the raw row for free off the same write, which is what
-    //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
-    let rawMovedRows
+    // -> Twins share this page's CURRENT path -- found before anything moves, since the primary no
+    //    longer shares it with anyone the moment its own row is updated. Reaching here with the path
+    //    unchanged means only the locale (or title) is moving (the no-op check above already
+    //    returned for a title-only move too), and twins are addressed by path, not by locale, so
+    //    there is nothing for them to inherit from a locale-only move.
+    const twins =
+      includeTranslations && newPath !== page.path
+        ? await this.getTranslations(siteId, page.path, id)
+        : []
+
+    for (const twin of twins) {
+      const duplicate = await WIKI.db
+        .select({ id: pagesTable.id })
+        .from(pagesTable)
+        .where(
+          and(
+            ne(pagesTable.id, twin.id),
+            eq(pagesTable.siteId, siteId),
+            eq(pagesTable.locale, twin.locale),
+            eq(pagesTable.path, newPath)
+          )
+        )
+        .limit(1)
+      if (duplicate.length > 0) {
+        throw new CustomError(
+          'pageDuplicatePath',
+          `A page already exists at this path in the "${twin.locale}" locale.`,
+          409
+        )
+      }
+    }
+
+    // -> Every page in the batch -- the one being moved, plus every twin `includeTranslations` pulls
+    //    along -- shares one transaction: a collision the probes above couldn't close (a race, or a
+    //    tree name collision only the insert itself can see) rolls the whole batch back rather than
+    //    leaving some twins moved and others stranded.
+    type MoveResult = {
+      previous: Page
+      rawMoved: typeof pagesTable.$inferSelect
+      changedFields: string[]
+    }
+    let results: MoveResult[]
     try {
-      rawMovedRows = await WIKI.db
-        .update(pagesTable)
-        .set({
-          path: newPath,
-          hash: generatePathHash(newPath),
-          locale: destLocale,
-          ...(title !== undefined ? { title: title.trim() } : {}),
-          authorId: actor.id,
-          updatedAt: sql`now()`
-        })
-        .where(eq(pagesTable.id, id))
-        .returning()
+      results = await WIKI.db.transaction(async (tx) => {
+        const primary = await this.moveOnePageInTx(
+          tx,
+          siteId,
+          page,
+          { path: newPath, title, locale: destLocale },
+          actor
+        )
+        const batch: MoveResult[] = [{ previous: page, ...primary }]
+        for (const twin of twins) {
+          const twinResult = await this.moveOnePageInTx(
+            tx,
+            siteId,
+            twin,
+            { path: newPath, locale: twin.locale },
+            actor
+          )
+          batch.push({ previous: twin, ...twinResult })
+        }
+        return batch
+      })
     } catch (err: any) {
-      // -> The probe above already covers the common case; this catches the race it cannot close --
-      //    two requests that both pass the probe before either updates
+      // -> The probes above already cover the common case; this catches the race they cannot close --
+      //    two requests that both pass a probe before either writes
       if (err.cause?.code === '23505' || err.code === '23505') {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err
     }
-    const rawMoved = rawMovedRows[0]!
 
-    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
-    //    dropping and re-adding would create the destination folders but leave the old ones counted
-    const pathParts = newPath.split('/')
-    await WIKI.models.tree.deleteEntry(id)
-    await WIKI.models.tree.addPage({
-      id,
-      parentPath: pathParts.slice(0, -1).join('/'),
-      fileName: pathParts.at(-1)!,
-      title: title !== undefined ? title.trim() : page.title,
-      locale: destLocale,
-      siteId,
-      tags: page.tags,
-      meta: this.treeMeta({ ...page, path: newPath })
-    })
-
-    const moved = (await this.getPage({ siteId, id })) as Page
-
-    // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound links,
-    //    and a history list has to be able to say so
-    const changedFields = [
-      ...(newPath !== page.path ? ['path'] : []),
-      ...(destLocale !== page.locale ? ['locale'] : []),
-      ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
-    ]
-    await WIKI.models.pageHistory.record({
-      siteId,
-      pageId: id,
-      action: 'moved',
-      authorId: actor.id,
-      changedFields
-    })
-    await this.notifyWatchers(
-      siteId,
-      id,
-      'moved',
-      actor.id,
-      { title: moved.title, path: moved.path, locale: moved.locale },
-      changedFields
-    )
-
-    await WIKI.models.search.renamed(siteId, rawMoved, page.path, page.locale)
-    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
-    //    that has to find what the page used to be (the git target's own file for it, say) needs the
-    //    whole of where it was, not half of it
-    await WIKI.models.hooks.emit('page:rename', siteId, {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      previousLocale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:rename', {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      previousLocale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    return moved
+    let primaryMoved: Page | undefined
+    for (const result of results) {
+      const moved = await this.recordMoveSideEffects(
+        siteId,
+        result.previous,
+        result.rawMoved,
+        result.changedFields,
+        actor
+      )
+      if (result.previous.id === id) {
+        primaryMoved = moved
+      }
+    }
+    return primaryMoved!
   }
 
   /**

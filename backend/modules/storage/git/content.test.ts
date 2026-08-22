@@ -300,6 +300,68 @@ describe('git storage content handlers', () => {
       const commit = await latestCommit(repoPath)
       assert.equal(commit?.message, 'docs: rename fr/same-path to en/same-path')
     })
+
+    /**
+     * `movePage`'s `includeTranslations` cascade (OpenProject #1026) dispatches `page:rename` once
+     * per moved page -- the primary, then each twin -- which reaches this handler as one `renamed()`
+     * call per page. Both files end up moved by the time that dispatch pass is done, each carried by
+     * its own commit (`renamed()` has always committed per call; the cascade does not change that),
+     * confirming the git target actually completes both renames rather than only the one it was
+     * called for first.
+     */
+    test('a translations cascade renames every twin file too, each in its own commit', async () => {
+      installWiki(rootPath, {
+        pages: {
+          en1: { id: 'en1', path: 'docs/new', contentType: 'markdown', content: 'English' },
+          fr1: { id: 'fr1', path: 'docs/new', contentType: 'markdown', content: 'Français' }
+        }
+      })
+      const { repoPath } = await ensureRepo(target)
+      await created(target, {
+        id: 'en1',
+        path: 'docs/old',
+        locale: PRIMARY_LOCALE,
+        siteId: SITE_ID
+      })
+      await created(target, { id: 'fr1', path: 'docs/old', locale: 'fr', siteId: SITE_ID })
+
+      // -> The order `movePage` dispatches in: the primary (en) first, then each twin (fr)
+      await renamed(target, {
+        id: 'en1',
+        path: 'docs/new',
+        previousPath: 'docs/old',
+        locale: PRIMARY_LOCALE,
+        previousLocale: PRIMARY_LOCALE,
+        siteId: SITE_ID
+      })
+      await renamed(target, {
+        id: 'fr1',
+        path: 'docs/new',
+        previousPath: 'docs/old',
+        locale: 'fr',
+        previousLocale: 'fr',
+        siteId: SITE_ID
+      })
+
+      await assert.rejects(fs.access(path.join(repoPath, 'docs', 'old.md')))
+      await assert.rejects(fs.access(path.join(repoPath, 'fr', 'docs', 'old.md')))
+      assert.equal(await fs.readFile(path.join(repoPath, 'docs', 'new.md'), 'utf8'), 'English')
+      assert.equal(
+        await fs.readFile(path.join(repoPath, 'fr', 'docs', 'new.md'), 'utf8'),
+        'Français'
+      )
+
+      const git = simpleGit(repoPath)
+      const log = await git.log()
+      // -> Each is a same-locale rename, so both commit messages read identically (the locale lives
+      //    in the file's directory, not in `renamed()`'s message) -- what proves the cascade actually
+      //    ran twice is that there are two of them, on top of the file-level assertions above already
+      //    proving both locales' files moved.
+      const renameMessages = log.all
+        .map((entry) => entry.message)
+        .filter((message) => message === 'docs: rename docs/old to docs/new')
+      assert.equal(renameMessages.length, 2)
+    })
   })
 
   describe('deleted', () => {

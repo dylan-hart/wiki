@@ -575,8 +575,8 @@ class Tree {
   /**
    * A single tree row by ID, or null if there is no such row
    */
-  async getById(id: string): Promise<TreeRow | null> {
-    const results = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+    const results = await db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
     return (results[0] as TreeRow) ?? null
   }
 
@@ -1167,7 +1167,8 @@ class Tree {
     locale,
     siteId,
     tags = [],
-    meta = {}
+    meta = {},
+    db = WIKI.db
   }: {
     id?: string
     parentId?: string | null
@@ -1178,6 +1179,10 @@ class Tree {
     siteId: string
     tags?: string[]
     meta?: Record<string, any>
+    /** Runs the folder resolution and the entry insert against this instead of the ambient
+     *  `WIKI.db` — a page move passes its own transaction so this entry shares fate with the
+     *  `pages` row update alongside it. */
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     return this.addEntry({
       id,
@@ -1196,7 +1201,8 @@ class Tree {
       navigationId: await WIKI.models.navigation.ensureSiteNav(siteId, locale),
       // -> A page's file name is its URL, chosen deliberately by whoever wrote it, so a clash is
       //    something to report rather than something to work around
-      onConflict: 'error'
+      onConflict: 'error',
+      db
     })
   }
 
@@ -1313,13 +1319,13 @@ class Tree {
   /**
    * Remove a page or asset entry from the tree, keeping its folder's count straight.
    */
-  async deleteEntry(id: string): Promise<boolean> {
-    const entry = await this.getById(id)
+  async deleteEntry(id: string, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
+    const entry = await this.getById(id, db)
     if (!entry) {
       return false
     }
-    await WIKI.db.delete(treeTable).where(eq(treeTable.id, id))
-    await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1)
+    await db.delete(treeTable).where(eq(treeTable.id, id))
+    await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1, db)
     return true
   }
 
