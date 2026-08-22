@@ -1546,6 +1546,17 @@ class Users {
           WIKI.models.flags.authDebug(
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
           )
+          // -> Never the password, same as the debug line above. No user id either -- an attempt
+          //    that failed authentication is not attributable to an account, only to whatever the
+          //    caller claimed to be.
+          await WIKI.models.auditLog.record({
+            event: 'login.failed',
+            actor: { id: null, name: username ?? '', ip },
+            targetType: 'user',
+            targetLabel: username ?? '',
+            detail: { strategyId, reason: err.message },
+            siteId
+          })
           throw err
         }
       }
@@ -2026,6 +2037,16 @@ class Users {
         name: user.name,
         email: user.email
       }
+    })
+
+    await WIKI.models.auditLog.record({
+      event: 'login.success',
+      actor: { id: user.id, name: user.name, ip: context.ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: context.siteId ?? null
     })
 
     return {

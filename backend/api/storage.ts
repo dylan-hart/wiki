@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { SYNC_SHAPED_ACTIONS } from '../models/storage.ts'
 import type { StorageTargetInput } from '../models/storage.ts'
 
@@ -180,9 +181,19 @@ async function routes(app: FastifyInstance) {
       }
 
       let updated = 0
+      const actor = actorFromRequest(req)
       for (const { target, patch } of patches) {
         if (await WIKI.models.storage.updateTarget(req.params.siteId, target, patch)) {
           updated++
+          await WIKI.models.auditLog.record({
+            event: 'storage.targetUpdated',
+            actor,
+            targetType: 'storageTarget',
+            targetId: target.id,
+            targetLabel: target.title,
+            detail: { changedFields: Object.keys(patch) },
+            siteId: req.params.siteId
+          })
         }
       }
 

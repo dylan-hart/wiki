@@ -4,6 +4,7 @@ import { pages as pagesTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { siteAssetKinds } from '../models/sites.ts'
 import type { SiteAssetKind } from '../models/sites.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -736,6 +737,17 @@ async function routes(app: FastifyInstance) {
           hostname: req.body.hostname,
           isEnabled: req.body.isEnabled,
           ...(Object.keys(config).length < 1 ? {} : { config })
+        })
+        await WIKI.models.auditLog.record({
+          event: 'site.settingsUpdated',
+          actor: actorFromRequest(req),
+          targetType: 'site',
+          targetId: req.params.siteId,
+          targetLabel: req.body.title ?? site.title,
+          detail: {
+            changedFields: Object.keys(req.body)
+          },
+          siteId: req.params.siteId
         })
         return {
           ok: true,

@@ -1,3 +1,4 @@
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 import type { KeyExpiration } from '../models/apiKeys.ts'
 
@@ -154,6 +155,15 @@ async function routes(app: FastifyInstance) {
         siteId: req.body.siteId ?? null
       })
 
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.issued',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: id,
+        targetLabel: req.body.name,
+        detail: { groups: req.body.groups, siteId: req.body.siteId ?? null }
+      })
+
       return {
         ok: true,
         message: 'API key created successfully.',
@@ -217,6 +227,13 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.apiKeys.revokeKey(key.id)
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.revoked',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: key.id,
+        targetLabel: key.name
+      })
 
       return {
         ok: true,

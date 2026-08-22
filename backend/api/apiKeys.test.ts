@@ -33,6 +33,9 @@ before(async () => {
           createKeyCalls.push(args)
           return { id: 'new-key-id', key: 'signed.jwt.token' }
         }
+      },
+      auditLog: {
+        record: async () => {}
       }
     },
     data: {

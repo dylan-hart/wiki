@@ -171,6 +171,9 @@ before(async () => {
       },
       blocks: {
         getSiteBlocks
+      },
+      auditLog: {
+        record: async () => {}
       }
     },
     logger: { warn: () => {} }
