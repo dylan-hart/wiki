@@ -8,14 +8,22 @@
  * process's own stdout already carries request logs (`core/logger.ts`), and the two would corrupt each
  * other's framing on the same stream. See `mcp/bootstrap.ts`'s doc comment for why this is still "the
  * `backend/mcp/` module registered alongside the existing Fastify app" the work package asks for, in
- * every sense except the one the transport itself forces apart — and `docs/variances.md` for the
- * HTTP/SSE transport that would actually share the process, left as future work.
+ * every sense except the one the transport itself forces apart.
+ *
+ * This is the lightweight local/desktop-client entrypoint, not a second deployment artifact: the
+ * reference/production way to reach this wiki's MCP tools is `mcp/http.ts`, mounted in-process on the
+ * very same Fastify app `node backend` already runs — see that file's own doc comment. Nobody stands up
+ * a second image or container for either transport; both live in this one `backend/` workspace and
+ * share the same models/schema/database, differing only in which OS process's stdio a client attaches
+ * to.
  *
  * Auth: reads a single bearer token from `WIKI_MCP_API_KEY` (mint one via the existing API Keys admin
  * screen, or `POST /_api/system/api-keys`) and verifies it once at startup — refusing to start at all
  * on an invalid/revoked/expired key, rather than failing the first tool call. Every tool call for the
- * lifetime of this process then acts as that one key. See `mcp/auth.ts`'s `McpAuthContext` doc comment
- * for what that does and does not grant, and why it is an interim stand-in for per-user tokens.
+ * lifetime of this process then acts as that one key's identity. See `mcp/auth.ts`'s `McpAuthContext`
+ * doc comment for exactly what that resolves to — a personal access token here grants the same
+ * per-user page-rule authorization as it does over `mcp/http.ts`, just fixed to one caller for the
+ * life of the process instead of re-verified per request.
  */
 
 // -> MUST run before anything below logs a single line: `core/logger.ts` and various boot-path
@@ -72,7 +80,9 @@ async function main(): Promise<void> {
   }
 
   const server = createMcpServer(WIKI.version)
-  registerAllTools(server, ctx)
+  // -> Fixed for the process's whole lifetime, unlike `mcp/http.ts`'s per-request-refreshed getter —
+  //    see `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`.
+  registerAllTools(server, () => ctx)
 
   const transport = new StdioServerTransport()
   // -> The client closes stdin when it disconnects; the SDK's transport surfaces that as `onclose`

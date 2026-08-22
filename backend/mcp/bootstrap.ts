@@ -13,8 +13,9 @@
  * same stream) but it is not a standalone *service*: it lives in this same `backend/` workspace, reuses
  * the exact same models, schema and database as the main app, and is deployed as part of the same
  * package — the distinction the work package's "registered alongside the existing Fastify app" guidance
- * is actually drawing (see `mcp/stdio.ts`'s doc comment for the fuller reasoning, and
- * `docs/variances.md` for the HTTP/SSE transport that WOULD run inside the Fastify process).
+ * is actually drawing (see `mcp/stdio.ts`'s doc comment for the fuller reasoning). `mcp/http.ts` is the
+ * transport that DOES run inside the Fastify process, mounted as an ordinary route — it needs none of
+ * this trimmed bootstrap, since `index.ts`'s own `preBoot()` already loads the full model registry.
  */
 
 import path from 'node:path'

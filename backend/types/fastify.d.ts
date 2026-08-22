@@ -9,6 +9,7 @@ import 'fastify'
 import '@fastify/session'
 import type { ApiKeyIdentity } from '../models/apiKeys.ts'
 import type { PasskeyChallenge } from '../models/passkeys.ts'
+import type { McpAuthContext } from '../mcp/auth.ts'
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -25,6 +26,12 @@ declare module 'fastify' {
      * matched no site, since that case is redirected to `/_error/unknownsite` with nothing to attach.
      */
     site?: Record<string, any> | null
+    /**
+     * Set by the `onRequest` hook in `mcp/http.ts` once a request's bearer token verifies — the
+     * identity every MCP tool call on this request is authorized against. Decorated locally by that
+     * plugin (`/_mcp` only), unlike `apiKey`/`site` above which the root app decorates.
+     */
+    mcpCtx?: McpAuthContext | null
   }
 
   interface Session {
