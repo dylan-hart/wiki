@@ -1086,6 +1086,13 @@ class Pages {
     )
 
     await WIKI.models.search.renamed(siteId, rawMoved, page.path, page.locale)
+    // -> A glossary term's cached link is baked in at cache-build time (`models/glossary.ts`'s
+    //    `getCachedTerms`), so a canonical page's path or locale changing has to drop it too, the same
+    //    way a term CRUD does -- otherwise the cache would keep serving a link to where the page used
+    //    to live (OpenProject #870).
+    if (newPath !== page.path || destLocale !== page.locale) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
     // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
     //    that has to find what the page used to be (the git target's own file for it, say) needs the
     //    whole of where it was, not half of it
@@ -1140,6 +1147,11 @@ class Pages {
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
+    // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
+    //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
+    //    link needs the same drop or it would keep pointing at a page that no longer exists
+    //    (OpenProject #870).
+    WIKI.models.glossary.invalidateCache(siteId)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1201,6 +1213,9 @@ class Pages {
         entries.map((entry) => entry.id)
       )
     )
+    // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
+    //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
+    WIKI.models.glossary.invalidateCache(siteId)
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in

@@ -170,7 +170,13 @@ class Glossary {
     return terms
   }
 
-  private invalidateCache(siteId: string): void {
+  /**
+   * Drops the resolved-term cache for a site. Public because a canonical page's path (or existence)
+   * can change from outside this model — `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned`
+   * call this too, since `getCachedTerms` bakes each term's link in at cache-build time and nothing
+   * else would otherwise tell it a linked page moved or was deleted (OpenProject #870).
+   */
+  invalidateCache(siteId: string): void {
     WIKI.cache.del(cacheKey(siteId))
   }
 
