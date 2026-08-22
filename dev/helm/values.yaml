@@ -91,13 +91,21 @@ volumeMounts: []
 
 volumes: []
 
-# This will allow us to install locales even without internet access using a initContainer & wikjs "sideloading"
+# Whether this instance can reach the internet. See docs/offline-deployment.md (OpenProject #820) for
+# the full list of what this gates. Sets the WIKI_OFFLINE env var the image's config.yml reads via
+# $(WIKI_OFFLINE:false) — settable here rather than only by hand-editing config.yml.
+offline: false
+
+# Populates <dataPath>/locales/ (Wiki.js's locale sideload directory — see
+# docs/offline-deployment.md) from a git repo before the app container starts, so locale packs can be
+# added/updated on an air-gapped cluster with no image rebuild. The app loads them at boot and on
+# every `POST /_api/locales/sideload` afterward.
 sideload:
   enabled: false
-  # Git-Repo containing all locales.json-files you need:
+  # Git repo containing the locale-pack JSON files you need, one <code>.json per locale.
   repoURL: https://github.com/Requarks/wiki-localization
 
-  ## This can be helpfull if you have internet access over a http proxy:
+  ## This can be helpful if you have internet access over an http proxy:
   env: []
   #  - name: HTTPS_PROXY
   #    value: http://my.proxy.com:3128

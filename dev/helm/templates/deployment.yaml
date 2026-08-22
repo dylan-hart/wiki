@@ -30,7 +30,7 @@ spec:
           env:
             {{- toYaml .Values.sideload.env | nindent 12 }}
           command: [ "sh", "-c" ]
-          args: [ "mkdir -p /wiki/data/sideload && git clone --depth=1 {{ .Values.sideload.repoURL }} /wiki/data/sideload/" ]
+          args: [ "mkdir -p /wiki/data/locales && git clone --depth=1 {{ .Values.sideload.repoURL }} /wiki/data/locales/" ]
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
@@ -64,6 +64,8 @@ spec:
                   key: {{ template "wiki.postgresql.secretKey" . }}
             - name: HA_ACTIVE
               value: {{ .Values.replicaCount | int | le 2 | quote }}
+            - name: WIKI_OFFLINE
+              value: {{ .Values.offline | default false | quote }}
     {{- with .Values.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}
