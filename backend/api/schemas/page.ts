@@ -1,4 +1,4 @@
-import { pageHistoryActions } from '../../models/pageHistory.ts'
+import { pageHistoryActions, pageHistoryVia } from '../../models/pageHistory.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -450,6 +450,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         enum: [...pageHistoryActions],
         description: 'What happened to the page. `moved` is a change of path or title.'
+      },
+      via: {
+        type: 'string',
+        enum: [...pageHistoryVia],
+        description:
+          "What actually made the change: `editor` for the standard editor (every REST-API-driven save), or `mcp` for an MCP tool call acting on the author's behalf."
       },
       changedFields: {
         type: 'array',

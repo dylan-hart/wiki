@@ -111,12 +111,16 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
  * token (`ctx.userId` set) has one to offer — an admin-issued key has no user behind it to attribute
  * the page to, exactly as it grants no page-saving through `/_api/` either. `write:scripts`/
  * `write:styles` are page-rule-scoped, so `groupIds` travels with the actor the same way it does there.
+ *
+ * `via: 'mcp'` is what makes the resulting `pageHistory` row distinguishable from an edit made through
+ * the standard editor (OpenProject #1119) — `models/pages.ts`'s write methods thread `actor.via`
+ * straight through to `pageHistory.record()`.
  */
 export function pageActorFor(ctx: McpAuthContext): PageActor | null {
   if (!ctx.userId) {
     return null
   }
-  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds }
+  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds, via: 'mcp' }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
@@ -206,6 +207,14 @@ export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
+  /**
+   * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
+   * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to
+   * `pageHistory.record()`'s own `via` — see `PageHistoryVia`'s doc comment
+   * (`models/pageHistory.ts`) for why this lives on the actor rather than as a separate argument
+   * every write method would have to accept and pass along (OpenProject #1119).
+   */
+  via?: PageHistoryVia
 }
 
 /**
@@ -731,6 +740,7 @@ class Pages {
       pageId: page.id,
       action: 'created',
       authorId: actor.id,
+      via: actor.via,
       reason: input.reasonForChange,
       versionDate: input.updatedAt ? new Date(input.updatedAt) : undefined
     })
@@ -903,6 +913,7 @@ class Pages {
       pageId: id,
       action: 'updated',
       authorId: actor.id,
+      via: actor.via,
       changedFields,
       reason: patch.reasonForChange
     })
@@ -1035,6 +1046,7 @@ class Pages {
       pageId: previous.id,
       action: 'moved',
       authorId: actor.id,
+      via: actor.via,
       changedFields
     })
     await this.notifyWatchers(
@@ -1270,7 +1282,8 @@ class Pages {
       siteId,
       pageId: id,
       action: 'deleted',
-      authorId: actor.id
+      authorId: actor.id,
+      via: actor.via
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
     //    has to be read while it still exists
@@ -1334,7 +1347,8 @@ class Pages {
         siteId,
         pageId: entry.id,
         action: 'deleted',
-        authorId: actor.id
+        authorId: actor.id,
+        via: actor.via
       })
       // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
       //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin

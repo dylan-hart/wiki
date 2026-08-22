@@ -4,10 +4,12 @@ import { ApiKeyError } from '../models/apiKeys.ts'
 import {
   actorFor,
   assertSiteInScope,
+  auditActorFor,
   authenticateApiKey,
   contextFromIdentity,
   maySeeEverything,
-  McpToolError
+  McpToolError,
+  pageActorFor
 } from './auth.ts'
 
 let previousWiki: any
@@ -143,4 +145,30 @@ test('assertSiteInScope: a site-scoped key may reach its own site', () => {
 
 test('assertSiteInScope: a site-scoped key is refused against a different site', () => {
   assert.throws(() => assertSiteInScope(ctx({ siteId: 'site-1' }), 'site-2'), McpToolError)
+})
+
+// -> OpenProject #1119: page-history provenance -- an MCP-authored edit must be distinguishable from
+//   one made through the standard editor.
+test('pageActorFor: null for an admin-issued key (no userId)', () => {
+  assert.equal(pageActorFor(ctx({ userId: null })), null)
+})
+
+test('pageActorFor: a personal access token is attributed to its owner, tagged via: mcp', () => {
+  const actor = pageActorFor(
+    ctx({ userId: 'user-1', permissions: ['write:pages'], groupIds: ['group-a'] })
+  )
+  assert.deepEqual(actor, {
+    id: 'user-1',
+    permissions: ['write:pages'],
+    groupIds: ['group-a'],
+    via: 'mcp'
+  })
+})
+
+// -> OpenProject #1118: instance-wide audit log visibility into MCP activity.
+test('auditActorFor: named by the key id, the same way actorFromRequest() names any apiKey-authenticated request', () => {
+  assert.deepEqual(auditActorFor(ctx({ keyId: 'key-42' })), {
+    id: null,
+    name: 'API Key key-42'
+  })
 })

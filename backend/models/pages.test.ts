@@ -121,6 +121,35 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(fetched!.path, 'docs/create-me')
   })
 
+  test('createPage() records the pageHistory row as via: editor when the actor names no via (OpenProject #1119)', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/via-default' }),
+      actor
+    )
+    const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0]!.via, 'editor')
+  })
+
+  test('createPage()/updatePage() record the pageHistory row as via: mcp when the actor says so (OpenProject #1119)', async () => {
+    const mcpActor: PageActor = { ...actor, via: 'mcp' }
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/via-mcp' }),
+      mcpActor
+    )
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated via MCP' }, mcpActor)
+
+    const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    // -> Newest first: [0] is the update, [1] is the creation -- both attributed to the same actor.
+    assert.equal(entries.length, 2)
+    assert.equal(entries[0]!.via, 'mcp')
+    assert.equal(entries[1]!.via, 'mcp')
+  })
+
   test('createPage refuses an empty title', async () => {
     await assert.rejects(
       pagesModel.createPage(
