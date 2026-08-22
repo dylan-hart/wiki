@@ -116,10 +116,12 @@ import { relativeDate } from '@/helpers/datetime'
 
 /**
  * Whole-glossary version history (OpenProject #1113): browse saved snapshots, expand one to see how
- * it differs from the CURRENT live glossary (`props.currentTerms`, passed by the parent rather than
- * re-fetched here, since it already has it loaded), and restore one as the new live state. A restore
- * itself creates a new version rather than rewriting history -- see `models/glossary.ts`'s own
- * `restoreVersion` comment -- so the list only ever grows.
+ * it differs from the admin screen's CURRENT working copy (`props.currentTerms`, passed by the parent
+ * rather than re-fetched here, since it already has it loaded), and restore one as the new live state.
+ * `currentTerms` is `AdminGlossary.vue`'s staged edits, not necessarily the live saved glossary -- if
+ * there are unsaved changes, the diff shows what a restore would change relative to THOSE, which is
+ * what the admin is looking at right now. A restore itself creates a new version rather than rewriting
+ * history -- see `models/glossary.ts`'s own `restoreVersion` comment -- so the list only ever grows.
  */
 
 // PROPS
@@ -129,8 +131,9 @@ const props = defineProps({
     type: String,
     required: true
   },
-  /** The current, live (already-saved) glossary terms -- `{ term, definition, aliases, path }[]` --
-   *  what an expanded version's snapshot is diffed against. */
+  /** The admin screen's current working copy -- `{ term, definition, aliases, path }[]` -- what an
+   *  expanded version's snapshot is diffed against. May include unsaved staged edits; this is NOT
+   *  guaranteed to match the live, already-saved glossary. */
   currentTerms: {
     type: Array,
     required: true
