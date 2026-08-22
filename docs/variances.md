@@ -1248,3 +1248,43 @@ content shape already exists one layer down (`markdown.test.js`'s footnote-refer
 paginated-print concern this codebase has no visual-regression/PDF-rendering harness to exercise
 automatically. A human reviewer with a real PDF export in hand should confirm the fix visually before
 this ships; that is the only verification method that would actually observe it.
+
+## OpenProject #988 — `npm run build` (frontend) logs Node-built-in externalization notices for `@asciidoctor/core`'s browser bundle
+
+**Date:** 2026-08-21
+**Feature:** #988 (AsciiDoc render pipeline)
+
+`vite build` in `frontend/` prints four informational lines for the `EditorAsciidoc` chunk:
+
+```
+[plugin rolldown:vite-resolve] Module "node:fs/promises" has been externalized for browser
+compatibility, imported by ".../@asciidoctor/core/build/browser/index.js". ...
+```
+(and the same for `node:fs`, `node:path`, `node:async_hooks`).
+
+**Why this is not fixable here:** the `asciidoctor` npm package's `exports` map picks
+`@asciidoctor/core/build/browser/index.js` for a client build via the `"browser"` condition — the
+package's own, maintainer-built browser bundle, not a resolution mistake. That file still contains
+`await import('node:fs/promises')` / `await import('node:fs')` / `await import('node:path')` /
+dynamic `node:async_hooks` access, each runtime-feature-detected (`generateDataUri`/`readAsset`'s
+"unavailable in browsers" comments, the `AsyncLocalStorage` fallback-to-null comment) rather than
+build-time-guarded, because the package is written to also run under real Node (its own CLI, and
+Node-side rendering). Confirmed by grepping `@asciidoctor/core/src/` (the pre-bundle source): every
+one of these four specifiers already appears there too, behind the identical dynamic-import pattern
+— so pointing Vite at the `"import"` condition instead of `"browser"` would not remove the notices,
+only relocate them, while giving up the maintainer-intended browser entry point for no benefit.
+
+None of the guarded code ever runs from this integration: `renderers/asciidoc.js` calls `convert()`
+with `safe: 'secure'` and no `data-uri` attribute, template converter, or file-write feature — the
+only reasons `@asciidoctor/core` would reach for `node:fs`/`node:path`/`node:async_hooks` at runtime.
+Vite's own message says as much ("it will remain unchanged to be resolved at runtime — if this is
+intended, use `/* @vite-ignore */`"): this is the tool correctly reporting a dead-for-us code path in
+a third-party dependency, not a defect in this fork's code. `npm run build` still exits 0 and produces
+a working bundle (`asciidoc.test.js` and `EditorAsciidoc.test.js` exercise the same `convert()` call
+these notices are about, and pass).
+
+**Not suppressed** via a `resolve.alias` override or a rollup `onwarn` filter: both would either move
+the notices to `@asciidoctor/core/src/` (the alias route, per the grep above) or risk swallowing a
+genuine future externalization warning from an unrelated dependency (a blanket `onwarn` filter on
+`node:*` specifiers). Revisit if a future `asciidoctor` release restructures its browser build to
+build-time-guard these imports instead.

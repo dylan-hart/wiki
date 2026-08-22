@@ -25,9 +25,9 @@
       <!-- MONACO EDITOR -->
       <!-- ------------------------------------------------------- -->
       <!--
-        No preview pane: rendering AsciiDoc to HTML (2.5.x did it client-side via Asciidoctor.js) is a
-        materially larger lift deliberately deferred to a later Feature -- see the component doc
-        comment below. Until then this editor only edits and stores the raw source.
+        No preview PANE -- the rendered HTML is computed on every change (see the component doc
+        comment below) but only stored, never shown split-view alongside the source. That visual
+        affordance is the part still deferred, matching `EditorCode.vue`'s no-frills bar.
       -->
       <div class="editor-asciidoc-editor"><div ref="monacoRef" /></div>
     </div>
@@ -40,6 +40,7 @@ import { useI18n } from 'vue-i18n'
 
 import { assetPath } from '@/helpers/assets'
 import { directionalAnchor } from '@/helpers/directionalAnchor'
+import { notify } from '@/composables/notify'
 
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
@@ -49,20 +50,20 @@ import { debounce } from 'es-toolkit/function'
 import * as monaco from 'monaco-editor'
 import { Range } from 'monaco-editor'
 
+import { AsciidocRenderer } from '@/renderers/asciidoc'
+
 /**
  * The `asciidoc` editor: a minimal, real editor for raw AsciiDoc source -- deliberately scoped down
- * from 2.5.x's `editor-asciidoc.vue` (CodeMirror + `codemirror-asciidoc` mode, a live preview pane
+ * from 2.5.x's `editor-asciidoc.vue` (CodeMirror + `codemirror-asciidoc` mode, a live preview PANE
  * rendered client-side through Asciidoctor.js, DOMPurify-sanitized, debounced at 600ms).
  *
- * That preview pipeline is a materially larger lift than the other editors in this Feature and is
- * deliberately deferred to a later one (server-side rendering, or a follow-up client library
- * integration) -- see task 491. Until then this component matches `EditorCode.vue`'s "no-frills bar":
- * no preview, no formatting toolbar, just a single Monaco pane. On every change both
- * `pageStore.content` and `pageStore.render` are set to the same raw AsciiDoc string, and `pageSave`
- * sends both up unchanged (`stores/page.js`) -- so a page opened before real AsciiDoc rendering ships
- * will show its literal source, not a blank pane or an error. That is the accepted, honestly-labelled
- * cost of shipping the editor ahead of the renderer; `AdminEditors.vue`'s asciidoc row description
- * says so explicitly.
+ * That split-view preview PANE is a UI affordance this component still does not have -- see the
+ * template comment above the Monaco pane -- but the rendering it would have shown is real: on every
+ * change, `AsciidocRenderer.render` (`renderers/asciidoc.js`) converts the source to HTML and that is
+ * what lands in `pageStore.render`, the same field `EditorMarkdown.vue`'s own `md.render` feeds.
+ * `pageSave` (`stores/page.js`) sends `content` and `render` up together; the server sanitizes
+ * whichever HTML it receives the same way regardless of which editor produced it
+ * (`models/rendering.ts`'s `postProcess`), so a saved AsciiDoc page displays like any other.
  *
  * Monaco has no built-in AsciiDoc grammar (unlike `html` for `EditorCode.vue` or the markdown mode
  * `EditorMarkdown.vue` uses), so this reuses the same Monaco boot/setup pattern in plain-text
@@ -84,6 +85,7 @@ const { t } = useI18n()
 
 let editor
 const monacoRef = ref(null)
+const renderer = new AsciidocRenderer()
 
 /*
  * OpenProject #834 (discussion #1738's editor-toolbar-mirroring gap, not caught by task 721/727's
@@ -145,6 +147,46 @@ function insertAtCursor(content) {
   editor.focus()
 }
 
+/**
+ * Convert the source and store the result -- see `EditorMarkdown.vue`'s matching `processContent`.
+ *
+ * A render that throws must not become a render that is empty: `pageSave` sends whatever is in the
+ * store, and the server replaces the stored HTML with it, so patching a failed render in blanks the
+ * published page where patching nothing keeps the last good one.
+ */
+async function processContent(newContent) {
+  let html
+  try {
+    html = await renderer.render(newContent, { pagePath: pageStore.path })
+  } catch (err) {
+    console.error(err)
+    notify({
+      type: 'negative',
+      message: t('editor.renderFailed'),
+      caption: err.message
+    })
+    return
+  }
+  pageStore.$patch({ render: html })
+}
+
+/**
+ * Copy the editor's current text into the store right now, rather than on the usual 500ms debounce.
+ *
+ * Shared by the change handler below, on every debounced edit, and by `editorStore.contentFlusher`,
+ * which `pageSave()` awaits before it reads `content`/`render` -- see the call site in `stores/page.js`
+ * for why a save can otherwise land inside that debounce window. Async, unlike `EditorMarkdown.vue`'s
+ * own `flushEditorContent`: Asciidoctor's `convert` is asynchronous (`renderers/asciidoc.js`), so there
+ * is no synchronous render to flush here. Deliberately leaves `contentLoaded`/`lastChangeTimestamp`
+ * alone -- those describe an actual edit having happened, which a save that runs this on a page nobody
+ * has touched since it loaded would wrongly claim; `pageSave()`'s own guard is what that would defeat.
+ */
+async function flushEditorContent() {
+  const value = editor.getValue()
+  pageStore.content = value
+  await processContent(value)
+}
+
 // MOUNTED
 
 onMounted(() => {
@@ -181,33 +223,34 @@ onMounted(() => {
     wordWrap: 'on'
   })
 
-  // -> Handle content change: the raw source goes to both `content` and `render` -- see the component
-  //    doc comment for why there is no rendering step in between yet.
+  // -> Handle content change
   editor.onDidChangeModelContent(
     debounce(() => {
       editorStore.$patch({
         lastChangeTimestamp: Temporal.Now.instant()
       })
-      const value = editor.getValue()
-      pageStore.$patch({
-        content: value,
-        render: value,
-        // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-        //    the guard in `pageSave`
-        contentLoaded: true
-      })
+      // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+      //    the guard in `pageSave`
+      pageStore.contentLoaded = true
+      flushEditorContent()
     }, 500)
   )
 
   editor.focus()
 
   EVENT_BUS.on('insertAsset', insertAssetClb)
+
+  // -> See `flushEditorContent` and `pageSave()` in `stores/page.js` for why this exists
+  editorStore.contentFlusher = flushEditorContent
 })
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
   if (editor) {
     editor.dispose()
+  }
+  if (editorStore.contentFlusher === flushEditorContent) {
+    editorStore.contentFlusher = null
   }
 })
 </script>
