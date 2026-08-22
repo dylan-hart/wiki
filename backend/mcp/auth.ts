@@ -1,5 +1,7 @@
 import { ApiKeyError } from '../models/apiKeys.ts'
+import type { ApiKeyIdentity } from '../models/apiKeys.ts'
 import type { AccessActor } from '../models/groups.ts'
+import type { PageActor } from '../models/pages.ts'
 
 /**
  * Raised for anything that stops an MCP tool call before it reaches a model: an invalid/revoked/
@@ -11,37 +13,24 @@ import type { AccessActor } from '../models/groups.ts'
 export class McpToolError extends Error {}
 
 /**
- * What an authenticated MCP session acts as, for the lifetime of the process — resolved once at
- * startup (see `mcp/stdio.ts`) from the single instance-wide key configured via `WIKI_MCP_API_KEY`.
- *
- * INTERIM AUTH MODEL, documented here because it is the one thing every tool call inherits:
+ * What an authenticated MCP caller acts as. For the stdio transport this is resolved once at startup
+ * (`mcp/stdio.ts`) from the single key configured via `WIKI_MCP_API_KEY`; for the HTTP transport
+ * (`mcp/http.ts`) it is resolved fresh on every request from that request's own bearer token, so a
+ * shared HTTP endpoint can serve many callers at once, each seeing only what their own token grants.
  *
  * This wraps the SAME `models/apiKeys.ts` bearer-token mechanism `/_api/` already authenticates with
- * (`Authorization: Bearer <token>`), not a new credential type invented for MCP. One key is configured
- * for the whole MCP server process, so every tool call — regardless of which human or agent is driving
- * the MCP client — acts with that one key's permissions. This is coarser than the wiki's real
- * authorization model, which is per-user: a page rule can differ from one person to the next, and this
- * collapses that to "whatever the operator's chosen key was issued for".
+ * (`Authorization: Bearer <token>`), not a new credential type invented for MCP. `groupIds`/`userId`
+ * carry straight through from the verified `ApiKeyIdentity` (`models/apiKeys.ts`): for a personal
+ * access token that is the owning user's CURRENT group membership, live-resolved on every verify; for
+ * an admin-issued key it is the key's own configured groups. Either way, `actorFor()` below checks
+ * page-rule permissions (`read:pages`, `read:source`, …) against exactly those groups — the same
+ * question `WIKI.models.groups.groupIdsForRequest()` answers for a bearer-token `/_api/` request — so
+ * an MCP tool call is authorized as the real human (or admin-issued key) behind it, not as a fixed
+ * stand-in. `manage:system` still bypasses every page rule everywhere (`checkAccess()`'s first line),
+ * exactly as it does for `/_api/`.
  *
- * The concrete effect on page-rule permissions specifically (`read:pages`, `read:source`, …): those
- * are decided by `WIKI.models.groups.checkAccess()` against an actor's GROUP membership, not its
- * global `permissions` list (see CLAUDE.md's Permissions section) — and a bearer-token-only request
- * carries no session, so it has no group membership of its own to offer. This mirrors exactly what
- * already happens for every OTHER bearer-token request in this codebase today (see
- * `models/groups.ts`'s `groupIdsForRequest()`): with no session, it resolves to the guests group. An
- * MCP tool call therefore sees whatever the guests group's page rules allow, UNLESS the configured key
- * holds `manage:system`, which bypasses every page rule everywhere (`checkAccess()`'s first line) —
- * exactly as it does for a `manage:system` key used against `/_api/` directly. There is nothing MCP-
- * specific about either half of that; it is the existing API-key trust model, used as-is.
- *
- * The ideal — matching a real page-rule grant to the human on the other end of the MCP client — is
- * per-user API tokens (`feature/per-user-api-tokens`, a concurrent item in this same batch). Once that
- * lands, an MCP client is expected to pass ITS caller's own per-user token instead of a shared
- * instance-wide one, and `actorFor()` below is the one place that changes: it would build the actor
- * from that token's real group membership instead of falling back to guests. Everything else in
- * `mcp/` — the tool surface, the site-scoping guard, the permission checks on results — is unchanged
- * by that migration, since it already asks `checkAccess()`/`mayHoldPermissionSomewhere()` for the
- * answer rather than assuming one.
+ * An admin-issued key minted with no groups therefore grants an MCP caller nothing page-scoped —
+ * matching `/_api/`'s own behavior for the same key, not a gap specific to MCP.
  */
 export interface McpAuthContext {
   /** The verifying key's own id, for logging — never the identity a permission check is made against. */
@@ -50,22 +39,40 @@ export interface McpAuthContext {
   permissions: string[]
   /** The single site this key is pinned to, or null for instance-wide. See `assertSiteInScope()`. */
   siteId: string | null
+  /** Groups this identity speaks for — what page-rule permissions are checked against. See `actorFor()`. */
+  groupIds: string[]
+  /** The user this key acts as (a personal access token), or null for an admin-issued key. */
+  userId: string | null
 }
 
 /**
- * Verify the configured bearer token and resolve what it grants, the same way the `onRequest` hook in
- * `index.ts` does for `/_api/` — just without a `FastifyRequest` to hang the result off, since this
- * process serves no HTTP requests. Called once at startup; see `mcp/stdio.ts`.
+ * Map a verified `ApiKeyIdentity` onto the shape an MCP tool call is authorized against. Exported for
+ * `mcp/http.ts`, which verifies a token itself (to also run it through `helpers/rateLimit.ts`'s
+ * `limitApiKey()`, which expects the raw identity) rather than through `authenticateApiKey()` above.
+ */
+export function contextFromIdentity(identity: ApiKeyIdentity): McpAuthContext {
+  return {
+    keyId: identity.id,
+    permissions: identity.permissions,
+    siteId: identity.siteId,
+    groupIds: identity.groupIds,
+    userId: identity.userId
+  }
+}
+
+/**
+ * Verify a bearer token and resolve what it grants, the same way the `onRequest` hook in `index.ts`
+ * does for `/_api/`.
  *
- * @throws McpToolError with a reason safe to surface in a startup failure message
+ * @throws McpToolError with a reason safe to surface to the caller (a startup failure message for the
+ *         stdio transport, an HTTP 401 body for the HTTP transport)
  */
 export async function authenticateApiKey(token: string): Promise<McpAuthContext> {
   try {
-    const identity = await WIKI.models.apiKeys.verify(token)
-    return { keyId: identity.id, permissions: identity.permissions, siteId: identity.siteId }
+    return contextFromIdentity(await WIKI.models.apiKeys.verify(token))
   } catch (err: any) {
     if (err instanceof ApiKeyError) {
-      throw new McpToolError(`The configured MCP API key is not usable: ${err.message}`)
+      throw new McpToolError(`The MCP API key is not usable: ${err.message}`)
     }
     throw err
   }
@@ -73,14 +80,29 @@ export async function authenticateApiKey(token: string): Promise<McpAuthContext>
 
 /**
  * The actor a tool call's permission checks (`checkAccess()`, `mayHoldPermissionSomewhere()`) are
- * decided against. See the INTERIM AUTH MODEL doc comment on `McpAuthContext` above for why this
- * resolves to the guests group's rules rather than the key's own groups.
+ * decided against — the calling identity's own groups, so a personal access token is authorized as
+ * its owner's real page-rule grants rather than a shared fallback. See `McpAuthContext`'s doc comment.
  */
 export function actorFor(ctx: McpAuthContext): AccessActor {
   return {
-    groupIds: [WIKI.data.systemIds.guestsGroupId],
+    groupIds: ctx.groupIds,
     permissions: ctx.permissions
   }
+}
+
+/**
+ * Who a write tool call (`create_page`/`update_page`) saves as, or `null` when it may not save at all.
+ *
+ * Mirrors `api/pages.ts`'s `actorFrom()`: a page records a real author, and only a personal access
+ * token (`ctx.userId` set) has one to offer — an admin-issued key has no user behind it to attribute
+ * the page to, exactly as it grants no page-saving through `/_api/` either. `write:scripts`/
+ * `write:styles` are page-rule-scoped, so `groupIds` travels with the actor the same way it does there.
+ */
+export function pageActorFor(ctx: McpAuthContext): PageActor | null {
+  if (!ctx.userId) {
+    return null
+  }
+  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds }
 }
 
 /**
