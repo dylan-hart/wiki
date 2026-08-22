@@ -45,7 +45,7 @@ function fakeAlgoliaClient() {
     saveObject: [],
     deleteObject: [],
     searchSingleIndex: [],
-    clearObjects: [],
+    deleteBy: [],
     batch: []
   }
   let searchResponse: any = { hits: [], nbHits: 0 }
@@ -66,8 +66,8 @@ function fakeAlgoliaClient() {
       calls.searchSingleIndex!.push(args)
       return searchResponse
     }),
-    clearObjects: mock.fn(async (args: any) => {
-      calls.clearObjects!.push(args)
+    deleteBy: mock.fn(async (args: any) => {
+      calls.deleteBy!.push(args)
       return {}
     }),
     batch: mock.fn(async (args: any) => {
@@ -111,60 +111,77 @@ describe('buildFilters()', () => {
     return { siteId: 'site-1', ...overrides }
   }
 
-  test('always requires isSearchable, and excludes drafts by default', () => {
-    assert.equal(buildFilters(params()), 'isSearchable:true AND NOT publishState:"draft"')
+  test('always scopes to the site and requires isSearchable, excluding drafts by default', () => {
+    assert.equal(
+      buildFilters(params()),
+      'siteId:"site-1" AND isSearchable:true AND NOT publishState:"draft"'
+    )
   })
 
   test('publicOnly restricts to published, taking precedence over the includeDrafts branch', () => {
     assert.equal(
       buildFilters(params({ publicOnly: true })),
-      'isSearchable:true AND publishState:"published"'
+      'siteId:"site-1" AND isSearchable:true AND publishState:"published"'
     )
   })
 
   test('includeDrafts drops the NOT-draft condition', () => {
-    assert.equal(buildFilters(params({ includeDrafts: true })), 'isSearchable:true')
+    assert.equal(
+      buildFilters(params({ includeDrafts: true })),
+      'siteId:"site-1" AND isSearchable:true'
+    )
   })
 
   test('an explicit publishState ANDs onto the publicOnly/includeDrafts branch, not replaces it', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, publishState: 'published' })),
-      'isSearchable:true AND publishState:"published"'
+      'siteId:"site-1" AND isSearchable:true AND publishState:"published"'
     )
   })
 
   test('path becomes a pathAncestors equality filter', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, path: 'docs/guide' })),
-      'isSearchable:true AND pathAncestors:"docs/guide"'
+      'siteId:"site-1" AND isSearchable:true AND pathAncestors:"docs/guide"'
     )
   })
 
   test('locales become an OR group', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, locales: ['en', 'fr'] })),
-      'isSearchable:true AND (locale:"en" OR locale:"fr")'
+      'siteId:"site-1" AND isSearchable:true AND (locale:"en" OR locale:"fr")'
     )
   })
 
   test("tags are ANDed, requiring every one present (mirrors the db module's @> containment)", () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, tags: ['a', 'b'] })),
-      'isSearchable:true AND tags:"a" AND tags:"b"'
+      'siteId:"site-1" AND isSearchable:true AND tags:"a" AND tags:"b"'
     )
   })
 
   test('editor becomes an equality filter', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, editor: 'markdown' })),
-      'isSearchable:true AND editor:"markdown"'
+      'siteId:"site-1" AND isSearchable:true AND editor:"markdown"'
     )
   })
 
   test('escapes a quote embedded in a filter value', () => {
     assert.equal(
       buildFilters(params({ includeDrafts: true, editor: 'weird"editor' })),
-      'isSearchable:true AND editor:"weird\\"editor"'
+      'siteId:"site-1" AND isSearchable:true AND editor:"weird\\"editor"'
+    )
+  })
+
+  /**
+   * OpenProject #921: a `siteId` embedded with an unescaped quote could otherwise break out of its
+   * filter clause the same way any other value could -- the site id itself is escaped no differently.
+   */
+  test('escapes a quote embedded in siteId itself', () => {
+    assert.equal(
+      buildFilters({ siteId: 'weird"site' }),
+      'siteId:"weird\\"site" AND isSearchable:true AND NOT publishState:"draft"'
     )
   })
 })
@@ -355,7 +372,8 @@ describe('AlgoliaSearchModule', () => {
       'editor',
       'publishState',
       'isSearchable',
-      'pathAncestors'
+      'pathAncestors',
+      'siteId'
     ]) {
       assert.ok(indexSettings.attributesForFaceting.includes(facet), `missing facet: ${facet}`)
     }
@@ -492,7 +510,7 @@ describe('AlgoliaSearchModule', () => {
       }
     }
 
-    test('clears the index, then batches and sends every page found', async () => {
+    test('purges only this site’s records, then batches and sends every page found', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).WIKI.db = fakeDb({
         [siteId]: [
@@ -504,7 +522,9 @@ describe('AlgoliaSearchModule', () => {
 
       const result = await mod.rebuild(siteId)
 
-      assert.equal(calls.clearObjects!.length, 1)
+      assert.equal(calls.deleteBy!.length, 1)
+      assert.equal(calls.deleteBy![0].indexName, 'wiki-test')
+      assert.equal(calls.deleteBy![0].deleteByParams.filters, `siteId:"${siteId}"`)
       assert.equal(calls.batch!.length, 1)
       assert.equal(calls.batch![0].batchWriteParams.requests.length, 3)
       assert.equal(calls.batch![0].batchWriteParams.requests[0].action, 'addObject')
@@ -573,16 +593,36 @@ describe('AlgoliaSearchModule', () => {
       assert.ok(result.warnings![0]!.includes('docs/huge-page'))
     })
 
-    test('an empty site clears the index and sends no batches', async () => {
+    test('an empty site still purges its own records and sends no batches', async () => {
       const { mod, calls } = moduleWithFakeClient()
       ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [] })
 
       const result = await mod.rebuild(siteId)
 
-      assert.equal(calls.clearObjects!.length, 1)
+      assert.equal(calls.deleteBy!.length, 1)
       assert.equal(calls.batch!.length, 0)
       assert.equal(result.pages, 0)
       assert.deepEqual(result.locales, [])
+    })
+
+    /**
+     * OpenProject #921: `rebuild()` used to `clearObjects` the whole index before re-adding only this
+     * site's pages -- with two sites sharing an app/index (the shared `wiki` default), rebuilding site
+     * A permanently deleted every one of site B's records. It must now purge only its own site's
+     * records via `deleteBy`.
+     */
+    test('does not touch another site’s records: rebuild scopes its purge to siteId', async () => {
+      const { mod, calls } = moduleWithFakeClient()
+      ;(globalThis as any).WIKI.db = fakeDb({ [siteId]: [fakePage({ id: 'p1' })] })
+
+      await mod.rebuild(siteId)
+
+      assert.equal(calls.deleteBy!.length, 1)
+      assert.doesNotMatch(calls.deleteBy![0].deleteByParams.filters, /site-2/)
+      // -> No whole-index clear call exists on the fake client any more -- if `rebuild()` regressed
+      //    back to `clearObjects`, this test would fail with a `TypeError` (no such method), not
+      //    silently pass.
+      assert.equal(typeof calls.clearObjects, 'undefined')
     })
   })
 })

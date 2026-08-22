@@ -254,9 +254,10 @@ interface SiteClient {
  * no reason to still be running. Recorded in `docs/variances.md`.
  *
  * State (`clients`) and lazy per-site resolution follow the Algolia module's `AlgoliaSearchModule`
- * exactly, for the same reason: `models/search.ts`'s dispatcher never actually calls `init()` before
- * the first `query`/`created`/etc. (see that module's class doc comment), so every hook here resolves
- * its own client through `getClient()` rather than depending on `init()` having run first.
+ * exactly, for the same reason: `models/search.ts`'s `selectEngine()`/`initActiveEngines()` do call
+ * `init()` now (OpenProject #920, see that module's class doc comment), but every hook here still
+ * resolves its own client through `getClient()` independently rather than depending on `init()` having
+ * run first.
  */
 export class ElasticsearchSearchModule implements SearchModule {
   private clients = new Map<string, SiteClient>()

@@ -499,6 +499,17 @@ class Search {
    * stored, keyed under the engine so a later switch back to it starts from what was last saved rather
    * than from the engine's bare defaults.
    *
+   * Also provisions the engine (OpenProject #920): before this, nothing anywhere ever called a
+   * `SearchModule`'s `init()` — `azure-search` and `aws-cloudsearch` put all of their index/domain
+   * provisioning exclusively there (unlike `algolia`/`elasticsearch`, which additionally provision
+   * lazily on first use), so selecting either left an operator with an index that was never created.
+   * Every implementation's `init()` is expected to be idempotent (each module's own doc comment says
+   * so), so calling it here on every selection -- including reselecting the engine that was already
+   * active -- is safe. Left uncaught on purpose: a provisioning failure (bad credentials, an
+   * unreachable service) is exactly what an operator picking an engine needs to see immediately, not a
+   * selection that silently saved but never works. `initActiveEngines()` below covers the boot-time
+   * half of the same gap.
+   *
    * @returns Whether the site was written
    */
   async selectEngine(
@@ -508,9 +519,44 @@ class Search {
   ): Promise<boolean> {
     const stored = (WIKI.sites[siteId]?.config?.search?.engines?.[key] ?? {}) as Record<string, any>
     const config = this.buildEngineConfig(key, incoming, stored)
-    return WIKI.models.sites.updateSite(siteId, {
+    const updated = await WIKI.models.sites.updateSite(siteId, {
       config: { search: { engine: key, engines: { [key]: config } } }
     })
+    if (updated) {
+      const module = await this.ensureModule(key)
+      if (module) {
+        await module.init(siteId, config)
+      }
+    }
+    return updated
+  }
+
+  /**
+   * Provision every site's currently active search engine, task #920's boot-time counterpart to
+   * `selectEngine()` above.
+   *
+   * Covers what a per-selection call cannot: a site whose non-`db` engine was already selected before
+   * this task existed (so `selectEngine()` never ran for it), and a normal restart, which every
+   * implementation's `init()` is safe to run again for. Each site is provisioned independently -- one
+   * site's bad credentials or unreachable service is logged and skipped, not allowed to abort boot for
+   * every other site.
+   */
+  async initActiveEngines(): Promise<void> {
+    for (const siteId of Object.keys(WIKI.sites)) {
+      const key = WIKI.sites[siteId]?.config?.search?.engine ?? DB_MODULE
+      const module = await this.ensureModule(key)
+      if (!module) {
+        continue
+      }
+      try {
+        await module.init(siteId, this.getEngineConfig(siteId, key))
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `(SEARCH) Failed to initialize search engine "${key}" for site ${siteId} [ FAILED ]`
+        )
+        WIKI.logger.warn(err.message)
+      }
+    }
   }
 
   /**

@@ -846,5 +846,155 @@ describe('search engine picker (getSiteEngines/buildEngineConfig/validateEngineC
         mode: 'fast'
       })
     })
+
+    /**
+     * OpenProject #920: selecting an engine never provisioned it -- nothing called `init()`. Fixed by
+     * having `selectEngine()` call the resolved module's `init()` itself, once the site write succeeds.
+     */
+    test('calls the newly selected engine’s init() with the config that was just built and stored', async () => {
+      const { calls: initCalls, module: fakeModule } = makeFakeSearchModule()
+      search.modules['custom-engine'] = fakeModule
+      ;(globalThis as any).WIKI.sites['site-h'] = {
+        id: 'site-h',
+        config: { search: { engine: 'db', engines: {} } }
+      }
+      ;(globalThis as any).WIKI.models = {
+        sites: { updateSite: async () => true }
+      }
+
+      try {
+        await search.selectEngine('site-h', 'custom-engine', { apiKey: 'k' })
+        assert.deepEqual(initCalls, [
+          `init:site-h:${JSON.stringify({ apiKey: 'k', mode: 'fast' })}`
+        ])
+      } finally {
+        delete search.modules['custom-engine']
+      }
+    })
+
+    test('does not call init() when the engine has no loaded implementation', async () => {
+      delete search.modules['custom-engine']
+      ;(globalThis as any).WIKI.sites['site-i'] = {
+        id: 'site-i',
+        config: { search: { engine: 'db', engines: {} } }
+      }
+      ;(globalThis as any).WIKI.models = {
+        sites: { updateSite: async () => true }
+      }
+
+      // -> `custom-engine` has a definition (so `buildEngineConfig` still runs) but no loaded module
+      //    and no real `search.ts` on disk, so `ensureModule` resolves null and init() is never reached.
+      const result = await search.selectEngine('site-i', 'custom-engine', { apiKey: 'k' })
+      assert.equal(result, true)
+    })
+
+    test('does not call init() when the site write itself failed', async () => {
+      const { calls: initCalls, module: fakeModule } = makeFakeSearchModule()
+      search.modules['custom-engine'] = fakeModule
+      ;(globalThis as any).WIKI.sites['site-j'] = {
+        id: 'site-j',
+        config: { search: { engine: 'db', engines: {} } }
+      }
+      ;(globalThis as any).WIKI.models = {
+        sites: { updateSite: async () => false }
+      }
+
+      try {
+        const result = await search.selectEngine('site-j', 'custom-engine', { apiKey: 'k' })
+        assert.equal(result, false)
+        assert.deepEqual(initCalls, [])
+      } finally {
+        delete search.modules['custom-engine']
+      }
+    })
+  })
+})
+
+/**
+ * `search.initActiveEngines()`, OpenProject #920's boot-time counterpart to `selectEngine()`: whatever
+ * engine each site currently has active gets provisioned at boot, covering a site that selected a
+ * non-`db` engine before this existed.
+ */
+describe('search.initActiveEngines()', () => {
+  let previousWiki: any
+  let previousDefinitions: SearchEngineDefinition[]
+
+  const customDefinition: SearchEngineDefinition = {
+    key: 'custom-engine',
+    title: 'Custom Engine',
+    description: 'A fake external engine.',
+    vendor: 'Test',
+    website: 'https://example.com',
+    props: {
+      apiKey: fakeProp({ default: '', type: 'string', title: 'API Key' })
+    }
+  }
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    previousDefinitions = search.definitions
+    search.definitions = [customDefinition]
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+    search.definitions = previousDefinitions
+  })
+
+  test('provisions every site’s active engine with its resolved config', async () => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const { calls: customCalls, module: customModule } = makeFakeSearchModule()
+    ;(globalThis as any).WIKI = {
+      sites: {
+        'site-default': { id: 'site-default', config: {} },
+        'site-custom': {
+          id: 'site-custom',
+          config: {
+            search: { engine: 'custom-engine', engines: { 'custom-engine': { apiKey: 'k' } } }
+          }
+        }
+      },
+      logger: { info: () => {}, error: () => {}, warn: () => {}, debug: () => {} }
+    }
+    search.modules.db = dbModule
+    search.modules['custom-engine'] = customModule
+
+    await search.initActiveEngines()
+
+    assert.deepEqual(dbCalls, ['init:site-default:{}'])
+    assert.deepEqual(customCalls, [`init:site-custom:${JSON.stringify({ apiKey: 'k' })}`])
+  })
+
+  test('logs and continues past a site whose engine fails to initialize, rather than aborting the rest', async () => {
+    const { calls: dbCalls, module: dbModule } = makeFakeSearchModule()
+    const brokenModule: SearchModule = {
+      ...dbModule,
+      async init() {
+        throw new Error('service unreachable')
+      }
+    }
+    const warnings: string[] = []
+    ;(globalThis as any).WIKI = {
+      sites: {
+        'site-broken': {
+          id: 'site-broken',
+          config: { search: { engine: 'broken-engine', engines: {} } }
+        },
+        'site-ok': { id: 'site-ok', config: {} }
+      },
+      logger: {
+        info: () => {},
+        error: () => {},
+        warn: (msg: string) => warnings.push(msg),
+        debug: () => {}
+      }
+    }
+    search.modules.db = dbModule
+    search.modules['broken-engine'] = brokenModule
+
+    await assert.doesNotReject(search.initActiveEngines())
+
+    assert.deepEqual(dbCalls, ['init:site-ok:{}'])
+    assert.ok(warnings.some((w) => w.includes('broken-engine')))
   })
 })
