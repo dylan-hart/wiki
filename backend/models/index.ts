@@ -13,6 +13,7 @@ import { diagramRender } from './diagramRender.ts'
 import { exportModel } from './export.ts'
 import { extensions } from './extensions.ts'
 import { flags } from './flags.ts'
+import { glossary } from './glossary.ts'
 import { groups } from './groups.ts'
 import { hooks } from './hooks.ts'
 import { icons } from './icons.ts'
@@ -58,6 +59,7 @@ export default {
   export: exportModel,
   extensions,
   flags,
+  glossary,
   groups,
   hooks,
   icons,

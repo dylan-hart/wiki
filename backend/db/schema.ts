@@ -313,6 +313,30 @@ export const groups = pgTable('groups', {
   updatedAt: timestamp().notNull().defaultNow()
 })
 
+// GLOSSARY TERMS -----------------------
+export const glossaryTerms = pgTable(
+  'glossaryTerms',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    term: varchar({ length: 255 }).notNull(),
+    definition: text().notNull(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> The term's canonical page, optional. `set null` rather than `cascade`: deleting the linked
+    //    page should unlink the term, not delete the definition itself.
+    pageId: uuid().references(() => pages.id, { onDelete: 'set null' })
+  },
+  (table) => [
+    index('glossaryTerms_siteId_idx').on(table.siteId),
+    // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
+    //    differ only by case are a duplicate, not two distinct terms.
+    uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
+  ]
+)
+
 // HOOKS -------------------------------
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
 export const hooks = pgTable(

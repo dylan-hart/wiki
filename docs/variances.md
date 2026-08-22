@@ -5,6 +5,34 @@ intentionally does not reproduce something 2.5.x had, or does not build somethin
 along with the reasoning. It is not a changelog and does not track resolved CI/lint/type issues;
 those get fixed, not logged here.
 
+## Glossary: existing pages pick up a new term on their next render, not instantly site-wide
+
+**Date:** 2026-08-21
+**Feature:** #870 (Glossary / auto-linked term definitions)
+**Decision:** Term matching runs as a markdown-it core rule (`renderers/modules/markdown-it-glossary.js`),
+the same architecture as every other content-pipeline feature in this app (abbreviations, footnotes,
+task lists). It runs when a page's `render` HTML is produced — on save (client-side, in the editor)
+or on an explicit re-render (`RerenderPageDialog.vue` / the render queue) — not against every
+already-stored page's HTML the moment an admin adds or edits a term.
+
+**Why this reads as a deviation:** the spec's acceptance note says an admin defining a term makes
+"every existing and future mention... anywhere in that site's rendered content" pick up the tooltip,
+which taken literally implies an instant, site-wide effect. This fork's rendering architecture has no
+mechanism for that: `pages.render` is pre-rendered HTML served as-is (`v-html`) for every ordinary
+page view, precisely so a reader's request never re-runs the markdown pipeline — see `models/pages.ts`
+and `Index.vue`. Retroactively rewriting every stored page's `render` column on every term CRUD would
+mean queuing a full-site headless-browser re-render (the same expensive path `RerenderPageDialog.vue`
+already exposes as a manual, rate-limited action) on every single term save, for every site holding
+one — a cost no other markdown-pipeline change in this codebase pays either (turning on `underline`
+or `multimdTable` doesn't retroactively rewrite old pages).
+
+**What actually happens:** a term is live for every page saved or re-rendered after it exists —
+including the editor's own live preview, thanks to `stores/editor.js#fetchConfigs()` threading the
+resolved term list into `editors.markdown` — and for the server-side headless re-render path
+(`models/rendering.ts`'s queue drain). An admin who needs it applied to already-published pages
+right away uses the existing "Rerender" action per page, or the render queue, same as they would for
+any other content-pipeline change.
+
 ## Comment provider selectability: two competing implementations reconciled
 
 **Date:** 2026-08-18

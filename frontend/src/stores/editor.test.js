@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useEditorStore } from './editor.js'
+import { useSiteStore } from './site.js'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -63,6 +64,52 @@ describe('editor store: fetchUserSettings()', () => {
 
     await expect(store.fetchUserSettings('markdown')).rejects.toThrow('network')
     expect(store.userSettings.markdown).toBeUndefined()
+  })
+})
+
+/**
+ * OpenProject #870: the resolved glossary term list is fetched alongside the site's editor config and
+ * folded into `editors.markdown`, since that is what every `MarkdownRenderer` call site already reads.
+ */
+describe('editor store: fetchConfigs() glossary terms (OpenProject #870)', () => {
+  it("folds the resolved glossary terms into the markdown editor's config", async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockImplementationOnce((url) => {
+      expect(url).toBe('sites/site-1')
+      return {
+        json: () => Promise.resolve({ editors: { markdown: { config: { underline: true } } } })
+      }
+    })
+    API_CLIENT.get.mockImplementationOnce((url) => {
+      expect(url).toBe('sites/site-1/glossary/terms')
+      return {
+        json: () =>
+          Promise.resolve([
+            { term: 'API', definition: 'Application Programming Interface', link: null }
+          ])
+      }
+    })
+
+    await store.fetchConfigs()
+
+    expect(store.editors.markdown).toEqual({
+      underline: true,
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+  })
+
+  it('defaults to an empty glossary term list rather than leaving it undefined', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+
+    await store.fetchConfigs()
+
+    expect(store.editors.markdown).toEqual({ glossaryTerms: [] })
   })
 })
 

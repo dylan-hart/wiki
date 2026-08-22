@@ -3,6 +3,7 @@ import { keyBy } from 'es-toolkit/array'
 import {
   blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
+  glossaryTerms as glossaryTermsTable,
   navigation as navigationTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
@@ -352,9 +353,9 @@ class Sites {
   }
 
   async deleteSite(id: string): Promise<boolean> {
-    // -> Block, block-credential, storage and uploaded image rows belong to the site rather than to
-    //    its content, and
-    //    their FK has no cascade, so they would otherwise block the delete. The site's own root
+    // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
+    //    rather than to its content, and their FK has no cascade, so they would otherwise block the
+    //    delete. The site's own root
     //    navigation row (`navigation.id = siteId`, created by `createSite` via
     //    `navigation.ensureSiteNav`) is the same story and is cleaned up the same way — note this
     //    filters by `id`, not `siteId`, so it only ever removes that one row and leaves per-page
@@ -365,6 +366,7 @@ class Sites {
     await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
     await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
     await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
+    await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
     await WIKI.db.delete(navigationTable).where(eq(navigationTable.id, id))
 
     const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))

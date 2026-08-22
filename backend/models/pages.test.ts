@@ -680,6 +680,47 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(untouchedFr!.locale, 'fr')
   })
 
+  /**
+   * OpenProject #870: `models/glossary.ts#getCachedTerms` bakes a term's canonical-page link in at
+   * cache-build time. Nothing about the glossary itself changes on a page move, so nothing would
+   * otherwise tell that cache the link it already resolved is now pointing at the page's old path --
+   * `movePage` has to invalidate it itself, the same way a term CRUD does.
+   */
+  test('movePage invalidates the glossary cache so a canonical page it renamed resolves to its new path', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/glossary-move-before' }),
+      actor
+    )
+    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      term: 'MoveCacheTerm',
+      definition: 'Points at a page that is about to move.',
+      pageId: page.id
+    })
+    try {
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      assert.equal(
+        before.find((t: any) => t.term === 'MoveCacheTerm')?.link,
+        '/docs/glossary-move-before'
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'docs/glossary-move-after' },
+        actor
+      )
+
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      assert.equal(
+        after.find((t: any) => t.term === 'MoveCacheTerm')?.link,
+        '/docs/glossary-move-after'
+      )
+    } finally {
+      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+    }
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -728,6 +769,39 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(deleted, false)
+  })
+
+  /**
+   * OpenProject #870: the FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term
+   * canonically linked to a deleted page is unlinked at the db level -- but the cached, resolved copy
+   * of that link (`models/glossary.ts#getCachedTerms`) would keep serving the old one forever
+   * (`WIKI.cache` carries no TTL) unless `deletePage` drops it too.
+   */
+  test('deletePage invalidates the glossary cache so a term linked to it resolves to no link', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/glossary-delete-me' }),
+      actor
+    )
+    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      term: 'DeleteCacheTerm',
+      definition: 'Points at a page that is about to be deleted.',
+      pageId: page.id
+    })
+    try {
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      assert.equal(
+        before.find((t: any) => t.term === 'DeleteCacheTerm')?.link,
+        '/docs/glossary-delete-me'
+      )
+
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      assert.equal(after.find((t: any) => t.term === 'DeleteCacheTerm')?.link, null)
+    } finally {
+      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+    }
   })
 
   /**
