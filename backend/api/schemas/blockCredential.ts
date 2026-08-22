@@ -22,6 +22,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       name: {
         type: 'string'
       },
+      allowedDomains: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          "Domains (or `*.`-wildcard patterns) this credential's secret may be sent to. Empty means the credential cannot be used by any block."
+      },
       createdAt: {
         type: 'string',
         format: 'date-time'

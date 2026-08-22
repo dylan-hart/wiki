@@ -22,11 +22,18 @@ describe('block credentials API (site-scoped delegation)', () => {
     return sites[id] ?? null
   }
 
-  let createCredentialCalls: Array<{ siteId: string; name: string; secret: string }>
+  let createCredentialCalls: Array<{
+    siteId: string
+    name: string
+    secret: string
+    allowedDomains: string[]
+  }>
   let rotateSecretCalls: Array<{ siteId: string; id: string; secret: string }>
   let deleteCredentialCalls: Array<{ siteId: string; id: string }>
   let rotateSecretResult = true
   let deleteCredentialResult = true
+  let updateAllowedDomainsCalls: Array<{ siteId: string; id: string; allowedDomains: string[] }>
+  let updateAllowedDomainsResult = true
 
   async function getSiteCredentials(siteId: string) {
     return [
@@ -39,9 +46,21 @@ describe('block credentials API (site-scoped delegation)', () => {
       }
     ]
   }
-  async function createCredential(siteId: string, name: string, secret: string) {
-    createCredentialCalls.push({ siteId, name, secret })
-    return { id: 'new-credential-id', siteId, name, createdAt: new Date(), updatedAt: new Date() }
+  async function createCredential(
+    siteId: string,
+    name: string,
+    secret: string,
+    allowedDomains: string[]
+  ) {
+    createCredentialCalls.push({ siteId, name, secret, allowedDomains })
+    return {
+      id: 'new-credential-id',
+      siteId,
+      name,
+      allowedDomains,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }
   }
   async function rotateSecret(siteId: string, id: string, secret: string) {
     rotateSecretCalls.push({ siteId, id, secret })
@@ -50,6 +69,10 @@ describe('block credentials API (site-scoped delegation)', () => {
   async function deleteCredential(siteId: string, id: string) {
     deleteCredentialCalls.push({ siteId, id })
     return deleteCredentialResult
+  }
+  async function updateAllowedDomains(siteId: string, id: string, allowedDomains: string[]) {
+    updateAllowedDomainsCalls.push({ siteId, id, allowedDomains })
+    return updateAllowedDomainsResult
   }
 
   /** Grants `site:blocks` only for the site id the `x-test-site-permissions` header names. */
@@ -79,6 +102,7 @@ describe('block credentials API (site-scoped delegation)', () => {
           getSiteCredentials,
           createCredential,
           rotateSecret,
+          updateAllowedDomains,
           deleteCredential
         },
         groups: { actorForRequest, checkSiteAccess }
@@ -116,6 +140,8 @@ describe('block credentials API (site-scoped delegation)', () => {
     deleteCredentialCalls = []
     rotateSecretResult = true
     deleteCredentialResult = true
+    updateAllowedDomainsCalls = []
+    updateAllowedDomainsResult = true
     currentSitePermissionHeader = undefined
   })
 
@@ -158,14 +184,15 @@ describe('block credentials API (site-scoped delegation)', () => {
         'x-test-permissions': '',
         'x-test-site-permissions': `site:blocks@${SITE_ID}`
       },
-      payload: { name: 'Prod API', secret: 'sekret-abc' }
+      payload: { name: 'Prod API', secret: 'sekret-abc', allowedDomains: ['api.example.com'] }
     })
     assert.equal(res.statusCode, 200)
     assert.equal(createCredentialCalls.length, 1)
     assert.deepEqual(createCredentialCalls[0], {
       siteId: SITE_ID,
       name: 'Prod API',
-      secret: 'sekret-abc'
+      secret: 'sekret-abc',
+      allowedDomains: ['api.example.com']
     })
     assert.equal('secret' in res.json(), false)
   })
@@ -178,9 +205,20 @@ describe('block credentials API (site-scoped delegation)', () => {
         'x-test-permissions': '',
         'x-test-site-permissions': 'site:blocks@some-other-site'
       },
-      payload: { name: 'Prod API', secret: 'sekret-abc' }
+      payload: { name: 'Prod API', secret: 'sekret-abc', allowedDomains: ['api.example.com'] }
     })
     assert.equal(res.statusCode, 403)
+  })
+
+  test('rejects creating a credential with no allowed domains', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { name: 'Prod API', secret: 'sekret-abc', allowedDomains: [] }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(createCredentialCalls.length, 0)
   })
 
   test('rotate: 404s when the model reports no matching credential', async () => {
@@ -225,5 +263,49 @@ describe('block credentials API (site-scoped delegation)', () => {
     })
     assert.equal(res.statusCode, 204)
     assert.deepEqual(deleteCredentialCalls, [{ siteId: SITE_ID, id: CREDENTIAL_ID }])
+  })
+
+  test('update domains: 404s when the model reports no matching credential', async () => {
+    updateAllowedDomainsResult = false
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { allowedDomains: ['new.example.com'] }
+    })
+    assert.equal(res.statusCode, 404)
+  })
+
+  test('update domains: succeeds and threads the new list to the model', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { allowedDomains: ['new.example.com', '*.other.com'] }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(updateAllowedDomainsCalls, [
+      { siteId: SITE_ID, id: CREDENTIAL_ID, allowedDomains: ['new.example.com', '*.other.com'] }
+    ])
+  })
+
+  test('update domains: an empty list is accepted (deliberately disabling the credential)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { allowedDomains: [] }
+    })
+    assert.equal(res.statusCode, 200)
+  })
+
+  test('update domains: requires manage:sites or site:blocks on this site', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/block-credentials/${CREDENTIAL_ID}/allowed-domains`,
+      headers: { 'x-test-permissions': '' },
+      payload: { allowedDomains: ['new.example.com'] }
+    })
+    assert.equal(res.statusCode, 403)
   })
 })
