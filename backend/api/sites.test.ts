@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, test } from 'node:test'
+import { after, before, beforeEach, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -173,7 +173,7 @@ before(async () => {
         getSiteBlocks
       },
       auditLog: {
-        record: async () => {}
+        record: mock.fn(async () => {})
       }
     },
     logger: { warn: () => {} }
@@ -463,6 +463,30 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
   assert.equal(res.statusCode, 200)
   assert.equal(updateSiteCalls.length, 1)
   assert.equal(updateSiteCalls[0].patch.config.title, 'Renamed')
+})
+
+/**
+ * OpenProject #989: a site settings edit is one of the events the audit log is meant to capture.
+ * The tests above stub `auditLog.record` only to keep the route from throwing — this checks it is
+ * actually called, with the fields the patch actually touched.
+ */
+test('a successful update records a site.settingsUpdated audit log entry', async () => {
+  ;(globalThis as any).WIKI.models.auditLog.record.mock.resetCalls()
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { title: 'Renamed Again' }
+  })
+  assert.equal(res.statusCode, 200)
+  const calls = (globalThis as any).WIKI.models.auditLog.record.mock.calls
+  assert.equal(calls.length, 1)
+  const call = calls[0].arguments[0]
+  assert.equal(call.event, 'site.settingsUpdated')
+  assert.equal(call.targetType, 'site')
+  assert.equal(call.targetId, PUT_SITE_ID)
+  assert.equal(call.targetLabel, 'Renamed Again')
+  assert.deepEqual(call.detail, { changedFields: ['title'] })
 })
 
 /**
