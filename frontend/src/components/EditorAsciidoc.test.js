@@ -155,6 +155,23 @@ describe('EditorAsciidoc', () => {
     expect(editorStore.contentFlusher).toBe(null)
   })
 
+  /**
+   * OpenProject #943, the #808 bug class: a debounced content-change call still pending at unmount
+   * used to fire ~500ms later against the already-disposed editor. Typing then unmounting within the
+   * debounce window must not touch the store afterward.
+   */
+  it('cancels the pending debounced content change on unmount instead of firing it later', async () => {
+    const { wrapper, pageStore } = mountEditor('original')
+    fakeEditor.getValue.mockReturnValue('typed but not yet flushed')
+
+    changeHandler()()
+    wrapper.unmount()
+    vi.advanceTimersByTime(500)
+    await flushPromises()
+
+    expect(pageStore.content).toBe('original')
+  })
+
   it('opens the file manager in insert mode from the sidebar button', async () => {
     const { wrapper, siteStore } = mountEditor('')
 
