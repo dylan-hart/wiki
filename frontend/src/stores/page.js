@@ -644,14 +644,15 @@ export const usePageStore = defineStore('page', {
     /**
      * PAGE - MOVE
      */
-    async pageMove({ id, title, path, locale } = {}) {
+    async pageMove({ id, title, path, locale, includeTranslations } = {}) {
       const siteStore = useSiteStore()
       unwrap(
         await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/path`, {
           json: {
             path,
             ...(title ? { title } : {}),
-            ...(locale ? { locale } : {})
+            ...(locale ? { locale } : {}),
+            ...(includeTranslations ? { includeTranslations } : {})
           }
         }).json()
       )

@@ -1250,7 +1250,12 @@ function renameMovePage(item) {
           message: 'Page renamed successfully.'
         })
       } else {
-        await pageStore.pageMove({ id: item.id, path: opts.path, title: opts.title })
+        await pageStore.pageMove({
+          id: item.id,
+          path: opts.path,
+          title: opts.title,
+          includeTranslations: opts.includeTranslations
+        })
         notify({
           type: 'positive',
           message: 'Page moved successfully.'

@@ -106,3 +106,92 @@ describe.each(['savePage', 'duplicatePage', 'renamePage'])(
     })
   }
 )
+
+/**
+ * `includeTranslations` (OpenProject #1026): `renamePage` mode fetches this page's translations on
+ * mount to decide whether "Also move N translation(s)" has anything to offer, default checked.
+ */
+describe('TreeBrowserDialog includeTranslations (renamePage mode)', () => {
+  /**
+   * A dedicated mount helper rather than the shared `mountDialog` above: that one resets
+   * `API_CLIENT.get` to an unconditional `mockReturnValue([])` right before mounting, which would
+   * clobber a per-URL mock configured beforehand -- `onMounted`'s `fetchTranslationsCount()` call
+   * fires synchronously up to its first `await`, i.e. during `mount()` itself, so the mock has to be
+   * in its final shape before that call, not merely before this helper returns.
+   */
+  function mountRenameDialog({ tree = [], translations = [] } = {}, props = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    globalThis.API_CLIENT.get.mockImplementation((url) => ({
+      json: vi.fn().mockResolvedValue(url.includes('/translations') ? translations : tree)
+    }))
+
+    return mount(TreeBrowserDialog, {
+      props: {
+        mode: 'renamePage',
+        itemId: 'page-1',
+        itemTitle: 'A page',
+        itemFileName: 'a-page',
+        ...props
+      },
+      global: { plugins: [i18n] }
+    })
+  }
+
+  it('fetches translations for the page being renamed', async () => {
+    mountRenameDialog({ translations: [{ id: 'fr-id', locale: 'fr' }] })
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/pages/page-1/translations')
+  })
+
+  it('defaults includeTranslations on when translations exist, and includes it in the saved payload', async () => {
+    const wrapper = mountRenameDialog({ translations: [{ id: 'fr-id', locale: 'fr' }] })
+    await flushPromises()
+
+    expect(wrapper.vm.state.translationsCount).toBe(1)
+    expect(wrapper.vm.state.includeTranslations).toBe(true)
+
+    wrapper.vm.state.path = 'a-page-moved'
+    await wrapper.vm.save()
+
+    expect(wrapper.emitted('ok')[0][0]).toMatchObject({ includeTranslations: true })
+  })
+
+  it('a caller who unchecks it gets includeTranslations: false in the saved payload', async () => {
+    const wrapper = mountRenameDialog({ translations: [{ id: 'fr-id', locale: 'fr' }] })
+    await flushPromises()
+    wrapper.vm.state.includeTranslations = false
+    wrapper.vm.state.path = 'a-page-moved'
+    await wrapper.vm.save()
+
+    expect(wrapper.emitted('ok')[0][0]).toMatchObject({ includeTranslations: false })
+  })
+
+  it('no translations: translationsCount stays 0', async () => {
+    const wrapper = mountRenameDialog({ translations: [] })
+    await flushPromises()
+
+    expect(wrapper.vm.state.translationsCount).toBe(0)
+  })
+
+  it('does not fetch translations, or emit includeTranslations, outside renamePage mode', async () => {
+    const wrapper = mountRenameDialog(
+      { translations: [{ id: 'fr-id', locale: 'fr' }] },
+      { mode: 'duplicatePage' }
+    )
+    await flushPromises()
+
+    expect(globalThis.API_CLIENT.get).not.toHaveBeenCalledWith(
+      'sites/site-1/pages/page-1/translations'
+    )
+
+    wrapper.vm.state.path = 'a-page-copy'
+    await wrapper.vm.save()
+    expect(wrapper.emitted('ok')[0][0]).not.toHaveProperty('includeTranslations')
+  })
+})
