@@ -49,7 +49,8 @@ function ctx({
     permissions,
     siteId: null as string | null,
     groupIds: [GROUP_ID],
-    userId
+    userId,
+    scope: null as string[] | null
   }
 }
 
@@ -99,7 +100,12 @@ test('handleUpdatePage: updates only the given fields, attributed to the token o
   assert.equal(updateCalls[0].id, PAGE_ID)
   assert.equal(updateCalls[0].patch.title, 'New Title')
   assert.equal(updateCalls[0].patch.content, undefined)
-  assert.deepEqual(updateCalls[0].actor, { id: 'user-1', permissions: [], groupIds: [GROUP_ID] })
+  assert.deepEqual(updateCalls[0].actor, {
+    id: 'user-1',
+    permissions: [],
+    groupIds: [GROUP_ID],
+    scope: null
+  })
   const page = textOf(result)
   assert.equal(page.title, 'New Title')
 })

@@ -90,7 +90,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
     return {
       id: req.apiKey.userId,
       permissions: req.apiKey.permissions,
-      groupIds: req.apiKey.groupIds
+      groupIds: req.apiKey.groupIds,
+      scope: req.apiKey.scope
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -99,7 +100,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
   return {
     id: req.session.user.id,
     permissions: req.session.permissions ?? [],
-    groupIds: WIKI.models.groups.groupIdsForRequest(req)
+    groupIds: WIKI.models.groups.groupIdsForRequest(req),
+    scope: null
   }
 }
 

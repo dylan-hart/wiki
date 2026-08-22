@@ -43,6 +43,15 @@ export interface McpAuthContext {
   groupIds: string[]
   /** The user this key acts as (a personal access token), or null for an admin-issued key. */
   userId: string | null
+  /**
+   * The key's own scope narrowing (`ApiKeyIdentity.scope`), unnarrowed by anything above — `groupIds`
+   * is still the identity's full, unnarrowed group membership. Carried through to `actorFor()`/
+   * `pageActorFor()` so `checkAccess()`/`mayHoldPermissionSomewhere()` narrow an MCP call's page/site
+   * permissions the same way `/_api/`'s `WIKI.models.groups.actorForRequest()` does (OpenProject
+   * #930) — without this, a key scoped to `['read:pages']` still held every page permission its
+   * groups' rules granted when reached through an MCP tool call.
+   */
+  scope: string[] | null
 }
 
 /**
@@ -69,7 +78,8 @@ export function contextFromIdentity(identity: ApiKeyIdentity): McpAuthContext {
     permissions: identity.permissions,
     siteId: identity.siteId,
     groupIds: identity.groupIds,
-    userId: identity.userId
+    userId: identity.userId,
+    scope: identity.scope
   }
 }
 
@@ -99,7 +109,8 @@ export async function authenticateApiKey(token: string): Promise<McpAuthContext>
 export function actorFor(ctx: McpAuthContext): AccessActor {
   return {
     groupIds: ctx.groupIds,
-    permissions: ctx.permissions
+    permissions: ctx.permissions,
+    scope: ctx.scope
   }
 }
 
@@ -115,7 +126,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
   if (!ctx.userId) {
     return null
   }
-  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds }
+  return { id: ctx.userId, permissions: ctx.permissions, groupIds: ctx.groupIds, scope: ctx.scope }
 }
 
 /**

@@ -52,7 +52,8 @@ test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', 
       permissions: [],
       siteId: 'site-b',
       groupIds: [],
-      userId: null
+      userId: null,
+      scope: null
     }),
     'site-b'
   )
@@ -61,7 +62,14 @@ test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', 
 test('resolveDefaultSiteId: an unscoped key resolves to the sole enabled site', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_DISABLED.id]: SITE_DISABLED })
   assert.equal(
-    resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null, groupIds: [], userId: null }),
+    resolveDefaultSiteId({
+      keyId: 'k',
+      permissions: [],
+      siteId: null,
+      groupIds: [],
+      userId: null,
+      scope: null
+    }),
     'site-a'
   )
 })
@@ -69,7 +77,14 @@ test('resolveDefaultSiteId: an unscoped key resolves to the sole enabled site', 
 test('resolveDefaultSiteId: an unscoped key resolves to nothing when several sites are enabled', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
   assert.equal(
-    resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null, groupIds: [], userId: null }),
+    resolveDefaultSiteId({
+      keyId: 'k',
+      permissions: [],
+      siteId: null,
+      groupIds: [],
+      userId: null,
+      scope: null
+    }),
     null
   )
 })
@@ -78,7 +93,7 @@ test('resolveRequestedSite: an explicit siteId wins over the default guess', () 
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
   assert.deepEqual(
     resolveRequestedSite(
-      { keyId: 'k', permissions: [], siteId: null, groupIds: [], userId: null },
+      { keyId: 'k', permissions: [], siteId: null, groupIds: [], userId: null, scope: null },
       'site-b'
     ),
     SITE_B
@@ -94,7 +109,8 @@ test('resolveRequestedSite: refuses when neither an explicit siteId nor a defaul
         permissions: [],
         siteId: null,
         groupIds: [],
-        userId: null
+        userId: null,
+        scope: null
       }),
     /more than one site/
   )
@@ -105,7 +121,7 @@ test('resolveRequestedSite: enforces the key site-pin even when an explicit site
   assert.throws(
     () =>
       resolveRequestedSite(
-        { keyId: 'k', permissions: [], siteId: 'site-a', groupIds: [], userId: null },
+        { keyId: 'k', permissions: [], siteId: 'site-a', groupIds: [], userId: null, scope: null },
         'site-b'
       ),
     /not scoped/

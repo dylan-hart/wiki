@@ -53,7 +53,8 @@ function ctx({
     permissions,
     siteId: null as string | null,
     groupIds: [GROUP_ID],
-    userId
+    userId,
+    scope: null as string[] | null
   }
 }
 
@@ -100,7 +101,12 @@ test('handleCreatePage: creates a page and attributes it to the token owner', as
   assert.equal(createCalls[0].input.path, 'new-page')
   assert.equal(createCalls[0].input.editor, 'markdown')
   assert.equal(createCalls[0].input.publishState, 'published')
-  assert.deepEqual(createCalls[0].actor, { id: 'user-1', permissions: [], groupIds: [GROUP_ID] })
+  assert.deepEqual(createCalls[0].actor, {
+    id: 'user-1',
+    permissions: [],
+    groupIds: [GROUP_ID],
+    scope: null
+  })
   const page = textOf(result)
   assert.equal(page.id, 'page-1')
   assert.equal(page.title, 'New Page')

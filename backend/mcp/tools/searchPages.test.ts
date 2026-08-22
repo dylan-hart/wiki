@@ -36,7 +36,8 @@ function install({ permissions = [] as string[] } = {}) {
     permissions,
     siteId: null as string | null,
     groupIds: [GROUP_ID],
-    userId: null as string | null
+    userId: null as string | null,
+    scope: null as string[] | null
   }
 }
 
@@ -60,7 +61,7 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
   assert.deepEqual(call.locales, ['en'])
   assert.deepEqual(call.tags, ['hr'])
   assert.equal(call.limit, 5)
-  assert.deepEqual(call.actor, { groupIds: [GROUP_ID], permissions: [] })
+  assert.deepEqual(call.actor, { groupIds: [GROUP_ID], permissions: [], scope: null })
 })
 
 test('handleSearchPages: a caller with no write:pages/manage:pages hides drafts and protected excerpts', async () => {

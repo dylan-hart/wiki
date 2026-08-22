@@ -201,11 +201,19 @@ export interface GraphPageRow {
  * CLAUDE.md's Permissions section), so deciding them takes more than the flat `permissions` list:
  * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
  * `hasPermission()`.
+ *
+ * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
+ * `models/apiKeys.ts`) — `null`/absent means unrestricted (a session, or an unscoped key). This is
+ * structurally an `AccessActor` (`models/groups.ts`) too, and `hasPermission()` passes it straight
+ * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
+ * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
+ * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
  */
 export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
+  scope?: string[] | null
 }
 
 /**

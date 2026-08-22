@@ -37,15 +37,32 @@ test('actorFrom: a personal access token resolves to a real PageActor for its ow
       userId: 'user-42',
       permissions: ['read:pages', 'write:pages'],
       groupIds: ['group-a'],
-      siteId: null
+      siteId: null,
+      scope: null
     }
   } as unknown as FastifyRequest
 
   assert.deepEqual(actorFrom(req), {
     id: 'user-42',
     permissions: ['read:pages', 'write:pages'],
-    groupIds: ['group-a']
+    groupIds: ['group-a'],
+    scope: null
   })
+})
+
+test('actorFrom: a scoped personal access token carries its scope through onto the PageActor (OpenProject #930)', () => {
+  const req = {
+    apiKey: {
+      id: 'key-1',
+      userId: 'user-42',
+      permissions: ['read:pages'],
+      groupIds: ['group-a'],
+      siteId: null,
+      scope: ['read:pages']
+    }
+  } as unknown as FastifyRequest
+
+  assert.deepEqual(actorFrom(req)?.scope, ['read:pages'])
 })
 
 test('actorFrom: an admin-issued key (no userId) still resolves to null, same as before personal tokens existed', () => {
@@ -55,7 +72,8 @@ test('actorFrom: an admin-issued key (no userId) still resolves to null, same as
       userId: null,
       permissions: ['manage:system'],
       groupIds: ['admin-group'],
-      siteId: null
+      siteId: null,
+      scope: null
     }
   } as unknown as FastifyRequest
 
@@ -75,7 +93,8 @@ test('actorFrom: a logged in session resolves through groups.groupIdsForRequest,
   assert.deepEqual(actorFrom(req), {
     id: 'user-7',
     permissions: ['read:pages'],
-    groupIds: ['group-b']
+    groupIds: ['group-b'],
+    scope: null
   })
 })
 
@@ -91,7 +110,8 @@ test('actorFrom: a personal token takes priority even alongside a session on the
       userId: 'user-42',
       permissions: ['read:pages'],
       groupIds: ['group-a'],
-      siteId: null
+      siteId: null,
+      scope: null
     },
     session: {
       authenticated: true,
@@ -104,6 +124,7 @@ test('actorFrom: a personal token takes priority even alongside a session on the
   assert.deepEqual(actorFrom(req), {
     id: 'user-42',
     permissions: ['read:pages'],
-    groupIds: ['group-a']
+    groupIds: ['group-a'],
+    scope: null
   })
 })
