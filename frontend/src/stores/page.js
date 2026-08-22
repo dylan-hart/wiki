@@ -694,12 +694,16 @@ export const usePageStore = defineStore('page', {
           `onDidChangeModelContent` handler), so a save issued right after an edit -- pasting an image
           and saving immediately, before that debounce has fired, is what surfaced this (OpenProject
           #806) -- could otherwise read a stale pair here and send a dead `blob:` URL to the server.
-          `contentFlusher` is a synchronous read-through the editor registers while it is mounted; a
-          save with no editor mounted (a scripted call, for instance) leaves it null and this is a
-          no-op. Deliberately does not touch `contentLoaded` itself -- that stays exactly what the load
-          or a real edit set it to, which is what the guard just below is reading.
+          `contentFlusher` is a read-through the editor registers while it is mounted; a save with no
+          editor mounted (a scripted call, for instance) leaves it null and this is a no-op. Awaited
+          rather than called bare: `EditorMarkdown.vue`'s own flusher is synchronous and resolves
+          immediately either way, but `EditorAsciidoc.vue`'s is genuinely asynchronous -- Asciidoctor's
+          `convert` is (`renderers/asciidoc.js`) -- and a save that read `render` before that settled
+          would send up the render from before this edit. Deliberately does not touch `contentLoaded`
+          itself -- that stays exactly what the load or a real edit set it to, which is what the guard
+          just below is reading.
         */
-        editorStore.contentFlusher?.()
+        await editorStore.contentFlusher?.()
 
         // -> The render goes up with the content: the markdown pipeline runs here, in the editor, and
         //    what the preview shows is what gets stored. The server post-processes it — sanitizing it

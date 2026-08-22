@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
+import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+
+import { queue } from '@/composables/notify'
+import { AsciidocRenderer } from '@/renderers/asciidoc'
 
 import WTooltip from '@/components/shared/WTooltip.vue'
 
@@ -84,23 +88,71 @@ describe('EditorAsciidoc', () => {
     expect(opts.value).toBe('= Title\n\nExisting content.')
   })
 
-  it('renders no preview pane -- AsciiDoc rendering is deferred to a later Feature', () => {
+  it('renders no live preview pane -- only the code editor, matching EditorCode.vue', () => {
     const { wrapper } = mountEditor('= Title')
 
     expect(wrapper.html()).not.toContain('v-html')
     expect(wrapper.find('[class*="preview"]').exists()).toBe(false)
   })
 
-  it('submits the raw editor text as both content and render on change, matching the pageSave contract', () => {
+  it('converts the source to HTML into render on change, keeping content as the raw source', async () => {
     const { pageStore } = mountEditor('')
-    fakeEditor.getValue.mockReturnValue('= Typed\n\nSome text.')
+    fakeEditor.getValue.mockReturnValue('= Typed\n\nSome *text*.')
 
     changeHandler()()
     vi.advanceTimersByTime(500)
+    await flushPromises()
 
-    expect(pageStore.content).toBe('= Typed\n\nSome text.')
-    expect(pageStore.render).toBe('= Typed\n\nSome text.')
+    expect(pageStore.content).toBe('= Typed\n\nSome *text*.')
+    expect(pageStore.render).toContain('<h1>Typed</h1>')
+    expect(pageStore.render).toContain('<strong>text</strong>')
     expect(pageStore.contentLoaded).toBe(true)
+  })
+
+  it('keeps the last good render and notifies, rather than blanking it, when conversion throws', async () => {
+    queue.splice(0, queue.length)
+    const { pageStore } = mountEditor('')
+    fakeEditor.getValue.mockReturnValue('Good text.')
+    changeHandler()()
+    vi.advanceTimersByTime(500)
+    await flushPromises()
+    const goodRender = pageStore.render
+    expect(goodRender).toContain('Good text.')
+
+    const renderSpy = vi
+      .spyOn(AsciidocRenderer.prototype, 'render')
+      .mockRejectedValueOnce(new Error('boom'))
+    fakeEditor.getValue.mockReturnValue('Broken text.')
+    changeHandler()()
+    vi.advanceTimersByTime(500)
+    await flushPromises()
+
+    expect(pageStore.content).toBe('Broken text.')
+    expect(pageStore.render).toBe(goodRender)
+    expect(queue.at(-1)).toMatchObject({ type: 'negative' })
+
+    renderSpy.mockRestore()
+  })
+
+  it('registers a contentFlusher that converts and patches render synchronously with the save', async () => {
+    const { pageStore } = mountEditor('')
+    const editorStore = useEditorStore()
+    fakeEditor.getValue.mockReturnValue('Flushed *text*.')
+
+    expect(editorStore.contentFlusher).toBeTypeOf('function')
+    await editorStore.contentFlusher()
+
+    expect(pageStore.content).toBe('Flushed *text*.')
+    expect(pageStore.render).toContain('<strong>text</strong>')
+  })
+
+  it('clears the contentFlusher on unmount', () => {
+    const { wrapper } = mountEditor('')
+    const editorStore = useEditorStore()
+
+    wrapper.unmount()
+
+    expect(editorStore.contentFlusher).toBe(null)
   })
 
   it('opens the file manager in insert mode from the sidebar button', async () => {

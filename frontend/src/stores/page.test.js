@@ -275,6 +275,43 @@ describe('page store: pageSave() reads the live editor first (OpenProject #806)'
     expect(opts.json.render).not.toContain('blob:')
   })
 
+  it('awaits an asynchronous contentFlusher before building the save body (EditorAsciidoc.vue)', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: 'stale',
+      render: 'stale'
+    })
+    // -> Stands in for `EditorAsciidoc.vue`'s `flushEditorContent`, genuinely asynchronous because
+    //    Asciidoctor's `convert` is (`renderers/asciidoc.js`)
+    editorStore.contentFlusher = async () => {
+      await Promise.resolve()
+      pageStore.content = '= Typed\n\nBody.'
+      pageStore.render = '<h1>Typed</h1><p>Body.</p>'
+    }
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    const [, opts] = API_CLIENT.patch.mock.calls[0]
+    expect(opts.json.content).toBe('= Typed\n\nBody.')
+    expect(opts.json.render).toBe('<h1>Typed</h1><p>Body.</p>')
+  })
+
   it('leaves content/render exactly as stored when no editor is mounted (contentFlusher unset)', async () => {
     const pageStore = usePageStore()
     const editorStore = useEditorStore()
