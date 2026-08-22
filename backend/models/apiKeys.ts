@@ -132,6 +132,14 @@ export interface ApiKeyIdentity {
   //    guests group's rules for every page permission, regardless of what the key's own groups (or, for
   //    a personal token, its owner's current groups) actually granted.
   groupIds: string[]
+  // -> The key's own scope narrowing (the stored `ApiKey.scope`), unnarrowed by anything above:
+  //    `permissions` is already the intersection against it (`narrowToScope()`), but `groupIds` is
+  //    still the identity's full, unnarrowed group membership. `models/groups.ts`'s `AccessActor`
+  //    carries this through so `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` can
+  //    intersect a page/site permission against it too before pooling rules from those groups --
+  //    without this, a key scoped to `['read:pages']` still held every page permission its groups'
+  //    rules granted, since scope was never consulted on the rule-pooling path (OpenProject #930).
+  scope: string[] | null
   // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
@@ -525,6 +533,7 @@ class ApiKeys {
         userId: key.userId,
         groupIds: owner.groupIds,
         permissions: narrowToScope(owner.permissions, key.scope),
+        scope: key.scope,
         siteId
       }
     }
@@ -535,6 +544,7 @@ class ApiKeys {
       userId: null,
       groupIds,
       permissions: await this.resolvePermissions(groupIds, key.scope),
+      scope: key.scope,
       siteId
     }
   }

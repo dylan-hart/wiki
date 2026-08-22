@@ -106,10 +106,22 @@ const groupSelection = {
  *
  * `permissions` is the group-wide list — `manage:system`, `access:admin` and the rest — which is a
  * different thing from the page permissions the rules decide.
+ *
+ * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
+ * `models/apiKeys.ts`) — `null`/absent means unrestricted (a session, or an unscoped key). It is
+ * consulted directly by `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` below,
+ * on top of (not instead of) narrowing `permissions` itself: a scope narrows the GLOBAL permission
+ * union that `narrowToScope()` already intersects before this actor is built, but `groupIds` is
+ * still the key's full, unnarrowed group membership — the rule-pooling those three methods do from
+ * `groupIds` would otherwise hand back every page/site permission the groups grant regardless of
+ * scope (OpenProject #930). A scope can only take a permission away, never grant one the groups
+ * didn't already hold, so a permission absent from `scope` is refused before any rule is even
+ * resolved.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
+  scope?: string[] | null
 }
 
 /**
@@ -202,8 +214,23 @@ class Groups {
       groupIds: this.groupIdsForRequest(req),
       // -> An API key stands in for a session and carries its own permissions, as it does in the
       //    route-level check
-      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? []
+      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? [],
+      // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
+      //    if any -- see the `AccessActor.scope` doc comment for what this gates.
+      scope: req.apiKey?.scope ?? null
     }
+  }
+
+  /**
+   * Whether `permission` survives this actor's scope narrowing, if it has one.
+   *
+   * `null`/absent scope is unrestricted (a session, or a key issued with no scope). A scope that IS
+   * set can only take permissions away, so a permission missing from it is refused outright, before
+   * any rule is even resolved — see the `AccessActor.scope` doc comment for why this has to sit
+   * ahead of `rulesForGroups()` rather than trusting `permissions`/`groupIds` alone.
+   */
+  private withinScope(actor: AccessActor, permission: string): boolean {
+    return !actor.scope || actor.scope.includes(permission)
   }
 
   /**
@@ -220,6 +247,9 @@ class Groups {
     //    wiki whose only administrator had denied themselves would have nobody left to fix it
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    if (!this.withinScope(actor, permission)) {
+      return false
     }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
     return rule ? rule.mode !== 'DENY' : false
@@ -244,8 +274,12 @@ class Groups {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
+    const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
+    if (inScope.length === 0) {
+      return false
+    }
     const rules = this.rulesForGroups(actor.groupIds)
-    return permissions.some((permission) =>
+    return inScope.some((permission) =>
       rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
   }
@@ -264,6 +298,9 @@ class Groups {
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    if (!this.withinScope(actor, permission)) {
+      return false
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
     return rule ? rule.mode !== 'DENY' : false

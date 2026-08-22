@@ -287,6 +287,12 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
     // -> The user holds both read:pages and write:pages live, but scope narrows the token to just
     //    the one named -- it can only take away, never grant beyond what the groups already hold.
     assert.deepEqual(identity.permissions, ['read:pages'])
+    // -> OpenProject #930: the identity carries the raw scope itself alongside the already-narrowed
+    //    `permissions`, so `AccessActor.scope` (models/groups.ts) can intersect page permissions
+    //    against it too -- `groupIds` is deliberately NOT narrowed here (that narrowing happens at
+    //    the rule-pooling call site, not by shrinking group membership).
+    assert.deepEqual(identity.scope, ['read:pages'])
+    assert.deepEqual(new Set(identity.groupIds), new Set([fixtures.groupId, secondGroup!.id]))
   })
 
   test("a deactivated owner's token stops authenticating, the same guarantee a session already gets", async () => {
@@ -451,6 +457,44 @@ describe(
       const fakeReq = { apiKey: identity } as any
 
       assert.deepEqual(groupsModel.groupIdsForRequest(fakeReq), [group!.id])
+    })
+
+    /**
+     * OpenProject #930's own regression case: a key scoped to `['read:pages']` whose GROUP grants
+     * both `read:pages` and `write:pages` through its rule. Before the fix, `checkAccess()` pooled
+     * rules purely from `groupIds` and never consulted `key.scope` at all, so this key still held
+     * `write:pages` -- the exact "obvious read-only token" the bug report describes.
+     */
+    test("a key scoped to read:pages may not write, even though its group's own rule grants write:pages too", async () => {
+      const readWriteRule: GroupRule = {
+        id: 'rule-read-write',
+        name: 'Read Write',
+        roles: ['read:pages', 'write:pages'],
+        match: 'START',
+        mode: 'ALLOW',
+        path: '',
+        locales: [],
+        sites: []
+      }
+      const [group] = await fixtures.db
+        .insert(groupsTable)
+        .values({ name: 'Read-Write Group', permissions: [], rules: [readWriteRule] })
+        .returning({ id: groupsTable.id })
+      await groupsModel.reloadCache()
+
+      const { key } = await apiKeys.createKey({
+        name: 'Read-only-scoped key over a read-write group',
+        expiration: '30d',
+        groups: [group!.id],
+        scope: ['read:pages']
+      })
+      const identity = await apiKeys.verify(key)
+      const actor = groupsModel.actorForRequest({ apiKey: identity } as any)
+      const page = { path: 'anything', locale: 'en', siteId: null, tags: [] }
+
+      assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
+      assert.equal(groupsModel.checkAccess(actor, 'write:pages', page), false)
+      assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), false)
     })
   }
 )

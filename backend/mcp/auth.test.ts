@@ -81,7 +81,8 @@ test('contextFromIdentity: maps an already-verified ApiKeyIdentity the same way'
     permissions: ['manage:system'],
     siteId: null,
     groupIds: ['group-x'],
-    userId: null
+    userId: null,
+    scope: null
   })
   assert.deepEqual(ctx, {
     keyId: 'key-9',
