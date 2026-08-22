@@ -7,6 +7,15 @@ name: Quality Gates
 # workflow run, and a plain `pull_request:` trigger added directly to build.yml would have no way to
 # stop the expensive Docker build/push job from also queuing up on every PR. `workflow_call:` lets
 # this file be that one shared definition instead of a second copy of the same steps.
+#
+# Also runs the backend/frontend/blocks unit suites (`npm run test`), not only typecheck/lint/format
+# -- previously these ran nowhere on `pull_request`, only in build.yml's push-to-scarlett `build` job,
+# so a broken unit test landed via a green PR and first failed after merge. build.yml's own `build`
+# job no longer repeats them: it already `needs: quality`, so re-running the same three suites there
+# on every push would just be paying for them twice for no new coverage -- the same "don't run the
+# same suite twice per commit" reasoning e2e.yml's own header comment gives for its removed push
+# trigger. build.yml's postgres service and DATABASE_URL stay, since its Playwright leg still needs
+# both for its own first-run seeding.
 on:
   pull_request:
   workflow_call:
@@ -14,10 +23,30 @@ on:
 
 jobs:
   quality:
-    name: Typecheck, Lint & Format
+    name: Typecheck, Lint, Format & Unit Tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
+    # Backing store for the backend's DB-backed model tests (test/db.ts's fixtures switch themselves
+    # on whenever DATABASE_URL is set) -- the frontend and blocks suites are pure-unit and never
+    # touch it. Same one-service-container-per-run shape as build.yml's own postgres service.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
 
     steps:
       - uses: actions/checkout@v7
@@ -38,6 +67,10 @@ jobs:
       - name: Backend Lint
         working-directory: backend
         run: npx oxlint
+
+      - name: Backend Tests
+        working-directory: backend
+        run: npm run test
 
       - name: Install Frontend Dependencies
         working-directory: frontend
@@ -64,6 +97,10 @@ jobs:
         working-directory: frontend
         run: npx oxlint
 
+      - name: Frontend Tests
+        working-directory: frontend
+        run: npm run test
+
       - name: Install Blocks Dependencies
         working-directory: blocks
         run: npm ci
@@ -71,6 +108,10 @@ jobs:
       - name: Blocks Lint
         working-directory: blocks
         run: npx oxlint
+
+      - name: Blocks Tests
+        working-directory: blocks
+        run: npm run test
 
       # Run from backend's own already-installed, version-pinned oxfmt (see backend/package.json)
       # rather than a bare `npx oxfmt`, which would silently resolve whatever `latest` happens to be
