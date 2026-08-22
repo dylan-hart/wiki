@@ -506,6 +506,28 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       assert.deepEqual(live.map((t) => t.term).sort(), ['Saved One', 'Saved Two'])
     })
 
+    test('saveVersion() rolls back the term replace too when recording the version fails (OpenProject #1113 "atomically")', async () => {
+      const before = await glossaryModel.listTerms(fixtures.siteId)
+
+      // -> A non-existent actorId trips glossaryVersions' FK constraint, forcing the version-record
+      //    half of saveVersion() to fail. If the replace and the record are NOT sharing one
+      //    transaction, the term replace below would already be committed by this point.
+      await assert.rejects(() =>
+        glossaryModel.saveVersion(
+          fixtures.siteId,
+          [{ term: 'ShouldNotStick', definition: 'Never actually saved.' }],
+          { id: '00000000-0000-0000-0000-000000000000', name: 'Ghost Actor' }
+        )
+      )
+
+      const after = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(
+        after.map((t) => t.id),
+        before.map((t) => t.id)
+      )
+      assert.ok(!after.some((t) => t.term === 'ShouldNotStick'))
+    })
+
     test('saveVersion() resolves a `path` to a pageId, the same shape importTerms takes (OpenProject #1112)', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,

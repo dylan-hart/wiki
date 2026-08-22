@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import type { WikiDbOrTx } from '../core/db.ts'
 import {
   glossaryTerms as glossaryTermsTable,
   glossaryVersions as glossaryVersionsTable,
@@ -280,9 +281,13 @@ class Glossary {
   /**
    * The full term list, portable and ready to hand to an external editor (OpenProject #1114) -- e.g.
    * an LLM asked to iterate on definitions. See `GlossaryExportTerm`'s own comment for the shape.
+   *
+   * `db` defaults to the ambient `WIKI.db`, but `recordVersionIn` passes its own open transaction so a
+   * snapshot it takes reads back the rows that same transaction just wrote, not a separate connection
+   * that cannot see them yet.
    */
-  async exportTerms(siteId: string): Promise<GlossaryExport> {
-    const rows = await WIKI.db
+  async exportTerms(siteId: string, db: WikiDbOrTx = WIKI.db): Promise<GlossaryExport> {
+    const rows = await db
       .select({
         term: glossaryTermsTable.term,
         definition: glossaryTermsTable.definition,
@@ -363,28 +368,44 @@ class Glossary {
   }
 
   /**
-   * Deletes every existing term for the site and inserts `rows` instead, in one transaction --
-   * shared by JSON import (`importTerms`) and the admin staged-save/restore paths (`saveVersion`/
-   * `restoreVersion`, OpenProject #1113), so every wholesale-replace caller applies the same
-   * all-or-nothing semantics. Callers are responsible for validating `rows` first
-   * (`assertNoInternalSurfaceFormCollision` above) -- a case-insensitive collision within `rows`
-   * itself would otherwise surface as an opaque unique-constraint violation from the bulk insert
-   * instead of a clear 400.
+   * Deletes every existing term for the site and inserts `rows` instead, against `db` -- so this
+   * never applies only halfway as long as `db` is itself a transaction handle. Callers are
+   * responsible for validating `rows` first (`assertNoInternalSurfaceFormCollision` above) -- a
+   * case-insensitive collision within `rows` itself would otherwise surface as an opaque
+   * unique-constraint violation from the bulk insert instead of a clear 400.
+   *
+   * Does NOT invalidate the cache itself -- `db` may be mid-transaction, and invalidating before a
+   * commit could hand a reader stale-again data if the transaction then rolls back. Callers
+   * invalidate once their transaction has actually committed (`replaceAllRows`, `saveVersion`,
+   * `restoreVersion` below).
+   */
+  private async replaceAllRowsIn(
+    db: WikiDbOrTx,
+    siteId: string,
+    rows: { term: string; definition: string; aliases: string[]; pageId: string | null }[]
+  ): Promise<GlossaryTerm[]> {
+    await db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId))
+    if (!rows.length) {
+      return []
+    }
+    return db
+      .insert(glossaryTermsTable)
+      .values(rows.map((row) => ({ siteId, ...row })))
+      .returning()
+  }
+
+  /**
+   * `replaceAllRowsIn`, opening its own transaction -- for a standalone wholesale replace with
+   * nothing else that needs to share its fate (JSON import, `importTerms` below). `saveVersion`/
+   * `restoreVersion` need the replace and the version snapshot to commit or roll back together
+   * (OpenProject #1113's "atomically" requirement), so THEY open one transaction themselves and call
+   * `replaceAllRowsIn` directly instead of going through this wrapper.
    */
   private async replaceAllRows(
     siteId: string,
     rows: { term: string; definition: string; aliases: string[]; pageId: string | null }[]
   ): Promise<GlossaryTerm[]> {
-    const inserted = await WIKI.db.transaction(async (tx) => {
-      await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, siteId))
-      if (!rows.length) {
-        return []
-      }
-      return tx
-        .insert(glossaryTermsTable)
-        .values(rows.map((row) => ({ siteId, ...row })))
-        .returning()
-    })
+    const inserted = await WIKI.db.transaction((tx) => this.replaceAllRowsIn(tx, siteId, rows))
     this.invalidateCache(siteId)
     return inserted
   }
@@ -413,11 +434,14 @@ class Glossary {
   /**
    * Applies a staged set of edits as the new, complete term list -- the admin UI's "Save" action
    * (OpenProject #1113): not immediate-apply per create/edit/delete, but one atomic replace of the
-   * whole glossary, paired with a version snapshot of the result. `GlossaryExportTerm`-shaped
-   * (`path`, not `pageId`), the SAME shape `importTerms` takes: the admin UI's canonical-page picker
-   * is a live-validated path input, not a dropdown (OpenProject #1112), so its own staged edits are
-   * already in this shape -- resolving `path` here (rather than requiring the client to resolve it
-   * itself first) is what keeps that one round-trip instead of two.
+   * whole glossary, paired with a version snapshot of the result -- "atomically" per the spec's own
+   * wording, so the replace and the snapshot run inside ONE transaction: either both commit, or
+   * (a DB error mid-write, a crash) neither does, rather than a replace that landed with no version
+   * to show for it. `GlossaryExportTerm`-shaped (`path`, not `pageId`), the SAME shape `importTerms`
+   * takes: the admin UI's canonical-page picker is a live-validated path input, not a dropdown
+   * (OpenProject #1112), so its own staged edits are already in this shape -- resolving `path` here
+   * (rather than requiring the client to resolve it itself first) is what keeps that one round-trip
+   * instead of two.
    */
   async saveVersion(
     siteId: string,
@@ -425,9 +449,13 @@ class Glossary {
     actor: GlossaryActor
   ): Promise<{ terms: GlossaryTerm[]; version: GlossaryVersionSummary }> {
     const resolved = await this.resolveExportTerms(siteId, terms)
-    const savedTerms = await this.replaceAllRows(siteId, resolved)
-    const version = await this.recordVersion(siteId, actor)
-    return { terms: savedTerms, version }
+    const result = await WIKI.db.transaction(async (tx) => {
+      const savedTerms = await this.replaceAllRowsIn(tx, siteId, resolved)
+      const version = await this.recordVersionIn(tx, siteId, actor)
+      return { terms: savedTerms, version }
+    })
+    this.invalidateCache(siteId)
+    return result
   }
 
   /** Every saved version's metadata, most recent first -- no `snapshot` payload; see `getVersion`. */
@@ -467,11 +495,13 @@ class Glossary {
   }
 
   /**
-   * Restores a saved version as the glossary's new live state -- reusing `importTerms`'s validated,
-   * wholesale-replace path against the version's own stored snapshot (the same JSON shape, per
-   * OpenProject #1114's decision record). Rather than rewriting history, a restore is itself recorded
-   * as a NEW version: the version list stays append-only and monotonic, so "what did the glossary
-   * look like at time T" never changes retroactively, including for T = right after a restore.
+   * Restores a saved version as the glossary's new live state -- the SAME validate-then-replace path
+   * `importTerms` uses (against the version's own stored snapshot, per OpenProject #1114's decision
+   * record), reused here directly rather than through `importTerms` itself so the replace and the new
+   * version record below can share ONE transaction -- same "atomically" reasoning as `saveVersion`.
+   * Rather than rewriting history, a restore is itself recorded as a NEW version: the version list
+   * stays append-only and monotonic, so "what did the glossary look like at time T" never changes
+   * retroactively, including for T = right after a restore.
    */
   async restoreVersion(
     siteId: string,
@@ -482,18 +512,26 @@ class Glossary {
     if (!target) {
       throw new CustomError('glossaryVersionNotFound', 'This glossary version does not exist.', 404)
     }
-    const terms = await this.importTerms(siteId, target.snapshot)
-    const version = await this.recordVersion(siteId, actor)
-    return { terms, version }
+    const resolved = await this.resolveExportTerms(siteId, target.snapshot.terms)
+    const result = await WIKI.db.transaction(async (tx) => {
+      const terms = await this.replaceAllRowsIn(tx, siteId, resolved)
+      const version = await this.recordVersionIn(tx, siteId, actor)
+      return { terms, version }
+    })
+    this.invalidateCache(siteId)
+    return result
   }
 
-  /** Snapshots the glossary's CURRENT (already-written) state as a new version row. */
-  private async recordVersion(
+  /** Snapshots the glossary's CURRENT (already-written) state as a new version row, against `db` --
+   *  see `replaceAllRowsIn`'s identical reasoning: `saveVersion`/`restoreVersion` pass their own open
+   *  transaction so the snapshot this takes shares fate with the replace it is snapshotting. */
+  private async recordVersionIn(
+    db: WikiDbOrTx,
     siteId: string,
     actor: GlossaryActor
   ): Promise<GlossaryVersionSummary> {
-    const snapshot = await this.exportTerms(siteId)
-    const rows = await WIKI.db
+    const snapshot = await this.exportTerms(siteId, db)
+    const rows = await db
       .insert(glossaryVersionsTable)
       .values({
         siteId,
