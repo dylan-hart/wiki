@@ -76,8 +76,8 @@ onMounted(async () => {
       //    server, which uses the site's primary one
       const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
         searchParams: {
-          fileName: item.fileName
-          // TODO: Upload to page specific folder
+          fileName: item.fileName,
+          parentPath: pageStore.folderPath
         },
         headers: {
           'content-type': item.file.type || 'application/octet-stream'
