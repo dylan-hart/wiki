@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import type { GlossaryExport } from '../models/glossary.ts'
+import type { GlossaryExport, GlossaryTermInput } from '../models/glossary.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 
 interface GlossaryTermBody {
   term?: string
@@ -316,6 +317,185 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('This site does not exist.')
       }
       return WIKI.models.glossary.importTerms(req.params.siteId, req.body)
+    }
+  )
+
+  /**
+   * SAVE STAGED GLOSSARY EDITS
+   */
+  app.post<{ Params: { siteId: string }; Body: { terms: GlossaryTermInput[] } }>(
+    '/sites/:siteId/glossary/save',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Apply staged glossary edits and save a new version',
+        description:
+          "The admin glossary screen's Save action (OpenProject #1113): edits are staged locally and NOT applied to the live glossary until this is called, which atomically replaces the whole term list with `terms` and records the result as a new version. Not a per-term merge -- the same wholesale-replace semantics as `POST .../glossary/import`, just addressed by `pageId` rather than `path` since the admin UI already has one resolved.",
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        body: {
+          type: 'object',
+          required: ['terms'],
+          properties: {
+            terms: {
+              type: 'array',
+              items: {
+                allOf: [
+                  { $ref: 'GlossaryTermInput#' },
+                  { type: 'object', required: ['term', 'definition'] }
+                ]
+              }
+            }
+          }
+        },
+        response: {
+          200: { $ref: 'GlossarySaveResult#' },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.glossary.saveVersion(
+        req.params.siteId,
+        req.body.terms,
+        actorFromRequest(req)
+      )
+    }
+  )
+
+  /**
+   * LIST GLOSSARY VERSIONS
+   */
+  app.get<{ Params: { siteId: string } }>(
+    '/sites/:siteId/glossary/versions',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'List saved glossary versions',
+        description:
+          'Whole-glossary snapshots (OpenProject #1113), most recent first -- not the per-term history `pageHistory` keeps for individual pages. Metadata only; fetch one by id for its full term list.',
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId']
+        },
+        response: {
+          200: {
+            type: 'array',
+            items: { $ref: 'GlossaryVersionSummary#' }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.glossary.listVersions(req.params.siteId)
+    }
+  )
+
+  /**
+   * GET ONE GLOSSARY VERSION
+   */
+  app.get<{ Params: { siteId: string; versionId: string } }>(
+    '/sites/:siteId/glossary/versions/:versionId',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Get a saved glossary version, including its full term list',
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            versionId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'versionId']
+        },
+        response: {
+          200: { $ref: 'GlossaryVersion#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      const version = await WIKI.models.glossary.getVersion(req.params.siteId, req.params.versionId)
+      if (!version) {
+        return reply.notFound('This glossary version does not exist.')
+      }
+      return version
+    }
+  )
+
+  /**
+   * RESTORE A GLOSSARY VERSION
+   */
+  app.post<{ Params: { siteId: string; versionId: string } }>(
+    '/sites/:siteId/glossary/versions/:versionId/restore',
+    {
+      config: {
+        permissions: ['manage:sites']
+      },
+      schema: {
+        summary: 'Restore a saved glossary version as the live glossary',
+        description:
+          'Applies that version’s term list wholesale, THEN records the result as a new version of its own -- the version list stays append-only, so restoring never rewrites history retroactively.',
+        tags: ['Glossary'],
+        params: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            versionId: { type: 'string', format: 'uuid' }
+          },
+          required: ['siteId', 'versionId']
+        },
+        response: {
+          200: { $ref: 'GlossarySaveResult#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      if (!WIKI.sites[req.params.siteId]) {
+        return reply.notFound('This site does not exist.')
+      }
+      return WIKI.models.glossary.restoreVersion(
+        req.params.siteId,
+        req.params.versionId,
+        actorFromRequest(req)
+      )
     }
   )
 }

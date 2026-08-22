@@ -142,4 +142,48 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       }
     }
   })
+
+  /**
+   * GLOSSARY VERSION SUMMARY - One saved snapshot's metadata, without the snapshot itself
+   * (OpenProject #1113)
+   */
+  app.addSchema({
+    $id: 'GlossaryVersionSummary',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      termCount: { type: 'integer' },
+      actorId: { type: 'string', format: 'uuid', nullable: true },
+      actorName: { type: 'string' },
+      createdAt: { type: 'string', format: 'date-time', description: 'RFC 3339 Date Time' }
+    }
+  })
+
+  /**
+   * GLOSSARY VERSION - A saved snapshot, including its full term list
+   */
+  app.addSchema({
+    $id: 'GlossaryVersion',
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      termCount: { type: 'integer' },
+      actorId: { type: 'string', format: 'uuid', nullable: true },
+      actorName: { type: 'string' },
+      createdAt: { type: 'string', format: 'date-time', description: 'RFC 3339 Date Time' },
+      snapshot: { $ref: 'GlossaryExport#' }
+    }
+  })
+
+  /**
+   * GLOSSARY SAVE RESULT - The live term list as it now stands, plus the version it was just saved as
+   */
+  app.addSchema({
+    $id: 'GlossarySaveResult',
+    type: 'object',
+    properties: {
+      terms: { type: 'array', items: { $ref: 'GlossaryTerm#' } },
+      version: { $ref: 'GlossaryVersionSummary#' }
+    }
+  })
 }

@@ -1,5 +1,9 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { glossaryTerms as glossaryTermsTable, pages as pagesTable } from '../db/schema.ts'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import {
+  glossaryTerms as glossaryTermsTable,
+  glossaryVersions as glossaryVersionsTable,
+  pages as pagesTable
+} from '../db/schema.ts'
 import {
   CustomError,
   generatePathHash,
@@ -52,6 +56,25 @@ export interface GlossaryExportTerm {
 export interface GlossaryExport {
   formatVersion: number
   terms: GlossaryExportTerm[]
+}
+
+/** Who saved/restored a glossary version -- a session user, mirroring `auditLog`'s actor shape. */
+export interface GlossaryActor {
+  id: string | null
+  name: string
+}
+
+/** A version's own metadata, without the (potentially large) snapshot payload. */
+export interface GlossaryVersionSummary {
+  id: string
+  termCount: number
+  actorId: string | null
+  actorName: string
+  createdAt: Date
+}
+
+export interface GlossaryVersion extends GlossaryVersionSummary {
+  snapshot: GlossaryExport
 }
 
 function cacheKey(siteId: string): string {
@@ -256,11 +279,12 @@ class Glossary {
 
   /**
    * Deletes every existing term for the site and inserts `rows` instead, in one transaction --
-   * shared by JSON import (`importTerms`) and, later, the admin staged-save/restore paths (OpenProject
-   * #1113), so every wholesale-replace caller applies the same all-or-nothing semantics. Callers are
-   * responsible for validating `rows` first (`assertNoInternalSurfaceFormCollision` above) -- a
-   * case-insensitive collision within `rows` itself would otherwise surface as an opaque unique-
-   * constraint violation from the bulk insert instead of a clear 400.
+   * shared by JSON import (`importTerms`) and the admin staged-save/restore paths (`saveVersion`/
+   * `restoreVersion`, OpenProject #1113), so every wholesale-replace caller applies the same
+   * all-or-nothing semantics. Callers are responsible for validating `rows` first
+   * (`assertNoInternalSurfaceFormCollision` above) -- a case-insensitive collision within `rows`
+   * itself would otherwise surface as an opaque unique-constraint violation from the bulk insert
+   * instead of a clear 400.
    */
   private async replaceAllRows(
     siteId: string,
@@ -299,6 +323,131 @@ class Glossary {
       )
     }
     return page.id
+  }
+
+  /**
+   * Applies a staged set of edits as the new, complete term list -- the admin UI's "Save" action
+   * (OpenProject #1113): not immediate-apply per create/edit/delete, but one atomic replace of the
+   * whole glossary, paired with a version snapshot of the result. `pageId`-based (unlike
+   * `importTerms`'s `path`-based shape), since the admin UI already has a resolved id from its own
+   * canonical-page picker (OpenProject #1112) -- no need to round-trip through a path here.
+   */
+  async saveVersion(
+    siteId: string,
+    inputs: GlossaryTermInput[],
+    actor: GlossaryActor
+  ): Promise<{ terms: GlossaryTerm[]; version: GlossaryVersionSummary }> {
+    const resolved: {
+      term: string
+      definition: string
+      aliases: string[]
+      pageId: string | null
+    }[] = []
+    for (const raw of inputs) {
+      const term = (raw?.term ?? '').trim()
+      const definition = (raw?.definition ?? '').trim()
+      if (!term) {
+        throw new CustomError('glossaryEmptyTerm', 'A term cannot be empty.', 400)
+      }
+      if (!definition) {
+        throw new CustomError(
+          'glossaryEmptyDefinition',
+          `Term "${term}" has an empty definition.`,
+          400
+        )
+      }
+      const aliases = normalizeAliases(raw?.aliases, term)
+      const pageId = await this.validatePageId(siteId, raw?.pageId)
+      resolved.push({ term, definition, aliases, pageId })
+    }
+    assertNoInternalSurfaceFormCollision(resolved)
+
+    const terms = await this.replaceAllRows(siteId, resolved)
+    const version = await this.recordVersion(siteId, actor)
+    return { terms, version }
+  }
+
+  /** Every saved version's metadata, most recent first -- no `snapshot` payload; see `getVersion`. */
+  async listVersions(siteId: string): Promise<GlossaryVersionSummary[]> {
+    return WIKI.db
+      .select({
+        id: glossaryVersionsTable.id,
+        termCount: glossaryVersionsTable.termCount,
+        actorId: glossaryVersionsTable.actorId,
+        actorName: glossaryVersionsTable.actorName,
+        createdAt: glossaryVersionsTable.createdAt
+      })
+      .from(glossaryVersionsTable)
+      .where(eq(glossaryVersionsTable.siteId, siteId))
+      .orderBy(desc(glossaryVersionsTable.createdAt))
+  }
+
+  /** One saved version, snapshot included -- what a diff or a restore reads from. */
+  async getVersion(siteId: string, versionId: string): Promise<GlossaryVersion | null> {
+    const rows = await WIKI.db
+      .select()
+      .from(glossaryVersionsTable)
+      .where(and(eq(glossaryVersionsTable.siteId, siteId), eq(glossaryVersionsTable.id, versionId)))
+      .limit(1)
+    const row = rows[0]
+    if (!row) {
+      return null
+    }
+    return {
+      id: row.id,
+      termCount: row.termCount,
+      actorId: row.actorId,
+      actorName: row.actorName,
+      createdAt: row.createdAt,
+      snapshot: row.snapshot as GlossaryExport
+    }
+  }
+
+  /**
+   * Restores a saved version as the glossary's new live state -- reusing `importTerms`'s validated,
+   * wholesale-replace path against the version's own stored snapshot (the same JSON shape, per
+   * OpenProject #1114's decision record). Rather than rewriting history, a restore is itself recorded
+   * as a NEW version: the version list stays append-only and monotonic, so "what did the glossary
+   * look like at time T" never changes retroactively, including for T = right after a restore.
+   */
+  async restoreVersion(
+    siteId: string,
+    versionId: string,
+    actor: GlossaryActor
+  ): Promise<{ terms: GlossaryTerm[]; version: GlossaryVersionSummary }> {
+    const target = await this.getVersion(siteId, versionId)
+    if (!target) {
+      throw new CustomError('glossaryVersionNotFound', 'This glossary version does not exist.', 404)
+    }
+    const terms = await this.importTerms(siteId, target.snapshot)
+    const version = await this.recordVersion(siteId, actor)
+    return { terms, version }
+  }
+
+  /** Snapshots the glossary's CURRENT (already-written) state as a new version row. */
+  private async recordVersion(
+    siteId: string,
+    actor: GlossaryActor
+  ): Promise<GlossaryVersionSummary> {
+    const snapshot = await this.exportTerms(siteId)
+    const rows = await WIKI.db
+      .insert(glossaryVersionsTable)
+      .values({
+        siteId,
+        snapshot,
+        termCount: snapshot.terms.length,
+        actorId: actor.id,
+        actorName: actor.name
+      })
+      .returning()
+    const row = rows[0]!
+    return {
+      id: row.id,
+      termCount: row.termCount,
+      actorId: row.actorId,
+      actorName: row.actorName,
+      createdAt: row.createdAt
+    }
   }
 
   /**

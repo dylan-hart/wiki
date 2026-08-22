@@ -3,6 +3,28 @@ import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
+// -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via `Date#toTemporalInstant()`
+//    + `Temporal.Instant.compare()`, matching CLAUDE.md's "Backend patterns". That is only a runtime
+//    global on Node 26+; this sandbox's Node is 25.9, where both are simply absent -- see
+//    `locales.test.ts`'s identical shim for the fuller explanation. Feature-detected so this is a no-op
+//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
+if (typeof Temporal === 'undefined') {
+  class FakeInstant {
+    epochMs: number
+    constructor(epochMs: number) {
+      this.epochMs = epochMs
+    }
+  }
+  ;(globalThis as any).Temporal = {
+    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
+  }
+  if (!(Date.prototype as any).toTemporalInstant) {
+    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+      return new FakeInstant(this.getTime())
+    }
+  }
+}
+
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
  * constraint, an update, a delete, and a join resolving each term's canonical page to a link — so a
@@ -437,6 +459,145 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
 
       const after = await glossaryModel.exportTerms(fixtures.siteId)
       assert.deepEqual(after.terms, exported.terms)
+    })
+  })
+
+  describe('versioning (OpenProject #1113)', () => {
+    let glossaryActor: { id: string | null; name: string }
+
+    before(() => {
+      glossaryActor = { id: fixtures.userId, name: 'Test Admin' }
+    })
+
+    test('saveVersion() atomically replaces the glossary and records a version', async () => {
+      await glossaryModel.createTerm(fixtures.siteId, {
+        term: 'BeforeSave',
+        definition: 'Will be replaced.'
+      })
+
+      const { terms, version } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [
+          { term: 'Saved One', definition: 'First.', aliases: ['S1'] },
+          { term: 'Saved Two', definition: 'Second.' }
+        ],
+        glossaryActor
+      )
+
+      assert.equal(terms.length, 2)
+      assert.equal(version.termCount, 2)
+      assert.equal(version.actorName, 'Test Admin')
+
+      const live = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(live.map((t) => t.term).sort(), ['Saved One', 'Saved Two'])
+    })
+
+    test('saveVersion() rejects an empty term, applying nothing', async () => {
+      const before = await glossaryModel.listTerms(fixtures.siteId)
+
+      await assert.rejects(
+        () =>
+          glossaryModel.saveVersion(
+            fixtures.siteId,
+            [{ term: '   ', definition: 'Bad.' }],
+            glossaryActor
+          ),
+        /cannot be empty/
+      )
+
+      const after = await glossaryModel.listTerms(fixtures.siteId)
+      assert.deepEqual(
+        after.map((t) => t.id),
+        before.map((t) => t.id)
+      )
+    })
+
+    test('listVersions() returns most-recent-first summaries with no snapshot payload', async () => {
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'ListVersionsA', definition: 'First save.' }],
+        glossaryActor
+      )
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'ListVersionsB', definition: 'Second save.' }],
+        glossaryActor
+      )
+
+      const versions = await glossaryModel.listVersions(fixtures.siteId)
+      assert.ok(versions.length >= 2)
+      assert.ok(
+        Temporal.Instant.compare(
+          versions[0]!.createdAt.toTemporalInstant(),
+          versions[1]!.createdAt.toTemporalInstant()
+        ) >= 0
+      )
+      assert.ok(!('snapshot' in versions[0]!))
+    })
+
+    test('getVersion() returns the full snapshot', async () => {
+      const { version } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'] }],
+        glossaryActor
+      )
+
+      const fetched = await glossaryModel.getVersion(fixtures.siteId, version.id)
+      assert.deepEqual(fetched?.snapshot.terms, [
+        { term: 'GetVersionTerm', definition: 'Snapshot me.', aliases: ['GVT'], path: null }
+      ])
+    })
+
+    test('getVersion() returns null for an id that does not exist', async () => {
+      const fetched = await glossaryModel.getVersion(
+        fixtures.siteId,
+        '00000000-0000-0000-0000-000000000000'
+      )
+      assert.equal(fetched, null)
+    })
+
+    test('restoreVersion() applies the old term list AND records a new version, not rewriting history', async () => {
+      const { version: v1 } = await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'RestoreTarget', definition: 'From the past.' }],
+        glossaryActor
+      )
+      await glossaryModel.saveVersion(
+        fixtures.siteId,
+        [{ term: 'RestoreLatest', definition: 'Current state.' }],
+        glossaryActor
+      )
+
+      const { terms, version: v3 } = await glossaryModel.restoreVersion(
+        fixtures.siteId,
+        v1.id,
+        glossaryActor
+      )
+
+      assert.deepEqual(
+        terms.map((t) => t.term),
+        ['RestoreTarget']
+      )
+      assert.notEqual(v3.id, v1.id)
+
+      // -> The version restored FROM is untouched -- restoring is additive, not destructive.
+      const originalStillThere = await glossaryModel.getVersion(fixtures.siteId, v1.id)
+      assert.deepEqual(
+        originalStillThere?.snapshot.terms.map((t) => t.term),
+        ['RestoreTarget']
+      )
+    })
+
+    test('restoreVersion() rejects an id that does not exist', async () => {
+      await assert.rejects(
+        () =>
+          glossaryModel.restoreVersion(
+            fixtures.siteId,
+            '00000000-0000-0000-0000-000000000000',
+            glossaryActor
+          ),
+        /does not exist/
+      )
     })
   })
 })
