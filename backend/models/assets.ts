@@ -5,6 +5,7 @@ import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
 import { makeImageThumbnail } from '../helpers/images.ts'
+import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
 import type { DeletedEntry } from './tree.ts'
@@ -173,9 +174,11 @@ export function kindOf(mimeType: string, fileExt: string): AssetKind {
  * in the site live in the matching `tree` row, which shares its ID. Both are written together — an
  * asset with no tree row would be unreachable, and a tree row with no asset would be a broken link.
  *
- * Storage targets are not implemented yet, so the database is the only copy — but not the one that
- * answers a request for a file. Serving goes through two caches, because `/_files/` is hit by every
- * image on every page view and neither half of that lookup needs the database twice:
+ * The database is always the one durable copy, whatever else is also configured (a blob target such
+ * as `s3` mirrors bytes via `dispatchStorage` rather than being read from directly for a normal
+ * request — see `governingTarget()`) — but not the one that answers a request for a file. Serving
+ * goes through two caches, because `/_files/` is hit by every image on every page view and neither
+ * half of that lookup needs the database twice:
  *
  * 1. **memory**, holding path → metadata for `PATH_CACHE_TTL_MS`, which is what decides the ETag and
  *    answers the conditional requests a browser sends once its own copy goes stale
@@ -739,16 +742,39 @@ class Assets {
   /**
    * The target that governs how this site's assets are served.
    *
-   * Disk and db are the only implemented targets, and content still physically lives in the assets
-   * table either way (the disk module only dumps/imports/backs up on request, it holds no live copy
-   * `readContent` could serve from) — so the db target's `assetDelivery` settings are what govern
-   * serving, whatever else a site also has configured.
+   * An asset's bytes always live in the assets table regardless of what else is configured (the disk
+   * module only dumps/imports/backs up on request, and a file-backed or blob module keeps its own
+   * copy in sync via `dispatchStorage` rather than being where `readContent` reads from directly) — so
+   * the db target's `assetDelivery` settings are the default answer for whether to cache to disk and
+   * whether to redirect.
    *
-   * @returns Null when the site has no such target row at all, which `readContent` treats as the
+   * A blob target (`s3`/`azure`/`gcs`) that both has direct access turned on and actually holds a copy
+   * of the asset being served — its `contentTypes` cover the asset's kind/size, per
+   * `helpers/blobTarget.ts`'s `belongsInTarget` — governs instead: it is the one place besides the db
+   * itself with a URL of its own for the file, so its `assetDelivery` settings decide whether that URL
+   * gets used. Passing no `asset` (or omitting a kind a target's `contentTypes` distinguish by) skips
+   * this check entirely and falls straight to the db target, same as before this existed.
+   *
+   * @returns Null when the site has no db target row at all, which `readContent` treats as the
    *   documented defaults (streaming on, no direct access) rather than as a hard failure
    */
-  async governingTarget(siteId: string): Promise<StorageTarget | null> {
+  async governingTarget(
+    siteId: string,
+    asset?: { kind: AssetKind; fileSize: number }
+  ): Promise<StorageTarget | null> {
     const targets = await WIKI.models.storage.getSiteTargets(siteId)
+    if (asset) {
+      const directAccessTarget = targets.find(
+        (t) =>
+          t.isEnabled &&
+          t.assetDelivery.isDirectAccessSupported &&
+          t.assetDelivery.directAccess &&
+          belongsInTarget(asset, t.contentTypes)
+      )
+      if (directAccessTarget) {
+        return directAccessTarget
+      }
+    }
     return targets.find((t) => t.module === DB_MODULE && t.isEnabled) ?? null
   }
 
@@ -757,7 +783,7 @@ class Assets {
    * one and has a module behind it that can produce one. See `StorageModule.getDirectUrl`.
    */
   async directUrlFor(
-    asset: { id: string; updatedAt: Date; fileName: string },
+    asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
     target: StorageTarget
   ): Promise<string | null> {
     if (!target.assetDelivery.directAccess || !target.assetDelivery.isDirectAccessSupported) {
@@ -785,10 +811,20 @@ class Assets {
    *   is no such asset, i.e. when a cached path resolution has outlived the row behind it
    */
   async readContent(
-    asset: { id: string; updatedAt: Date; fileName: string },
+    asset: {
+      id: string
+      updatedAt: Date
+      fileName: string
+      folderPath: string
+      kind: AssetKind
+      fileSize: number
+    },
     siteId: string
   ): Promise<{ body: Readable | Buffer; size: number } | { redirectUrl: string } | null> {
-    const target = await this.governingTarget(siteId)
+    const target = await this.governingTarget(siteId, {
+      kind: asset.kind,
+      fileSize: asset.fileSize
+    })
 
     if (target) {
       const redirectUrl = await this.directUrlFor(asset, target)

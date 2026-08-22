@@ -296,15 +296,19 @@ export interface StorageModule {
    * the file straight from the target instead of proxying it through this instance.
    *
    * Checked by `models/assets.ts`'s `readContent()` before it falls into its own disk-cache/database
-   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on and the
-   * module's definition declares `assetDelivery.isDirectAccessSupported`. Neither `disk` nor `db`
-   * implements this — a local disk path and a database row are not URLs anything else can fetch — so
-   * the hook stays unexercised until a module that has a URL of its own (S3, a CDN) implements it.
+   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on, the module's
+   * definition declares `assetDelivery.isDirectAccessSupported`, and `governingTarget()` picked this
+   * target for the asset being served (i.e. its `contentTypes` cover the asset — see
+   * `helpers/blobTarget.ts`'s `belongsInTarget`). Neither `disk` nor `db` implements this — a local
+   * disk path and a database row are not URLs anything else can fetch — `s3`, `azure` and `gcs` do.
    *
+   * @param asset `folderPath` is required alongside `fileName` to rebuild the object key a blob
+   *   target stored the file under (`helpers/blobTarget.ts`'s `objectKeyFor`) — the two together are
+   *   what `s3`/`azure`/`gcs`'s own `getDirectUrl` key off.
    * @returns The URL to redirect the request to, or null/undefined to fall through to the normal path
    */
   getDirectUrl?: (
-    asset: { id: string; updatedAt: Date; fileName: string },
+    asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
     target: StorageTarget
   ) => Promise<string | null | undefined>
   /** Handlers named by the definition's actions. */

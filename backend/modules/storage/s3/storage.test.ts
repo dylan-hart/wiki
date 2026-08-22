@@ -489,15 +489,20 @@ describe('s3 storage / exportAll', () => {
   })
 })
 
-describe('s3 storage / getDirectAccessUrl', () => {
+describe('s3 storage / getDirectUrl', () => {
   test('returns a short-TTL presigned GET URL for the object', async () => {
     const target = makeTarget()
-    const url = await storageModule.getDirectAccessUrl(target, {
-      folderPath: 'images',
-      fileName: 'pic.png'
-    })
+    const url = await storageModule.getDirectUrl!(
+      {
+        id: 'asset-1',
+        updatedAt: new Date('2024-01-01T00:00:00Z'),
+        folderPath: 'images',
+        fileName: 'pic.png'
+      },
+      target
+    )
 
-    const parsed = new URL(url)
+    const parsed = new URL(url!)
     assert.equal(parsed.searchParams.get('X-Amz-Expires'), '300')
     assert.ok(parsed.pathname.includes(`${target.siteId}/images/pic.png`))
   })
