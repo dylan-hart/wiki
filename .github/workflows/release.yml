@@ -8,9 +8,10 @@ name: Release
 # the Docker push nor the GitHub Release creation happen on a red run.
 #
 # What this workflow deliberately does NOT check, and why that's not an oversight:
-#   - The backend/frontend/blocks/e2e test suites. `build.yml`'s own `build` job already runs all
-#     four on every push to `scarlett`, including the commit a release tag points at (a release tag
-#     is pushed against a commit that has already gone through that pipeline) — re-running the full
+#   - The backend/frontend/blocks/e2e test suites. `build.yml`'s `quality` job (`quality.yml`) runs
+#     the backend/frontend/blocks suites and its own `build` job runs the Playwright suite, both on
+#     every push to `scarlett`, including the commit a release tag points at (a release tag is
+#     pushed against a commit that has already gone through that pipeline) — re-running the full
 #     Postgres + Playwright suite a second time here would just be an expensive echo of a check that
 #     already happened, not an independent gate.
 #   - Epic 13's migration tooling exercised against a real 2.5.x dataset. No CI runner has access to
@@ -46,6 +47,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            blocks/package-lock.json
 
       # --- Hard-required quality gates ------------------------------------------------------
       # The same typecheck/lint/format/icon-drift checks task #423 wires into build.yml's
@@ -65,7 +71,7 @@ jobs:
 
       - name: Backend Lint
         working-directory: backend
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       - name: Install Frontend Dependencies
         working-directory: frontend
@@ -84,7 +90,7 @@ jobs:
 
       - name: Frontend Lint
         working-directory: frontend
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       - name: Install Blocks Dependencies
         working-directory: blocks
@@ -92,7 +98,7 @@ jobs:
 
       - name: Blocks Lint
         working-directory: blocks
-        run: npx oxlint
+        run: npx oxlint --deny-warnings
 
       # Run from backend's own already-installed, version-pinned oxfmt rather than a bare
       # `npx oxfmt`, which would resolve whatever `latest` happens to be at run time — see

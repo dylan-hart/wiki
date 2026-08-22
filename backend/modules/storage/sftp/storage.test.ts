@@ -58,7 +58,13 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       directAccess: false
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: false
+    },
     props: {},
     config: { host: 'files.example.com', port: 22, username: 'wiki', basePath: '/srv/wiki' },
     actions: [],

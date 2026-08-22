@@ -89,6 +89,25 @@ class Sites {
     WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
   }
 
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
+   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
+   * "never call from inside `reloadCache()`" rule.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadSites')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadSites', async () => {
+      await this.reloadCache()
+    })
+  }
+
   async createSite(hostname: string, config: Record<string, any> = {}) {
     const result = await WIKI.db
       .insert(sitesTable)
@@ -218,8 +237,9 @@ class Sites {
     const newSiteConfig = newSite.config as { locales: { primary: string } }
     await WIKI.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
-    // -> Site lookups by id / hostname are served from cache, which must know about the new site
-    await WIKI.models.sites.reloadCache()
+    // -> Site lookups by id / hostname are served from cache, which must know about the new site —
+    //    on every instance, not just this one
+    await WIKI.models.sites.broadcastReload()
 
     // -> Otherwise the new site would have no blocks until the next restart
     await WIKI.models.blocks.syncSite(newSite.id)
@@ -275,7 +295,7 @@ class Sites {
       return false
     }
 
-    await WIKI.models.sites.reloadCache()
+    await WIKI.models.sites.broadcastReload()
     return true
   }
 
@@ -373,7 +393,7 @@ class Sites {
       return false
     }
 
-    await WIKI.models.sites.reloadCache()
+    await WIKI.models.sites.broadcastReload()
     return true
   }
 

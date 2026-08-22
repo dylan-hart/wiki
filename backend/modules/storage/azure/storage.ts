@@ -201,7 +201,9 @@ async function exportAll(target: StorageTarget): Promise<void> {
  * (`generateSasUrl` performs no network call), scoped to read-only (`BlobSASPermissions.parse('r')`)
  * on a short expiry — the same shape as `s3`'s presigned GET, `getSignedUrl`.
  *
- * Called by `models/assets.ts`'s `directUrlFor()`, per `StorageModule.getDirectUrl` — asset first,
+ * `s3`/`azure`/`gcs` are the only targets that declare `assetDelivery.isDirectAccessSupported: true`;
+ * `models/assets.ts`'s `directUrlFor()` calls this (as `StorageModule.getDirectUrl`) whenever a
+ * target both enables `assetDelivery.directAccess` and has a module implementing it — asset first,
  * target second, matching every other `StorageModule` handler's argument order.
  */
 async function getDirectUrl(

@@ -1702,7 +1702,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Create a new user',
         description:
-          'Creates a user authenticated against the local strategy. `sendWelcomeEmail` is accepted but not yet supported, as the server has no mail transport.',
+          'Creates a user authenticated against the local strategy. When `sendWelcomeEmail` is set, the new user is emailed a link to set their own password instead of being told it directly — this requires a configured mail transport (Admin > Mail Configuration), or the request is refused before the user is created. `sendWelcomeEmailFromSiteId` picks which site the link is built against; omitted, it falls back to the instance-wide default base URL.',
         tags: ['Users'],
         body: {
           type: 'object',
@@ -1783,11 +1783,12 @@ async function routes(app: FastifyInstance) {
       if (await WIKI.models.users.getByEmail(req.body.email.toLowerCase())) {
         throw new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')
       }
-      // -> There is no mail transport yet, so accepting this flag would silently drop the request
-      if (req.body.sendWelcomeEmail) {
+      // -> Refuse up front, before the user is created, rather than creating it and only then
+      //    discovering there is nowhere to send the email from.
+      if (req.body.sendWelcomeEmail && !WIKI.models.mail.isConfigured()) {
         throw new CustomError(
           'userCreateWelcomeEmailUnavailable',
-          'Sending a welcome email is not supported yet, as mail delivery is not implemented.'
+          'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
 
@@ -1807,6 +1808,27 @@ async function routes(app: FastifyInstance) {
           targetLabel: req.body.email,
           detail: { groups: req.body.groups ?? [] }
         })
+        if (req.body.sendWelcomeEmail) {
+          try {
+            const token = await WIKI.models.users.generateToken({
+              kind: 'resetPwd',
+              userId: id,
+              meta: { strategyId: WIKI.data.systemIds.localAuthId }
+            })
+            await WIKI.models.mail.sendWelcomeEmail({
+              to: req.body.email,
+              name: req.body.name,
+              token,
+              siteId: req.body.sendWelcomeEmailFromSiteId
+            })
+          } catch (err: any) {
+            // -> The user already exists; a failed welcome email must not turn this into a failed
+            //    creation, same as `resetPassword`'s own sendPasswordResetConfirmed catch.
+            WIKI.logger.warn(
+              `Failed to send the welcome email to ${req.body.email}: ${err.message}`
+            )
+          }
+        }
         return {
           ok: true,
           message: 'User created successfully.',

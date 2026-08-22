@@ -93,13 +93,6 @@ props:
     icon: person
     default: 'displayName'
     order: 22
-  mappingPicture:
-    type: String
-    title: Avatar Picture Field Mapping
-    hint: The attribute holding the user's avatar picture. Usually "jpegPhoto" or "thumbnailPhoto".
-    icon: image
-    default: 'jpegPhoto'
-    order: 23
   mapGroups:
     type: Boolean
     title: Map Groups

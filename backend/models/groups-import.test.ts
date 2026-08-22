@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, test } from 'node:test'
 import { groups } from './groups.ts'
+import { createEventsStub } from '../test/mocks.ts'
 
 /**
  * Coverage for `Groups.createGroupFromImport()` (Feature 414, Task 730): the import-capable group
@@ -12,6 +13,9 @@ import { groups } from './groups.ts'
  * `models/users-import.test.ts`. `reloadCache()` is a real method on the same singleton and is left
  * to run for real against the faked `WIKI.db.select` chain, rather than being stubbed out, since
  * asserting it actually ran (not just that the insert happened) is part of what this test covers.
+ * `events` is `test/mocks.ts`'s stub: `createGroupFromImport()`'s write path also calls
+ * `broadcastReload()`, which emits `reloadGroups` on `WIKI.events.outbound` after reloading — a real
+ * `WIKI.events` is never needed here since no test in this file asserts on the emitted event.
  */
 
 function installFakeWiki() {
@@ -20,6 +24,7 @@ function installFakeWiki() {
   let selectCalls = 0
   ;(globalThis as any).WIKI = {
     logger: { info: () => {}, warn: () => {} },
+    events: createEventsStub(),
     db: {
       insert() {
         return {

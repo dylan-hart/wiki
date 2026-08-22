@@ -86,7 +86,7 @@ offline: false
 # ---------------------------------------------------------------------
 # Data Path
 # ---------------------------------------------------------------------
-# Writeable data path used for cache and temporary user uploads.
+# Writeable data path used for cache, exports, and other on-disk working storage.
 dataPath: ./data
 
 # ---------------------------------------------------------------------

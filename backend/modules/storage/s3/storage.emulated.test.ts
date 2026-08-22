@@ -91,7 +91,13 @@ describe('s3 storage / against an emulated S3 backend (s3rver)', () => {
         directAccess: true
       },
       versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-      sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+      sync: {
+        supportedModes: ['push'],
+        schedule: false,
+        mode: 'push',
+        scheduleOverride: null,
+        supportsContentSync: true
+      },
       props: {},
       config: {
         mode: 'custom',

@@ -7,9 +7,6 @@
   "author": "Nicolas Giard",
   "type": "module",
   "main": "index.js",
-  "scarfSettings": {
-    "enabled": false
-  },
   "scripts": {
     "build": "rollup -c",
     "test": "vitest run",
@@ -25,7 +22,7 @@
     "katex": "0.18.4",
     "leaflet": "1.9.4",
     "lit": "3.3.3",
-    "mermaid": "11.16.1",
+    "mermaid": "11.17.0",
     "pako": "3.0.1",
     "pdfjs-dist": "6.2.108",
     "swagger-ui": "5.32.14",
@@ -38,10 +35,13 @@
     "glob": "13.0.6",
     "jsdom": "30.0.1",
     "npm-check-updates": "23.0.2",
-    "oxlint": "1.77.0",
-    "rollup": "4.62.4",
+    "oxlint": "1.79.0",
+    "rollup": "4.62.5",
     "rollup-plugin-summary": "3.0.1",
     "temporal-polyfill": "1.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
+  },
+  "scarfSettings": {
+    "enabled": false
   }
 }

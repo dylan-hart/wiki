@@ -151,6 +151,15 @@ export interface StorageDefinition {
    * offers to run something that has no implementation behind it.
    */
   hasImplementation: boolean
+  /**
+   * Whether the module implements any of `STORAGE_HANDLERS`' write-path content handlers — as
+   * opposed to being configuration- and manual-action-only, like `disk` (`dump`/`backup`/`importAll`)
+   * and `sftp` (`exportAll`). `dispatch()` uses this per-handler to decide whether a write-path event
+   * is even worth queuing a job for; the admin area uses the aggregate to tell an author that a
+   * `push`-capable target such as these does not actually sync on every page/asset change — only its
+   * listed actions write anything.
+   */
+  supportsContentSync: boolean
 }
 
 /** A configured target: the module definition, plus how this site has it set up. */
@@ -193,6 +202,8 @@ export interface StorageTarget {
     schedule: string | false
     mode: string
     scheduleOverride: string | null
+    /** See `StorageDefinition.supportsContentSync` — surfaced per-target for the admin area. */
+    supportsContentSync: boolean
   }
   setup?: {
     handler: string
@@ -306,11 +317,11 @@ export interface StorageModule {
  * what it needs configured. Every site gets a row per module (see `syncSite`), so a target always
  * has a stable ID whether or not it has ever been enabled.
  *
- * `dispatch()` queues a sync job on every write-path change, but no module ships an implementation yet
- * — pages and assets are still read and written straight from the database, and `ensureModule()`
- * returns null for every one of them, so every queued job resolves to a no-op logged by the
- * `dispatchStorage` task. What this model handles beyond that is the configuration those modules will
- * read once they exist.
+ * `dispatch()` queues a sync job on every write-path change for a target whose module implements the
+ * write path (see `supportsContentSync` — `disk` and `sftp` only implement their own explicit actions,
+ * not the write-path handlers `dispatch()` queues for). `ensureModule()` loads each module's
+ * `storage.ts` on first use and caches it; pages and assets are still read and written straight from
+ * the database first, with a target's own sync/mirror happening asynchronously through the queued job.
  */
 class Storage {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -368,6 +379,15 @@ class Storage {
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
       )
+      // -> Loaded now (rather than deferred to `dispatch()`'s first call) so the flag is ready for
+      //    the admin area the moment the definitions are: `ensureModule()` reads `this.definitions`
+      //    itself, which is why this pass comes after the assignment above rather than inside the
+      //    loop that built it.
+      for (const definition of this.definitions) {
+        definition.supportsContentSync = definition.hasImplementation
+          ? await this.moduleSupportsContentSync(definition.key)
+          : false
+      }
       WIKI.logger.info(`Found ${this.definitions.length} storage modules [ OK ]`)
     } catch (err: any) {
       this.definitions = []
@@ -388,6 +408,22 @@ class Storage {
     } catch {
       return false
     }
+  }
+
+  /**
+   * Whether a module (already known to have a `storage.ts`) implements at least one of
+   * `STORAGE_HANDLERS`' write-path content handlers — see `StorageDefinition.supportsContentSync`.
+   *
+   * A module that fails to load answers `false` here the same way `ensureModule()` itself does for
+   * every other caller: a broken module has no working handlers, which is exactly this question's
+   * answer too.
+   */
+  async moduleSupportsContentSync(key: string): Promise<boolean> {
+    const mod = await this.ensureModule(key)
+    if (!mod) {
+      return false
+    }
+    return Object.values(STORAGE_HANDLERS).some((handler) => typeof mod[handler] === 'function')
   }
 
   /**
@@ -524,7 +560,8 @@ class Storage {
           supportedModes: definition.supportedModes,
           schedule: definition.schedule,
           mode: row.syncMode,
-          scheduleOverride: row.scheduleOverride
+          scheduleOverride: row.scheduleOverride,
+          supportsContentSync: definition.supportsContentSync
         },
         // -> Only offered for a module that can actually run its setup process
         ...(definition.setup &&
@@ -832,6 +869,12 @@ class Storage {
       let queued = 0
       for (const target of targets) {
         if (!target.isEnabled || target.sync.mode === 'pull') {
+          continue
+        }
+        // -> A module with no write-path handlers at all (disk, sftp — config/manual-action only)
+        //    can never do anything with a queued job; skip it here rather than let every job land in
+        //    `dispatchStorage`'s "no handler installed, skipping" no-op branch
+        if (!this.getDefinition(target.module)?.supportsContentSync) {
           continue
         }
         if (!this.targetCoversEvent(target, event, data)) {

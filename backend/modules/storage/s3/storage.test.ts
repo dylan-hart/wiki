@@ -71,7 +71,13 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       directAccess: true
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: true
+    },
     props: {},
     config: {
       mode: 'aws',

@@ -6,12 +6,17 @@ import Emittery from 'emittery'
 import dbManager from './db.ts'
 import configSvc from './config.ts'
 import maintenance from './maintenance.ts'
+import { groups } from '../models/groups.ts'
+import { sites } from '../models/sites.ts'
+import { approvals } from '../models/approvals.ts'
 
 /**
  * Task 708 (feature 411): confirms what `core/db.ts`'s `subscribeToNotifications()` /
  * `notifyViaDB()` actually guarantee for a cross-instance event relayed over the `wiki` NOTIFY
- * channel, and whether either current subscriber (`core/config.ts`'s `reloadConfig`,
- * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`) depends on more than that.
+ * channel, and whether any current subscriber (`core/config.ts`'s `reloadConfig`,
+ * `core/maintenance.ts`'s `disconnectWebsockets`/`flushCaches`, and — added by OpenProject #966 —
+ * `models/groups.ts`/`sites.ts`/`approvals.ts`'s `reloadGroups`/`reloadSites`/`reloadApprovals`)
+ * depends on more than that.
  *
  * Postgres NOTIFY has no persistence and no delivery guarantee: a message published while nobody
  * is LISTENing on that channel is dropped by the server, not queued for later delivery. `notifier`
@@ -29,12 +34,12 @@ import maintenance from './maintenance.ts'
  * available in this environment; see `dev/multi-instance-verify/README.md` §8 for what that would
  * look like and why it is not needed to settle this question).
  *
- * **Finding**, expanded on in `dev/multi-instance-verify/README.md`: neither subscriber is
- * exposed to a *permanently* missed event, because `index.ts`'s `preBoot()` calls
- * `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
- * `.reloadCache()` unconditionally on every boot — not gated on any notification ever having
- * arrived. An instance that missed a `reloadConfig` or `flushCaches` notify while it was down (or
- * mid-restart) is fully resynced the moment it comes back, regardless of what it missed. The
+ * **Finding**, expanded on in `dev/multi-instance-verify/README.md`: no subscriber is exposed to a
+ * *permanently* missed event, because `index.ts`'s `preBoot()` calls `configSvc.loadFromDb()` and
+ * `postBoot()` calls `groups`/`sites`/`locales`/`approvals` `.reloadCache()` unconditionally on
+ * every boot — not gated on any notification ever having arrived. An instance that missed a
+ * `reloadConfig`/`flushCaches`/`reloadGroups`/`reloadSites`/`reloadApprovals` notify while it was
+ * down (or mid-restart) is fully resynced the moment it comes back, regardless of what it missed. The
  * narrower residual gap is an instance that stays up throughout but loses one specific
  * notification during its own listener's brief reconnect window: nothing re-checks the DB for it
  * independently until the next matching event (another settings save, another manual "flush
@@ -75,6 +80,9 @@ let previousWiki: any
 let loadFromDbMock: any
 let flushCachesMock: any
 let disconnectWebsocketsMock: any
+let groupsReloadCacheMock: any
+let sitesReloadCacheMock: any
+let approvalsReloadCacheMock: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
@@ -84,16 +92,27 @@ beforeEach(() => {
   loadFromDbMock = mock.fn(async () => true)
   flushCachesMock = mock.fn(async () => {})
   disconnectWebsocketsMock = mock.fn(() => 0)
+  // -> OpenProject #966: `subscribeToNotifications()` also wires `groups`/`sites`/`approvals`
+  //    `.subscribeToEvents()` now (see `core/db.ts`), which is real model code reachable off
+  //    `WIKI.models` — stubbed here the same way `configSvc.loadFromDb`/`maintenance.flushCaches`
+  //    already are, so this suite's minimal `WIKI` needs a `models` object at all.
+  groupsReloadCacheMock = mock.fn(async () => {})
+  sitesReloadCacheMock = mock.fn(async () => {})
+  approvalsReloadCacheMock = mock.fn(async () => {})
   configSvc.loadFromDb = loadFromDbMock
   maintenance.flushCaches = flushCachesMock
   maintenance.disconnectWebsockets = disconnectWebsocketsMock
+  groups.reloadCache = groupsReloadCacheMock
+  sites.reloadCache = sitesReloadCacheMock
+  approvals.reloadCache = approvalsReloadCacheMock
 
   ;(globalThis as any).WIKI = {
     INSTANCE_ID: 'instance-a',
     logger: { warn: () => {}, info: () => {}, debug: () => {}, error: () => {} },
     events: { inbound: new Emittery(), outbound: new Emittery() },
     configSvc,
-    dbManager
+    dbManager,
+    models: { groups, sites, approvals }
   }
 
   dbManager.pool = null
@@ -185,7 +204,7 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.deepEqual(received, [{ event: 'reloadConfig', value: null }])
   })
 
-  test('wires both current subscribers, each purely reactive to the notify with no independent re-check', async () => {
+  test('wires all five current subscribers, each purely reactive to the notify with no independent re-check', async () => {
     const pool = new FakePool()
     const client = new FakeClient()
     pool.queueClient(client)
@@ -205,6 +224,19 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
       channel: 'wiki',
       payload: JSON.stringify({ source: 'instance-b', event: 'disconnectWebsockets', value: null })
     })
+    // -> OpenProject #966: group/site/approval cache reloads propagate the same way now
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadGroups', value: null })
+    })
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadSites', value: null })
+    })
+    client.emit('notification', {
+      channel: 'wiki',
+      payload: JSON.stringify({ source: 'instance-b', event: 'reloadApprovals', value: null })
+    })
 
     // -> Emittery's inbound handlers run as microtasks; give them a tick.
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -212,5 +244,8 @@ describe('subscribeToNotifications() / notifyViaDB() — at-most-once delivery',
     assert.equal(loadFromDbMock.mock.calls.length, 1)
     assert.equal(flushCachesMock.mock.calls.length, 1)
     assert.equal(disconnectWebsocketsMock.mock.calls.length, 1)
+    assert.equal(groupsReloadCacheMock.mock.calls.length, 1)
+    assert.equal(sitesReloadCacheMock.mock.calls.length, 1)
+    assert.equal(approvalsReloadCacheMock.mock.calls.length, 1)
   })
 })

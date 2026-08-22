@@ -301,7 +301,9 @@ async function exportAll(target: StorageTarget): Promise<void> {
 /**
  * A short-lived, presigned GET URL for one asset — the primitive `assetDelivery.directAccess` needs
  * to redirect a browser straight to the bucket instead of streaming the file through the wiki server.
- * Called by `models/assets.ts`'s `directUrlFor()`, per `StorageModule.getDirectUrl` — asset first,
+ * `s3`/`azure`/`gcs` are the only targets that declare `assetDelivery.isDirectAccessSupported: true`;
+ * `models/assets.ts`'s `directUrlFor()` calls this (as `StorageModule.getDirectUrl`) whenever a
+ * target both enables `assetDelivery.directAccess` and has a module implementing it — asset first,
  * target second, matching every other `StorageModule` handler's argument order.
  */
 async function getDirectUrl(

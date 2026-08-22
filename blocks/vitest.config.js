@@ -16,7 +16,12 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     environment: 'jsdom',
-    include: ['*/component.test.js'],
+    // `**/*.test.js` rather than the old `*/component.test.js`: that glob could only ever discover a
+    // `block-*/component.test.js`, so a test file for `shared/` (`theme.js`, `url-limit.js`,
+    // `config.js`, `icons.js` currently have no coverage path at all) would be committed and
+    // silently never run. Every existing suite is still exactly `block-*/component.test.js`, so this
+    // is strictly additive.
+    include: ['**/*.test.js'],
     /*
       `test/setup.js` -- jsdom implements `CSSStyleSheet` but not `Document.prototype.
       adoptedStyleSheets` itself (confirmed against the pinned jsdom 30: `'adoptedStyleSheets' in

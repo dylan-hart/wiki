@@ -275,6 +275,38 @@ class MailModel {
   }
 
   /**
+   * Welcome email sent when an administrator creates a local-strategy user with `sendWelcomeEmail`
+   * set (`POST /_api/users`). Links at the same `/login/reset-password/:token` screen
+   * {@link sendForgotPassword} uses, built from a fresh `resetPwd` token rather than emailing the
+   * password the admin chose in plaintext — the new user sets their own password on first login.
+   * The "24 hours" copy is kept in sync with `models/users.ts#generateToken`'s token TTL, the same
+   * caveat {@link sendForgotPassword} documents.
+   *
+   * @param siteId The site to link at (`sendWelcomeEmailFromSiteId` on the create-user request) —
+   *   see {@link resolveMailBaseURL}. Falls back to `WIKI.config.mail.defaultBaseURL` when omitted
+   *   or unresolvable, same as every other siteId-scoped send.
+   */
+  async sendWelcomeEmail({
+    to,
+    name,
+    token,
+    siteId
+  }: {
+    to: string
+    name: string
+    token: string
+    siteId?: string
+  }): Promise<void> {
+    const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
+    await this.send({
+      to,
+      subject: 'Welcome — set up your account',
+      text: `Hi ${name},\n\nAn account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.\n${link}\n\nIf you were not expecting this, contact your wiki administrator.`,
+      html: `<p>Hi ${name},</p><p>An account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you were not expecting this, contact your wiki administrator.</p>`
+    })
+  }
+
+  /**
    * Notice sent after a password reset completes, so the account owner has a record of it even if
    * they weren't the one who did it.
    */
