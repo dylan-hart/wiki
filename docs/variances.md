@@ -1194,14 +1194,18 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
   (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
-  What was genuinely unguarded is a different race the same upstream report describes: `dispatchStorage`
-  jobs run in a 3-worker thread pool by default (`scheduler.workers`, `base.yml`) with no shared JS
-  memory, so two jobs for the *same* storage target — a write-path push and a scheduled `sync`'s
-  pull/push, say — could run their `git` commands against the one on-disk working copy concurrently,
-  with no in-process mutex able to serialize across threads. Fixed with a Postgres advisory lock keyed
-  by `targetId`, wrapping the handler call in `tasks/workers/dispatch-storage.ts` (new
+  What was genuinely unguarded is a different race the same upstream report describes: the scheduler
+  claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
+  runs more than one instance, so two `dispatchStorage` jobs for the *same* storage target — a
+  write-path push and a scheduled `sync`'s pull/push, say — could run their `git` commands against the
+  one on-disk working copy concurrently, with no in-process mutex able to serialize across either
+  interleaved `await`s or separate instances. Fixed with a Postgres advisory lock keyed by `targetId`,
+  wrapping the handler call in `tasks/simple/dispatch-storage.ts` (new
   `backend/helpers/advisoryLock.ts`) — the single choke point every storage-module dispatch already
-  passes through, so this is not git-specific plumbing.
+  passes through, so this is not git-specific plumbing. (`dispatch-storage.ts` moved from
+  `tasks/workers/` to `tasks/simple/` under OpenProject #917, fixing a separate bug — the worker-thread
+  `WIKI` global the modules' handlers reach into for `WIKI.models.pages`/`.assets`/... etc. never
+  carried them — but it does not change this race, which was never about threads specifically.)
 
 **Confirmed not applicable, each verified rather than assumed:**
 

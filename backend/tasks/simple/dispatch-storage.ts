@@ -31,13 +31,22 @@ export interface DispatchStoragePayload {
  * Deliver one write-path event to one storage target.
  *
  * Queued by `models/storage.ts` → `dispatch()`, one job per enabled target whose content types cover
- * the event — see its doc for why that filtering happens before this ever runs. Runs in a worker
- * thread rather than in-process for the same reason `dispatchWebhook` does: a target write is I/O this
- * codebase does not control the latency of (a git push, an S3 `PUT`), and a busy wiki must not have
- * page saves waiting on it.
+ * the event — see its doc for why that filtering happens before this ever runs.
  *
- * The models this needs are imported directly rather than taken off `WIKI.models`, which a worker
- * thread does not carry (see `worker.ts`) — the same convention `dispatch-webhook.ts` follows.
+ * Runs **in-process** (`tasks/simple/`), not in a worker thread — unlike `dispatchWebhook`, this task
+ * cannot get away with only the two models it imports directly. The `StorageModule` handlers it calls
+ * (`modules/storage/git/*`, `disk/storage.ts`, `sftp/pages.ts`, ...) reach for a good chunk of the app
+ * on their own: `WIKI.models.pages`, `.assets`, `.users`, `.tree`, `.extensions`, the `WIKI.sites`
+ * site-config cache, and `WIKI.data.systemIds`. A worker thread's `WIKI` (`worker.ts`) carries none of
+ * that — only `settings`, loaded lazily for the handful of workers that need it — so every one of those
+ * reads was a `TypeError` waiting to happen (or, for the `WIKI.sites?.[id]` guarded reads, a silent
+ * locale mis-resolution to `'en'`), invisible to `tsc` because the worker's `WIKI` is typed as the same
+ * full `WikiGlobal` the main process populates. Replicating that much of boot inside a worker just to
+ * keep this one task off the main thread would be a second, parallel bootstrap to keep in sync forever;
+ * running it where every model it transitively needs already exists is what actually fixes it. The I/O
+ * itself (a git push, an S3 `PUT`) is still async and non-blocking either way — an in-process task never
+ * held up a request thread, since it is picked up by the scheduler's own polling loop, not run inline
+ * with whatever queued it.
  *
  * Never throws for a target that cannot be reached at all — a deleted target or a module with no
  * implementation is not something retrying will fix, so it is logged and skipped, matching
@@ -49,12 +58,15 @@ export interface DispatchStoragePayload {
  * A whole-target action such as `sync` has no single content item to record state against, so that
  * step is skipped for it — see `DispatchStoragePayload`.
  *
- * The actual handler call is wrapped in `withAdvisoryLock`, keyed by `targetId`: this task runs in a
- * worker-thread pool (`scheduler.workers`, 3 by default), so two dispatches for the *same* target can
- * otherwise execute concurrently on separate threads with no shared JS memory to serialize them — a
- * write-path push racing a scheduled pull for a file-backed module such as `git` is a real race on the
- * one on-disk working copy both are about to run `git` commands against. See that helper's doc for why
- * this is a Postgres advisory lock rather than an in-process one.
+ * The actual handler call is wrapped in `withAdvisoryLock`, keyed by `targetId`: the scheduler claims
+ * and runs several jobs concurrently (`processJob`'s `Promise.allSettled`, per `core/scheduler.ts`),
+ * and a wiki normally runs more than one instance, so two dispatches for the *same* target can still
+ * genuinely interleave — a write-path push racing a scheduled pull for a file-backed module such as
+ * `git` is a real race on the one on-disk working copy both are about to run `git` commands against,
+ * whether that interleaving happens across two `await`s in one process or across two processes
+ * entirely. Locking here, once, at the single choke point every dispatch already passes through closes
+ * that race for every storage module. See that helper's doc for why this is a Postgres advisory lock
+ * rather than an in-process one — cross-instance is exactly the case an in-process mutex can't cover.
  *
  * @param deps Real models (and lock) by default; overridable so tests can exercise the branching here
  *             without a database or a loaded module. Each has its own default rather than one default
@@ -62,20 +74,20 @@ export interface DispatchStoragePayload {
  *             real `withAdvisoryLock` and vice versa.
  */
 export async function task(
-  job: { payload: DispatchStoragePayload },
+  payload: DispatchStoragePayload,
+  _jobId?: string,
   deps: {
     storage?: typeof storage
     contentSync?: typeof contentSync
     withLock?: typeof withAdvisoryLock
   } = {}
 ): Promise<void> {
-  await WIKI.ensureDb!()
   const {
     storage: storageDep = storage,
     contentSync: contentSyncDep = contentSync,
     withLock = withAdvisoryLock
   } = deps
-  const { targetId, siteId, contentType, contentId, handler, data } = job.payload
+  const { targetId, siteId, contentType, contentId, handler, data } = payload
 
   const target = await storageDep.getSiteTargetById(siteId, targetId)
   if (!target) {

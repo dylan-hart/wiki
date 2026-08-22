@@ -3,8 +3,8 @@
  *
  * Each export here is a `StorageModule` content-dispatch handler (`created`, `updated`, `renamed`,
  * `deleted`, `assetUploaded`, `assetRenamed`, `assetDeleted` — see `models/storage.ts`), called as
- * `handler(target, data)` by the `dispatchStorage` worker task once Feature 370's dispatch hook is on
- * this branch. `data` is the small, JSON-serializable payload `Storage.dispatch()` queues per
+ * `handler(target, data)` by the `dispatchStorage` task. `data` is the small, JSON-serializable
+ * payload `Storage.dispatch()` queues per
  * write-path event — an id, a path, a locale, the acting user's id, and for a rename/delete-adjacent
  * event whatever the old name was — never the page's rendered content or the asset's bytes. A handler
  * that needs those fetches them itself via `WIKI.models.pages` / `WIKI.models.assets`, which is why

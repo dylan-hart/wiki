@@ -219,7 +219,7 @@ export interface ImportAllResult {
 }
 
 /** Who `importAll()` writes pages and assets as, since it runs with no session behind it (see
- *  `Storage.executeAction()` / the `dispatchStorage` worker, neither of which carry an actor). The
+ *  `Storage.executeAction()` / the `dispatchStorage` task, neither of which carry an actor). The
  *  wiki's own root admin, seeded at first run and guaranteed to exist — see `SystemIds.userAdminId`
  *  in `models/types.ts`. `manage:system` is what lets it write pages that carry scripts or styles
  *  without a real reviewer in the loop, the same bypass every other `manage:system` check gets. */
