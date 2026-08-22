@@ -395,7 +395,7 @@ test("dispatch does not classify a small asset as large, even when only 'large' 
 //    (helpers/blobTarget.ts's belongsInTarget/categoryOf) on both decimal thresholds and the boundary.
 test('dispatch classifies an asset at exactly the largeThreshold as large (an at-or-above boundary, not strictly over)', async () => {
   fakeDispatchDeps([
-    makeRow('disk', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
+    makeRow('s3', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
   ])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
@@ -408,7 +408,7 @@ test('dispatch classifies an asset at exactly the largeThreshold as large (an at
 
 test('dispatch classifies an asset over a decimal largeThreshold (e.g. "2.5MB") as large', async () => {
   fakeDispatchDeps([
-    makeRow('disk', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
+    makeRow('s3', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
   ])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
@@ -421,7 +421,7 @@ test('dispatch classifies an asset over a decimal largeThreshold (e.g. "2.5MB") 
 
 test('dispatch does not classify an asset under a decimal largeThreshold as large', async () => {
   const jobs = fakeDispatchDeps([
-    makeRow('disk', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
+    makeRow('s3', { activeTypes: ['large'], largeThreshold: '2.5MB', syncMode: 'push' })
   ])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
