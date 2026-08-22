@@ -151,7 +151,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/analytics`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bar-chart.svg" />
               </w-item-section>
@@ -159,7 +160,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/comments`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-comments.svg" />
               </w-item-section>
