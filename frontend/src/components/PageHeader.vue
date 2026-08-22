@@ -594,11 +594,16 @@ async function discardChanges() {
     })
 
     // Is it the home page in create mode?
-    if ((pageStore.path === '' || pageStore.path === 'home') && pageStore.locale === siteStore.locales.primary) {
+    if (
+      (pageStore.path === '' || pageStore.path === 'home') &&
+      pageStore.locale === siteStore.locales.primary
+    ) {
       siteStore.overlay = 'Welcome'
     }
 
-    router.replace(shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/')
+    router.replace(
+      shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/'
+    )
     return
   }
 
@@ -662,11 +667,29 @@ async function saveChangesCommit(closeAfter = false) {
   await processPendingAssets()
   loading.show()
   try {
-    await pageStore.pageSave()
+    const result = await pageStore.pageSave()
     notify({
       type: 'positive',
       message: 'Page saved successfully.'
     })
+    /*
+      OpenProject #1080: raising this page's own classification does not cascade to its
+      descendants -- some may now sit below the new floor. Rather than leaving that silent, the
+      resolution dialog lists them for an admin to bump explicitly. Shown after the success
+      notification rather than instead of it: the save itself succeeded regardless of what this
+      surfaces.
+    */
+    if (result?.classificationConflicts?.length > 0) {
+      dialog({
+        component: defineAsyncComponent(
+          () => import('../components/ClassificationResolutionDialog.vue')
+        ),
+        componentProps: {
+          conflicts: result.classificationConflicts,
+          floorClassification: pageStore.classification
+        }
+      })
+    }
     if (closeAfter) {
       /*
         The editor closes onto the page, and for a redirection that page would take the author

@@ -180,6 +180,9 @@ systemIds:
   localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
   guestsGroupId: '10000000-0000-4000-8000-000000000001'
   usersGroupId: '20000000-0000-4000-8000-000000000002'
+  classificationPublicId: '30000000-0000-4000-8000-000000000001'
+  classificationInternalId: '30000000-0000-4000-8000-000000000002'
+  classificationRestrictedId: '30000000-0000-4000-8000-000000000003'
 groups:
   defaultPermissions:
     - 'read:pages'

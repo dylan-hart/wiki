@@ -314,6 +314,7 @@ class DbSearchModule implements SearchModule {
         p.description,
         p.icon,
         p.tags,
+        p.classification,
         to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
         ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
         ${highlight} AS highlight,
@@ -335,7 +336,8 @@ class DbSearchModule implements SearchModule {
             path: row.path as string,
             locale: row.locale as string,
             siteId,
-            tags: (row.tags ?? []) as string[]
+            tags: (row.tags ?? []) as string[],
+            classification: (row.classification as string | null) ?? null
           })
         )
       : ((rows.rows ?? rows) as any[])
@@ -419,7 +421,7 @@ class DbSearchModule implements SearchModule {
     conditions.push(sql`similarity(p.title, ${terms}) > ${SUGGEST_TITLE_THRESHOLD}`)
 
     const rows = await WIKI.db.execute(sql`
-      SELECT p.path, p.locale, p.title, p.tags, similarity(p.title, ${terms}) AS score
+      SELECT p.path, p.locale, p.title, p.tags, p.classification, similarity(p.title, ${terms}) AS score
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY score DESC
@@ -434,7 +436,8 @@ class DbSearchModule implements SearchModule {
             path: row.path as string,
             locale: row.locale as string,
             siteId,
-            tags: (row.tags ?? []) as string[]
+            tags: (row.tags ?? []) as string[],
+            classification: (row.classification as string | null) ?? null
           })
         )
       : ((rows.rows ?? rows) as any[])

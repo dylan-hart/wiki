@@ -368,6 +368,25 @@ export const blockCredentials = pgTable(
   (table) => [index('blockCredentials_siteId_idx').on(table.siteId)]
 )
 
+// CLASSIFICATION LEVELS -----------------
+/**
+ * The admin-configurable sensitivity levels a page may carry (OpenProject #1079), same pattern as
+ * `groups`: seeded with three defaults (`public` / `internal` / `restricted`, at the fixed
+ * `systemIds` below) that an administrator may rename, reorder, add to, or remove -- no pluggable
+ * external classification provider, plain Wiki.js data.
+ *
+ * Instance-wide, not per-site, mirroring `groups` itself.
+ */
+export const classificationLevels = pgTable('classificationLevels', {
+  id: uuid().primaryKey().defaultRandom(),
+  name: varchar({ length: 255 }).notNull(),
+  // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
+  //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
+  sortOrder: integer().notNull().default(0),
+  createdAt: timestamp().notNull().defaultNow(),
+  updatedAt: timestamp().notNull().defaultNow()
+})
+
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),
@@ -716,13 +735,27 @@ export const pages = pgTable(
       .references(() => users.id),
     siteId: uuid()
       .notNull()
-      .references(() => sites.id)
+      .references(() => sites.id),
+    // -> Every page always has a classification -- there is no unclassified state (OpenProject
+    //    #1079). `models/pages.ts#createPage` always resolves and supplies one explicitly (the
+    //    floor-invariant value against the parent, or the most-open level) on every real insert, so
+    //    this default is never read by application code -- it exists purely so that ADDING this
+    //    column to a table that may already hold pages (this branch's own dev database included, not
+    //    just a hypothetical prior release) backfills them to the fixed `classificationPublicId`
+    //    system row (`base.yml`) instead of the migration itself failing outright on existing rows.
+    //    No `onDelete` clause, so the FK's default RESTRICT is what stops an administrator deleting a
+    //    level still in use -- see `models/classificationLevels.ts#delete`.
+    classification: uuid()
+      .notNull()
+      .default('30000000-0000-4000-8000-000000000001')
+      .references(() => classificationLevels.id)
   },
   (table) => [
     index('pages_authorId_idx').on(table.authorId),
     index('pages_creatorId_idx').on(table.creatorId),
     index('pages_ownerId_idx').on(table.ownerId),
     index('pages_siteId_idx').on(table.siteId),
+    index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
     index('pages_isSearchableComputed_idx').on(table.isSearchableComputed),

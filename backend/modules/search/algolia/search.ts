@@ -387,7 +387,12 @@ export class AlgoliaSearchModule implements SearchModule {
             path: hit.path,
             locale: hit.locale,
             siteId,
-            tags: hit.tags ?? []
+            tags: hit.tags ?? [],
+            // -> Algolia's index carries no classification field (OpenProject #1079 is newer than
+            //    this provider's indexing pipeline) -- a CLASSIFICATION rule never matches an
+            //    Algolia hit, the same fail-closed treatment as any other unknown classification.
+            //    Flagged for OpenProject #1082's cross-surface enforcement audit.
+            classification: null
           })
         )
       : hits

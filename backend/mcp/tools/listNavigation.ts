@@ -62,7 +62,10 @@ export async function handleListNavigation(
       WIKI.models.groups.checkAccess(actor, 'read:pages', {
         path: item.path,
         siteId: site.id,
-        locale
+        locale,
+        // -> `tree.browse()` reads the `tree` table, which carries no classification -- flagged
+        //    for OpenProject #1082's cross-surface enforcement audit.
+        classification: null
       })
     )
   })

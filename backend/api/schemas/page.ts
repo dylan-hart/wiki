@@ -158,6 +158,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           type: 'string'
         }
       },
+      classification: {
+        type: 'string',
+        format: 'uuid',
+        description:
+          "The classification level id (OpenProject #1079) to give the page. On create, defaults to the immediate parent page's own level, or the most-open configured level when there is no parent page. On update, lowering it (declassifying) requires `manage:classification` on top of `write:pages`/`manage:pages`; either direction is refused with 400 if it would put the page below its immediate parent's floor (#1080)."
+      },
       allowComments: { type: 'boolean' },
       allowContributions: { type: 'boolean' },
       allowRatings: { type: 'boolean' },
@@ -238,6 +244,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         items: { $ref: 'PageRelation#' }
       },
       tags: { type: 'array', items: { type: 'string' } },
+      classification: {
+        type: 'string',
+        format: 'uuid',
+        description: 'The classification level id this page carries (OpenProject #1079).'
+      },
       toc: {
         type: 'array',
         description:

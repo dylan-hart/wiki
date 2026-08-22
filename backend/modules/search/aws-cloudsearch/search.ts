@@ -1036,7 +1036,10 @@ export class AwsCloudSearchModule implements SearchModule {
             path: fieldValue(row, 'path'),
             locale: fieldValue(row, 'locale'),
             siteId,
-            tags: fieldValues(row, 'tags')
+            tags: fieldValues(row, 'tags'),
+            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
+            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
+            classification: null
           })
         )
       : rows

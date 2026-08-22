@@ -85,7 +85,10 @@ export async function handleCreatePage(
     !WIKI.models.groups.checkAccess(actorFor(ctx), 'write:pages', {
       path: args.path,
       locale,
-      siteId: site.id
+      siteId: site.id,
+      // -> The page does not exist yet -- there is no classification to check against, same as any
+      //    other create-permission check (see `RulePageRef`'s own doc comment).
+      classification: null
     })
   ) {
     throw new McpToolError('You are not allowed to create a page here.')

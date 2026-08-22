@@ -118,7 +118,7 @@ const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): boolean {
   return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
 }
@@ -132,7 +132,13 @@ export function mayBypassPassword(
 export function unlockedFor(
   req: FastifyRequest,
   siteId: string,
-  page: { id: string; path: string; locale: string | null; tags?: string[] }
+  page: {
+    id: string
+    path: string
+    locale: string | null
+    tags?: string[]
+    classification?: string | null
+  }
 ): boolean {
   return (
     mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
@@ -154,10 +160,17 @@ export function mayOnPage(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: {
+    path: string
+    locale: string | null
+    tags?: string[]
+    /** Absent for a page that does not exist yet (a create-permission check) -- see `RulePageRef`. */
+    classification?: string | null
+  }
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
+    classification: page.classification ?? null,
     siteId
   })
 }
@@ -179,7 +192,7 @@ export function mayOnPage(
 export function pagePermissionsFor(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   /*
@@ -191,7 +204,11 @@ export function pagePermissionsFor(
     return PAGE_PERMISSIONS
   }
   return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, { ...page, siteId })
+    WIKI.models.groups.checkAccess(actor, permission, {
+      ...page,
+      classification: page.classification ?? null,
+      siteId
+    })
   )
 }
 
@@ -619,7 +636,8 @@ async function routes(app: FastifyInstance) {
           path: page.path,
           locale: page.locale,
           tags: page.tags ?? [],
-          allowContributions: page.allowContributions
+          allowContributions: page.allowContributions,
+          classification: page.classification
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         WIKI.models.pageWatching.isWatching(page.id, actorId),
@@ -1037,7 +1055,21 @@ async function routes(app: FastifyInstance) {
             properties: {
               ok: { type: 'boolean' },
               message: { type: 'string' },
-              page: { $ref: 'Page#' }
+              page: { $ref: 'Page#' },
+              classificationConflicts: {
+                type: 'array',
+                description:
+                  "Present only when this save raised the page's own classification and left one or more descendants below the new floor (OpenProject #1080) -- not cascaded automatically. Resolve via POST …/classification-conflicts/resolve.",
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    title: { type: 'string' },
+                    classification: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -1081,6 +1113,26 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
+      }
+      /*
+        Declassification guardrail (OpenProject #1080): lowering a page's classification (making it
+        MORE open) is not covered by `write:pages`/`manage:pages` alone -- it needs `manage:classification`
+        ON THIS PAGE too, so an editor who can write the page cannot silently declassify it by editing
+        metadata. Raising it needs nothing beyond the ordinary write permission already checked above;
+        the floor-invariant/level-exists validation itself happens in `updatePage()`.
+      */
+      if (
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(
+          req.body.classification,
+          target.classification
+        ) &&
+        !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Lowering this page’s classification requires the manage:classification permission on it.'
+        )
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -1139,11 +1191,98 @@ async function routes(app: FastifyInstance) {
         authorId: actor.id,
         authorName: page.authorName ?? ''
       })
+      /*
+        Retroactive parent classification raise (OpenProject #1080): raising THIS page's own
+        classification does not cascade to its descendants -- some may now sit below the new floor.
+        Rather than silently leaving them there, or silently bumping them, this surfaces the list for
+        an admin to resolve explicitly (`ClassificationResolutionDialog.vue`), via
+        `POST …/classification-conflicts/resolve`. Only computed when the classification actually got
+        stricter -- a lower/unchanged classification can only ever WIDEN what the old floor already
+        permitted, so there is nothing new to surface.
+      */
+      const classificationConflicts =
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(target.classification, req.body.classification)
+          ? await WIKI.models.pages.descendantsBelowFloor(
+              req.params.siteId,
+              page.locale,
+              page.path,
+              page.classification
+            )
+          : []
       return {
         ok: true,
         message: 'Page updated successfully.',
-        page
+        page,
+        ...(classificationConflicts.length > 0 ? { classificationConflicts } : {})
       }
+    }
+  )
+
+  /**
+   * RESOLVE CLASSIFICATION CONFLICTS
+   *
+   * The other half of the retroactive-parent-raise flow above: bumps the named descendants to a
+   * classification an admin chose (typically the new parent floor `classificationConflicts` reported,
+   * but not required to be — see the dialog's own doc comment for why leaving that open is deliberate).
+   * No floor check here: bringing a page UP is never itself a floor violation, and each target is still
+   * required to be a real, currently-configured level.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { pageIds: string[]; classification: string }
+  }>(
+    '/sites/:siteId/pages/classification-conflicts/resolve',
+    {
+      // -> No route-level permissions: page-rule permissions, checked per page below.
+      schema: {
+        summary: 'Bump a set of pages to a classification level',
+        description:
+          "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each — this only ever raises a page's classification, so the declassification guardrail (manage:classification) does not apply here.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        body: {
+          type: 'object',
+          required: ['pageIds', 'classification'],
+          properties: {
+            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            classification: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { ok: { type: 'boolean' }, updated: { type: 'integer' } }
+          },
+          400: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Resolving a classification conflict requires a logged in user.')
+      }
+      if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
+        return reply.badRequest('This classification level does not exist.')
+      }
+      for (const pageId of req.body.pageIds) {
+        const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
+        if (!target) {
+          return reply.notFound('One of these pages does not exist.')
+        }
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+          return reply.forbidden('You are not allowed to edit one of these pages.')
+        }
+      }
+      const updated = await WIKI.models.pages.bulkSetClassification(
+        req.params.siteId,
+        req.body.pageIds,
+        req.body.classification
+      )
+      return { ok: true, updated }
     }
   )
 

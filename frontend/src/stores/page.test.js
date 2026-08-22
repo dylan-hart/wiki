@@ -225,7 +225,9 @@ describe('page store: pageSave() concurrency', () => {
         })
     })
 
-    await expect(pageStore.pageSave()).resolves.toBeUndefined()
+    // -> `pageSave()` now resolves `{ classificationConflicts }` on an update (OpenProject #1080) --
+    //    empty here, since this response carries none.
+    await expect(pageStore.pageSave()).resolves.toEqual({ classificationConflicts: [] })
 
     const [, retryOpts] = API_CLIENT.patch.mock.calls[1]
     expect(retryOpts.json.expectedUpdatedAt).toBe(conflictSnapshot.updatedAt)

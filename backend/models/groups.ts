@@ -10,8 +10,20 @@ import type { FastifyRequest } from 'fastify'
 /** The permission that bypasses every check, and the one the guards below exist to protect. */
 export const SYSTEM_PERMISSION = 'manage:system'
 
-/** How a rule's `path` is compared against the page path. */
-export type GroupRuleMatch = 'START' | 'END' | 'REGEX' | 'TAG' | 'TAGALL' | 'EXACT'
+/**
+ * How a rule's `path` is compared against the page path. `CLASSIFICATION` is the odd one out
+ * (OpenProject #1079): it does not read `path` at all, and matches page metadata that survives a
+ * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
+ * `ruleMatchesPage` in `helpers/pageRules.ts`.
+ */
+export type GroupRuleMatch =
+  | 'START'
+  | 'END'
+  | 'REGEX'
+  | 'TAG'
+  | 'TAGALL'
+  | 'EXACT'
+  | 'CLASSIFICATION'
 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
@@ -26,6 +38,13 @@ export interface GroupRule {
   path: string
   locales: string[]
   sites: string[]
+  /**
+   * Classification level ids this rule addresses -- read only when `match === 'CLASSIFICATION'`, the
+   * same way `path` is read as a comma list only for `TAG`/`TAGALL`. A separate field rather than
+   * reusing `path`, because a level is an id from the admin-configurable
+   * `WIKI.models.classificationLevels` list, not free text a rule author types.
+   */
+  classifications?: string[]
 }
 
 /** A group row, joined with the number of users assigned to it. */

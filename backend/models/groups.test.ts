@@ -124,6 +124,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -133,6 +134,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -142,6 +144,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -151,6 +154,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'marketing/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -175,6 +179,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'public/readme',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -184,6 +189,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'secret/plans',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -199,6 +205,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'anything',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -214,6 +221,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'anything',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -283,6 +291,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
           path,
           locale: 'en',
           siteId: null,
+          classification: null,
           tags: []
         }),
         expected,

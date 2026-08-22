@@ -25,11 +25,12 @@
 import { Pool } from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
-import { sql } from 'drizzle-orm'
+import { asc, sql } from 'drizzle-orm'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { relations } from '../db/relations.ts'
 import {
+  classificationLevels as classificationLevelsTable,
   groups as groupsTable,
   locales as localesTable,
   sites as sitesTable,
@@ -49,6 +50,10 @@ export interface TestFixtures {
   siteId: string
   userId: string
   groupId: string
+  /** A seeded classification level's id — every `pages.classification` insert needs one (the column
+   *  is `NOT NULL`), and this is the fixture's "most open" default, matching what a fresh install's
+   *  own seeding (`models/classificationLevels.ts#init`) would call `Public`. */
+  classificationId: string
   /** The schema this run's tables live in — a worker thread standing up its own `WIKI` needs this to
    *  point its own pool's `search_path` at the same tables rather than an empty `public`. */
   schema: string
@@ -132,12 +137,34 @@ export async function setupTestDb(): Promise<TestFixtures> {
     })
     .returning({ id: groupsTable.id })
 
+  // -> Not inserted here: the real migration this schema was just built from already seeds the three
+  //    default levels at fixed ids (`db/migrations/.../migration.sql`, mirroring
+  //    `models/classificationLevels.ts#init()`) — the same "Public" a fresh install gets. Read back
+  //    rather than duplicated, so a suite asserting against `list()`/`defaultLevel()` sees exactly
+  //    what a real boot would.
+  const [classification] = await db
+    .select({ id: classificationLevelsTable.id })
+    .from(classificationLevelsTable)
+    .orderBy(asc(classificationLevelsTable.sortOrder))
+    .limit(1)
+  // -> The floor invariant (#1080) reads the in-memory cache, not the db directly — see
+  //    `models/classificationLevels.ts`. Without this, a model test calling `createPage()`/`movePage()`
+  //    would see an empty level list and fail `defaultLevel()`'s guard.
+  await models.classificationLevels.reloadCache()
+
   WIKI.sites[site!.id] = {
     id: site!.id,
     config: { locales: { primary: 'en', active: ['en', 'fr'] } }
   }
 
-  return { db, siteId: site!.id, userId: user!.id, groupId: group!.id, schema }
+  return {
+    db,
+    siteId: site!.id,
+    userId: user!.id,
+    groupId: group!.id,
+    classificationId: classification!.id,
+    schema
+  }
 }
 
 /**

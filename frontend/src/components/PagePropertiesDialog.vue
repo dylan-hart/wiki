@@ -270,6 +270,25 @@
         <div class="w-section-header">{{ t('editor.props.tags') }}</div>
         <page-tags edit />
       </w-card-section>
+      <w-card-section class="pb-6" id="refCardClassification">
+        <div class="w-section-header">{{ t('editor.props.classification') }}</div>
+        <w-select
+          v-model="pageStore.classification"
+          standout
+          dense
+          emit-value
+          map-options
+          :options="adminStore.classificationLevels"
+          option-value="id"
+          option-label="name"
+          :label="t('editor.props.classification')" />
+        <div class="text-caption mt-1">
+          <em>{{ t('editor.props.classificationHint') }}</em>
+        </div>
+        <div class="text-caption text-warning mt-1" v-if="!mayLowerClassification">
+          <em>{{ t('editor.props.classificationGuardHint') }}</em>
+        </div>
+      </w-card-section>
       <w-card-section class="alt-card pb-6" id="refCardVisibility">
         <div class="w-section-header">{{ t('editor.props.visibility') }}</div>
         <w-form class="gap-4 pt-2">
@@ -333,9 +352,11 @@
 import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
+import { useAdminStore } from '@/stores/admin'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import IconPickerDialog from './IconPickerDialog.vue'
 import PageRelationDialog from './PageRelationDialog.vue'
@@ -344,9 +365,11 @@ import PageTags from './PageTags.vue'
 
 // STORES
 
+const adminStore = useAdminStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -360,7 +383,13 @@ const state = reactive({
   requirePassword: false,
   editRelationId: null,
   pageScriptsMode: 'jsLoad',
-  showQuickAccess: true
+  showQuickAccess: true,
+  /**
+   * The classification this page was loaded with, before anything in this panel touched it -- what
+   * `mayLowerClassification` compares a picker change against. An editor may raise it freely; only
+   * lowering (making it MORE open than this) needs `manage:classification` on the page.
+   */
+  originalClassification: pageStore.classification
 })
 
 const quickaccess = [
@@ -371,6 +400,11 @@ const quickaccess = [
   { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
   { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
   { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
+  {
+    key: 'refCardClassification',
+    icon: 'la:shield-alt',
+    label: t('editor.props.classification')
+  },
   { key: 'refCardVisibility', icon: 'la:eye', label: t('editor.props.visibility') }
 ]
 
@@ -392,6 +426,26 @@ const publishingRange = computed({
     pageStore.publishStartDate = newValue?.from
     pageStore.publishEndDate = newValue?.to
   }
+})
+
+/**
+ * Whether the current picker selection is safe to save without `manage:classification` on this page
+ * (OpenProject #1080) -- unchanged or raised needs nothing extra; only actually lowering it below
+ * `state.originalClassification` does. Purely advisory: the server enforces the real guardrail
+ * regardless of what this shows, since `pagePermissions` here can be stale the moment a group
+ * changes underneath the session.
+ */
+const mayLowerClassification = computed(() => {
+  if (pageStore.classification === state.originalClassification) {
+    return true
+  }
+  const levels = adminStore.classificationLevels
+  const current = levels.find((l) => l.id === pageStore.classification)
+  const original = levels.find((l) => l.id === state.originalClassification)
+  if (!current || !original || current.sortOrder >= original.sortOrder) {
+    return true
+  }
+  return userStore.can('manage:classification')
 })
 
 // WATCHERS
@@ -439,7 +493,7 @@ function toggleRequirePassword(newValue) {
 
 // MOUNTED
 
-onMounted(() => {
+onMounted(async () => {
   state.requirePassword = pageStore.password?.length > 0
 
   // -> Title is the field this panel is opened to edit, so the caret starts there
@@ -450,6 +504,12 @@ onMounted(() => {
   setTimeout(() => {
     state.showQuickAccess = true
   }, 300)
+
+  try {
+    await adminStore.fetchClassificationLevels()
+  } catch (err) {
+    console.warn('Failed to load classification levels.', err)
+  }
 })
 </script>
 

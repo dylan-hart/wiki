@@ -65,7 +65,14 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
   }
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('approves cleanly when the page has not moved since the submission was based on it', async () => {
@@ -269,7 +276,14 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('a rule requiring 2 approvals leaves the page untouched after the first, and writes it on the second from a different reviewer', async () => {
@@ -554,7 +568,14 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   /**
@@ -757,7 +778,14 @@ describe(
     })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-      return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
     }
 
     test('returns a rule when two enabled rules both match the same page for the same groups', async () => {
@@ -867,7 +895,14 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('two different guests suggesting an edit to the same page both persist', async () => {
@@ -1017,7 +1052,8 @@ describe('approvals pageViewerState siteId threading (task 678)', () => {
       path: 'engineering/onboarding',
       locale: 'en',
       tags: [],
-      allowContributions: false
+      allowContributions: false,
+      classification: null
     })
 
     assert.equal(checkAccessCalls.length, 1)

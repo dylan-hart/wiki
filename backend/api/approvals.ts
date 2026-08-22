@@ -60,7 +60,7 @@ async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: 
 function reviewerFor(
   req: FastifyRequest,
   siteId: string,
-  page?: { path: string; locale: string | null; tags?: string[] }
+  page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
     return { groupIds: [], reviewsAll: false }
@@ -75,6 +75,7 @@ function reviewerFor(
         //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
         //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
         ...(page ?? { path: '', locale: null }),
+        classification: page?.classification ?? null,
         siteId
       }),
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
@@ -855,7 +856,8 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         locale: page.locale,
         tags: page.tags ?? [],
-        allowContributions: page.allowContributions
+        allowContributions: page.allowContributions,
+        classification: page.classification
       }
       const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
       if (!rule) {
@@ -939,7 +941,8 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         locale: page.locale,
         tags: page.tags ?? [],
-        allowContributions: page.allowContributions
+        allowContributions: page.allowContributions,
+        classification: page.classification
       }
       const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
       if (!rule) {

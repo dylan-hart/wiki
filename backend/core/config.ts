@@ -146,12 +146,16 @@ export default {
       siteId: uuid(),
       authModuleId: WIKI.data.systemIds.localAuthId,
       userAdminId: uuid(),
-      userGuestId: uuid()
+      userGuestId: uuid(),
+      classificationPublicId: WIKI.data.systemIds.classificationPublicId,
+      classificationInternalId: WIKI.data.systemIds.classificationInternalId,
+      classificationRestrictedId: WIKI.data.systemIds.classificationRestrictedId
     }
 
     await WIKI.models.settings.init(ids)
     await WIKI.models.sites.init(ids)
     await WIKI.models.groups.init(ids)
+    await WIKI.models.classificationLevels.init(ids)
     await WIKI.models.authentication.init(ids)
     await WIKI.models.users.init(ids)
     await WIKI.models.jobs.init()

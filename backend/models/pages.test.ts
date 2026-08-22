@@ -72,7 +72,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       authorId: fixtures.userId,
       creatorId: fixtures.userId,
       ownerId: fixtures.userId,
-      siteId: overrides.siteId
+      siteId: overrides.siteId,
+      classification: fixtures.classificationId
     }
   }
 

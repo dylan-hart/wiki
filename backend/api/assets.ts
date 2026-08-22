@@ -38,7 +38,11 @@ export function mayOnAsset(
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     path: folder ? `${folder}/${asset.fileName}` : asset.fileName,
     siteId,
-    locale: asset.locale
+    locale: asset.locale,
+    // -> An asset carries no classification of its own (OpenProject #1079 is a page metadata
+    //    field) — a CLASSIFICATION rule never matches an asset, the same as any other unknown
+    //    classification fails closed.
+    classification: null
   })
 }
 

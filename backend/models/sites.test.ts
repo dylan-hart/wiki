@@ -114,7 +114,10 @@ describe(
         siteId: seededSiteId,
         authModuleId: randomUUID(),
         userAdminId: randomUUID(),
-        userGuestId: randomUUID()
+        userGuestId: randomUUID(),
+        classificationPublicId: randomUUID(),
+        classificationInternalId: randomUUID(),
+        classificationRestrictedId: randomUUID()
       })
       const [row] = await fixtures.db
         .select()
@@ -382,7 +385,10 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       siteId,
       authModuleId: randomUUID(),
       userAdminId: randomUUID(),
-      userGuestId: randomUUID()
+      userGuestId: randomUUID(),
+      classificationPublicId: randomUUID(),
+      classificationInternalId: randomUUID(),
+      classificationRestrictedId: randomUUID()
     })
 
     const site = await sitesModel.getSiteById({ id: siteId, forceReload: true })

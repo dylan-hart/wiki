@@ -57,6 +57,7 @@ export interface AdminPageRef {
   path: string
   locale: string
   tags: string[]
+  classification: string
 }
 
 /** A comment as the admin moderation listing hands it back — flat, one row per comment. */
@@ -283,7 +284,8 @@ class Comments {
         id: pagesTable.id,
         path: pagesTable.path,
         locale: pagesTable.locale,
-        tags: pagesTable.tags
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(pagesTable)
       .where(and(...conditions))
@@ -364,7 +366,8 @@ class Comments {
         pageId: commentsTable.pageId,
         path: pagesTable.path,
         locale: pagesTable.locale,
-        tags: pagesTable.tags
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(commentsTable)
       .innerJoin(pagesTable, eq(pagesTable.id, commentsTable.pageId))
@@ -378,7 +381,13 @@ class Comments {
       id: row.id,
       siteId: row.siteId,
       pageId: row.pageId,
-      page: { id: row.pageId, path: row.path, locale: row.locale, tags: row.tags }
+      page: {
+        id: row.pageId,
+        path: row.path,
+        locale: row.locale,
+        tags: row.tags,
+        classification: row.classification
+      }
     }
   }
 }
