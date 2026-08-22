@@ -110,12 +110,16 @@ describe('block-vimeo', () => {
     expect(el.shadowRoot.querySelector('iframe').getAttribute('src')).toContain('loop=1')
   })
 
-  it('reflects fs onto the iframe allowfullscreen attribute', async () => {
+  it('reflects fs onto the iframe allowfullscreen attribute and the fullscreen embed param', async () => {
     const allowed = await mountPlayer('76979871')
     expect(allowed.shadowRoot.querySelector('iframe').hasAttribute('allowfullscreen')).toBe(true)
+    expect(allowed.shadowRoot.querySelector('iframe').getAttribute('src')).not.toContain(
+      'fullscreen'
+    )
 
     const denied = await mountPlayer('76979871', { fs: false })
     expect(denied.shadowRoot.querySelector('iframe').hasAttribute('allowfullscreen')).toBe(false)
+    expect(denied.shadowRoot.querySelector('iframe').getAttribute('src')).toContain('fullscreen=0')
   })
 
   describe('dark mode', () => {

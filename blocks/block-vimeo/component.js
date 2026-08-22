@@ -262,6 +262,12 @@ export class BlockVimeoElement extends LitElement {
     if (!this.controls) {
       params.set('controls', '0')
     }
+    if (!this.fs) {
+      // -> Hides Vimeo's own fullscreen button; `allowfullscreen` on the iframe is what stops the
+      //    browser actually granting fullscreen, but leaves the button sitting there doing nothing
+      //    without this, same trap the `mute` param above avoids for autoplay.
+      params.set('fullscreen', '0')
+    }
     if (this.loop) {
       params.set('loop', '1')
     }
