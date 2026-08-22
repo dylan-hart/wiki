@@ -413,3 +413,71 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), false)
   })
 })
+
+/**
+ * OpenProject #966: `createGroup`/`updateGroup`/`deleteGroup` used to call `this.reloadCache()`
+ * directly, which only ever refreshes this instance's own in-memory cache — a revoked permission
+ * (or a newly-granted one) took effect on the instance that handled the write, but every other
+ * instance in a cluster kept serving its stale copy until an admin ran "Flush Caches" or the
+ * instance restarted. `broadcastReload()` is the fix: every write path now goes through it instead
+ * of `reloadCache()` directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real
+ * NOTIFY-based bus, unused here, is what actually carries to other instances — see
+ * `dev/multi-instance-verify/README.md` §8).
+ */
+describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+    // -> `updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
+    //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty.
+    WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('createGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.createGroup('Broadcast Test Group')
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('updateGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.updateGroup(fixtures.groupId, { rules: [] })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('deleteGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    const id = await groupsModel.createGroup('Broadcast Delete Target')
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.deleteGroup(id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadGroups event to reloadCache', async () => {
+    let reloaded = false
+    const originalReloadCache = groupsModel.reloadCache.bind(groupsModel)
+    groupsModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      groupsModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadGroups')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadGroups handler')
+      await handler()
+      assert.equal(reloaded, true)
+    } finally {
+      groupsModel.reloadCache = originalReloadCache
+    }
+  })
+})

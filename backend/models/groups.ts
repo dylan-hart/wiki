@@ -147,9 +147,10 @@ class Groups {
   /**
    * Reload the page rules of every group into memory.
    *
-   * Called at boot and after any change to a group. A group edit therefore takes effect on the next
-   * request rather than on the next login, which matters: rules are the whole of page access, and a
-   * revoked permission that waits for a logout is not revoked.
+   * Called at boot, after any local change to a group (see `broadcastReload()`), and on every other
+   * cluster instance's `reloadGroups` event (see `subscribeToEvents()`) — so a group edit takes
+   * effect on the next request rather than on the next login, everywhere, which matters: rules are
+   * the whole of page access, and a revoked permission that waits for a logout is not revoked.
    */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db
@@ -160,6 +161,30 @@ class Groups {
       rulesCache[row.id] = (row.rules ?? []) as GroupRule[]
     }
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
+   *
+   * The write already happened in the database by the time a caller reaches this — what's left is
+   * making every instance's in-memory cache agree with it, this one included. Never call
+   * `WIKI.events.outbound.emit('reloadGroups')` directly, and never call it from inside
+   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
+   * *another* instance's event, and broadcasting from there would echo the event back around the
+   * cluster forever.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadGroups')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadGroups', async () => {
+      await this.reloadCache()
+    })
   }
 
   /** The pooled rules of a set of groups, which is what a permission is decided against. */
@@ -348,7 +373,7 @@ class Groups {
         isSystem: false
       })
       .returning({ id: groupsTable.id })
-    await this.reloadCache()
+    await this.broadcastReload()
     return result[0].id
   }
 
@@ -381,7 +406,7 @@ class Groups {
         isSystem: false
       })
       .returning({ id: groupsTable.id })
-    await this.reloadCache()
+    await this.broadcastReload()
     return result[0].id
   }
 
@@ -427,7 +452,7 @@ class Groups {
       .update(groupsTable)
       .set({ ...this.clampGuestPatch(id, patch), updatedAt: sql`now()` })
       .where(eq(groupsTable.id, id))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 
@@ -470,7 +495,7 @@ class Groups {
    */
   async deleteGroup(id: string): Promise<boolean> {
     const result = await WIKI.db.delete(groupsTable).where(eq(groupsTable.id, id))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 

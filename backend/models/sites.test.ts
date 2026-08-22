@@ -521,3 +521,71 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 })
+
+/**
+ * OpenProject #966: same fix, and the same reasoning, as `models/groups.ts`'s
+ * `groups.broadcastReload` suite — `createSite`/`updateSite`/`deleteSite` used to call
+ * `reloadCache()` directly, refreshing only this instance's own cache. See that suite's doc comment
+ * for the full writeup; this one just re-proves the wiring for the sites model.
+ */
+describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('createSite broadcasts reloadSites after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.createSite(`broadcast-create-${randomBytes(6).toString('hex')}.localhost`)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('updateSite broadcasts reloadSites after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.updateSite(fixtures.siteId, { isEnabled: false })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('deleteSite broadcasts reloadSites after refreshing this instance', async () => {
+    // -> Inserted directly rather than through `createSite()`, which also creates a root navigation
+    //    row — deliberately sidestepped here (a pre-existing, unrelated FK issue between
+    //    `deleteSite()` and that row is tracked separately; see the note in the WP966 report) so this
+    //    test isolates exactly what it's meant to check: the broadcast, not navigation cleanup.
+    const hostname = `broadcast-delete-${randomBytes(6).toString('hex')}.localhost`
+    const [created] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname, isEnabled: true, config: { locales: { primary: 'en' } } })
+      .returning({ id: sitesTable.id })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.deleteSite(created!.id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadSites event to reloadCache', async () => {
+    let reloaded = false
+    const originalReloadCache = sites.reloadCache.bind(sites)
+    sites.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      sites.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadSites')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadSites handler')
+      await handler()
+      assert.equal(reloaded, true)
+    } finally {
+      sites.reloadCache = originalReloadCache
+    }
+  })
+})
