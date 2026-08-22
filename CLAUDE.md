@@ -415,7 +415,7 @@ separate transpile or worker config.
     `.devcontainer` postgres, or a container reused across several local invocations) from
     accumulating one abandoned schema per run.
   - A throwaway instance to point `DATABASE_URL` at: `docker run --rm -d --name wiki-test-db -p
-    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17`, then
+    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`, then
     `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
     `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
     `.devcontainer`'s, is always the caller's choice to make.
@@ -586,8 +586,8 @@ superset of one of them.
   timeout" is the task's own bar, and a missing env var is the single most likely way to trip it. A
   throwaway container works the same way `backend/`'s DB-backed tests document (`test/db.ts`):
   `docker run --rm -d --name wiki-e2e-db -p 56002:5432 -e POSTGRES_PASSWORD=postgres -e
-  POSTGRES_DB=postgres postgres:17`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
-  npm test`. In CI, a fresh `postgres:17` service container per run is what makes "seeded test
+  POSTGRES_DB=postgres postgres:18`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
+  npm test`. In CI, a fresh `postgres:18` service container per run is what makes "seeded test
   database" true on every invocation, not just the first.
 - **The seed IS the app's own first-run path**, not a fixture this suite maintains separately: an
   empty database has no `settings` row, so `core/config.ts`'s `initDbValues()` runs exactly as it
@@ -673,7 +673,7 @@ either/or.
   leg's sake: it is not built at all until every test step above — including this one — has already
   passed, so there is exactly one `docker/build-push-action` invocation per run, staged and pushed
   once, not staged once for testing and rebuilt again to push.
-- **One `postgres:17` service container, shared by every leg that needs a real database.** Declared
+- **One `postgres:18` service container, shared by every leg that needs a real database.** Declared
   at the job level (not per-step), with `DATABASE_URL` set as a job-level `env:` so it's visible to
   the backend test step (turning on task 756's DB-backed model suites, skipped locally without a
   database) and the Playwright step (its own required `DATABASE_URL`, per "Testing (e2e)" above)
