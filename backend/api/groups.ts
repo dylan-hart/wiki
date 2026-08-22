@@ -354,6 +354,15 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.groups.updateGroup(group.id, patch)
+        // -> OpenProject #936: `permissions` (the global, group-wide list) is flattened onto every
+        //    member's `session.permissions` at login, and otherwise stays live for up to the 30-day
+        //    cookie age -- a revoked permission needs the same immediate cutoff a deactivation gets.
+        //    `rules` (page permissions) is deliberately NOT here: those are resolved fresh against
+        //    the in-memory rules cache on every request (`groups.checkAccess()`), so a rule change
+        //    already takes effect on the very next one with no session involved at all.
+        if (patch.permissions !== undefined) {
+          await WIKI.models.sessions.clearSessionsForGroup(group.id)
+        }
         await WIKI.models.auditLog.record({
           event: 'group.updated',
           actor: actorFromRequest(req),
@@ -595,6 +604,10 @@ async function routes(app: FastifyInstance) {
       if (!assigned) {
         return reply.conflict('User is already assigned to this group.')
       }
+      // -> OpenProject #936: `session.groups` is a snapshot taken at login, so this user's open
+      //    sessions would otherwise go on pooling rules from their OLD group membership until they
+      //    next log in -- same reasoning as the permission-revocation fix on PUT /:groupId above.
+      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
 
       await WIKI.models.auditLog.record({
         event: 'group.memberAdded',
@@ -681,6 +694,9 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.groups.unassignUserFromGroup(group.id, req.params.userId)
+      // -> OpenProject #936: same reasoning as ASSIGN above -- a removed member's open sessions must
+      //    stop pooling this group's rules/permissions immediately, not on their next login.
+      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
       await WIKI.models.auditLog.record({
         event: 'group.memberRemoved',
         actor: actorFromRequest(req),
