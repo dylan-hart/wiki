@@ -2155,8 +2155,10 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
  * `movePage` can now change a page's locale as well as its path, which makes where a page is going a
  * different place, in page-rule terms, from where it is: rules are matched on path AND locale, so the
  * source check alone would let a caller who may manage `en` push a page into a locale somebody else's
- * rules govern. The handler therefore checks `manage:pages` twice — once against the page as it
- * stands, once against the destination ref.
+ * rules govern. The handler checks `manage:pages` against the page as it stands, and `write:pages`
+ * against the destination ref — not `manage:pages` again: the group editor's own hint for
+ * `manage:pages` promises "other locations the user has WRITE ACCESS to", and `write:pages` is the
+ * same destination check `POST .../deleted/:versionId/recover` already makes (OpenProject #937).
  *
  * `checkAccess` is wired to the real `resolvePageRule` rather than a canned answer, so what passes
  * here is the actual rule-matching engine seeing the destination ref, not a stub agreeing it was
@@ -2166,11 +2168,15 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
 
-  /** Manage anything in `en`, and nothing anywhere else — the rule the destination check exists for. */
+  /**
+   * Manage AND write anything in `en`, and nothing anywhere else — the rule the destination check
+   * exists for. Both roles are needed: `manage:pages` for the source-page check, `write:pages` for
+   * the destination check the same rule also has to satisfy in these "moving within `en`" cases.
+   */
   const manageEnglish: GroupRule = {
     id: 'manage-en',
     name: 'Manage English',
-    roles: ['manage:pages'],
+    roles: ['manage:pages', 'write:pages'],
     match: 'START',
     mode: 'ALLOW',
     path: '',
@@ -2290,14 +2296,50 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
     assert.equal(movePageCalls[0].patch.locale, 'fr')
     assert.equal(res.json().page.locale, 'fr')
   })
+
+  test('managing the destination branch is not enough on its own: write:pages there is also required (OpenProject #937)', async () => {
+    // -> A caller who may MANAGE (move things around within) `fr`, but was never granted WRITE access
+    //    there, is exactly the gap #937 found: `manage:pages` on a destination branch used to be
+    //    treated as sufficient to land a page in it, when the group editor's own copy for
+    //    `manage:pages` promises only "locations the user has write access to".
+    const manageFrenchOnly: GroupRule = {
+      id: 'manage-fr-no-write',
+      name: 'Manage (not write) French',
+      roles: ['manage:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['fr'],
+      sites: []
+    }
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      actor: unknown,
+      permission: string,
+      page: RulePageRef
+    ) => {
+      const rule = resolvePageRule([manageEnglish, manageFrenchOnly], permission, page)
+      return rule ? rule.mode !== 'DENY' : false
+    }
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().message, 'You are not allowed to move this page there.')
+    assert.equal(movePageCalls.length, 0)
+  })
 })
 
 /**
  * Route-level test for `PUT /sites/:siteId/pages/:pageId/path`'s `includeTranslations` gate
- * (OpenProject #1026, spec item 3): the batch needs `manage:pages` on source AND destination for
- * EVERY twin, not just the primary page -- checked here, before the model is asked to do anything,
- * so a caller who may manage `en` cannot drag a `de` translation they have no rule over along for
- * the ride.
+ * (OpenProject #1026, spec item 3): the batch needs `manage:pages` on each twin's own path AND
+ * `write:pages` on the shared destination for EVERY twin, not just the primary page -- checked here,
+ * before the model is asked to do anything, so a caller who may manage `en` cannot drag a `de`
+ * translation they have no rule over along for the ride. The destination check is `write:pages`, not
+ * `manage:pages`, for the same reason the primary move's destination check is (OpenProject #937).
  */
 describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permission gate', () => {
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
@@ -2305,11 +2347,15 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
   const FR_ID = '33333333-3333-4333-8333-333333333333'
   const DE_ID = '44444444-4444-4444-8444-444444444444'
 
-  /** Manage `en` and `fr`, nothing else -- `de` is deliberately left ungoverned. */
+  /**
+   * Manage AND write `en` and `fr`, nothing else -- `de` is deliberately left ungoverned. Both roles
+   * are needed on the same rule here since every twin's own path and the shared destination all fall
+   * within `en`/`fr` in these fixtures.
+   */
   const manageEnAndFr: GroupRule = {
     id: 'manage-en-fr',
     name: 'Manage EN+FR',
-    roles: ['manage:pages'],
+    roles: ['manage:pages', 'write:pages'],
     match: 'START',
     mode: 'ALLOW',
     path: '',
@@ -2418,6 +2464,53 @@ describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permissi
     })
     assert.equal(res.statusCode, 200)
     assert.equal(movePageCalls.length, 1)
+  })
+
+  test('a twin whose destination the caller may manage but not write to refuses the whole batch (OpenProject #937)', async () => {
+    // -> `en` keeps a full manage+write rule (the primary page's own path AND its destination both
+    //    sit in `en`); `fr` is scoped to manage-only, on its own -- unlike `manageEnAndFr` above,
+    //    this rule set gives the FR twin's OWN path `manage:pages` but grants `write:pages` nowhere
+    //    in `fr`, so the twin may be moved away from `docs/source` but not written into the shared
+    //    destination. That gap is exactly what #937 closes.
+    const manageWriteEn: GroupRule = {
+      id: 'manage-write-en',
+      name: 'Manage+write English',
+      roles: ['manage:pages', 'write:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['en'],
+      sites: []
+    }
+    const manageOnlyFr: GroupRule = {
+      id: 'manage-only-fr',
+      name: 'Manage (not write) French',
+      roles: ['manage:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['fr'],
+      sites: []
+    }
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      actor: unknown,
+      permission: string,
+      page: RulePageRef
+    ) => {
+      const rule = resolvePageRule([manageWriteEn, manageOnlyFr], permission, page)
+      return rule ? rule.mode !== 'DENY' : false
+    }
+    translations = [{ id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] }]
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /"fr"/)
+    assert.equal(movePageCalls.length, 0)
   })
 
   test('a twin outside every rule refuses the whole batch, naming its locale, before the model is asked', async () => {

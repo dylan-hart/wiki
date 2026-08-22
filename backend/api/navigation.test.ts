@@ -410,7 +410,11 @@ describe('manage:navigation permission surface on GET/PUT .../navigation/:navId 
     ;(globalThis as any).WIKI = {
       models: {
         navigation: {
-          async getNav(id: string, { unfiltered = false }: { unfiltered?: boolean } = {}) {
+          async getNav(
+            siteId: string,
+            id: string,
+            { unfiltered = false }: { unfiltered?: boolean } = {}
+          ) {
             return unfiltered
               ? storedItems
               : storedItems.filter((i) => i.visibilityGroups.length === 0)

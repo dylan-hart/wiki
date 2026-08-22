@@ -18,6 +18,14 @@ import type { FastifyInstance } from 'fastify'
  * says so, because it also means a wiki page created at this exact path is unreachable: Fastify
  * matches a registered route before ever falling through to the page-serving catch-all.
  *
+ * That same lack of an underscore also made `metrics` look like a page navigation to the global
+ * site-resolution `onRequest` hook, which runs before routing hands off to this handler — a scrape
+ * against a hostname mapping to no site (or a disabled one) was 302'd to `/_error/unknownsite` /
+ * `/_error/disabled` before ever reaching the code below, and Prometheus follows redirects by
+ * default, so it failed parsing the SPA shell instead of getting a scrape failure that says why.
+ * Fixed by adding `metrics` to `index.ts`'s `RESERVED_ROOT_FILES`, the same exemption
+ * `robots.txt`/`sitemap.xml` already had (OpenProject #938).
+ *
  * Because this route sits outside `/_api`, it never runs through the `onRequest` hook in `index.ts`
  * that populates `req.apiKey` for `/_api/*` — that hook is scoped to the `/_api/` prefix on purpose,
  * so a scraper with no session is never mistaken for one. Bearer verification is therefore repeated

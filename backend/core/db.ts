@@ -150,7 +150,11 @@ export default {
         sslOptions.key = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.key), 'utf-8')
       }
       if (sslOptions.pfx) {
-        sslOptions.pfx = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.pfx), 'utf-8')
+        // -> PKCS#12 is binary DER, unlike `ca`/`cert`/`key` (PEM, text) above -- reading it as
+        //    'utf-8' corrupts the bundle and fails the TLS handshake with a confusing error
+        //    (OpenProject #940). No encoding argument means `readFile` returns the raw `Buffer` node-
+        //    postgres expects for `pfx`.
+        sslOptions.pfx = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.pfx))
       }
     } else {
       sslOptions = true

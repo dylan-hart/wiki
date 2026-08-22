@@ -78,7 +78,7 @@ async function routes(app: FastifyInstance) {
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
         )
       }
-      return WIKI.models.navigation.getNav(req.params.navId, {
+      return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
         unfiltered
       })
