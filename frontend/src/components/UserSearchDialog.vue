@@ -126,6 +126,26 @@ const props = defineProps({
     type: String,
     required: false,
     default: ''
+  },
+  /**
+   * Picking a user replaces the current selection instead of adding to it, and the confirm button
+   * is enabled as soon as one is picked. `onOk` still hands back an array either way (of at most one
+   * user), so a caller does not need a different shape depending on this prop.
+   */
+  singleSelect: {
+    type: Boolean,
+    required: false,
+    default: false
+  },
+  /**
+   * User ids to hide from the results — e.g. the user a caller is about to delete, who cannot
+   * sensibly be its own reassignment target. Filtered client-side: excluding a handful of ids is not
+   * worth a dedicated query param on `GET /users`.
+   */
+  excludeUserIds: {
+    type: Array,
+    required: false,
+    default: () => []
   }
 })
 
@@ -183,7 +203,7 @@ async function load() {
       }
     }).json()
     state.total = resp?.total ?? 0
-    state.users = resp?.users ?? []
+    state.users = (resp?.users ?? []).filter((usr) => !props.excludeUserIds.includes(usr.id))
   } catch (err) {
     notify({
       type: 'negative',
@@ -198,8 +218,16 @@ function isSelected(id) {
   return state.selected.some((usr) => usr.id === id)
 }
 
-/** Selection survives filtering and paging, so users from several pages can be picked at once. */
+/**
+ * Selection survives filtering and paging, so users from several pages can be picked at once —
+ * except in `singleSelect` mode, where picking a new user always replaces whichever one was picked
+ * before, on an earlier page or not.
+ */
 function toggle(usr) {
+  if (props.singleSelect) {
+    state.selected = isSelected(usr.id) ? [] : [usr]
+    return
+  }
   state.selected = isSelected(usr.id)
     ? state.selected.filter((sel) => sel.id !== usr.id)
     : [...state.selected, usr]

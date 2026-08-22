@@ -2242,6 +2242,87 @@ async function routes(app: FastifyInstance) {
     }
   )
 
+  app.post<{ Params: { userId: string }; Body: { targetUserId: string } }>(
+    '/:userId/reassignContent',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: 'Reassign a user’s authored content to another user',
+        description:
+          'Transfers every page (as author, creator, and/or owner) and every asset `userId` authored to `targetUserId`, in a single bulk action. Use this ahead of deleting a user who still owns pages or assets — the delete route refuses until nothing points at them anymore.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            targetUserId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['targetUserId']
+        },
+        response: {
+          200: {
+            description: 'Content reassigned successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              pagesReassigned: {
+                type: 'integer'
+              },
+              assetsReassigned: {
+                type: 'integer'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      try {
+        const result = await WIKI.models.users.reassignContent(user.id, req.body.targetUserId)
+        return {
+          ok: true,
+          message: 'Content reassigned successfully.',
+          ...result
+        }
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
+    }
+  )
+
   app.delete<{ Params: { userId: string } }>(
     '/:userId',
     {
