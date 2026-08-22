@@ -707,8 +707,8 @@ store; no SVG is ever written into content.
   Components that take an `icon` prop go through it too, so every form works there.
   - Every Iconify reference written **literally in this repo's source** is inlined at build time by
     `scripts/generate-icons.mjs` into `src/assets/icons.generated.js` (committed) and drawn as an
-    inline `<svg>`. Run `npm run icons` after adding or removing one; `check-icons.mjs` fails if the
-    bundle drifts. This is why the interface needs no icon webfont — and why nothing an
+    inline `<svg>`. Run `npm run icons` after adding or removing one; `npm run icons:check` fails if
+    the bundle drifts. This is why the interface needs no icon webfont — and why nothing an
     administrator does to icon sets can blank it, which fetching at runtime could not promise:
     resolution is gated on the set being enabled, and deleting a set drops every icon stored for it.
   - A reference built at runtime — an icon a **user** picked, stored on a page or nav item — is
