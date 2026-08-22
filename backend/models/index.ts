@@ -4,6 +4,7 @@ import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
 import { authentication } from './authentication.ts'
 import { blocks } from './blocks.ts'
+import { checklists } from './checklists.ts'
 import { commentProviders } from './commentProviders.ts'
 import { comments } from './comments.ts'
 import { contentSync } from './contentSync.ts'
@@ -46,6 +47,7 @@ export default {
   assets,
   authentication,
   blocks,
+  checklists,
   commentProviders,
   comments,
   contentSync,

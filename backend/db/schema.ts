@@ -679,6 +679,89 @@ export const comments = pgTable(
   ]
 )
 
+// CHECKLIST RUN LOG --------------------
+/**
+ * One row per run ("execution") of a `block-checklist`. An item is checked off inside one execution;
+ * once every item named at start time is checked, that execution completes automatically and the
+ * next check on the same block starts a fresh one — the operational equivalent of a runbook resetting
+ * for the next shift, with no separate scheduler needed to make that happen.
+ *
+ * This is a run log, not editorial history: distinct from `pageHistory` (content revisions) and from
+ * `pageEditSubmissions`/`pageEditSubmissionApprovals` (the Approvals publish workflow) above — it
+ * records that someone actually performed the procedure, not that a page's content changed.
+ *
+ * `blockKey` is the block's own `runKey` prop (see `blocks/block-checklist/component.js`), not a
+ * position in the page's content — it is what lets the same checklist keep one run log across
+ * ordinary page edits, and what lets a page carry more than one independent checklist.
+ *
+ * At most one INCOMPLETE execution may exist per `(pageId, blockKey)` at a time — enforced by
+ * `checklistExecutions_active_idx`, a unique index scoped to `completedAt IS NULL` rows. This is the
+ * database-level guarantee `models/checklists.ts`'s `checkItem` relies on to start a new execution
+ * safely under concurrent requests: the losing insert of a race falls back to reading the row the
+ * winner created, rather than either creating two active runs or needing an application-level lock.
+ */
+export const checklistExecutions = pgTable(
+  'checklistExecutions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    blockKey: varchar({ length: 255 }).notNull(),
+    // -> Snapshotted at start from the block's own item count, not recomputed later — an author
+    //    editing the checklist mid-run does not retroactively change what "every item" meant for a
+    //    run already in progress.
+    itemCount: integer().notNull(),
+    startedAt: timestamp().notNull().defaultNow(),
+    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
+    //    `comments.authorId`.
+    startedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    completedAt: timestamp(),
+    completedBy: uuid().references(() => users.id, { onDelete: 'set null' })
+  },
+  (table) => [
+    // -> The history/latest-execution queries: every run of one checklist, most recent first.
+    index('checklistExecutions_pageId_blockKey_idx').on(
+      table.pageId,
+      table.blockKey,
+      table.startedAt
+    ),
+    uniqueIndex('checklistExecutions_active_idx')
+      .on(table.pageId, table.blockKey)
+      .where(sql`"completedAt" IS NULL`)
+  ]
+)
+
+/**
+ * One row per item checked off within one execution — the actual "who checked which item when" the
+ * feature exists to record. Never updated or deleted: checking an already-checked item again is a
+ * no-op (`checklistItemChecks_execution_item_idx` is what `checkItem`'s `onConflictDoNothing` targets),
+ * and there is deliberately no "uncheck" — undoing an entry is exactly what a run log should not do.
+ * Redoing a checklist means starting a new execution instead.
+ */
+export const checklistItemChecks = pgTable(
+  'checklistItemChecks',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    executionId: uuid()
+      .notNull()
+      .references(() => checklistExecutions.id, { onDelete: 'cascade' }),
+    // -> The item's position in the block's rendered list at check time (`item-0`, `item-1`, ...) --
+    //    see `blocks/block-checklist/component.js`. Not the item's text, which can be edited without
+    //    the item having changed in any way that should re-open a run.
+    itemKey: varchar({ length: 255 }).notNull(),
+    checkedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    checkedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('checklistItemChecks_execution_item_idx').on(table.executionId, table.itemKey),
+    index('checklistItemChecks_executionId_idx').on(table.executionId, table.checkedAt)
+  ]
+)
+
 // PAGE HISTORY ------------------------
 /**
  * One row per change to a page: what it looked like afterwards, who made it, and what kind of change
