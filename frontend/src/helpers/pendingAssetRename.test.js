@@ -109,4 +109,17 @@ describe('renameFileName', () => {
       fileName: 'renamed'
     })
   })
+
+  it('collapses the doubled dot a trailing-dot base creates once joined with the extension', () => {
+    // -> "foo." sanitizes to itself (a single trailing dot, not a run `sanitizeBaseName` would
+    //    collapse on its own) and only becomes a doubled dot once `.png` is appended after it
+    expect(renameFileName('abc123.png', 'foo.')).toEqual({
+      ok: true,
+      fileName: 'foo.png'
+    })
+    expect(renameFileName('abc123.png', 'foo..')).toEqual({
+      ok: true,
+      fileName: 'foo.png'
+    })
+  })
 })

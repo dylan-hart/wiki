@@ -61,6 +61,14 @@ export function validateBaseName(sanitized) {
 /**
  * Rename a pending asset's file name, keeping its extension fixed.
  *
+ * `sanitizeBaseName` only ever sees the base half, so a base ending in a dot (e.g. the user typed
+ * "report.") joins with the extension's own leading dot into a doubled dot ("report..png") that
+ * neither half's sanitizing alone catches. `backend/models/assets.ts`'s `sanitizeFileName` collapses
+ * that on upload regardless (it runs against the whole assembled name), which would otherwise leave
+ * this pane showing a name the upload silently stores under a different one -- so the same collapse
+ * is re-run here, against the full joined string, to keep what is displayed and what would upload in
+ * agreement before that ever happens.
+ *
  * @param {string} fileName The pending asset's current, fully-extensioned file name.
  * @param {string} newBaseInput Whatever the user typed as the new base name.
  * @returns {{ ok: true, fileName: string } | { ok: false, error: string }}
@@ -72,5 +80,6 @@ export function renameFileName(fileName, newBaseInput) {
   if (error) {
     return { ok: false, error }
   }
-  return { ok: true, fileName: ext ? `${sanitized}.${ext}` : sanitized }
+  const joined = ext ? `${sanitized}.${ext}` : sanitized
+  return { ok: true, fileName: joined.replaceAll(/\.{2,}/g, '.') }
 }
