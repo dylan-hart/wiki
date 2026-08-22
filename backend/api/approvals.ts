@@ -221,7 +221,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List the approval rules of a site',
         description:
-          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `read:sites` or `manage:sites`, or `site:approvals` on this site.',
+          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
