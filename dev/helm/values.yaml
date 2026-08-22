@@ -100,6 +100,11 @@ offline: false
 # docs/offline-deployment.md) from a git repo before the app container starts, so locale packs can be
 # added/updated on an air-gapped cluster with no image rebuild. The app loads them at boot and on
 # every `POST /_api/locales/sideload` afterward.
+#
+# The init container that does the cloning shares this chart's own `volumeMounts` (and therefore
+# `volumes`) with the main container, so this only actually persists into <dataPath> when those are
+# set to mount a volume there — with neither configured, the clone lands in the init container's own
+# throwaway filesystem and is gone by the time the app container starts.
 sideload:
   enabled: false
   # Git repo containing the locale-pack JSON files you need, one <code>.json per locale.

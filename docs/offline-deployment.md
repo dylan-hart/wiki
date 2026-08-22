@@ -125,7 +125,11 @@ request reads from — see `models/locales.ts#getStrings`). What 3.0 was missing
 **Helm**: `dev/helm/values.yaml`'s `sideload.enabled`/`sideload.repoURL` stanza runs a git-clone
 `initContainer` that populates `/wiki/data/locales/` (i.e. `<dataPath>/locales/`) from a git repo of
 locale-pack JSON files before the app container starts — for a cluster where "the data volume" means
-"whatever the init container populated," not a person with `kubectl cp` access.
+"whatever the init container populated," not a person with `kubectl cp` access. The init container
+shares the chart's `volumeMounts`/`volumes` values with the main container, so a volume actually has
+to be mounted there (the same one backing the app's own persistent `<dataPath>`) for the clone to
+survive past the init container exiting — set `volumeMounts`/`volumes` alongside `sideload.enabled`,
+not just the latter on its own.
 
 ## What must be present before first boot
 

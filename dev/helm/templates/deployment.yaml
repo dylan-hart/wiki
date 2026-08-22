@@ -31,6 +31,10 @@ spec:
             {{- toYaml .Values.sideload.env | nindent 12 }}
           command: [ "sh", "-c" ]
           args: [ "mkdir -p /wiki/data/locales && git clone --depth=1 {{ .Values.sideload.repoURL }} /wiki/data/locales/" ]
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
