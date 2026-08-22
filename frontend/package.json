@@ -116,6 +116,9 @@
   "overrides": {
     "markdown-it-mdc": {
       "markdown-it": "$markdown-it"
+    },
+    "@twemoji/api": {
+      "@twemoji/parser": "17.0.1"
     }
   },
   "engines": {
