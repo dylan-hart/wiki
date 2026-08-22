@@ -269,15 +269,31 @@ watch(
 
 watch(() => route.params.id, checkOverlay)
 
+/**
+ * Set by the search watcher just before it resets `state.currentPage` to 1, so the `currentPage`
+ * watcher below -- which would otherwise treat that reset as an ordinary, user-driven page change
+ * (the pager click it exists for) and issue its own, duplicate `load({ page: 1 })` -- skips its own
+ * fetch instead. Without this, typing a search while on page 3 fetched page 1 of the filtered
+ * results while `w-pagination` (bound to `state.currentPage`) kept highlighting page 3 -- the pager
+ * was left desynced from what was actually shown (OpenProject #953).
+ */
+let resettingPageForSearch = false
+
 watch(
   () => state.search,
   debounce(() => {
+    resettingPageForSearch = state.currentPage !== 1
+    state.currentPage = 1
     load({ page: 1 })
   }, 400)
 )
 watch(
   () => state.currentPage,
   (newValue) => {
+    if (resettingPageForSearch) {
+      resettingPageForSearch = false
+      return
+    }
     load({ page: newValue })
   }
 )
