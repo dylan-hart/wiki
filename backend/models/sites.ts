@@ -1,6 +1,7 @@
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
+  blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
   navigation as navigationTable,
   siteAssets as siteAssetsTable,
@@ -351,7 +352,8 @@ class Sites {
   }
 
   async deleteSite(id: string): Promise<boolean> {
-    // -> Block, storage and uploaded image rows belong to the site rather than to its content, and
+    // -> Block, block-credential, storage and uploaded image rows belong to the site rather than to
+    //    its content, and
     //    their FK has no cascade, so they would otherwise block the delete. The site's own root
     //    navigation row (`navigation.id = siteId`, created by `createSite` via
     //    `navigation.ensureSiteNav`) is the same story and is cleaned up the same way — note this
@@ -360,6 +362,7 @@ class Sites {
     //    tree, and any navigation row still owned by one of them) deliberately still lack a cascade
     //    — see the conflict handling in the route.
     await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
+    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
     await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
     await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
     await WIKI.db.delete(navigationTable).where(eq(navigationTable.id, id))
