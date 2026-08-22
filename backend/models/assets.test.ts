@@ -45,7 +45,13 @@ function makeDbTarget(
       ...assetDelivery
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: false
+    },
     props: {},
     config: {},
     actions: [],

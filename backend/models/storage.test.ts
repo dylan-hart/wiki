@@ -97,7 +97,8 @@ function makeTarget(moduleKey: string): StorageTarget {
       supportedModes: definition.supportedModes,
       schedule: definition.schedule,
       mode: definition.defaultMode,
-      scheduleOverride: null
+      scheduleOverride: null,
+      supportsContentSync: definition.supportsContentSync
     },
     props: definition.props,
     config: {},
@@ -340,7 +341,7 @@ test('dispatch skips a disabled target', async () => {
 })
 
 test("dispatch skips a target whose activeTypes doesn't cover the asset's kind", async () => {
-  const jobs = fakeDispatchDeps([makeRow('disk', { activeTypes: ['documents'], syncMode: 'push' })])
+  const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['documents'], syncMode: 'push' })])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
     siteId: 'site-1',
@@ -352,7 +353,7 @@ test("dispatch skips a target whose activeTypes doesn't cover the asset's kind",
 })
 
 test('dispatch maps asset:edit to the assetUploaded handler', async () => {
-  const jobs = fakeDispatchDeps([makeRow('disk', { activeTypes: ['images'], syncMode: 'push' })])
+  const jobs = fakeDispatchDeps([makeRow('s3', { activeTypes: ['images'], syncMode: 'push' })])
   const queued = await storage.dispatch('asset:edit', {
     id: 'a1',
     siteId: 'site-1',
@@ -365,7 +366,7 @@ test('dispatch maps asset:edit to the assetUploaded handler', async () => {
 
 test("dispatch classifies an asset over a target's own largeThreshold as large", async () => {
   fakeDispatchDeps([
-    makeRow('disk', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
+    makeRow('s3', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
   ])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
@@ -378,7 +379,7 @@ test("dispatch classifies an asset over a target's own largeThreshold as large",
 
 test("dispatch does not classify a small asset as large, even when only 'large' is active", async () => {
   const jobs = fakeDispatchDeps([
-    makeRow('disk', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
+    makeRow('s3', { activeTypes: ['large'], largeThreshold: '1KB', syncMode: 'push' })
   ])
   const queued = await storage.dispatch('asset:upload', {
     id: 'a1',
@@ -402,6 +403,31 @@ test('dispatch is a no-op without a siteId or a content id', async () => {
   assert.equal(await storage.dispatch('page:create', { id: 'p1' }), 0)
   assert.equal(await storage.dispatch('page:create', { siteId: 'site-1' }), 0)
   assert.equal(jobs.length, 0)
+})
+
+test('dispatch never queues a job for a module with no write-path content handlers', async () => {
+  // -> disk only implements validateConfig/dump/importAll/backup/dailyBackup -- config- and
+  //    manual-action-only, per the module's own storage.ts. Content-type coverage and sync mode both
+  //    match here; only the handler-support check should be stopping the queue.
+  const jobs = fakeDispatchDeps([makeRow('disk', { activeTypes: ['images'], syncMode: 'push' })])
+  const queued = await storage.dispatch('asset:upload', {
+    id: 'a1',
+    siteId: 'site-1',
+    kind: 'image',
+    fileSize: 100
+  })
+  assert.equal(queued, 0)
+  assert.equal(jobs.length, 0)
+})
+
+test('getSiteTargets reports supportsContentSync per module', async () => {
+  fakeDispatchDeps([makeRow('git'), makeRow('disk')])
+  const targets = await storage.getSiteTargets('site-1')
+  const git = targets.find((t) => t.module === 'git')
+  const disk = targets.find((t) => t.module === 'disk')
+  // -> git implements created/updated/renamed/deleted; disk implements none of STORAGE_HANDLERS
+  assert.equal(git?.sync.supportsContentSync, true)
+  assert.equal(disk?.sync.supportsContentSync, false)
 })
 
 // ---------------------------------------------------------------------------------------------

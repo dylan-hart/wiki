@@ -488,8 +488,10 @@ export async function importAll(target: StorageTarget): Promise<ImportAllResult>
  * creating `subDir` if it does not exist yet.
  *
  * The archive is built from whatever is on disk right now, not from the database — it is a backup of
- * this target's own content, which is only ever as current as the last successful `dump()` (or the
- * write-path syncs that keep landing here on every page/asset change).
+ * this target's own content, which is only ever as current as the last successful `dump()`. Unlike a
+ * module that implements the write-path content handlers (`git`, `s3`, ...), this module has none —
+ * see `StorageDefinition.supportsContentSync` — so nothing keeps this copy current between manual
+ * `dump()` runs.
  *
  * @throws With a message naming the failing step (creating the subfolder, reading the directory, or
  *         writing the archive) and the underlying fs error, e.g. when the path became unwritable
