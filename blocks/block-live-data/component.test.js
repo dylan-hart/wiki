@@ -176,6 +176,49 @@ describe('block-live-data', () => {
     })
   })
 
+  describe('disconnecting mid-fetch', () => {
+    it('does not reschedule another poll once removed from the page while a fetch is in flight', async () => {
+      vi.useFakeTimers()
+      let resolveFetch
+      const fetchMock = vi.fn((url) => {
+        if (url === '/_api/sites/current') {
+          return Promise.resolve({ ok: true, json: async () => ({ id: SITE_ID }) })
+        }
+        // -> Never settles on its own -- the test settles it after disconnecting, so the race
+        //    (disconnect landing while this poll's own fetch is still outstanding) is deterministic
+        //    rather than timing-dependent.
+        return new Promise((resolve) => {
+          resolveFetch = resolve
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const el = document.createElement('block-live-data')
+      Object.assign(el, {
+        url: 'https://api.example.com/metrics',
+        jsonPath: '$.v',
+        refreshInterval: 10
+      })
+      document.body.appendChild(el)
+      await el.updateComplete
+      // -> Lets getSiteId's fetch resolve and the resolve-route fetch actually start.
+      await vi.advanceTimersByTimeAsync(0)
+
+      document.body.removeChild(el)
+      resolveFetch({ ok: true, status: 200, json: async () => ({ value: 1, fetchedAt: '' }) })
+      await vi.advanceTimersByTimeAsync(0)
+
+      const resolveCallCount = () =>
+        fetchMock.mock.calls.filter(([url]) => url !== '/_api/sites/current').length
+      const callsRightAfterDisconnect = resolveCallCount()
+
+      // -> Well past any refresh interval this test could have set -- if the old timer survived the
+      //    disconnect, this is well past enough time for it to have fired at least once more.
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(resolveCallCount()).toBe(callsRightAfterDisconnect)
+    })
+  })
+
   describe('dark mode', () => {
     it('follows body--dark via the shared DarkMode controller', async () => {
       stubFetch({ value: 1 })

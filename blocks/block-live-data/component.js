@@ -370,8 +370,16 @@ export class BlockLiveDataElement extends LitElement {
       this._status = 'error'
       this._error = err.message || 'Could not resolve this block.'
     } finally {
-      const seconds = Math.max(Number(this.refreshInterval) || 60, MIN_REFRESH_SECONDS)
-      this._timer = setTimeout(() => this._poll(), seconds * 1000)
+      // -> `disconnectedCallback` only has a live `this._timer` to `clearTimeout` when it runs
+      //    between polls; it runs no such check here when it fires while THIS poll's fetch is still
+      //    in flight -- there is nothing scheduled yet to cancel. Without this guard that race
+      //    leaves the element polling forever in the background after it has left the page (an SPA
+      //    navigation away being the ordinary way to trigger it), since each iteration reschedules
+      //    itself with no further disconnect ever coming to stop it.
+      if (this.isConnected) {
+        const seconds = Math.max(Number(this.refreshInterval) || 60, MIN_REFRESH_SECONDS)
+        this._timer = setTimeout(() => this._poll(), seconds * 1000)
+      }
     }
   }
 
