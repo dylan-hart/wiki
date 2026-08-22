@@ -3,7 +3,56 @@
 This document records genuine, justified deviations from spec — decisions where the 3.x fork
 intentionally does not reproduce something 2.5.x had, or does not build something a spec called for,
 along with the reasoning. It is not a changelog and does not track resolved CI/lint/type issues;
-those get fixed, not logged here.
+those get fixed, not logged here. An entry for a deviation that later gets resolved is deleted
+outright, not left behind as changelog prose — see CLAUDE.md's "variances.md Discipline" section.
+
+## TODO/FIXME audit: markers currently in the tree, and why each is deliberate rather than noise
+
+**Date:** 2026-08-22
+**Scope:** `backend/` and `frontend/src/` (`.test.ts`/`.test.js`/`.test.mjs`/`.generated.js` files
+excluded — a test file talking *about* a marker in its own prose isn't a marker to triage, and a
+generated bundle is machine output no one hand-edits).
+
+A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
+"Pre-existing bugs are preserved, not fixed" convention deliberately leaves some in place, narrowly
+cast, until their real fix lands. This entry is the audit trail so a marker sitting in the tree reads
+as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
+carrying a marker isn't named here, so this list cannot silently drift out of date.
+
+- **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
+  re-read per request. A secret rotation only stops working cookies on an instance once that instance
+  is later restarted; every other still-running instance keeps signing new cookies with the
+  just-invalidated secret until it restarts too. Real, narrow, already-cross-referenced from
+  `models/apiKeys.ts` and `models/sessions.ts` below — not forgotten, just not yet worth the
+  per-request config re-read it would take to close.
+- **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
+  narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
+  `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
+- **`backend/models/apiKeys.ts`** (comment referencing the FIXME above) — notes that `verify()`'s own
+  cert-based check needs no restart to pick up a rotated value, unlike the session-secret path the
+  FIXME in `index.ts` describes; not a marker of its own so much as a pointer keeping the two paths'
+  different behavior from reading as inconsistent by accident.
+- **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
+  Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
+  resolve by closing #375 and wiring this call, not by deleting the comment.
+- **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
+  `apiKeys.ts`: notes that a rotated secret invalidates a *new* session immediately, unlike the
+  still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
+- **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
+  has been a real Drizzle table for a while now; tightening it to the row type is a real but
+  low-priority cleanup, not a design gap.
+- **`frontend/src/layouts/AdminLayout.vue`** (TODO) — a "Reflect site storage status" indicator the nav
+  doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
+  for it because no feature currently depends on it.
+- **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
+  coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
+  Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
+  work; left as-is rather than deleted so this file stays traceable against the upstream it mirrors.
+
+**Resolved when:** a file above no longer carries its marker (fixed for real, or the deferred work
+ships), remove its bullet; a newly-marker-carrying file the drift test flags gets a bullet added here
+after a human has actually looked at *why* the marker is there — never a placeholder entry added just
+to make the drift test pass.
 
 ## Glossary: existing pages pick up a new term on their next render, not instantly site-wide
 
