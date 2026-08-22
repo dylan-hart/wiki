@@ -71,16 +71,65 @@
             <w-list v-else separator>
               <w-item v-for="item of editorStore.pendingAssets" :key="item.id">
                 <w-item-section side><w-icon name="la:file-image" /></w-item-section>
-                <w-item-section>{{ item.fileName }}</w-item-section>
+                <w-item-section v-if="editingAssetId === item.id">
+                  <w-input
+                    v-model="renameDraft"
+                    dense
+                    outlined
+                    autofocus
+                    label="New file name"
+                    :suffix="renameSuffix"
+                    :rules="[renameBaseNameRule]"
+                    @keyup:enter="commitRenamePendingAsset(item)"
+                    @keydown.esc="cancelRenamePendingAsset"
+                    @blur="commitRenamePendingAsset(item)" />
+                </w-item-section>
+                <w-item-section v-else>{{ item.fileName }}</w-item-section>
                 <w-item-section side>
-                  <w-btn
-                    class="acrylic-btn"
-                    color="negative"
-                    round
-                    icon="la:times"
-                    size="xs"
-                    flat
-                    @click="removePendingAsset(item)" />
+                  <div class="flex gap-1">
+                    <template v-if="editingAssetId === item.id">
+                      <w-btn
+                        class="acrylic-btn"
+                        color="positive"
+                        round
+                        icon="la:check"
+                        size="xs"
+                        flat
+                        aria-label="Confirm Rename"
+                        @mousedown.prevent
+                        @click="commitRenamePendingAsset(item)" />
+                      <w-btn
+                        class="acrylic-btn"
+                        color="grey"
+                        round
+                        icon="la:times"
+                        size="xs"
+                        flat
+                        aria-label="Cancel Rename"
+                        @mousedown.prevent
+                        @click="cancelRenamePendingAsset" />
+                    </template>
+                    <template v-else>
+                      <w-btn
+                        class="acrylic-btn"
+                        color="grey"
+                        round
+                        icon="la:edit"
+                        size="xs"
+                        flat
+                        aria-label="Rename Pending Asset"
+                        @click="startRenamePendingAsset(item)" />
+                      <w-btn
+                        class="acrylic-btn"
+                        color="negative"
+                        round
+                        icon="la:times"
+                        size="xs"
+                        flat
+                        aria-label="Remove Pending Asset"
+                        @click="removePendingAsset(item)" />
+                    </template>
+                  </div>
                 </w-item-section>
               </w-item>
             </w-list>
@@ -264,6 +313,12 @@ import { fileSave } from 'browser-fs-access'
 import { dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import {
+  renameFileName,
+  sanitizeBaseName,
+  splitBaseName,
+  validateBaseName
+} from '@/helpers/pendingAssetRename'
 
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -301,6 +356,19 @@ const menuPendingAssets = ref(null)
 const exportingPdf = ref(false)
 
 /**
+ * The pending asset currently being renamed (OpenProject #878), by `id` -- null when none is. Only
+ * one row can be in edit mode at a time, so this and the two refs below are enough state for the
+ * whole list rather than something tracked per item.
+ */
+const editingAssetId = ref(null)
+
+/** The base name (no extension) as currently typed, for the item `editingAssetId` points at. */
+const renameDraft = ref('')
+
+/** That item's fixed extension, carried alongside the draft purely to build the `w-input` suffix. */
+const renameExt = ref('')
+
+/**
  * File extension + MIME for the two formats fetched as text. Kept bare of a `;charset=` parameter:
  * the save picker uses this as an `accept` key and rejects a type carrying one, and a Blob built from
  * a JS string is UTF-8 regardless -- the same fetch-then-`fileSave` pattern the now-retired
@@ -322,6 +390,10 @@ const EXPORT_PDF_TIMEOUT = 90 * 1000
 // COMPUTED
 
 const hasPendingAssets = computed(() => editorStore.pendingAssets?.length > 0)
+
+/** `w-input`'s trailing suffix for the rename field -- null (nothing rendered) for the rare pending
+ *  asset with no extension at all, rather than a bare dot. */
+const renameSuffix = computed(() => (renameExt.value ? `.${renameExt.value}` : null))
 
 /**
  * Whether the page this rail is for is a redirection — one being read, edited or created alike, since
@@ -536,6 +608,52 @@ function removePendingAsset(item) {
   if (editorStore.pendingAssets.length < 1) {
     menuPendingAssets.value.hide()
   }
+}
+
+/**
+ * `w-input`'s `rules` callback for the rename field -- run against the same sanitize/validate pair
+ * `commitRenamePendingAsset` uses, so what the field flags as invalid while typing is exactly what
+ * would be rejected on commit.
+ */
+function renameBaseNameRule(value) {
+  return validateBaseName(sanitizeBaseName(value)) ?? true
+}
+
+function startRenamePendingAsset(item) {
+  const { base, ext } = splitBaseName(item.fileName)
+  editingAssetId.value = item.id
+  renameDraft.value = base
+  renameExt.value = ext
+}
+
+function cancelRenamePendingAsset() {
+  editingAssetId.value = null
+  renameDraft.value = ''
+  renameExt.value = ''
+}
+
+/**
+ * Commits the rename to `editorStore.pendingAssets` directly on the matching item -- there is no
+ * server round-trip: `UploadPendingAssetsDialog.vue` reads `item.fileName` only when the page is
+ * actually saved, so this is purely local state until then.
+ *
+ * Bound to the field's own blur as well as the confirm button's click, matching the app's existing
+ * convention for a field committed on blur (see `onEditableBlur` on the page title). The confirm and
+ * cancel buttons carry `@mousedown.prevent` so clicking either leaves the field focused rather than
+ * blurring it first -- without that, a click on Cancel would commit the very edit it meant to
+ * discard before its own handler ever ran. An invalid draft (sanitizes down to empty) is left as-is,
+ * still editing, with `renameBaseNameRule` already showing why on the field itself.
+ */
+function commitRenamePendingAsset(item) {
+  if (editingAssetId.value !== item.id) {
+    return
+  }
+  const result = renameFileName(item.fileName, renameDraft.value)
+  if (!result.ok) {
+    return
+  }
+  item.fileName = result.fileName
+  cancelRenamePendingAsset()
 }
 </script>
 
