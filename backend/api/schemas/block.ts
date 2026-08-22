@@ -48,8 +48,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       elementTag: {
         type: 'string',
-        description:
-          'The custom element this block renders as. `block-{block}` for a built-in and for a custom block with no override.'
+        description: 'The custom element this block renders as — always `block-{block}`.'
       },
       props: {
         type: 'array',

@@ -57,7 +57,7 @@ export interface SiteBlock {
   configFields: BlockProp[]
   props: BlockProp[]
   template: string
-  /** The custom element name this block renders as. `block-{block}` unless overridden. */
+  /** The custom element name this block renders as -- always `block-{block}`. */
   elementTag: string
 }
 
@@ -74,8 +74,7 @@ const blockSelection = {
   //    names so `getSiteBlocks()` below can pick a source (this row, or the manifest) per block
   //    without a built-in's empty defaults colliding with the field names it maps them onto.
   customProps: blocksTable.props,
-  customTemplate: blocksTable.template,
-  customElementTag: blocksTable.elementTag
+  customTemplate: blocksTable.template
 }
 
 /**
@@ -294,37 +293,36 @@ class Blocks {
       deployed, with nothing to migrate.
 
       A custom block has no manifest entry — it is not installed code, it is what was uploaded — so it
-      sources `props`/`template`/`elementTag` from its own row instead, written when it was
-      uploaded/edited, and reports no `configFields` at all: the admin-config-field-schema concept only
-      applies to a block with a manifest to declare one, so a custom block's `config` is written as
-      given (see `sanitizeConfig()` below).
+      sources `props`/`template` from its own row instead, written when it was uploaded/edited, and
+      reports no `configFields` at all: the admin-config-field-schema concept only applies to a block
+      with a manifest to declare one, so a custom block's `config` is written as given (see
+      `sanitizeConfig()` below). `elementTag` is always `block-{block}` for both kinds — a custom
+      block's upload is rejected (`api/blocks.ts`) unless its code actually registers that exact tag,
+      so there is no override to source from a row.
     */
     type RawRow = SiteBlock & {
       customProps: BlockProp[]
       customTemplate: string
-      customElementTag: string
     }
-    return (results as RawRow[]).map(
-      ({ customProps, customTemplate, customElementTag, ...row }) => {
-        if (row.isCustom) {
-          return {
-            ...row,
-            props: customProps ?? [],
-            configFields: [],
-            template: customTemplate ?? '',
-            elementTag: customElementTag || `block-${row.block}`
-          }
-        }
-        const definition = this.definitions.find((d) => d.block === row.block)
+    return (results as RawRow[]).map(({ customProps, customTemplate, ...row }) => {
+      if (row.isCustom) {
         return {
           ...row,
-          props: definition?.props ?? [],
-          configFields: definition?.config ?? [],
-          template: definition?.template ?? '',
+          props: customProps ?? [],
+          configFields: [],
+          template: customTemplate ?? '',
           elementTag: `block-${row.block}`
         }
       }
-    )
+      const definition = this.definitions.find((d) => d.block === row.block)
+      return {
+        ...row,
+        props: definition?.props ?? [],
+        configFields: definition?.config ?? [],
+        template: definition?.template ?? '',
+        elementTag: `block-${row.block}`
+      }
+    })
   }
 
   /**
@@ -544,7 +542,7 @@ class Blocks {
         configFields: [],
         props: (row!.props as BlockProp[]) ?? [],
         template: row!.template,
-        elementTag: row!.elementTag || `block-${row!.block}`
+        elementTag: `block-${row!.block}`
       }
     })
   }

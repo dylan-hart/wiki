@@ -132,6 +132,58 @@ customElements.define('block-widget', BlockWidget)
     assert.equal(createCustomBlockCalls.length, 0)
   })
 
+  /*
+    OpenProject #967: the `block` in the definition is a promise about the element the code will
+    actually register (`<block-{block}>`) — nothing before this check confirmed the uploaded source
+    kept that promise, so a mismatched define() call was accepted and rendered nothing on every page
+    using it.
+  */
+  test('400s with a specific message when define() registers a tag other than block-{block}', async () => {
+    const mismatched = `
+export class BlockWidget extends HTMLElement {
+  static definition = {
+    block: 'widget',
+    name: 'Widget',
+    description: 'A test widget.',
+    icon: 'mdi:cube'
+  }
+}
+customElements.define('block-something-else', BlockWidget)
+`
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/blocks`,
+      payload: Buffer.from(mismatched),
+      headers: { 'content-type': 'text/javascript' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /block-something-else/)
+    assert.match(res.json().message, /block-widget/)
+    assert.equal(createCustomBlockCalls.length, 0)
+  })
+
+  test('400s with a specific message when the source never calls customElements.define() at all', async () => {
+    const noDefine = `
+export class BlockWidget extends HTMLElement {
+  static definition = {
+    block: 'widget',
+    name: 'Widget',
+    description: 'A test widget.',
+    icon: 'mdi:cube'
+  }
+}
+`
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/blocks`,
+      payload: Buffer.from(noDefine),
+      headers: { 'content-type': 'text/javascript' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /customElements\.define/)
+    assert.equal(createCustomBlockCalls.length, 0)
+  })
+
   test('409s when the tag is already taken, without registering the block', async () => {
     isTagTakenResult = true
     const res = await app.inject({

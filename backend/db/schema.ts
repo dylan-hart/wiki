@@ -291,9 +291,6 @@ export const blocks = pgTable(
     // -> Body the editor writes between the opening and closing lines, for a custom block whose
     //    content is other blocks. Empty for one that takes none.
     template: text().notNull().default(''),
-    // -> Overrides the `block-{block}` element name a custom component's code actually registers
-    //    itself under. Empty string means no override — render as `block-{block}` like a built-in.
-    elementTag: varchar({ length: 255 }).notNull().default(''),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
