@@ -16,7 +16,7 @@
  */
 
 import type { LocaleRoutingConfig } from './common.ts'
-import { stripLocalePrefix } from './common.ts'
+import { matchLocaleCode, stripLocalePrefix } from './common.ts'
 
 const HTML_TAG_PATTERN = /<html\b[^>]*>/i
 
@@ -57,9 +57,7 @@ export function resolveAppShellLocale(
   const primary = locales?.primary ?? 'en'
   if (urlPath.startsWith('/_')) {
     const candidate = search ? new URLSearchParams(search).get('locale') : null
-    const match = candidate
-      ? locales?.active?.find((code) => code.toLowerCase() === candidate.toLowerCase())
-      : null
+    const match = candidate ? matchLocaleCode(candidate, locales?.active) : null
     return match ?? primary
   }
   return stripLocalePrefix(urlPath, locales)?.locale ?? primary

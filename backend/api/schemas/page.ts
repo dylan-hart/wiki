@@ -113,6 +113,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       locale: {
         type: 'string',
+        minLength: 1,
         maxLength: 10,
         description: "The site's primary locale when absent."
       },

@@ -107,6 +107,7 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: "The site's primary locale when absent."
             }

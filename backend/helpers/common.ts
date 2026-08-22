@@ -251,6 +251,33 @@ export interface LocaleRoutingConfig {
 }
 
 /**
+ * The locale content belongs to when a request does not say.
+ *
+ * A site always has a primary locale, and an instance that never turned locales on has exactly that
+ * one — so this is the answer for most requests rather than a fallback. The single source for what
+ * used to be three separately-maintained copies (`api/tree.ts`, `api/pages.ts`,
+ * `models/pages.ts#defaultLocale`).
+ */
+export function defaultLocale(siteId: string): string {
+  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
+}
+
+/**
+ * Find a candidate locale code's canonically-cased form within a site's active list, matching
+ * case-insensitively. A link or query string can carry a code in any casing (`/FR/page`,
+ * `?locale=FR`), but everything downstream — storage, comparison, the path a redirect lands on —
+ * works off the casing `active` itself stores, never the request's own. Returns null when nothing
+ * in `active` matches.
+ */
+export function matchLocaleCode(candidate: string, active?: string[] | null): string | null {
+  if (!active || active.length < 1) {
+    return null
+  }
+  const lower = candidate.toLowerCase()
+  return active.find((code) => code.toLowerCase() === lower) ?? null
+}
+
+/**
  * Split the recognized leading locale segment off a URL path.
  *
  * A locale-prefixed URL (`/fr/some/page`) and an ordinary one (`/some/page`) are the same shape —
@@ -277,7 +304,7 @@ export function stripLocalePrefix(
   if (!firstSegment) {
     return null
   }
-  const match = locales.active.find((code) => code.toLowerCase() === firstSegment.toLowerCase())
+  const match = matchLocaleCode(firstSegment, locales.active)
   if (!match) {
     return null
   }

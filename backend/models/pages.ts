@@ -2,6 +2,7 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
+  defaultLocale,
   generatePathHash,
   normalizePagePath,
   timingSafeCompare
@@ -437,7 +438,7 @@ class Pages {
     } else if (hash) {
       conditions.push(eq(pagesTable.hash, hash))
       // -> A path is only unique within a locale, so without one this could match more than one page
-      conditions.push(eq(pagesTable.locale, locale ?? this.defaultLocale(siteId)))
+      conditions.push(eq(pagesTable.locale, locale ?? defaultLocale(siteId)))
     } else {
       return null
     }
@@ -606,12 +607,12 @@ class Pages {
         400
       )
     }
-    const locale = input.locale || this.defaultLocale(siteId)
+    const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
     //    into a locale that no longer exists
     const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-      this.defaultLocale(siteId)
+      defaultLocale(siteId)
     ]
     if (!activeLocales.includes(locale)) {
       throw new CustomError(
@@ -1130,7 +1131,7 @@ class Pages {
     //    may end up, whether by being created there or by being moved there
     if (destLocale !== page.locale) {
       const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-        this.defaultLocale(siteId)
+        defaultLocale(siteId)
       ]
       if (!activeLocales.includes(destLocale)) {
         throw new CustomError(
@@ -1512,13 +1513,6 @@ class Pages {
         })
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
-  }
-
-  /**
-   * The locale a page belongs to when the request does not say.
-   */
-  private defaultLocale(siteId: string): string {
-    return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
   }
 
   /**

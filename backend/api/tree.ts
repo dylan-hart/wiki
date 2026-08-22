@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath } from '../helpers/common.ts'
+import { decodeTreePath, defaultLocale } from '../helpers/common.ts'
 import { actorFrom } from './pages.ts'
 
 interface TreeQuery {
@@ -24,16 +24,6 @@ interface FolderBody {
   pathName: string
   title: string
   locale?: string
-}
-
-/**
- * The locale content belongs to when the request does not say.
- *
- * A site always has a primary locale, and an instance that never turned locales on has exactly that
- * one — so this is the answer for most requests rather than a fallback.
- */
-function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -419,10 +409,11 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
+      const locale = req.query.locale ?? defaultLocale(req.params.siteId)
       const pages = await WIKI.models.tree.listPages({
         siteId: req.params.siteId,
         path: req.query.path,
-        locale: req.query.locale ?? defaultLocale(req.params.siteId),
+        locale,
         tags: splitList(req.query.tags),
         limit: req.query.limit,
         orderBy: req.query.orderBy,
@@ -437,7 +428,7 @@ async function routes(app: FastifyInstance) {
         WIKI.models.groups.checkAccess(actor, 'read:pages', {
           path: page.path,
           siteId: req.params.siteId,
-          locale: req.query.locale ?? defaultLocale(req.params.siteId)
+          locale
         })
       )
     }

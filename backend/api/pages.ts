@@ -8,7 +8,12 @@ import {
   SUPPORTED_IMPORT_FORMATS
 } from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
-import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
+import {
+  defaultLocale,
+  generatePathHash,
+  guardSiteEnabled,
+  normalizePagePath
+} from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
@@ -24,16 +29,6 @@ import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
-}
-
-/**
- * The locale content belongs to when the request does not say.
- *
- * Mirrors `api/tree.ts`'s own copy — a site always has a primary locale, so this is the answer for
- * most requests rather than a fallback.
- */
-function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -836,6 +831,7 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: "The site's primary locale when absent."
             }
@@ -912,6 +908,7 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: "The site's primary locale when absent."
             }
