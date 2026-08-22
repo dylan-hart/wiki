@@ -388,8 +388,22 @@ separate transpile or worker config.
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
-  oxlint and oxfmt cover them the same way. `test/` itself is the one exception, reserved for shared
-  fixture code that is not itself a `*.test.ts` — see below.
+  oxlint and oxfmt cover them the same way. `test/` holds shared fixture code that is not itself a
+  `*.test.ts` (`db.ts`, `mocks.ts`, …), plus two narrow categories of test that genuinely have no
+  single co-located home: a DB-backed round trip spanning more than one source file rather than
+  unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
+  `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
+  this one is the real round trip between them), and a structural/self-consistency check against a
+  repo-root doc or CI config with no backend-workspace file to sit next to at all
+  (`changelog.test.ts` against `cliff.toml`, `release-checklist-doc.test.ts` against
+  `docs/release-checklist.md`, `release-workflow.test.ts` against `.github/workflows/build.yml` AND
+  `release.yml` together, `releasing-doc.test.ts` against `docs/versioning.md` — none of those
+  subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
+  this workspace). A test file that genuinely does have one specific co-located sibling belongs next
+  to it, not here — three such near-namesake pairs (`test/api/sites.test.ts` vs. `api/sites.test.ts`,
+  `test/core/config.test.ts` vs. `core/config.test.ts`, `test/core/scheduler.test.ts` vs.
+  `core/scheduler.test.ts`) existed as discovery hazards until this pass confirmed each co-located
+  file already fully superseded its `test/` namesake and deleted the redundant copy.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
@@ -535,8 +549,10 @@ would.
   different DOM emulator.
 - **File convention: co-located `component.test.js`**, matching the `*.test.ts` / `*.test.js`
   convention in `backend/` and `frontend/` — `block-gallery/component.js` →
-  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `*/component.test.js`
-  accordingly.
+  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `**/*.test.js`, wide enough to
+  also discover a future `shared/theme.test.js` or `shared/url-limit.test.js` (`shared/`'s
+  `url-limit.js`, `config.js`, `icons.js`, `theme.js` currently have no test coverage at all) — a
+  narrower `*/component.test.js` could only ever match inside a `block-*/` directory.
 - **Mounting pattern** — a block reads its content from the *light* DOM (the markdown body becomes its
   children before Lit ever renders), so a test builds that shape directly rather than passing props:
   ```js
