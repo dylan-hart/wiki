@@ -122,7 +122,12 @@ export function parseFrontMatter(raw: string): ParsedFrontMatter {
 
   let data: unknown
   try {
-    data = load(match[1])
+    // -> `maxAliases: 0` (js-yaml's default is -1, unlimited) refuses any `*alias` reference outright
+    //    rather than merely capping it: this header is user-uploaded, untrusted content, and a
+    //    legitimate title/description/tags block never needs YAML anchors/aliases at all, so there is
+    //    no reason to allow the "billion laughs" shape (a handful of nested anchors expanding to
+    //    millions of elements) any budget to begin with.
+    data = load(match[1], { maxAliases: 0 })
   } catch {
     return { content: raw }
   }

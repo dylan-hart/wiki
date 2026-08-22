@@ -228,6 +228,25 @@ describe('page import (markdown pass-through)', () => {
     assert.equal(result.markdown, '# Body\n\nContent here.\n')
   })
 
+  test('strips a leading UTF-8 BOM before parsing front matter (Windows-exported files)', async () => {
+    const source = '﻿' + ['---', 'title: BOM Page', '---', '', 'Body.\n'].join('\n')
+
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from(source, 'utf8')
+    })
+    assert.equal(result.title, 'BOM Page')
+    assert.equal(result.markdown, 'Body.\n')
+  })
+
+  test('strips a leading UTF-8 BOM even with no front matter present', async () => {
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from('﻿# Hello\n\nJust a page.\n', 'utf8')
+    })
+    assert.deepEqual(result, { markdown: '# Hello\n\nJust a page.\n' })
+  })
+
   test('refuses an empty file', async () => {
     await assert.rejects(
       pageImport.convertToMarkdown({ format: 'markdown', data: Buffer.alloc(0) }),

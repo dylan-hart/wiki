@@ -148,7 +148,14 @@ class Import {
     }
 
     if (format === 'markdown') {
-      const text = data.toString('utf8')
+      // -> A UTF-8 BOM (U+FEFF) is common on files exported from Windows tools (Obsidian, Notepad)
+      //    but isn't part of the content: left in, it sits ahead of the leading `---` and silently
+      //    defeats `parseFrontMatter`'s anchored match, so the whole front-matter block would be
+      //    imported as literal page text instead of being split off.
+      let text = data.toString('utf8')
+      if (text.charCodeAt(0) === 0xfeff) {
+        text = text.slice(1)
+      }
       if (!text.trim()) {
         throw new CustomError('importNoContent', 'This file has no content to import.', 400)
       }

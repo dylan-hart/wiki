@@ -139,9 +139,13 @@ export const useSiteStore = defineStore('site', {
     /*
       Whether an optional, system-wide extension is installed -- key -> boolean, from
       `GET system/extensions/status`. Unlike `editors` above, this has nothing to do with any one
-      site's config: it is what gates a feature that needs a tool this instance may not have, e.g.
-      `pandoc` for the page-import menu item. Fetched lazily via `fetchExtensionsStatus`, same
-      cached-until-asked-again shape as `tags` / `tagsLoaded` below.
+      site's config: it is what gates a feature that needs a tool this instance may not have.
+      `PageNewMenu.vue`'s page-import item was the original caller but no longer needs it (OpenProject
+      #1092: `format: 'markdown'` needs no Pandoc extension, and every other format is now gated at
+      conversion time instead of at menu-render time) -- kept here as the general-purpose presence
+      check `GET system/extensions/status` itself is documented as (task 668), for the next feature
+      that needs to ask. Fetched lazily via `fetchExtensionsStatus`, same cached-until-asked-again
+      shape as `tags` / `tagsLoaded` below.
     */
     extensionsStatus: {},
     extensionsStatusLoaded: false,

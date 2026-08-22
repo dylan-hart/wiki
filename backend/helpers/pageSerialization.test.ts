@@ -151,4 +151,19 @@ describe('parseFrontMatter', () => {
     const parsed = parseFrontMatter('---\ntitle: T\ntags:\n  - 1\n  - 2\n---\n\nBody.')
     assert.equal(parsed.tags, undefined)
   })
+
+  test('falls back to the raw text rather than expanding a YAML alias bomb ("billion laughs")', () => {
+    // -> A handful of nested anchors, each referencing the previous one nine times: unbounded, this
+    //    expands to 9^8 (~43M) leaf elements from a header a few hundred bytes long. `load` is called
+    //    with `maxAliases: 0`, so the first `*a0` reference throws before any of that expansion runs.
+    const raw =
+      '---\n' +
+      'a0: &a0 [x,x,x,x,x,x,x,x,x]\n' +
+      'a1: &a1 [*a0,*a0,*a0,*a0,*a0,*a0,*a0,*a0,*a0]\n' +
+      'a2: &a2 [*a1,*a1,*a1,*a1,*a1,*a1,*a1,*a1,*a1]\n' +
+      '---\n\nBody.'
+    const parsed = parseFrontMatter(raw)
+    assert.equal(parsed.title, undefined)
+    assert.equal(parsed.content, raw)
+  })
 })
