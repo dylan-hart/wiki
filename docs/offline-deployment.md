@@ -19,13 +19,13 @@ without hand-editing `config.yml`:
   text before the file is YAML-parsed, exactly the same mechanism already used for `DB_HOST`,
   `LOG_LEVEL`, etc. in that file. Set `WIKI_OFFLINE=true` on the container and nothing else needs to
   change.
-- **Helm values.** `dev/helm/values.yaml`'s `offline` value (default `false`) is wired straight to
-  that same `WIKI_OFFLINE` env var in `templates/deployment.yaml`. Set `offline: true` in your values
-  override.
 
-2.5.x's flag was `config.yml`-only, which broke exactly this: a containerized or Helm-provisioned
-deployment where nobody hand-edits a file baked into the image. This closes that gap without adding a
-second flag or a migration — it is the same `offline` key, just reachable from more places.
+2.5.x's flag was `config.yml`-only, which broke exactly this: a containerized deployment where nobody
+hand-edits a file baked into the image. This closes that gap without adding a second flag or a
+migration — it is the same `offline` key, just reachable from more places. (The 2.x-era Helm chart
+that used to wire this same env var into a values override was deleted — see `docs/variances.md` —
+since this branch has no 3.x release yet for it to deploy; a future Helm chart written against an
+actual 3.x release should re-add the equivalent `values.yaml` stanza.)
 
 ## What `offline: true` gates
 
@@ -122,14 +122,14 @@ request reads from — see `models/locales.ts#getStrings`). What 3.0 was missing
   skipped }` — `skipped` names any file that failed JSON parsing or is missing a required field, so a
   bad drop is visible immediately rather than silently ignored.
 
-**Helm**: `dev/helm/values.yaml`'s `sideload.enabled`/`sideload.repoURL` stanza runs a git-clone
-`initContainer` that populates `/wiki/data/locales/` (i.e. `<dataPath>/locales/`) from a git repo of
-locale-pack JSON files before the app container starts — for a cluster where "the data volume" means
-"whatever the init container populated," not a person with `kubectl cp` access. The init container
-shares the chart's `volumeMounts`/`volumes` values with the main container, so a volume actually has
-to be mounted there (the same one backing the app's own persistent `<dataPath>`) for the clone to
-survive past the init container exiting — set `volumeMounts`/`volumes` alongside `sideload.enabled`,
-not just the latter on its own.
+**Helm**: the 2.x-era chart used to offer a `sideload.enabled`/`sideload.repoURL` stanza that ran a
+git-clone `initContainer` populating `/wiki/data/locales/` from a git repo of locale-pack JSON files
+before the app container started, for a cluster where "the data volume" means "whatever the init
+container populated," not a person with `kubectl cp` access. That chart was deleted (see
+`docs/variances.md` — no 3.x release exists yet for it to deploy); a future 3.x Helm chart should
+re-add the equivalent init-container stanza, sharing the chart's `volumeMounts`/`volumes` values with
+the main container so a volume is actually mounted there for the clone to survive past the init
+container exiting.
 
 ## What must be present before first boot
 

@@ -33,8 +33,9 @@ The backend is **TypeScript 7**; `frontend/` and `blocks/` are JavaScript. See
   `frontend/vite.config.js` in dev mode to learn the proxy target port.
 - `assets/` — **build output** of the frontend (`vite build` writes here), plus static assets under
   `assets/_assets/`. Served by the backend. Don't hand-edit.
-- `dev/` — deployment/packaging artifacts: `dev/build/Dockerfile` (production image), `dev/helm/`,
-  `dev/packer/`, `dev/noto-emoji-build/`.
+- `dev/` — deployment/packaging artifacts: `dev/build/Dockerfile` (production image),
+  `dev/noto-emoji-build/`. The 2.x-era Helm chart and Packer image builder were deleted (see
+  `docs/variances.md`) — there is no 3.x release yet for either to deploy.
 - `.devcontainer/` — VS Code dev container (app + postgres + pgAdmin via docker-compose).
 - `localazy.json` — translation sync config; locale strings live in `backend/locales/`.
 

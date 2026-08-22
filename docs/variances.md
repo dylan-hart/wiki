@@ -1331,3 +1331,31 @@ login — the highest-volume, most actionable case (credential stuffing, passwor
 covered; a follow-up work package should extend `login.failed` to the OAuth callback, `loginTFA()`,
 and passkey verification catches, following the same `actorFromRequest`-less, no-local-user shape the
 local-strategy failure site already uses (`{ id: null, name: <best available identifier>, ip }`).
+
+## 2.x-era Helm chart and Packer image builder deleted rather than modernized
+
+**Date:** 2026-08-22
+**Feature:** #977
+
+`dev/helm/` (Chart.yaml, values.yaml, templates/) and `dev/packer/` (digitalocean.json, scripts/),
+plus their `.github/workflows/helm.yml` and `packer.yml` triggers, were deleted rather than
+refreshed in place. All three currency problems the work package identified were real: the Helm
+chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in
+2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
+Packer image pinned `ubuntu-20-04-x64` (standard support ended April 2025) and Compose v1 (EOL July
+2023); both workflows still used `actions/checkout@v2` against current v7.
+
+Refreshing those pins would still leave both artifacts deploying a 2.x app shape this branch has
+already diverged from beyond repair (this fork explicitly carries no upgrade path from 2.x — see
+CLAUDE.md's opening section) — the chart's `templates/deployment.yaml` and the Packer scripts assume
+a container image and config surface that predates this rewrite. There is no 3.x release yet for
+either to build or deploy, so a version bump here would be reproducible tooling for a target that
+doesn't exist, not a working deployment path. Deleting removes two sets of EOL builders (Bitnami's
+deprecated chart repo, Compose v1, an unsupported Ubuntu LTS, `checkout@v2`'s deprecated runner) from
+the tree instead of leaving them to bit-rot further.
+
+`docs/offline-deployment.md`'s Helm-specific bullets (the `offline` values.yaml wiring and the
+locale-pack sideload init-container) were updated to describe the deleted chart's behavior in the
+past tense rather than left claiming a still-working feature. A future work package standing up a
+real 3.x Helm chart (once a 3.x release exists to package) should treat that file's two updated
+sections as the spec for what the chart's `values.yaml` needs to re-offer.
