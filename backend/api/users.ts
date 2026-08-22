@@ -1,5 +1,6 @@
 import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { UserPatch, UserProfilePatch } from '../models/users.ts'
 import type { KeyExpiration } from '../models/apiKeys.ts'
@@ -676,6 +677,15 @@ async function routes(app: FastifyInstance) {
         userId
       })
 
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.issued',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: id,
+        targetLabel: req.body.name,
+        detail: { personal: true, siteId: req.body.siteId ?? null }
+      })
+
       return {
         ok: true,
         message: 'Personal access token created successfully.',
@@ -736,6 +746,14 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.apiKeys.revokeKeyForUser(key.id, userId)
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.revoked',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: key.id,
+        targetLabel: key.name,
+        detail: { personal: true }
+      })
 
       return {
         ok: true,
@@ -1765,6 +1783,14 @@ async function routes(app: FastifyInstance) {
           groups: req.body.groups ?? [],
           mustChangePassword: req.body.mustChangePassword ?? false
         })
+        await WIKI.models.auditLog.record({
+          event: 'user.created',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: id,
+          targetLabel: req.body.email,
+          detail: { groups: req.body.groups ?? [] }
+        })
         return {
           ok: true,
           message: 'User created successfully.',
@@ -1967,6 +1993,18 @@ async function routes(app: FastifyInstance) {
         if (req.body.auth !== undefined) {
           await WIKI.models.users.setUserAuthFlags(req.params.userId, req.body.auth)
         }
+        await WIKI.models.auditLog.record({
+          event: 'user.updated',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email,
+          detail: {
+            changedFields: Object.keys(patch),
+            ...(req.body.groups !== undefined && { groups: req.body.groups }),
+            ...(req.body.auth !== undefined && { auth: Object.keys(req.body.auth) })
+          }
+        })
         return {
           ok: true,
           message: 'User updated successfully.'
@@ -2052,6 +2090,14 @@ async function routes(app: FastifyInstance) {
       if (!updated) {
         return reply.notFound('User does not exist.')
       }
+      const user = await WIKI.models.users.getById(req.params.userId)
+      await WIKI.models.auditLog.record({
+        event: 'user.passwordReset',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: req.params.userId,
+        targetLabel: user?.email ?? ''
+      })
       return {
         ok: true,
         message: 'User password updated successfully.'
@@ -2235,6 +2281,14 @@ async function routes(app: FastifyInstance) {
         rethrowAsBadRequest(err)
       }
 
+      await WIKI.models.auditLog.record({
+        event: 'user.tfaDisabledByAdmin',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email
+      })
+
       return {
         ok: true,
         message: '2FA invalidated successfully.'
@@ -2391,6 +2445,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.users.deleteUser(user.id)
+        await WIKI.models.auditLog.record({
+          event: 'user.deleted',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email
+        })
         return reply.code(204).send()
       } catch (err: any) {
         // -> Pages and assets reference users without a cascade, so a user who authored content

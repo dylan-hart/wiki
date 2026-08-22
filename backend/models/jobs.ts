@@ -60,6 +60,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '0 0 * * *',
     type: 'system'
   },
+  // -> Trims audit log entries older than the configured retention window (default
+  //    `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, admin-editable) -- see `tasks/simple/clean-audit-log.ts` /
+  //    `models/auditLog.ts#purge()`. Offset from the other midnight housekeeping jobs above.
+  {
+    task: 'cleanAuditLog',
+    cron: '35 0 * * *',
+    type: 'system'
+  },
   // -> Checks every pull/two-way storage target's schedule and queues a sync for whichever is due —
   //    a short cron since the comparison against each target's own interval happens inside the task
   //    itself, not here. See `tasks/simple/storage-sync-tick.ts` / `Storage.tickScheduledSyncs()`.

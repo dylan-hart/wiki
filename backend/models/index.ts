@@ -2,6 +2,7 @@ import { analytics } from './analytics.ts'
 import { apiKeys } from './apiKeys.ts'
 import { approvals } from './approvals.ts'
 import { assets } from './assets.ts'
+import { auditLog } from './auditLog.ts'
 import { authentication } from './authentication.ts'
 import { blockCredentials } from './blockCredentials.ts'
 import { blocks } from './blocks.ts'
@@ -48,6 +49,7 @@ export default {
   apiKeys,
   approvals,
   assets,
+  auditLog,
   authentication,
   blockCredentials,
   blocks,

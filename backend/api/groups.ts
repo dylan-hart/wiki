@@ -1,4 +1,5 @@
 import { CustomError } from '../helpers/common.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { GroupPatch, GroupRule, GroupWithUserCount } from '../models/groups.ts'
@@ -135,6 +136,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         const id = await WIKI.models.groups.createGroup(req.body.name)
+        await WIKI.models.auditLog.record({
+          event: 'group.created',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: id,
+          targetLabel: req.body.name
+        })
         return {
           ok: true,
           message: 'Group created successfully.',
@@ -346,6 +354,14 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.groups.updateGroup(group.id, patch)
+        await WIKI.models.auditLog.record({
+          event: 'group.updated',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: group.id,
+          targetLabel: patch.name ?? group.name,
+          detail: { changedFields: Object.keys(patch) }
+        })
         return {
           ok: true,
           message: 'Group updated successfully.'
@@ -410,6 +426,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.groups.deleteGroup(group.id)
+        await WIKI.models.auditLog.record({
+          event: 'group.deleted',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: group.id,
+          targetLabel: group.name
+        })
         return reply.code(204).send()
       } catch (err: any) {
         WIKI.logger.warn(err)
@@ -573,6 +596,15 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('User is already assigned to this group.')
       }
 
+      await WIKI.models.auditLog.record({
+        event: 'group.memberAdded',
+        actor: actorFromRequest(req),
+        targetType: 'group',
+        targetId: group.id,
+        targetLabel: group.name,
+        detail: { userId: user.id, userEmail: user.email }
+      })
+
       return {
         ok: true,
         message: 'User assigned to group successfully.'
@@ -649,6 +681,14 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.groups.unassignUserFromGroup(group.id, req.params.userId)
+      await WIKI.models.auditLog.record({
+        event: 'group.memberRemoved',
+        actor: actorFromRequest(req),
+        targetType: 'group',
+        targetId: group.id,
+        targetLabel: group.name,
+        detail: { userId: user?.id ?? req.params.userId, userEmail: user?.email ?? '' }
+      })
       return reply.code(204).send()
     }
   )

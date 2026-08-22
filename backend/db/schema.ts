@@ -81,6 +81,68 @@ export const apiKeys = pgTable(
   ]
 )
 
+// AUDIT LOG ----------------------------
+/**
+ * One row per instance-wide, permission-affecting event: user/group/permission changes, API key
+ * issuance and revocation, site settings edits, storage-target changes, and login history.
+ *
+ * Deliberately narrower than page history (`pageHistory` below) -- page content edits are already
+ * covered there, per page, and repeating them here would be a second copy of the same events with
+ * none of the diffing/restore machinery that makes the page-scoped table useful. This table answers
+ * "what happened on this wiki" instead of "what happened to this page".
+ *
+ * Append-only: nothing ever updates a row, and the only deletions are the retention job
+ * (`tasks/simple/clean-audit-log.ts`) trimming rows older than the configured window.
+ */
+export const auditLog = pgTable(
+  'auditLog',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /**
+     * `<subject>.<verb>`, e.g. `user.created`, `group.permissionsChanged`, `apiKey.issued`,
+     * `login.success`. A varchar rather than an enum, same reasoning as `pageHistory.action`: a new
+     * event kind should not need a migration. `models/auditLog.ts`'s `AUDIT_EVENTS` is the closed
+     * list callers are expected to use.
+     */
+    event: varchar({ length: 64 }).notNull(),
+    // -> Null once the account is gone, or for an event with no human actor (a scheduled job).
+    //    `set null` rather than `restrict`/`cascade`: a log entry survives its actor exactly the way
+    //    `pageHistory.authorId` does, for the same reason -- deleting a user must not be blocked by,
+    //    or take down, the record of what they once did.
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    // -> Snapshotted at write time, same reasoning as `pageHistory` keeping `locale`/`path`/`title`
+    //    as columns rather than joining live: a renamed or deleted account must not rewrite history
+    //    that already happened under the old name.
+    actorName: varchar({ length: 255 }).notNull().default(''),
+    actorIp: varchar({ length: 64 }).notNull().default(''),
+    // -> What kind of thing the event happened to -- `user`, `group`, `apiKey`, `site`,
+    //    `storageTarget` -- and its id/label at the time. Not a foreign key: several of those
+    //    target tables (`groups`, `apiKeys`, ...) have no stable reason to keep a row alive just
+    //    because it once appeared in a log, and a deleted group's history is exactly the case this
+    //    table exists to keep.
+    targetType: varchar({ length: 32 }).notNull().default(''),
+    targetId: varchar({ length: 255 }).notNull().default(''),
+    targetLabel: varchar({ length: 255 }).notNull().default(''),
+    // -> What changed, shaped per event -- e.g. `{ changedFields: [...] }` for an update, `{ groups:
+    //    [...] }` for a key issuance. Free-form the same way `pageHistory.meta` is, for the same
+    //    reason: a field added to the thing being logged should not need this table's shape to change.
+    detail: jsonb().notNull().default({}),
+    // -> Null for an event with no site context (user/group/apiKey management). Site settings and
+    //    storage-target changes are per-site, and a login happens against the site it was attempted
+    //    on, so those rows carry it.
+    siteId: uuid().references(() => sites.id, { onDelete: 'set null' }),
+    createdAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> The admin list's default view: newest first, across the whole instance
+    index('auditLog_createdAt_idx').on(table.createdAt),
+    // -> Filtering by actor or by event, the other two filters the admin list offers
+    index('auditLog_actorId_idx').on(table.actorId, table.createdAt),
+    index('auditLog_event_idx').on(table.event, table.createdAt),
+    index('auditLog_siteId_idx').on(table.siteId, table.createdAt)
+  ]
+)
+
 // APPROVAL RULES ----------------------
 /**
  * Which pages accept edit suggestions, who may submit them, and who reviews them.
