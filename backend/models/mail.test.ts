@@ -599,6 +599,23 @@ describe('mail template senders', () => {
       assert.doesNotMatch(msg.html, /https:\/\/\*\//)
     })
 
+    test('falls back to defaultBaseURL when the site has no hostname on record', async () => {
+      await mail.sendPageWatchDigest({
+        to: 'ada@example.com',
+        siteId: 'site-unresolvable',
+        items: [
+          {
+            page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+            action: 'updated',
+            changedFields: ['title'],
+            actorName: 'Bob'
+          }
+        ]
+      })
+      const msg = sendCalls[0]
+      assert.match(msg.html, /https:\/\/wiki\.example\.com\/docs\/getting-started/)
+    })
+
     test('several items each contribute their own line, in the given order', async () => {
       await mail.sendPageWatchDigest({
         to: 'ada@example.com',
