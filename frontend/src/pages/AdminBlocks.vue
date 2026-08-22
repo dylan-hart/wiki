@@ -316,7 +316,7 @@ const { t } = useI18n()
 // META
 
 useMeta({
-  title: t('admin.editors.title')
+  title: t('admin.blocks.title')
 })
 
 const state = reactive({

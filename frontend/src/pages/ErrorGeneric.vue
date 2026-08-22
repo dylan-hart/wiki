@@ -10,7 +10,7 @@
           v-if="error.showHomeBtn"
           push
           color="primary"
-          label="Go to home"
+          :label="t('common.error.goHome')"
           icon="la:home"
           to="/" />
         <w-btn
@@ -18,7 +18,7 @@
           v-if="error.showLoginBtn"
           push
           color="primary"
-          label="Login As..."
+          :label="t('common.error.loginAs')"
           icon="la:sign-in-alt"
           to="/login" />
       </div>
