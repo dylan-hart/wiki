@@ -22,6 +22,9 @@
           outlined
           v-model="state.secret"
           type="password"
+          revealable
+          :reveal-label="t('admin.blocks.credentialSecretReveal')"
+          :hide-label="t('admin.blocks.credentialSecretHide')"
           :autofocus="mode === 'rotate'"
           :label="t('admin.blocks.credentialSecret')"
           :hint="t('admin.blocks.credentialSecretHint')"

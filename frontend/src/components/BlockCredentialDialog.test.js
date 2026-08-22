@@ -155,6 +155,22 @@ describe('BlockCredentialDialog (mode: rotate)', () => {
     )
     expect(wrapper.emitted('ok')).toEqual([[undefined]])
   })
+
+  it('reveals and hides the secret via its reveal toggle (OpenProject #1098)', async () => {
+    const { wrapper } = await mountDialog({
+      mode: 'rotate',
+      credential: { id: 'cred-1', name: 'Weather API', allowedDomains: ['api.example.com'] }
+    })
+    const secretInput = wrapper.find('input')
+    expect(secretInput.attributes('type')).toBe('password')
+
+    const revealBtn = wrapper.find('[aria-label="admin.blocks.credentialSecretReveal"]')
+    expect(revealBtn.exists()).toBe(true)
+
+    await revealBtn.trigger('click')
+    expect(secretInput.attributes('type')).toBe('text')
+    expect(wrapper.find('[aria-label="admin.blocks.credentialSecretHide"]').exists()).toBe(true)
+  })
 })
 
 describe('BlockCredentialDialog (mode: domains)', () => {
