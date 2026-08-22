@@ -1,5 +1,4 @@
 import { LitElement, html, css } from 'lit'
-import { DarkMode } from '../shared/theme.js'
 
 /**
  * Hostnames Microsoft serves these embeds from. Deliberately the whole allow-list, checked as a
@@ -160,8 +159,6 @@ export class BlockM365VideoElement extends LitElement {
     this.embed = ''
     this.width = null
     this.height = null
-    // -> Puts `dark` on this element for the .error styles above to key off
-    this._darkMode = new DarkMode(this)
   }
 
   /** A prop given a usable number, or null for one left empty. */

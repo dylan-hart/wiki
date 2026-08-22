@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import './component.js'
 
@@ -51,6 +51,13 @@ describe('block-m365-video', () => {
 
   it('extracts the src from a snippet using single-quoted attributes', async () => {
     const snippet = `<iframe src='${STREAM_SRC}' allowfullscreen></iframe>`
+    const el = await mountPlayer(snippet)
+
+    expect(el.shadowRoot.querySelector('iframe').getAttribute('src')).toBe(STREAM_SRC)
+  })
+
+  it('extracts the src from a snippet whose attributes are split across line breaks', async () => {
+    const snippet = `<iframe\n  width="640"\n  height="360"\n  src="${STREAM_SRC}"\n  allowfullscreen></iframe>`
     const el = await mountPlayer(snippet)
 
     expect(el.shadowRoot.querySelector('iframe').getAttribute('src')).toBe(STREAM_SRC)
@@ -129,24 +136,5 @@ describe('block-m365-video', () => {
 
     const style = el.shadowRoot.querySelector('.player').getAttribute('style')
     expect(style).toContain('aspect-ratio: 16 / 9')
-  })
-
-  describe('dark mode', () => {
-    beforeEach(() => {
-      document.body.classList.remove('body--dark')
-    })
-
-    it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
-      document.body.classList.add('body--dark')
-      const el = await mountPlayer(STREAM_SRC)
-
-      expect(el.hasAttribute('dark')).toBe(true)
-
-      document.body.classList.remove('body--dark')
-      await new Promise((resolve) => queueMicrotask(resolve))
-      await el.updateComplete
-
-      expect(el.hasAttribute('dark')).toBe(false)
-    })
   })
 })
