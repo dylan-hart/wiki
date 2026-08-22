@@ -184,6 +184,15 @@
               <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
             </w-item>
             <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:sites`)">
+              <w-item-section avatar>
+                <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
+            </w-item>
+            <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/locale`"
               active-class="bg-primary text-white"
               v-if="maySeeLocale">
