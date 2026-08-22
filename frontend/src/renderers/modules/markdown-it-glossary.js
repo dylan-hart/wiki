@@ -44,6 +44,25 @@ export default function glossaryPlugin(md, options = {}) {
       }
       let tokens = blockToken.children
 
+      // -> Whether index `i` sits between a `link_open`/`link_close` pair, computed once per inline
+      //    block rather than per match. A term matched inside an author's own markdown link (`[REST
+      //    API docs](/x)` containing the term "API") still gets its tooltip, but must not also emit
+      //    a nested `<a>` -- nested anchors are invalid HTML, and browsers recover by closing the
+      //    outer link early, silently breaking the author's link (OpenProject #870).
+      let linkDepth = 0
+      const insideLink = tokens.map((token) => {
+        if (token.type === 'link_open') {
+          linkDepth++
+          return true
+        }
+        if (token.type === 'link_close') {
+          const wasInside = linkDepth > 0
+          linkDepth--
+          return wasInside
+        }
+        return linkDepth > 0
+      })
+
       // -> Scanned from the end for the same reason `markdown-it-abbr` does: splicing replacement
       //    nodes in at index `i` leaves every index before it untouched
       for (let i = tokens.length - 1; i >= 0; i--) {
@@ -51,6 +70,7 @@ export default function glossaryPlugin(md, options = {}) {
         if (currentToken.type !== 'text') {
           continue
         }
+        const suppressLink = insideLink[i]
 
         const text = currentToken.content
         pattern.lastIndex = 0
@@ -71,9 +91,10 @@ export default function glossaryPlugin(md, options = {}) {
             nodes.push(before)
           }
 
-          const tag = entry.link ? 'a' : 'abbr'
+          const asLink = entry.link && !suppressLink
+          const tag = asLink ? 'a' : 'abbr'
           const open = new state.Token('glossary_open', tag, 1)
-          open.attrs = entry.link
+          open.attrs = asLink
             ? [
                 ['href', entry.link],
                 ['title', entry.definition],

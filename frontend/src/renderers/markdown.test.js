@@ -390,6 +390,38 @@ describe('MarkdownRenderer - glossary terms (OpenProject #870)', () => {
     )
   })
 
+  it('does not nest an anchor inside an existing markdown link, even when the term has a canonical page', () => {
+    // -> Nested <a> tags are invalid HTML; browsers recover by closing the outer link early, which
+    //    would silently break the author's own link. The term still gets its tooltip via <abbr>
+    //    (OpenProject #870).
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        { term: 'API', definition: 'Application Programming Interface', link: '/en/dev/api' }
+      ]
+    })
+    const html = md.render('[Read the API docs](/manual)')
+
+    expect(html).toContain(
+      '<a href="/manual">Read the <abbr title="Application Programming Interface" class="glossary-term">API</abbr> docs</a>'
+    )
+    // -> The term's own href would have nested a second <a> inside the one above; confirms it was
+    //    suppressed rather than merely not asserted on
+    expect(html).not.toContain('href="/en/dev/api"')
+  })
+
+  it('still links a term to its canonical page when the match is plain text, not inside a link', () => {
+    const md = new MarkdownRenderer({
+      glossaryTerms: [
+        { term: 'API', definition: 'Application Programming Interface', link: '/en/dev/api' }
+      ]
+    })
+    const html = md.render('Read the API docs, then [see also](/manual).')
+
+    expect(html).toContain(
+      '<a href="/en/dev/api" title="Application Programming Interface" class="glossary-term">API</a>'
+    )
+  })
+
   it('prefers the longest matching term when two terms overlap the same span', () => {
     const md = new MarkdownRenderer({
       glossaryTerms: [
