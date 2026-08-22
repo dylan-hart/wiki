@@ -1,6 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extractBlockDefinition } from './blockDefinition.ts'
+import { extractBlockDefinition, extractDefinedElementTag } from './blockDefinition.ts'
 
 const WELL_FORMED = `
 import { LitElement, html } from 'lit'
@@ -231,5 +231,59 @@ describe('extractBlockDefinition', () => {
       return
     }
     assert.equal(result.definition.block, 'second')
+  })
+})
+
+describe('extractDefinedElementTag', () => {
+  test('finds a bare customElements.define call', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {}
+      customElements.define('block-widget', BlockWidget)
+    `
+    assert.equal(extractDefinedElementTag(source), 'block-widget')
+  })
+
+  test('finds a window.customElements.define call, the convention every block in this repo uses', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {}
+      window.customElements.define('block-widget', BlockWidget)
+    `
+    assert.equal(extractDefinedElementTag(source), 'block-widget')
+  })
+
+  test('returns null when the source registers no element at all', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {}
+    `
+    assert.equal(extractDefinedElementTag(source), null)
+  })
+
+  test('returns null when the tag argument is not a literal string', () => {
+    const source = `
+      const tag = 'block-widget'
+      export class BlockWidget extends HTMLElement {}
+      customElements.define(tag, BlockWidget)
+    `
+    assert.equal(extractDefinedElementTag(source), null)
+  })
+
+  test('returns null for unparseable source rather than throwing', () => {
+    assert.equal(extractDefinedElementTag('this is not valid javascript {{{'), null)
+  })
+
+  test('ignores a call to an unrelated .define method', () => {
+    const source = `
+      const registry = { define: () => {} }
+      registry.define('block-widget', class {})
+    `
+    assert.equal(extractDefinedElementTag(source), null)
+  })
+
+  test('returns the last top-level define call when more than one exists', () => {
+    const source = `
+      customElements.define('block-first', class {})
+      customElements.define('block-second', class {})
+    `
+    assert.equal(extractDefinedElementTag(source), 'block-second')
   })
 })

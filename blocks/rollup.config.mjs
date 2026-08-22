@@ -8,6 +8,22 @@ import commonjs from '@rollup/plugin-commonjs'
 
 import * as glob from 'glob'
 
+const IGNORED_DIRS = ['dist/**', 'node_modules/**']
+
+/**
+ * A path with every `\` turned into a `/`, regardless of platform.
+ *
+ * `glob.sync()` results and Rollup's module `id`s are not guaranteed to be `/`-separated -- on
+ * Windows they come back with the platform's own `\`, which every hardcoded `.split('/')` and
+ * `.endsWith('/component.js')` below silently never matched, mangling every block's output filename
+ * and leaving `blocks.manifest.json` a valid, empty `[]` with no error (confirmed against a real
+ * Windows build; see OpenProject #1109). A forward slash never appears inside a single Windows path
+ * segment, so this normalization is safe on every platform rather than being a Windows-only branch.
+ */
+function toPosix(filePath) {
+  return filePath.replaceAll('\\', '/')
+}
+
 /**
  * Turn an ESTree literal node into a plain JS value.
  *
@@ -120,16 +136,25 @@ function cssAsString() {
  */
 function blocksManifest() {
   const definitions = new Map()
+  // -> How many `block-*/component.js` files exist on disk, known independently of whatever
+  //    `transform()` below manages to collect -- generateBundle() compares the two, so a total
+  //    collection failure (this task's Windows bug, or a future one just like it) produces a build
+  //    error instead of a silently empty manifest.
+  let expectedBlockCount = 0
   return {
     name: 'blocks-manifest',
     buildStart() {
       definitions.clear()
+      expectedBlockCount = glob.sync('@(block-*)/component.js', { ignore: IGNORED_DIRS }).length
     },
     transform(code, id) {
-      if (!id.endsWith('/component.js')) {
+      // -> `path.basename`, not a hardcoded `.endsWith('/component.js')`: a Rollup module `id` uses
+      //    the platform's own separator, `\` on Windows, which a `/`-literal suffix check never
+      //    matches -- see `toPosix`'s doc comment above.
+      if (path.basename(id) !== 'component.js') {
         return null
       }
-      const blockDir = id.split('/').at(-2)
+      const blockDir = path.basename(path.dirname(id))
       const ast = this.parse(code)
       for (const node of ast.body) {
         const classNode = node.type === 'ExportNamedDeclaration' ? node.declaration : node
@@ -152,6 +177,15 @@ function blocksManifest() {
       return null
     },
     generateBundle() {
+      // -> A total collection failure looks identical to "there truly are no blocks" once it reaches
+      //    here -- the whole reason OpenProject #1109 took real back-and-forth to diagnose. Refusing
+      //    to emit a well-formed, empty manifest when block directories plainly exist on disk turns
+      //    that into a build error naming the actual problem instead.
+      if (definitions.size === 0 && expectedBlockCount > 0) {
+        this.error(
+          `Found ${expectedBlockCount} block-*/component.js file(s) on disk, but collected zero definitions from them -- blocks.manifest.json would be empty. This usually means the "static definition" extraction above never matched any of them; check transform()'s id handling before assuming there really are no blocks.`
+        )
+      }
       this.emitFile({
         type: 'asset',
         fileName: 'blocks.manifest.json',
@@ -160,8 +194,6 @@ function blocksManifest() {
     }
   }
 }
-
-const IGNORED_DIRS = ['dist/**', 'node_modules/**']
 
 /**
  * Copies the runtime data files a block's library fetches for itself into `compiled/<block>/`.
@@ -183,7 +215,9 @@ function blockAssets() {
     name: 'block-assets',
     buildStart() {
       for (const listPath of glob.sync('@(block-*)/assets.json', { ignore: IGNORED_DIRS })) {
-        const blockDir = listPath.split('/')[0]
+        // -> `glob.sync()`'s own result, not a module id -- same Windows-separator hazard as the
+        //    `input` map below and `blocksManifest()` above, so normalized the same way.
+        const blockDir = toPosix(listPath).split('/')[0]
         this.addWatchFile(listPath)
         const list = JSON.parse(fs.readFileSync(listPath, 'utf8'))
         for (const [source, destination] of Object.entries(list)) {
@@ -219,8 +253,17 @@ function blockAssets() {
 
 export default {
   input: Object.fromEntries([
+    /*
+      The entry NAME (this map's key) has to be just the block directory -- Rollup appends its own
+      `.js` on top of whatever name is given, so a name that is the whole mangled path (`fileParts[0]`
+      used to be the entire `\`-joined string on Windows, since `.split('/')` never split it) produced
+      an output file like `block-checklist\component.js.js` instead of `block-checklist.js`, which the
+      runtime loader never asks for. `file` itself -- the entry's VALUE, a real filesystem path Rollup
+      reads with `fs` -- is left in whatever form `glob.sync()` returned it in; only the name derived
+      from it needs normalizing.
+    */
     ...glob.sync('@(block-*)/component.js', { ignore: IGNORED_DIRS }).map((file) => {
-      const fileParts = file.split('/')
+      const fileParts = toPosix(file).split('/')
       return [fileParts[0], file]
     }),
     /*
@@ -232,7 +275,7 @@ export default {
       parser off the page's thread.
     */
     ...glob.sync('@(block-*)/worker.js', { ignore: IGNORED_DIRS }).map((file) => {
-      const fileParts = file.split('/')
+      const fileParts = toPosix(file).split('/')
       return [`${fileParts[0]}.worker`, file]
     })
   ]),

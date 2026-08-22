@@ -27,8 +27,13 @@ export class BlockCountdownElement extends LitElement {
         name: 'timezone',
         type: 'string',
         label: 'Timezone',
-        hint: "IANA name, e.g. Europe/Paris. The reader's own timezone when empty.",
-        default: 'UTC'
+        hint: "IANA name, e.g. Europe/Paris or UTC. Each reader's own timezone when left empty.",
+        // -> Not 'UTC': the picker never writes an attribute for a field left at its default value
+        //    (see `blockAttributes` in `frontend/src/helpers/blocks.js`), and empty is itself a
+        //    meaningful choice here -- "each reader's own clock" -- not merely the absence of one.
+        //    Defaulting to '' is what makes clearing the field actually reachable from the picker;
+        //    UTC remains available, just as something an author types rather than falls into.
+        default: ''
       },
       {
         name: 'label',
@@ -143,7 +148,8 @@ export class BlockCountdownElement extends LitElement {
       date: { type: String },
 
       /**
-       * IANA timezone the target is expressed in
+       * IANA timezone the target is expressed in. Empty means the reader's own timezone -- see
+       * `_target`'s `zone` resolution below.
        * @type {string}
        */
       timezone: { type: String },
@@ -169,7 +175,10 @@ export class BlockCountdownElement extends LitElement {
   constructor() {
     super()
     this.date = ''
-    this.timezone = 'UTC'
+    // -> '' (not 'UTC'): matches the prop's own default -- see its comment for why -- so a picker
+    //    that never wrote the attribute and a page loaded fresh both resolve to "the reader's own
+    //    timezone" identically.
+    this.timezone = ''
     this.label = ''
     this.expiredMsg = 'The countdown has ended.'
     this._remaining = null

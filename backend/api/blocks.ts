@@ -1,4 +1,4 @@
-import { extractBlockDefinition } from '../helpers/blockDefinition.ts'
+import { extractBlockDefinition, extractDefinedElementTag } from '../helpers/blockDefinition.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 /**
@@ -158,7 +158,7 @@ async function routes(app: FastifyInstance) {
       },
       schema: {
         summary: 'Upload a custom block',
-        description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another.`,
+        description: `The body is the block component's raw \`component.js\` source, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round((WIKI.config.security?.uploadMaxFileSize ?? 10485760) / 1024 / 1024)} MB. The declared \`Content-Type\` decides nothing: the source is parsed for a static \`definition\`, the same way the \`blocks/\` build itself does, and anything that fails to parse or whose definition is not plain literals is rejected with a message naming what was wrong.\n\nThe definition's \`block\` becomes this block's tag — the element it renders as is \`<block-{tag}>\` — and is checked against every other block already on this site, built-in or custom. A collision is rejected rather than silently letting one block shadow another. The source must itself call \`customElements.define("block-{tag}", ...)\` with that exact name; a mismatch is rejected too, since a block that does not register the tag it promises renders nothing on every page that uses it.`,
         tags: ['Blocks'],
         consumes: ['*/*'],
         params: {
@@ -208,6 +208,23 @@ async function routes(app: FastifyInstance) {
       const { definition } = result
       if (!definition.block || typeof definition.block !== 'string') {
         return reply.badRequest('component.js has no "block" tag in its static definition.')
+      }
+
+      /*
+        The definition's "block" promises the element renders as `block-{block}` (documented above,
+        and what the frontend's block loader and blockMarkdown()/findBlocks() hardcode) — but nothing
+        upstream of this actually confirms the uploaded code registers that tag. An upload whose
+        define() call names anything else is accepted silently otherwise, and then renders nothing on
+        every page it's used on, with no error anywhere.
+      */
+      const expectedTag = `block-${definition.block}`
+      const definedTag = extractDefinedElementTag(data.toString('utf8'))
+      if (definedTag !== expectedTag) {
+        return reply.badRequest(
+          definedTag
+            ? `component.js calls customElements.define("${definedTag}", ...), but its definition's "block" ("${definition.block}") requires it to register "${expectedTag}".`
+            : `component.js must call customElements.define("${expectedTag}", ...) to match its definition's "block" ("${definition.block}").`
+        )
       }
 
       if (await WIKI.models.blocks.isTagTaken(req.params.siteId, definition.block)) {

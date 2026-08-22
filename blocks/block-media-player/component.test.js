@@ -77,11 +77,14 @@ describe('block-media-player', () => {
     expect(el.shadowRoot.querySelector('source').getAttribute('type')).toBe('audio/ogg')
   })
 
-  it('sets an error message when the media element fails to load', async () => {
+  it('sets an error message when the source fails to load', async () => {
     const el = await mountPlayer('/files/missing.mp4')
-    const media = el.shadowRoot.querySelector('.media-display')
+    // -> A failed <source> candidate fires `error` at the source element itself, per the HTML
+    // resource-selection algorithm — it does not bubble to the media element. Reproduce that here
+    // rather than dispatching on `.media-display`, which passed even before the handler was moved.
+    const source = el.shadowRoot.querySelector('source')
 
-    media.dispatchEvent(new Event('error'))
+    source.dispatchEvent(new Event('error'))
     await el.updateComplete
 
     expect(el._error).toContain('/files/missing.mp4')
