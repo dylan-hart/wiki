@@ -1,0 +1,299 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+import { createI18n } from 'vue-i18n'
+
+import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
+import { useSiteStore } from '@/stores/site'
+import { queue as notifyQueue } from '@/composables/notify'
+
+/*
+  `WDialog` (and `WSelect`'s own `WMenu` popup) render through `<teleport to="body">`, so none of it
+  is a descendant of the component's own root -- `wrapper.find()` never sees it. Every query below
+  goes through the real `document.body` instead, wrapped the same way `@vue/test-utils` wraps its own
+  results. Mirrors `ImportPageDialog.test.js`'s own helper.
+*/
+function body() {
+  return new DOMWrapper(document.body)
+}
+
+async function mountDialog(props = {}) {
+  setActivePinia(createPinia())
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+  const wrapper = mount(ImportBatchPageDialog, {
+    props: { basePath: 'docs', ...props },
+    global: { plugins: [i18n] }
+  })
+  // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
+  //    panel -- everything this test interacts with -- exists only after that tick runs
+  await flushPromises()
+  return wrapper
+}
+
+async function selectFiles(files) {
+  const input = body().find('input[type="file"]')
+  Object.defineProperty(input.element, 'files', { value: files, writable: false })
+  await input.trigger('change')
+}
+
+/**
+ * Opens the one visible `w-select` (only one is ever on screen at a time in this dialog) and picks
+ * the option whose label matches. `optionText` is the raw i18n key, not translated prose — the test
+ * harness mounts with empty messages, so `t(key)` renders back the key itself.
+ */
+async function chooseSelectOption(optionText) {
+  await body().find('[role="combobox"]').trigger('click')
+  const option = body()
+    .findAll('[role="option"]')
+    .find((el) => el.text() === optionText)
+  await option.trigger('click')
+}
+
+beforeEach(() => {
+  notifyQueue.splice(0, notifyQueue.length)
+})
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
+
+describe('ImportBatchPageDialog', () => {
+  it('leaves Convert All disabled until files with a recognized extension are chosen', async () => {
+    await mountDialog()
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeDefined()
+
+    await selectFiles([
+      new File(['a'], 'one.docx', { type: 'application/octet-stream' }),
+      new File(['b'], 'two.docx', { type: 'application/octet-stream' })
+    ])
+
+    expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+  })
+
+  it('lists chosen files and lets one be removed before converting', async () => {
+    await mountDialog()
+    await selectFiles([
+      new File(['a'], 'one.docx', { type: 'application/octet-stream' }),
+      new File(['b'], 'two.docx', { type: 'application/octet-stream' })
+    ])
+
+    let rows = body().findAll('.w-item')
+    expect(rows).toHaveLength(2)
+
+    await rows[0].find('button').trigger('click')
+
+    rows = body().findAll('.w-item')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].text()).toContain('two.docx')
+  })
+
+  it('converts every file in one multipart request and shows a row per result', async () => {
+    const wrapper = await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        message: '1 of 2 file(s) converted successfully.',
+        results: [
+          { fileName: 'good.docx', ok: true, markdown: '# Good\n' },
+          { fileName: 'bad.docx', ok: false, message: 'This file could not be converted.' }
+        ]
+      })
+    })
+
+    await selectFiles([
+      new File(['a'], 'good.docx', { type: 'application/octet-stream' }),
+      new File(['b'], 'bad.docx', { type: 'application/octet-stream' })
+    ])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    const [url, opts] = globalThis.API_CLIENT.post.mock.calls[0]
+    expect(url).toBe('sites/site-1/pages/import/batch')
+    expect(opts.searchParams).toEqual({ format: 'docx', path: 'docs' })
+    expect(opts.body).toBeInstanceOf(FormData)
+    expect(opts.body.getAll('files')).toHaveLength(2)
+
+    const rows = body().findAll('.import-batch-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].text()).toContain('good.docx')
+    expect(rows[1].text()).toContain('bad.docx')
+    expect(rows[1].text()).toContain('This file could not be converted.')
+
+    // -> Convert-only: nothing is saved, and this dialog never hands content back like the
+    //    single-file one does -- it saves through the ordinary create-page endpoint itself instead.
+    expect(wrapper.emitted()).not.toHaveProperty('ok')
+  })
+
+  it('surfaces a failed batch-conversion request as a negative toast instead of advancing', async () => {
+    await mountDialog()
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      const err = new Error('Pandoc missing')
+      err.data = { message: 'Importing a page needs the Pandoc extension, which is not installed.' }
+      throw err
+    })
+
+    await selectFiles([new File(['a'], 'good.docx', { type: 'application/octet-stream' })])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+
+    expect(body().findAll('.import-batch-row')).toHaveLength(0)
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      caption: 'Importing a page needs the Pandoc extension, which is not installed.'
+    })
+  })
+
+  async function convertOneGoodFile() {
+    const wrapper = await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [{ fileName: 'good.docx', ok: true, markdown: '# Good\n' }]
+      })
+    })
+    await selectFiles([new File(['a'], 'good.docx', { type: 'application/octet-stream' })])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('saves a converted row through the ordinary create-page endpoint', async () => {
+    await convertOneGoodFile()
+
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/good' } })
+    })
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    const createCall = globalThis.API_CLIENT.post.mock.calls.at(-1)
+    expect(createCall[0]).toBe('sites/site-1/pages')
+    expect(createCall[1].json).toMatchObject({
+      editor: 'markdown',
+      path: 'docs/good',
+      title: 'good',
+      content: '# Good\n'
+    })
+    expect(body().find('.import-batch-row').text()).toContain('Saved')
+  })
+
+  it('one row failing to save does not stop the others (independent per-file progress)', async () => {
+    const wrapper = await mountDialog()
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        results: [
+          { fileName: 'first.docx', ok: true, markdown: '# First\n' },
+          { fileName: 'second.docx', ok: true, markdown: '# Second\n' }
+        ]
+      })
+    })
+    await selectFiles([
+      new File(['a'], 'first.docx', { type: 'application/octet-stream' }),
+      new File(['b'], 'second.docx', { type: 'application/octet-stream' })
+    ])
+    await body().find('.import-convert-btn').trigger('click')
+    await flushPromises()
+    void wrapper
+
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw new Error('database is unreachable')
+    })
+    globalThis.API_CLIENT.post.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p2', path: 'docs/second' } })
+    })
+
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    const rows = body().findAll('.import-batch-row')
+    expect(rows[0].text()).toContain('Failed')
+    expect(rows[0].text()).toContain('database is unreachable')
+    expect(rows[1].text()).toContain('Saved')
+  })
+
+  it("resolves a duplicate-path conflict by skipping the row when 'reject' is selected (the default)", async () => {
+    await convertOneGoodFile()
+
+    const conflict = new Error('A page already exists at this path.')
+    conflict.response = { status: 409 }
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw conflict
+    })
+
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    expect(body().find('.import-batch-row').text()).toContain('Failed')
+    // -> Only the one createPage attempt: 'reject' does not retry
+    expect(
+      globalThis.API_CLIENT.post.mock.calls.filter((c) => c[0] === 'sites/site-1/pages')
+    ).toHaveLength(1)
+  })
+
+  it("resolves a duplicate-path conflict by retrying under a '-1' suffix when 'new' is selected", async () => {
+    await convertOneGoodFile()
+    await chooseSelectOption('pages.importBatch.conflictNew')
+
+    const conflict = new Error('A page already exists at this path.')
+    conflict.response = { status: 409 }
+    globalThis.API_CLIENT.post
+      .mockImplementationOnce(() => {
+        throw conflict
+      })
+      .mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/good-1' } })
+      })
+
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    const createCalls = globalThis.API_CLIENT.post.mock.calls.filter(
+      (c) => c[0] === 'sites/site-1/pages'
+    )
+    expect(createCalls).toHaveLength(2)
+    expect(createCalls[1][1].json.path).toBe('docs/good-1')
+    expect(body().find('.import-batch-row').text()).toContain('Saved')
+  })
+
+  it("resolves a duplicate-path conflict by fetching and patching the existing page when 'overwrite' is selected", async () => {
+    await convertOneGoodFile()
+    await chooseSelectOption('pages.importBatch.conflictOverwrite')
+
+    const conflict = new Error('A page already exists at this path.')
+    conflict.response = { status: 409 }
+    globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+      throw conflict
+    })
+    globalThis.API_CLIENT.get.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ id: 'existing-1', updatedAt: '2026-01-01T00:00:00.000Z' })
+    })
+    globalThis.API_CLIENT.patch.mockReturnValueOnce({
+      json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'existing-1', path: 'docs/good' } })
+    })
+
+    await body().find('.import-batch-save-btn').trigger('click')
+    await flushPromises()
+
+    // -> Looked up by the hash of its (normalized) path, same as `pageStore.pageLoad()` does
+    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith(
+      expect.stringMatching(/^sites\/site-1\/pages\/[0-9a-f]+$/)
+    )
+    expect(globalThis.API_CLIENT.patch).toHaveBeenCalledWith(
+      'sites/site-1/pages/existing-1',
+      expect.objectContaining({
+        json: expect.objectContaining({
+          title: 'good',
+          content: '# Good\n',
+          expectedUpdatedAt: '2026-01-01T00:00:00.000Z'
+        })
+      })
+    )
+    expect(body().find('.import-batch-row').text()).toContain('Saved')
+  })
+})

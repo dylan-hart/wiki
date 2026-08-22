@@ -1,0 +1,602 @@
+<template>
+  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+    <w-card class="import-batch-page-dialog" style="width: 760px; max-width: 94vw">
+      <w-card-section class="card-header">
+        <w-icon name="img:/_assets/icons/fluent-document-in-folder.svg" size="sm" class="mr-2" />
+        <span>{{ t(`pages.importBatch.title`) }}</span>
+      </w-card-section>
+
+      <template v-if="state.step === `select`">
+        <w-card-section>
+          <p class="text-body2 text-grey mb-3">{{ t(`pages.importBatch.description`) }}</p>
+          <div
+            class="import-batch-dropzone rounded p-6 text-center"
+            :class="{ 'import-batch-dropzone--over': state.isDraggingOver }"
+            @dragenter.prevent="state.isDraggingOver = true"
+            @dragover.prevent
+            @dragleave.prevent="state.isDraggingOver = false"
+            @drop.prevent="onDrop">
+            <w-icon name="la:cloud-upload-alt" size="40px" class="mb-2" />
+            <div class="text-body2 mb-2">{{ t(`pages.importBatch.dropzoneLabel`) }}</div>
+            <w-btn
+              outline
+              color="primary"
+              no-caps
+              icon="la:folder-open"
+              :label="t(`common.actions.browse`)"
+              @click="pickFiles" />
+            <input
+              ref="fileIpt"
+              type="file"
+              multiple
+              style="display: none"
+              :accept="acceptExtensions"
+              @change="onFilesSelected" />
+          </div>
+
+          <w-list v-if="state.files.length" padding class="mt-3">
+            <w-item v-for="(file, idx) in state.files" :key="`${file.name}-${idx}`">
+              <w-icon name="la:file-alt" class="mr-2" />
+              <w-item-section>{{ file.name }}</w-item-section>
+              <w-btn
+                flat
+                dense
+                round
+                icon="mdi:close"
+                :aria-label="t(`common.actions.remove`)"
+                @click="removeFile(idx)" />
+            </w-item>
+          </w-list>
+
+          <w-select
+            v-model="state.format"
+            outlined
+            dense
+            class="mt-3"
+            :options="formatOptions"
+            map-options
+            emit-value
+            option-value="value"
+            option-label="label"
+            options-dense
+            hide-bottom-space
+            :label="t(`pages.import.format`)" />
+        </w-card-section>
+        <w-card-actions class="card-actions">
+          <w-space />
+          <w-btn
+            class="acrylic-btn"
+            flat
+            :label="t(`common.actions.cancel`)"
+            color="grey"
+            padding="xs md"
+            @click="onDialogCancel" />
+          <w-btn
+            class="import-convert-btn"
+            unelevated
+            color="primary"
+            padding="xs md"
+            :label="t(`pages.importBatch.convert`)"
+            :loading="state.converting"
+            :disable="!canConvert"
+            @click="convert" />
+        </w-card-actions>
+      </template>
+
+      <template v-else>
+        <w-card-section class="import-batch-page-dialog-review">
+          <w-banner
+            class="mb-3"
+            :class="allSaved ? 'bg-positive/10' : 'bg-black/5 dark:bg-white/10'">
+            {{ summaryLabel }}
+          </w-banner>
+
+          <w-select
+            v-model="state.conflictBehavior"
+            outlined
+            dense
+            class="mb-3"
+            :options="conflictOptions"
+            map-options
+            emit-value
+            option-value="value"
+            option-label="label"
+            options-dense
+            hide-bottom-space
+            :disable="state.saving"
+            :label="t(`pages.importBatch.conflictBehavior`)" />
+
+          <div
+            v-for="row in state.results"
+            :key="row.id"
+            class="import-batch-row rounded p-3 mb-2"
+            :class="rowClasses(row)">
+            <div class="flex items-center gap-2 mb-1">
+              <w-spinner v-if="row.saveStatus === `saving`" size="18px" />
+              <w-icon v-else :name="statusIcon(row)" :color="statusColor(row)" />
+              <span class="text-body2 font-medium truncate">{{ row.fileName }}</span>
+              <w-space />
+              <w-chip v-if="row.saveStatus !== 'pending'" :label="statusLabel(row)" dense />
+            </div>
+
+            <template v-if="row.ok">
+              <div class="flex flex-wrap gap-2">
+                <w-input
+                  v-model="row.title"
+                  outlined
+                  dense
+                  class="flex-1"
+                  hide-bottom-space
+                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :label="t(`pages.importBatch.pageTitle`)" />
+                <w-input
+                  v-model="row.path"
+                  outlined
+                  dense
+                  class="flex-1"
+                  hide-bottom-space
+                  :disable="row.saveStatus === `saving` || row.saveStatus === `saved`"
+                  :label="t(`pages.importBatch.destinationPath`)" />
+              </div>
+              <p v-if="row.saveMessage" class="text-caption text-negative mt-1">
+                {{ row.saveMessage }}
+              </p>
+            </template>
+            <p v-else class="text-caption text-negative">{{ row.convertMessage }}</p>
+          </div>
+        </w-card-section>
+        <w-card-actions class="import-batch-page-dialog-actions">
+          <w-btn
+            class="acrylic-btn"
+            flat
+            icon="la:arrow-left"
+            color="grey-5"
+            padding="xs md"
+            :disable="state.saving"
+            :label="t(`pages.import.back`)"
+            @click="backToSelect" />
+          <w-space />
+          <w-btn
+            class="acrylic-btn"
+            flat
+            :label="t(`common.actions.close`)"
+            color="grey-5"
+            padding="xs md"
+            @click="onDialogCancel" />
+          <w-btn
+            class="import-batch-save-btn"
+            unelevated
+            color="primary"
+            padding="xs md"
+            :label="t(`pages.importBatch.saveAll`)"
+            :loading="state.saving"
+            :disable="!canSaveAll"
+            @click="saveAll" />
+        </w-card-actions>
+      </template>
+    </w-card>
+  </w-dialog>
+</template>
+
+<script setup>
+import { computed, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { v4 as uuid } from 'uuid'
+import slugify from 'slugify'
+
+import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
+import { notify } from '@/composables/notify'
+import { apiErrorMessage } from '@/helpers/apiError'
+import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
+
+import { useSiteStore } from '@/stores/site'
+
+/**
+ * Pick several files in one of Pandoc's supported formats, convert them all in one request through
+ * `POST sites/:siteId/pages/import/batch` (OpenProject #849), then save each converted result as its
+ * own new page through the ordinary `POST sites/:siteId/pages` — the same endpoint the ordinary
+ * "New Page" flow uses. Unlike `ImportPageDialog.vue`, this dialog saves the pages itself rather than
+ * handing content back to a caller: opening N editors for N files is not a usable flow, so review and
+ * save both happen here, with each file's own progress and outcome shown independently.
+ */
+
+/** Kept in step by hand with `ImportPageDialog.vue`'s own copy — see that file's header comment. */
+const FORMATS = [
+  { value: 'mediawiki', label: 'MediaWiki' },
+  { value: 'textile', label: 'Textile' },
+  { value: 'docbook', label: 'DocBook' },
+  { value: 'rst', label: 'reStructuredText' },
+  { value: 'docx', label: 'Word Document (.docx)' },
+  { value: 'odt', label: 'OpenDocument Text (.odt)' }
+]
+
+const EXTENSION_FORMATS = {
+  wiki: 'mediawiki',
+  mediawiki: 'mediawiki',
+  textile: 'textile',
+  dbk: 'docbook',
+  docbook: 'docbook',
+  rst: 'rst',
+  docx: 'docx',
+  odt: 'odt'
+}
+
+/**
+ * The most files `convert()` will send in one request — matches the backend's own
+ * `MAX_IMPORT_BATCH_FILES` (`backend/models/import.ts`), kept in step by hand for the same reason
+ * `FORMATS` above is.
+ */
+const MAX_BATCH_FILES = 20
+
+/** How many `-1`, `-2`, ... suffixes the `new` conflict behavior will try before giving up on a row. */
+const MAX_PATH_ATTEMPTS = 25
+
+// PROPS
+
+const props = defineProps({
+  /** Where converted pages are saved by default, and what `write:pages` is checked against. */
+  basePath: {
+    type: String,
+    default: null
+  }
+})
+
+// EMITS
+
+defineEmits([...dialogComponentEmits])
+
+// DIALOG
+
+const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
+
+// STORES
+
+const siteStore = useSiteStore()
+
+// I18N
+
+const { t } = useI18n()
+
+// DATA
+
+const state = reactive({
+  step: 'select',
+  files: [],
+  format: null,
+  isDraggingOver: false,
+  converting: false,
+  saving: false,
+  conflictBehavior: 'reject',
+  results: []
+})
+
+const fileIpt = ref(null)
+
+// COMPUTED
+
+const formatOptions = computed(() => FORMATS)
+
+const conflictOptions = computed(() => [
+  { value: 'overwrite', label: t('pages.importBatch.conflictOverwrite') },
+  { value: 'reject', label: t('pages.importBatch.conflictReject') },
+  { value: 'new', label: t('pages.importBatch.conflictNew') }
+])
+
+const acceptExtensions = computed(() => `.${Object.keys(EXTENSION_FORMATS).join(',.')}`)
+
+const canConvert = computed(() => state.files.length > 0 && Boolean(state.format))
+
+const canSaveAll = computed(
+  () => !state.saving && state.results.some((r) => r.ok && r.saveStatus === 'pending')
+)
+
+const allSaved = computed(
+  () => state.results.length > 0 && state.results.every((r) => !r.ok || r.saveStatus === 'saved')
+)
+
+const summaryLabel = computed(() => {
+  const total = state.results.length
+  const converted = state.results.filter((r) => r.ok).length
+  const saved = state.results.filter((r) => r.saveStatus === 'saved').length
+  if (!state.saving && saved === 0) {
+    return t('pages.importBatch.summaryConverted', { converted, total })
+  }
+  return t('pages.importBatch.summarySaved', { saved, converted })
+})
+
+// METHODS
+
+function pickFiles() {
+  fileIpt.value?.click()
+}
+
+function addFiles(fileList) {
+  const room = MAX_BATCH_FILES - state.files.length
+  if (room <= 0) {
+    notify({
+      type: 'warning',
+      message: t('pages.importBatch.tooManyFiles', { max: MAX_BATCH_FILES })
+    })
+    return
+  }
+  const incoming = [...fileList].slice(0, room)
+  state.files.push(...incoming)
+  if (fileList.length > incoming.length) {
+    notify({
+      type: 'warning',
+      message: t('pages.importBatch.tooManyFiles', { max: MAX_BATCH_FILES })
+    })
+  }
+  // -> The batch shares one format, detected off the first file whose extension resolves to one --
+  //    later files are assumed to match, same as the single-file dialog's own auto-detect.
+  if (!state.format) {
+    for (const file of incoming) {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      const detected = ext ? EXTENSION_FORMATS[ext] : null
+      if (detected) {
+        state.format = detected
+        break
+      }
+    }
+  }
+}
+
+function onFilesSelected(ev) {
+  if (ev.target.files?.length) {
+    addFiles(ev.target.files)
+  }
+  ev.target.value = null
+}
+
+function onDrop(ev) {
+  state.isDraggingOver = false
+  const dropped = [...(ev.dataTransfer?.files ?? [])].filter((f) => f.size > 0)
+  if (dropped.length) {
+    addFiles(dropped)
+  }
+}
+
+function removeFile(idx) {
+  state.files.splice(idx, 1)
+}
+
+function backToSelect() {
+  state.step = 'select'
+  state.results = []
+}
+
+async function convert() {
+  if (!canConvert.value) {
+    return
+  }
+  state.converting = true
+  try {
+    const form = new FormData()
+    for (const file of state.files) {
+      form.append('files', file, file.name)
+    }
+    const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import/batch`, {
+      searchParams: {
+        format: state.format,
+        path: props.basePath || ''
+      },
+      body: form
+    }).json()
+
+    state.results = (resp?.results ?? []).map((item) => ({
+      id: uuid(),
+      fileName: item.fileName,
+      ok: Boolean(item.ok),
+      markdown: item.markdown ?? '',
+      convertMessage: item.message ?? '',
+      title: item.ok ? defaultTitle(item.fileName) : '',
+      path: item.ok ? defaultPath(item.fileName) : '',
+      saveStatus: item.ok ? 'pending' : 'skipped',
+      saveMessage: ''
+    }))
+    state.step = 'review'
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('pages.importBatch.convertFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+  state.converting = false
+}
+
+function defaultTitle(fileName) {
+  return fileName.replace(/\.[^.]+$/, '')
+}
+
+function defaultPath(fileName) {
+  const slug = slugify(defaultTitle(fileName), { lower: true, strict: true })
+  return [props.basePath, slug].filter(Boolean).join('/')
+}
+
+/** One `POST sites/:siteId/pages`, thrown as a plain Error on `{ ok: false }` even when ky itself did not throw (see `boot/api.js`'s 400 carve-out). */
+async function createPage(payload) {
+  const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages`, { json: payload }).json()
+  if (resp?.ok === false) {
+    throw new Error(resp.message || 'Failed to save the page.')
+  }
+  return resp.page
+}
+
+async function fetchExistingPage(path) {
+  const hash = pagePathHash(normalizePagePath(path))
+  return API_CLIENT.get(`sites/${siteStore.id}/pages/${hash}`).json()
+}
+
+async function overwriteExisting(row) {
+  const existing = await fetchExistingPage(row.path)
+  const resp = await API_CLIENT.patch(`sites/${siteStore.id}/pages/${existing.id}`, {
+    json: {
+      title: row.title,
+      content: row.markdown,
+      expectedUpdatedAt: existing.updatedAt
+    }
+  }).json()
+  if (resp?.ok === false) {
+    throw new Error(resp.message || 'Failed to save the page.')
+  }
+  return resp.page
+}
+
+/**
+ * Saves one row, resolving a duplicate-path (409) refusal per `state.conflictBehavior` — the same
+ * three-way choice the site's own asset-upload conflict setting offers (`uploads.conflictBehavior`,
+ * `AdminGeneral.vue`), applied here per file since page creation has no such site-wide setting of
+ * its own to read.
+ */
+async function saveRow(row) {
+  row.saveStatus = 'saving'
+  row.saveMessage = ''
+  try {
+    const page = await createPage({
+      editor: 'markdown',
+      path: row.path,
+      title: row.title,
+      content: row.markdown
+    })
+    row.path = page.path
+    row.saveStatus = 'saved'
+    return
+  } catch (err) {
+    if (err.response?.status !== 409) {
+      row.saveStatus = 'failed'
+      row.saveMessage = apiErrorMessage(err, 'Failed to save the page.')
+      return
+    }
+    // -> Falls through to the chosen conflict resolution below
+  }
+
+  if (state.conflictBehavior === 'reject') {
+    row.saveStatus = 'failed'
+    row.saveMessage = t('pages.importBatch.conflictRejectMessage')
+    return
+  }
+
+  if (state.conflictBehavior === 'overwrite') {
+    try {
+      const page = await overwriteExisting(row)
+      row.path = page.path
+      row.saveStatus = 'saved'
+    } catch (err) {
+      row.saveStatus = 'failed'
+      row.saveMessage = apiErrorMessage(err, 'Failed to save the page.')
+    }
+    return
+  }
+
+  // -> 'new': try successive `-1`, `-2`, ... suffixes until one is free
+  const basePath = row.path
+  for (let n = 1; n <= MAX_PATH_ATTEMPTS; n++) {
+    const attemptPath = `${basePath}-${n}`
+    try {
+      const page = await createPage({
+        editor: 'markdown',
+        path: attemptPath,
+        title: row.title,
+        content: row.markdown
+      })
+      row.path = page.path
+      row.saveStatus = 'saved'
+      return
+    } catch (err) {
+      if (err.response?.status !== 409) {
+        row.saveStatus = 'failed'
+        row.saveMessage = apiErrorMessage(err, 'Failed to save the page.')
+        return
+      }
+    }
+  }
+  row.saveStatus = 'failed'
+  row.saveMessage = t('pages.importBatch.conflictNewExhausted')
+}
+
+/** Sequential, not parallel: 'new' resolution retries against paths the previous row may just have taken, and a shared conflict-behavior setting is simplest to reason about one row at a time. */
+async function saveAll() {
+  state.saving = true
+  for (const row of state.results) {
+    if (row.ok && row.saveStatus === 'pending') {
+      await saveRow(row)
+    }
+  }
+  state.saving = false
+  const saved = state.results.filter((r) => r.saveStatus === 'saved').length
+  const failed = state.results.filter((r) => r.saveStatus === 'failed').length
+  if (failed === 0) {
+    notify({ type: 'positive', message: t('pages.importBatch.saveAllSuccess', { saved }) })
+  } else {
+    notify({
+      type: 'warning',
+      message: t('pages.importBatch.saveAllPartial', { saved, failed })
+    })
+  }
+}
+
+function statusIcon(row) {
+  if (!row.ok || row.saveStatus === 'failed') return 'mdi:alert-circle'
+  if (row.saveStatus === 'saved') return 'mdi:check-circle'
+  return 'la:file-alt'
+}
+
+function statusColor(row) {
+  if (!row.ok || row.saveStatus === 'failed') return 'negative'
+  if (row.saveStatus === 'saved') return 'positive'
+  return null
+}
+
+function statusLabel(row) {
+  if (row.saveStatus === 'saving') return t('pages.importBatch.statusSaving')
+  if (row.saveStatus === 'saved') return t('pages.importBatch.statusSaved')
+  if (row.saveStatus === 'failed') return t('pages.importBatch.statusFailed')
+  return ''
+}
+
+function rowClasses(row) {
+  return {
+    'import-batch-row--failed': !row.ok || row.saveStatus === 'failed',
+    'import-batch-row--saved': row.saveStatus === 'saved'
+  }
+}
+</script>
+
+<style lang="scss">
+.import-batch-page-dialog {
+  &-review {
+    max-height: 60vh;
+    overflow: auto;
+  }
+
+  &-actions {
+    background-color: $dark-3;
+    background-image: radial-gradient(at top left, $dark-3, $dark-5);
+    border-top: 1px solid #000;
+    box-shadow: 0 -1px 0 0 rgba(#fff, 0.06);
+    color: #fff;
+  }
+}
+
+.import-batch-dropzone {
+  border: 2px dashed rgba(0, 0, 0, 0.2);
+  transition: border-color 0.15s ease;
+
+  &--over {
+    border-color: $primary;
+  }
+}
+
+.import-batch-row {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+
+  &--failed {
+    border-color: rgba($negative, 0.4);
+  }
+
+  &--saved {
+    border-color: rgba($positive, 0.4);
+  }
+}
+</style>

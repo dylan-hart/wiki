@@ -5,7 +5,7 @@
   never waits on (or depends on) the icon service. Regenerate with `npm run icons` after adding or
   removing an icon; `check-icons.mjs` fails the build if this drifts.
 
-  276 icons.
+  277 icons.
 */
 export const BUNDLED_ICONS = {
   "la:angle-right": {"body":"<path fill=\"currentColor\" d=\"M12.969 4.281L11.53 5.72L21.812 16l-10.28 10.281l1.437 1.438l11-11l.687-.719l-.687-.719z\"/>","width":32,"height":32},
@@ -153,6 +153,7 @@ export const BUNDLED_ICONS = {
   "mdi:account-edit": {"body":"<path fill=\"currentColor\" d=\"m21.7 13.35l-1 1l-2.05-2.05l1-1a.55.55 0 0 1 .77 0l1.28 1.28c.21.21.21.56 0 .77M12 18.94l6.06-6.06l2.05 2.05L14.06 21H12zM12 14c-4.42 0-8 1.79-8 4v2h6v-1.89l4-4c-.66-.08-1.33-.11-2-.11m0-10a4 4 0 0 0-4 4a4 4 0 0 0 4 4a4 4 0 0 0 4-4a4 4 0 0 0-4-4\"/>","width":24,"height":24},
   "mdi:alert": {"body":"<path fill=\"currentColor\" d=\"M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2z\"/>","width":24,"height":24},
   "mdi:alert-box": {"body":"<path fill=\"currentColor\" d=\"M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2m8 10V7h-2v6zm0 4v-2h-2v2z\"/>","width":24,"height":24},
+  "mdi:alert-circle": {"body":"<path fill=\"currentColor\" d=\"M13 13h-2V7h2m0 10h-2v-2h2M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10a10 10 0 0 0 10-10A10 10 0 0 0 12 2\"/>","width":24,"height":24},
   "mdi:arrow-right": {"body":"<path fill=\"currentColor\" d=\"M4 11v2h12l-5.5 5.5l1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5L16 11z\"/>","width":24,"height":24},
   "mdi:arrow-vertical-lock": {"body":"<path fill=\"currentColor\" d=\"M18.8 11V9.5C18.8 8.1 17.4 7 16 7s-2.8 1.1-2.8 2.5V11c-.6 0-1.2.6-1.2 1.2v3.5c0 .7.6 1.3 1.2 1.3h5.5c.7 0 1.3-.6 1.3-1.2v-3.5c0-.7-.6-1.3-1.2-1.3m-1.3 0h-3V9.5c0-.8.7-1.3 1.5-1.3s1.5.5 1.5 1.3zM9 6h3L8 2L4 6h3v12H4l4 4l4-4H9z\"/>","width":24,"height":24},
   "mdi:basketball": {"body":"<path fill=\"currentColor\" d=\"M2.34 14.63c.6-.22 1.22-.33 1.88-.33q2.01 0 3.51 1.26L4.59 18.7a10.6 10.6 0 0 1-2.25-4.07M15.56 9.8c1.97 1.47 4.1 1.83 6.38 1.08c.03.21.06.59.06 1.12c0 1.03-.25 2.18-.72 3.45c-.47 1.26-1.05 2.28-1.73 3.05l-6.33-6.31zm-6.79 6.84c1.06 1.53 1.28 3.2.65 5.02c-1.42-.41-2.69-1.05-3.75-1.93zm3.42-3.42l6.31 6.33c-2.17 1.9-4.72 2.7-7.62 2.39c.21-.66.32-1.38.32-2.16c0-.62-.14-1.35-.42-2.18s-.61-1.51-.98-2.04zM8.81 14.5a6.7 6.7 0 0 0-3.23-1.59c-1.22-.23-2.39-.16-3.52.22c-.03-.22-.06-.6-.06-1.13c0-1.03.25-2.18.72-3.45c.47-1.26 1.05-2.28 1.73-3.05l6.66 6.69zm6.75-6.77c-1.34-1.65-1.65-3.45-.93-5.39c.62.16 1.33.46 2.13.92c.79.45 1.44.9 1.94 1.33zm6.1 1.65c-.6.21-1.22.32-1.88.32c-1.09 0-2.14-.32-3.14-.98l3.09-3.05c.88 1.1 1.52 2.33 1.93 3.71m-9.47 1.73L5.5 4.45c2.17-1.9 4.72-2.7 7.63-2.39q-.33.99-.33 2.16c0 .72.16 1.53.49 2.44c.33.9.71 1.62 1.21 2.15z\"/>","width":24,"height":24},
