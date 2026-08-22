@@ -5,6 +5,22 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 const MAX_DEPTH = 3
 
 /**
+ * An attribute that means "off" when it says so.
+ *
+ * MDC writes every prop with a value, and Lit's own Boolean converter reads any string at all as
+ * true — `showTitle="false"` included. The picker never writes that one, since it leaves a prop out
+ * while it holds its default, but a page written by hand can say it and means it. See `block-index`,
+ * where this converter's own doc comment explains why the `boolean` prop below also declares
+ * `default: false`.
+ */
+const boolean = {
+  converter: {
+    fromAttribute: (value) => value !== null && value !== 'false',
+    toAttribute: (value) => (value ? 'true' : null)
+  }
+}
+
+/**
  * Strip a path down to the form the server stores, so that `/Foo/Bar/` and `foo/bar` are one page
  * when the chain below is checked for a cycle.
  */
@@ -44,7 +60,9 @@ export class BlockIncludeElement extends LitElement {
         name: 'showTitle',
         type: 'boolean',
         label: 'Show Title',
-        hint: "Draw the included page's title above it."
+        hint: "Draw the included page's title above it.",
+        // -> Stated, so that a toggle switched on and then off again writes nothing into the page
+        default: false
       }
     ]
   }
@@ -67,7 +85,7 @@ export class BlockIncludeElement extends LitElement {
        * Whether to draw the included page's title above it
        * @type {boolean}
        */
-      showTitle: { type: Boolean },
+      showTitle: boolean,
 
       // Internal Properties
       _loading: { state: true },
