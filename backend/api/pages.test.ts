@@ -2072,6 +2072,30 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(body.error, 'pageInvalidLocale')
     assert.equal(body.statusCode, 400)
   })
+
+  test('POST recover rejects an empty-string locale at the schema, before it can reach the handler (OpenProject #1024)', async () => {
+    // -> Without `minLength: 1` here, `locale: ''` would pass validation, get permission-checked
+    //   against `target.locale = ''` (locale-scoped rules fail closed on that, same as null -- see
+    //   `helpers/pageRules.test.ts`), and then flow into `recoverDeletedPage` -> `createPage`, whose
+    //   own `input.locale || defaultLocale(siteId)` treats '' as unset and silently recreates the
+    //   page in the site's PRIMARY locale instead -- a different locale than the one just checked.
+    //   Rejecting '' outright at the boundary is what keeps the checked locale and the written one
+    //   the same value always.
+    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => {
+      throw new Error('recoverDeletedPage should not be called for a schema-invalid body')
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { locale: '' }
+    })
+
+    assert.equal(res.statusCode, 400)
+  })
 })
 
 /**

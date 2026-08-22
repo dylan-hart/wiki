@@ -1769,6 +1769,7 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: 'Recreate in this locale instead of the one the page was deleted from.'
             }
