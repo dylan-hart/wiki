@@ -182,6 +182,44 @@ describe('MarkdownRenderer - previously-broken edge cases', () => {
   })
 })
 
+/**
+ * The `markdown-it-attrs` whitelist (OpenProject #1180): only `id`, `class` and `target` are ever
+ * let through onto the rendered element -- everything else an author writes in a `{...}` block is
+ * silently dropped, since arbitrary attributes from page content (`onclick`, `style`, ...) are an
+ * XSS-adjacent surface `markdown-it-attrs` itself does not fence off by default.
+ */
+describe('MarkdownRenderer -- markdown-it-attrs allowedAttributes whitelist (OpenProject #1180)', () => {
+  it('applies {.class #id} on a heading', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('# Heading {.is-warning #my-heading}\n')
+
+    expect(html).toContain('id="my-heading"')
+    expect(html).toMatch(/class="[^"]*\bis-warning\b[^"]*"/)
+  })
+
+  it('applies {.class #id} on an inline span', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('Some [text]{.is-warning #my-span} in a sentence.\n')
+
+    expect(html).toContain('id="my-span"')
+    expect(html).toContain('class="is-warning"')
+  })
+
+  it('keeps the allowed target attribute', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('# Heading {target=_blank}\n')
+
+    expect(html).toContain('target="_blank"')
+  })
+
+  it('drops an attribute not on the whitelist rather than rendering it', () => {
+    const renderer = new MarkdownRenderer({})
+    const html = renderer.render('# Heading {onclick=alert(1)}\n')
+
+    expect(html).not.toContain('onclick')
+  })
+})
+
 /*
   happy-dom's `document` never reports a `compatMode` (real browsers do, once they have parsed a
   doctype), and KaTeX warns to the console whenever it cannot confirm one -- a real browser page (and

@@ -453,12 +453,12 @@ import { useDark } from '@/composables/dark'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizeError } from '@/helpers/localization'
 import { formatRecoveryCodeInput, isValidTfaCode } from '@/helpers/tfaCode'
+import { passwordStrengthScore } from '@/helpers/passwordStrength'
 
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 import Cookies from 'js-cookie'
-import zxcvbn from 'zxcvbn'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 import VOtpInput from 'vue3-otp-input'
 
@@ -542,7 +542,7 @@ const passwordStrength = computed(() => {
       label: t('common.password.weak')
     }
   } else {
-    switch (zxcvbn(state.newPassword).score) {
+    switch (passwordStrengthScore(state.newPassword)) {
       case 1:
         return {
           color: 'deep-orange-7',

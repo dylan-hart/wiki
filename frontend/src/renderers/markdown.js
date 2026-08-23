@@ -1,6 +1,5 @@
 import MarkdownIt from 'markdown-it'
 import mdAttrs from 'markdown-it-attrs'
-import mdDecorate from 'markdown-it-decorate'
 import { full as mdEmoji } from 'markdown-it-emoji'
 import mdTaskLists from 'markdown-it-task-lists'
 import mdExpandTabs from 'markdown-it-expand-tabs'
@@ -301,7 +300,6 @@ export class MarkdownRenderer {
       .use(mdAttrs, {
         allowedAttributes: ['id', 'class', 'target']
       })
-      .use(mdDecorate)
       .use(mdEmoji)
       .use(mdTaskLists, { label: false, labelAfter: false })
       .use(mdExpandTabs, { tabWidth: config.tabWidth })
