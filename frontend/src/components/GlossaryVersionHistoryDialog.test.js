@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
@@ -9,6 +9,17 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
   ...(await importOriginal()),
   confirm: vi.fn(() => ({ onOk: (cb) => cb() }))
 }))
+
+const fileSave = vi.fn()
+vi.mock('browser-fs-access', () => ({
+  fileSave: (...args) => fileSave(...args)
+}))
+
+// -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so it needs its
+//    own call-history clear -- see `AdminGlossary.test.js`'s identical note on `fileSave`/`fileOpen`.
+beforeEach(() => {
+  fileSave.mockClear()
+})
 
 let currentWrapper = null
 afterEach(() => {
@@ -144,5 +155,45 @@ describe('GlossaryVersionHistoryDialog: restore', () => {
     expect(confirm).toHaveBeenCalled()
     expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/glossary/versions/v1/restore')
     expect(wrapper.emitted().ok).toBeTruthy()
+  })
+})
+
+describe('GlossaryVersionHistoryDialog: download', () => {
+  it('fetches the full version and saves its snapshot -- the same shape .../glossary/export returns', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    const snapshot = {
+      formatVersion: 1,
+      terms: [
+        { term: 'API', definition: 'Application Programming Interface.', aliases: [], path: null }
+      ]
+    }
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ id: 'v1', termCount: 1, snapshot })
+    })
+
+    await wrapper.vm.download(VERSIONS[1])
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/versions/v1')
+    expect(fileSave).toHaveBeenCalledTimes(1)
+    const [blob, opts] = fileSave.mock.calls[0]
+    expect(blob).toBeInstanceOf(Blob)
+    expect(opts.fileName).toBe('glossary-v1-2026-08-19-10-00-00.json')
+  })
+
+  it('notifies on a real failure but stays silent on a cancelled save picker', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ id: 'v1', termCount: 1, snapshot: { formatVersion: 1, terms: [] } })
+    })
+    fileSave.mockRejectedValueOnce(Object.assign(new Error('cancelled'), { name: 'AbortError' }))
+
+    await wrapper.vm.download(VERSIONS[1])
+
+    expect(wrapper.vm.state.downloadingId).toBe(null)
   })
 })

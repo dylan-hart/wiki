@@ -602,6 +602,7 @@
   "admin.glossary.versionDiffAdded": "Would add",
   "admin.glossary.versionDiffChanged": "Would change",
   "admin.glossary.versionDiffRemoved": "Would remove",
+  "admin.glossary.versionDownloadFailed": "Failed to download this version.",
   "admin.glossary.versionHistory": "Version History",
   "admin.glossary.versionHistoryNone": "No saved versions yet.",
   "admin.glossary.versionNoDifference": "No difference from the current glossary.",

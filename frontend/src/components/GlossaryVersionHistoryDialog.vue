@@ -29,15 +29,29 @@
                   {{ t('admin.glossary.versionTermCount', { count: version.termCount }) }}
                 </span>
               </w-item-section>
-              <w-item-section side>
+              <w-item-section side style="flex-direction: row; align-items: center">
                 <w-btn
                   flat
                   dense
-                  no-caps
+                  round
+                  color="grey"
+                  icon="la:download"
+                  :loading="state.downloadingId === version.id"
+                  :aria-label="t('common.actions.download')"
+                  @click.stop="download(version)">
+                  <w-tooltip>{{ t('common.actions.download') }}</w-tooltip>
+                </w-btn>
+                <w-btn
+                  flat
+                  dense
+                  round
                   color="primary"
-                  :label="t('common.actions.restore')"
+                  icon="la:history"
                   :loading="state.restoringId === version.id"
-                  @click.stop="restore(version)" />
+                  :aria-label="t('common.actions.restore')"
+                  @click.stop="restore(version)">
+                  <w-tooltip>{{ t('common.actions.restore') }}</w-tooltip>
+                </w-btn>
               </w-item-section>
             </w-item>
             <w-item v-if="state.expandedId === version.id">
@@ -108,6 +122,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { onMounted, reactive } from 'vue'
+import { fileSave } from 'browser-fs-access'
 
 import { confirm, dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
@@ -160,7 +175,8 @@ const state = reactive({
   expandedId: null,
   isLoadingDiff: false,
   diff: null,
-  restoringId: null
+  restoringId: null,
+  downloadingId: null
 })
 
 // METHODS
@@ -227,6 +243,36 @@ async function toggleExpanded(version) {
     state.expandedId = null
   }
   state.isLoadingDiff = false
+}
+
+/**
+ * Downloads this version's snapshot as a standalone JSON file -- `full.snapshot` already matches the
+ * `GlossaryExport` shape (`{ formatVersion, terms }`), the same one `GET .../glossary/export` and
+ * `POST .../glossary/import` both speak, so nothing needs reshaping before it goes into the Blob.
+ * Mirrors `PageHistoryOverlay.vue`'s `downloadVersion()`: build a Blob, hand it to `fileSave()`, and
+ * silently ignore a cancelled save picker (`AbortError`) rather than surfacing it as a failure.
+ */
+async function download(version) {
+  state.downloadingId = version.id
+  try {
+    const full = await API_CLIENT.get(
+      `sites/${props.siteId}/glossary/versions/${version.id}`
+    ).json()
+    const stamp = version.createdAt.slice(0, 19).replace(/[:T]/g, '-')
+    await fileSave(
+      new Blob([JSON.stringify(full.snapshot, null, 2)], { type: 'application/json' }),
+      { fileName: `glossary-${version.id}-${stamp}.json`, extensions: ['.json'] }
+    )
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      notify({
+        type: 'negative',
+        message: t('admin.glossary.versionDownloadFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  }
+  state.downloadingId = null
 }
 
 function restore(version) {
