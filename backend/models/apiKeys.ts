@@ -90,10 +90,10 @@ export interface ApiKey {
   // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
   //    carries the full union of its groups' permissions). See `narrowToScope()`.
   scope: string[] | null
-  // -> A classification-level ceiling (OpenProject #1055), or null for unrestricted (today's only
-  //    behavior for a key created before this existed, and the default). Checked in
-  //    `groups.checkAccess()` alongside `scope` above, on every page-rule decision.
-  maxClassification: string | null
+  // -> A per-level allow-set (OpenProject #1205), or null for unrestricted (today's only behavior
+  //    for a key created before this existed, and the default). Checked in `groups.checkAccess()`
+  //    alongside `scope` above, on every page-rule decision.
+  allowedClassifications: string[] | null
   // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
   //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
   siteId: string | null
@@ -144,10 +144,10 @@ export interface ApiKeyIdentity {
   //    without this, a key scoped to `['read:pages']` still held every page permission its groups'
   //    rules granted, since scope was never consulted on the rule-pooling path (OpenProject #930).
   scope: string[] | null
-  // -> Classification-level ceiling (OpenProject #1055), or null for unrestricted. Carried straight
-  //    through from the row -- unlike `groupIds`/`permissions`, this is never resolved live from
-  //    anything, so there is nothing to differ between an admin-issued key and a personal token here.
-  maxClassification: string | null
+  // -> Per-level allow-set (OpenProject #1205), or null for unrestricted. Carried straight through
+  //    from the row -- unlike `groupIds`/`permissions`, this is never resolved live from anything, so
+  //    there is nothing to differ between an admin-issued key and a personal token here.
+  allowedClassifications: string[] | null
   // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
@@ -167,7 +167,7 @@ const keySelection = {
   keyShort: apiKeysTable.keyShort,
   groups: apiKeysTable.groups,
   scope: apiKeysTable.scope,
-  maxClassification: apiKeysTable.maxClassification,
+  allowedClassifications: apiKeysTable.allowedClassifications,
   siteId: apiKeysTable.siteId,
   userId: apiKeysTable.userId,
   expiration: apiKeysTable.expiration,
@@ -322,7 +322,7 @@ class ApiKeys {
     expiration,
     groups = [],
     scope = null,
-    maxClassification = null,
+    allowedClassifications = null,
     siteId = null,
     userId = null
   }: {
@@ -332,8 +332,8 @@ class ApiKeys {
     groups?: string[]
     /** An explicit permission allow-list to narrow the key to, or null for no narrowing. */
     scope?: string[] | null
-    /** A classification-level ceiling (OpenProject #1055), or null for unrestricted. */
-    maxClassification?: string | null
+    /** A per-level classification allow-set (OpenProject #1205), or null for unrestricted. */
+    allowedClassifications?: string[] | null
     /** The single site to pin the key to, or null for instance-wide (every site). */
     siteId?: string | null
     /** The user this is a personal access token for, or null for an admin-issued key. */
@@ -363,7 +363,7 @@ class ApiKeys {
       keyShort: key.slice(-8),
       groups: effectiveGroups,
       scope,
-      maxClassification,
+      allowedClassifications,
       siteId,
       userId,
       expiration: new Date(expiresAt.epochMilliseconds),
@@ -547,7 +547,7 @@ class ApiKeys {
         groupIds: owner.groupIds,
         permissions: narrowToScope(owner.permissions, key.scope),
         scope: key.scope,
-        maxClassification: key.maxClassification,
+        allowedClassifications: key.allowedClassifications,
         siteId
       }
     }
@@ -559,7 +559,7 @@ class ApiKeys {
       groupIds,
       permissions: await this.resolvePermissions(groupIds, key.scope),
       scope: key.scope,
-      maxClassification: key.maxClassification,
+      allowedClassifications: key.allowedClassifications,
       siteId
     }
   }

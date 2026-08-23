@@ -68,6 +68,22 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.equal(levelsModel.meetsFloor(fixtures.classificationId, 'no-such-level'), false)
   })
 
+  /**
+   * OpenProject #1205: `isAllowed` is the set-membership check the checkbox-grid allow-set replaced
+   * `withinMax`'s single-value ceiling comparison with -- `groups.checkAccess()` is the only real
+   * caller (see its own test coverage in `models/groups.test.ts`), so this is the direct unit
+   * coverage of the primitive itself.
+   */
+  test('isAllowed: true only when candidateId is one of allowedIds, false for an unknown candidate', () => {
+    const publicId = fixtures.classificationId
+    const other = 'not-a-real-level'
+    assert.equal(levelsModel.isAllowed(publicId, [publicId]), true)
+    assert.equal(levelsModel.isAllowed(publicId, [other]), false)
+    assert.equal(levelsModel.isAllowed(publicId, []), false)
+    // -> Unknown candidate ids fail closed, same as `meetsFloor`, even if named in the allow-set
+    assert.equal(levelsModel.isAllowed(other, [other]), false)
+  })
+
   test('stricterOf returns whichever id has the higher sortOrder', async () => {
     const publicId = fixtures.classificationId
     const internal = await levelsModel.create({ name: 'StricterOf Internal', sortOrder: 20 })
@@ -142,6 +158,27 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
 
     // -> Cleanup: delete the page first (FK), then the level it was blocking
     await fixtures.db.execute(`DELETE FROM pages WHERE path = 'classification-delete-guard'`)
+    await levelsModel.delete(inUse.id)
+  })
+
+  /**
+   * OpenProject #1205: `allowedClassifications` is `jsonb` with no column-level FK (a free allow-set
+   * has no single value for one to reference — see the column's own comment in `db/schema.ts`), so
+   * this jsonb containment check is the ONLY thing standing between deleting a level and silently
+   * dropping it out of a key's allow-set out from under it. A level named alongside others in the
+   * array still has to be caught, not just an exact single-element match.
+   */
+  test('delete refuses to remove a level an API key still names in its allowedClassifications', async () => {
+    const inUse = await levelsModel.create({ name: 'Guarded By Key', sortOrder: 41 })
+    await fixtures.db.execute(
+      `INSERT INTO "apiKeys" (name, "keyShort", "allowedClassifications")
+       VALUES ('Guard Key', 'abcd1234', '["${fixtures.classificationId}", "${inUse.id}"]')`
+    )
+
+    await assert.rejects(levelsModel.delete(inUse.id), /allow-set of at least one API key/i)
+
+    // -> Cleanup: delete the key first, then the level it was blocking
+    await fixtures.db.execute(`DELETE FROM "apiKeys" WHERE "keyShort" = 'abcd1234'`)
     await levelsModel.delete(inUse.id)
   })
 

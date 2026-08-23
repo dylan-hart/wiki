@@ -123,12 +123,19 @@
                     : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
                 }}</w-item-label>
                 <!--
-                  OpenProject #1055: `null` is unrestricted, the same as every key before this
-                  existed -- same "no cap" treatment as `scope` above, rather than a blank line.
+                  OpenProject #1205: `null` is unrestricted, the same as every key before this
+                  existed -- same "no narrowing" treatment as `scope` above, rather than a blank
+                  line. An empty array is a distinct, deliberately-reachable state (every level
+                  unchecked) and gets its own wording rather than reading as "unrestricted".
                 -->
-                <w-item-label v-if="key.maxClassification" caption>{{
-                  t('admin.api.cappedAt', { level: classificationLevelName(key.maxClassification) })
-                }}</w-item-label>
+                <template v-if="key.allowedClassifications != null">
+                  <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
+                    t('admin.api.limitedToNone')
+                  }}</w-item-label>
+                  <w-item-label v-else caption>{{
+                    t('admin.api.limitedTo', { levels: classificationLevelNames(key) })
+                  }}</w-item-label>
+                </template>
                 <!--
                   Which site the key is pinned to: `null` is instance-wide, the same as every key
                   before site-pinning existed, so it gets the same "All Sites" wording the picker
@@ -320,6 +327,15 @@ function ownerName(key) {
 /** A classification level's name, by id -- falling back to the id for a level since deleted. */
 function classificationLevelName(id) {
   return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
+/**
+ * A key's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
+ * unrestricted, the same as every key before this existed, so that state renders no line at all
+ * (see the template) rather than an empty list.
+ */
+function classificationLevelNames(key) {
+  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
 }
 
 async function load() {

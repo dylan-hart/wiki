@@ -28,7 +28,7 @@ before(() => {
               groupIds: ['group-a'],
               userId: null,
               scope: null,
-              maxClassification: null
+              allowedClassifications: null
             }
           }
           if (token === 'scoped-token') {
@@ -39,7 +39,7 @@ before(() => {
               groupIds: [],
               userId: null,
               scope: ['read:pages'],
-              maxClassification: null
+              allowedClassifications: null
             }
           }
           if (token === 'personal-token') {
@@ -50,7 +50,7 @@ before(() => {
               groupIds: ['group-owner'],
               userId: 'user-1',
               scope: null,
-              maxClassification: null
+              allowedClassifications: null
             }
           }
           throw new ApiKeyError('API key has been revoked.')
@@ -81,7 +81,7 @@ test('authenticateApiKey: resolves a valid token to its keyId, permissions, site
     groupIds: ['group-a'],
     userId: null,
     scope: null,
-    maxClassification: null
+    allowedClassifications: null
   })
 })
 
@@ -104,7 +104,7 @@ test('contextFromIdentity: maps an already-verified ApiKeyIdentity the same way'
     groupIds: ['group-x'],
     userId: null,
     scope: null,
-    maxClassification: null
+    allowedClassifications: null
   })
   assert.deepEqual(ctx, {
     keyId: 'key-9',
@@ -113,7 +113,7 @@ test('contextFromIdentity: maps an already-verified ApiKeyIdentity the same way'
     groupIds: ['group-x'],
     userId: null,
     scope: null,
-    maxClassification: null
+    allowedClassifications: null
   })
 })
 
@@ -146,7 +146,7 @@ test('actorFor: resolves to the identity own groups, carrying the key permission
     groupIds: ['group-a'],
     permissions: ['manage:system'],
     scope: null,
-    maxClassification: undefined
+    allowedClassifications: undefined
   })
 })
 
@@ -156,24 +156,24 @@ test('actorFor: an admin-issued key with no configured groups grants no page rul
     groupIds: [],
     permissions: ['read:pages'],
     scope: null,
-    maxClassification: undefined
+    allowedClassifications: undefined
   })
 })
 
-test('actorFor: threads scope and maxClassification through, for checkAccess to narrow by (OpenProject #930/#1055)', () => {
+test('actorFor: threads scope and allowedClassifications through, for checkAccess to narrow by (OpenProject #930/#1205)', () => {
   const actor = actorFor(
     ctx({
       permissions: ['read:pages'],
       groupIds: ['group-a'],
       scope: ['read:pages'],
-      maxClassification: 'level-internal'
+      allowedClassifications: ['level-internal']
     })
   )
   assert.deepEqual(actor, {
     groupIds: ['group-a'],
     permissions: ['read:pages'],
     scope: ['read:pages'],
-    maxClassification: 'level-internal'
+    allowedClassifications: ['level-internal']
   })
 })
 
@@ -213,7 +213,7 @@ test('pageActorFor: a personal access token is attributed to its owner, tagged v
     permissions: ['write:pages'],
     groupIds: ['group-a'],
     scope: null,
-    maxClassification: undefined,
+    allowedClassifications: undefined,
     via: 'mcp'
   })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
@@ -9,8 +10,15 @@ import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
  * OpenProject #788: the self-service counterpart to `ApiKeyCreateDialog.vue`, minus the groups
  * picker -- a personal token always carries the creating user's own current permissions, so there is
  * nothing to pick there, only the `scope`/`siteId` narrowing every admin-issued key also gets.
+ *
+ * A fresh pinia per mount, same as `ApiKeyCreateDialog.test.js`: the dialog reads classification
+ * levels off `adminStore.classificationLevels` (OpenProject #1205's checkbox grid replaced the
+ * dialog's own independent fetch), populated by `adminStore.fetchClassificationLevels()` in
+ * `onMounted` -- which still goes through the same `API_CLIENT.get('classification-levels')` mock
+ * these tests already set up.
  */
 function mountDialog() {
+  setActivePinia(createPinia())
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
   return mount(ProfileApiKeyCreateDialog, {
     global: {
@@ -46,7 +54,7 @@ describe('ProfileApiKeyCreateDialog', () => {
           name: 'My Token',
           expiration: '90d',
           scope: null,
-          maxClassification: null,
+          allowedClassifications: null,
           siteId: null
         }
       })
@@ -91,10 +99,10 @@ describe('ProfileApiKeyCreateDialog', () => {
   })
 
   /**
-   * OpenProject #1055: same "No Limit" (id: null) prepend `siteOptions` gets above, for the
-   * classification-cap picker.
+   * OpenProject #1205: the checkbox grid that replaced the single-select "ceiling" -- every fetched
+   * level starts checked, which is what makes the default equivalent to the old "No Limit".
    */
-  it('prepends a "No Limit" (id: null) entry to the fetched classification levels', async () => {
+  it('defaults every fetched classification level to checked', async () => {
     globalThis.API_CLIENT.get.mockImplementation((resource) => {
       if (resource === 'classification-levels') {
         return {
@@ -111,15 +119,22 @@ describe('ProfileApiKeyCreateDialog', () => {
     const wrapper = mountDialog()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(wrapper.vm.classificationOptions).toEqual([
-      { id: null, name: 'profile.api.newKeyMaxClassificationNoLimit' },
-      { id: 'level-public', name: 'Public', sortOrder: 0 },
-      { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
-    ])
+    expect(wrapper.vm.state.keyClassifications).toEqual(['level-public', 'level-restricted'])
   })
 
-  it('sends a picked classification cap, not null', async () => {
-    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+  it('sends the explicit checked ids as allowedClassifications once a level is unchecked', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
     globalThis.API_CLIENT.post.mockReturnValue({
       json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
     })
@@ -128,14 +143,15 @@ describe('ProfileApiKeyCreateDialog', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     wrapper.vm.state.keyName = 'My Token'
-    wrapper.vm.state.keyMaxClassification = 'level-restricted'
+    // -> Uncheck "Public", leaving only "Restricted" checked
+    wrapper.vm.state.keyClassifications = ['level-restricted']
     await wrapper.vm.$nextTick()
     await wrapper.vm.create()
 
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'users/profile/api-keys',
       expect.objectContaining({
-        json: expect.objectContaining({ maxClassification: 'level-restricted' })
+        json: expect.objectContaining({ allowedClassifications: ['level-restricted'] })
       })
     )
   })

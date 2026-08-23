@@ -599,7 +599,7 @@ async function routes(app: FastifyInstance) {
       name: string
       expiration: KeyExpiration
       scope?: string[] | null
-      maxClassification?: string | null
+      allowedClassifications?: string[] | null
       siteId?: string | null
     }
   }>(
@@ -628,12 +628,15 @@ async function routes(app: FastifyInstance) {
                 'An explicit permission allow-list to narrow the token to. Omit or pass null for no narrowing — the token then carries the full extent of your own current permissions. Can only narrow: a permission here you do not hold still grants nothing.',
               items: { $ref: 'ApiKeyScopePermission#' }
             },
-            maxClassification: {
-              type: ['string', 'null'],
-              format: 'uuid',
+            allowedClassifications: {
+              type: ['array', 'null'],
               default: null,
               description:
-                'A classification-level id ceiling (OpenProject #1055): the token may never be granted a page permission on a page classified stricter than this -- what keeps a Claude agent authenticating with this token away from your most sensitive pages even though your account can read them. Omit or pass null for unrestricted.'
+                'A per-level classification allow-set (OpenProject #1205): the token may never be granted a page permission on a page whose classification is not in this list -- what keeps a Claude agent authenticating with this token away from your most sensitive pages even though your account can read them. Omit or pass null for unrestricted (every level, including one added later).',
+              items: {
+                type: 'string',
+                format: 'uuid'
+              }
             },
             siteId: {
               type: ['string', 'null'],
@@ -676,19 +679,19 @@ async function routes(app: FastifyInstance) {
       if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
         return reply.badRequest('This site does not exist.')
       }
-      // -> null is unrestricted; any other value must name a real classification level
+      // -> null is unrestricted; any other value must be a list naming only real classification levels
       if (
-        req.body.maxClassification != null &&
-        !WIKI.models.classificationLevels.byId(req.body.maxClassification)
+        req.body.allowedClassifications != null &&
+        req.body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
       ) {
-        return reply.badRequest('This classification level does not exist.')
+        return reply.badRequest('One of the classification levels does not exist.')
       }
 
       const { id, key } = await WIKI.models.apiKeys.createKey({
         name: req.body.name,
         expiration: req.body.expiration,
         scope: req.body.scope ?? null,
-        maxClassification: req.body.maxClassification ?? null,
+        allowedClassifications: req.body.allowedClassifications ?? null,
         siteId: req.body.siteId ?? null,
         userId
       })

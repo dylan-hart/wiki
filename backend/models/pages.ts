@@ -228,9 +228,9 @@ export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
-  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1055) — see that type. */
+  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
   scope?: string[] | null
-  maxClassification?: string | null
+  allowedClassifications?: string[] | null
   /**
    * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
    * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to

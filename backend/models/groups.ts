@@ -137,17 +137,18 @@ const groupSelection = {
  * didn't already hold, so a permission absent from `scope` is refused before any rule is even
  * resolved.
  *
- * `maxClassification`, when present, is the same key's classification-level ceiling (OpenProject
- * #1055) — a page permission is never granted on a page classified stricter than the cap, regardless
- * of what the groups' rules say. Checked by `checkAccess()` only: it is page-blind everywhere else
+ * `allowedClassifications`, when present, is the same key's per-level classification allow-set
+ * (OpenProject #1205, replacing the earlier #1055 single-value ceiling) — a page permission is never
+ * granted on a page whose classification is not in this set, regardless of what the groups' rules
+ * say. Checked by `checkAccess()` only: it is page-blind everywhere else
  * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
- * compare the cap against.
+ * compare the allow-set against.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
   scope?: string[] | null
-  maxClassification?: string | null
+  allowedClassifications?: string[] | null
 }
 
 /**
@@ -269,7 +270,7 @@ class Groups {
       // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
-      maxClassification: req.apiKey?.maxClassification ?? null
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null
     }
   }
 
@@ -315,18 +316,19 @@ class Groups {
       return false
     }
     /*
-      OpenProject #1055: a classification-capped key/token may never be granted a page permission on
-      a page classified stricter than its cap, regardless of what its groups' rules say -- checked the
-      same way `scope` is, before any rule is resolved. Skipped when the page's own classification is
+      OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
+      key/token may never be granted a page permission on a page whose classification is not in its
+      `allowedClassifications` allow-set, regardless of what its groups' rules say -- checked the same
+      way `scope` is, before any rule is resolved. Skipped when the page's own classification is
       unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
-      there is nothing to compare the cap against, and this is a narrowing on top of the rules, not a
-      rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule match
-      does in `helpers/pageRules.ts`.
+      there is nothing to compare the allow-set against, and this is a narrowing on top of the rules,
+      not a rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
+      match does in `helpers/pageRules.ts`.
     */
     if (
-      actor.maxClassification != null &&
+      actor.allowedClassifications != null &&
       page.classification != null &&
-      !WIKI.models.classificationLevels.withinMax(page.classification, actor.maxClassification)
+      !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
     ) {
       return false
     }
@@ -355,9 +357,9 @@ class Groups {
     }
     // -> Same scope narrowing as `checkAccess()`, applied before any rule is read rather than after —
     //    a scoped key must not read as "generally holds `permission`" for a name outside its own
-    //    scope, whatever its groups' rules say. `maxClassification` has no equivalent here: this
+    //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
     //    method is path- and page-blind by design (see the doc comment above), so there is no single
-    //    page's classification to compare the cap against.
+    //    page's classification to compare the allow-set against.
     const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
     if (inScope.length === 0) {
       return false

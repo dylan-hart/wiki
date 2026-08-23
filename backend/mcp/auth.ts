@@ -57,12 +57,13 @@ export interface McpAuthContext {
    */
   scope?: string[] | null
   /**
-   * Classification-level ceiling (OpenProject #1055), threaded the same way -- this is the primitive
-   * that resolves the coworker's original concern (`McpAuthContext`'s own doc comment): a token minted
-   * with a cap keeps an MCP agent away from anything classified above it, regardless of what the
-   * token owner's groups otherwise grant.
+   * Per-level classification allow-set (OpenProject #1205, replacing the earlier #1055 single-value
+   * ceiling), threaded the same way -- this is the primitive that resolves the coworker's original
+   * concern (`McpAuthContext`'s own doc comment): a token minted with an allow-set keeps an MCP agent
+   * away from anything classified outside it, regardless of what the token owner's groups otherwise
+   * grant.
    */
-  maxClassification?: string | null
+  allowedClassifications?: string[] | null
 }
 
 /**
@@ -91,7 +92,7 @@ export function contextFromIdentity(identity: ApiKeyIdentity): McpAuthContext {
     groupIds: identity.groupIds,
     userId: identity.userId,
     scope: identity.scope,
-    maxClassification: identity.maxClassification
+    allowedClassifications: identity.allowedClassifications
   }
 }
 
@@ -123,7 +124,7 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
     groupIds: ctx.groupIds,
     permissions: ctx.permissions,
     scope: ctx.scope,
-    maxClassification: ctx.maxClassification
+    allowedClassifications: ctx.allowedClassifications
   }
 }
 
@@ -148,7 +149,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
     permissions: ctx.permissions,
     groupIds: ctx.groupIds,
     scope: ctx.scope,
-    maxClassification: ctx.maxClassification,
+    allowedClassifications: ctx.allowedClassifications,
     via: 'mcp'
   }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
@@ -14,8 +15,15 @@ import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
  * a mounted `<script setup>` component's own setup bindings, not just what it `defineExpose`s --
  * that only gates access from a *parent template* (`ref="x"` + `x.value.foo`), which is not what
  * mounting in a test does.
+ *
+ * A fresh pinia per mount, same as `GroupEditOverlay.test.js`: the dialog reads classification
+ * levels off `adminStore.classificationLevels` (OpenProject #1205's checkbox grid replaced the
+ * dialog's own independent fetch), populated by `adminStore.fetchClassificationLevels()` in
+ * `onMounted` -- which still goes through the same `API_CLIENT.get('classification-levels')` mock
+ * these tests already set up.
  */
 function mountDialog() {
+  setActivePinia(createPinia())
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
   return mount(ApiKeyCreateDialog, {
     global: {
@@ -103,15 +111,18 @@ describe('ApiKeyCreateDialog site picker', () => {
   })
 
   /**
-   * OpenProject #1055: same "No Limit" (id: null) prepend `siteOptions` gets above, for the
-   * classification-cap picker.
+   * OpenProject #1205: the checkbox grid that replaced the single-select "ceiling" -- every fetched
+   * level starts checked, which is what makes the default equivalent to the old "No Limit".
    */
-  it('prepends a "No Limit" (id: null) entry to the fetched classification levels', async () => {
+  it('defaults every fetched classification level to checked', async () => {
     globalThis.API_CLIENT.get.mockImplementation((resource) => {
       if (resource === 'classification-levels') {
         return {
           json: () =>
-            Promise.resolve([{ id: 'level-restricted', name: 'Restricted', sortOrder: 1 }])
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+            ])
         }
       }
       return { json: () => Promise.resolve([]) }
@@ -120,14 +131,16 @@ describe('ApiKeyCreateDialog site picker', () => {
     const wrapper = mountDialog()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(wrapper.vm.classificationOptions).toEqual([
-      { id: null, name: 'admin.api.newKeyMaxClassificationNoLimit' },
-      { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
-    ])
+    expect(wrapper.vm.state.keyClassifications).toEqual(['level-public', 'level-restricted'])
   })
 
-  it('sends a picked classification cap, not null', async () => {
+  it('sends allowedClassifications: null when every level is (still) checked', async () => {
     globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () => Promise.resolve([{ id: 'level-public', name: 'Public', sortOrder: 0 }])
+        }
+      }
       if (resource === 'groups') {
         return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
       }
@@ -142,14 +155,49 @@ describe('ApiKeyCreateDialog site picker', () => {
 
     wrapper.vm.state.keyName = 'My Key'
     wrapper.vm.state.keyGroups = ['group-1']
-    wrapper.vm.state.keyMaxClassification = 'level-restricted'
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.create()
+
+    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
+      'api-keys',
+      expect.objectContaining({ json: expect.objectContaining({ allowedClassifications: null }) })
+    )
+  })
+
+  it('sends the explicit checked ids as allowedClassifications once a level is unchecked', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 1 }
+            ])
+        }
+      }
+      if (resource === 'groups') {
+        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
+    })
+
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    wrapper.vm.state.keyName = 'My Key'
+    wrapper.vm.state.keyGroups = ['group-1']
+    // -> Uncheck "Restricted", leaving only "Public" checked
+    wrapper.vm.state.keyClassifications = ['level-public']
     await wrapper.vm.$nextTick()
     await wrapper.vm.create()
 
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'api-keys',
       expect.objectContaining({
-        json: expect.objectContaining({ maxClassification: 'level-restricted' })
+        json: expect.objectContaining({ allowedClassifications: ['level-public'] })
       })
     )
   })

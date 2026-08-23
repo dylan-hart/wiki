@@ -47,7 +47,7 @@ test('actorFrom: a personal access token resolves to a real PageActor for its ow
     permissions: ['read:pages', 'write:pages'],
     groupIds: ['group-a'],
     scope: null,
-    maxClassification: undefined
+    allowedClassifications: undefined
   })
 })
 
@@ -127,6 +127,6 @@ test('actorFrom: a personal token takes priority even alongside a session on the
     permissions: ['read:pages'],
     groupIds: ['group-a'],
     scope: null,
-    maxClassification: undefined
+    allowedClassifications: undefined
   })
 })

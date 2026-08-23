@@ -88,7 +88,7 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
       permissions: req.apiKey.permissions,
       groupIds: req.apiKey.groupIds,
       scope: req.apiKey.scope,
-      maxClassification: req.apiKey.maxClassification
+      allowedClassifications: req.apiKey.allowedClassifications
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {

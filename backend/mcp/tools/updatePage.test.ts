@@ -112,7 +112,7 @@ test('handleUpdatePage: updates only the given fields, attributed to the token o
     permissions: [],
     groupIds: [GROUP_ID],
     scope: null,
-    maxClassification: undefined,
+    allowedClassifications: undefined,
     via: 'mcp'
   })
   const page = textOf(result)

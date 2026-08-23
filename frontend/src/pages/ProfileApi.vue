@@ -61,9 +61,14 @@
                   ? t('profile.api.newKeyFullAccess')
                   : t('profile.api.scopedTo', { scope: key.scope.join(', ') })
               }}</w-item-label>
-              <w-item-label v-if="key.maxClassification" caption>{{
-                t('profile.api.cappedAt', { level: classificationLevelName(key.maxClassification) })
-              }}</w-item-label>
+              <template v-if="key.allowedClassifications != null">
+                <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
+                  t('profile.api.limitedToNone')
+                }}</w-item-label>
+                <w-item-label v-else caption>{{
+                  t('profile.api.limitedTo', { levels: classificationLevelNames(key) })
+                }}</w-item-label>
+              </template>
               <w-item-label caption>{{
                 t('profile.api.keySite', { site: siteName(key) })
               }}</w-item-label>
@@ -212,6 +217,15 @@ function siteName(key) {
 /** A classification level's name, by id -- falling back to the id for a level since deleted. */
 function classificationLevelName(id) {
   return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
+/**
+ * A token's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
+ * unrestricted, the same as every token before this existed, so that state renders no line at all
+ * (see the template) rather than an empty list.
+ */
+function classificationLevelNames(key) {
+  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
 }
 
 async function load() {

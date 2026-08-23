@@ -141,7 +141,7 @@ test('rejects a siteId that names no real site', async () => {
   assert.equal(createKeyCalls.length, 0)
 })
 
-test('rejects a maxClassification that names no real level (OpenProject #1055)', async () => {
+test('rejects an allowedClassifications entry that names no real level (OpenProject #1205)', async () => {
   createKeyCalls = []
   const res = await app.inject({
     method: 'POST',
@@ -150,14 +150,14 @@ test('rejects a maxClassification that names no real level (OpenProject #1055)',
       name: 'Test Key',
       expiration: '30d',
       groups: [GROUP_ID],
-      maxClassification: '99999999-9999-4999-8999-999999999999'
+      allowedClassifications: [LEVEL_ID, '99999999-9999-4999-8999-999999999999']
     }
   })
   assert.equal(res.statusCode, 400)
   assert.equal(createKeyCalls.length, 0)
 })
 
-test('accepts a maxClassification naming a real level and persists it (OpenProject #1055)', async () => {
+test('accepts an allowedClassifications list naming only real levels and persists it (OpenProject #1205)', async () => {
   createKeyCalls = []
   const res = await app.inject({
     method: 'POST',
@@ -166,15 +166,15 @@ test('accepts a maxClassification naming a real level and persists it (OpenProje
       name: 'Test Key',
       expiration: '30d',
       groups: [GROUP_ID],
-      maxClassification: LEVEL_ID
+      allowedClassifications: [LEVEL_ID]
     }
   })
   assert.equal(res.statusCode, 200)
   assert.equal(createKeyCalls.length, 1)
-  assert.equal(createKeyCalls[0].maxClassification, LEVEL_ID)
+  assert.deepEqual(createKeyCalls[0].allowedClassifications, [LEVEL_ID])
 })
 
-test('omitting maxClassification creates an unrestricted key (null) (OpenProject #1055)', async () => {
+test('omitting allowedClassifications creates an unrestricted key (null) (OpenProject #1205)', async () => {
   createKeyCalls = []
   const res = await app.inject({
     method: 'POST',
@@ -186,7 +186,24 @@ test('omitting maxClassification creates an unrestricted key (null) (OpenProject
     }
   })
   assert.equal(res.statusCode, 200)
-  assert.equal(createKeyCalls[0].maxClassification, null)
+  assert.equal(createKeyCalls[0].allowedClassifications, null)
+})
+
+test('accepts an empty allowedClassifications array (locked out of every classified page), not treated as omitted (OpenProject #1205)', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID],
+      allowedClassifications: []
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+  assert.deepEqual(createKeyCalls[0].allowedClassifications, [])
 })
 
 test('accepts a siteId naming a real site and persists it', async () => {

@@ -105,18 +105,19 @@ class ClassificationLevels {
   }
 
   /**
-   * Whether `candidateId` is at or below a classification ceiling `maxId` -- an API key's
-   * `maxClassification` cap (OpenProject #1055): `candidate` is a page's classification, `max` the
-   * key's cap, and this asks whether the page is within what the key may touch. Unknown ids fail
-   * closed (neither can be compared, so this is not satisfied), the same as `meetsFloor`.
+   * Whether `candidateId` is one of `allowedIds` -- an API key's `allowedClassifications` per-level
+   * allow-set (OpenProject #1205, replacing the earlier #1055 single-value "ceiling"): `candidate` is
+   * a page's classification, `allowedIds` the key's own checkbox-grid selection. `null` means
+   * unrestricted (every level, including one added after the key was minted) and is never passed
+   * here directly -- `groups.checkAccess()` only calls this once it has already confirmed
+   * `allowedIds` is non-null. An unknown `candidateId` fails closed (nothing to compare against), the
+   * same as `meetsFloor`.
    */
-  withinMax(candidateId: string, maxId: string): boolean {
-    const candidate = this.byId(candidateId)
-    const max = this.byId(maxId)
-    if (!candidate || !max) {
+  isAllowed(candidateId: string, allowedIds: string[]): boolean {
+    if (!this.byId(candidateId)) {
       return false
     }
-    return candidate.sortOrder <= max.sortOrder
+    return allowedIds.includes(candidateId)
   }
 
   async create(input: { name: string; sortOrder?: number }): Promise<ClassificationLevel> {
@@ -175,11 +176,12 @@ class ClassificationLevels {
    *
    * Refused when it is the last one left -- every page always has a classification, so removing the
    * only level would leave nothing for that invariant to point at -- and refused when any page, or
-   * any API key/token still capped at it (`apiKeys.maxClassification`, OpenProject #1055), still
-   * references it. Both FKs are already `RESTRICT` (see `db/schema.ts`), so the database would
-   * refuse this anyway; the explicit check here is what turns that into a message an admin can act on
-   * instead of a raw constraint-violation error -- and, for the key case, what stops a level's
-   * deletion from silently un-capping a key that pointed at it if the FK were ever loosened later.
+   * any API key/token whose `allowedClassifications` still names it (OpenProject #1205, replacing the
+   * earlier #1055 single-value ceiling), still references it. The page FK is `RESTRICT` (see
+   * `db/schema.ts`), so the database would refuse that half anyway; `allowedClassifications` is
+   * `jsonb` with no FK to enforce the key half at all, so this jsonb containment check is the ONLY
+   * thing stopping a level's deletion from silently dropping it out of a key's allow-set out from
+   * under it.
    */
   async delete(id: string): Promise<boolean> {
     if (levelsCache.length <= 1) {
@@ -203,12 +205,12 @@ class ClassificationLevels {
     const inUseByKeys = await WIKI.db
       .select({ id: apiKeysTable.id })
       .from(apiKeysTable)
-      .where(eq(apiKeysTable.maxClassification, id))
+      .where(sql`${apiKeysTable.allowedClassifications} @> ${JSON.stringify([id])}::jsonb`)
       .limit(1)
     if (inUseByKeys.length > 0) {
       throw new CustomError(
         'classificationInUse',
-        'This classification level is still used as the cap on at least one API key.',
+        'This classification level is still used in the allow-set of at least one API key.',
         409
       )
     }

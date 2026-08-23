@@ -163,7 +163,7 @@ describe('limitApiRequests', () => {
         permissions: ['read:pages'],
         groupIds: [],
         scope: null,
-        maxClassification: null,
+        allowedClassifications: null,
         userId: null,
         siteId: null
       }
@@ -196,7 +196,7 @@ describe('limitApiRequests', () => {
         permissions: ['read:pages'],
         groupIds: [],
         scope: null,
-        maxClassification: null,
+        allowedClassifications: null,
         userId: null,
         siteId: null
       },
@@ -228,7 +228,7 @@ describe('limitApiRequests', () => {
         permissions: ['manage:system'],
         groupIds: [],
         scope: null,
-        maxClassification: null,
+        allowedClassifications: null,
         userId: null,
         siteId: null
       }
@@ -289,7 +289,7 @@ describe('limitApiRequests', () => {
       permissions: [],
       groupIds: [],
       scope: null,
-      maxClassification: null,
+      allowedClassifications: null,
       userId: null,
       siteId: null
     }
@@ -298,7 +298,7 @@ describe('limitApiRequests', () => {
       permissions: [],
       groupIds: [],
       scope: null,
-      maxClassification: null,
+      allowedClassifications: null,
       userId: null,
       siteId: null
     }
@@ -332,7 +332,7 @@ describe('limitApiRequests', () => {
           permissions: [],
           groupIds: [],
           scope: null,
-          maxClassification: null,
+          allowedClassifications: null,
           userId: null,
           siteId: null
         }

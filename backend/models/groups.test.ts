@@ -106,7 +106,7 @@ describe('groups.actorForRequest', () => {
       groupIds: ['key-group'],
       permissions: ['read:pages'],
       scope: ['read:pages'],
-      maxClassification: null
+      allowedClassifications: null
     })
   })
 
@@ -457,10 +457,11 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * OpenProject #1055: a `maxClassification`-capped actor may never be granted a page permission on
-   * a page classified stricter than the cap, regardless of what its groups' rules say.
+   * OpenProject #1205 (replacing the earlier #1055 single-value ceiling): an actor whose
+   * `allowedClassifications` allow-set does not name a page's classification may never be granted a
+   * page permission on it, regardless of what its groups' rules say.
    */
-  test('a maxClassification-capped actor is refused on a page classified above the cap, even though a rule grants it (OpenProject #1055)', async () => {
+  test('an allowedClassifications-scoped actor is refused on a page outside its allow-set, even though a rule grants it (OpenProject #1205)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
     const restricted = await levelsModel.create({ name: 'Test Restricted', sortOrder: 99 })
@@ -468,7 +469,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const capped = {
       groupIds: [fixtures.groupId],
       permissions: [],
-      maxClassification: fixtures.classificationId
+      allowedClassifications: [fixtures.classificationId]
     }
     const publicPage = {
       path: 'public-page',
@@ -492,12 +493,12 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await levelsModel.delete(restricted.id)
   })
 
-  test('maxClassification does not gate a page whose own classification is unknown (null)', async () => {
+  test('allowedClassifications does not gate a page whose own classification is unknown (null)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const capped = {
       groupIds: [fixtures.groupId],
       permissions: [],
-      maxClassification: fixtures.classificationId
+      allowedClassifications: [fixtures.classificationId]
     }
     assert.equal(
       groupsModel.checkAccess(capped, 'read:pages', {

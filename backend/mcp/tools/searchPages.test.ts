@@ -65,7 +65,7 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
     groupIds: [GROUP_ID],
     permissions: [],
     scope: null,
-    maxClassification: undefined
+    allowedClassifications: undefined
   })
 })
 

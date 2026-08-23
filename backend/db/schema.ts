@@ -60,14 +60,16 @@ export const apiKeys = pgTable(
     //    actually addressed to is a follow-up (Epic 11, Multi-Site Platform) — this column and the
     //    claim it is signed into only carry the data.
     siteId: uuid().references(() => sites.id),
-    // -> A classification ceiling (OpenProject #1055): null means unrestricted (today's only
-    //    behavior, and the default), a level id means this key/token may never be granted a page
-    //    permission on a page classified stricter than it -- checked in `groups.checkAccess()`
-    //    alongside `scope` above, before any rule is even consulted. No `onDelete` clause: RESTRICT
-    //    is deliberate, matching `pages.classification` -- deleting a level a key is still capped at
-    //    would otherwise silently un-cap it. `models/classificationLevels.ts#delete()`'s "in use"
-    //    guard checks this column too, for the same reason it checks `pages`.
-    maxClassification: uuid().references(() => classificationLevels.id),
+    // -> A per-level allow-set (OpenProject #1205, replacing the earlier #1055 single-value
+    //    "ceiling"): null means unrestricted (today's only behavior, and the default, and stays
+    //    unrestricted against any level added later), an array of level ids means this key/token may
+    //    never be granted a page permission on a page whose classification is not IN this set --
+    //    checked in `groups.checkAccess()` alongside `scope` above, before any rule is even
+    //    consulted. `jsonb` rather than a uuid column with an FK, same shape as `scope` above -- a
+    //    free allow-set has no single value left for a column-level FK to reference.
+    //    `models/classificationLevels.ts#delete()`'s "in use" guard checks this column with a jsonb
+    //    containment query instead, for the same reason it still checks `pages`.
+    allowedClassifications: jsonb().$type<string[] | null>().default(null),
     // -> Non-null makes this a personal access token: created by and acting as this user, rather than
     //    an admin-issued key carrying `groups` above. A personal token's permissions are never read
     //    from `groups` (left `[]` for these rows) or snapshotted at creation — `models/apiKeys.ts`'s
