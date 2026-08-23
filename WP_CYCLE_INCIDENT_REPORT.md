@@ -1,5 +1,17 @@
 # WP cycle 2026-08-23 — incident report
 
+**Resolution (same day, after Dylan's review):** Dylan reviewed this report and judged the underlying
+code — as opposed to the process that produced some of it — trustworthy, and asked for the
+integration/merge phase to be redone rather than the whole cycle discarded. Recovery: switched my own
+session into this worktree via the sanctioned `EnterWorktree` path-switch (not a workaround), audited
+every scattered branch by hand, cherry-picked/merged everything with real, verifiable commits, and
+implemented from scratch the handful of items nothing had actually built (dep-backend's 6 items,
+dep-blocks' 2, #954, #1167, #1180). Final state: 38 commits ahead of base, all three workspaces green
+(backend 2707/0/22, frontend 1459/1459 + clean build, blocks 254/254 + clean build). Two items stay
+genuinely out of scope pending a human call — see the OpenProject comments on #1012 and #1214 — and
+#1227 turned out to need re-scoping as a Feature rather than a direct build. Everything below this
+line is the original incident record, kept as-is for the account of what went wrong.
+
 Workflow `wf_a7f2cbd4-3f0` ran 59 agents over ~6h11m (9.76M subagent tokens, 4699 tool calls) to build
 45 ready WPs (15 batches) atop `origin/overnight-2026-08-22-full-backlog`, merge them into
 `overnight-2026-08-23-wp-cycle`, run a dependency-currency pass, then verify+fix. It did not produce a
