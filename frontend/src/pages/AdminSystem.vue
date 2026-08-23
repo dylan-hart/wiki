@@ -33,12 +33,12 @@
         </w-btn>
         <w-btn
           class="acrylic-btn"
-          ref="copySysInfoBtn"
           flat
           icon="mdi:clipboard-text-outline"
           label="Copy System Info"
           color="primary"
-          :disabled="state.loading > 0" />
+          :disabled="state.loading > 0"
+          @click="copySysInfo" />
       </div>
     </div>
     <w-separator inset />
@@ -307,17 +307,17 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, watch } from 'vue'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { dialog } from '@/composables/dialog'
+import { copyToClipboard } from '@/helpers/clipboard'
 
 import { useSiteStore } from '@/stores/site'
 
-import ClipboardJS from 'clipboard'
 import CheckUpdateDialog from '../components/CheckUpdateDialog.vue'
 
 // COMPOSABLES
@@ -341,7 +341,6 @@ useMeta(() => ({
 // DATA
 
 const state = reactive({
-  clip: null,
   loading: 0,
   isUpgrading: false,
   isUpgradingStarted: false,
@@ -350,10 +349,6 @@ const state = reactive({
     platform: ''
   }
 })
-
-// REFS
-
-const copySysInfoBtn = ref(null)
 
 // COMPUTED
 
@@ -425,35 +420,35 @@ function checkForUpdates() {
   })
 }
 
-// MOUNTED
-
-onMounted(() => {
-  load()
-  const clip = new ClipboardJS(copySysInfoBtn.value.$el, {
-    text: () => {
-      return `Wiki.js ${state.info.currentVersion}
+async function copySysInfo() {
+  const text = `Wiki.js ${state.info.currentVersion}
 Postgres ${dbVersion.value}
 Node.js ${state.info.nodeVersion}
 OS: ${state.info.operatingSystem}
 Platform: ${state.info.platform}
 CPU Cores: ${state.info.cpuCores}
 Total RAM: ${state.info.ramTotal}`
-    }
-  })
 
-  clip.on('success', () => {
+  try {
+    await copyToClipboard(text)
     notify({
       type: 'positive',
       message: 'Info copied successfully',
       icon: 'la:clipboard'
     })
-  })
-  clip.on('error', () => {
+  } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy system info'
+      message: 'Failed to copy system info',
+      caption: err.message
     })
-  })
+  }
+}
+
+// MOUNTED
+
+onMounted(() => {
+  load()
 })
 </script>
 

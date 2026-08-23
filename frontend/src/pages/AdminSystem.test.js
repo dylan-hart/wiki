@@ -40,9 +40,6 @@ function mountPage() {
     global: {
       plugins: [i18n],
       components: { BlueprintIcon },
-      // -> `ClipboardJS` binds to the copy button's real DOM element in `onMounted`; `attachTo`
-      //    ensures the component tree is actually in the document rather than detached, matching how
-      //    `AdminSystem.vue` expects to be mounted.
       stubs: { transition: false }
     },
     attachTo: document.body
