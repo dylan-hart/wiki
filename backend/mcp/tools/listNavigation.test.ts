@@ -25,7 +25,8 @@ const LEVEL = {
       title: 'Allowed',
       icon: null,
       isPage: true,
-      isFolder: false
+      isFolder: false,
+      classification: 'classification-restricted'
     },
     {
       path: 'docs/hidden',
@@ -33,13 +34,15 @@ const LEVEL = {
       title: 'Hidden',
       icon: null,
       isPage: true,
-      isFolder: false
+      isFolder: false,
+      classification: null
     }
   ]
 }
 
 let previousWiki: any
 let browseCalls: any[]
+let checkAccessCalls: any[]
 
 function install({
   browseEnabled = true,
@@ -47,6 +50,7 @@ function install({
   readablePaths = [] as string[]
 } = {}) {
   browseCalls = []
+  checkAccessCalls = []
   ;(globalThis as any).WIKI = {
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: {
@@ -59,8 +63,10 @@ function install({
     },
     models: {
       groups: {
-        checkAccess: (_actor: any, _permission: string, page: { path: string }) =>
-          readablePaths.includes(page.path)
+        checkAccess: (_actor: any, _permission: string, page: { path: string }) => {
+          checkAccessCalls.push(page)
+          return readablePaths.includes(page.path)
+        }
       },
       tree: {
         browse: async (params: any) => {
@@ -121,4 +127,12 @@ test('handleListNavigation: an explicit locale overrides the site default', asyn
   install({ readablePaths: [] })
   await handleListNavigation(CTX, { siteId: SITE_ID, locale: 'fr' })
   assert.equal(browseCalls[0].locale, 'fr')
+})
+
+test('handleListNavigation: passes each item’s own classification to checkAccess, not a hardcoded null (OpenProject #1128)', async () => {
+  install({ readablePaths: ['docs/allowed', 'docs/hidden'] })
+  await handleListNavigation(CTX, { siteId: SITE_ID })
+  const byPath = Object.fromEntries(checkAccessCalls.map((p) => [p.path, p.classification]))
+  assert.equal(byPath['docs/allowed'], 'classification-restricted')
+  assert.equal(byPath['docs/hidden'], null)
 })

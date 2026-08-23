@@ -81,7 +81,12 @@ const folderIdParam = {
  * folder on every listing, which is not worth what it costs.
  */
 export function visibleTreeItems<
-  T extends { type?: string; folderPath?: string; fileName?: string }
+  T extends {
+    type?: string
+    folderPath?: string
+    fileName?: string
+    classification?: string | null
+  }
 >(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   return items.filter((item) => {
@@ -92,10 +97,10 @@ export function visibleTreeItems<
       siteId,
       locale,
       tags: (item as any).tags ?? [],
-      // -> The tree listing is a lightweight table with no classification column of its own (that
-      //    lives on `pages`, joined nowhere here) -- a CLASSIFICATION rule never matches a tree
-      //    item today. Flagged for OpenProject #1082's cross-surface enforcement audit.
-      classification: null
+      // -> `getTree()` (OpenProject #1128) joins `pages.classification` in for a page-type item;
+      //    a folder or asset carries none, the same "no CLASSIFICATION rule matches" null it always
+      //    had.
+      classification: item.classification ?? null
     })
   })
 }
@@ -331,9 +336,10 @@ async function routes(app: FastifyInstance) {
             path: item.path,
             siteId: req.params.siteId,
             locale,
-            // -> Same tree-listing gap as `visibleTreeItems` above: no classification is joined in
-            //    here. Flagged for OpenProject #1082's cross-surface enforcement audit.
-            classification: null
+            // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at
+            //    this path; a folder-only entry carries none, same "no CLASSIFICATION rule matches"
+            //    null it always had.
+            classification: item.classification
           })
         )
       }
@@ -439,9 +445,8 @@ async function routes(app: FastifyInstance) {
           path: page.path,
           siteId: req.params.siteId,
           locale,
-          // -> `tree.listPages` reads the `tree` table, which carries no classification --
-          //    flagged for OpenProject #1082's cross-surface enforcement audit.
-          classification: null
+          // -> `tree.listPages()` (OpenProject #1128) now joins `pages.classification` in directly.
+          classification: page.classification
         })
       )
     }

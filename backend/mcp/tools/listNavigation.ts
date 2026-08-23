@@ -63,9 +63,10 @@ export async function handleListNavigation(
         path: item.path,
         siteId: site.id,
         locale,
-        // -> `tree.browse()` reads the `tree` table, which carries no classification -- flagged
-        //    for OpenProject #1082's cross-surface enforcement audit.
-        classification: null
+        // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at this
+        //    path; a folder-only entry carries none, same "no CLASSIFICATION rule matches" null it
+        //    always had.
+        classification: item.classification
       })
     )
   })
