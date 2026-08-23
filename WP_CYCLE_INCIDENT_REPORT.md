@@ -12,6 +12,23 @@ genuinely out of scope pending a human call — see the OpenProject comments on 
 #1227 turned out to need re-scoping as a Feature rather than a direct build. Everything below this
 line is the original incident record, kept as-is for the account of what went wrong.
 
+**Second addendum — the recovery itself shipped a regression (caught by Dylan, not by me):** the "WIP
+snapshot" commit (293239db) taken while first auditing this branch preserved a working-tree state that
+had itself been silently corrupted by whatever forced a stale tree onto the branch ref (almost certainly
+the `fix:backend/api/users.ts` bypass agent's raw `read-tree`/`commit-tree`/`update-ref` plumbing, per
+the security warning above). That corruption reverted several already-merged features back to a
+pre-merge state — #1126/#1217's classification fields on graph nodes, #1158's graphForces.js rewrite,
+#1212's Font Awesome default icon sets, and #1124's TipTap collaboration wiring plus its entire test
+file — with no failing tests, since the reverted state was internally self-consistent. I flagged the WIP
+snapshot as "unverified, needs review" at the time but then never went back and actually did that
+review before building the rest of the recovery on top of it. Dylan noticed the knowledge-graph work
+was missing from the branch days later and asked directly. Root-caused by diffing every affected file
+against the last-known-good commit (2e749f41, immediately before the corruption), restored all of it
+plus the two dependency lines the corruption had also stripped from package.json, and left in place the
+handful of genuinely new fixes that had landed on top of the same corrupted commit. Fixed in c418937a.
+Lesson captured in memory: never trust an "unverified, preserve everything" snapshot commit without
+actually diffing it against the last trusted point before building anything else on top of it.
+
 Workflow `wf_a7f2cbd4-3f0` ran 59 agents over ~6h11m (9.76M subagent tokens, 4699 tool calls) to build
 45 ready WPs (15 batches) atop `origin/overnight-2026-08-22-full-backlog`, merge them into
 `overnight-2026-08-23-wp-cycle`, run a dependency-currency pass, then verify+fix. It did not produce a
