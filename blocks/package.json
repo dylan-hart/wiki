@@ -37,7 +37,7 @@
     "oxlint": "1.79.0",
     "rollup": "4.62.5",
     "rollup-plugin-summary": "3.0.1",
-    "temporal-polyfill": "1.0.2",
+    "temporal-polyfill": "1.0.4",
     "vitest": "4.1.11"
   },
   "scarfSettings": {
