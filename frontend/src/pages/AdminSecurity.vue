@@ -586,8 +586,8 @@ import { loading } from '@/composables/loading'
 import { useSiteStore } from '@/stores/site'
 
 import { filesize } from 'filesize'
-import filesizeParser from 'filesize-parser'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
@@ -694,7 +694,7 @@ async function save() {
   try {
     let uploadMaxFileSize
     try {
-      uploadMaxFileSize = filesizeParser(state.humanUploadMaxFileSize || '0')
+      uploadMaxFileSize = parseFileSize(state.humanUploadMaxFileSize || '0')
     } catch {
       throw new Error(t('admin.security.maxUploadSizeInvalid'))
     }

@@ -44,7 +44,6 @@
     "@xterm/xterm": "6.0.0",
     "asciidoctor": "4.0.11",
     "browser-fs-access": "0.38.0",
-    "d3-drag": "3.0.0",
     "d3-force": "3.0.0",
     "d3-polygon": "3.0.1",
     "d3-quadtree": "3.0.1",
@@ -52,7 +51,6 @@
     "d3-zoom": "3.0.0",
     "es-toolkit": "1.51.0",
     "filesize": "11.0.22",
-    "filesize-parser": "1.5.2",
     "fuse.js": "7.5.0",
     "highlight.js": "11.12.0",
     "iconify-icon": "3.0.2",
@@ -90,7 +88,6 @@
     "vue-router": "5.2.0",
     "vue3-otp-input": "0.5.40",
     "y-monaco": "0.1.6",
-    "y-protocols": "1.0.7",
     "y-websocket": "3.1.0",
     "yjs": "13.6.32",
     "zxcvbn": "4.4.2"
@@ -113,11 +110,11 @@
     "vitest": "4.1.11"
   },
   "overrides": {
-    "markdown-it-mdc": {
-      "markdown-it": "$markdown-it"
-    },
     "@twemoji/api": {
       "@twemoji/parser": "17.0.1"
+    },
+    "markdown-it-mdc": {
+      "markdown-it": "$markdown-it"
     }
   },
   "engines": {
