@@ -149,6 +149,7 @@ function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage
     isBrowsable: true,
     isSearchable: true,
     isSearchableComputed: true,
+    classification: 'classification-1',
     password: null,
     ratingScore: 0,
     ratingCount: new Date('2024-01-01T00:00:00Z'),
@@ -170,6 +171,7 @@ describe('azure-search module: buildIndexSchema', () => {
     const names = schema.fields.map((f) => f.name)
     assert.equal(new Set(names).size, names.length)
     assert.deepEqual(names.sort(), [
+      'classification',
       'content',
       'description',
       'editor',
@@ -337,6 +339,7 @@ describe('azure-search module: toIndexDocument', () => {
     assert.equal(doc.content, 'Hello kangaroo content')
     assert.deepEqual(doc.tags, ['animals'])
     assert.equal(doc.hasPassword, false)
+    assert.equal(doc.classification, 'classification-1')
     assert.equal(doc.updatedAt, '2024-01-02T03:04:05.678Z')
   })
 
@@ -645,6 +648,29 @@ describe('azure-search module: query()', () => {
     assert.equal(result.results.length, 1)
     assert.equal(result.results[0]!.id, 'p2')
     assert.equal(result.totalHits, 1)
+    WIKI.models.groups.checkAccess = () => true
+  })
+
+  test('passes each row’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const client = fakeQueryClient([
+      { count: 1, rows: [row({ classification: 'classification-restricted' })] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    const seen: any[] = []
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) => {
+      seen.push(p.classification)
+      return true
+    }
+
+    await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      actor,
+      hideProtectedContent: false
+    })
+
+    assert.deepEqual(seen, ['classification-restricted'])
     WIKI.models.groups.checkAccess = () => true
   })
 

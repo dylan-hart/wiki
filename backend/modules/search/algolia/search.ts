@@ -40,6 +40,8 @@ export interface AlgoliaPageDocument {
   editor: string
   publishState: string
   isSearchable: boolean
+  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
+  classification: string
   updatedAt: string
   /** Absent for a password-protected page — see `pageToDocument`'s doc comment for why. */
   content?: string
@@ -158,6 +160,7 @@ export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
     editor: page.editor,
     publishState: page.publishState,
     isSearchable: page.isSearchable,
+    classification: page.classification,
     updatedAt,
     ...(page.password ? {} : { content: page.searchContent ?? '' })
   }
@@ -395,11 +398,11 @@ export class AlgoliaSearchModule implements SearchModule {
             locale: hit.locale,
             siteId,
             tags: hit.tags ?? [],
-            // -> Algolia's index carries no classification field (OpenProject #1079 is newer than
-            //    this provider's indexing pipeline) -- a CLASSIFICATION rule never matches an
-            //    Algolia hit, the same fail-closed treatment as any other unknown classification.
-            //    Flagged for OpenProject #1082's cross-surface enforcement audit.
-            classification: null
+            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: hit.classification ?? null
           })
         )
       : hits
@@ -483,6 +486,7 @@ export class AlgoliaSearchModule implements SearchModule {
           editor: pagesTable.editor,
           publishState: pagesTable.publishState,
           isSearchable: pagesTable.isSearchable,
+          classification: pagesTable.classification,
           password: pagesTable.password,
           searchContent: pagesTable.searchContent,
           updatedAt: pagesTable.updatedAt

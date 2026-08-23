@@ -226,7 +226,10 @@ export function buildIndexSchema(indexName: string): SearchIndex {
       { name: 'publishState', type: 'Edm.String', filterable: true },
       { name: 'updatedAt', type: 'Edm.DateTimeOffset', filterable: true, sortable: true },
       { name: 'icon', type: 'Edm.String', searchable: false, filterable: false },
-      { name: 'hasPassword', type: 'Edm.Boolean', filterable: true }
+      { name: 'hasPassword', type: 'Edm.Boolean', filterable: true },
+      // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at index
+      //    time from `pages.classification` the same way `tags`/`editor`/`publishState` already are.
+      { name: 'classification', type: 'Edm.String', searchable: false, filterable: false }
     ],
     scoringProfiles: [
       {
@@ -253,6 +256,7 @@ export function toIndexDocument(page: SearchIndexablePage): Record<string, any> 
     publishState: page.publishState,
     icon: page.icon ?? '',
     hasPassword: page.password != null,
+    classification: page.classification,
     // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
     //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
     updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
@@ -698,9 +702,11 @@ export class AzureSearchModule implements SearchModule {
             locale: row.document.locale as string,
             siteId,
             tags: (row.document.tags ?? []) as string[],
-            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
-            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
-            classification: null
+            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: (row.document.classification as string | null) ?? null
           })
         )
       : rows

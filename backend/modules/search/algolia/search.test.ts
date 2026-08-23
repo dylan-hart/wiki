@@ -31,6 +31,7 @@ function fakePage(overrides: Partial<Record<string, any>> = {}): SearchIndexable
     editor: 'markdown',
     publishState: 'published',
     isSearchable: true,
+    classification: 'classification-1',
     password: null,
     searchContent: 'Some page content about getting started.',
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -197,6 +198,7 @@ describe('pageToDocument()', () => {
     assert.equal(doc.editor, 'markdown')
     assert.equal(doc.publishState, 'published')
     assert.equal(doc.isSearchable, true)
+    assert.equal(doc.classification, 'classification-1')
     assert.equal(doc.content, 'Some page content about getting started.')
   })
 
@@ -229,6 +231,7 @@ describe('batchDocuments()', () => {
       editor: 'markdown',
       publishState: 'published',
       isSearchable: true,
+      classification: 'classification-1',
       updatedAt: '2026-01-01T00:00:00.000Z',
       ...overrides
     }
@@ -468,6 +471,41 @@ describe('AlgoliaSearchModule', () => {
       ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
     }
     assert.equal(calls.searchSingleIndex!.length, 1)
+  })
+
+  test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const { mod, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      hits: [
+        {
+          objectID: 'p1',
+          path: 'restricted',
+          locale: 'en',
+          title: 'Restricted',
+          tags: [],
+          classification: 'classification-restricted',
+          updatedAt: 'x'
+        }
+      ],
+      nbHits: 1
+    })
+    const seen: any[] = []
+    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: AccessActor,
+      _permission: string,
+      page: any
+    ) => {
+      seen.push(page.classification)
+      return true
+    }
+
+    try {
+      await mod.query({ siteId, query: '', actor: { groupIds: [], permissions: [] } })
+      assert.deepEqual(seen, ['classification-restricted'])
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
+    }
   })
 
   test('query() with no actor returns every hit unfiltered', async () => {

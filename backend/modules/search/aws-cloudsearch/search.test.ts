@@ -146,6 +146,7 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
     assert.deepEqual(
       names.sort(),
       [
+        'classification',
         'content',
         'description',
         'editor',
@@ -250,6 +251,7 @@ describe('aws-cloudsearch module: init()', () => {
     assert.deepEqual(
       client.defineIndexFieldCalls.sort(),
       [
+        'classification',
         'content',
         'description',
         'editor',
@@ -391,6 +393,7 @@ function basePage(overrides: Partial<SearchIndexablePage> = {}): SearchIndexable
     editor: 'markdown',
     publishState: 'published',
     icon: 'mdi:file',
+    classification: 'classification-1',
     password: null,
     updatedAt: new Date('2026-01-15T12:30:00.123Z'),
     ...overrides
@@ -411,6 +414,7 @@ describe('aws-cloudsearch module: toIndexDocument', () => {
     assert.equal(doc.fields.editor, 'markdown')
     assert.equal(doc.fields.publishState, 'published')
     assert.equal(doc.fields.icon, 'mdi:file')
+    assert.equal(doc.fields.classification, 'classification-1')
     assert.equal(doc.fields.updatedAt, '2026-01-15T12:30:00.123Z')
   })
 
@@ -812,6 +816,32 @@ describe('aws-cloudsearch module: query()', () => {
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0].id, 'visible')
       assert.equal(result.totalHits, 1)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    }
+  })
+
+  test('passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const seen: any[] = []
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _perm: string,
+      page: any
+    ) => {
+      seen.push(page.classification)
+      return true
+    }
+    try {
+      const client = fakeQueryClient([
+        {
+          found: 1,
+          hit: [hit({ id: 'p1', fields: { classification: ['classification-restricted'] } })]
+        }
+      ])
+      const module = new AwsCloudSearchModule(undefined, () => client)
+      await module.query({ siteId: 'site-1', actor: {} as any })
+
+      assert.deepEqual(seen, ['classification-restricted'])
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
     }

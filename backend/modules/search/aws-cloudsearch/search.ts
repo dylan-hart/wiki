@@ -140,6 +140,14 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       //    external index has no `password IS NULL` to check per-row the way postgres does. Never
       //    returned to a caller — `query()` only ever filters on it.
       options: { searchEnabled: false, returnEnabled: false }
+    },
+    {
+      name: 'classification',
+      type: 'literal',
+      // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at
+      //    index time from `pages.classification` the same way `tags`/`editor`/`publishState` already
+      //    are. Never searched or faceted, same treatment as `id`/`icon` above.
+      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
     }
   ]
 }
@@ -364,6 +372,7 @@ export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
       publishState: page.publishState,
       icon: page.icon ?? '',
       hasPassword: page.password != null ? 'true' : 'false',
+      classification: page.classification,
       // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
       //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
       updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
@@ -1079,9 +1088,11 @@ export class AwsCloudSearchModule implements SearchModule {
             locale: fieldValue(row, 'locale'),
             siteId,
             tags: fieldValues(row, 'tags'),
-            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
-            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
-            classification: null
+            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: fieldValue(row, 'classification') || null
           })
         )
       : rows

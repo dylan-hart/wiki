@@ -41,6 +41,8 @@ export interface ElasticsearchPageDocument {
   editor: string
   publishState: string
   isSearchable: boolean
+  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
+  classification: string
   updatedAt: string
   /** Absent for a password-protected page — same reasoning as the Algolia module's `pageToDocument`:
    *  a value once sent to an external service can't be un-sent by a later query-time bug. */
@@ -81,6 +83,9 @@ const INDEX_MAPPINGS = {
     publishState: { type: 'keyword' },
     icon: { type: 'keyword' },
     isSearchable: { type: 'boolean' },
+    // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at index
+    //    time from `pages.classification` the same way `tags`/`editor`/`publishState` already are.
+    classification: { type: 'keyword' },
     updatedAt: { type: 'date' }
   }
 } as const
@@ -138,6 +143,7 @@ export function pageToDocument(page: SearchIndexablePage): ElasticsearchPageDocu
     editor: page.editor,
     publishState: page.publishState,
     isSearchable: page.isSearchable,
+    classification: page.classification,
     updatedAt,
     ...(page.password ? {} : { content: page.searchContent ?? '' })
   }
@@ -399,7 +405,16 @@ export class ElasticsearchSearchModule implements SearchModule {
       from: offset,
       size: limit,
       query: buildEsQuery(params) as any,
-      _source: ['title', 'description', 'path', 'locale', 'tags', 'icon', 'updatedAt']
+      _source: [
+        'title',
+        'description',
+        'path',
+        'locale',
+        'tags',
+        'icon',
+        'classification',
+        'updatedAt'
+      ]
     })
     const hits = (response.hits?.hits ?? []).filter((hit) => hit._source)
 
@@ -416,9 +431,11 @@ export class ElasticsearchSearchModule implements SearchModule {
             locale: hit._source!.locale,
             siteId,
             tags: hit._source!.tags ?? [],
-            // -> No classification field in this provider's index (OpenProject #1079 postdates it)
-            //    -- flagged for OpenProject #1082's cross-surface enforcement audit.
-            classification: null
+            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: hit._source!.classification ?? null
           })
         )
       : hits
@@ -504,6 +521,7 @@ export class ElasticsearchSearchModule implements SearchModule {
           editor: pagesTable.editor,
           publishState: pagesTable.publishState,
           isSearchable: pagesTable.isSearchable,
+          classification: pagesTable.classification,
           password: pagesTable.password,
           searchContent: pagesTable.searchContent,
           updatedAt: pagesTable.updatedAt
