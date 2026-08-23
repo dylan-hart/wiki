@@ -1,6 +1,8 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { users as usersTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -173,6 +175,93 @@ describe(
       )
 
       assert.equal(recovered.path, 'docs/recover-with-override-2')
+    })
+
+    test('contributorCountsForGraph counts unique contributors per page, split by via', async () => {
+      const [second] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'second@example.com',
+          name: 'Second User',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      const [third] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'third@example.com',
+          name: 'Third User',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/contributor-counts' }),
+        actor
+      )
+      // -> createPage's own `created` record already counts `actor.id` (fixtures.userId) once via
+      //    'editor'. Layer on: the same author again (no new unique contributor), a second
+      //    editor-via author, and an mcp-via author -- so `editor` should land at 2, `mcp` at 1,
+      //    `all` at 3.
+      await pageHistoryModel.record({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        action: 'updated',
+        authorId: fixtures.userId,
+        via: 'editor'
+      })
+      await pageHistoryModel.record({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        action: 'updated',
+        authorId: second!.id,
+        via: 'editor'
+      })
+      await pageHistoryModel.record({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        action: 'updated',
+        authorId: third!.id,
+        via: 'mcp'
+      })
+
+      const counts = await pageHistoryModel.contributorCountsForGraph(fixtures.siteId)
+      assert.deepEqual(counts.get(page.id), { editor: 2, mcp: 1, all: 3 })
+    })
+
+    test('contributorCountsForGraph excludes edits by since-deleted authors from every count', async () => {
+      const [ephemeral] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'ephemeral@example.com',
+          name: 'Ephemeral User',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/deleted-author' }),
+        actor
+      )
+      await pageHistoryModel.record({
+        siteId: fixtures.siteId,
+        pageId: page.id,
+        action: 'updated',
+        authorId: ephemeral!.id,
+        via: 'editor'
+      })
+      await fixtures.db.delete(usersTable).where(eq(usersTable.id, ephemeral!.id))
+
+      const counts = await pageHistoryModel.contributorCountsForGraph(fixtures.siteId)
+      // -> `actor` (fixtures.userId) is still the sole surviving contributor from createPage's own
+      //    `created` row; the deleted author's `updated` row's authorId went to null on cascade and
+      //    is excluded, not counted as a synthetic contributor.
+      assert.deepEqual(counts.get(page.id), { editor: 1, mcp: 0, all: 1 })
     })
 
     test('recoverDeletedPage refuses an unknown or non-deleted version id', async () => {

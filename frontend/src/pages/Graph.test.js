@@ -14,8 +14,24 @@ function createTestI18n() {
 
 const FIXTURE_GRAPH = {
   nodes: [
-    { path: 'a', locale: 'en', title: 'A', icon: null, tags: [], folder: '' },
-    { path: 'b', locale: 'en', title: 'B', icon: null, tags: [], folder: '' }
+    {
+      path: 'a',
+      locale: 'en',
+      title: 'A',
+      icon: null,
+      tags: [],
+      folder: '',
+      contributors: { editor: 3, mcp: 1, all: 4 }
+    },
+    {
+      path: 'b',
+      locale: 'en',
+      title: 'B',
+      icon: null,
+      tags: [],
+      folder: '',
+      contributors: { editor: 0, mcp: 0, all: 0 }
+    }
   ],
   edges: [{ source: 'a', target: 'b', type: 'link' }]
 }
@@ -85,6 +101,55 @@ describe('Graph.vue (OpenProject #891)', () => {
     await flushPromises()
 
     expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('defaults to uniform sizing, where every real node gets the fixed radius', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.vm.sizeBy).toBe('uniform')
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    expect(wrapper.vm.radiusFor(nodeA)).toBe(5)
+    expect(wrapper.vm.radiusFor(nodeB)).toBe(5)
+  })
+
+  it('edits sizing scales a node bigger with more contributors than one with fewer', async () => {
+    const wrapper = await mountGraph()
+    wrapper.vm.sizeBy = 'edits'
+    await flushPromises()
+
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+    const nodeB = wrapper.vm.nodes.find((node) => node.path === 'b')
+    expect(wrapper.vm.radiusFor(nodeA)).toBeGreaterThan(wrapper.vm.radiusFor(nodeB))
+    expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('contributorCountFor reads the pre-unioned "all" count only when both types are checked', async () => {
+    const wrapper = await mountGraph()
+    const nodeA = wrapper.vm.nodes.find((node) => node.path === 'a')
+
+    expect(wrapper.vm.contributorTypes).toEqual(['editor', 'mcp'])
+    expect(wrapper.vm.contributorCountFor(nodeA)).toBe(4)
+
+    wrapper.vm.contributorTypes = ['editor']
+    expect(wrapper.vm.contributorCountFor(nodeA)).toBe(3)
+
+    wrapper.vm.contributorTypes = ['mcp']
+    expect(wrapper.vm.contributorCountFor(nodeA)).toBe(1)
+
+    wrapper.vm.contributorTypes = []
+    expect(wrapper.vm.contributorCountFor(nodeA)).toBe(0)
+  })
+
+  it('shows the client-type filter only in edits mode', async () => {
+    const wrapper = await mountGraph()
+
+    expect(wrapper.find('.graph-client-type-filter').exists()).toBe(false)
+
+    wrapper.vm.sizeBy = 'edits'
+    await flushPromises()
+
+    expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
   })
 
   it('recovers from a fetch failure without throwing', async () => {

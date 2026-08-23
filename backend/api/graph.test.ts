@@ -3,8 +3,12 @@ import assert from 'node:assert/strict'
 import { assembleGraph, folderOf, type GraphPageRow } from './graph.ts'
 
 function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
+  // -> `id` defaults to `path` (not a fixed constant) so a test giving several rows distinct
+  //    `path`s for free also gets them distinct `id`s, without every call site having to say so.
+  const path = overrides.path ?? 'docs/intro'
   return {
-    path: 'docs/intro',
+    id: path,
+    path,
     locale: 'en',
     title: 'Intro',
     icon: null,
@@ -150,5 +154,38 @@ describe('assembleGraph', () => {
     )
 
     assert.equal(result.nodes[0]!.classification, null)
+  })
+
+  // -> OpenProject #1141: node.contributors is the resolved edit-volume counts, not looked up by
+  //    the test itself -- `contributorsFor` stands in for `pageHistory.contributorCountsForGraph()`.
+  test("resolves each node's contributor counts through the contributorsFor accessor, keyed by id", () => {
+    const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
+
+    const result = assembleGraph(
+      rows,
+      () => true,
+      undefined,
+      (pageId) =>
+        pageId === 'page-a' ? { editor: 3, mcp: 1, all: 4 } : { editor: 0, mcp: 0, all: 0 }
+    )
+
+    assert.deepEqual(result.nodes.find((n) => n.path === 'a')!.contributors, {
+      editor: 3,
+      mcp: 1,
+      all: 4
+    })
+    assert.deepEqual(result.nodes.find((n) => n.path === 'b')!.contributors, {
+      editor: 0,
+      mcp: 0,
+      all: 0
+    })
+  })
+
+  test('contributors default to all-zero when no contributorsFor accessor is given', () => {
+    const rows = [makeRow({ path: 'a' })]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.nodes[0]!.contributors, { editor: 0, mcp: 0, all: 0 })
   })
 })
