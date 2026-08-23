@@ -56,7 +56,7 @@
       <template v-if="state.displayMode === `scheduled`">
         <w-card
           class="rounded"
-          v-if="state.scheduledJobs.length < 1"
+          v-if="state.scheduledJobs.length < 1 && state.loading < 1"
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
@@ -148,7 +148,7 @@
       <template v-else-if="state.displayMode === `upcoming`">
         <w-card
           class="rounded"
-          v-if="state.upcomingJobs.length < 1"
+          v-if="state.upcomingJobs.length < 1 && state.loading < 1"
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
@@ -238,7 +238,7 @@
       <template v-else>
         <w-card
           class="rounded"
-          v-if="state.jobs.length < 1"
+          v-if="state.jobs.length < 1 && state.loading < 1"
           flat
           :class="dark.isActive ? `bg-dark-5 text-white` : `bg-grey-3 text-dark`">
           <w-card-section class="items-center" horizontal>
@@ -397,6 +397,7 @@
         </div>
       </template>
     </div>
+    <w-inner-loading :showing="state.loading > 0" />
   </w-page>
 </template>
 
@@ -427,9 +428,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.scheduler.title')
-})
+}))
 
 // DATA
 
