@@ -10,7 +10,7 @@
 import type { FastifyInstance } from 'fastify'
 import type gracefulServer from '@gquittet/graceful-server'
 import type Emittery from 'emittery'
-import type NodeCache from 'node-cache'
+import type { LRUCache } from 'lru-cache'
 
 declare global {
   interface WikiGlobal {
@@ -25,7 +25,7 @@ declare global {
 
     app: FastifyInstance
     server: ReturnType<typeof gracefulServer>
-    cache: NodeCache
+    cache: LRUCache<string, any>
     /**
      * HA propagation buses. Event names are dynamic (they travel over postgres NOTIFY), so the
      * event map is left open — `Record<string, any>` is also what makes dataless `emit(name)`

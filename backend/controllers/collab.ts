@@ -1,6 +1,5 @@
-import { validate as uuidValidate } from 'uuid'
-
 import { mayOnPage } from '../api/pages.ts'
+import { isValidUuid } from '../helpers/common.ts'
 
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket } from 'ws'
@@ -44,7 +43,7 @@ async function routes(app: FastifyInstance) {
         how the editor tells "you may not edit this" apart from "the connection dropped" and knows not
         to reconnect. See `composables/collab.js`.
       */
-      if (!uuidValidate(siteId) || !uuidValidate(pageId)) {
+      if (!isValidUuid(siteId) || !isValidUuid(pageId)) {
         return socket.close(4400, 'Invalid site or page id')
       }
       if (!req.session?.authenticated) {

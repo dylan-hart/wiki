@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { validate as uuidValidate } from 'uuid'
+import { isValidUuid } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -21,7 +21,7 @@ async function routes(app: FastifyInstance) {
     // -> `.webp` is part of the URL so that the extension matches what is served, but the ID is the
     //    only part that identifies anything
     const assetId = req.params.fileName.replace(/\.webp$/i, '')
-    if (!uuidValidate(assetId)) {
+    if (!isValidUuid(assetId)) {
       return reply.notFound('Thumbnail not found')
     }
 

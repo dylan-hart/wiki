@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -8,12 +7,12 @@ import LdapAuthentication from './authentication.ts'
 import { ProvisionableLoginError } from '../../../models/authentication.ts'
 
 /**
- * `ldapjs` talks to a real directory server, so this suite never touches the network: `authenticate()`
+ * `ldapts` talks to a real directory server, so this suite never touches the network: `authenticate()`
  * takes an injectable client factory (its only test-only seam), and every scenario here drives that
- * factory with a small fake standing in for a directory's bind/search behavior. What is under test is
- * this module's control flow and error mapping — search-then-bind, the zero/multiple-entries and
- * wrong-password edge cases, filter interpolation/escaping, group mapping, and TLS option caching —
- * not `ldapjs` itself.
+ * factory with a small fake standing in for a directory's promise-based bind/search behavior. What is
+ * under test is this module's control flow and error mapping — search-then-bind, the zero/multiple-
+ * entries and wrong-password edge cases, filter interpolation/escaping, group mapping, and TLS option
+ * caching — not `ldapts` itself.
  */
 
 const CONF = {
@@ -32,14 +31,9 @@ interface FakeEntry {
   attrs: Record<string, string | string[]>
 }
 
-function toSearchEntry(entry: FakeEntry) {
-  return {
-    objectName: entry.dn,
-    attributes: Object.entries(entry.attrs).map(([type, values]) => ({
-      type,
-      values: Array.isArray(values) ? values : [values]
-    }))
-  }
+/** Shapes a fake entry the way `ldapts`'s `Client.search()` returns one: attributes flattened onto the entry itself, alongside `dn`. */
+function toSearchEntry(entry: FakeEntry): any {
+  return { dn: entry.dn, ...entry.attrs }
 }
 
 interface FakeDirectoryHandlers {
@@ -57,36 +51,23 @@ function makeClientFactory(handlers: FakeDirectoryHandlers) {
   } = { binds: [], searches: [] }
 
   const factory = (_options: any) => {
-    const client: any = new EventEmitter()
-    client.bind = (dn: string, password: string, cb: (err: Error | null) => void) => {
-      calls.binds.push({ dn, password })
-      queueMicrotask(() => {
+    const client: any = {
+      bind: async (dn: string, password: string) => {
+        calls.binds.push({ dn, password })
         const result = handlers.bind(dn, password)
-        cb(result === true ? null : result)
-      })
-    }
-    client.search = (base: string, options: any, cb: (err: Error | null, res?: any) => void) => {
-      calls.searches.push({ base, options })
-      queueMicrotask(() => {
+        if (result !== true) {
+          throw result
+        }
+      },
+      search: async (base: string, options: any) => {
+        calls.searches.push({ base, options })
         const result = handlers.search(base, options)
         if (result instanceof Error) {
-          cb(result)
-          return
+          throw result
         }
-        const res = new EventEmitter()
-        cb(null, res)
-        queueMicrotask(() => {
-          for (const entry of result) {
-            res.emit('searchEntry', toSearchEntry(entry))
-          }
-          res.emit('end', {})
-        })
-      })
-    }
-    client.unbind = (cb?: () => void) => {
-      if (cb) {
-        cb()
-      }
+        return { searchEntries: result.map(toSearchEntry), searchReferences: [] }
+      },
+      unbind: async () => {}
     }
     return client
   }
@@ -424,23 +405,14 @@ test('TLS certificate is read from disk once and cached across logins', async ()
   const seenTlsOptions: any[] = []
   const factory = (options: any) => {
     seenTlsOptions.push(options.tlsOptions)
-    const client: any = new EventEmitter()
-    client.bind = (_dn: string, _password: string, cb: (err: Error | null) => void) =>
-      queueMicrotask(() => cb(null))
-    client.search = (_base: string, _options: any, cb: (err: Error | null, res?: any) => void) => {
-      queueMicrotask(() => {
-        const res = new EventEmitter()
-        cb(null, res)
-        queueMicrotask(() => {
-          res.emit(
-            'searchEntry',
-            toSearchEntry({ dn: userDn, attrs: { uid: 'jdoe', mail: 'j@x.com' } })
-          )
-          res.emit('end', {})
-        })
-      })
+    const client: any = {
+      bind: async () => {},
+      search: async () => ({
+        searchEntries: [toSearchEntry({ dn: userDn, attrs: { uid: 'jdoe', mail: 'j@x.com' } })],
+        searchReferences: []
+      }),
+      unbind: async () => {}
     }
-    client.unbind = (cb?: () => void) => cb?.()
     return client
   }
   const mod = new LdapAuthentication('strategy-1', conf, factory)
@@ -488,16 +460,15 @@ test('a custom/internal CA at tlsCertPath is handed to the LDAP client verbatim,
   const seenTlsOptions: any[] = []
   const factory = (options: any) => {
     seenTlsOptions.push(options.tlsOptions)
-    const client: any = new EventEmitter()
-    client.bind = (dn: string, _password: string, cb: (err: Error | null) => void) =>
-      queueMicrotask(() => cb(dn === CONF.bindDn ? null : new Error('InvalidCredentialsError')))
-    client.search = (_base: string, _options: any, cb: (err: Error | null, res?: any) => void) =>
-      queueMicrotask(() => {
-        const res = new EventEmitter()
-        cb(null, res)
-        queueMicrotask(() => res.emit('end', {}))
-      })
-    client.unbind = (cb?: () => void) => cb?.()
+    const client: any = {
+      bind: async (dn: string) => {
+        if (dn !== CONF.bindDn) {
+          throw new Error('InvalidCredentialsError')
+        }
+      },
+      search: async () => ({ searchEntries: [], searchReferences: [] }),
+      unbind: async () => {}
+    }
     return client
   }
   const mod = new LdapAuthentication('strategy-1', conf, factory)
@@ -519,16 +490,15 @@ test('verifyTLSCertificate off never reads tlsCertPath from disk, even when one 
   const seenTlsOptions: any[] = []
   const factory = (options: any) => {
     seenTlsOptions.push(options.tlsOptions)
-    const client: any = new EventEmitter()
-    client.bind = (dn: string, _password: string, cb: (err: Error | null) => void) =>
-      queueMicrotask(() => cb(dn === CONF.bindDn ? null : new Error('InvalidCredentialsError')))
-    client.search = (_base: string, _options: any, cb: (err: Error | null, res?: any) => void) =>
-      queueMicrotask(() => {
-        const res = new EventEmitter()
-        cb(null, res)
-        queueMicrotask(() => res.emit('end', {}))
-      })
-    client.unbind = (cb?: () => void) => cb?.()
+    const client: any = {
+      bind: async (dn: string) => {
+        if (dn !== CONF.bindDn) {
+          throw new Error('InvalidCredentialsError')
+        }
+      },
+      search: async () => ({ searchEntries: [], searchReferences: [] }),
+      unbind: async () => {}
+    }
     return client
   }
   const mod = new LdapAuthentication('strategy-1', conf, factory)

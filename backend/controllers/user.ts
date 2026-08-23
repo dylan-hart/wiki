@@ -1,5 +1,5 @@
-import { validate as uuidValidate } from 'uuid'
 import crypto from 'node:crypto'
+import { isValidUuid } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -26,7 +26,7 @@ async function routes(app: FastifyInstance) {
     let userId: string | null = null
     if (req.params.userId === 'current') {
       userId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
-    } else if (uuidValidate(req.params.userId)) {
+    } else if (isValidUuid(req.params.userId)) {
       userId = req.params.userId
     }
     if (!userId) {

@@ -645,7 +645,7 @@ class Glossary {
    * otherwise tell it a linked page moved or was deleted (OpenProject #870).
    */
   invalidateCache(siteId: string): void {
-    WIKI.cache.del(cacheKey(siteId))
+    WIKI.cache.delete(cacheKey(siteId))
   }
 
   /** Confirms a canonical page reference exists and belongs to the same site, or rejects it. */

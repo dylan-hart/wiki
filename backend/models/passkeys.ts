@@ -6,8 +6,8 @@ import {
 } from '@simplewebauthn/server'
 import { isoBase64URL } from '@simplewebauthn/server/helpers'
 import { eq, sql } from 'drizzle-orm'
-import { validate as uuidValidate } from 'uuid'
 import { users as usersTable } from '../db/schema.ts'
+import { isValidUuid } from '../helpers/common.ts'
 import type {
   AuthenticationResponseJSON,
   AuthenticatorTransportFuture,
@@ -383,7 +383,7 @@ class Passkeys {
     } catch {
       throw new Error('ERR_LOGIN_FAILED')
     }
-    if (!uuidValidate(userId)) {
+    if (!isValidUuid(userId)) {
       WIKI.models.flags.authDebug('Passkey login rejected: the user handle is not one of ours')
       throw new Error('ERR_LOGIN_FAILED')
     }

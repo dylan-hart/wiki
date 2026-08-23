@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit/predicate'
 import { nanoid } from 'nanoid'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import type { WikiDb } from '../../core/db.ts'
 import {
   groups as groupsTable,
@@ -371,7 +371,7 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   const path = typeof source.path === 'string' ? source.path : ''
 
   return {
-    id: uuid(),
+    id: crypto.randomUUID(),
     name: synthesizeRuleName({ match, path }, index),
     roles: asStringArray(source.roles),
     match,

@@ -427,6 +427,13 @@ export function timingSafeCompare(a: string, b: string): boolean {
   return crypto.timingSafeEqual(digest(a), digest(b))
 }
 
+/** RFC 4122 UUID, versions 1-8, case-insensitive -- matches what the removed `uuid` package's own `validate()` accepted. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export function isValidUuid(value: string): boolean {
+  return UUID_PATTERN.test(value)
+}
+
 /**
  * Hash a page path the way the frontend does.
  *

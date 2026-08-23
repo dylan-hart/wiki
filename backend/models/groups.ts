@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
@@ -409,7 +409,7 @@ class Groups {
         permissions: ['read:pages', 'read:assets', 'read:comments'],
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: ['read:pages', 'read:assets', 'read:comments'],
             match: 'START',
@@ -427,7 +427,7 @@ class Groups {
         permissions: ['read:pages', 'read:assets', 'read:comments'],
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: ['read:pages', 'read:assets', 'read:comments'],
             match: 'START',
@@ -458,7 +458,7 @@ class Groups {
         permissions: startingPermissions,
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: startingPermissions,
             match: 'START',

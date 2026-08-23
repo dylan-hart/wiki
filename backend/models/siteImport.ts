@@ -1,10 +1,7 @@
-import fs from 'node:fs'
-import fsp from 'node:fs/promises'
+import fs from 'node:fs/promises'
 import path from 'node:path'
-import zlib from 'node:zlib'
-import { finished } from 'node:stream/promises'
-import { extract } from 'tar-stream'
-import { v4 as uuid } from 'uuid'
+import { list as listTarball } from 'tar'
+import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
@@ -31,23 +28,28 @@ export interface ImportResult {
  * Buffering every entry rather than streaming each one against the database as it arrives: the JSON
  * entries need to be parsed and validated *before* anything is written (see `importSite`), and the
  * binary asset entries are headed for a single transaction together with everything else, so nothing
- * here can be applied incrementally as it is read regardless.
+ * here can be applied incrementally as it is read regardless. `tar`'s `t()` (list) reads and
+ * gzip-decompresses `filePath` itself, handing each entry back as a readable stream via
+ * `onReadEntry` — the promise it returns resolves only once every entry has been fully parsed out of
+ * the underlying file, by which point every `data`/`end` pair below has already fired.
  */
 async function readArchive(filePath: string): Promise<Record<string, Buffer>> {
   const entries: Record<string, Buffer> = {}
-  const extractor = extract()
-  extractor.on('entry', (header, stream, next) => {
-    const chunks: Buffer[] = []
-    stream.on('data', (chunk) => chunks.push(chunk))
-    stream.on('end', () => {
-      entries[header.name] = Buffer.concat(chunks)
-      next()
-    })
-    stream.resume()
+  await listTarball({
+    file: filePath,
+    onReadEntry: (entry) => {
+      // -> `create()` (see `models/export.ts`) emits a directory entry for `assets/` itself, ahead of
+      //    the files inside it -- nothing this reads back ever needs that entry, only the files.
+      if (entry.type !== 'File') {
+        return
+      }
+      const chunks: Buffer[] = []
+      entry.on('data', (chunk) => chunks.push(chunk))
+      entry.on('end', () => {
+        entries[entry.path] = Buffer.concat(chunks)
+      })
+    }
   })
-
-  fs.createReadStream(filePath).pipe(zlib.createGunzip()).pipe(extractor)
-  await finished(extractor)
   return entries
 }
 
@@ -111,9 +113,9 @@ class ImportModel {
    * back from.
    */
   async saveUpload(data: Buffer): Promise<string> {
-    await fsp.mkdir(this.importsPath, { recursive: true })
-    const filePath = path.join(this.importsPath, `${uuid()}.tar.gz`)
-    await fsp.writeFile(filePath, data)
+    await fs.mkdir(this.importsPath, { recursive: true })
+    const filePath = path.join(this.importsPath, `${crypto.randomUUID()}.tar.gz`)
+    await fs.writeFile(filePath, data)
     return filePath
   }
 
@@ -123,7 +125,7 @@ class ImportModel {
    * rather than a working file).
    */
   async deleteUpload(filePath: string): Promise<void> {
-    await fsp.unlink(filePath).catch(() => {})
+    await fs.unlink(filePath).catch(() => {})
   }
 
   /**
@@ -136,7 +138,7 @@ class ImportModel {
   async purgeExpired(): Promise<number> {
     let files: string[]
     try {
-      files = await fsp.readdir(this.importsPath)
+      files = await fs.readdir(this.importsPath)
     } catch (err: any) {
       if (err.code === 'ENOENT') {
         return 0
@@ -148,9 +150,9 @@ class ImportModel {
     let purged = 0
     for (const entry of files) {
       const entryPath = path.join(this.importsPath, entry)
-      const stat = await fsp.stat(entryPath)
+      const stat = await fs.stat(entryPath)
       if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
-        await fsp.unlink(entryPath)
+        await fs.unlink(entryPath)
         purged++
       }
     }
@@ -203,8 +205,10 @@ class ImportModel {
 
     // -> Fresh ids for pages and assets, computed up front so a tree entry can be matched to the
     //    same new id its page/asset just got — see the class-level doc comment.
-    const pageIdMap = new Map<string, string>(pageRows.map((row) => [row.id, uuid()]))
-    const assetIdMap = new Map<string, string>(assetManifest.map((row) => [row.id, uuid()]))
+    const pageIdMap = new Map<string, string>(pageRows.map((row) => [row.id, crypto.randomUUID()]))
+    const assetIdMap = new Map<string, string>(
+      assetManifest.map((row) => [row.id, crypto.randomUUID()])
+    )
 
     const mappedPageRows = pageRows.map((row) => ({
       ...row,
@@ -232,7 +236,7 @@ class ImportModel {
           ? pageIdMap.get(row.id)
           : row.type === 'asset'
             ? assetIdMap.get(row.id)
-            : uuid()
+            : crypto.randomUUID()
       if (!newId) {
         throw new Error(
           `Malformed import archive: tree entry ${row.id} (${row.type}) has no matching entry in ${row.type === 'page' ? 'pages.json' : 'assets/manifest.json'}.`

@@ -1,7 +1,6 @@
-import { validate as uuidValidate } from 'uuid'
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
@@ -261,7 +260,7 @@ async function routes(app: FastifyInstance) {
           hostname: req.hostname,
           strict: req.query.strict ?? false
         })
-      } else if (uuidValidate(req.params.siteIdorHostname)) {
+      } else if (isValidUuid(req.params.siteIdorHostname)) {
         site = await WIKI.models.sites.getSiteById({ id: req.params.siteIdorHostname })
       } else {
         site = await WIKI.models.sites.getSiteByHostname({

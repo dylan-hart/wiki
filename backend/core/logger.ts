@@ -1,4 +1,4 @@
-import chalk from 'chalk'
+import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
@@ -71,7 +71,7 @@ export default {
               message: msg
             })
           } else {
-            formatted = `${new Date().toISOString()} ${chalk.dim('[' + WIKI.INSTANCE_ID + ']')} ${chalk[LEVELCOLORS[lvl]].bold(lvl)}: ${msg}`
+            formatted = `${new Date().toISOString()} ${styleText('dim', '[' + WIKI.INSTANCE_ID + ']')} ${styleText([LEVELCOLORS[lvl], 'bold'], lvl)}: ${msg}`
           }
 
           console.log(formatted)

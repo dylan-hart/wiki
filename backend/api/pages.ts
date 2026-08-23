@@ -1,4 +1,3 @@
-import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
@@ -13,6 +12,7 @@ import {
   defaultLocale,
   generatePathHash,
   guardSiteEnabled,
+  isValidUuid,
   normalizePagePath
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
@@ -630,7 +630,7 @@ async function routes(app: FastifyInstance) {
       if (!enforceApiKeySite(req, reply, req.params.siteId)) {
         return reply
       }
-      const isId = uuidValidate(req.params.pageIdOrHash)
+      const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
       const wantsContent = Boolean(req.query.withContent) && Boolean(actor)
@@ -758,7 +758,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const isId = uuidValidate(req.params.pageIdOrHash)
+      const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       const page = await WIKI.models.pages.unlockPage({
         siteId: req.params.siteId,

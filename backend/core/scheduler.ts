@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CronExpressionParser } from 'cron-parser'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
 import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import { camelCase } from 'es-toolkit/string'
@@ -238,7 +238,7 @@ export default {
     promise = false
   }: AddJobOptions): Promise<{ id: string; promise?: Promise<void> } | undefined> {
     try {
-      const jobId = uuid()
+      const jobId = crypto.randomUUID()
       const jobDefer = createDeferred()
       if (promise) {
         this.completionPromises.push({

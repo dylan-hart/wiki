@@ -45,7 +45,7 @@ describe('LiveData.resolve', () => {
 
   afterEach(() => {
     mock.restoreAll()
-    ;(WIKI.cache as any).flushAll()
+    ;(WIKI.cache as any).clear()
   })
 
   test('extracts the JSONPath value from a plain (no-credential) endpoint', async () => {
@@ -280,7 +280,7 @@ describe('LiveData.resolve', () => {
       refreshInterval: 1
     })
     const setCall = (WIKI.cache.set as any).mock.calls.at(-1)
-    assert.equal(setCall.arguments[2], 10)
+    assert.equal(setCall.arguments[2].ttl, 10 * 1000)
   })
 })
 
@@ -298,7 +298,7 @@ describe('LiveData.resolve rate limiting (OpenProject #1050)', () => {
 
   afterEach(() => {
     mock.restoreAll()
-    ;(WIKI.cache as any).flushAll()
+    ;(WIKI.cache as any).clear()
   })
 
   /** Exhausts a credential's per-window cap, always missing the response cache (a distinct url each

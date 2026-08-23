@@ -3,11 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import zlib from 'node:zlib'
-import { Readable } from 'node:stream'
-import { finished } from 'node:stream/promises'
-import { buffer as streamToBuffer } from 'node:stream/consumers'
-import { extract, pack } from 'tar-stream'
+import { create as createTarball, list as listTarball } from 'tar'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -35,6 +31,19 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let targetSiteId: string
 
   before(async () => {
+    // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
+    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime --
+    //    same pattern as `modules/storage/disk/storage.test.ts`'s own `before()`. The package
+    //    polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
+    //    `Date.prototype.toTemporalInstant()` -- `purgeExpired()` uses that conversion.
+    if (typeof Temporal === 'undefined') {
+      const polyfill = await import('@js-temporal/polyfill')
+      ;(globalThis as any).Temporal = polyfill.Temporal
+      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+        return polyfill.toTemporalInstant.call(this)
+      }
+    }
+
     fixtures = await setupTestDb()
     ;({ exportModel } = await import('./export.ts'))
     ;({ importModel } = await import('./siteImport.ts'))
@@ -63,32 +72,40 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
   async function readArchiveEntries(filePath: string): Promise<Record<string, Buffer>> {
     const entries: Record<string, Buffer> = {}
-    const extractor = extract()
-    extractor.on('entry', (header, stream, next) => {
-      const chunks: Buffer[] = []
-      stream.on('data', (chunk) => chunks.push(chunk))
-      stream.on('end', () => {
-        entries[header.name] = Buffer.concat(chunks)
-        next()
-      })
-      stream.resume()
+    await listTarball({
+      file: filePath,
+      onReadEntry: (entry) => {
+        // -> `create()` emits a directory entry for `assets/` itself, ahead of the files inside it.
+        if (entry.type !== 'File') {
+          return
+        }
+        const chunks: Buffer[] = []
+        entry.on('data', (chunk) => chunks.push(chunk))
+        entry.on('end', () => {
+          entries[entry.path] = Buffer.concat(chunks)
+        })
+      }
     })
-
-    const source = Readable.from(await fs.readFile(filePath)).pipe(zlib.createGunzip())
-    source.pipe(extractor)
-    await finished(extractor)
     return entries
   }
 
-  /** Writes a `{ name: Buffer }` map back out as a gzipped tar file, for building a doctored archive. */
+  /**
+   * Writes a `{ name: Buffer }` map back out as a gzipped tar file, for building a doctored archive.
+   * `tar`'s `Pack` only ever archives real files (it lstats each path itself), so each entry is staged
+   * to a throwaway directory first, the same way `models/export.ts`'s `exportSite` does.
+   */
   async function writeArchive(filePath: string, entries: Record<string, Buffer>): Promise<void> {
-    const packer = pack()
-    for (const [name, data] of Object.entries(entries)) {
-      packer.entry({ name }, data)
+    const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-archive-'))
+    try {
+      for (const [name, data] of Object.entries(entries)) {
+        const entryPath = path.join(stagingDir, name)
+        await fs.mkdir(path.dirname(entryPath), { recursive: true })
+        await fs.writeFile(entryPath, data)
+      }
+      await createTarball({ gzip: true, file: filePath, cwd: stagingDir }, Object.keys(entries))
+    } finally {
+      await fs.rm(stagingDir, { recursive: true, force: true })
     }
-    packer.finalize()
-    const gzipped = await streamToBuffer(packer.pipe(zlib.createGzip()))
-    await fs.writeFile(filePath, gzipped)
   }
 
   test('importSite restores pages, tree, assets and groups into the target site', async () => {

@@ -26,7 +26,7 @@ import fastifyWebsocket from '@fastify/websocket'
 import gracefulServer from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
 import Emittery from 'emittery'
-import NodeCache from 'node-cache'
+import { LRUCache } from 'lru-cache'
 
 import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
@@ -202,7 +202,7 @@ async function preBoot() {
     process.exit(1)
   }
 
-  WIKI.cache = new NodeCache({ checkperiod: 0 })
+  WIKI.cache = new LRUCache({ max: 5000 })
   WIKI.scheduler = await scheduler.init()
   WIKI.events = {
     inbound: new Emittery(),

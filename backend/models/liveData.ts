@@ -117,7 +117,7 @@ class LiveData {
 
     const refreshSeconds = clampRefreshSeconds(request.refreshInterval)
     const cacheKey = `${CACHE_PREFIX}${siteId}:${request.credentialId || ''}:${request.url}:${request.jsonPath}`
-    const cached = WIKI.cache.get<LiveDataResult>(cacheKey)
+    const cached = WIKI.cache.get(cacheKey) as LiveDataResult | undefined
     if (cached) {
       return cached
     }
@@ -186,7 +186,7 @@ class LiveData {
       value,
       fetchedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
     }
-    WIKI.cache.set(cacheKey, result, refreshSeconds)
+    WIKI.cache.set(cacheKey, result, { ttl: refreshSeconds * 1000 })
     return result
   }
 
@@ -194,24 +194,23 @@ class LiveData {
    * Counts this fresh (cache-miss) fetch against `credentialId`'s rate limit and throws once the
    * window's cap is exceeded — see the class comment and {@link RATE_LIMIT_MAX_PER_WINDOW}.
    *
-   * A fixed window, not a sliding one: `WIKI.cache.getTtl` reports when the current window's key
-   * actually expires, and that expiry is preserved (via `WIKI.cache.set`'s own `ttl` argument) on
-   * every increment rather than reset — resetting it on every request would mean a credential at
-   * exactly its cap, with requests still arriving, would never see the window lapse and would stay
-   * throttled forever instead of recovering once the offending traffic actually stops.
+   * A fixed window, not a sliding one: `WIKI.cache.getRemainingTTL` reports how much longer the
+   * current window's key has left, and that remaining time is preserved (via `WIKI.cache.set`'s own
+   * `ttl` option) on every increment rather than reset — resetting it on every request would mean a
+   * credential at exactly its cap, with requests still arriving, would never see the window lapse and
+   * would stay throttled forever instead of recovering once the offending traffic actually stops.
    *
    * @throws {CustomError} `Too Many Requests` (429) once the count exceeds the cap.
    */
   private assertWithinRateLimit(credentialId: string): void {
     const key = `${RATE_LIMIT_PREFIX}${credentialId}`
-    const now = Date.now()
-    const expiresAt = WIKI.cache.getTtl(key)
-    const windowIsFresh = !expiresAt || expiresAt <= now
-    const count = (windowIsFresh ? 0 : (WIKI.cache.get<number>(key) ?? 0)) + 1
+    const remainingMs = WIKI.cache.getRemainingTTL(key)
+    const windowIsFresh = remainingMs <= 0
+    const count = (windowIsFresh ? 0 : ((WIKI.cache.get(key) as number | undefined) ?? 0)) + 1
     const remainingSeconds = windowIsFresh
       ? RATE_LIMIT_WINDOW_SECONDS
-      : Math.max(1, Math.ceil((expiresAt - now) / 1000))
-    WIKI.cache.set(key, count, remainingSeconds)
+      : Math.max(1, Math.ceil(remainingMs / 1000))
+    WIKI.cache.set(key, count, { ttl: remainingSeconds * 1000 })
     if (count > RATE_LIMIT_MAX_PER_WINDOW) {
       throw new CustomError(
         'Too Many Requests',
