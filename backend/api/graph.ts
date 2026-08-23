@@ -17,6 +17,10 @@ export interface GraphNode {
   tags: string[]
   /** The path's first segment — the grouping dimension 874's folder view clusters by. */
   folder: string
+  /** The page's classification level display name (OpenProject #1079/#1217), resolved from
+   *  `GraphPageRow.classification` via `WIKI.models.classificationLevels.byId()`. Null when the
+   *  id no longer resolves to a configured level. */
+  classification: string | null
 }
 
 /** One edge — an authored relation or an extracted internal link, always between two visible nodes. */
@@ -44,10 +48,18 @@ export function folderOf(path: string): string {
  * node/edge assembly + permission-filter logic against a fixture page list with no `WIKI` global
  * and no database (CLAUDE.md's "Testing (backend)" pure-unit convention). This stub is enough to
  * wire the route end to end first — Task 5 (#884) fills in the real body.
+ *
+ * `classificationName` resolves a classification id to its display name (OpenProject #1217) —
+ * a separate parameter for the same testability reason as `canRead`: `WIKI.models
+ * .classificationLevels.byId()` needs no database either, but a pure-unit test still shouldn't
+ * have to stand up the `WIKI` global just to exercise node/edge assembly. Defaults to the
+ * identity function so every existing caller that doesn't care about the resolved name keeps
+ * working unchanged.
  */
 export function assembleGraph(
   rows: GraphPageRow[],
-  canRead: (row: GraphPageRow) => boolean
+  canRead: (row: GraphPageRow) => boolean,
+  classificationName: (id: string) => string | null = (id) => id
 ): Graph {
   const visible = rows.filter(canRead)
   const visiblePaths = new Set(visible.map((row) => row.path))
@@ -58,7 +70,8 @@ export function assembleGraph(
     title: row.title,
     icon: row.icon,
     tags: row.tags,
-    folder: folderOf(row.path)
+    folder: folderOf(row.path),
+    classification: classificationName(row.classification)
   }))
 
   const edges: GraphEdge[] = []
@@ -118,7 +131,11 @@ async function routes(app: FastifyInstance) {
         return
       }
       const rows = await WIKI.models.pages.listAllForGraph(req.params.siteId)
-      return assembleGraph(rows, (row) => mayOnPage(req, 'read:pages', req.params.siteId, row))
+      return assembleGraph(
+        rows,
+        (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
+        (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null
+      )
     }
   )
 }

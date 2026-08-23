@@ -9,6 +9,7 @@ function makeRow(overrides: Partial<GraphPageRow> = {}): GraphPageRow {
     title: 'Intro',
     icon: null,
     tags: [],
+    classification: 'level-public',
     relations: [],
     links: [],
     ...overrides
@@ -97,5 +98,57 @@ describe('assembleGraph', () => {
       result.nodes.map((n) => n.path),
       ['b']
     )
+  })
+
+  // -> OpenProject #1126: a CLASSIFICATION rule must be able to hide a page from the graph, the same
+  //    way it already hides it from direct view, search and the sitemap. `canRead` here stands in
+  //    for `mayOnPage()`, which resolves a CLASSIFICATION DENY against `row.classification` -- so
+  //    this only holds if `classification` actually reaches the predicate on every row.
+  test("canRead sees each row's classification, so a CLASSIFICATION-based DENY can hide it", () => {
+    const rows = [
+      makeRow({ path: 'open', classification: 'level-public' }),
+      makeRow({ path: 'secret', classification: 'level-restricted' })
+    ]
+
+    const result = assembleGraph(rows, (row) => row.classification !== 'level-restricted')
+
+    assert.deepEqual(
+      result.nodes.map((n) => n.path),
+      ['open']
+    )
+  })
+
+  // -> OpenProject #1217: node.classification is the resolved display name, not the raw id --
+  //    `classificationName` stands in for `WIKI.models.classificationLevels.byId(id)?.name`.
+  test("resolves each node's classification id through the classificationName accessor", () => {
+    const rows = [makeRow({ path: 'a', classification: 'level-restricted' })]
+
+    const result = assembleGraph(
+      rows,
+      () => true,
+      (id) => (id === 'level-restricted' ? 'Restricted' : null)
+    )
+
+    assert.equal(result.nodes[0]!.classification, 'Restricted')
+  })
+
+  test('classification id passes through unresolved when no classificationName accessor is given', () => {
+    const rows = [makeRow({ path: 'a', classification: 'level-restricted' })]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.equal(result.nodes[0]!.classification, 'level-restricted')
+  })
+
+  test('a classification id with no matching level resolves to null', () => {
+    const rows = [makeRow({ path: 'a', classification: 'stale-id' })]
+
+    const result = assembleGraph(
+      rows,
+      () => true,
+      () => null
+    )
+
+    assert.equal(result.nodes[0]!.classification, null)
   })
 })

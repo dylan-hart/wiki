@@ -138,3 +138,30 @@ export function buildTagHubEdges(nodes) {
 
   return { syntheticNodes: [...hubs.values()], edges }
 }
+
+/**
+ * Classification-hub synthetic nodes/edges (OpenProject #1217, `edgeMode: 'classification'`): one
+ * synthetic hub node per distinct classification (`path: '__classification__' + name`), with an
+ * edge from the hub to every page carrying it. Every page carries exactly one classification
+ * (unlike the zero-or-more tags `buildTagHubEdges` handles above), so this always produces exactly
+ * one edge per node -- closer in shape to `buildPathHierarchyEdges`'s one-edge-per-node than to
+ * `buildTagHubEdges`'s variable fan-out. A node with no resolved classification name (backend
+ * `GraphNode.classification` is null when the id no longer matches a configured level) is grouped
+ * under a shared `'(unclassified)'` hub rather than dropped, the same fallback `Graph.vue`'s
+ * `groupKeyFor()` uses for the Classification grouping.
+ */
+export function buildClassificationHubEdges(nodes) {
+  const hubs = new Map()
+  const edges = []
+
+  for (const node of nodes) {
+    const classification = node.classification ?? '(unclassified)'
+    const hubPath = `__classification__${classification}`
+    if (!hubs.has(hubPath)) {
+      hubs.set(hubPath, { path: hubPath, title: classification, synthetic: true })
+    }
+    edges.push({ source: hubPath, target: node.path, type: 'classification' })
+  }
+
+  return { syntheticNodes: [...hubs.values()], edges }
+}
