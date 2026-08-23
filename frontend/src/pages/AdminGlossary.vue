@@ -44,7 +44,7 @@
           icon="la:file-import"
           flat
           color="indigo"
-          @click="importGlossary">
+          @click="openImportDialog">
           <w-tooltip>{{ t('common.actions.import') }}</w-tooltip>
         </w-btn>
         <w-btn
@@ -88,7 +88,6 @@
               <w-item-label>
                 <strong>{{ term.term }}</strong>
               </w-item-label>
-              <w-item-label caption>{{ term.definition }}</w-item-label>
               <div v-if="term.aliases?.length" class="flex flex-wrap gap-1 mt-1">
                 <w-chip v-for="alias of term.aliases" :key="alias" square dense>{{ alias }}</w-chip>
               </div>
@@ -96,6 +95,9 @@
                 <w-icon name="la:link" size="12px" class="mr-1" />
                 /{{ term.path }}
               </w-item-label>
+            </w-item-section>
+            <w-item-section>
+              <span class="text-caption text-grey">{{ term.definition }}</span>
             </w-item-section>
             <w-separator class="ml-4" vertical />
             <w-item-section side style="flex-direction: row; align-items: center">
@@ -126,7 +128,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
 import { computed, onMounted, reactive, watch } from 'vue'
-import { fileOpen, fileSave } from 'browser-fs-access'
+import { fileSave } from 'browser-fs-access'
 
 import { useDark } from '@/composables/dark'
 import { useMeta } from '@/composables/meta'
@@ -136,6 +138,7 @@ import { confirm, dialog } from '@/composables/dialog'
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
 
+import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
@@ -336,54 +339,13 @@ async function exportGlossary() {
   }
 }
 
-async function importGlossary() {
-  let data
-  try {
-    const blob = await fileOpen({
-      mimeTypes: ['application/json'],
-      extensions: ['.json'],
-      startIn: 'downloads',
-      excludeAcceptAllOption: true
-    })
-    data = JSON.parse(await blob.text())
-  } catch {
-    // -> A cancelled file picker throws too (`fileOpen` rejects on abort) -- silently do nothing,
-    //    the same as every other cancel path on this screen.
-    return
-  }
-  if (!data || !Array.isArray(data.terms)) {
-    return notify({
-      type: 'negative',
-      message: t('admin.glossary.importInvalidFormat')
-    })
-  }
-
-  confirm({
-    title: t('admin.glossary.importConfirmTitle'),
-    message: t('admin.glossary.importConfirmMessage', { count: data.terms.length }),
-    cancel: true,
-    color: 'negative',
-    okLabel: t('common.actions.import')
-  }).onOk(async () => {
-    state.loading++
-    try {
-      await API_CLIENT.post(`sites/${adminStore.currentSiteId}/glossary/import`, {
-        json: data
-      }).json()
-      notify({
-        type: 'positive',
-        message: t('admin.glossary.importSuccess')
-      })
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: t('admin.glossary.importFailed'),
-        caption: apiErrorMessage(err)
-      })
+function openImportDialog() {
+  dialog({
+    component: GlossaryImportDialog,
+    componentProps: {
+      siteId: adminStore.currentSiteId
     }
-    state.loading--
-    await load()
-  })
+  }).onOk(load)
 }
 
 // MOUNTED

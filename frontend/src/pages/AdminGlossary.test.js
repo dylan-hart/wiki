@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import AdminGlossary from './AdminGlossary.vue'
+import GlossaryImportDialog from '@/components/GlossaryImportDialog.vue'
 import GlossaryTermDialog from '@/components/GlossaryTermDialog.vue'
 import GlossaryVersionHistoryDialog from '@/components/GlossaryVersionHistoryDialog.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -20,19 +21,16 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
 }))
 
 const fileSave = vi.fn()
-const fileOpen = vi.fn()
 vi.mock('browser-fs-access', () => ({
-  fileSave: (...args) => fileSave(...args),
-  fileOpen: (...args) => fileOpen(...args)
+  fileSave: (...args) => fileSave(...args)
 }))
 
 // -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so unlike
-//    `API_CLIENT` -- rebuilt fresh per test by `test/setup.js` -- these two need their own call
-//    history cleared here, or an earlier test's call would still be there for a later `not
+//    `API_CLIENT` -- rebuilt fresh per test by `test/setup.js` -- this needs its own call history
+//    cleared here, or an earlier test's call would still be there for a later `not
 //    .toHaveBeenCalled()` assertion to trip over.
 beforeEach(() => {
   fileSave.mockClear()
-  fileOpen.mockClear()
 })
 
 const EXPORT_TERMS = [
@@ -88,6 +86,17 @@ describe('AdminGlossary: load()', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('admin.glossary.noTerms')
+  })
+
+  it("places each term's definition in its own item-section, not under the term name", async () => {
+    const wrapper = mountAdminGlossary()
+    await flushPromises()
+
+    const row = wrapper.find('.w-item')
+    const [termSection, definitionSection] = row.findAll('.w-item-section')
+
+    expect(termSection.text()).not.toContain('Application Programming Interface.')
+    expect(definitionSection.text()).toBe('Application Programming Interface.')
   })
 
   it('is not dirty right after loading', async () => {
@@ -278,50 +287,22 @@ describe('AdminGlossary: export/import (OpenProject #1114)', () => {
     expect(fileSave).not.toHaveBeenCalled()
   })
 
-  it('importGlossary() reads the picked file, confirms, then POSTs to .../glossary/import', async () => {
+  it('openImportDialog() opens GlossaryImportDialog for the current site, reloading on ok', async () => {
     const wrapper = mountAdminGlossary()
     await flushPromises()
+    API_CLIENT.get.mockClear()
 
-    const payload = {
-      formatVersion: 1,
-      terms: [{ term: 'X', definition: 'Y', aliases: [], path: null }]
-    }
-    fileOpen.mockResolvedValueOnce({ text: () => Promise.resolve(JSON.stringify(payload)) })
-    API_CLIENT.post.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    dialog.mockReturnValueOnce({ onOk: (cb) => cb() })
+    wrapper.vm.openImportDialog()
 
-    await wrapper.vm.importGlossary()
-
-    expect(confirm).toHaveBeenCalled()
-    expect(API_CLIENT.post).toHaveBeenCalledWith(
-      'sites/site-1/glossary/import',
-      expect.objectContaining({ json: payload })
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        component: GlossaryImportDialog,
+        componentProps: { siteId: 'site-1' }
+      })
     )
-  })
-
-  it('importGlossary() rejects a file with no "terms" array', async () => {
-    const wrapper = mountAdminGlossary()
-    await flushPromises()
-    API_CLIENT.post.mockClear()
-
-    fileOpen.mockResolvedValueOnce({
-      text: () => Promise.resolve(JSON.stringify({ notTerms: [] }))
-    })
-
-    await wrapper.vm.importGlossary()
-
-    expect(API_CLIENT.post).not.toHaveBeenCalled()
-  })
-
-  it('importGlossary() does nothing when the file picker is cancelled', async () => {
-    const wrapper = mountAdminGlossary()
-    await flushPromises()
-    API_CLIENT.post.mockClear()
-
-    fileOpen.mockRejectedValueOnce(new Error('AbortError'))
-
-    await wrapper.vm.importGlossary()
-
-    expect(API_CLIENT.post).not.toHaveBeenCalled()
+    // -> `.onOk(cb)` above runs `load` immediately -- see the module-level `dialog` mock's own comment
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/glossary/export')
   })
 })
 
