@@ -41,10 +41,20 @@ export interface ResolvedIcons {
 /**
  * Icon sets seeded on a fresh instance, so that the picker is usable before an administrator has
  * added anything. The names are the upstream ones and get overwritten by the first metadata refresh.
+ *
+ * Font Awesome Free (OpenProject #1212) is its three Iconify collections, not the single `fa`
+ * prefix: `fa6-solid`/`fa6-regular`/`fa6-brands` are the current (v6) free-tier sets upstream splits
+ * style into, distinct from `fa` (the old v4 icon-font mapping) and from a paid Pro tier this instance
+ * never seeds. Its icons are CC BY 4.0 (the font itself is OFL, the code MIT) -- not a functional
+ * gate on seeding it by default, since the admin icon-set list already surfaces each set's license
+ * from Iconify's own metadata (`AdminIcons.vue`'s `setCaption`/`availableCaption`).
  */
-const DEFAULT_SETS: { prefix: string; name: string }[] = [
+export const DEFAULT_SETS: { prefix: string; name: string }[] = [
   { prefix: 'mdi', name: 'Material Design Icons' },
-  { prefix: 'la', name: 'Line Awesome' }
+  { prefix: 'la', name: 'Line Awesome' },
+  { prefix: 'fa6-solid', name: 'Font Awesome 6 Solid' },
+  { prefix: 'fa6-regular', name: 'Font Awesome 6 Regular' },
+  { prefix: 'fa6-brands', name: 'Font Awesome 6 Brands' }
 ]
 
 /** Iconify prefixes and icon names are lowercase, dash-separated words. */
