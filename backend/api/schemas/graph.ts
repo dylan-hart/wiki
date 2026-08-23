@@ -17,6 +17,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         description:
           "The path's first segment, e.g. `docs` for `docs/child` — the grouping dimension 874's folder view clusters by."
+      },
+      classification: {
+        type: ['string', 'null'],
+        description:
+          "The page's classification level display name (OpenProject #1079/#1217), resolved server-side from its classification id. Null when the id no longer resolves to a configured level."
       }
     }
   })

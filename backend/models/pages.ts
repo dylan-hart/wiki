@@ -195,6 +195,10 @@ export interface GraphPageRow {
   title: string
   icon: string | null
   tags: string[]
+  /** The classification level id this page carries (OpenProject #1079) -- what `mayOnPage()`'s
+   *  CLASSIFICATION rule check (OpenProject #1126) and the graph's Classification grouping
+   *  (#1217) both key off. */
+  classification: string
   relations: {
     pos: 'left' | 'center' | 'right'
     label: string
@@ -551,6 +555,7 @@ class Pages {
         title: pagesTable.title,
         icon: pagesTable.icon,
         tags: pagesTable.tags,
+        classification: pagesTable.classification,
         relations: pagesTable.relations,
         links: pagesTable.links
       })
