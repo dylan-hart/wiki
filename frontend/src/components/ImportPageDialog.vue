@@ -33,9 +33,16 @@
             emit-value
             option-value="value"
             option-label="label"
+            option-disable="disable"
             options-dense
             hide-bottom-space
             :label="t(`pages.import.format`)" />
+          <p v-if="pandocMissing" class="text-caption text-grey mt-2">
+            {{ t(`pages.import.pandocMissing`) }}
+            <router-link to="/_admin/extensions">{{
+              t(`pages.import.pandocMissingLink`)
+            }}</router-link>
+          </p>
         </w-card-section>
         <w-card-actions class="card-actions">
           <w-space />
@@ -93,7 +100,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
@@ -124,13 +131,13 @@ import { useSiteStore } from '@/stores/site'
  * format needing no Pandoc extension — every other entry still does.
  */
 const FORMATS = [
-  { value: 'markdown', label: 'Markdown (.md)' },
-  { value: 'mediawiki', label: 'MediaWiki' },
-  { value: 'textile', label: 'Textile' },
-  { value: 'docbook', label: 'DocBook' },
-  { value: 'rst', label: 'reStructuredText' },
-  { value: 'docx', label: 'Word Document (.docx)' },
-  { value: 'odt', label: 'OpenDocument Text (.odt)' }
+  { value: 'markdown', label: 'Markdown (.md)', needsPandoc: false },
+  { value: 'mediawiki', label: 'MediaWiki', needsPandoc: true },
+  { value: 'textile', label: 'Textile', needsPandoc: true },
+  { value: 'docbook', label: 'DocBook', needsPandoc: true },
+  { value: 'rst', label: 'reStructuredText', needsPandoc: true },
+  { value: 'docx', label: 'Word Document (.docx)', needsPandoc: true },
+  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
 ]
 
 /** File extension -> format, for auto-detecting `state.format` off the chosen file's name. */
@@ -189,13 +196,39 @@ const state = reactive({
 
 const fileIpt = ref(null)
 
+// -> Whether Pandoc is installed decides which formats are pickable at all (OpenProject #1209);
+//    fetched once per dialog open rather than assumed stale from an earlier visit to this page.
+onMounted(() => {
+  siteStore.fetchExtensionsStatus()
+})
+
 // COMPUTED
 
-const formatOptions = computed(() => FORMATS)
+/** True once we know for sure this instance has no Pandoc extension -- before the check resolves, nothing is disabled yet rather than flashing every format grayed out. */
+const pandocMissing = computed(
+  () => siteStore.extensionsStatusLoaded && !siteStore.extensionsStatus.pandoc
+)
+
+const formatOptions = computed(() =>
+  FORMATS.map((f) => ({
+    ...f,
+    disable: f.needsPandoc && pandocMissing.value,
+    label: f.needsPandoc && pandocMissing.value ? `${f.label} (needs Pandoc)` : f.label
+  }))
+)
 
 const acceptExtensions = computed(() => `.${Object.keys(EXTENSION_FORMATS).join(',.')}`)
 
-const canConvert = computed(() => Boolean(state.file) && Boolean(state.format))
+const selectedFormatNeedsPandoc = computed(
+  () => FORMATS.find((f) => f.value === state.format)?.needsPandoc ?? false
+)
+
+const canConvert = computed(
+  () =>
+    Boolean(state.file) &&
+    Boolean(state.format) &&
+    !(selectedFormatNeedsPandoc.value && pandocMissing.value)
+)
 
 // METHODS
 
@@ -229,6 +262,7 @@ async function convert() {
   try {
     const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import`, {
       searchParams: {
+        fileName: state.fileName,
         format: state.format,
         path: props.basePath || ''
       },

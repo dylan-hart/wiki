@@ -65,6 +65,38 @@ function isSupportedFormat(format: string): format is ImportFormat {
   return (SUPPORTED_IMPORT_FORMATS as readonly string[]).includes(format)
 }
 
+/**
+ * File extension (lowercase, no dot) -> the import format it implies.
+ *
+ * Mirrors the frontend's own `EXTENSION_FORMATS` in `ImportPageDialog.vue` / `ImportBatchPageDialog.vue`
+ * (kept in step by hand — see those files' header comments), and is what `detectImportFormat` below
+ * uses to resolve a per-file format from its name (OpenProject #1209), rather than one format applied
+ * across an entire batch.
+ */
+export const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
+  md: 'markdown',
+  markdown: 'markdown',
+  wiki: 'mediawiki',
+  mediawiki: 'mediawiki',
+  textile: 'textile',
+  dbk: 'docbook',
+  docbook: 'docbook',
+  rst: 'rst',
+  docx: 'docx',
+  odt: 'odt'
+}
+
+/**
+ * Resolve a file's import format from its own name, the way the single- and batch-import routes now
+ * detect per file (OpenProject #1209) instead of trusting one caller-declared format for a whole
+ * batch. Case-insensitive on the extension; returns `null` for no extension or one this endpoint does
+ * not recognize, which the caller turns into a per-file error rather than guessing.
+ */
+export function detectImportFormat(fileName: string): ImportFormat | null {
+  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : null
+  return ext ? (IMPORT_EXTENSION_FORMATS[ext] ?? null) : null
+}
+
 /** What a converted file hands back — the Markdown body, plus whatever metadata the source carried. */
 export interface ImportConversionResult {
   markdown: string

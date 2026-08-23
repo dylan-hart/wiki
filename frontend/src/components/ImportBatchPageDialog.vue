@@ -38,6 +38,21 @@
             <w-item v-for="(file, idx) in state.files" :key="`${file.name}-${idx}`">
               <w-icon name="la:file-alt" class="mr-2" />
               <w-item-section>{{ file.name }}</w-item-section>
+              <w-select
+                v-model="state.formats[idx]"
+                outlined
+                dense
+                style="width: 180px"
+                class="mr-2 shrink-0"
+                :options="formatOptions"
+                map-options
+                emit-value
+                option-value="value"
+                option-label="label"
+                option-disable="disable"
+                options-dense
+                hide-bottom-space
+                :aria-label="t('pages.importBatch.formatForFile', { file: file.name })" />
               <w-btn
                 flat
                 dense
@@ -48,19 +63,12 @@
             </w-item>
           </w-list>
 
-          <w-select
-            v-model="state.format"
-            outlined
-            dense
-            class="mt-3"
-            :options="formatOptions"
-            map-options
-            emit-value
-            option-value="value"
-            option-label="label"
-            options-dense
-            hide-bottom-space
-            :label="t(`pages.import.format`)" />
+          <p v-if="pandocMissing" class="text-caption text-grey mt-2">
+            {{ t('pages.import.pandocMissing') }}
+            <router-link to="/_admin/extensions">{{
+              t('pages.import.pandocMissingLink')
+            }}</router-link>
+          </p>
         </w-card-section>
         <w-card-actions class="card-actions">
           <w-space />
@@ -179,7 +187,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { v4 as uuid } from 'uuid'
 import slugify from 'slugify'
@@ -212,13 +220,13 @@ import { useEditorStore } from '@/stores/editor'
 
 /** Kept in step by hand with `ImportPageDialog.vue`'s own copy — see that file's header comment. */
 const FORMATS = [
-  { value: 'markdown', label: 'Markdown (.md)' },
-  { value: 'mediawiki', label: 'MediaWiki' },
-  { value: 'textile', label: 'Textile' },
-  { value: 'docbook', label: 'DocBook' },
-  { value: 'rst', label: 'reStructuredText' },
-  { value: 'docx', label: 'Word Document (.docx)' },
-  { value: 'odt', label: 'OpenDocument Text (.odt)' }
+  { value: 'markdown', label: 'Markdown (.md)', needsPandoc: false },
+  { value: 'mediawiki', label: 'MediaWiki', needsPandoc: true },
+  { value: 'textile', label: 'Textile', needsPandoc: true },
+  { value: 'docbook', label: 'DocBook', needsPandoc: true },
+  { value: 'rst', label: 'reStructuredText', needsPandoc: true },
+  { value: 'docx', label: 'Word Document (.docx)', needsPandoc: true },
+  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
 ]
 
 const EXTENSION_FORMATS = {
@@ -276,7 +284,8 @@ const { t } = useI18n()
 const state = reactive({
   step: 'select',
   files: [],
-  format: null,
+  /** Parallel to `files` -- each entry is that file's detected/overridden format, or `null` when its extension is not recognized (OpenProject #1209: no more one format shared by the whole batch). */
+  formats: [],
   isDraggingOver: false,
   converting: false,
   saving: false,
@@ -286,9 +295,26 @@ const state = reactive({
 
 const fileIpt = ref(null)
 
+// -> Whether Pandoc is installed decides which per-file formats are pickable at all (OpenProject
+//    #1209); fetched once per dialog open rather than assumed stale from an earlier visit.
+onMounted(() => {
+  siteStore.fetchExtensionsStatus()
+})
+
 // COMPUTED
 
-const formatOptions = computed(() => FORMATS)
+/** True once we know for sure this instance has no Pandoc extension -- before the check resolves, nothing is disabled yet rather than flashing every format grayed out. */
+const pandocMissing = computed(
+  () => siteStore.extensionsStatusLoaded && !siteStore.extensionsStatus.pandoc
+)
+
+const formatOptions = computed(() =>
+  FORMATS.map((f) => ({
+    ...f,
+    disable: f.needsPandoc && pandocMissing.value,
+    label: f.needsPandoc && pandocMissing.value ? `${f.label} (needs Pandoc)` : f.label
+  }))
+)
 
 const conflictOptions = computed(() => [
   { value: 'overwrite', label: t('pages.importBatch.conflictOverwrite') },
@@ -298,7 +324,13 @@ const conflictOptions = computed(() => [
 
 const acceptExtensions = computed(() => `.${Object.keys(EXTENSION_FORMATS).join(',.')}`)
 
-const canConvert = computed(() => state.files.length > 0 && Boolean(state.format))
+/*
+  A file whose extension went undetected (`state.formats[i]` is `null`) is still allowed into the
+  batch: it fails only its own row once converted (OpenProject #1209), the same as a Pandoc-missing
+  or genuinely corrupt file already does -- Convert All never blocks on any one file's format being
+  unresolved, only on there being no files at all.
+*/
+const canConvert = computed(() => state.files.length > 0)
 
 const canSaveAll = computed(
   () => !state.saving && state.results.some((r) => r.ok && r.saveStatus === 'pending')
@@ -324,6 +356,12 @@ function pickFiles() {
   fileIpt.value?.click()
 }
 
+/** A file's own format, from its extension -- `null` when the extension is not one this endpoint recognizes (OpenProject #1209: per file, not one guess for the whole batch). */
+function detectFormat(fileName) {
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  return ext ? (EXTENSION_FORMATS[ext] ?? null) : null
+}
+
 function addFiles(fileList) {
   const room = MAX_BATCH_FILES - state.files.length
   if (room <= 0) {
@@ -335,23 +373,12 @@ function addFiles(fileList) {
   }
   const incoming = [...fileList].slice(0, room)
   state.files.push(...incoming)
+  state.formats.push(...incoming.map((file) => detectFormat(file.name)))
   if (fileList.length > incoming.length) {
     notify({
       type: 'warning',
       message: t('pages.importBatch.tooManyFiles', { max: MAX_BATCH_FILES })
     })
-  }
-  // -> The batch shares one format, detected off the first file whose extension resolves to one --
-  //    later files are assumed to match, same as the single-file dialog's own auto-detect.
-  if (!state.format) {
-    for (const file of incoming) {
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      const detected = ext ? EXTENSION_FORMATS[ext] : null
-      if (detected) {
-        state.format = detected
-        break
-      }
-    }
   }
 }
 
@@ -443,6 +470,7 @@ async function onDrop(ev) {
 
 function removeFile(idx) {
   state.files.splice(idx, 1)
+  state.formats.splice(idx, 1)
 }
 
 function backToSelect() {
@@ -457,12 +485,16 @@ async function convert() {
   state.converting = true
   try {
     const form = new FormData()
-    for (const file of state.files) {
+    // -> One `formats` field right after each `files` field (OpenProject #1209): the backend pairs
+    //    a `formats` part with whichever upload it most recently saw, so this exact interleaving is
+    //    load-bearing, not cosmetic. An empty string here (an undetected extension) lets the backend
+    //    make its own attempt and answer with a clear per-file error rather than the client guessing.
+    state.files.forEach((file, idx) => {
       form.append('files', file, file.name)
-    }
+      form.append('formats', state.formats[idx] ?? '')
+    })
     const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import/batch`, {
       searchParams: {
-        format: state.format,
         path: props.basePath || ''
       },
       body: form

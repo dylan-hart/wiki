@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
 import { useSiteStore } from '@/stores/site'
@@ -18,22 +19,34 @@ function body() {
   return new DOMWrapper(document.body)
 }
 
-async function mountDialog(props = {}) {
+/**
+ * Defaults `GET system/extensions/status` to `{ pandoc: true }` -- most of this suite exercises a
+ * Pandoc-backed format (`.docx` and friends), and OpenProject #1209's gating would otherwise disable
+ * every one of them under the mock client's own unconfigured default (`json()` resolving `undefined`,
+ * i.e. no extensions installed). A test that specifically covers the missing-Pandoc case overrides
+ * this per-call, same as any other endpoint.
+ */
+async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
   // -> Skips `editorStore.fetchConfigs()`, an API call this suite has no interest in mocking --
   //    same pattern `InboxReview.test.js` uses for the same `MarkdownRenderer` config dependency
   useEditorStore().configIsLoaded = true
+  globalThis.API_CLIENT.get.mockReturnValueOnce({
+    json: vi.fn().mockResolvedValue({ pandoc: pandocInstalled })
+  })
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = createRouter({ history: createMemoryHistory(), routes: [] })
 
   const wrapper = mount(ImportBatchPageDialog, {
     props: { basePath: 'docs', ...props },
-    global: { plugins: [i18n] }
+    global: { plugins: [i18n, router] }
   })
   // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
-  //    panel -- everything this test interacts with -- exists only after that tick runs
+  //    panel -- everything this test interacts with -- exists only after that tick runs, and
+  //    `onMounted`'s `fetchExtensionsStatus()` needs its own tick to resolve too
   await flushPromises()
   return wrapper
 }
@@ -135,7 +148,7 @@ describe('ImportBatchPageDialog', () => {
     let rows = body().findAll('.w-item')
     expect(rows).toHaveLength(2)
 
-    await rows[0].find('button').trigger('click')
+    await rows[0].find('[aria-label="common.actions.remove"]').trigger('click')
 
     rows = body().findAll('.w-item')
     expect(rows).toHaveLength(1)
@@ -164,9 +177,11 @@ describe('ImportBatchPageDialog', () => {
 
     const [url, opts] = globalThis.API_CLIENT.post.mock.calls[0]
     expect(url).toBe('sites/site-1/pages/import/batch')
-    expect(opts.searchParams).toEqual({ format: 'docx', path: 'docs' })
+    expect(opts.searchParams).toEqual({ path: 'docs' })
     expect(opts.body).toBeInstanceOf(FormData)
     expect(opts.body.getAll('files')).toHaveLength(2)
+    // -> One `formats` field per file, autodetected from each one's own extension (OpenProject #1209)
+    expect(opts.body.getAll('formats')).toEqual(['docx', 'docx'])
 
     const rows = body().findAll('.import-batch-row')
     expect(rows).toHaveLength(2)
@@ -460,5 +475,56 @@ describe('ImportBatchPageDialog', () => {
     expect(createCalls).toHaveLength(2)
     expect(createCalls[0][1].json.path).toBe('docs/notes/intro')
     expect(createCalls[1][1].json.path).toBe('docs/notes/guide/start')
+  })
+
+  describe('per-file format detection and Pandoc availability (OpenProject #1209)', () => {
+    it("autodetects each file's own format independently, not one shared by the whole batch", async () => {
+      await mountDialog()
+      await selectFiles([
+        new File(['a'], 'one.docx', { type: 'application/octet-stream' }),
+        new File(['b'], 'two.rst', { type: 'text/plain' })
+      ])
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({
+          ok: true,
+          results: [
+            { fileName: 'one.docx', ok: true, markdown: '# One\n' },
+            { fileName: 'two.rst', ok: true, markdown: '# Two\n' }
+          ]
+        })
+      })
+
+      await body().find('.import-convert-btn').trigger('click')
+      await flushPromises()
+
+      const [, opts] = globalThis.API_CLIENT.post.mock.calls[0]
+      expect(opts.body.getAll('formats')).toEqual(['docx', 'rst'])
+    })
+
+    it('allows a file with an unrecognized extension into the batch rather than blocking Convert All', async () => {
+      await mountDialog()
+      await selectFiles([new File(['a'], 'notes.xyz', { type: 'application/octet-stream' })])
+
+      expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+    })
+
+    it('grays out Pandoc-only formats in the per-file select, and shows an install hint, when Pandoc is missing', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+      await selectFiles([new File(['a'], 'one.docx', { type: 'application/octet-stream' })])
+
+      await body().find('[role="combobox"]').trigger('click')
+      const docxOption = body()
+        .findAll('[role="option"]')
+        .find((el) => el.text().includes('Word Document'))
+      expect(docxOption.attributes('aria-disabled')).toBe('true')
+      expect(body().text()).toContain('pages.import.pandocMissing')
+    })
+
+    it('still allows converting when Pandoc is missing -- a Pandoc-needing row simply fails on its own', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+      await selectFiles([new File(['a'], 'one.docx', { type: 'application/octet-stream' })])
+
+      expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+    })
   })
 })

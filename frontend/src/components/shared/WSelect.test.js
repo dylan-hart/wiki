@@ -179,6 +179,56 @@ describe('WSelect', () => {
     })
   })
 
+  describe('optionDisable', () => {
+    const options = [
+      { value: 'md', label: 'Markdown', locked: false },
+      { value: 'docx', label: 'Word', locked: true }
+    ]
+
+    it('grays out a disabled option but keeps it visible, and click does not select it', async () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options,
+          optionDisable: 'locked',
+          ariaLabel: 'Pick a format'
+        },
+        attachTo: document.body
+      })
+      await control(wrapper).trigger('click')
+
+      const rows = document.querySelectorAll('[role="option"]')
+      expect(rows).toHaveLength(2)
+      expect(rows[1].getAttribute('aria-disabled')).toBe('true')
+
+      rows[1].dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    })
+
+    it('still selects an enabled option normally', async () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options,
+          optionDisable: 'locked',
+          emitValue: true,
+          ariaLabel: 'Pick a format'
+        },
+        attachTo: document.body
+      })
+      await control(wrapper).trigger('click')
+
+      document
+        .querySelectorAll('[role="option"]')[0]
+        .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+
+      expect(wrapper.emitted('update:modelValue')).toEqual([['md']])
+    })
+  })
+
   describe('validate()', () => {
     function isRequired(v) {
       return (v !== null && v !== undefined && v !== '') || 'Required'

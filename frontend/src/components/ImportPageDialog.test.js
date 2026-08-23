@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ImportPageDialog from './ImportPageDialog.vue'
 import { useSiteStore } from '@/stores/site'
@@ -16,19 +17,31 @@ function body() {
   return new DOMWrapper(document.body)
 }
 
-async function mountDialog(props = {}) {
+/**
+ * Defaults `GET system/extensions/status` to `{ pandoc: true }` -- most of this suite exercises a
+ * Pandoc-backed format (`.docx` and friends), and OpenProject #1209's gating would otherwise disable
+ * every one of them under the mock client's own unconfigured default (`json()` resolving `undefined`,
+ * i.e. no extensions installed). A test that specifically covers the missing-Pandoc case overrides
+ * this per-call, same as any other endpoint.
+ */
+async function mountDialog(props = {}, { pandocInstalled = true } = {}) {
   setActivePinia(createPinia())
   const siteStore = useSiteStore()
   siteStore.id = 'site-1'
+  globalThis.API_CLIENT.get.mockReturnValueOnce({
+    json: vi.fn().mockResolvedValue({ pandoc: pandocInstalled })
+  })
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const router = createRouter({ history: createMemoryHistory(), routes: [] })
 
   const wrapper = mount(ImportPageDialog, {
     props: { basePath: 'docs', ...props },
-    global: { plugins: [i18n] }
+    global: { plugins: [i18n, router] }
   })
   // -> `useDialogComponent` mounts hidden then flips visible on a following tick, so the teleported
-  //    panel -- everything this test interacts with -- exists only after that tick runs
+  //    panel -- everything this test interacts with -- exists only after that tick runs, and
+  //    `onMounted`'s `fetchExtensionsStatus()` needs its own tick to resolve too
   await flushPromises()
   return wrapper
 }
@@ -77,7 +90,7 @@ describe('ImportPageDialog', () => {
     expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
       'sites/site-1/pages/import',
       expect.objectContaining({
-        searchParams: { format: 'docx', path: 'docs' },
+        searchParams: { fileName: 'notes.docx', format: 'docx', path: 'docs' },
         headers: { 'content-type': 'application/octet-stream' },
         body: file
       })
@@ -147,6 +160,42 @@ describe('ImportPageDialog', () => {
     expect(notifyQueue.at(-1)).toMatchObject({
       type: 'negative',
       caption: 'Importing a page needs the Pandoc extension, which is not installed.'
+    })
+  })
+
+  describe('Pandoc availability (OpenProject #1209)', () => {
+    it('grays out Pandoc-only formats and shows an install hint when Pandoc is not installed', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+      await selectFile(new File(['hello'], 'notes.docx', { type: 'application/octet-stream' }))
+
+      await body().find('[role="combobox"]').trigger('click')
+      const docxOption = body()
+        .findAll('[role="option"]')
+        .find((el) => el.text().includes('Word Document'))
+      expect(docxOption.attributes('aria-disabled')).toBe('true')
+      expect(body().text()).toContain('pages.import.pandocMissing')
+    })
+
+    it('leaves Convert disabled for a Pandoc-only format while Pandoc is missing', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+      await selectFile(new File(['hello'], 'notes.docx', { type: 'application/octet-stream' }))
+
+      expect(body().find('.import-convert-btn').attributes('disabled')).toBeDefined()
+    })
+
+    it('still allows markdown, which needs no Pandoc, when Pandoc is missing', async () => {
+      await mountDialog({}, { pandocInstalled: false })
+      await selectFile(new File(['# Hi'], 'notes.md', { type: 'text/markdown' }))
+
+      expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+    })
+
+    it('does not gray out any format, and shows no hint, once Pandoc is installed', async () => {
+      await mountDialog({}, { pandocInstalled: true })
+      await selectFile(new File(['hello'], 'notes.docx', { type: 'application/octet-stream' }))
+
+      expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+      expect(body().text()).not.toContain('pages.import.pandocMissing')
     })
   })
 })

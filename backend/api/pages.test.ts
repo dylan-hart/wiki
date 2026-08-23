@@ -1139,7 +1139,11 @@ describe('POST /sites/:siteId/pages/import', () => {
   })
 
   function importUrl(query: Record<string, string> = {}) {
-    const params = new URLSearchParams({ format: 'mediawiki', path: 'docs/new-page', ...query })
+    const params = new URLSearchParams({
+      fileName: 'notes.mediawiki',
+      path: 'docs/new-page',
+      ...query
+    })
     return `/sites/11111111-1111-1111-1111-111111111111/pages/import?${params.toString()}`
   }
 
@@ -1208,6 +1212,48 @@ describe('POST /sites/:siteId/pages/import', () => {
     assert.equal(call.data.toString(), body.toString())
   })
 
+  test("detects the format from fileName's extension when no format is given (OpenProject #1209)", async () => {
+    const body = Buffer.from('Some RST content')
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'design.rst' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: body
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(convertToMarkdown.mock.callCount(), 1)
+    assert.equal((convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test('an explicit format overrides what would otherwise be detected from fileName', async () => {
+    const body = Buffer.from('== Hello ==')
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'notes.rst', format: 'mediawiki' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: body
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'mediawiki'
+    )
+  })
+
+  test('answers 400 without asking the model when fileName has no recognized extension and no format is given', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'README' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: Buffer.from('nope')
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /Could not detect an import format/)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
   test('rejects a format the schema does not know about', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -1256,7 +1302,14 @@ describe('POST /sites/:siteId/pages/import', () => {
  * `fetch(..., { body: formData })` would send.
  */
 async function buildMultipartPayload(
-  files: { fieldName?: string; fileName: string; content: string; type?: string }[]
+  files: {
+    fieldName?: string
+    fileName: string
+    content: string
+    type?: string
+    /** Sent as this file's own `formats` field (OpenProject #1209) when given, overriding autodetection. */
+    formatOverride?: string
+  }[]
 ): Promise<{ payload: Buffer; contentType: string }> {
   const form = new FormData()
   for (const file of files) {
@@ -1265,6 +1318,11 @@ async function buildMultipartPayload(
       new Blob([file.content], { type: file.type ?? 'text/plain' }),
       file.fileName
     )
+    // -> Interleaved right after its own file, same order the frontend sends them in — the route
+    //    pairs a `formats` field with whichever upload it most recently pushed.
+    if (file.fieldName === undefined || file.fieldName === 'files') {
+      form.append('formats', file.formatOverride ?? '')
+    }
   }
   const res = new Response(form)
   const payload = Buffer.from(await res.arrayBuffer())
@@ -1340,7 +1398,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
   })
 
   function batchUrl(query: Record<string, string> = {}) {
-    const params = new URLSearchParams({ format: 'mediawiki', path: 'docs/imported', ...query })
+    const params = new URLSearchParams({ path: 'docs/imported', ...query })
     return `/sites/11111111-1111-1111-1111-111111111111/pages/import/batch?${params.toString()}`
   }
 
@@ -1393,15 +1451,15 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     assert.equal(convertToMarkdown.mock.callCount(), 0)
   })
 
-  test('converts every file in the batch, in order, sharing the one declared format', async () => {
+  test("autodetects each file's format from its own extension (OpenProject #1209)", async () => {
     const { payload, contentType } = await buildMultipartPayload([
       { fileName: 'first.mediawiki', content: 'First' },
-      { fileName: 'second.mediawiki', content: 'Second' }
+      { fileName: 'second.rst', content: 'Second' }
     ])
 
     const res = await app.inject({
       method: 'POST',
-      url: batchUrl({ format: 'mediawiki' }),
+      url: batchUrl(),
       headers: { 'content-type': contentType },
       payload
     })
@@ -1411,12 +1469,61 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     assert.equal(body.ok, true)
     assert.deepEqual(body.results, [
       { fileName: 'first.mediawiki', ok: true, markdown: '# First\n' },
-      { fileName: 'second.mediawiki', ok: true, markdown: '# Second\n' }
+      { fileName: 'second.rst', ok: true, markdown: '# Second\n' }
     ])
     assert.equal(convertToMarkdown.mock.callCount(), 2)
-    for (const call of convertToMarkdown.mock.calls) {
-      assert.equal((call.arguments[0] as { format: string }).format, 'mediawiki')
-    }
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'mediawiki'
+    )
+    assert.equal((convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test("a per-file 'formats' override wins over that file's own detected extension", async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'first.mediawiki', content: 'First', formatOverride: 'textile' },
+      { fileName: 'second.rst', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'textile'
+    )
+    assert.equal((convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test('a file with an unrecognized extension fails only its own entry, without asking the model', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'README', content: 'no extension' },
+      { fileName: 'second.rst', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.results[0].fileName, 'README')
+    assert.equal(body.results[0].ok, false)
+    assert.match(body.results[0].message, /Could not detect an import format/)
+    assert.deepEqual(body.results[1], {
+      fileName: 'second.rst',
+      ok: true,
+      markdown: '# Second\n'
+    })
+    assert.equal(convertToMarkdown.mock.callCount(), 1)
   })
 
   test('one file failing does not stop the rest of the batch from converting', async () => {
@@ -1493,7 +1600,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
     })
   })
 
-  test("accepts format=markdown and passes each result's parsed title/description/tags through", async () => {
+  test("autodetects format: markdown from .md and passes each result's parsed title/description/tags through", async () => {
     convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => ({
       markdown: '# Body\n',
       title: `Title for ${data.toString()}`,
@@ -1506,7 +1613,7 @@ describe('POST /sites/:siteId/pages/import/batch', () => {
 
     const res = await app.inject({
       method: 'POST',
-      url: batchUrl({ format: 'markdown' }),
+      url: batchUrl(),
       headers: { 'content-type': contentType },
       payload
     })

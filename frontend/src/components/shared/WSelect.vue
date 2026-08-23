@@ -159,14 +159,18 @@
             :key="idx"
             role="option"
             :aria-selected="String(isSelected(opt.value))"
-            class="w-select-option flex w-full cursor-pointer flex-nowrap items-center gap-2 px-4 text-left hover:bg-black/5 dark:hover:bg-white/8"
+            :aria-disabled="opt.disable || undefined"
+            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-left"
             :class="[
               optionsDense ? 'min-h-8 py-1 text-body2' : 'min-h-10 py-2',
               isSelected(opt.value) ? 'text-primary' : '',
-              idx === activeIndex ? 'bg-black/8 dark:bg-white/12' : ''
+              opt.disable
+                ? 'cursor-not-allowed text-black/40 dark:text-white/40'
+                : 'cursor-pointer hover:bg-black/5 dark:hover:bg-white/8',
+              idx === activeIndex && !opt.disable ? 'bg-black/8 dark:bg-white/12' : ''
             ]"
             @click.stop="select(opt.value)"
-            @mousemove="activeIndex = idx">
+            @mousemove="opt.disable || (activeIndex = idx)">
             <!--
               A check, not a checkbox. The icon takes the row's own font size unless told otherwise,
               which made a 14px square that read as a rendering fault rather than a control -- and the
@@ -262,6 +266,15 @@ const props = defineProps({
   optionLabel: {
     type: String,
     default: 'label'
+  },
+  /**
+   * Field holding whether an option is selectable, when options are objects. A disabled option
+   * still shows -- grayed out, not hidden -- but click and keyboard selection skip it, same as a
+   * native `<option disabled>`.
+   */
+  optionDisable: {
+    type: String,
+    default: null
   },
   /** Emit the option's value rather than the whole option object. */
   emitValue: {
@@ -439,11 +452,12 @@ const normalizedOptions = computed(() =>
       return {
         value: props.emitValue ? opt[props.optionValue] : opt,
         label: String(opt[props.optionLabel] ?? ''),
+        disable: props.optionDisable ? Boolean(opt[props.optionDisable]) : false,
         // -> the untouched option, handed to the `option` slot so callers can read their own fields
         raw: opt
       }
     }
-    return { value: opt, label: String(opt), raw: opt }
+    return { value: opt, label: String(opt), disable: false, raw: opt }
   })
 )
 
@@ -584,12 +598,22 @@ async function revealActive() {
 }
 
 function moveActive(delta) {
-  const count = filteredOptions.value.length
+  const list = filteredOptions.value
+  const count = list.length
   if (count === 0) {
     return
   }
-  // -> Wraps, so ArrowUp from the top lands on the last option
-  activeIndex.value = (activeIndex.value + delta + count) % count
+  // -> Wraps, so ArrowUp from the top lands on the last option. Steps past a disabled option rather
+  //    than landing the cursor on one nothing can select -- bounded by `count` so a list that is
+  //    entirely disabled still terminates instead of looping forever.
+  let next = activeIndex.value
+  for (let i = 0; i < count; i++) {
+    next = (next + delta + count) % count
+    if (!list[next]?.disable) {
+      break
+    }
+  }
+  activeIndex.value = next
   revealActive()
 }
 
@@ -677,6 +701,10 @@ function onKeydown(ev) {
 }
 
 function select(value) {
+  const opt = normalizedOptions.value.find((o) => sameValue(o.value, value))
+  if (opt?.disable) {
+    return
+  }
   if (props.multiple) {
     const next = isSelected(value)
       ? selectedValues.value.filter((v) => !sameValue(v, value))

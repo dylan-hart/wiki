@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ExtensionDefinition } from './extensions.ts'
+import { detectImportFormat } from './import.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -266,5 +267,40 @@ describe('page import (markdown pass-through)', () => {
         return true
       }
     )
+  })
+})
+
+describe('detectImportFormat (OpenProject #1209)', () => {
+  test('resolves markdown formats from .md and .markdown', () => {
+    assert.equal(detectImportFormat('notes.md'), 'markdown')
+    assert.equal(detectImportFormat('notes.markdown'), 'markdown')
+  })
+
+  test('resolves every pandoc-backed extension to its format', () => {
+    assert.equal(detectImportFormat('page.wiki'), 'mediawiki')
+    assert.equal(detectImportFormat('page.mediawiki'), 'mediawiki')
+    assert.equal(detectImportFormat('page.textile'), 'textile')
+    assert.equal(detectImportFormat('page.dbk'), 'docbook')
+    assert.equal(detectImportFormat('page.docbook'), 'docbook')
+    assert.equal(detectImportFormat('page.rst'), 'rst')
+    assert.equal(detectImportFormat('page.docx'), 'docx')
+    assert.equal(detectImportFormat('page.odt'), 'odt')
+  })
+
+  test('is case-insensitive on the extension', () => {
+    assert.equal(detectImportFormat('NOTES.MD'), 'markdown')
+    assert.equal(detectImportFormat('Report.DOCX'), 'docx')
+  })
+
+  test('returns null for an unrecognized extension', () => {
+    assert.equal(detectImportFormat('archive.zip'), null)
+  })
+
+  test('returns null for a file with no extension at all', () => {
+    assert.equal(detectImportFormat('README'), null)
+  })
+
+  test('uses only the last extension of a multi-dot file name', () => {
+    assert.equal(detectImportFormat('notes.v2.md'), 'markdown')
   })
 })
