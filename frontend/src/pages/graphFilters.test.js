@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildClassificationHubEdges,
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
@@ -295,5 +296,54 @@ describe('buildTagHubEdges: combined scenario (OpenProject #1002)', () => {
         { source: '__tag__reference', target: 'c', type: 'tag' }
       ])
     )
+  })
+})
+
+describe('buildClassificationHubEdges (OpenProject #1217)', () => {
+  it('creates one hub per distinct classification, with an edge from the hub to each carrying page', () => {
+    const { syntheticNodes, edges } = buildClassificationHubEdges([
+      { path: 'a', classification: 'Public' },
+      { path: 'b', classification: 'Restricted' }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__classification__Public', title: 'Public', synthetic: true },
+      { path: '__classification__Restricted', title: 'Restricted', synthetic: true }
+    ])
+    expect(edges).toEqual([
+      { source: '__classification__Public', target: 'a', type: 'classification' },
+      { source: '__classification__Restricted', target: 'b', type: 'classification' }
+    ])
+  })
+
+  it('shares one hub node across every page carrying the same classification', () => {
+    const { syntheticNodes, edges } = buildClassificationHubEdges([
+      { path: 'a', classification: 'Public' },
+      { path: 'b', classification: 'Public' }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__classification__Public', title: 'Public', synthetic: true }
+    ])
+    expect(edges).toEqual([
+      { source: '__classification__Public', target: 'a', type: 'classification' },
+      { source: '__classification__Public', target: 'b', type: 'classification' }
+    ])
+  })
+
+  it('groups a node with no resolved classification under a shared (unclassified) hub', () => {
+    const { syntheticNodes, edges } = buildClassificationHubEdges([
+      { path: 'a', classification: null },
+      { path: 'b' }
+    ])
+    expect(syntheticNodes).toEqual([
+      { path: '__classification__(unclassified)', title: '(unclassified)', synthetic: true }
+    ])
+    expect(edges).toEqual([
+      { source: '__classification__(unclassified)', target: 'a', type: 'classification' },
+      { source: '__classification__(unclassified)', target: 'b', type: 'classification' }
+    ])
+  })
+
+  it('produces nothing for an empty node set', () => {
+    expect(buildClassificationHubEdges([])).toEqual({ syntheticNodes: [], edges: [] })
   })
 })
