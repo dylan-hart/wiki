@@ -1,5 +1,5 @@
 import { isEqual } from 'es-toolkit/predicate'
-import { and, desc, eq, lt, notExists, sql } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, lt, notExists, sql } from 'drizzle-orm'
 import {
   pageHistory as pageHistoryTable,
   pages as pagesTable,
@@ -129,6 +129,19 @@ export type PageHistoryEntry = {
 export type PageHistoryVersion = PageHistoryEntry & {
   content: string
   meta: Record<string, any>
+}
+
+/**
+ * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
+ * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
+ * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
+ * contributor who edited through both would then be double-counted, since they are one person
+ * appearing in both buckets, not two.
+ */
+export type PageHistoryContributorCounts = {
+  editor: number
+  mcp: number
+  all: number
 }
 
 /**
@@ -272,6 +285,57 @@ class PageHistory {
         email: row.authorEmail ?? ''
       }
     }))
+  }
+
+  /**
+   * Unique-contributor counts per page across a whole site, for the knowledge graph's edit-volume
+   * node sizing (OpenProject #1141).
+   *
+   * `authorId IS NOT NULL` is filtered out of every count rather than counted as a synthetic
+   * "deleted user" contributor, per the feature's own scope decision: a since-deleted account's
+   * edits still count toward `pageHistory` rows existing, just not toward how many distinct people
+   * they came from.
+   *
+   * Two aggregate queries rather than one: `GROUP BY pageId, via` gives the `editor`/`mcp` split,
+   * but `COUNT(DISTINCT authorId)` does not distribute over that split -- someone who edited through
+   * both channels would count once in each bucket, and adding the two back together would count
+   * them twice. A second `GROUP BY pageId` alone gives the true site-wide-distinct `all` figure.
+   *
+   * @returns A map keyed by `pageId`. A page with no history at all (should not happen in practice --
+   *          every page gets a `created` row -- but not a case worth throwing over) is simply absent;
+   *          callers default a missing entry to all-zero.
+   */
+  async contributorCountsForGraph(
+    siteId: string
+  ): Promise<Map<string, PageHistoryContributorCounts>> {
+    const distinctAuthor = sql<number>`count(distinct ${pageHistoryTable.authorId})::int`
+
+    const byVia = await WIKI.db
+      .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: distinctAuthor })
+      .from(pageHistoryTable)
+      .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
+      .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
+
+    const overall = await WIKI.db
+      .select({ pageId: pageHistoryTable.pageId, count: distinctAuthor })
+      .from(pageHistoryTable)
+      .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
+      .groupBy(pageHistoryTable.pageId)
+
+    const result = new Map<string, PageHistoryContributorCounts>()
+    for (const row of overall) {
+      result.set(row.pageId, { editor: 0, mcp: 0, all: row.count })
+    }
+    for (const row of byVia) {
+      const entry = result.get(row.pageId) ?? { editor: 0, mcp: 0, all: 0 }
+      if (row.via === 'mcp') {
+        entry.mcp = row.count
+      } else {
+        entry.editor = row.count
+      }
+      result.set(row.pageId, entry)
+    }
+    return result
   }
 
   /**
