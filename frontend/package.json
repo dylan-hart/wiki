@@ -20,6 +20,8 @@
     "@simplewebauthn/browser": "13.3.0",
     "@tailwindcss/vite": "4.3.3",
     "@tiptap/extension-code-block-lowlight": "3.30.2",
+    "@tiptap/extension-collaboration": "3.30.2",
+    "@tiptap/extension-collaboration-caret": "3.30.2",
     "@tiptap/extension-color": "3.30.2",
     "@tiptap/extension-font-family": "3.30.2",
     "@tiptap/extension-highlight": "3.30.2",

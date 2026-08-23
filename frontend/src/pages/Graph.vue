@@ -21,7 +21,8 @@
             aria-label="Group by"
             :options="[
               { label: 'Folder', value: 'folder' },
-              { label: 'Tag', value: 'tag' }
+              { label: 'Tag', value: 'tag' },
+              { label: 'Classification', value: 'classification' }
             ]" />
         </div>
         <div class="graph-view-control-group">
@@ -32,7 +33,8 @@
             aria-label="Connect by"
             :options="[
               { label: 'Paths', value: 'paths' },
-              { label: 'Tags', value: 'tags' }
+              { label: 'Tags', value: 'tags' },
+              { label: 'Classification', value: 'classification' }
             ]" />
         </div>
       </div>
@@ -84,15 +86,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  forceX,
-  forceY
-} from 'd3-force'
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
 import { polygonHull } from 'd3-polygon'
 import { quadtree as d3quadtree } from 'd3-quadtree'
 import { select } from 'd3-selection'
@@ -100,11 +94,13 @@ import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
 import {
+  buildClassificationHubEdges,
   buildPathHierarchyEdges,
   buildTagHubEdges,
   computeVisibleSubset,
   deriveFilterOptions
 } from './graphFilters.js'
+import { clusterForce } from './graphForces.js'
 
 /**
  * The knowledge graph view (OpenProject #848/#873): a full-viewport, canvas-rendered force graph
@@ -172,6 +168,9 @@ const localeOptions = computed(() => filterOptions.value.locales)
 function groupKeyFor(node) {
   if (groupBy.value === 'tag') {
     return node.tags?.[0] ?? '(untagged)'
+  }
+  if (groupBy.value === 'classification') {
+    return node.classification ?? '(unclassified)'
   }
   return node.folder || '(root)'
 }
@@ -401,6 +400,16 @@ function onCanvasMouseMove(event) {
   points, not verified-correct constants -- exploratory visual tuning happens once there's a real
   graph on screen (Task 13, #888), not here. `forceCollide(14)` is sized off a plausible node-dot
   radius, same caveat.
+
+  The `cluster` force (`graphForces.js#clusterForce`, OpenProject #1158) pulls each node toward a
+  running centroid of its own group, layered on top of the forces above -- those alone don't
+  produce visually coherent clusters (per the spec). `0.05` is a starting point: low enough that
+  the other forces still dominate local layout, this is meant to be a bias toward clustering, not
+  the dominant force -- tune visually once there's a real graph on screen. It is attached once,
+  here, rather than re-attached on every `groupBy` change: unlike the `forceX`/`forceY` pair it
+  replaced (which cached their target at force-initialize time -- the root cause of #1158's frozen-
+  origin bug), this force recomputes group centroids from the *current* tick's `x`/`y` every time
+  d3-force calls it, so a `groupBy` change needs no re-attachment to take effect on the next tick.
 */
 function startSimulation() {
   const { width, height } = containerRef.value.getBoundingClientRect()
@@ -415,54 +424,8 @@ function startSimulation() {
     .force('charge', forceManyBody().strength(-120))
     .force('collide', forceCollide(14))
     .force('center', forceCenter(width / 2, height / 2))
+    .force('cluster', clusterForce(groupKeyFor, 0.05))
     .on('tick', redraw)
-}
-
-/*
-  Pulls each node toward a running centroid of its own group, layered on top of the link/charge/
-  collision forces above -- those alone don't produce visually coherent clusters (per the spec).
-  `0.05` is a starting point: low enough that the other forces still dominate local layout, this
-  is meant to be a bias toward clustering, not the dominant force -- tune visually once there's a
-  real graph on screen. Centroids are computed from the *previous* tick's settled positions (a
-  "running" centroid) rather than recomputed some other way, matching how every other d3-force
-  force reads node `x`/`y` mutated in place by the tick before it.
-*/
-function groupCentroids() {
-  const sums = new Map()
-  for (const node of nodes.value) {
-    if (node.x === undefined || node.synthetic) {
-      continue
-    }
-    const key = groupKeyFor(node)
-    const entry = sums.get(key) ?? { x: 0, y: 0, count: 0 }
-    entry.x += node.x
-    entry.y += node.y
-    entry.count += 1
-    sums.set(key, entry)
-  }
-  const centroids = new Map()
-  for (const [key, { x, y, count }] of sums) {
-    centroids.set(key, { x: x / count, y: y / count })
-  }
-  return centroids
-}
-
-let centroids = new Map()
-
-function applyClusteringForce() {
-  if (!simulation) {
-    return
-  }
-  centroids = groupCentroids()
-  simulation
-    .force(
-      'clusterX',
-      forceX((d) => centroids.get(groupKeyFor(d))?.x ?? 0).strength((d) => (d.synthetic ? 0 : 0.05))
-    )
-    .force(
-      'clusterY',
-      forceY((d) => centroids.get(groupKeyFor(d))?.y ?? 0).strength((d) => (d.synthetic ? 0 : 0.05))
-    )
 }
 
 /*
@@ -556,7 +519,6 @@ async function loadGraph() {
     applyFilters()
     sizeCanvas()
     startSimulation()
-    applyClusteringForce()
     attachZoom()
   } catch (err) {
     loadError.value = err
@@ -577,13 +539,14 @@ function applyFilters() {
   const { syntheticNodes, edges: syntheticEdges } =
     edgeMode.value === 'tags'
       ? buildTagHubEdges(visibleNodes)
-      : buildPathHierarchyEdges(visibleNodes)
+      : edgeMode.value === 'classification'
+        ? buildClassificationHubEdges(visibleNodes)
+        : buildPathHierarchyEdges(visibleNodes)
   nodes.value = [...visibleNodes, ...syntheticNodes]
   edges.value = syntheticEdges
 }
 
 watch(groupBy, () => {
-  applyClusteringForce()
   recomputeClusters()
   simulation?.alpha(0.3).restart()
 })
