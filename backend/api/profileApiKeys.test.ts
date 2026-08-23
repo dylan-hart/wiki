@@ -25,6 +25,7 @@ let listKeysForUserMock: ReturnType<typeof mock.fn>
 let createKeyMock: ReturnType<typeof mock.fn>
 let getKeyByIdMock: ReturnType<typeof mock.fn>
 let revokeKeyForUserMock: ReturnType<typeof mock.fn>
+let auditLogRecordMock: ReturnType<typeof mock.fn>
 
 const OWNER_ID = '11111111-1111-1111-1111-111111111111'
 const OTHER_USER_ID = '22222222-2222-2222-2222-222222222222'
@@ -41,6 +42,7 @@ before(async () => {
   createKeyMock = mock.fn(async () => ({ id: 'new-key-id', key: 'signed.jwt.token' }))
   getKeyByIdMock = mock.fn(async () => null)
   revokeKeyForUserMock = mock.fn(async () => true)
+  auditLogRecordMock = mock.fn(async () => {})
   ;(globalThis as any).WIKI = {
     models: {
       apiKeys: {
@@ -48,6 +50,9 @@ before(async () => {
         createKey: createKeyMock,
         getKeyById: getKeyByIdMock,
         revokeKeyForUser: revokeKeyForUserMock
+      },
+      auditLog: {
+        record: auditLogRecordMock
       }
     },
     sites: {}
@@ -93,6 +98,7 @@ afterEach(() => {
   createKeyMock.mock.resetCalls()
   getKeyByIdMock.mock.resetCalls()
   revokeKeyForUserMock.mock.resetCalls()
+  auditLogRecordMock.mock.resetCalls()
 })
 
 test('GET /profile/api-keys refuses an anonymous request', async () => {
