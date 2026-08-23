@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { SYNC_SHAPED_ACTIONS } from '../models/storage.ts'
 import type { StorageTargetInput } from '../models/storage.ts'
 
@@ -18,7 +19,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List the storage targets of a site',
         description:
-          'One target per storage module installed in `modules/storage`, whether or not it has ever been enabled. Configuration values include any credentials a module stores, hence the `manage:system` requirement. Note that no module ships an implementation yet: a target holds configuration, and nothing reads or writes content through it.',
+          'One target per storage module installed in `modules/storage`, whether or not it has ever been enabled. Configuration values include any credentials a module stores, hence the `manage:system` requirement. A module that only implements explicit actions (e.g. disk, sftp) never runs a background sync, but every module ships an implementation an enabled target can call.',
         tags: ['Storage'],
         params: {
           type: 'object',
@@ -63,7 +64,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get the sync status of a storage target',
         description:
-          'Read from the content sync state table every dispatched sync eventually writes to. Empty for a target nothing has ever synced to yet, since no module ships an implementation.',
+          'Read from the content sync state table every dispatched sync eventually writes to. Empty for a target nothing has ever synced to yet — either it has never been enabled, or its module only implements explicit actions and never runs a background sync (see `supportsContentSync`).',
         tags: ['Storage'],
         params: {
           type: 'object',
@@ -180,9 +181,19 @@ async function routes(app: FastifyInstance) {
       }
 
       let updated = 0
+      const actor = actorFromRequest(req)
       for (const { target, patch } of patches) {
         if (await WIKI.models.storage.updateTarget(req.params.siteId, target, patch)) {
           updated++
+          await WIKI.models.auditLog.record({
+            event: 'storage.targetUpdated',
+            actor,
+            targetType: 'storageTarget',
+            targetId: target.id,
+            targetLabel: target.title,
+            detail: { changedFields: Object.keys(patch) },
+            siteId: req.params.siteId
+          })
         }
       }
 
@@ -206,7 +217,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Run an action on a storage target',
         description:
-          'The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any — so every action currently fails, no module having one yet. A sync-shaped action (`sync`, `syncUntracked`, `importAll`) is queued on the scheduler rather than run inline, since it may involve a network round-trip; the response confirms it was queued, not that it completed. Any other action (e.g. `purge`) is expected to be fast and runs synchronously.',
+          'The actions a target offers are listed with it. Only an enabled target can run one, and only a module with an implementation offers any. A sync-shaped action (`sync`, `syncUntracked`, `importAll`) is queued on the scheduler rather than run inline, since it may involve a network round-trip; the response confirms it was queued, not that it completed. Any other action (e.g. `purge`) is expected to be fast and runs synchronously.',
         tags: ['Storage'],
         params: {
           type: 'object',
@@ -264,8 +275,8 @@ async function routes(app: FastifyInstance) {
 
       // -> A sync-shaped action may do a real network round-trip (a git push/pull, an S3 listing),
       //    which the request thread must not wait on -- queued the same way `dispatchStorage` events
-      //    and `storageSyncTick` are, and delivered by the same worker task. Anything else (e.g.
-      //    `purge`) is expected to be fast and stays synchronous.
+      //    and `storageSyncTick` are, and delivered by the same task. Anything else (e.g. `purge`) is
+      //    expected to be fast and stays synchronous.
       if ((SYNC_SHAPED_ACTIONS as readonly string[]).includes(req.params.action)) {
         const added = await WIKI.scheduler.addJob({
           task: 'dispatchStorage',

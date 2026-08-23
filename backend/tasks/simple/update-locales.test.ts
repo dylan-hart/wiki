@@ -123,4 +123,14 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
     assert.equal(fetchSpy.mock.callCount(), 0)
   })
+
+  test('does nothing when the instance is in offline mode (OpenProject #820)', async () => {
+    WIKI.config = { offline: true }
+    const fetchSpy = mock.fn()
+    globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+    await assert.doesNotReject(task())
+
+    assert.equal(fetchSpy.mock.callCount(), 0)
+  })
 })

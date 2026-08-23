@@ -52,10 +52,14 @@ describe(
       const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
       assert.equal(entries.length, 1)
       assert.equal(entries[0]!.locale, 'en')
+      // -> OpenProject #1119: undefined `actor.via` defaults to 'editor', carried by both list() and
+      //    getVersion() -- see `pageHistoryVia`'s doc comment for what this column is for.
+      assert.equal(entries[0]!.via, 'editor')
 
       const version = await pageHistoryModel.getVersion(fixtures.siteId, page.id, entries[0]!.id)
       assert.ok(version)
       assert.equal(version!.locale, 'en')
+      assert.equal(version!.via, 'editor')
     })
 
     test('listRecoverable lists the newest deleted version for a path with no live page', async () => {

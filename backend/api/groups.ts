@@ -1,4 +1,5 @@
 import { CustomError } from '../helpers/common.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { GroupPatch, GroupRule, GroupWithUserCount } from '../models/groups.ts'
@@ -85,7 +86,7 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Create a new group',
@@ -135,6 +136,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         const id = await WIKI.models.groups.createGroup(req.body.name)
+        await WIKI.models.auditLog.record({
+          event: 'group.created',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: id,
+          targetLabel: req.body.name
+        })
         return {
           ok: true,
           message: 'Group created successfully.',
@@ -198,7 +206,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Update a group',
@@ -346,6 +354,23 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.groups.updateGroup(group.id, patch)
+        // -> OpenProject #936: `permissions` (the global, group-wide list) is flattened onto every
+        //    member's `session.permissions` at login, and otherwise stays live for up to the 30-day
+        //    cookie age -- a revoked permission needs the same immediate cutoff a deactivation gets.
+        //    `rules` (page permissions) is deliberately NOT here: those are resolved fresh against
+        //    the in-memory rules cache on every request (`groups.checkAccess()`), so a rule change
+        //    already takes effect on the very next one with no session involved at all.
+        if (patch.permissions !== undefined) {
+          await WIKI.models.sessions.clearSessionsForGroup(group.id)
+        }
+        await WIKI.models.auditLog.record({
+          event: 'group.updated',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: group.id,
+          targetLabel: patch.name ?? group.name,
+          detail: { changedFields: Object.keys(patch) }
+        })
         return {
           ok: true,
           message: 'Group updated successfully.'
@@ -410,6 +435,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.groups.deleteGroup(group.id)
+        await WIKI.models.auditLog.record({
+          event: 'group.deleted',
+          actor: actorFromRequest(req),
+          targetType: 'group',
+          targetId: group.id,
+          targetLabel: group.name
+        })
         return reply.code(204).send()
       } catch (err: any) {
         WIKI.logger.warn(err)
@@ -501,7 +533,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId/users/:userId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Assign a user to a group',
@@ -572,6 +604,19 @@ async function routes(app: FastifyInstance) {
       if (!assigned) {
         return reply.conflict('User is already assigned to this group.')
       }
+      // -> OpenProject #936: `session.groups` is a snapshot taken at login, so this user's open
+      //    sessions would otherwise go on pooling rules from their OLD group membership until they
+      //    next log in -- same reasoning as the permission-revocation fix on PUT /:groupId above.
+      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
+
+      await WIKI.models.auditLog.record({
+        event: 'group.memberAdded',
+        actor: actorFromRequest(req),
+        targetType: 'group',
+        targetId: group.id,
+        targetLabel: group.name,
+        detail: { userId: user.id, userEmail: user.email }
+      })
 
       return {
         ok: true,
@@ -587,7 +632,7 @@ async function routes(app: FastifyInstance) {
     '/:groupId/users/:userId',
     {
       config: {
-        permissions: ['write:groups', 'manage:groups']
+        permissions: ['manage:groups']
       },
       schema: {
         summary: 'Unassign a user from a group',
@@ -649,6 +694,17 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.groups.unassignUserFromGroup(group.id, req.params.userId)
+      // -> OpenProject #936: same reasoning as ASSIGN above -- a removed member's open sessions must
+      //    stop pooling this group's rules/permissions immediately, not on their next login.
+      await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
+      await WIKI.models.auditLog.record({
+        event: 'group.memberRemoved',
+        actor: actorFromRequest(req),
+        targetType: 'group',
+        targetId: group.id,
+        targetLabel: group.name,
+        detail: { userId: user?.id ?? req.params.userId, userEmail: user?.email ?? '' }
+      })
       return reply.code(204).send()
     }
   )

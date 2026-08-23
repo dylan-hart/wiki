@@ -1,4 +1,4 @@
-import chalk from 'chalk'
+import { styleText } from 'node:util'
 import EventEmitter from 'node:events'
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug'
@@ -55,6 +55,14 @@ export default {
       if (!ignoreNextLevels) {
         primaryLogger.on(lvl, (msg: unknown) => {
           let formatted = ''
+          // -> Normalized before the format branch below: `Error` has no enumerable own properties, so
+          //    `JSON.stringify`-ing one straight (the JSON branch used to) serialized it as `{}`,
+          //    losing the stack and message exactly where structured logging was requested. Both
+          //    branches need the same stand-in, since `logger.warn(err)` / `logger.error(err)` is the
+          //    dominant call pattern across the codebase (OpenProject #939).
+          if (msg instanceof Error) {
+            msg = msg.stack
+          }
           if (WIKI.config.logFormat === 'json') {
             formatted = JSON.stringify({
               timestamp: new Date().toISOString(),
@@ -63,10 +71,7 @@ export default {
               message: msg
             })
           } else {
-            if (msg instanceof Error) {
-              msg = msg.stack
-            }
-            formatted = `${new Date().toISOString()} ${chalk.dim('[' + WIKI.INSTANCE_ID + ']')} ${chalk[LEVELCOLORS[lvl]].bold(lvl)}: ${msg}`
+            formatted = `${new Date().toISOString()} ${styleText('dim', '[' + WIKI.INSTANCE_ID + ']')} ${styleText([LEVELCOLORS[lvl], 'bold'], lvl)}: ${msg}`
           }
 
           console.log(formatted)

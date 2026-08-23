@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { validate as uuidValidate } from 'uuid'
+import { isValidUuid } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -32,7 +32,7 @@ async function routes(app: FastifyInstance) {
       // -> `.js` is part of the URL so a `<script type="module">` import resolves it as one; the id is
       //    the only part that identifies anything, the same way `_thumb` treats `.webp`
       const blockId = req.params.fileName.replace(/\.js$/i, '')
-      if (!uuidValidate(req.params.siteId) || !uuidValidate(blockId)) {
+      if (!isValidUuid(req.params.siteId) || !isValidUuid(blockId)) {
         return reply.notFound('Custom block not found')
       }
 

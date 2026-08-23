@@ -18,7 +18,14 @@ before(() => {
   } as unknown as WikiGlobal
 })
 
-const testAsset = { id: 'asset-1', updatedAt: new Date('2024-01-01T00:00:00Z'), fileName: 'x.png' }
+const testAsset = {
+  id: 'asset-1',
+  updatedAt: new Date('2024-01-01T00:00:00Z'),
+  fileName: 'x.png',
+  folderPath: '',
+  kind: 'image' as const,
+  fileSize: 1000
+}
 
 /** A db-module target, as `getSiteTargets` would shape one, with `assetDelivery` overridable. */
 function makeDbTarget(
@@ -45,7 +52,13 @@ function makeDbTarget(
       ...assetDelivery
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: false
+    },
     props: {},
     config: {},
     actions: [],
@@ -116,6 +129,82 @@ test('governingTarget ignores a disabled db-module row', async () => {
 test('governingTarget returns null when the site has no targets at all', async () => {
   stubStorage({ targets: [] })
   assert.equal(await assets.governingTarget('site-1'), null)
+})
+
+test('governingTarget prefers an enabled direct-access target that covers the asset over db', async () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [dbTarget, s3Target] })
+  const found = await assets.governingTarget('site-1', { kind: 'image', fileSize: 1000 })
+  assert.equal(found?.id, 'target-s3')
+})
+
+test('governingTarget falls back to db when the direct-access target does not cover the asset kind', async () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['documents'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [dbTarget, s3Target] })
+  const found = await assets.governingTarget('site-1', { kind: 'image', fileSize: 1000 })
+  assert.equal(found?.id, 'target-db')
+})
+
+test('governingTarget falls back to db when the direct-access target is disabled', async () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      isEnabled: false,
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [dbTarget, s3Target] })
+  const found = await assets.governingTarget('site-1', { kind: 'image', fileSize: 1000 })
+  assert.equal(found?.id, 'target-db')
+})
+
+test('governingTarget falls back to db when the direct-access target has directAccess turned off', async () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: false, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [dbTarget, s3Target] })
+  const found = await assets.governingTarget('site-1', { kind: 'image', fileSize: 1000 })
+  assert.equal(found?.id, 'target-db')
+})
+
+test('governingTarget ignores content-type matching entirely when called with no asset', async () => {
+  const dbTarget = makeDbTarget()
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({ targets: [dbTarget, s3Target] })
+  const found = await assets.governingTarget('site-1')
+  assert.equal(found?.id, 'target-db')
 })
 
 // ---------------------------------------------------------------------------------------------
@@ -257,6 +346,31 @@ test('readContent falls through to the normal path when the module has directAcc
   try {
     const result = await assets.readContent(testAsset, 'site-1')
     assert.deepEqual(result, { body: 'stream-stand-in', size: 1 })
+  } finally {
+    assets.readContentCache = originalReadCache
+  }
+})
+
+test('readContent redirects through a non-db direct-access target (e.g. s3) that covers the asset, over db', async () => {
+  const dbTarget = makeDbTarget({ streaming: true })
+  const s3Target = makeDbTarget(
+    { directAccess: true, isDirectAccessSupported: true },
+    {
+      id: 'target-s3',
+      module: 's3',
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' }
+    }
+  )
+  stubStorage({
+    targets: [dbTarget, s3Target],
+    ensureModule: async (key: string) =>
+      key === 's3' ? { getDirectUrl: async () => 'https://bucket.example.com/asset-1' } : null
+  })
+  const originalReadCache = assets.readContentCache
+  assets.readContentCache = unreachable('readContentCache') as any
+  try {
+    const result = await assets.readContent(testAsset, 'site-1')
+    assert.deepEqual(result, { redirectUrl: 'https://bucket.example.com/asset-1' })
   } finally {
     assets.readContentCache = originalReadCache
   }

@@ -5,7 +5,11 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { comments as commentsTable, groups as groupsTable } from '../db/schema.ts'
+import {
+  comments as commentsTable,
+  groups as groupsTable,
+  hooks as hooksTable
+} from '../db/schema.ts'
 import commentsRoutes from './comments.ts'
 import { registerSchemas as registerCommentSchema } from './schemas/comment.ts'
 import { registerSchemas as registerCommentProviderSchema } from './schemas/commentProvider.ts'
@@ -205,5 +209,53 @@ describe('GET/DELETE /sites/:siteId/comments (DB-backed)', { skip: !hasTestDatab
       url: `/sites/${fixtures.siteId}/comments/00000000-0000-0000-0000-000000000000`
     })
     assert.equal(res.statusCode, 404)
+  })
+
+  /**
+   * OpenProject #935: the page-scoped DELETE already emitted `comment:delete` (queuing a webhook
+   * delivery); this site-wide moderation DELETE did not, so a subscriber mirroring comments missed
+   * every deletion done from the admin moderation screen. Asserted through a REAL subscribed hook
+   * row and the real `WIKI.scheduler.addJob` `mock.fn()` (`test/mocks.ts`'s `createSchedulerStub()`)
+   * rather than a stub of `emit()` itself, so this proves the full `models/hooks.ts` queuing path
+   * actually ran, not just that some function was called.
+   */
+  test('DELETE via the site-wide moderation route queues a comment:delete webhook delivery', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'scope-webhook/notes', title: 'Webhook Scope', editor: 'markdown', content: 'x' },
+      actor
+    )
+    const [comment] = await fixtures.db
+      .insert(commentsTable)
+      .values({ siteId: fixtures.siteId, pageId: page.id, content: 'Subject to a webhook' })
+      .returning()
+
+    await fixtures.db.insert(hooksTable).values({
+      name: 'Comment mirror',
+      events: ['comment:delete'],
+      url: 'https://example.com/webhook',
+      siteId: fixtures.siteId
+    })
+
+    testSession = {
+      authenticated: true,
+      user: { id: fixtures.userId },
+      permissions: ['manage:system']
+    }
+    const addJobCallsBefore = (WIKI.scheduler.addJob as any).mock.calls.length
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/sites/${fixtures.siteId}/comments/${comment!.id}`
+    })
+    assert.equal(res.statusCode, 204)
+
+    const newCalls = (WIKI.scheduler.addJob as any).mock.calls.slice(addJobCallsBefore)
+    assert.equal(newCalls.length, 1)
+    const queuedPayload = newCalls[0].arguments[0]
+    assert.equal(queuedPayload.task, 'dispatchWebhook')
+    assert.equal(queuedPayload.payload.event, 'comment:delete')
+    assert.equal(queuedPayload.payload.data.id, comment!.id)
+    assert.equal(queuedPayload.payload.data.pageId, page.id)
   })
 })

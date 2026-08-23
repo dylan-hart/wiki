@@ -1,8 +1,8 @@
-import fs from 'node:fs'
-import fsp from 'node:fs/promises'
+import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import { TarArchive } from 'archiver'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
+import { create as createTarball } from 'tar'
 import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
@@ -49,11 +49,15 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
  * Serializes one site's pages, tree, assets (bytea included) and the (site-wide) groups into a single
  * gzipped tar archive under `<dataPath>/exports/`, for the "Export content" system utility.
  *
- * The tarball is written straight to disk as it is built — `archiver` streams each entry into the
- * gzip/tar pipeline as it is appended, so nothing here holds the finished archive in memory, only the
- * query results that went into it. Queued as a background job (`tasks/simple/export-content.ts`)
- * rather than run inline, since a large site's worth of asset bytes is not something a request thread
- * should be blocked on.
+ * Every entry is first written into a per-export staging directory under the OS temp dir, then `tar`'s
+ * file-based `create()` archives the whole directory in one pass — the same approach
+ * `modules/storage/disk/storage.ts`'s `buildArchive()` uses for its own backups. `node-tar`'s streaming
+ * `Pack` only ever reads entries from real files on disk (it lstats each path itself), so there is no
+ * way to hand it a JSON string or an asset `Buffer` directly without staging it first; the staging
+ * directory is removed once the tarball is written, win or lose, and kept outside `<dataPath>/exports/`
+ * so a leftover from a crashed run is never mistaken by `purgeExpired()` for one of its own `.tar.gz`
+ * files. Queued as a background job (`tasks/simple/export-content.ts`) rather than run inline, since a
+ * large site's worth of asset bytes is not something a request thread should be blocked on.
  */
 class ExportModel {
   /** `<dataPath>/exports` — created on first use, same as the icon and asset caches. */
@@ -87,19 +91,13 @@ class ExportModel {
       WIKI.db.select().from(groupsTable)
     ])
 
-    await fsp.mkdir(this.exportsPath, { recursive: true })
-    const filePath = path.join(this.exportsPath, `${uuid()}.tar.gz`)
+    await fs.mkdir(this.exportsPath, { recursive: true })
+    const filePath = path.join(this.exportsPath, `${crypto.randomUUID()}.tar.gz`)
+    const stagingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-export-'))
 
-    await new Promise<void>((resolve, reject) => {
-      const output = fs.createWriteStream(filePath)
-      const archive = new TarArchive({ gzip: true })
-
-      output.on('close', () => resolve())
-      output.on('error', (err: Error) => reject(err))
-      archive.on('error', (err: Error) => reject(err))
-      archive.pipe(output)
-
-      archive.append(
+    try {
+      await fs.writeFile(
+        path.join(stagingDir, 'manifest.json'),
         JSON.stringify(
           {
             formatVersion: EXPORT_FORMAT_VERSION,
@@ -109,35 +107,51 @@ class ExportModel {
           },
           null,
           2
-        ),
-        { name: 'manifest.json' }
+        )
       )
-      archive.append(JSON.stringify(stripDerived(site), null, 2), { name: 'site.json' })
-      archive.append(JSON.stringify(pageRows.map(stripDerived), null, 2), { name: 'pages.json' })
-      archive.append(JSON.stringify(treeRows.map(stripDerived), null, 2), { name: 'tree.json' })
-      archive.append(JSON.stringify(groupRows, null, 2), { name: 'groups.json' })
+      await fs.writeFile(
+        path.join(stagingDir, 'site.json'),
+        JSON.stringify(stripDerived(site), null, 2)
+      )
+      await fs.writeFile(
+        path.join(stagingDir, 'pages.json'),
+        JSON.stringify(pageRows.map(stripDerived), null, 2)
+      )
+      await fs.writeFile(
+        path.join(stagingDir, 'tree.json'),
+        JSON.stringify(treeRows.map(stripDerived), null, 2)
+      )
+      await fs.writeFile(path.join(stagingDir, 'groups.json'), JSON.stringify(groupRows, null, 2))
 
       // -> Metadata and bytes travel separately: a JSON manifest of every asset's columns other than
       //    `data`/`preview`, plus one archive entry per asset per bytea column actually populated —
-      //    appending a Buffer straight into a base64 JSON string would inflate it by a third for no
+      //    writing a Buffer straight into a base64 JSON string would inflate it by a third for no
       //    reason the tar format doesn't already avoid.
+      const assetsDir = path.join(stagingDir, 'assets')
+      await fs.mkdir(assetsDir, { recursive: true })
       const assetManifest: Record<string, any>[] = []
       for (const asset of assetRows) {
         const { data, preview, ...meta } = asset
         assetManifest.push(meta)
         if (data) {
-          archive.append(data, { name: `assets/${asset.id}.data` })
+          await fs.writeFile(path.join(assetsDir, `${asset.id}.data`), data)
         }
         if (preview) {
-          archive.append(preview, { name: `assets/${asset.id}.preview` })
+          await fs.writeFile(path.join(assetsDir, `${asset.id}.preview`), preview)
         }
       }
-      archive.append(JSON.stringify(assetManifest, null, 2), { name: 'assets/manifest.json' })
+      await fs.writeFile(
+        path.join(assetsDir, 'manifest.json'),
+        JSON.stringify(assetManifest, null, 2)
+      )
 
-      archive.finalize()
-    })
+      const stagedEntries = await fs.readdir(stagingDir)
+      await createTarball({ gzip: true, file: filePath, cwd: stagingDir }, stagedEntries)
+    } finally {
+      await fs.rm(stagingDir, { recursive: true, force: true })
+    }
 
-    const { size } = await fsp.stat(filePath)
+    const { size } = await fs.stat(filePath)
     return { filePath, fileSize: size }
   }
 
@@ -146,7 +160,7 @@ class ExportModel {
    * streaming, and safe to call again on a file `purgeExpired` already swept.
    */
   async deleteExport(filePath: string): Promise<void> {
-    await fsp.unlink(filePath).catch(() => {})
+    await fs.unlink(filePath).catch(() => {})
   }
 
   /**
@@ -158,7 +172,7 @@ class ExportModel {
   async purgeExpired(): Promise<number> {
     let entries: string[]
     try {
-      entries = await fsp.readdir(this.exportsPath)
+      entries = await fs.readdir(this.exportsPath)
     } catch (err: any) {
       if (err.code === 'ENOENT') {
         return 0
@@ -170,9 +184,9 @@ class ExportModel {
     let purged = 0
     for (const entry of entries) {
       const entryPath = path.join(this.exportsPath, entry)
-      const stat = await fsp.stat(entryPath)
+      const stat = await fs.stat(entryPath)
       if (Temporal.Instant.compare(stat.mtime.toTemporalInstant(), cutoff) < 0) {
-        await fsp.unlink(entryPath)
+        await fs.unlink(entryPath)
         purged++
       }
     }

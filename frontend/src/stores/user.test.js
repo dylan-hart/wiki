@@ -188,6 +188,26 @@ describe('user store: applyProfile() / setToGuest()', () => {
     expect(store.sitePermissionsSiteId).toBe(null)
     expect(store.permissions).toEqual([])
   })
+
+  it('resets location, jobTitle and pronouns on setToGuest, so a new session cannot inherit the previous user’s profile fields', () => {
+    const store = useUserStore()
+    store.applyProfile({
+      authenticated: true,
+      id: 'abc-123',
+      location: 'London',
+      jobTitle: 'Engineer',
+      pronouns: 'she/her'
+    })
+    expect(store.location).toBe('London')
+    expect(store.jobTitle).toBe('Engineer')
+    expect(store.pronouns).toBe('she/her')
+
+    store.setToGuest()
+
+    expect(store.location).toBe('')
+    expect(store.jobTitle).toBe('')
+    expect(store.pronouns).toBe('')
+  })
 })
 
 describe('user store: logout()', () => {

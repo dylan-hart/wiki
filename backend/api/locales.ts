@@ -90,6 +90,50 @@ async function routes(app: FastifyInstance) {
       return WIKI.models.locales.getStrings(req.params.code)
     }
   )
+
+  app.post(
+    '/sideload',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Sideload locale packs from the data volume',
+        description:
+          'Rescans `<dataPath>/locales/` for locale-pack JSON files and loads them into the DB — the offline-mode path (OpenProject #820) for adding or updating a locale against a running instance with no rebuild, redeploy, or network access. Always force-reloads every file found there, regardless of its last-modified time.',
+        tags: ['Locales'],
+        response: {
+          200: {
+            description: 'What the rescan did',
+            type: 'object',
+            properties: {
+              loaded: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Locale codes loaded or updated from the sideload directory.'
+              },
+              skipped: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    code: { type: 'string' },
+                    error: { type: 'string' }
+                  }
+                },
+                description: 'Files found but rejected, with why.'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return WIKI.models.locales.sideloadFromDataPath({ force: true })
+    }
+  )
 }
 
 export default routes

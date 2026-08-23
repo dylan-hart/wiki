@@ -146,6 +146,7 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
     assert.deepEqual(
       names.sort(),
       [
+        'classification',
         'content',
         'description',
         'editor',
@@ -250,6 +251,7 @@ describe('aws-cloudsearch module: init()', () => {
     assert.deepEqual(
       client.defineIndexFieldCalls.sort(),
       [
+        'classification',
         'content',
         'description',
         'editor',
@@ -391,6 +393,7 @@ function basePage(overrides: Partial<SearchIndexablePage> = {}): SearchIndexable
     editor: 'markdown',
     publishState: 'published',
     icon: 'mdi:file',
+    classification: 'classification-1',
     password: null,
     updatedAt: new Date('2026-01-15T12:30:00.123Z'),
     ...overrides
@@ -411,6 +414,7 @@ describe('aws-cloudsearch module: toIndexDocument', () => {
     assert.equal(doc.fields.editor, 'markdown')
     assert.equal(doc.fields.publishState, 'published')
     assert.equal(doc.fields.icon, 'mdi:file')
+    assert.equal(doc.fields.classification, 'classification-1')
     assert.equal(doc.fields.updatedAt, '2026-01-15T12:30:00.123Z')
   })
 
@@ -693,6 +697,50 @@ describe('aws-cloudsearch module: page lifecycle hooks', () => {
   })
 })
 
+/**
+ * OpenProject #922: the query client used to be cached by siteId alone, so changing
+ * `region`/`accessKeyId`/`secretAccessKey`/`endpoint`/`domain` in the admin area had no effect until a
+ * process restart. Cached alongside a `configKey` (as JSON) now, mirroring the pattern
+ * `elasticsearch`/`algolia`'s `getClient()` already use.
+ */
+describe('aws-cloudsearch module: query client caching', () => {
+  test('reuses the same client across calls when the site config is unchanged', async () => {
+    let factoryCalls = 0
+    const client = fakeQueryClient()
+    const module = new AwsCloudSearchModule(undefined, () => {
+      factoryCalls++
+      return client
+    })
+
+    await module.created(basePage())
+    await module.created(basePage())
+
+    assert.equal(factoryCalls, 1)
+  })
+
+  test('builds a fresh client once the site config changes, rather than keeping a stale one', async () => {
+    let factoryCalls = 0
+    const client = fakeQueryClient()
+    const module = new AwsCloudSearchModule(undefined, () => {
+      factoryCalls++
+      return client
+    })
+    const engines = (globalThis as any).WIKI.sites['site-1'].config.search.engines
+    const originalConfig = engines['aws-cloudsearch']
+
+    try {
+      await module.created(basePage())
+      assert.equal(factoryCalls, 1)
+
+      engines['aws-cloudsearch'] = { ...originalConfig, domain: 'wiki-demo-v2' }
+      await module.created(basePage())
+      assert.equal(factoryCalls, 2)
+    } finally {
+      engines['aws-cloudsearch'] = originalConfig
+    }
+  })
+})
+
 describe('aws-cloudsearch module: query()', () => {
   test('a browse with no query text uses "matchall" and no highlight', async () => {
     const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'page-1' })] }])
@@ -768,6 +816,32 @@ describe('aws-cloudsearch module: query()', () => {
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0].id, 'visible')
       assert.equal(result.totalHits, 1)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    }
+  })
+
+  test('passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const seen: any[] = []
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _perm: string,
+      page: any
+    ) => {
+      seen.push(page.classification)
+      return true
+    }
+    try {
+      const client = fakeQueryClient([
+        {
+          found: 1,
+          hit: [hit({ id: 'p1', fields: { classification: ['classification-restricted'] } })]
+        }
+      ])
+      const module = new AwsCloudSearchModule(undefined, () => client)
+      await module.query({ siteId: 'site-1', actor: {} as any })
+
+      assert.deepEqual(seen, ['classification-restricted'])
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
     }
@@ -879,6 +953,49 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
     assert.deepEqual(result, { pages: 0, locales: [{ locale: 'en', pages: 0 }] })
     assert.equal(client.uploaded.length, 0)
+  })
+
+  /**
+   * OpenProject #922: `rebuild()` only ever added/overwrote documents, so a page deleted while this
+   * engine was unreachable stayed in the domain forever -- a ghost result. It now queries every id
+   * already in the domain and uploads an SDF `delete` entry for whichever ones were not just
+   * re-uploaded.
+   */
+  describe('purges ghost documents', () => {
+    test('deletes a domain id that was not re-uploaded, keeps the ones that were', async () => {
+      const client = fakeQueryClient([
+        { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] }
+      ])
+      const source = fakePageSource({ en: [basePage({ id: 'stays' })] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
+      assert.deepEqual(deleteEntries, [{ type: 'delete', id: 'ghost' }])
+    })
+
+    test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
+      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'page-1' })] }])
+      const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
+      assert.deepEqual(deleteEntries, [])
+    })
+
+    test('the domain-id lookup uses a matchall query, not siteId -- this module talks to one domain per site', async () => {
+      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'ghost' })] }])
+      const source = fakePageSource({ en: [] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      assert.equal(client.searches[0]!.query, 'matchall')
+      assert.equal(client.searches[0]!.filterQuery, undefined)
+    })
   })
 })
 

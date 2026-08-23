@@ -28,6 +28,7 @@ import {
 
 import App from './App.vue'
 import { closeDialog, openDialogs } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { useFlagsStore } from '@/stores/flags'
@@ -580,5 +581,91 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
 
     expect(openDialogs).toHaveLength(0)
     expect(router.currentRoute.value.path).toBe('/other')
+  })
+
+  /**
+   * Regression for OpenProject #1129: Page Properties (e.g. an edited tag list) makes the page dirty
+   * without ever setting `editorStore.isActive` -- the old `isActive && hasPendingChanges` guard let
+   * this navigate away silently, discarding the edit with no warning at all.
+   */
+  it('blocks navigation and shows a confirm dialog when there are pending changes but no editor is active', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = useEditorStore()
+    editorStore.$patch({
+      lastSaveTimestamp: Temporal.Now.instant(),
+      lastChangeTimestamp: Temporal.Now.instant().add({ seconds: 1 })
+    })
+
+    const navPromise = router.push('/other')
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(router.currentRoute.value.path).toBe('/')
+
+    closeDialog(openDialogs[0].id, true, true)
+    await navPromise
+
+    expect(router.currentRoute.value.path).toBe('/other')
+  })
+})
+
+/**
+ * OpenProject #951: `beforeEach` sets `commonStore.routerLoading = true` and `afterEach` (asserted
+ * throughout the describe block above) is what clears it -- but vue-router does not run `afterEach`
+ * when a navigation ERRORS, as opposed to being aborted/cancelled (which it DOES still fire for).
+ * With no `router.onError` handler registered anywhere, the header spinner spins forever with
+ * nothing telling the reader why. A guard that throws is used here as the trigger, rather than a
+ * lazily-imported route whose dynamic `import()` rejects (the real-world cause a redeploy changing a
+ * built asset's hash out from under an already-open tab would produce): vue-router's own async
+ * component resolution leaves that rejection as a second, separately-surfacing unhandled promise
+ * internally, which is a quirk of that codepath rather than anything this app's own error handling
+ * could catch -- a thrown guard reaches `onError` (and rejects `router.push()`'s own promise) the
+ * same way, with none of that noise.
+ */
+describe('App.vue router.onError() (OpenProject #951)', () => {
+  function makeErrorRouter() {
+    return createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/broken', component: { template: '<div />' } }
+      ]
+    })
+  }
+
+  it('clears the stuck routerLoading spinner and notifies once the navigation errors', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    const commonStore = useCommonStore()
+    const router = makeErrorRouter()
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { common: { error: { navigationFailed: 'Navigation failed.' } } } }
+    })
+    mount(App, { global: { plugins: [router, i18n] } })
+    await router.push('/')
+    await router.isReady()
+
+    // -> Registered AFTER `App.vue`'s own `beforeEach` (added when it mounted, above), so App's
+    //    guard -- and its `commonStore.routerLoading = true` -- still runs before this one throws.
+    router.beforeEach((to) => {
+      if (to.path === '/broken') {
+        return Promise.reject(new Error('Simulated guard failure'))
+      }
+    })
+
+    // -> `.catch()` chained in the same synchronous statement that creates the promise, not attached
+    //    later: vue-router's guard runner (`runWithContext`) wraps the guard call in its own internal
+    //    promise, and Node's unhandled-rejection tracking can flag that inner promise before a
+    //    `.catch()` attached on a later tick reaches it, even though it IS eventually handled here.
+    const failedPush = router.push('/broken').catch(() => {})
+    await flushPromises()
+    await failedPush
+    await flushPromises()
+
+    expect(commonStore.routerLoading).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative', message: 'Navigation failed.' })
   })
 })

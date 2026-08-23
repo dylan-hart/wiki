@@ -78,7 +78,7 @@ test('visibleTreeItems: threads siteId into every filtered item, not just the fi
     return true
   }
   const items = [
-    { type: 'page', fileName: 'a', folderPath: '' },
+    { type: 'page', fileName: 'a', folderPath: '', classification: 'classification-restricted' },
     { type: 'asset', fileName: 'b.png', folderPath: 'folder' }
   ]
   const result = visibleTreeItems({} as any, ENABLED_SITE_ID, 'en', items)
@@ -90,6 +90,11 @@ test('visibleTreeItems: threads siteId into every filtered item, not just the fi
   }
   assert.equal(calls[0].path, 'a')
   assert.equal(calls[1].path, 'folder/b.png')
+  // -> OpenProject #1128: the item's own real classification reaches checkAccess, not a hardcoded
+  //    null -- and an item that carries none (an asset, or a page from before this fix) still falls
+  //    back to null rather than `undefined`.
+  assert.equal(calls[0].classification, 'classification-restricted')
+  assert.equal(calls[1].classification, null)
 })
 
 test('mayOnFolder: threads siteId into the RulePageRef passed to checkAccess', () => {

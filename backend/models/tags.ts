@@ -52,7 +52,7 @@ class Tags {
       into account. Only tagged pages are read, and only their path, locale and tags.
     */
     const result = await WIKI.db.execute(sql`
-      SELECT path, locale, tags
+      SELECT path, locale, tags, classification
       FROM pages
       WHERE "siteId" = ${siteId} AND array_length(tags, 1) > 0
     `)
@@ -62,7 +62,8 @@ class Tags {
         path: row.path as string,
         locale: row.locale as string,
         siteId,
-        tags: (row.tags ?? []) as string[]
+        tags: (row.tags ?? []) as string[],
+        classification: (row.classification as string | null) ?? null
       }
       if (!WIKI.models.groups.checkAccess(actor, 'read:pages', page)) {
         continue

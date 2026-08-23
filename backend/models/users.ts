@@ -1,8 +1,10 @@
 import bcrypt from 'bcryptjs'
 import QRCode from 'qrcode'
 import {
+  assets as assetsTable,
   authentication as authenticationTable,
   groups as groupsTable,
+  pages as pagesTable,
   sessions as sessionsTable,
   userAvatars,
   userGroups,
@@ -1418,6 +1420,64 @@ class Users {
   }
 
   /**
+   * Bulk-reassign every page and asset `fromUserId` authored to `toUserId`, in one transaction.
+   *
+   * `pages.authorId`/`creatorId`/`ownerId` and `assets.authorId` are the only columns referencing
+   * `users.id` with no `onDelete` cascade or `set null` (see `db/schema.ts`), which is exactly why
+   * `deleteUser()` throws a foreign key violation for a user who authored, created, or owns any page,
+   * or authored any asset. This is the whole of what clears that violation: once no row names
+   * `fromUserId` in one of those columns, `deleteUser()` has nothing left to point at it.
+   *
+   * A single page can carry `fromUserId` in more than one of its three columns at once (e.g. as both
+   * author and owner), so `pages` is updated with one statement that repoints only the columns that
+   * actually match, rather than three separate statements that would each report the same page as
+   * touched.
+   *
+   * @returns How many pages and assets were reassigned
+   */
+  async reassignContent(
+    fromUserId: string,
+    toUserId: string
+  ): Promise<{ pagesReassigned: number; assetsReassigned: number }> {
+    if (fromUserId === toUserId) {
+      throw new Error('ERR_REASSIGN_SAME_USER')
+    }
+    const target = await this.getById(toUserId)
+    if (!target) {
+      throw new Error('ERR_INVALID_USER')
+    }
+    if (target.isSystem) {
+      throw new Error('ERR_REASSIGN_TARGET_IS_SYSTEM')
+    }
+
+    return WIKI.db.transaction(async (tx) => {
+      const pagesResult = await tx
+        .update(pagesTable)
+        .set({
+          authorId: sql`CASE WHEN ${pagesTable.authorId} = ${fromUserId} THEN ${toUserId}::uuid ELSE ${pagesTable.authorId} END`,
+          creatorId: sql`CASE WHEN ${pagesTable.creatorId} = ${fromUserId} THEN ${toUserId}::uuid ELSE ${pagesTable.creatorId} END`,
+          ownerId: sql`CASE WHEN ${pagesTable.ownerId} = ${fromUserId} THEN ${toUserId}::uuid ELSE ${pagesTable.ownerId} END`
+        })
+        .where(
+          or(
+            eq(pagesTable.authorId, fromUserId),
+            eq(pagesTable.creatorId, fromUserId),
+            eq(pagesTable.ownerId, fromUserId)
+          )
+        )
+      const assetsResult = await tx
+        .update(assetsTable)
+        .set({ authorId: toUserId })
+        .where(eq(assetsTable.authorId, fromUserId))
+
+      return {
+        pagesReassigned: pagesResult.rowCount ?? 0,
+        assetsReassigned: assetsResult.rowCount ?? 0
+      }
+    })
+  }
+
+  /**
    * Delete a user.
    *
    * Group assignments cascade, but sessions and keys do not — they are login artifacts, so they are
@@ -1546,6 +1606,17 @@ class Users {
           WIKI.models.flags.authDebug(
             `Strategy ${str.module} rejected the attempt${username ? ` for "${username}"` : ''}: ${err.message}`
           )
+          // -> Never the password, same as the debug line above. No user id either -- an attempt
+          //    that failed authentication is not attributable to an account, only to whatever the
+          //    caller claimed to be.
+          await WIKI.models.auditLog.record({
+            event: 'login.failed',
+            actor: { id: null, name: username ?? '', ip },
+            targetType: 'user',
+            targetLabel: username ?? '',
+            detail: { strategyId, reason: err.message },
+            siteId
+          })
           throw err
         }
       }
@@ -2026,6 +2097,16 @@ class Users {
         name: user.name,
         email: user.email
       }
+    })
+
+    await WIKI.models.auditLog.record({
+      event: 'login.success',
+      actor: { id: user.id, name: user.name, ip: context.ip },
+      targetType: 'user',
+      targetId: user.id,
+      targetLabel: user.email,
+      detail: { strategyId },
+      siteId: context.siteId ?? null
     })
 
     return {

@@ -3,6 +3,7 @@ import path from 'node:path'
 import { load } from 'js-yaml'
 import { and, eq, inArray } from 'drizzle-orm'
 import { parseModuleProps } from '../helpers/common.ts'
+import { parseLargeThreshold } from '../helpers/blobTarget.ts'
 import { sites as sitesTable, storage as storageTable } from '../db/schema.ts'
 import type { ModuleProp } from '../helpers/common.ts'
 import type { HookEvent } from './hooks.ts'
@@ -90,24 +91,6 @@ const STORAGE_HANDLERS: Partial<Record<HookEvent, string>> = {
   'asset:delete': 'assetDeleted'
 }
 
-/** Byte multiplier per unit of a `contentTypes.largeThreshold` string, e.g. `"5MB"`. */
-const SIZE_MULTIPLIERS: Record<string, number> = {
-  B: 1,
-  KB: 1024,
-  MB: 1024 ** 2,
-  GB: 1024 ** 3,
-  TB: 1024 ** 4
-}
-
-/** Parses a `largeThreshold`-shaped size string to bytes. Unparsable input never counts as "large". */
-function parseSizeToBytes(size: string): number {
-  const match = /^(\d+(?:\.\d+)?)\s?(B|KB|MB|GB|TB)$/i.exec(size)
-  if (!match) {
-    return Number.POSITIVE_INFINITY
-  }
-  return Number.parseFloat(match[1]) * SIZE_MULTIPLIERS[match[2].toUpperCase()]
-}
-
 /** An action a module knows how to run on demand, as declared by its `definition.yml`. */
 export interface StorageAction {
   /** Key of the handler on the module implementation, i.e. what gets called. */
@@ -168,6 +151,15 @@ export interface StorageDefinition {
    * offers to run something that has no implementation behind it.
    */
   hasImplementation: boolean
+  /**
+   * Whether the module implements any of `STORAGE_HANDLERS`' write-path content handlers — as
+   * opposed to being configuration- and manual-action-only, like `disk` (`dump`/`backup`/`importAll`)
+   * and `sftp` (`exportAll`). `dispatch()` uses this per-handler to decide whether a write-path event
+   * is even worth queuing a job for; the admin area uses the aggregate to tell an author that a
+   * `push`-capable target such as these does not actually sync on every page/asset change — only its
+   * listed actions write anything.
+   */
+  supportsContentSync: boolean
 }
 
 /** A configured target: the module definition, plus how this site has it set up. */
@@ -210,6 +202,8 @@ export interface StorageTarget {
     schedule: string | false
     mode: string
     scheduleOverride: string | null
+    /** See `StorageDefinition.supportsContentSync` — surfaced per-target for the admin area. */
+    supportsContentSync: boolean
   }
   setup?: {
     handler: string
@@ -296,15 +290,19 @@ export interface StorageModule {
    * the file straight from the target instead of proxying it through this instance.
    *
    * Checked by `models/assets.ts`'s `readContent()` before it falls into its own disk-cache/database
-   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on and the
-   * module's definition declares `assetDelivery.isDirectAccessSupported`. Neither `disk` nor `db`
-   * implements this — a local disk path and a database row are not URLs anything else can fetch — so
-   * the hook stays unexercised until a module that has a URL of its own (S3, a CDN) implements it.
+   * proxy path, and only consulted when the target's `assetDelivery.directAccess` is on, the module's
+   * definition declares `assetDelivery.isDirectAccessSupported`, and `governingTarget()` picked this
+   * target for the asset being served (i.e. its `contentTypes` cover the asset — see
+   * `helpers/blobTarget.ts`'s `belongsInTarget`). Neither `disk` nor `db` implements this — a local
+   * disk path and a database row are not URLs anything else can fetch — `s3`, `azure` and `gcs` do.
    *
+   * @param asset `folderPath` is required alongside `fileName` to rebuild the object key a blob
+   *   target stored the file under (`helpers/blobTarget.ts`'s `objectKeyFor`) — the two together are
+   *   what `s3`/`azure`/`gcs`'s own `getDirectUrl` key off.
    * @returns The URL to redirect the request to, or null/undefined to fall through to the normal path
    */
   getDirectUrl?: (
-    asset: { id: string; updatedAt: Date; fileName: string },
+    asset: { id: string; updatedAt: Date; fileName: string; folderPath: string },
     target: StorageTarget
   ) => Promise<string | null | undefined>
   /** Handlers named by the definition's actions. */
@@ -319,11 +317,11 @@ export interface StorageModule {
  * what it needs configured. Every site gets a row per module (see `syncSite`), so a target always
  * has a stable ID whether or not it has ever been enabled.
  *
- * `dispatch()` queues a sync job on every write-path change, but no module ships an implementation yet
- * — pages and assets are still read and written straight from the database, and `ensureModule()`
- * returns null for every one of them, so every queued job resolves to a no-op logged by the
- * `dispatchStorage` task. What this model handles beyond that is the configuration those modules will
- * read once they exist.
+ * `dispatch()` queues a sync job on every write-path change for a target whose module implements the
+ * write path (see `supportsContentSync` — `disk` and `sftp` only implement their own explicit actions,
+ * not the write-path handlers `dispatch()` queues for). `ensureModule()` loads each module's
+ * `storage.ts` on first use and caches it; pages and assets are still read and written straight from
+ * the database first, with a target's own sync/mirror happening asynchronously through the queued job.
  */
 class Storage {
   /** Definitions read from disk, refreshed by `refreshFromDisk()`. */
@@ -381,6 +379,15 @@ class Storage {
       this.definitions = definitions.sort((a, b) =>
         a.key === DB_MODULE ? -1 : b.key === DB_MODULE ? 1 : a.title.localeCompare(b.title)
       )
+      // -> Loaded now (rather than deferred to `dispatch()`'s first call) so the flag is ready for
+      //    the admin area the moment the definitions are: `ensureModule()` reads `this.definitions`
+      //    itself, which is why this pass comes after the assignment above rather than inside the
+      //    loop that built it.
+      for (const definition of this.definitions) {
+        definition.supportsContentSync = definition.hasImplementation
+          ? await this.moduleSupportsContentSync(definition.key)
+          : false
+      }
       WIKI.logger.info(`Found ${this.definitions.length} storage modules [ OK ]`)
     } catch (err: any) {
       this.definitions = []
@@ -401,6 +408,22 @@ class Storage {
     } catch {
       return false
     }
+  }
+
+  /**
+   * Whether a module (already known to have a `storage.ts`) implements at least one of
+   * `STORAGE_HANDLERS`' write-path content handlers — see `StorageDefinition.supportsContentSync`.
+   *
+   * A module that fails to load answers `false` here the same way `ensureModule()` itself does for
+   * every other caller: a broken module has no working handlers, which is exactly this question's
+   * answer too.
+   */
+  async moduleSupportsContentSync(key: string): Promise<boolean> {
+    const mod = await this.ensureModule(key)
+    if (!mod) {
+      return false
+    }
+    return Object.values(STORAGE_HANDLERS).some((handler) => typeof mod[handler] === 'function')
   }
 
   /**
@@ -537,7 +560,8 @@ class Storage {
           supportedModes: definition.supportedModes,
           schedule: definition.schedule,
           mode: row.syncMode,
-          scheduleOverride: row.scheduleOverride
+          scheduleOverride: row.scheduleOverride,
+          supportsContentSync: definition.supportsContentSync
         },
         // -> Only offered for a module that can actually run its setup process
         ...(definition.setup &&
@@ -783,9 +807,14 @@ class Storage {
    *
    * A page is always the `pages` bucket. An asset is classified by `data.kind` (`image` / `document`
    * / `other`, mirroring `models/assets.ts`'s `AssetKind`) into `images` / `documents` / `others` —
-   * unless `data.fileSize` is given and clears *this target's own* `largeThreshold`, in which case the
-   * target is asked about `large` instead of its kind-based bucket. The threshold lives on the target,
-   * not the module, so the same file can be "large" for one target and not another.
+   * unless `data.fileSize` is given and is at or above *this target's own* `largeThreshold`, in which
+   * case the target is asked about `large` instead of its kind-based bucket. The threshold lives on
+   * the target, not the module, so the same file can be "large" for one target and not another.
+   *
+   * Threshold parsing and the at-or-above comparison both go through `helpers/blobTarget.ts`'s
+   * `parseLargeThreshold` — the single parser every `largeThreshold` reader shares (OpenProject #927)
+   * — so this size-aware classification, the one the blob targets' own `exportAll`/`belongsInTarget`
+   * gate on, and the git module's `syncUntracked` (`actions.ts`) all agree on exactly the same file.
    */
   targetCoversEvent(target: StorageTarget, event: HookEvent, data: Record<string, any>): boolean {
     if (event.startsWith('page:')) {
@@ -808,7 +837,8 @@ class Storage {
     }
     if (
       typeof data.fileSize === 'number' &&
-      data.fileSize > parseSizeToBytes(target.contentTypes.largeThreshold)
+      data.fileSize >=
+        parseLargeThreshold(target.contentTypes.largeThreshold, Number.POSITIVE_INFINITY)
     ) {
       return target.contentTypes.activeTypes.includes('large')
     }
@@ -839,6 +869,12 @@ class Storage {
       let queued = 0
       for (const target of targets) {
         if (!target.isEnabled || target.sync.mode === 'pull') {
+          continue
+        }
+        // -> A module with no write-path handlers at all (disk, sftp — config/manual-action only)
+        //    can never do anything with a queued job; skip it here rather than let every job land in
+        //    `dispatchStorage`'s "no handler installed, skipping" no-op branch
+        if (!this.getDefinition(target.module)?.supportsContentSync) {
           continue
         }
         if (!this.targetCoversEvent(target, event, data)) {

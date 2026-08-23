@@ -72,7 +72,13 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       directAccess: true
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: true
+    },
     props: {},
     config: {
       accountName: 'testaccount',
@@ -309,15 +315,20 @@ describe('azure storage / exportAll', () => {
   })
 })
 
-describe('azure storage / getDirectAccessUrl', () => {
+describe('azure storage / getDirectUrl', () => {
   test('returns a short-TTL, read-only SAS URL for the blob', async () => {
     const target = makeTarget()
-    const url = await storageModule.getDirectAccessUrl(target, {
-      folderPath: 'images',
-      fileName: 'pic.png'
-    })
+    const url = await storageModule.getDirectUrl!(
+      {
+        id: 'asset-1',
+        updatedAt: new Date('2024-01-01T00:00:00Z'),
+        folderPath: 'images',
+        fileName: 'pic.png'
+      },
+      target
+    )
 
-    const parsed = new URL(url)
+    const parsed = new URL(url!)
     assert.ok(parsed.pathname.includes(`${target.siteId}/images/pic.png`))
     assert.equal(parsed.searchParams.get('sp'), 'r')
     const expiry = new Date(parsed.searchParams.get('se')!)

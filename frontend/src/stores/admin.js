@@ -14,7 +14,6 @@ export const useAdminStore = defineStore('admin', {
       clusterTotal: 0,
       groupsTotal: 0,
       pagesTotal: 0,
-      tagsTotal: 0,
       usersTotal: 0,
       webhooksTotal: 0,
       loginsPastDay: 0,
@@ -26,7 +25,10 @@ export const useAdminStore = defineStore('admin', {
     overlay: null,
     overlayOpts: {},
     sites: [],
-    locales: [{ code: 'en', name: 'English' }]
+    locales: [{ code: 'en', name: 'English' }],
+    /** Classification levels (OpenProject #1079), most-open first. What the group rule editor's
+     *  CLASSIFICATION match picker and the page properties classification picker both read. */
+    classificationLevels: []
   }),
   getters: {
     /**
@@ -58,7 +60,7 @@ export const useAdminStore = defineStore('admin', {
       this.info.activeWorkers = resp?.activeWorkers ?? 0
       this.info.clusterTotal = resp?.clusterTotal ?? 0
       this.info.groupsTotal = resp?.groupsTotal ?? 0
-      this.info.tagsTotal = resp?.tagsTotal ?? 0
+      this.info.pagesTotal = resp?.pagesTotal ?? 0
       this.info.usersTotal = resp?.usersTotal ?? 0
       this.info.webhooksTotal = resp?.webhooksTotal ?? 0
       this.info.loginsPastDay = resp?.loginsPastDay ?? 0
@@ -74,6 +76,9 @@ export const useAdminStore = defineStore('admin', {
       if (!this.currentSiteId) {
         this.currentSiteId = this.sites[0].id
       }
+    },
+    async fetchClassificationLevels() {
+      this.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
     }
   }
 })

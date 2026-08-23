@@ -53,7 +53,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       locale: 'en',
       siteId: fixtures.siteId
     })
-    const fr = await treeModel.createFolder({
+    await treeModel.createFolder({
       pathName: 'docs',
       title: 'Docs',
       locale: 'fr',
@@ -84,8 +84,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       locale: 'en'
     })
     assert.ok(enPage, 'the en page must have moved to guides/intro')
-    const frFolder = await treeModel.getFolderById(fr.id)
-    assert.equal(frFolder!.fileName, 'docs')
+    // -> The real cascade-scope claim: the fr PAGE's own tree row is still filed under the
+    //   untouched `docs` folder, not swept along by the `en`-only rename. Checking `fr`'s FOLDER
+    //   row's `fileName` (as this used to) is vacuous -- that row was never a candidate for the
+    //   cascade in the first place, since `renameFolder` was only ever given `en.id`.
+    const frPageTreeRow = await treeModel.getById(frPage!.id)
+    assert.equal(frPageTreeRow!.folderPath, 'docs')
   })
 
   test('deleting a folder deletes only its own locale (bug #932)', async () => {
@@ -201,6 +205,45 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * `includeRootFolders` adds its own OR-branch to the location filter (`getTree`'s `locations`
+   * array), separate from the branch a `parentPath`/`parentId`/`includeAncestors` listing builds —
+   * so it is worth its own regression test that the branch doesn't slip past the outer, unconditional
+   * `eq(treeTable.locale, locale)` this suite's #992 fix put in place. Structurally it can't (the
+   * locale condition ANDs every OR-branch alike), but the #992 bug was exactly this kind of filter
+   * silently not applying to a branch it should have -- worth locking down directly rather than only
+   * by inspection.
+   */
+  test('getTree with includeRootFolders still filters root folders by locale', async () => {
+    await treeModel.createFolder({
+      pathName: 'root-en-only',
+      title: 'Root EN Only',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    await treeModel.createFolder({
+      pathName: 'root-fr-only',
+      title: 'Root FR Only',
+      locale: 'fr',
+      siteId: fixtures.siteId
+    })
+
+    const items = await treeModel.getTree({
+      siteId: fixtures.siteId,
+      locale: 'en',
+      parentPath: 'shared',
+      includeRootFolders: true,
+      depth: 1
+    })
+
+    const titles = items.map((item) => item.title)
+    assert.ok(titles.includes('Root EN Only'), 'the en root folder should be included')
+    assert.ok(
+      !titles.includes('Root FR Only'),
+      'an fr root folder must not appear in an en-only includeRootFolders listing'
+    )
+  })
+
+  /**
    * Task 12 (#994): a root-level folder named after an installed locale code is unreachable — shadowed
    * by the URL prefix parser exactly as a page at that path would be (`models/pages.test.ts`'s
    * matching coverage). Only the first path segment shadows, so a folder nested under something else
@@ -246,5 +289,90 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
+  })
+
+  /**
+   * OpenProject #1128: `getTree()`/`browse()`/`listPages()` used to carry no classification at all —
+   * the caller (`api/tree.ts`'s permission filter) had nothing to check a CLASSIFICATION rule
+   * against and always passed a hardcoded `null`. Each now joins `pages.classification` in directly,
+   * locked down here at the model layer rather than only through the API's permission-filter tests.
+   */
+  describe('classification carried through for the permission filter (OpenProject #1128)', () => {
+    test('getTree() carries a page’s real classification, and null for a folder', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'classified-tree',
+        title: 'Classified Tree',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classified-tree/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+
+      const items = await treeModel.getTree({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        parentId: folder.id
+      })
+
+      const page = items.find((item) => item.type === 'page')!
+      const listedFolder = items.find((item) => item.type === 'folder')
+      assert.equal((page as any).classification, fixtures.classificationId)
+      assert.equal(listedFolder, undefined, 'no nested folder was created in this fixture')
+    })
+
+    test('browse() carries a page’s real classification, null for a folder-only entry', async () => {
+      const folder = await treeModel.createFolder({
+        pathName: 'classified-browse-folder',
+        title: 'Has A Page Inside',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      // -> browse() drops a folder that holds no visible page under it (`holdsVisiblePages`), so this
+      //    folder needs one to appear in the listing at all -- the folder ROW itself still carries no
+      //    classification of its own either way.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classified-browse-folder/inside', title: 'Inside', locale: 'en' }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classified-browse-page', title: 'Page Only', locale: 'en' }),
+        actor
+      )
+
+      const level = await treeModel.browse({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        publicOnly: false
+      })
+
+      const pageItem = level!.items.find((item) => item.path === 'classified-browse-page')!
+      const folderItem = level!.items.find((item) => item.path === folder.fileName)!
+      assert.equal(pageItem.classification, fixtures.classificationId)
+      assert.equal(folderItem.classification, null)
+    })
+
+    test('listPages() carries each page’s real classification', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classified-list/page', title: 'Listed', locale: 'en' }),
+        actor
+      )
+
+      const pages = await treeModel.listPages({
+        siteId: fixtures.siteId,
+        locale: 'en',
+        path: 'classified-list',
+        depth: 1,
+        publicOnly: false
+      })
+
+      assert.equal(pages.length, 1)
+      assert.equal(pages[0]!.classification, fixtures.classificationId)
+    })
   })
 })

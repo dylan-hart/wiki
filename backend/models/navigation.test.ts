@@ -183,7 +183,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
 
-    const stored = await navigationModel.getNav(siteNavId, { unfiltered: true })
+    const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
     assert.deepEqual(stored, items)
   })
 
@@ -207,7 +207,7 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     const items = [{ id: 'b', type: 'header' as const, label: 'Section' }]
     await navigationModel.setNavItems(fixtures.siteId, page.id, items)
 
-    const stored = await navigationModel.getNav(page.id, { unfiltered: true })
+    const stored = await navigationModel.getNav(fixtures.siteId, page.id, { unfiltered: true })
     assert.deepEqual(stored, items)
   })
 
@@ -264,7 +264,9 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
       mode: 'replace'
     })
 
-    const targetItems = await navigationModel.getNav(targetId, { unfiltered: true })
+    const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      unfiltered: true
+    })
     assert.equal(targetItems.length, 1)
     const [copied] = targetItems
     assert.notEqual(copied!.id, 'source-parent')
@@ -275,7 +277,9 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(copied!.children![0]!.label, 'Child')
 
     // -> The source is left untouched
-    const sourceStillIntact = await navigationModel.getNav(sourceId, { unfiltered: true })
+    const sourceStillIntact = await navigationModel.getNav(fixtures.siteId, sourceId, {
+      unfiltered: true
+    })
     assert.equal(sourceStillIntact[0]!.id, 'source-parent')
   })
 
@@ -298,7 +302,9 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
       mode: 'append'
     })
 
-    const targetItems = await navigationModel.getNav(targetId, { unfiltered: true })
+    const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      unfiltered: true
+    })
     assert.deepEqual(
       targetItems.map((i) => i.label),
       ['Already There', 'From Source']
@@ -414,9 +420,9 @@ describe(
         { path: 'home', title: 'Home', editor: 'markdown', content: '# Home', locale: 'en' },
         actor
       )
-      const deHome = await pagesModel.createPage(
+      const frHome = await pagesModel.createPage(
         fixtures.siteId,
-        { path: 'home', title: 'Startseite', editor: 'markdown', content: '# Start', locale: 'de' },
+        { path: 'home', title: 'Accueil', editor: 'markdown', content: '# Bonjour', locale: 'fr' },
         actor
       )
 
@@ -426,24 +432,28 @@ describe(
         mode: 'override',
         items: [{ id: 'en-item', type: 'link', label: 'EN', target: '/' }]
       })
-      const deResult = await navigationModel.updateNavigation({
+      const frResult = await navigationModel.updateNavigation({
         siteId: fixtures.siteId,
-        pageId: deHome.id,
+        pageId: frHome.id,
         mode: 'override',
-        items: [{ id: 'de-item', type: 'link', label: 'DE', target: '/' }]
+        items: [{ id: 'fr-item', type: 'link', label: 'FR', target: '/' }]
       })
 
-      assert.notEqual(enResult.navigationId, deResult.navigationId)
+      assert.notEqual(enResult.navigationId, frResult.navigationId)
 
       const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-      const deSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'de')
+      const frSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'fr')
       assert.equal(enResult.navigationId, enSiteNavId)
-      assert.equal(deResult.navigationId, deSiteNavId)
+      assert.equal(frResult.navigationId, frSiteNavId)
 
-      const enItems = await navigationModel.getNav(enSiteNavId, { unfiltered: true })
-      const deItems = await navigationModel.getNav(deSiteNavId, { unfiltered: true })
+      const enItems = await navigationModel.getNav(fixtures.siteId, enSiteNavId, {
+        unfiltered: true
+      })
+      const frItems = await navigationModel.getNav(fixtures.siteId, frSiteNavId, {
+        unfiltered: true
+      })
       assert.equal(enItems[0]!.label, 'EN')
-      assert.equal(deItems[0]!.label, 'DE')
+      assert.equal(frItems[0]!.label, 'FR')
     })
   }
 )
@@ -491,7 +501,9 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.equal(roots.length, 1)
     assert.equal(roots[0]!.locale, 'pt')
     assert.notEqual(roots[0]!.navigationId, fixtures.siteId)
-    const items = await navigationModel.getNav(roots[0]!.navigationId, { unfiltered: true })
+    const items = await navigationModel.getNav(fixtures.siteId, roots[0]!.navigationId, {
+      unfiltered: true
+    })
     assert.deepEqual(items, [])
   })
 
@@ -907,7 +919,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
     await setMode(siteNavId, 'static')
 
-    const result = await navigationModel.getNav(siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
     assert.deepEqual(result, items)
   })
 
@@ -928,7 +940,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'auto')
 
-    const result = await navigationModel.getNav(siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
     assert.equal(
       result.some((item) => item.label === 'Should not appear'),
       false
@@ -957,8 +969,8 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     // -> Generated items never carry `visibilityGroups`, so they are always visible -- this just
     //    confirms the filtering pass runs at all (it would throw/behave differently on `unfiltered`
     //    input shaped unexpectedly) and that `unfiltered` still returns the same generated set
-    const filtered = await navigationModel.getNav(siteNavId, { userGroups: [] })
-    const full = await navigationModel.getNav(siteNavId, { unfiltered: true })
+    const filtered = await navigationModel.getNav(fixtures.siteId, siteNavId, { userGroups: [] })
+    const full = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
     assert.deepEqual(
       filtered.map((i) => i.id),
       full.map((i) => i.id)
@@ -984,7 +996,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
     const ids = result.map((i) => i.id)
     const generatedIndex = result.findIndex((i) => i.label === 'Mixed Mode Page')
 
@@ -1025,14 +1037,14 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     })
     await setMode(overriddenPage.id, 'auto')
 
-    const result = await navigationModel.getNav(overriddenPage.id)
+    const result = await navigationModel.getNav(fixtures.siteId, overriddenPage.id)
     const labels = result.map((i) => i.label)
     assert.ok(labels.includes('Override Target'))
     assert.ok(labels.includes('Sibling Page'))
   })
 
   test('a nonexistent menu id returns an empty list rather than throwing', async () => {
-    const result = await navigationModel.getNav(crypto.randomUUID())
+    const result = await navigationModel.getNav(fixtures.siteId, crypto.randomUUID())
     assert.deepEqual(result, [])
   })
 
@@ -1049,12 +1061,12 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
       { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     )
     await setMode(siteNavId, 'auto')
-    const auto = await navigationModel.getNav(siteNavId)
+    const auto = await navigationModel.getNav(fixtures.siteId, siteNavId)
     assert.ok(auto.length > 0)
     assert.ok(auto.every((item) => item.generated === true))
 
     await setMode(siteNavId, 'static')
-    const staticResult = await navigationModel.getNav(siteNavId)
+    const staticResult = await navigationModel.getNav(fixtures.siteId, siteNavId)
     assert.ok(staticResult.every((item) => item.generated === undefined))
   })
 
@@ -1078,7 +1090,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
     const stored = result.filter((i) => i.id === 'stored-before' || i.id === 'stored-after')
     const generated = result.filter((i) => i.label === 'Generated Flag Page')
 
@@ -1139,7 +1151,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('ensureSiteNav creates an empty menu once, idempotently', async () => {
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-    assert.deepEqual(await navigationModel.getNav(siteNavId, { unfiltered: true }), [])
+    assert.deepEqual(
+      await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
+      []
+    )
 
     // -> A page's menu is saved before ensureSiteNav would run again for the same locale (e.g. a
     //    second edit); onConflictDoNothing is what keeps that second call from wiping it back to
@@ -1152,7 +1167,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     const sameSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     assert.equal(sameSiteNavId, siteNavId)
-    assert.deepEqual(await navigationModel.getNav(siteNavId, { unfiltered: true }), items)
+    assert.deepEqual(
+      await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
+      items
+    )
   })
 
   test('getNav filters items and their children by visibility group', async () => {
@@ -1168,16 +1186,47 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(navigationId, page.id)
 
-    const asGuest = await navigationModel.getNav(navigationId!, { userGroups: [] })
+    const asGuest = await navigationModel.getNav(fixtures.siteId, navigationId!, { userGroups: [] })
     assert.deepEqual(
       asGuest.map((i) => i.id),
       ['a']
     )
 
-    const asAdmin = await navigationModel.getNav(navigationId!, { userGroups: ['admins'] })
+    const asAdmin = await navigationModel.getNav(fixtures.siteId, navigationId!, {
+      userGroups: ['admins']
+    })
     assert.deepEqual(
       asAdmin.map((i) => i.id),
       ['a', 'b']
+    )
+  })
+
+  test('getNav refuses a menu id that belongs to a different site (OpenProject #941)', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: `test-${randomUUID()}.localhost`,
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const otherSiteId = otherSite!.id
+    const otherNavId = await navigationModel.ensureSiteNav(otherSiteId, 'en')
+    const secretItems: NavigationItem[] = [
+      { id: 'secret', type: 'link', label: 'Secret', target: '/secret' }
+    ]
+    await navigationModel.setNavItems(otherSiteId, otherNavId, secretItems)
+
+    // -> The row is real and readable under its own site...
+    assert.deepEqual(
+      await navigationModel.getNav(otherSiteId, otherNavId, { unfiltered: true }),
+      secretItems
+    )
+    // -> ...but a caller holding only `fixtures.siteId`'s id cannot read it by guessing/reusing the
+    //    row id under the wrong site, the same way `setNavItems`/`copyNav`'s writes already refuse to.
+    assert.deepEqual(
+      await navigationModel.getNav(fixtures.siteId, otherNavId, { unfiltered: true }),
+      []
     )
   })
 
@@ -1225,7 +1274,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const result = await navigationModel.inheritedNavId(fixtures.siteId, root.id)
 
-      assert.equal(result, fixtures.siteId)
+      // -> The site's own nav row id for this entry's locale — never `siteId` itself, per
+      //    `ensureSiteNav`'s own contract (locale-scoped site menus, #990).
+      const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      assert.equal(result, enSiteNavId)
       // -> `ancestorNavId` short-circuits on an empty folderPath before ever building the ltree query;
       //    `getEntry`'s own lookup goes through the query builder, not `db.execute`, so a call here
       //    would only come from the raw-SQL branch this case must not reach.
@@ -1245,7 +1297,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       // -> Sanity: the ancestor really is on the default mode, not incidentally excluded some other way
       assert.equal(folder.navigationMode, 'inherit')
 
-      assert.equal(await navigationModel.inheritedNavId(fixtures.siteId, page.id), fixtures.siteId)
+      const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      assert.equal(await navigationModel.inheritedNavId(fixtures.siteId, page.id), enSiteNavId)
     })
 
     test("exactly one overriding ancestor: resolves to that ancestor's navigationId", async () => {
@@ -1340,7 +1393,8 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       const result = await navigationModel.inheritedNavId(fixtures.siteId, page.id)
 
-      assert.equal(result, fixtures.siteId)
+      const enSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      assert.equal(result, enSiteNavId)
       assert.notEqual(result, siblingNavId)
     })
   })
@@ -1383,7 +1437,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
             navigationId: sentinelNavId
           })
 
-          const ancestorId = fixtures.siteId
+          // -> The root folder has no overriding/hiding ancestor of its own, so it falls back to the
+          //    site's locale-scoped nav row — never `fixtures.siteId` itself (`ensureSiteNav`'s
+          //    contract, #990).
+          const ancestorId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
           const ownNavId = folder.id
           const { navId: expectedNavId, cascadeTo: expectedCascadeTo } = expectedTransition(
             mode,
@@ -1772,7 +1829,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.notEqual(navigationId, fixtures.siteId)
       assert.notEqual(navigationId, page.id)
       assert.equal(navigationId, await navigationModel.ensureSiteNav(fixtures.siteId, 'en'))
-      assert.deepEqual(await navigationModel.getNav(navigationId!, { unfiltered: true }), items)
+      assert.deepEqual(
+        await navigationModel.getNav(fixtures.siteId, navigationId!, { unfiltered: true }),
+        items
+      )
 
       // -> No menu was ever created under the page's own id.
       const ownRow = await fixtures.db
@@ -1788,7 +1848,9 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'override-items'
       })
       const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-      const siteItemsBefore = await navigationModel.getNav(siteNavId, { unfiltered: true })
+      const siteItemsBefore = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        unfiltered: true
+      })
 
       const { navigationId } = await navigationModel.updateNavigation({
         siteId: fixtures.siteId,
@@ -1798,10 +1860,13 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
 
       assert.equal(navigationId, page.id)
-      assert.deepEqual(await navigationModel.getNav(page.id, { unfiltered: true }), items)
+      assert.deepEqual(
+        await navigationModel.getNav(fixtures.siteId, page.id, { unfiltered: true }),
+        items
+      )
       // -> The site (ancestor) menu is untouched by a save that targeted the page's own menu.
       assert.deepEqual(
-        await navigationModel.getNav(siteNavId, { unfiltered: true }),
+        await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
         siteItemsBefore
       )
     })
@@ -1856,11 +1921,12 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
-   * The site-root special case (navigation.ts:191-194): the home page (`folderPath === ''`,
-   * `fileName === 'home'`) uses `siteId` as its `ownNavId`, so editing its items writes to the
-   * site's own navigation row rather than a page-owned one. Each case uses a brand-new site, seeded
-   * directly rather than through `setupTestDb()`'s shared fixture, so the navigation row's prior
-   * state (absent vs. already populated) is exactly what the case controls.
+   * The site-root special case (navigation.ts:706-707): the home page (`folderPath === ''`,
+   * `fileName === 'home'`) uses its locale's site-wide nav row (`ensureSiteNav`'s id, never `siteId`
+   * itself — see #990) as its `ownNavId`, so editing its items writes to the site's own navigation
+   * row rather than a page-owned one. Each case uses a brand-new site, seeded directly rather than
+   * through `setupTestDb()`'s shared fixture, so the navigation row's prior state (absent vs.
+   * already populated) is exactly what the case controls.
    */
   describe('updateNavigation site-root special case (home page)', () => {
     async function createSite(): Promise<string> {
@@ -1881,7 +1947,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const beforeRow = await fixtures.db
         .select()
         .from(navigationTable)
-        .where(eq(navigationTable.id, siteId))
+        .where(eq(navigationTable.siteId, siteId))
       assert.equal(beforeRow.length, 0)
 
       const home = await seedTreeEntry(fixtures.db, { siteId, path: 'home' })
@@ -1894,15 +1960,21 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         items
       })
 
-      // -> ownNavId resolved to the site id, not the home page's own tree entry id.
-      assert.equal(navigationId, siteId)
+      // -> ownNavId resolved to the site's own (locale-scoped) nav row, not the home page's own tree
+      //    entry id, and not the site id itself.
+      const enSiteNavId = await navigationModel.ensureSiteNav(siteId, 'en')
+      assert.equal(navigationId, enSiteNavId)
+      assert.notEqual(navigationId, siteId)
       assert.notEqual(navigationId, home.id)
-      assert.deepEqual(await navigationModel.getNav(siteId, { unfiltered: true }), items)
+      assert.deepEqual(
+        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        items
+      )
       // -> Exactly one navigation row for this site — the insert path, not a duplicate.
       const afterRow = await fixtures.db
         .select()
         .from(navigationTable)
-        .where(eq(navigationTable.id, siteId))
+        .where(eq(navigationTable.siteId, siteId))
       assert.equal(afterRow.length, 1)
     })
 
@@ -1919,7 +1991,11 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         mode: 'override',
         items: originalItems
       })
-      assert.deepEqual(await navigationModel.getNav(siteId, { unfiltered: true }), originalItems)
+      const enSiteNavId = await navigationModel.ensureSiteNav(siteId, 'en')
+      assert.deepEqual(
+        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        originalItems
+      )
 
       const replacementItems: NavigationItem[] = [
         { id: 'new-1', type: 'link', label: 'New 1', target: '/new-1' }
@@ -1931,10 +2007,13 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
         items: replacementItems
       })
 
-      assert.equal(navigationId, siteId)
+      assert.equal(navigationId, enSiteNavId)
       // -> onConflictDoUpdate's `set: { items }` replaces the array outright — the old items are
       //    gone, not merged alongside the new one.
-      assert.deepEqual(await navigationModel.getNav(siteId, { unfiltered: true }), replacementItems)
+      assert.deepEqual(
+        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        replacementItems
+      )
     })
   })
 })

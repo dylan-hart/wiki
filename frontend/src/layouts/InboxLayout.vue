@@ -31,7 +31,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 
 import { useMeta } from '@/composables/meta'
@@ -77,7 +77,10 @@ useMeta(() => {
 
 // DATA
 
-const sidenav = [
+// -> A computed, not a plain array evaluated once at setup -- see ProfileLayout's identical comment;
+//    a plain array's t() calls freeze these labels in whatever language was active when this layout
+//    mounted, so switching interface language would leave them stale until a remount.
+const sidenav = computed(() => [
   {
     key: 'messages',
     label: t('inbox.inbox'),
@@ -93,7 +96,7 @@ const sidenav = [
     label: t('inbox.pendingReview'),
     icon: 'la:clipboard-check'
   }
-]
+])
 
 // WATCHERS
 

@@ -58,6 +58,7 @@
           </w-scroll-area>
         </div>
       </div>
+      <div class="page-save-dialog-hint">{{ t('pageSaveDialog.newFolderHint') }}</div>
       <div class="page-save-dialog-path font-robotomono">{{ currentFolderPath }}</div>
       <w-list class="py-2">
         <w-item>
@@ -79,10 +80,25 @@
             <w-input
               v-model="state.path"
               :label="t(`pageSaveDialog.pathName`)"
+              :rules="pathRules"
               dense
               outlined
               @focus="onPathFocus"
-              @keyup:enter="save" />
+              @keyup:enter="onPathEnter" />
+          </w-item-section>
+        </w-item>
+        <!--
+          Only when there is something to offer: a locale-only rename (path staying put) has nothing
+          to cascade, since translations are found by path -- see the model-side comment in
+          `movePage`.
+        -->
+        <w-item v-if="props.mode === `renamePage` && state.translationsCount > 0">
+          <w-item-section>
+            <w-checkbox
+              v-model="state.includeTranslations"
+              :label="
+                t(`pageRenameDialog.includeTranslations`, { count: state.translationsCount })
+              " />
           </w-item-section>
         </w-item>
       </w-list>
@@ -133,6 +149,7 @@
           unelevated
           color="primary"
           padding="xs md"
+          :disable="pathHasSlash"
           @click="save" />
       </w-card-actions>
     </w-card>
@@ -236,12 +253,21 @@ const state = reactive({
   title: '',
   path: '',
   typesToFetch: [],
-  pathDirty: false
+  pathDirty: false,
+  /** How many other locales' pages share this page's current path -- see `fetchTranslationsCount`. */
+  translationsCount: 0,
+  includeTranslations: true
 })
 
 // REFS
 
 const treeComp = ref(null)
+
+// -> Path Name is the leaf slug only -- the folder itself comes from the tree browser (#1013), not
+//    from typing `/`-separated segments here. Live validation (`w-input`'s `rules` convention) is
+//    what blocks that pre-submit, rather than the old pattern of only catching it inside save() with
+//    a post-submit notification.
+const pathRules = [(value) => !value?.includes('/') || t('pageSaveDialog.pathNoSlashes')]
 
 // COMPUTED
 
@@ -254,6 +280,19 @@ const currentFolderPath = computed(() => {
     ? `/${folderNode.folderPath}/${folderNode.fileName}/`
     : `/${folderNode.fileName}/`
 })
+
+const pathHasSlash = computed(() => state.path.includes('/'))
+
+// -> The Save button's `:disable="pathHasSlash"` only blocks a click -- the Path Name field's own
+//    `@keyup:enter` used to call `save()` directly regardless, so pressing Enter with a slash still
+//    present silently bypassed the block this same commit added (OpenProject #1025). Route Enter
+//    through the same guard rather than letting it call `save()` unconditionally.
+function onPathEnter() {
+  if (pathHasSlash.value) {
+    return
+  }
+  save()
+}
 
 const files = computed(() => {
   return state.fileList.map((f) => {
@@ -327,8 +366,34 @@ async function save() {
     path:
       currentFolderPath.value.length > 1
         ? `${currentFolderPath.value.substring(1)}${state.path}`
-        : state.path
+        : state.path,
+    ...(props.mode === 'renamePage' ? { includeTranslations: state.includeTranslations } : {})
   })
+}
+
+/**
+ * How many other locales' pages share this page's current path -- what decides whether the
+ * "Also move N translation(s)" checkbox shows at all. Fetched only in `renamePage` mode, where
+ * `props.itemId` names a real, already-saved page; `savePage`/`duplicatePage` have no page here to
+ * ask about yet.
+ */
+async function fetchTranslationsCount() {
+  if (!props.itemId) {
+    return
+  }
+  try {
+    const siteId = props.siteId || siteStore.id
+    const translations = await API_CLIENT.get(
+      `sites/${siteId}/pages/${props.itemId}/translations`
+    ).json()
+    state.translationsCount = translations.length
+  } catch (err) {
+    // -> Missing entirely rather than defaulting to "may not move translations": a caller who
+    //    cannot even list them almost certainly cannot cascade to them either, and the checkbox
+    //    staying hidden is a safe, silent fallback -- the plain move/rename this dialog already
+    //    offers is unaffected either way.
+    console.warn(err)
+  }
 }
 
 async function treeLazyLoad(nodeId, isCurrent, { done }) {
@@ -510,6 +575,7 @@ onMounted(async () => {
     case 'renamePage': {
       state.typesToFetch = ['folder', 'page']
       state.pathDirty = true
+      fetchTranslationsCount()
       break
     }
   }
@@ -602,6 +668,19 @@ onMounted(async () => {
           color: rgba(255, 255, 255, 0.7);
         }
       }
+    }
+  }
+
+  &-hint {
+    padding: 6px 16px 0;
+    font-size: 12px;
+    font-style: italic;
+
+    @at-root .body--light & {
+      color: $blue-grey-5;
+    }
+    @at-root .body--dark & {
+      color: $blue-grey-4;
     }
   }
 

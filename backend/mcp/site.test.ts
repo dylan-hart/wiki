@@ -46,23 +46,56 @@ test('defaultLocale: falls back to en when unset', () => {
 
 test('resolveDefaultSiteId: a site-pinned key always resolves to its own site', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
-  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: 'site-b' }), 'site-b')
+  assert.equal(
+    resolveDefaultSiteId({
+      keyId: 'k',
+      permissions: [],
+      siteId: 'site-b',
+      groupIds: [],
+      userId: null,
+      scope: null
+    }),
+    'site-b'
+  )
 })
 
 test('resolveDefaultSiteId: an unscoped key resolves to the sole enabled site', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_DISABLED.id]: SITE_DISABLED })
-  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null }), 'site-a')
+  assert.equal(
+    resolveDefaultSiteId({
+      keyId: 'k',
+      permissions: [],
+      siteId: null,
+      groupIds: [],
+      userId: null,
+      scope: null
+    }),
+    'site-a'
+  )
 })
 
 test('resolveDefaultSiteId: an unscoped key resolves to nothing when several sites are enabled', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
-  assert.equal(resolveDefaultSiteId({ keyId: 'k', permissions: [], siteId: null }), null)
+  assert.equal(
+    resolveDefaultSiteId({
+      keyId: 'k',
+      permissions: [],
+      siteId: null,
+      groupIds: [],
+      userId: null,
+      scope: null
+    }),
+    null
+  )
 })
 
 test('resolveRequestedSite: an explicit siteId wins over the default guess', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
   assert.deepEqual(
-    resolveRequestedSite({ keyId: 'k', permissions: [], siteId: null }, 'site-b'),
+    resolveRequestedSite(
+      { keyId: 'k', permissions: [], siteId: null, groupIds: [], userId: null, scope: null },
+      'site-b'
+    ),
     SITE_B
   )
 })
@@ -70,7 +103,15 @@ test('resolveRequestedSite: an explicit siteId wins over the default guess', () 
 test('resolveRequestedSite: refuses when neither an explicit siteId nor a default settles on one', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
   assert.throws(
-    () => resolveRequestedSite({ keyId: 'k', permissions: [], siteId: null }),
+    () =>
+      resolveRequestedSite({
+        keyId: 'k',
+        permissions: [],
+        siteId: null,
+        groupIds: [],
+        userId: null,
+        scope: null
+      }),
     /more than one site/
   )
 })
@@ -78,7 +119,11 @@ test('resolveRequestedSite: refuses when neither an explicit siteId nor a defaul
 test('resolveRequestedSite: enforces the key site-pin even when an explicit siteId is given', () => {
   installSites({ [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B })
   assert.throws(
-    () => resolveRequestedSite({ keyId: 'k', permissions: [], siteId: 'site-a' }, 'site-b'),
+    () =>
+      resolveRequestedSite(
+        { keyId: 'k', permissions: [], siteId: 'site-a', groupIds: [], userId: null, scope: null },
+        'site-b'
+      ),
     /not scoped/
   )
 })

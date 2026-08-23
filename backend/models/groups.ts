@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
@@ -10,8 +10,20 @@ import type { FastifyRequest } from 'fastify'
 /** The permission that bypasses every check, and the one the guards below exist to protect. */
 export const SYSTEM_PERMISSION = 'manage:system'
 
-/** How a rule's `path` is compared against the page path. */
-export type GroupRuleMatch = 'START' | 'END' | 'REGEX' | 'TAG' | 'TAGALL' | 'EXACT'
+/**
+ * How a rule's `path` is compared against the page path. `CLASSIFICATION` is the odd one out
+ * (OpenProject #1079): it does not read `path` at all, and matches page metadata that survives a
+ * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
+ * `ruleMatchesPage` in `helpers/pageRules.ts`.
+ */
+export type GroupRuleMatch =
+  | 'START'
+  | 'END'
+  | 'REGEX'
+  | 'TAG'
+  | 'TAGALL'
+  | 'EXACT'
+  | 'CLASSIFICATION'
 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
@@ -26,6 +38,13 @@ export interface GroupRule {
   path: string
   locales: string[]
   sites: string[]
+  /**
+   * Classification level ids this rule addresses -- read only when `match === 'CLASSIFICATION'`, the
+   * same way `path` is read as a comma list only for `TAG`/`TAGALL`. A separate field rather than
+   * reusing `path`, because a level is an id from the admin-configurable
+   * `WIKI.models.classificationLevels` list, not free text a rule author types.
+   */
+  classifications?: string[]
 }
 
 /** A group row, joined with the number of users assigned to it. */
@@ -106,10 +125,30 @@ const groupSelection = {
  *
  * `permissions` is the group-wide list — `manage:system`, `access:admin` and the rest — which is a
  * different thing from the page permissions the rules decide.
+ *
+ * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
+ * `models/apiKeys.ts`) — `null`/absent means unrestricted (a session, or an unscoped key). It is
+ * consulted directly by `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` below,
+ * on top of (not instead of) narrowing `permissions` itself: a scope narrows the GLOBAL permission
+ * union that `narrowToScope()` already intersects before this actor is built, but `groupIds` is
+ * still the key's full, unnarrowed group membership — the rule-pooling those three methods do from
+ * `groupIds` would otherwise hand back every page/site permission the groups grant regardless of
+ * scope (OpenProject #930). A scope can only take a permission away, never grant one the groups
+ * didn't already hold, so a permission absent from `scope` is refused before any rule is even
+ * resolved.
+ *
+ * `allowedClassifications`, when present, is the same key's per-level classification allow-set
+ * (OpenProject #1205, replacing the earlier #1055 single-value ceiling) — a page permission is never
+ * granted on a page whose classification is not in this set, regardless of what the groups' rules
+ * say. Checked by `checkAccess()` only: it is page-blind everywhere else
+ * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
+ * compare the allow-set against.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
+  scope?: string[] | null
+  allowedClassifications?: string[] | null
 }
 
 /**
@@ -147,9 +186,10 @@ class Groups {
   /**
    * Reload the page rules of every group into memory.
    *
-   * Called at boot and after any change to a group. A group edit therefore takes effect on the next
-   * request rather than on the next login, which matters: rules are the whole of page access, and a
-   * revoked permission that waits for a logout is not revoked.
+   * Called at boot, after any local change to a group (see `broadcastReload()`), and on every other
+   * cluster instance's `reloadGroups` event (see `subscribeToEvents()`) — so a group edit takes
+   * effect on the next request rather than on the next login, everywhere, which matters: rules are
+   * the whole of page access, and a revoked permission that waits for a logout is not revoked.
    */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db
@@ -160,6 +200,30 @@ class Groups {
       rulesCache[row.id] = (row.rules ?? []) as GroupRule[]
     }
     WIKI.logger.info(`Loaded page rules for ${rows.length} groups [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
+   *
+   * The write already happened in the database by the time a caller reaches this — what's left is
+   * making every instance's in-memory cache agree with it, this one included. Never call
+   * `WIKI.events.outbound.emit('reloadGroups')` directly, and never call it from inside
+   * `reloadCache()` itself: `reloadCache()` also runs when `subscribeToEvents()`'s handler answers
+   * *another* instance's event, and broadcasting from there would echo the event back around the
+   * cluster forever.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadGroups')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadGroups', async () => {
+      await this.reloadCache()
+    })
   }
 
   /** The pooled rules of a set of groups, which is what a permission is decided against. */
@@ -202,8 +266,35 @@ class Groups {
       groupIds: this.groupIdsForRequest(req),
       // -> An API key stands in for a session and carries its own permissions, as it does in the
       //    route-level check
-      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? []
+      permissions: req.apiKey?.permissions ?? req.session?.permissions ?? [],
+      // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
+      //    if any -- see the `AccessActor.scope` doc comment for what this gates.
+      scope: req.apiKey?.scope ?? null,
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null
     }
+  }
+
+  /**
+   * The actor for a caller that speaks for no specific requester (OpenProject #1127) — the one caller
+   * today is `models/rendering.ts`'s background re-render job, which reprocesses already-published
+   * content generically rather than on behalf of any one reader. It resolves permission-gated content
+   * (a glossary term's canonical-page link) the same way an anonymous visitor's own request would,
+   * rather than skipping the check entirely.
+   */
+  guestActor(): AccessActor {
+    return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+  }
+
+  /**
+   * Whether `permission` survives this actor's scope narrowing, if it has one.
+   *
+   * `null`/absent scope is unrestricted (a session, or a key issued with no scope). A scope that IS
+   * set can only take permissions away, so a permission missing from it is refused outright, before
+   * any rule is even resolved — see the `AccessActor.scope` doc comment for why this has to sit
+   * ahead of `rulesForGroups()` rather than trusting `permissions`/`groupIds` alone.
+   */
+  private withinScope(actor: AccessActor, permission: string): boolean {
+    return !actor.scope || actor.scope.includes(permission)
   }
 
   /**
@@ -220,6 +311,26 @@ class Groups {
     //    wiki whose only administrator had denied themselves would have nobody left to fix it
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    if (!this.withinScope(actor, permission)) {
+      return false
+    }
+    /*
+      OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
+      key/token may never be granted a page permission on a page whose classification is not in its
+      `allowedClassifications` allow-set, regardless of what its groups' rules say -- checked the same
+      way `scope` is, before any rule is resolved. Skipped when the page's own classification is
+      unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
+      there is nothing to compare the allow-set against, and this is a narrowing on top of the rules,
+      not a rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
+      match does in `helpers/pageRules.ts`.
+    */
+    if (
+      actor.allowedClassifications != null &&
+      page.classification != null &&
+      !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
+    ) {
+      return false
     }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
     return rule ? rule.mode !== 'DENY' : false
@@ -244,8 +355,17 @@ class Groups {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
+    // -> Same scope narrowing as `checkAccess()`, applied before any rule is read rather than after —
+    //    a scoped key must not read as "generally holds `permission`" for a name outside its own
+    //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
+    //    method is path- and page-blind by design (see the doc comment above), so there is no single
+    //    page's classification to compare the allow-set against.
+    const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
+    if (inScope.length === 0) {
+      return false
+    }
     const rules = this.rulesForGroups(actor.groupIds)
-    return permissions.some((permission) =>
+    return inScope.some((permission) =>
       rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
     )
   }
@@ -264,6 +384,9 @@ class Groups {
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    if (!this.withinScope(actor, permission)) {
+      return false
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
     return rule ? rule.mode !== 'DENY' : false
@@ -286,7 +409,7 @@ class Groups {
         permissions: ['read:pages', 'read:assets', 'read:comments'],
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: ['read:pages', 'read:assets', 'read:comments'],
             match: 'START',
@@ -304,7 +427,7 @@ class Groups {
         permissions: ['read:pages', 'read:assets', 'read:comments'],
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: ['read:pages', 'read:assets', 'read:comments'],
             match: 'START',
@@ -335,7 +458,7 @@ class Groups {
         permissions: startingPermissions,
         rules: [
           {
-            id: uuid(),
+            id: crypto.randomUUID(),
             name: 'Default Rule',
             roles: startingPermissions,
             match: 'START',
@@ -348,7 +471,7 @@ class Groups {
         isSystem: false
       })
       .returning({ id: groupsTable.id })
-    await this.reloadCache()
+    await this.broadcastReload()
     return result[0].id
   }
 
@@ -381,7 +504,7 @@ class Groups {
         isSystem: false
       })
       .returning({ id: groupsTable.id })
-    await this.reloadCache()
+    await this.broadcastReload()
     return result[0].id
   }
 
@@ -427,7 +550,7 @@ class Groups {
       .update(groupsTable)
       .set({ ...this.clampGuestPatch(id, patch), updatedAt: sql`now()` })
       .where(eq(groupsTable.id, id))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 
@@ -470,7 +593,7 @@ class Groups {
    */
   async deleteGroup(id: string): Promise<boolean> {
     const result = await WIKI.db.delete(groupsTable).where(eq(groupsTable.id, id))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 

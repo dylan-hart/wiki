@@ -406,9 +406,58 @@
                           { label: t('admin.groups.ruleMatchRegex'), value: 'REGEX' },
                           { label: t('admin.groups.ruleMatchTag'), value: 'TAG' },
                           { label: t('admin.groups.ruleMatchTagAll'), value: 'TAGALL' },
-                          { label: t('admin.groups.ruleMatchExact'), value: 'EXACT' }
+                          { label: t('admin.groups.ruleMatchExact'), value: 'EXACT' },
+                          {
+                            label: t('admin.groups.ruleMatchClassification'),
+                            value: 'CLASSIFICATION'
+                          }
                         ]" />
+                      <!--
+                        OpenProject #1079: CLASSIFICATION reads none of `path` -- it matches page
+                        metadata via `rule.classifications`, an admin-configured level list rather than
+                        free text, so it gets its own picker instead of the path input every other
+                        match kind shares.
+                      -->
+                      <w-select
+                        v-if="rule.match === `CLASSIFICATION`"
+                        class="mt-2"
+                        standout
+                        v-model="rule.classifications"
+                        emit-value
+                        map-options
+                        dense
+                        :aria-label="t(`admin.groups.ruleClassifications`)"
+                        :options="adminStore.classificationLevels"
+                        option-value="id"
+                        option-label="name"
+                        multiple
+                        behavior="dialog"
+                        :display-value="
+                          t(
+                            `admin.groups.selectedClassifications`,
+                            { n: (rule.classifications ?? []).length },
+                            (rule.classifications ?? []).length
+                          )
+                        ">
+                        <template #option="{ itemProps, opt, selected, toggleOption }">
+                          <w-item v-bind="itemProps">
+                            <w-item-section>
+                              <w-item-label>{{ opt.name }}</w-item-label>
+                            </w-item-section>
+                            <w-item-section side>
+                              <w-toggle
+                                :model-value="selected"
+                                @update:model-value="toggleOption(opt)"
+                                color="primary"
+                                checked-icon="la:check"
+                                unchecked-icon="la:times"
+                                :aria-label="opt.name" />
+                            </w-item-section>
+                          </w-item>
+                        </template>
+                      </w-select>
                       <w-input
+                        v-else
                         class="mt-2"
                         standout
                         v-model="rule.path"
@@ -766,6 +815,13 @@ const permissions = [
     permission: 'manage:sites',
     hint: 'Can create / manage sites',
     warning: true,
+    restrictedForSystem: true,
+    disabled: false
+  },
+  {
+    permission: 'manage:glossary',
+    hint: 'Can create / manage the glossary (terms, aliases, versions)',
+    warning: false,
     restrictedForSystem: true,
     disabled: false
   },
@@ -1191,7 +1247,8 @@ function newRule() {
     roles: [],
     path: '',
     locales: [],
-    sites: []
+    sites: [],
+    classifications: []
   })
 }
 
@@ -1248,13 +1305,18 @@ async function importRules() {
           id: uuid(),
           name: r.name || t('admin.groups.ruleUntitled'),
           mode: ['ALLOW', 'DENY', 'FORCEALLOW'].includes(r.mode) ? r.mode : 'DENY',
-          match: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT'].includes(r.match)
+          match: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT', 'CLASSIFICATION'].includes(
+            r.match
+          )
             ? r.match
             : 'START',
           roles: r.roles || [],
           path: r.path || '',
           locales: r.locales.filter((l) => adminStore.locales.some((loc) => loc.code === l)),
-          sites: r.sites.filter((s) => adminStore.sites.some((site) => site.id === s))
+          sites: r.sites.filter((s) => adminStore.sites.some((site) => site.id === s)),
+          classifications: (r.classifications || []).filter((c) =>
+            adminStore.classificationLevels.some((level) => level.id === c)
+          )
         }))
       ]
       notify({

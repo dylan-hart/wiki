@@ -1,4 +1,4 @@
-import { pageHistoryActions } from '../../models/pageHistory.ts'
+import { pageHistoryActions, pageHistoryVia } from '../../models/pageHistory.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -113,6 +113,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       locale: {
         type: 'string',
+        minLength: 1,
         maxLength: 10,
         description: "The site's primary locale when absent."
       },
@@ -157,6 +158,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         items: {
           type: 'string'
         }
+      },
+      classification: {
+        type: 'string',
+        format: 'uuid',
+        description:
+          "The classification level id (OpenProject #1079) to give the page. On create, defaults to the immediate parent page's own level, or the most-open configured level when there is no parent page. On update, lowering it (declassifying) requires `manage:classification` on top of `write:pages`/`manage:pages`; either direction is refused with 400 if it would put the page below its immediate parent's floor (#1080)."
       },
       allowComments: { type: 'boolean' },
       allowContributions: { type: 'boolean' },
@@ -238,6 +245,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         items: { $ref: 'PageRelation#' }
       },
       tags: { type: 'array', items: { type: 'string' } },
+      classification: {
+        type: 'string',
+        format: 'uuid',
+        description: 'The classification level id this page carries (OpenProject #1079).'
+      },
       toc: {
         type: 'array',
         description:
@@ -450,6 +462,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'string',
         enum: [...pageHistoryActions],
         description: 'What happened to the page. `moved` is a change of path or title.'
+      },
+      via: {
+        type: 'string',
+        enum: [...pageHistoryVia],
+        description:
+          "What actually made the change: `editor` for the standard editor (every REST-API-driven save), or `mcp` for an MCP tool call acting on the author's behalf."
       },
       changedFields: {
         type: 'array',

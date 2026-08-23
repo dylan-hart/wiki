@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { actorFor, McpToolError, type McpAuthContext } from '../auth.ts'
+import { actorFor, McpToolError, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
 import { defaultLocale, resolveRequestedSite } from '../site.ts'
 
 const listNavigationInputSchema = {
@@ -62,13 +62,17 @@ export async function handleListNavigation(
       WIKI.models.groups.checkAccess(actor, 'read:pages', {
         path: item.path,
         siteId: site.id,
-        locale
+        locale,
+        // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at this
+        //    path; a folder-only entry carries none, same "no CLASSIFICATION rule matches" null it
+        //    always had.
+        classification: item.classification
       })
     )
   })
 }
 
-export function registerListNavigationTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerListNavigationTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'list_navigation',
     {
@@ -76,6 +80,6 @@ export function registerListNavigationTool(server: McpServer, ctx: McpAuthContex
         "List one folder of a wiki site's page tree: the pages and sub-folders a reader may open there, restricted to what the configured key may read.",
       inputSchema: listNavigationInputSchema
     },
-    (args) => handleListNavigation(ctx, args)
+    (args) => handleListNavigation(getCtx(), args)
   )
 }

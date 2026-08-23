@@ -115,25 +115,20 @@
           <w-item-section>
             <w-item-label>{{ t(`admin.users.sendWelcomeEmail`) }}</w-item-label>
             <w-item-label caption>{{ t(`admin.users.sendWelcomeEmailHint`) }}</w-item-label>
-            <w-item-label caption class="text-orange-8">{{
-              t(`admin.users.sendWelcomeEmailUnavailable`)
-            }}</w-item-label>
           </w-item-section>
           <w-item-section avatar>
             <w-toggle
               v-model="state.userSendWelcomeEmail"
-              disable
               :aria-label="t(`admin.users.sendWelcomeEmail`)" />
           </w-item-section>
         </w-item>
-        <w-item v-if="welcomeEmailAvailable && state.userSendWelcomeEmail">
+        <w-item v-if="state.userSendWelcomeEmail">
           <blueprint-icon icon="web-design" />
           <w-item-section>
             <w-select
               v-model="state.userSendWelcomeEmailFromSiteId"
               outlined
               :options="adminStore.sites"
-              multiple
               map-options
               emit-value
               option-value="id"
@@ -177,11 +172,11 @@
 
 <script setup>
 import { sample, sampleSize } from 'es-toolkit/array'
-import zxcvbn from 'zxcvbn'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
+import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useAdminStore } from '@/stores/admin'
@@ -205,11 +200,6 @@ const adminStore = useAdminStore()
 const { t } = useI18n()
 
 // DATA
-
-// -> Mail delivery isn't implemented in the backend yet (see backend/api/users.ts), which hard-
-//    rejects the request when this is true. Keep the toggle disabled here rather than letting the
-//    user flip it on only to have submit fail.
-const welcomeEmailAvailable = false
 
 const state = reactive({
   userName: '',
@@ -239,7 +229,7 @@ const passwordStrength = computed(() => {
       label: t('admin.users.pwdStrengthWeak')
     }
   } else {
-    switch (zxcvbn(state.userPassword).score) {
+    switch (passwordStrengthScore(state.userPassword)) {
       case 1:
         return {
           color: 'deep-orange-7',

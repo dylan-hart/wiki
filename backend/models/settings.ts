@@ -1,5 +1,6 @@
 import { settings as settingsTable } from '../db/schema.ts'
 import { generateSigningCertificates } from './apiKeys.ts'
+import { DEFAULT_AUDIT_LOG_RETENTION_DAYS } from './auditLog.ts'
 import crypto from 'node:crypto'
 import type { SystemIds } from './types.ts'
 
@@ -49,6 +50,12 @@ class Settings {
         key: 'api',
         value: {
           isEnabled: false
+        }
+      },
+      {
+        key: 'auditLog',
+        value: {
+          retentionDays: DEFAULT_AUDIT_LOG_RETENTION_DAYS
         }
       },
       {

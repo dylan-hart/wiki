@@ -158,7 +158,15 @@ describe('limitApiRequests', () => {
 
   test('keys by apiKey id when the request carries a verified API key', async () => {
     const req = makeReq({
-      apiKey: { id: 'key-1', permissions: ['read:pages'], groupIds: [], userId: null, siteId: null }
+      apiKey: {
+        id: 'key-1',
+        permissions: ['read:pages'],
+        groupIds: [],
+        scope: null,
+        allowedClassifications: null,
+        userId: null,
+        siteId: null
+      }
     })
     await limitApiRequests(req, makeReply())
     assert.equal(consume.mock.calls.length, 1)
@@ -187,6 +195,8 @@ describe('limitApiRequests', () => {
         id: 'key-1',
         permissions: ['read:pages'],
         groupIds: [],
+        scope: null,
+        allowedClassifications: null,
         userId: null,
         siteId: null
       },
@@ -217,6 +227,8 @@ describe('limitApiRequests', () => {
         id: 'key-1',
         permissions: ['manage:system'],
         groupIds: [],
+        scope: null,
+        allowedClassifications: null,
         userId: null,
         siteId: null
       }
@@ -272,8 +284,24 @@ describe('limitApiRequests', () => {
     })
     ;(globalThis as any).WIKI.config.security.apiRateLimitMax = 2
 
-    const keyA = { id: 'key-a', permissions: [], groupIds: [], userId: null, siteId: null }
-    const keyB = { id: 'key-b', permissions: [], groupIds: [], userId: null, siteId: null }
+    const keyA = {
+      id: 'key-a',
+      permissions: [],
+      groupIds: [],
+      scope: null,
+      allowedClassifications: null,
+      userId: null,
+      siteId: null
+    }
+    const keyB = {
+      id: 'key-b',
+      permissions: [],
+      groupIds: [],
+      scope: null,
+      allowedClassifications: null,
+      userId: null,
+      siteId: null
+    }
 
     // Exhaust key A's limit (2 allowed, 3rd refused).
     await limitApiRequests(makeReq({ apiKey: keyA }), makeReply())
@@ -299,7 +327,15 @@ describe('limitApiRequests', () => {
 
     const apiKeyReq = () =>
       makeReq({
-        apiKey: { id: 'key-a', permissions: [], groupIds: [], userId: null, siteId: null }
+        apiKey: {
+          id: 'key-a',
+          permissions: [],
+          groupIds: [],
+          scope: null,
+          allowedClassifications: null,
+          userId: null,
+          siteId: null
+        }
       })
     const anonReq = () => makeReq({ ip: '203.0.113.4' })
 

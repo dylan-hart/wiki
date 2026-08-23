@@ -49,6 +49,10 @@ export interface TreeItem {
   /** Pages only. */
   editor?: string
   description?: string
+  /** Pages only — classification level id (OpenProject #1079), for the permission filter layered on
+   *  top of this listing (see `visibleTreeItems` in `api/tree.ts`). Never returned to the client: no
+   *  API schema declares this field, so Fastify's response serialization drops it. */
+  classification?: string | null
 }
 
 /**
@@ -67,6 +71,10 @@ export interface BrowseItem {
   icon: string | null
   isPage: boolean
   isFolder: boolean
+  /** The page's classification level id (OpenProject #1079), for the reader-permission filter layered
+   *  on top of this listing. Null for a folder with no page at its path. Never returned to the
+   *  client: no API schema declares this field, so Fastify's response serialization drops it. */
+  classification: string | null
 }
 
 /** One level of a browse listing: what a folder holds, plus what the folder itself is called. */
@@ -89,6 +97,10 @@ export interface ListedPage {
   description: string
   /** The page's icon, as an Iconify reference. Empty when it has none. */
   icon: string
+  /** Classification level id (OpenProject #1079), for the reader-permission filter layered on top of
+   *  this listing (see `api/tree.ts`'s "LIST PAGES AS A READER" route). Never returned to the client:
+   *  no API schema declares this field, so Fastify's response serialization drops it. */
+  classification: string | null
 }
 
 /**
@@ -168,7 +180,12 @@ function splitPath(path: string): { folderPath: string; fileName: string } {
 /**
  * Turn a row into the shape the API returns.
  */
-function toTreeItem(row: TreeRow, depth: number, parentPath: string): TreeItem {
+function toTreeItem(
+  row: TreeRow,
+  depth: number,
+  parentPath: string,
+  classification: string | null
+): TreeItem {
   const folderPath = row.folderPath ?? ''
   return {
     id: row.id,
@@ -193,7 +210,8 @@ function toTreeItem(row: TreeRow, depth: number, parentPath: string): TreeItem {
     }),
     ...(row.type === 'page' && {
       editor: row.meta?.editor ?? '',
-      description: row.meta?.description ?? ''
+      description: row.meta?.description ?? '',
+      classification
     })
   }
 }
@@ -338,15 +356,22 @@ class Tree {
     const rows = await WIKI.db
       .select({
         row: treeTable,
-        depth: sql<number>`nlevel(${treeTable.folderPath})`.mapWith(Number)
+        depth: sql<number>`nlevel(${treeTable.folderPath})`.mapWith(Number),
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
+        //    this null, which is exactly the "no classification" `toTreeItem` already treats those
+        //    kinds as (OpenProject #1128).
+        classification: pagesTable.classification
       })
       .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
       .where(and(...conditions))
       .orderBy(asc(sql`nlevel(${treeTable.folderPath})`), direction(treeTable[orderBy]))
       .limit(limit)
       .offset(offset)
 
-    return rows.map(({ row, depth: rowDepth }) => toTreeItem(row as TreeRow, rowDepth, path))
+    return rows.map(({ row, depth: rowDepth, classification }) =>
+      toTreeItem(row as TreeRow, rowDepth, path, classification ?? null)
+    )
   }
 
   /**
@@ -401,7 +426,8 @@ class Tree {
         fileName: treeTable.fileName,
         title: treeTable.title,
         description: pagesTable.description,
-        icon: pagesTable.icon
+        icon: pagesTable.icon,
+        classification: pagesTable.classification
       })
       .from(treeTable)
       .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -425,7 +451,8 @@ class Tree {
         path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
         title: row.title,
         description: row.description ?? '',
-        icon: row.icon ?? ''
+        icon: row.icon ?? '',
+        classification: row.classification
       }
     })
   }
@@ -521,6 +548,7 @@ class Tree {
         fileName: treeTable.fileName,
         title: treeTable.title,
         icon: pagesTable.icon,
+        classification: pagesTable.classification,
         holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
       })
       .from(treeTable)
@@ -550,7 +578,8 @@ class Tree {
         title: row.title,
         icon: null,
         isPage: false,
-        isFolder: false
+        isFolder: false,
+        classification: null
       }
       if (row.type === 'folder') {
         entry.isFolder = true
@@ -559,6 +588,7 @@ class Tree {
         // -> The page is the thing a reader clicks, so it names the row when both exist
         entry.title = row.title
         entry.icon = row.icon
+        entry.classification = row.classification
       }
       merged.set(row.fileName, entry)
     }
@@ -575,8 +605,8 @@ class Tree {
   /**
    * A single tree row by ID, or null if there is no such row
    */
-  async getById(id: string): Promise<TreeRow | null> {
-    const results = await WIKI.db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
+  async getById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+    const results = await db.select().from(treeTable).where(eq(treeTable.id, id)).limit(1)
     return (results[0] as TreeRow) ?? null
   }
 
@@ -1167,7 +1197,8 @@ class Tree {
     locale,
     siteId,
     tags = [],
-    meta = {}
+    meta = {},
+    db = WIKI.db
   }: {
     id?: string
     parentId?: string | null
@@ -1178,6 +1209,10 @@ class Tree {
     siteId: string
     tags?: string[]
     meta?: Record<string, any>
+    /** Runs the folder resolution and the entry insert against this instead of the ambient
+     *  `WIKI.db` — a page move passes its own transaction so this entry shares fate with the
+     *  `pages` row update alongside it. */
+    db?: WikiDbOrTx
   }): Promise<TreeRow> {
     return this.addEntry({
       id,
@@ -1196,7 +1231,8 @@ class Tree {
       navigationId: await WIKI.models.navigation.ensureSiteNav(siteId, locale),
       // -> A page's file name is its URL, chosen deliberately by whoever wrote it, so a clash is
       //    something to report rather than something to work around
-      onConflict: 'error'
+      onConflict: 'error',
+      db
     })
   }
 
@@ -1313,13 +1349,13 @@ class Tree {
   /**
    * Remove a page or asset entry from the tree, keeping its folder's count straight.
    */
-  async deleteEntry(id: string): Promise<boolean> {
-    const entry = await this.getById(id)
+  async deleteEntry(id: string, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
+    const entry = await this.getById(id, db)
     if (!entry) {
       return false
     }
-    await WIKI.db.delete(treeTable).where(eq(treeTable.id, id))
-    await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1)
+    await db.delete(treeTable).where(eq(treeTable.id, id))
+    await this.countTowardsFolderAt(entry.siteId, entry.locale, entry.folderPath ?? '', -1, db)
     return true
   }
 

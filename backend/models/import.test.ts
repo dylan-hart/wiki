@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { ExtensionDefinition } from './extensions.ts'
+import { detectImportFormat } from './import.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -148,11 +149,11 @@ describe('page import (pandoc)', () => {
     )
 
     try {
-      const markdown = await pageImport.convertToMarkdown({
+      const result = await pageImport.convertToMarkdown({
         format: 'mediawiki',
         data: Buffer.from('= Hello =\n\nSome content.')
       })
-      assert.equal(markdown, '# Hello\n\nSome content.\n')
+      assert.deepEqual(result, { markdown: '# Hello\n\nSome content.\n' })
     } finally {
       runPandoc.mock.restore()
     }
@@ -162,12 +163,144 @@ describe('page import (pandoc)', () => {
     'converts a real MediaWiki snippet with the real pandoc binary',
     { skip: !pandocAvailable },
     async () => {
-      const markdown = await pageImport.convertToMarkdown({
+      const result = await pageImport.convertToMarkdown({
         format: 'mediawiki',
         data: Buffer.from("== Hello ==\n\nSome '''bold''' content.\n")
       })
-      assert.match(markdown, /^#+ Hello/m)
-      assert.match(markdown, /\*\*bold\*\*/)
+      assert.match(result.markdown, /^#+ Hello/m)
+      assert.match(result.markdown, /\*\*bold\*\*/)
     }
   )
+})
+
+/**
+ * `format: 'markdown'` (OpenProject #1092) is a pass-through, never reaching `ensureCanImport` or
+ * `runPandoc` — verified below by leaving `isInstalled` mocked `false` for the whole suite and never
+ * touching `runPandoc` at all, unlike the Pandoc-backed suite above.
+ */
+describe('page import (markdown pass-through)', () => {
+  let pageImport: typeof import('./import.ts').pageImport
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        extensions: {
+          getDefinition: mock.fn((key: string) => (key === 'pandoc' ? PANDOC_DEFINITION : null)),
+          // -> Deliberately false for this whole suite: a markdown import must never need Pandoc.
+          isInstalled: mock.fn(async () => false)
+        }
+      }
+    }
+    ;({ pageImport } = await import('./import.ts'))
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('converts with no front matter as a plain pass-through', async () => {
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from('# Hello\n\nJust a page.\n')
+    })
+    assert.deepEqual(result, { markdown: '# Hello\n\nJust a page.\n' })
+  })
+
+  test('splits a leading YAML front-matter block into title/description/tags', async () => {
+    const source = [
+      '---',
+      'title: My Imported Page',
+      'description: A short summary',
+      'tags:',
+      '  - alpha',
+      '  - beta',
+      '---',
+      '',
+      '# Body\n\nContent here.\n'
+    ].join('\n')
+
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from(source)
+    })
+    assert.equal(result.title, 'My Imported Page')
+    assert.equal(result.description, 'A short summary')
+    assert.deepEqual(result.tags, ['alpha', 'beta'])
+    assert.equal(result.markdown, '# Body\n\nContent here.\n')
+  })
+
+  test('strips a leading UTF-8 BOM before parsing front matter (Windows-exported files)', async () => {
+    const source = '﻿' + ['---', 'title: BOM Page', '---', '', 'Body.\n'].join('\n')
+
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from(source, 'utf8')
+    })
+    assert.equal(result.title, 'BOM Page')
+    assert.equal(result.markdown, 'Body.\n')
+  })
+
+  test('strips a leading UTF-8 BOM even with no front matter present', async () => {
+    const result = await pageImport.convertToMarkdown({
+      format: 'markdown',
+      data: Buffer.from('﻿# Hello\n\nJust a page.\n', 'utf8')
+    })
+    assert.deepEqual(result, { markdown: '# Hello\n\nJust a page.\n' })
+  })
+
+  test('refuses an empty file', async () => {
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'markdown', data: Buffer.alloc(0) }),
+      (err: any) => {
+        assert.equal(err.name, 'importEmptyFile')
+        return true
+      }
+    )
+  })
+
+  test('refuses a whitespace-only file', async () => {
+    await assert.rejects(
+      pageImport.convertToMarkdown({ format: 'markdown', data: Buffer.from('   \n\n  ') }),
+      (err: any) => {
+        assert.equal(err.name, 'importNoContent')
+        assert.equal(err.statusCode, 400)
+        return true
+      }
+    )
+  })
+})
+
+describe('detectImportFormat (OpenProject #1209)', () => {
+  test('resolves markdown formats from .md and .markdown', () => {
+    assert.equal(detectImportFormat('notes.md'), 'markdown')
+    assert.equal(detectImportFormat('notes.markdown'), 'markdown')
+  })
+
+  test('resolves every pandoc-backed extension to its format', () => {
+    assert.equal(detectImportFormat('page.wiki'), 'mediawiki')
+    assert.equal(detectImportFormat('page.mediawiki'), 'mediawiki')
+    assert.equal(detectImportFormat('page.textile'), 'textile')
+    assert.equal(detectImportFormat('page.dbk'), 'docbook')
+    assert.equal(detectImportFormat('page.docbook'), 'docbook')
+    assert.equal(detectImportFormat('page.rst'), 'rst')
+    assert.equal(detectImportFormat('page.docx'), 'docx')
+    assert.equal(detectImportFormat('page.odt'), 'odt')
+  })
+
+  test('is case-insensitive on the extension', () => {
+    assert.equal(detectImportFormat('NOTES.MD'), 'markdown')
+    assert.equal(detectImportFormat('Report.DOCX'), 'docx')
+  })
+
+  test('returns null for an unrecognized extension', () => {
+    assert.equal(detectImportFormat('archive.zip'), null)
+  })
+
+  test('returns null for a file with no extension at all', () => {
+    assert.equal(detectImportFormat('README'), null)
+  })
+
+  test('uses only the last extension of a multi-dot file name', () => {
+    assert.equal(detectImportFormat('notes.v2.md'), 'markdown')
+  })
 })

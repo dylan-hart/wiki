@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -10,6 +10,12 @@ import WBtn from '@/components/shared/WBtn.vue'
 import WInput from '@/components/shared/WInput.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useUserStore } from '@/stores/user'
+import { dialog } from '@/composables/dialog'
+
+vi.mock('@/composables/dialog', async (importOriginal) => ({
+  ...(await importOriginal()),
+  dialog: vi.fn(() => ({ onOk: vi.fn() }))
+}))
 
 /**
  * Regression coverage for the admin "Content Blocks" page's per-block "Server" field: only a block
@@ -47,7 +53,7 @@ const GALLERY_BLOCK = {
   template: ''
 }
 
-async function mountAdminBlocks(blocks) {
+async function mountAdminBlocks(blocks, credentials = []) {
   setActivePinia(createPinia())
   const adminStore = useAdminStore()
   adminStore.currentSiteId = 'site-1'
@@ -68,6 +74,7 @@ async function mountAdminBlocks(blocks) {
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
 
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(blocks) })
+  API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(credentials) })
 
   const wrapper = mount(AdminBlocks, {
     global: {
@@ -196,6 +203,67 @@ describe('AdminBlocks Configure affordance', () => {
       .filter((btn) => btn.text() === 'admin.blocks.configure')
 
     expect(configureButtons).toHaveLength(1)
+  })
+})
+
+/**
+ * OpenProject #868: the per-site block credentials list. `state.credentials` is loaded from
+ * `GET sites/:siteId/block-credentials` inside `load()`, alongside the blocks list itself.
+ */
+describe('AdminBlocks credentials list', () => {
+  it("shows each credential's name and id, and never a secret field", async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [{ id: 'cred-1', siteId: 'site-1', name: 'Weather API', createdAt: '', updatedAt: '' }]
+    )
+
+    expect(wrapper.text()).toContain('Weather API')
+    expect(wrapper.text()).toContain('cred-1')
+    expect(wrapper.html()).not.toContain('secret')
+  })
+
+  it('shows the empty-state message when the site has no credentials', async () => {
+    const wrapper = await mountAdminBlocks([], [])
+
+    expect(wrapper.text()).toContain('admin.blocks.credentialsEmpty')
+  })
+
+  it('opens BlockCredentialDialog in mode "domains" with the clicked credential when Edit Domains is clicked', async () => {
+    const wrapper = await mountAdminBlocks(
+      [],
+      [
+        {
+          id: 'cred-1',
+          siteId: 'site-1',
+          name: 'Weather API',
+          allowedDomains: ['api.example.com'],
+          createdAt: '',
+          updatedAt: ''
+        }
+      ]
+    )
+
+    const editDomainsBtn = wrapper
+      .findAll('button')
+      .find((btn) => btn.text().includes('admin.blocks.credentialDomains'))
+    expect(editDomainsBtn).toBeTruthy()
+    await editDomainsBtn.trigger('click')
+
+    expect(dialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        componentProps: {
+          mode: 'domains',
+          credential: {
+            id: 'cred-1',
+            siteId: 'site-1',
+            name: 'Weather API',
+            allowedDomains: ['api.example.com'],
+            createdAt: '',
+            updatedAt: ''
+          }
+        }
+      })
+    )
   })
 })
 

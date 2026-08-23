@@ -10,6 +10,7 @@ db:
   ssl: $(DB_SSL)
 logLevel: $(LOG_LEVEL:info)
 logFormat: $(LOG_FORMAT:default)
+offline: $(WIKI_OFFLINE:false)
 dataPath: ./data
 scheduler:
   workers: auto

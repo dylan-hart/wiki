@@ -258,7 +258,7 @@ export async function ensureRepo(target: Pick<StorageTarget, 'config'>): Promise
 const gitStorageModule: StorageModule = {
   ensureRepo,
   // -> Content-dispatch handlers (task 506) — see `content.ts` for the mapping and commit logic.
-  //    Called as `handler(target, data)` by the `dispatchStorage` worker task, per `StorageModule`.
+  //    Called as `handler(target, data)` by the `dispatchStorage` task, per `StorageModule`.
   created,
   updated,
   renamed,

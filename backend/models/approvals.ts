@@ -36,6 +36,8 @@ export interface ApprovalPageRef extends ApprovalPageMatch {
   allowContributions: boolean
   /** Passed through to `groups.checkAccess()`'s `RulePageRef` in `pageViewerState`, nowhere else. */
   locale: string | null
+  /** Likewise passed through to `RulePageRef` -- see `helpers/pageRules.ts` (OpenProject #1079). */
+  classification: string | null
 }
 
 /**
@@ -208,8 +210,10 @@ class Approvals {
   /**
    * Reload every site's rules into memory.
    *
-   * Called at boot and after any change to a rule, so that an administrator's edit takes effect on the
-   * next request — the same contract `models/groups.ts` gives page rules.
+   * Called at boot, after any local change to a rule (see `broadcastReload()`), and on every other
+   * cluster instance's `reloadApprovals` event (see `subscribeToEvents()`) — so an administrator's
+   * edit takes effect on the next request everywhere, the same contract `models/groups.ts` gives
+   * page rules.
    */
   async reloadCache(): Promise<void> {
     const rows = (await WIKI.db
@@ -225,6 +229,25 @@ class Approvals {
       rulesCache[siteId].push(rule as ApprovalRule)
     }
     WIKI.logger.info(`Loaded ${rows.length} approval rules [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
+   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
+   * "never call from inside `reloadCache()`" rule.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadApprovals')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadApprovals', async () => {
+      await this.reloadCache()
+    })
   }
 
   /**
@@ -298,7 +321,7 @@ class Approvals {
       })
       .returning(ruleSelection)
     // -> Every rule read afterwards comes from the cache, so it has to know about this one
-    await this.reloadCache()
+    await this.broadcastReload()
     return rows[0] as ApprovalRule
   }
 
@@ -333,7 +356,7 @@ class Approvals {
       .set(values)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
       .returning(ruleSelection)
-    await this.reloadCache()
+    await this.broadcastReload()
     return (rows[0] as ApprovalRule) ?? null
   }
 
@@ -512,6 +535,7 @@ class Approvals {
                 path: page.path,
                 siteId,
                 locale: page.locale,
+                classification: page.classification,
                 tags: page.tags
               }
             ),
@@ -1146,7 +1170,7 @@ class Approvals {
     const result = await WIKI.db
       .delete(approvalRulesTable)
       .where(and(eq(approvalRulesTable.siteId, siteId), eq(approvalRulesTable.id, id)))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 }

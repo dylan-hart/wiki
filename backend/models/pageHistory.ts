@@ -20,6 +20,17 @@ export const pageHistoryActions = ['created', 'updated', 'moved', 'deleted'] as 
 export type PageHistoryAction = (typeof pageHistoryActions)[number]
 
 /**
+ * What actually made a change: someone using the standard editor (the REST API a browser saves
+ * through), or an MCP tool call acting on their behalf (OpenProject #1119 -- "did Dylan write this, or
+ * did an agent acting as Dylan write this"). Kept alongside `action` rather than folded into it: this
+ * is a second, orthogonal axis (what changed vs. what wrote it), and every existing `action` value is
+ * still possible either way.
+ */
+export const pageHistoryVia = ['editor', 'mcp'] as const
+
+export type PageHistoryVia = (typeof pageHistoryVia)[number]
+
+/**
  * How far back the admin area's purge can be told to keep, and the interval each answer means.
  *
  * The values are postgres intervals rather than a duration computed here, so that the cutoff is
@@ -102,6 +113,8 @@ export type PageHistoryAuthor = {
 export type PageHistoryEntry = {
   id: string
   action: string
+  /** `editor` or `mcp` -- see `pageHistoryVia`'s own doc comment. */
+  via: string
   changedFields: string[]
   /** Empty when the site does not ask for a reason, or asked and was not answered. */
   reason: string
@@ -138,6 +151,9 @@ class PageHistory {
    *
    * @param authorId Who made the change. Kept on the row until that account is deleted, at which
    *                 point the version survives with no author rather than blocking the deletion.
+   * @param via What actually made the change -- `editor` (the default; every REST-API-driven save,
+   *            which is every caller except the MCP write tools) or `mcp`. See `pageHistoryVia`'s own
+   *            doc comment.
    * @param changedFields Which fields the change touched. Empty for a creation or a deletion, where
    *                      the whole page is the change.
    * @param reason Why, in the author's words, when the site asks for one.
@@ -155,6 +171,7 @@ class PageHistory {
     pageId,
     action,
     authorId,
+    via = 'editor',
     changedFields = [],
     reason,
     versionDate
@@ -163,6 +180,7 @@ class PageHistory {
     pageId: string
     action: PageHistoryAction
     authorId: string
+    via?: PageHistoryVia
     changedFields?: string[]
     reason?: string | null
     versionDate?: Date
@@ -189,6 +207,7 @@ class PageHistory {
           siteId,
           authorId,
           action,
+          via,
           changedFields,
           // -> An unanswered optional prompt sends an empty string; a version simply has no reason
           reason: reason?.trim() || null,
@@ -220,6 +239,7 @@ class PageHistory {
       .select({
         id: pageHistoryTable.id,
         action: pageHistoryTable.action,
+        via: pageHistoryTable.via,
         changedFields: pageHistoryTable.changedFields,
         reason: pageHistoryTable.reason,
         versionDate: pageHistoryTable.versionDate,
@@ -238,6 +258,7 @@ class PageHistory {
     return rows.map((row: any) => ({
       id: row.id,
       action: row.action,
+      via: row.via,
       changedFields: row.changedFields ?? [],
       reason: row.reason ?? '',
       versionDate: row.versionDate,
@@ -267,6 +288,7 @@ class PageHistory {
       .select({
         id: pageHistoryTable.id,
         action: pageHistoryTable.action,
+        via: pageHistoryTable.via,
         changedFields: pageHistoryTable.changedFields,
         reason: pageHistoryTable.reason,
         versionDate: pageHistoryTable.versionDate,
@@ -297,6 +319,7 @@ class PageHistory {
     return {
       id: row.id,
       action: row.action,
+      via: row.via,
       changedFields: row.changedFields ?? [],
       reason: row.reason ?? '',
       versionDate: row.versionDate,
@@ -328,6 +351,7 @@ class PageHistory {
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
         action: pageHistoryTable.action,
+        via: pageHistoryTable.via,
         changedFields: pageHistoryTable.changedFields,
         reason: pageHistoryTable.reason,
         versionDate: pageHistoryTable.versionDate,
@@ -363,6 +387,7 @@ class PageHistory {
     return rows.map((row: any) => ({
       id: row.id,
       action: row.action,
+      via: row.via,
       changedFields: row.changedFields ?? [],
       reason: row.reason ?? '',
       versionDate: row.versionDate,

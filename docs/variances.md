@@ -3,7 +3,84 @@
 This document records genuine, justified deviations from spec — decisions where the 3.x fork
 intentionally does not reproduce something 2.5.x had, or does not build something a spec called for,
 along with the reasoning. It is not a changelog and does not track resolved CI/lint/type issues;
-those get fixed, not logged here.
+those get fixed, not logged here. An entry for a deviation that later gets resolved is deleted
+outright, not left behind as changelog prose — see CLAUDE.md's "variances.md Discipline" section.
+
+## TODO/FIXME audit: markers currently in the tree, and why each is deliberate rather than noise
+
+**Date:** 2026-08-22
+**Scope:** `backend/` and `frontend/src/` (`.test.ts`/`.test.js`/`.test.mjs`/`.generated.js` files
+excluded — a test file talking *about* a marker in its own prose isn't a marker to triage, and a
+generated bundle is machine output no one hand-edits).
+
+A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
+"Pre-existing bugs are preserved, not fixed" convention deliberately leaves some in place, narrowly
+cast, until their real fix lands. This entry is the audit trail so a marker sitting in the tree reads
+as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
+carrying a marker isn't named here, so this list cannot silently drift out of date.
+
+- **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
+  re-read per request. A secret rotation only stops working cookies on an instance once that instance
+  is later restarted; every other still-running instance keeps signing new cookies with the
+  just-invalidated secret until it restarts too. Real, narrow, already-cross-referenced from
+  `models/apiKeys.ts` and `models/sessions.ts` below — not forgotten, just not yet worth the
+  per-request config re-read it would take to close.
+- **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
+  narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
+  `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
+- **`backend/models/apiKeys.ts`** (comment referencing the FIXME above) — notes that `verify()`'s own
+  cert-based check needs no restart to pick up a rotated value, unlike the session-secret path the
+  FIXME in `index.ts` describes; not a marker of its own so much as a pointer keeping the two paths'
+  different behavior from reading as inconsistent by accident.
+- **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
+  Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
+  resolve by closing #375 and wiring this call, not by deleting the comment.
+- **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
+  `apiKeys.ts`: notes that a rotated secret invalidates a *new* session immediately, unlike the
+  still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
+- **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
+  has been a real Drizzle table for a while now; tightening it to the row type is a real but
+  low-priority cleanup, not a design gap.
+- **`frontend/src/layouts/AdminLayout.vue`** (TODO) — a "Reflect site storage status" indicator the nav
+  doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
+  for it because no feature currently depends on it.
+- **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
+  coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
+  Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
+  work; left as-is rather than deleted so this file stays traceable against the upstream it mirrors.
+
+**Resolved when:** a file above no longer carries its marker (fixed for real, or the deferred work
+ships), remove its bullet; a newly-marker-carrying file the drift test flags gets a bullet added here
+after a human has actually looked at *why* the marker is there — never a placeholder entry added just
+to make the drift test pass.
+
+## Glossary: existing pages pick up a new term on their next render, not instantly site-wide
+
+**Date:** 2026-08-21
+**Feature:** #870 (Glossary / auto-linked term definitions)
+**Decision:** Term matching runs as a markdown-it core rule (`renderers/modules/markdown-it-glossary.js`),
+the same architecture as every other content-pipeline feature in this app (abbreviations, footnotes,
+task lists). It runs when a page's `render` HTML is produced — on save (client-side, in the editor)
+or on an explicit re-render (`RerenderPageDialog.vue` / the render queue) — not against every
+already-stored page's HTML the moment an admin adds or edits a term.
+
+**Why this reads as a deviation:** the spec's acceptance note says an admin defining a term makes
+"every existing and future mention... anywhere in that site's rendered content" pick up the tooltip,
+which taken literally implies an instant, site-wide effect. This fork's rendering architecture has no
+mechanism for that: `pages.render` is pre-rendered HTML served as-is (`v-html`) for every ordinary
+page view, precisely so a reader's request never re-runs the markdown pipeline — see `models/pages.ts`
+and `Index.vue`. Retroactively rewriting every stored page's `render` column on every term CRUD would
+mean queuing a full-site headless-browser re-render (the same expensive path `RerenderPageDialog.vue`
+already exposes as a manual, rate-limited action) on every single term save, for every site holding
+one — a cost no other markdown-pipeline change in this codebase pays either (turning on `underline`
+or `multimdTable` doesn't retroactively rewrite old pages).
+
+**What actually happens:** a term is live for every page saved or re-rendered after it exists —
+including the editor's own live preview, thanks to `stores/editor.js#fetchConfigs()` threading the
+resolved term list into `editors.markdown` — and for the server-side headless re-render path
+(`models/rendering.ts`'s queue drain). An admin who needs it applied to already-published pages
+right away uses the existing "Rerender" action per page, or the render queue, same as they would for
+any other content-pipeline change.
 
 ## Comment provider selectability: two competing implementations reconciled
 
@@ -228,26 +305,6 @@ first have to stop being generated/vendored output — e.g. hand-authoring a rep
 vendored font stylesheet — at which point its `ignorePatterns` entry should be deleted along with
 this note.
 
-The other 44 files task 766 found already formatted-debt (mostly `frontend/` components/boot files
-never run through oxfmt, plus a handful in `backend/` and `blocks/`) were a dated snapshot recorded
-via a root `.prettierignore`, not a permanent exclusion — task 771 (this same feature) ran `oxfmt`
-in write mode over that exact file list, reviewed the diffs (style-only: spacing, quoting, arrow-fn
-parens, array/object wrapping — no `@click`-style inline-handler semicolon hazards per CLAUDE.md's
-Style section), and deleted `.prettierignore`. `oxfmt --check backend frontend blocks` now exits 0
-tree-wide with no ignore file present, so that half of this entry is resolved and removed.
-
-## blocks/ oxlint pinned to backend's version, not a literal shared pin (task 769, feature 423)
-
-Task 769 called for pinning `blocks/`'s new `oxlint` devDependency "at the same version pinned in
-backend/package.json and frontend/package.json", assuming the two already agreed. They don't:
-backend has `oxlint: 1.77.0`, frontend has `oxlint: 1.76.0` — a pre-existing one-patch drift between
-the two workspaces, not something introduced here. `blocks/package.json` was pinned to `1.77.0`,
-matching backend, consistent with the precedent already established for `oxfmt` in
-`.github/workflows/quality.yml` (backend's install treated as the canonical one for repo-wide
-tooling versions; see that file's "Format Check" step comment). Resolution: a follow-up task should
-reconcile `frontend/package.json`'s `oxlint` pin up to `1.77.0` so all three workspaces genuinely
-share one version, then this entry can be deleted.
-
 ## Tajawal has no `latin-ext` subset upstream
 
 **Spec**: Task 715 (Feature 415, "Make code injection and font selection actually apply") requires
@@ -313,30 +370,6 @@ not a hypothetical escape hatch invented for this entry: Kroki's own `mermaid` t
 of `block-kroki`'s supported diagram types, and `block-diagram` already exists in this repo
 specifically as the URL-free alternative, so the guard's error message can point at working,
 already-shipped functionality rather than a future feature.
-
-## Git storage `sync` always runs two-way; no `push`/`pull`-only mode yet (task 507, feature 372)
-
-Task 507 ("sync action: bidirectional pull-rebase, push, and remote-change import") specifies:
-"Read whatever sync-direction config Feature 370 introduces (push-only/pull-only/two-way) and skip
-the irrelevant half of the sequence accordingly." Feature 370 ("Content Dispatch & Sync Engine") is
-the feature that lands that config — a `sync.mode` field on `StorageTarget`, backed by a real
-`storage` table column — but its work exists only on the sibling `feature/content-dispatch-sync-engine`
-branch, not on `feature/git-storage-target` (confirmed directly: this branch's `StorageTarget`
-interface and `git/definition.yml` have no sync-mode concept at all — `definition.yml` says so in its
-own comment). Per this repo's branch-isolation rule, `feature/git-storage-target` may not merge,
-cherry-pick, or otherwise copy that config from the sibling branch; and no coordination channel to
-that feature's own work was reachable when this task ran.
-
-`backend/modules/storage/git/sync.ts`'s `sync()` therefore always runs the full two-way sequence —
-pull-rebase, push, then reverse-import the pull's changes — unconditionally. This matches 2.5.x's own
-`mode: 'sync'` behavior (verified directly against `server/modules/storage/git/storage.js`), and is
-the only mode this fork's `git/definition.yml` exposes today: its `sync` action has no mode selector
-of its own to read.
-
-Resolution: once Feature 370 lands `StorageTarget.sync.mode` on this branch, wrap the pull half and
-the push half of `sync()` each behind a mode check — mirroring 2.5.x's own
-`if (_.includes(['sync', 'pull'], mode))` / `if (_.includes(['sync', 'push'], mode))` guards — so a
-`push`-only or `pull`-only target skips the irrelevant half instead of always doing both.
 
 ## LDAP / SAML / CAS provider modules (Feature 354)
 
@@ -939,14 +972,6 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   still-unchanged response landing after the click. Worked around in `e2e/tests/rtl.spec.js` (an
   explicit "Refresh" + wait for its own `aria-busy` to clear, before touching the toggle); not fixed in
   app code since it is a pre-existing timing issue unrelated to RTL.
-- **`EditorWysiwyg.vue` is not reachable at all right now.** `pages/Index.vue`'s `editorComponents` map
-  has its `wysiwyg` entry commented out (only `markdown` and `redirect` are registered), so
-  `/_create/wysiwyg` never mounts the component — under any locale or direction, with no console error
-  to say so. Discovered live during this task's walk (task 727's brief asks to validate "both the
-  Markdown and WYSIWYG editors"); not something this task can validate under RTL as a result, since
-  there is currently nothing there to validate. Wiring up a whole editor mode is outside an RTL task's
-  scope — `e2e/tests/rtl.spec.js` only asserts `dir` survives the navigation, with a comment explaining
-  why it stops there.
 - **The Markdown editor's toolbar buttons carry no `aria-label`.** `t('editor.markup.bold')` and its
   siblings only ever render into a `<w-tooltip>` (hover-only) — there is no accessible name on the
   buttons themselves for a screen reader, RTL or not. `e2e/tests/rtl.spec.js` checks the translated
@@ -1142,71 +1167,6 @@ beacon, as a transitive dependency. Disabled via `scarfSettings: { enabled: fals
 `blocks/package.json` (`@scarf/scarf`'s own documented opt-out, read from the installing project's
 `package.json`) rather than left to fire on every `npm install`.
 
-## Task #789 — MCP server: read-only first pass, instance-wide key, stdio-only transport
-
-**Date:** 2026-08-20
-**Feature/Epic:** #789 (Native MCP server for wiki content), Epic #340 (API, Webhooks & Integrations)
-**Decision:** Shipped `backend/mcp/` with four read-only tools (`list_sites`, `search_pages`,
-`get_page`, `list_navigation`), authenticated by a single instance-wide API key, reachable only over
-the stdio transport. Write tools (create/update a page), per-user auth, and an HTTP/SSE transport are
-explicitly deferred, not attempted-and-cut.
-
-**Why read-only only:**
-
-`models/pages.ts`'s `createPage()`/`updatePage()` take a `PageActor` whose `id` becomes the page's
-`authorId` — a real `users` table foreign key. `models/apiKeys.ts`'s `ApiKeyIdentity` has no such id:
-it is the API key row's own id, not a user's, and using it as `authorId` would either violate the FK
-or misattribute every MCP-created edit to whichever human happens to hold the shared instance key.
-There is no service/system-user account concept in this schema to attribute an agent-driven write to
-instead. Reads have no such problem — `search`/`tree`/`pages.getPage()` take a permission actor
-(`groupIds` + `permissions`), not an author — so they were unaffected by this gap. The work package's
-own text anticipated this exact call: "read-only is an acceptable and complete first-pass scope if
-write operations would compromise quality/safety under time pressure."
-
-**Why an instance-wide key instead of per-user tokens:** `feature/per-user-api-tokens` is a concurrent,
-unmerged item in this same batch, so there is no per-user credential to authenticate an MCP caller
-with yet. `mcp/auth.ts` instead reuses `models/apiKeys.ts`'s existing bearer-token mechanism as-is (the
-same one `/_api/` already authenticates with) — one key configured for the whole server process via
-`WIKI_MCP_API_KEY`. Concretely, since a bearer-token-only identity carries no session and therefore no
-group membership (`models/groups.ts`'s `groupIdsForRequest()` falls back to the guests group for
-exactly this reason, for every OTHER bearer-token caller in this codebase too — this is not new
-behavior introduced by MCP), every MCP tool call sees whatever the guests group's page rules allow,
-unless the configured key holds `manage:system`, which bypasses every page rule everywhere. This is
-documented at length on `McpAuthContext` in `mcp/auth.ts`, which is also the one place that changes
-once per-user tokens land: an MCP client would pass its caller's own token, and `actorFor()` would
-build the actor from that token's real group membership instead of falling back to guests. Nothing
-else in `mcp/` changes, since every tool already asks `checkAccess()`/`mayHoldPermissionSomewhere()`
-for the answer rather than assuming one.
-
-**Why stdio-only, and what "registered alongside the existing Fastify app" means here:** the work
-package asks for `backend/mcp/` to be a module registered alongside the existing Fastify app (simpler
-to land in one branch than a standalone service), while also asking for stdio transport at minimum.
-Those two are in tension: the stdio transport is a protocol contract requiring exclusive use of a
-process's own stdin/stdout, which cannot be shared with a running Fastify server whose own stdout
-already carries request logs (`core/logger.ts` writes through `console.log`). `mcp/stdio.ts` is
-therefore its own OS process (`node backend/mcp/stdio.ts`, the same convention as `node backend/tasks/
-migrate.ts`) — but it is not a standalone *service* in the sense the work package was contrasting
-against: it lives in the same `backend/` workspace, imports the same models/schema/db as the main app
-(`mcp/bootstrap.ts` is a trimmed `preBoot()`, modeled directly on `migration/bootstrap.ts`), and ships
-in the same package. An HTTP/SSE transport — left as explicit future work, per the work package's own
-"add HTTP/SSE only if time allows" — is what would let the MCP server actually run inside the Fastify
-process (mounted as a route the way `controllers/collab.ts`'s websocket upgrade is), the same shape
-`openproject-mcp` itself uses (`StreamableHTTPServerTransport`, one session per `Authorization: Bearer`
-token). That would also be the natural point to drop the guests-group fallback above in favor of a
-per-request token, once per-user tokens exist to carry.
-
-**Follow-up work this pass intentionally leaves open**, roughly in priority order: (1) per-user token
-auth once `feature/per-user-api-tokens` merges, replacing the guests-group fallback described above;
-(2) an HTTP/SSE transport mounted on the Fastify app, letting the MCP server run in-process and
-per-request-authenticated rather than as a separate keyed process; (3) write tools (`create_page`,
-`update_page`), once there is an actor shape an MCP call can legitimately author a page as.
-
-> **Update, same integration pass:** `feature/per-user-api-tokens` (#788) merged into this same
-> `integration/merge-review-2` branch immediately before this one, so follow-up item (1) above is now
-> unblocked in principle — `mcp/auth.ts`'s guests-group fallback still applies until `mcp/` is actually
-> updated to consult a per-user token, which did not happen as part of either branch. Left as a
-> concrete next task rather than done silently.
-
 ## 2026-08-20 — OpenProject #823: Git storage target regression pass against 8 historical upstream bugs
 
 Verified `backend/modules/storage/git/` against the 8 concrete v2 bugs OpenProject #823 named,
@@ -1231,14 +1191,18 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
   (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
-  What was genuinely unguarded is a different race the same upstream report describes: `dispatchStorage`
-  jobs run in a 3-worker thread pool by default (`scheduler.workers`, `base.yml`) with no shared JS
-  memory, so two jobs for the *same* storage target — a write-path push and a scheduled `sync`'s
-  pull/push, say — could run their `git` commands against the one on-disk working copy concurrently,
-  with no in-process mutex able to serialize across threads. Fixed with a Postgres advisory lock keyed
-  by `targetId`, wrapping the handler call in `tasks/workers/dispatch-storage.ts` (new
+  What was genuinely unguarded is a different race the same upstream report describes: the scheduler
+  claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
+  runs more than one instance, so two `dispatchStorage` jobs for the *same* storage target — a
+  write-path push and a scheduled `sync`'s pull/push, say — could run their `git` commands against the
+  one on-disk working copy concurrently, with no in-process mutex able to serialize across either
+  interleaved `await`s or separate instances. Fixed with a Postgres advisory lock keyed by `targetId`,
+  wrapping the handler call in `tasks/simple/dispatch-storage.ts` (new
   `backend/helpers/advisoryLock.ts`) — the single choke point every storage-module dispatch already
-  passes through, so this is not git-specific plumbing.
+  passes through, so this is not git-specific plumbing. (`dispatch-storage.ts` moved from
+  `tasks/workers/` to `tasks/simple/` under OpenProject #917, fixing a separate bug — the worker-thread
+  `WIKI` global the modules' handlers reach into for `WIKI.models.pages`/`.assets`/... etc. never
+  carried them — but it does not change this race, which was never about threads specifically.)
 
 **Confirmed not applicable, each verified rather than assumed:**
 
@@ -1313,3 +1277,183 @@ content shape already exists one layer down (`markdown.test.js`'s footnote-refer
 paginated-print concern this codebase has no visual-regression/PDF-rendering harness to exercise
 automatically. A human reviewer with a real PDF export in hand should confirm the fix visually before
 this ships; that is the only verification method that would actually observe it.
+
+## OpenProject #988 — `npm run build` (frontend) logs Node-built-in externalization notices and a `new URL(..., import.meta.url)` notice for `@asciidoctor/core`'s browser bundle
+
+**Date:** 2026-08-21
+**Feature:** #988 (AsciiDoc render pipeline)
+
+`vite build` in `frontend/` prints five informational lines for the `EditorAsciidoc` chunk:
+
+```
+new URL('../../data', import.meta.url) doesn't exist at build time, it will remain unchanged to be
+resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress
+this warning.
+```
+plus four more:
+```
+[plugin rolldown:vite-resolve] Module "node:fs/promises" has been externalized for browser
+compatibility, imported by ".../@asciidoctor/core/build/browser/index.js". ...
+```
+(and the same for `node:fs`, `node:path`, `node:async_hooks`).
+
+The `new URL(...)` line comes from the same file, a few lines above the dynamic `node:*` imports:
+`build/browser/index.js` sets `DATA_DIR = new URL('../../data', import.meta.url).pathname` (and
+`LIB_DIR`/`ROOT_DIR` the same way) inside a `try { ... } catch` block that also reads
+`process.env.HOME`/`USERPROFILE` for `USER_HOME` — the same Node-side path/data resolution the
+existing four notices are about, just Vite's static-analysis pass on the `new URL(...)` call itself
+rather than on the dynamic `import('node:...')` calls it guards.
+
+**Why this is not fixable here:** same root cause as the four `node:*` notices above — the `asciidoctor` npm package's `exports` map picks
+`@asciidoctor/core/build/browser/index.js` for a client build via the `"browser"` condition — the
+package's own, maintainer-built browser bundle, not a resolution mistake. That file still contains
+`await import('node:fs/promises')` / `await import('node:fs')` / `await import('node:path')` /
+dynamic `node:async_hooks` access, each runtime-feature-detected (`generateDataUri`/`readAsset`'s
+"unavailable in browsers" comments, the `AsyncLocalStorage` fallback-to-null comment) rather than
+build-time-guarded, because the package is written to also run under real Node (its own CLI, and
+Node-side rendering). Confirmed by grepping `@asciidoctor/core/src/` (the pre-bundle source): every
+one of these four specifiers already appears there too, behind the identical dynamic-import pattern
+— so pointing Vite at the `"import"` condition instead of `"browser"` would not remove the notices,
+only relocate them, while giving up the maintainer-intended browser entry point for no benefit.
+
+None of the guarded code ever runs from this integration: `renderers/asciidoc.js` calls `convert()`
+with `safe: 'secure'` and no `data-uri` attribute, template converter, or file-write feature — the
+only reasons `@asciidoctor/core` would reach for `node:fs`/`node:path`/`node:async_hooks` at runtime.
+Vite's own message says as much ("it will remain unchanged to be resolved at runtime — if this is
+intended, use `/* @vite-ignore */`"): this is the tool correctly reporting a dead-for-us code path in
+a third-party dependency, not a defect in this fork's code. `npm run build` still exits 0 and produces
+a working bundle (`asciidoc.test.js` and `EditorAsciidoc.test.js` exercise the same `convert()` call
+these notices are about, and pass).
+
+**Not suppressed** via a `resolve.alias` override or a rollup `onwarn` filter: both would either move
+the notices to `@asciidoctor/core/src/` (the alias route, per the grep above) or risk swallowing a
+genuine future externalization warning from an unrelated dependency (a blanket `onwarn` filter on
+`node:*` specifiers). Revisit if a future `asciidoctor` release restructures its browser build to
+build-time-guard these imports instead.
+
+## Audit log login history: only the local/LDAP form-based failure path is recorded
+
+**Date:** 2026-08-22
+**Feature:** #989 (Instance-wide audit/activity log)
+**Decision:** `login.failed` is recorded from exactly one place — the `else` branch of
+`models/users.ts#login()`'s `catch`, which is what a wrong password or a rejected local/LDAP
+credential goes through. `login.success` is recorded once, centrally, in `afterLoginChecks()`, which
+every login path (local, OAuth/OIDC provider, passkey, and the 2FA/change-password continuations)
+funnels through on success — so success coverage is complete. Failure coverage is not: an OAuth/OIDC
+provider callback that errors (`api/authentication.ts`'s `/login/:strategyId/callback` catch), a wrong
+TFA code (`loginTFA()`), and a failed passkey assertion never reach `login()`'s catch at all, so none
+of those record `login.failed`.
+
+Left as a gap rather than instrumented, for two reasons specific to this run rather than a scope
+decision made in advance: first, the specification only asks for "login history" without spelling out
+success/failure/per-strategy granularity, and the single choke point this fork already has
+(`afterLoginChecks()`) only covers the success side — there is no equivalent single point for failure,
+since each strategy fails on its own path before ever reaching a shared method. Second, threading
+`auditLog.record()` into the OAuth callback, TFA verification, and passkey verification paths each
+needs its own actor/target shape (an OAuth failure has no local user yet; a TFA/passkey failure has one
+but no fresh credential to log) and its own test coverage, which this pass did not have room for
+without compromising the review/verification bar on the rest of the feature. A failed local/LDAP
+login — the highest-volume, most actionable case (credential stuffing, password guessing) — is
+covered; a follow-up work package should extend `login.failed` to the OAuth callback, `loginTFA()`,
+and passkey verification catches, following the same `actorFromRequest`-less, no-local-user shape the
+local-strategy failure site already uses (`{ id: null, name: <best available identifier>, ip }`).
+
+## 2.x-era Helm chart and Packer image builder deleted rather than modernized
+
+**Date:** 2026-08-22
+**Feature:** #977
+
+`dev/helm/` (Chart.yaml, values.yaml, templates/) and `dev/packer/` (digitalocean.json, scripts/),
+plus their `.github/workflows/helm.yml` and `packer.yml` triggers, were deleted rather than
+refreshed in place. All three currency problems the work package identified were real: the Helm
+chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in
+2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
+Packer image pinned `ubuntu-20-04-x64` (standard support ended April 2025) and Compose v1 (EOL July
+2023); both workflows still used `actions/checkout@v2` against current v7.
+
+Refreshing those pins would still leave both artifacts deploying a 2.x app shape this branch has
+already diverged from beyond repair (this fork explicitly carries no upgrade path from 2.x — see
+CLAUDE.md's opening section) — the chart's `templates/deployment.yaml` and the Packer scripts assume
+a container image and config surface that predates this rewrite. There is no 3.x release yet for
+either to build or deploy, so a version bump here would be reproducible tooling for a target that
+doesn't exist, not a working deployment path. Deleting removes two sets of EOL builders (Bitnami's
+deprecated chart repo, Compose v1, an unsupported Ubuntu LTS, `checkout@v2`'s deprecated runner) from
+the tree instead of leaving them to bit-rot further.
+
+`docs/offline-deployment.md`'s Helm-specific bullets (the `offline` values.yaml wiring and the
+locale-pack sideload init-container) were updated to describe the deleted chart's behavior in the
+past tense rather than left claiming a still-working feature. A future work package standing up a
+real 3.x Helm chart (once a 3.x release exists to package) should treat that file's two updated
+sections as the spec for what the chart's `values.yaml` needs to re-offer.
+
+## Dependency audit accepted exceptions (Issue #1152, OpenProject #1190)
+
+**Date:** 2026-08-23
+**Feature:** #1190
+
+The 2026-08-22 dependency audit (Issue #1152) flagged a handful of packages that look outdated or
+unmaintained by version-age heuristics alone but are deliberately kept. Recorded here so a future
+currency pass doesn't "fix" any of them without re-reading the reasoning below.
+
+### `s3rver` 3.7.1 + `@types/s3rver` (backend, dev-only)
+
+Unmaintained upstream since 2021, but it is dev-only and test-only — the S3 storage module's
+`storage.emulated.test.ts` uses it to emulate an S3-compatible backend without a real bucket — and it
+still works correctly against the `modules/storage/s3/storage.ts` code it exercises. The alternatives
+(a MinIO container, LocalStack) are heavier processes to stand up in CI/local test runs for no gain
+in what the test actually verifies (the storage module's request shape and response handling, not
+S3-server behavior itself). Revisit if `s3rver` stops working against a future AWS SDK major, not
+before.
+
+### `@js-temporal/polyfill` (backend, dev-only)
+
+A devDependency, dynamically imported at runtime by `index.ts`/`worker.ts` only when the `Temporal`
+global is missing. `engines` requires Node ≥26, which has `Temporal` natively, so production code
+never reaches that import — it exists solely to keep backend dev/test working on an older local Node.
+Recorded so a future pass doesn't try to either remove it (breaks pre-26 dev sandboxes) or promote it
+to a regular dependency (production never needs it).
+
+### Stale-but-functionally-complete libraries kept as-is
+
+- **`mitt`** 3.0.1 — the event-bus library backing `EVENT_BUS`. Last published 2021; the API surface
+  it wraps (`on`/`off`/`emit`) is complete for what this codebase asks of it, and there's nothing
+  outstanding to fix.
+- **`d3-drag`/`d3-force`/`d3-polygon`/`d3-quadtree`/`d3-selection`/`d3-zoom`** (all v3, the knowledge
+  graph's force-layout dependencies) — stable since 2021 and still the current major; there is no v4
+  to move to.
+- **`leaflet`** 1.9.4 (`block-map`'s dependency) — latest stable 1.x release. A 2.x rewrite (ESM,
+  dropping the UMD/AMD build) has been announced upstream but not shipped; revisit once it reaches a
+  stable release.
+- **The small, frozen-format markdown-it plugins** — `markdown-it-abbr`, `markdown-it-footnote`,
+  `markdown-it-mark`, `markdown-it-sub`, `markdown-it-sup`, `markdown-it-expand-tabs`,
+  `markdown-it-multimd-table`, and **`markdown-it-task-lists`** (kept over the newer
+  `@mdit/plugin-tasklist` per the #1180 decision — its checkbox markup interacts with existing styling
+  and the tiptap task-list extensions, and parity-testing cost outweighs the maintenance-status gain
+  for a tiny frozen-format plugin; revisit if it breaks on a future markdown-it bump). Each targets a
+  narrow, unchanging piece of CommonMark-adjacent syntax with no active development needed.
+- **`akismet-api`** 6.0.0 (backend) — last published 2023; a thin wrapper over Akismet's HTTP API,
+  actively in use by the comments spam check. Nothing about the API it wraps has changed.
+
+`markdown-it-decorate` is intentionally **not** listed above — it is being dropped, not kept, per
+Task #1180's decision to standardize on `markdown-it-attrs`.
+
+### `happy-dom` (frontend) vs `jsdom` (blocks) — different test-environment emulators by design
+
+Already documented as deliberate in root `CLAUDE.md` (see "Testing (frontend)" and "Testing
+(blocks)"): frontend's Vitest suite uses `happy-dom` for speed across a large component suite, while
+blocks' suite uses `jsdom` for its more complete `MutationObserver`/shadow-DOM/attribute-reflection
+coverage, which the dark-mode controller test in particular depends on. Cross-referenced here rather
+than duplicated — see CLAUDE.md for the full reasoning.
+
+### `@twemoji/api` pinned to 17.0.2, one patch behind `twemoji-assets`
+
+Surfaced while investigating WP #1189's currency pass. `@twemoji/api` 17.0.3 depends on
+`@twemoji/parser` 17.0.2, which is the exact parser regression Bug #1151 documents (it stops matching
+✌️ ☝️ 🕵️ 🏋️ and six other shortcodes, and mis-resolves `:eye_speech_bubble:` to a codepoint with no
+SVG in `twemoji-assets`). `@twemoji/parser` has no 17.0.3 release to fix this upstream. `frontend/`
+stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twemoji/parser` to 17.0.1
+(the last release that matches correctly) — see the comment at `frontend/vite.config.js`'s
+`verifyTwemojiCoverage()`. This is unrelated to the `twemoji-assets` tarball dependency (the SVG
+artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
+drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
+until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.

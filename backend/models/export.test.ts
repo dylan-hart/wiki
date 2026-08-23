@@ -3,10 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import zlib from 'node:zlib'
-import { Readable } from 'node:stream'
-import { finished } from 'node:stream/promises'
-import { extract } from 'tar-stream'
+import { list as listTarball } from 'tar'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import { assets as assetsTable } from '../db/schema.ts'
 
@@ -23,6 +20,19 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let dataPath: string
 
   before(async () => {
+    // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
+    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime --
+    //    same pattern as `modules/storage/disk/storage.test.ts`'s own `before()`. The package
+    //    polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
+    //    `Date.prototype.toTemporalInstant()` -- `purgeExpired()` uses that conversion.
+    if (typeof Temporal === 'undefined') {
+      const polyfill = await import('@js-temporal/polyfill')
+      ;(globalThis as any).Temporal = polyfill.Temporal
+      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
+        return polyfill.toTemporalInstant.call(this)
+      }
+    }
+
     fixtures = await setupTestDb()
     ;({ exportModel } = await import('./export.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
@@ -39,20 +49,20 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   /** Reads every entry of a gzipped tar file back into a `{ name: Buffer }` map. */
   async function readTarball(filePath: string): Promise<Record<string, Buffer>> {
     const entries: Record<string, Buffer> = {}
-    const extractor = extract()
-    extractor.on('entry', (header, stream, next) => {
-      const chunks: Buffer[] = []
-      stream.on('data', (chunk) => chunks.push(chunk))
-      stream.on('end', () => {
-        entries[header.name] = Buffer.concat(chunks)
-        next()
-      })
-      stream.resume()
+    await listTarball({
+      file: filePath,
+      onReadEntry: (entry) => {
+        // -> `create()` emits a directory entry for `assets/` itself, ahead of the files inside it.
+        if (entry.type !== 'File') {
+          return
+        }
+        const chunks: Buffer[] = []
+        entry.on('data', (chunk) => chunks.push(chunk))
+        entry.on('end', () => {
+          entries[entry.path] = Buffer.concat(chunks)
+        })
+      }
     })
-
-    const source = Readable.from(await fs.readFile(filePath)).pipe(zlib.createGunzip())
-    source.pipe(extractor)
-    await finished(extractor)
     return entries
   }
 

@@ -257,9 +257,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.utilities.title')
-})
+}))
 
 // DATA
 
@@ -275,12 +275,12 @@ const importFileIpt = ref(null)
 // COMPUTED
 
 const purgeHistoryTimeframes = computed(() => [
-  { value: '24h', label: t('admin.utitilies.purgeHistoryToday') },
-  { value: '1m', label: t('admin.utitilies.purgeHistoryMonth', 1, { count: 1 }) },
-  { value: '3m', label: t('admin.utitilies.purgeHistoryMonth', 3, { count: 3 }) },
-  { value: '6m', label: t('admin.utitilies.purgeHistoryMonth', 6, { count: 6 }) },
-  { value: '1y', label: t('admin.utitilies.purgeHistoryYear', 1, { count: 1 }) },
-  { value: '2y', label: t('admin.utitilies.purgeHistoryYear', 2, { count: 2 }) }
+  { value: '24h', label: t('admin.utilities.purgeHistoryToday') },
+  { value: '1m', label: t('admin.utilities.purgeHistoryMonth', 1, { count: 1 }) },
+  { value: '3m', label: t('admin.utilities.purgeHistoryMonth', 3, { count: 3 }) },
+  { value: '6m', label: t('admin.utilities.purgeHistoryMonth', 6, { count: 6 }) },
+  { value: '1y', label: t('admin.utilities.purgeHistoryYear', 1, { count: 1 }) },
+  { value: '2y', label: t('admin.utilities.purgeHistoryYear', 2, { count: 2 }) }
 ])
 
 const scanReportScannedAt = computed(() => {

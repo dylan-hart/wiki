@@ -13,8 +13,9 @@
  * same stream) but it is not a standalone *service*: it lives in this same `backend/` workspace, reuses
  * the exact same models, schema and database as the main app, and is deployed as part of the same
  * package — the distinction the work package's "registered alongside the existing Fastify app" guidance
- * is actually drawing (see `mcp/stdio.ts`'s doc comment for the fuller reasoning, and
- * `docs/variances.md` for the HTTP/SSE transport that WOULD run inside the Fastify process).
+ * is actually drawing (see `mcp/stdio.ts`'s doc comment for the fuller reasoning). `mcp/http.ts` is the
+ * transport that DOES run inside the Fastify process, mounted as an ordinary route — it needs none of
+ * this trimmed bootstrap, since `index.ts`'s own `preBoot()` already loads the full model registry.
  */
 
 import path from 'node:path'
@@ -28,20 +29,52 @@ import logger from '../core/logger.ts'
  * (the read surface itself), plus `settings` — not touched by any tool directly, but read by
  * `configSvc.loadFromDb()` below. Extend this list alongside `mcp/tools/` as new tools are added —
  * never import the full registry here, for the reason in the file-level doc comment above.
+ *
+ * `pageHistory` and `auditLog` (OpenProject #1118/#1119) are here for the same reason `pages` is,
+ * not as a new exception to it: `models/pages.ts#createPage()`/`updatePage()` already call
+ * `WIKI.models.pageHistory.record()` unconditionally on every write, and `mcp/stdio.ts` now calls
+ * `WIKI.models.auditLog.record()` once at session start (mirrors `mcp/http.ts`'s own
+ * `onsessioninitialized`) — omitting either from this trimmed set would throw
+ * `Cannot read properties of undefined (reading 'record')` before either write ever reaches the
+ * database, over stdio specifically (`mcp/http.ts` runs inside `index.ts`'s full model registry, so
+ * it never depended on this list). Both are lightweight (no cheerio/sanitize-html/bcrypt import,
+ * unlike several models `models/index.ts` pulls in), so adding them costs nothing the file-level
+ * doc comment's "never import the full registry" is protecting against.
  */
 async function loadModels(): Promise<WikiGlobal['models']> {
-  const [{ sites }, { groups }, { apiKeys }, { search }, { tree }, { pages }, { settings }] =
-    await Promise.all([
-      import('../models/sites.ts'),
-      import('../models/groups.ts'),
-      import('../models/apiKeys.ts'),
-      import('../models/search.ts'),
-      import('../models/tree.ts'),
-      import('../models/pages.ts'),
-      // -> `configSvc.loadFromDb()` below reads `WIKI.models.settings.getConfig()` directly
-      import('../models/settings.ts')
-    ])
-  return { sites, groups, apiKeys, search, tree, pages, settings } as WikiGlobal['models']
+  const [
+    { sites },
+    { groups },
+    { apiKeys },
+    { search },
+    { tree },
+    { pages },
+    { pageHistory },
+    { auditLog },
+    { settings }
+  ] = await Promise.all([
+    import('../models/sites.ts'),
+    import('../models/groups.ts'),
+    import('../models/apiKeys.ts'),
+    import('../models/search.ts'),
+    import('../models/tree.ts'),
+    import('../models/pages.ts'),
+    import('../models/pageHistory.ts'),
+    import('../models/auditLog.ts'),
+    // -> `configSvc.loadFromDb()` below reads `WIKI.models.settings.getConfig()` directly
+    import('../models/settings.ts')
+  ])
+  return {
+    sites,
+    groups,
+    apiKeys,
+    search,
+    tree,
+    pages,
+    pageHistory,
+    auditLog,
+    settings
+  } as WikiGlobal['models']
 }
 
 /**

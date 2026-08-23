@@ -126,6 +126,25 @@ describe('App.vue window beforeunload guard', () => {
     expect(event.returnValue).toBe('')
   })
 
+  /**
+   * Regression for OpenProject #1129: Page Properties (e.g. an edited tag list) makes the page dirty
+   * without ever setting `editorStore.isActive` -- the old `isActive && hasPendingChanges` guard let
+   * a tab close or address-bar navigation through with no warning at all in that case.
+   */
+  it('prevents the unload and sets returnValue when there are pending changes but no editor is active', async () => {
+    const editorStore = await mountReady()
+    editorStore.$patch({
+      lastSaveTimestamp: Temporal.Now.instant(),
+      lastChangeTimestamp: Temporal.Now.instant().add({ seconds: 1 })
+    })
+
+    const event = makeEvent()
+    capturedHandler(event)
+
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(event.returnValue).toBe(UNSAVED_WARNING)
+  })
+
   it('does not prevent the unload once the editor is reset back to inactive after being dirty', async () => {
     const editorStore = await mountReady()
     editorStore.$patch({
@@ -133,7 +152,22 @@ describe('App.vue window beforeunload guard', () => {
       lastSaveTimestamp: Temporal.Now.instant(),
       lastChangeTimestamp: Temporal.Now.instant().add({ seconds: 1 })
     })
-    editorStore.$patch({ isActive: false, editor: '', mode: 'edit' })
+    /*
+      Equalizing the timestamps here alongside `isActive: false` is what a real discard actually
+      does -- `PageHeader.vue`'s own `discardChanges` reaches it via `pageStore.cancelPageEdit()` ->
+      `pageLoad()`, which resets both as its baseline -- rather than only flipping `isActive`. Guard
+      condition is `hasPendingChanges` alone since OpenProject #1129 (Page Properties can dirty the
+      page with `isActive` already false), so leaving the timestamps unequal here would leave this
+      test asserting against a state a real discard never actually produces.
+    */
+    const resetAt = Temporal.Now.instant()
+    editorStore.$patch({
+      isActive: false,
+      editor: '',
+      mode: 'edit',
+      lastSaveTimestamp: resetAt,
+      lastChangeTimestamp: resetAt
+    })
 
     const event = makeEvent()
     capturedHandler(event)

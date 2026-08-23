@@ -66,15 +66,27 @@ logFormat: default
 # ---------------------------------------------------------------------
 # Offline Mode
 # ---------------------------------------------------------------------
-# If your server cannot access the internet. Set to true and manually
-# download the offline files for sideloading.
+# If your server cannot access the internet, set to true. This gates every
+# outbound call an admin has not explicitly configured with its own remote
+# endpoint (Iconify icon lookups, the daily version/locale update checks,
+# server-side PlantUML rendering) — see docs/offline-deployment.md for the
+# full audited list and the supported air-gapped deployment path.
+#
+# In the official container image this is also settable via the WIKI_OFFLINE
+# environment variable (or the Helm chart's `offline` value), so a
+# containerized/air-gapped deployment provisioned through env vars or Helm
+# does not need to hand-edit this file.
+#
+# To add or update a locale pack without rebuilding or redeploying, drop a
+# JSON file into <dataPath>/locales/ (see docs/offline-deployment.md) and
+# either restart or POST /_api/locales/sideload as an admin.
 
 offline: false
 
 # ---------------------------------------------------------------------
 # Data Path
 # ---------------------------------------------------------------------
-# Writeable data path used for cache and temporary user uploads.
+# Writeable data path used for cache, exports, and other on-disk working storage.
 dataPath: ./data
 
 # ---------------------------------------------------------------------

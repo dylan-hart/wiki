@@ -149,9 +149,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.groups.title')
-})
+}))
 
 // COMPUTED
 
@@ -226,7 +226,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load groups.',
+      message: t(`admin.groups.loadFailed`),
       caption: err.message
     })
   }

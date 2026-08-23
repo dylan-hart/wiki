@@ -14,7 +14,7 @@
   them away. Icons the USER picks still resolve through `/_icons` as before — see `WIcon`.
 
   The output is committed. Builds are then reproducible and need no network, and the diff shows
-  exactly which icons changed. `check-icons.mjs` fails if it drifts out of step with the source.
+  exactly which icons changed. `npm run icons:check` fails if it drifts out of step with the source.
 
   Usage: node scripts/generate-icons.mjs [--check]
 */
@@ -47,7 +47,11 @@ function* sourceFiles(dir) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
       yield* sourceFiles(full)
-    } else if (/\.(vue|js)$/.test(entry.name) && !entry.name.endsWith('.generated.js')) {
+    } else if (
+      /\.(vue|js)$/.test(entry.name) &&
+      !entry.name.endsWith('.generated.js') &&
+      !entry.name.endsWith('.test.js')
+    ) {
       yield full
     }
   }
@@ -141,7 +145,7 @@ function serialize(icons) {
 
   Icon data for every Iconify reference written literally in the source, inlined so the interface
   never waits on (or depends on) the icon service. Regenerate with \`npm run icons\` after adding or
-  removing an icon; \`check-icons.mjs\` fails the build if this drifts.
+  removing an icon; \`npm run icons:check\` fails the build if this drifts.
 
   ${Object.keys(icons).length} icons.
 */

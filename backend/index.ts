@@ -26,7 +26,7 @@ import fastifyWebsocket from '@fastify/websocket'
 import gracefulServer from '@gquittet/graceful-server'
 import ajvFormats from 'ajv-formats'
 import Emittery from 'emittery'
-import NodeCache from 'node-cache'
+import { LRUCache } from 'lru-cache'
 
 import collab from './core/collab.ts'
 import configSvc from './core/config.ts'
@@ -62,8 +62,15 @@ const nanoid = customAlphabet('1234567890abcdef', 10)
  * Files a browser or a crawler asks for at the root by convention, rather than because the wiki has a
  * page there. Kept out of the page URL rules below — `txt` is a page extension on a default site, and
  * answering `/robots.txt` with a redirect to `/robots` would be answering the wrong question.
+ *
+ * `metrics` rides along for the same reason despite not being a "file": `controllers/metrics.ts`
+ * registers an unprefixed `/metrics` for Prometheus's fixed scrape convention, which without this
+ * entry `isPageUrl()` below reads as a page navigation — a scrape against a hostname mapping to no
+ * site (or a disabled one) would 302 to `/_error/unknownsite` / `/_error/disabled` before ever
+ * reaching the registered route, and Prometheus follows redirects by default, so it would fail
+ * parsing the SPA shell instead of getting a scrape failure that says why (OpenProject #938).
  */
-const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml'])
+const RESERVED_ROOT_FILES = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml', 'metrics'])
 
 /**
  * First path segments the SERVER itself answers — every prefix registered in `initHTTPServer`.
@@ -81,6 +88,7 @@ const SERVER_ROUTE_SEGMENTS = new Set([
   '_collab',
   '_files',
   '_icons',
+  '_mcp',
   '_render',
   '_site',
   '_terminal',
@@ -194,7 +202,7 @@ async function preBoot() {
     process.exit(1)
   }
 
-  WIKI.cache = new NodeCache({ checkperiod: 0 })
+  WIKI.cache = new LRUCache({ max: 5000 })
   WIKI.scheduler = await scheduler.init()
   WIKI.events = {
     inbound: new Emittery(),
@@ -222,6 +230,8 @@ async function postBoot() {
   await WIKI.models.groups.reloadCache()
   // -> Likewise: every page view asks whether the page takes suggestions and who reviews it
   await WIKI.models.approvals.reloadCache()
+  // -> The floor invariant (#1080) is checked on every page create/move, so this is in memory too
+  await WIKI.models.classificationLevels.reloadCache()
 
   // -> Must follow the sites cache: every site gets a row per installed block
   await WIKI.models.blocks.refreshFromDisk()
@@ -239,6 +249,10 @@ async function postBoot() {
   //    (`site.config.search.engine`) rather than keeping a row per installed module, so there is no
   //    per-site sync step to run here the way there is for storage/blocks
   await WIKI.models.search.refreshFromDisk()
+  // -> Provisions whatever engine each site currently has active (OpenProject #920) -- covers a site
+  //    that selected a non-`db` engine before this existed, and every normal restart after, which each
+  //    module's idempotent `init()` is safe to run again for
+  await WIKI.models.search.initActiveEngines()
 
   // -> Optional third-party tooling: report what is available, since features silently degrade
   //    without it
@@ -791,6 +805,9 @@ async function initHTTPServer() {
   app.register(import('./controllers/files.ts'), { prefix: '/_files' })
   app.register(import('./controllers/site.ts'), { prefix: '/_site' })
   app.register(import('./controllers/icons.ts'), { prefix: '/_icons' })
+  // -> The MCP server's HTTP/SSE transport (`mcp/http.ts`) — see that file's doc comment for the
+  //    session/auth model. `mcp/stdio.ts` is the other transport, run as its own OS process.
+  app.register(import('./mcp/http.ts'), { prefix: '/_mcp' })
   // -> Deliberate exception to the leading-underscore convention every other line here follows:
   //    Prometheus scrapes a fixed, unprefixed `/metrics`. See `controllers/metrics.ts` for the full
   //    scope decision (task 594).

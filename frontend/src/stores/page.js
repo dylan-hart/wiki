@@ -24,6 +24,13 @@ export const usePageStore = defineStore('page', {
     allowRatings: true,
     authorId: 0,
     authorName: '',
+    /**
+     * Classification level id (OpenProject #1079). Empty on a page not loaded yet; on `pageCreate`
+     * it stays empty deliberately -- the server resolves the default (the parent page's own level,
+     * or the most-open configured one) when the create request omits it, rather than this store
+     * guessing at a value the picker component has not shown yet.
+     */
+    classification: '',
     commentsCount: 0,
     content: '',
     /**
@@ -325,6 +332,7 @@ export const usePageStore = defineStore('page', {
         createdAt: '',
         updatedAt: '',
         publishState: '',
+        classification: '',
         isLocked: false,
         canSuggestEdits: false,
         hasOpenSuggestion: false,
@@ -369,6 +377,7 @@ export const usePageStore = defineStore('page', {
       basePath,
       title = '',
       description = '',
+      tags = [],
       content = '',
       fromNavigate = false
     } = {}) {
@@ -453,8 +462,12 @@ export const usePageStore = defineStore('page', {
         icon: DEFAULT_PAGE_ICON,
         alias: '',
         publishState: 'published',
+        // -> Left unset: the server resolves the default (the parent page's own level, or the
+        //    most-open configured one) when the create request omits it. Explicitly reset here so a
+        //    new page does not start on whatever the previously-open page's picker showed.
+        classification: '',
         relations: [],
-        tags: [],
+        tags: tags ?? [],
         content: content ?? '',
         // -> A page being created has no stored source to lose: whatever it starts with IS the source
         contentLoaded: true,
@@ -644,14 +657,15 @@ export const usePageStore = defineStore('page', {
     /**
      * PAGE - MOVE
      */
-    async pageMove({ id, title, path, locale } = {}) {
+    async pageMove({ id, title, path, locale, includeTranslations } = {}) {
       const siteStore = useSiteStore()
       unwrap(
         await API_CLIENT.put(`sites/${siteStore.id}/pages/${id}/path`, {
           json: {
             path,
             ...(title ? { title } : {}),
-            ...(locale ? { locale } : {})
+            ...(locale ? { locale } : {}),
+            ...(includeTranslations ? { includeTranslations } : {})
           }
         }).json()
       )
@@ -694,12 +708,16 @@ export const usePageStore = defineStore('page', {
           `onDidChangeModelContent` handler), so a save issued right after an edit -- pasting an image
           and saving immediately, before that debounce has fired, is what surfaced this (OpenProject
           #806) -- could otherwise read a stale pair here and send a dead `blob:` URL to the server.
-          `contentFlusher` is a synchronous read-through the editor registers while it is mounted; a
-          save with no editor mounted (a scripted call, for instance) leaves it null and this is a
-          no-op. Deliberately does not touch `contentLoaded` itself -- that stays exactly what the load
-          or a real edit set it to, which is what the guard just below is reading.
+          `contentFlusher` is a read-through the editor registers while it is mounted; a save with no
+          editor mounted (a scripted call, for instance) leaves it null and this is a no-op. Awaited
+          rather than called bare: `EditorMarkdown.vue`'s own flusher is synchronous and resolves
+          immediately either way, but `EditorAsciidoc.vue`'s is genuinely asynchronous -- Asciidoctor's
+          `convert` is (`renderers/asciidoc.js`) -- and a save that read `render` before that settled
+          would send up the render from before this edit. Deliberately does not touch `contentLoaded`
+          itself -- that stays exactly what the load or a real edit set it to, which is what the guard
+          just below is reading.
         */
-        editorStore.contentFlusher?.()
+        await editorStore.contentFlusher?.()
 
         // -> The render goes up with the content: the markdown pipeline runs here, in the editor, and
         //    what the preview shows is what gets stored. The server post-processes it — sanitizing it
@@ -711,6 +729,7 @@ export const usePageStore = defineStore('page', {
             'allowComments',
             'allowContributions',
             'allowRatings',
+            'classification',
             'content',
             'description',
             'icon',
@@ -756,8 +775,19 @@ export const usePageStore = defineStore('page', {
           delete body.content
           console.warn('Page source was never loaded; saving without touching the stored content.')
         }
+        /*
+          OpenProject #1079: an unset classification on create means "let the server pick the
+          default" (the parent page's own level, or the most-open configured one) -- an empty string
+          would fail the API's uuid format validation, so this is dropped rather than sent. A page
+          already loaded always has a real value here (the server never omits it), so this never
+          fires on a save that is not a create.
+        */
+        if (!this.classification) {
+          delete body.classification
+        }
 
         let pageData
+        let classificationConflicts = []
         if (editorStore.mode === 'create') {
           const resp = unwrap(
             await API_CLIENT.post(`sites/${siteStore.id}/pages`, {
@@ -789,6 +819,9 @@ export const usePageStore = defineStore('page', {
           if (!pageData?.id) {
             throw new Error('ERR_PAGE_NOT_FOUND')
           }
+          // -> OpenProject #1080: only ever present on an update that raised the page's own
+          //    classification and left descendants below the new floor -- see the PATCH route.
+          classificationConflicts = resp?.classificationConflicts ?? []
         }
 
         // Update page store
@@ -824,6 +857,8 @@ export const usePageStore = defineStore('page', {
           */
           await this.router.replace(this.editorExitPath)
         }
+
+        return { classificationConflicts }
       } catch (err) {
         /*
           Somebody else saved this page first. The server's reply carries the page as it now stands

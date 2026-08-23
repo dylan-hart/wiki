@@ -588,17 +588,31 @@ async function discardChanges() {
     dropped -- and that is an edit to a page that exists, however the editor was last used.
   */
   if (editorStore.isActive && editorStore.mode === 'create') {
+    /*
+      Timestamps equalized here too, not just `isActive` (OpenProject #1129 follow-on): App.vue's
+      navigation guards gate on `hasPendingChanges` alone, so leaving them unequal would have the
+      `router.replace` below -- a real navigation -- immediately re-trigger a confirm prompt for the
+      discard the reader just clicked through.
+    */
+    const discardedAt = Temporal.Now.instant()
     editorStore.$patch({
       isActive: false,
-      editor: ''
+      editor: '',
+      lastSaveTimestamp: discardedAt,
+      lastChangeTimestamp: discardedAt
     })
 
     // Is it the home page in create mode?
-    if ((pageStore.path === '' || pageStore.path === 'home') && pageStore.locale === siteStore.locales.primary) {
+    if (
+      (pageStore.path === '' || pageStore.path === 'home') &&
+      pageStore.locale === siteStore.locales.primary
+    ) {
       siteStore.overlay = 'Welcome'
     }
 
-    router.replace(shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/')
+    router.replace(
+      shouldPrefixLocale(pageStore.locale, siteStore.localeRouting) ? `/${pageStore.locale}` : '/'
+    )
     return
   }
 
@@ -659,14 +673,34 @@ async function saveChanges(closeAfter = false) {
 }
 
 async function saveChangesCommit(closeAfter = false) {
-  await processPendingAssets()
+  if (!(await processPendingAssets())) {
+    return
+  }
   loading.show()
   try {
-    await pageStore.pageSave()
+    const result = await pageStore.pageSave()
     notify({
       type: 'positive',
       message: 'Page saved successfully.'
     })
+    /*
+      OpenProject #1080: raising this page's own classification does not cascade to its
+      descendants -- some may now sit below the new floor. Rather than leaving that silent, the
+      resolution dialog lists them for an admin to bump explicitly. Shown after the success
+      notification rather than instead of it: the save itself succeeded regardless of what this
+      surfaces.
+    */
+    if (result?.classificationConflicts?.length > 0) {
+      dialog({
+        component: defineAsyncComponent(
+          () => import('../components/ClassificationResolutionDialog.vue')
+        ),
+        componentProps: {
+          conflicts: result.classificationConflicts,
+          floorClassification: pageStore.classification
+        }
+      })
+    }
     if (closeAfter) {
       /*
         The editor closes onto the page, and for a redirection that page would take the author
@@ -698,7 +732,9 @@ async function saveChangesCommit(closeAfter = false) {
 async function createPage() {
   // Handle home page creation flow
   if (pageStore.path === 'home') {
-    await processPendingAssets()
+    if (!(await processPendingAssets())) {
+      return
+    }
     loading.show()
     try {
       await pageStore.pageSave()
@@ -732,7 +768,9 @@ async function createPage() {
       locale: pageStore.locale
     }
   }).onOk(async ({ path, title }) => {
-    await processPendingAssets()
+    if (!(await processPendingAssets())) {
+      return
+    }
 
     loading.show()
     try {
@@ -759,19 +797,30 @@ async function createPage() {
   })
 }
 
+/**
+ * Uploads whatever assets are pending, if any. Resolves `true` when the caller may proceed with the
+ * save/create it was about to do, `false` when the upload was cancelled or failed and the caller
+ * should stop instead.
+ *
+ * Resolves rather than rejecting on cancel: `dialog()`'s `.onCancel(cb)` invokes `cb` with no
+ * argument (`composables/dialog.js`'s `closeDialog`), so `.onCancel(reject)` used to reject this
+ * promise with `undefined` as the reason -- every one of the three call sites below awaits this
+ * outside a try/catch (their own enclosing handlers are not awaited by whatever triggered them
+ * either), so a cancelled/failed upload surfaced as an unhandled promise rejection with no message
+ * (OpenProject #945).
+ */
 async function processPendingAssets() {
-  if (editorStore.pendingAssets?.length > 0) {
-    return new Promise((resolve, reject) => {
-      dialog({
-        component: defineAsyncComponent(
-          () => import('../components/UploadPendingAssetsDialog.vue')
-        ),
-        persistent: true
-      })
-        .onOk(resolve)
-        .onCancel(reject)
-    })
+  if (!(editorStore.pendingAssets?.length > 0)) {
+    return true
   }
+  return new Promise((resolve) => {
+    dialog({
+      component: defineAsyncComponent(() => import('../components/UploadPendingAssetsDialog.vue')),
+      persistent: true
+    })
+      .onOk(() => resolve(true))
+      .onCancel(() => resolve(false))
+  })
 }
 
 async function editPage() {

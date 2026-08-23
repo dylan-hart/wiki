@@ -3,8 +3,8 @@ import { after, before, test } from 'node:test'
 import { McpToolError } from '../auth.ts'
 import { handleSearchPages } from './searchPages.ts'
 
-const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 const SITE_ID = 'site-a'
+const GROUP_ID = 'group-a'
 
 let previousWiki: any
 let queryCalls: any[]
@@ -16,7 +16,6 @@ before(() => {
 function install({ permissions = [] as string[] } = {}) {
   queryCalls = []
   ;(globalThis as any).WIKI = {
-    data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
     models: {
       groups: {
@@ -32,7 +31,14 @@ function install({ permissions = [] as string[] } = {}) {
       }
     }
   }
-  return { keyId: 'key-1', permissions, siteId: null as string | null }
+  return {
+    keyId: 'key-1',
+    permissions,
+    siteId: null as string | null,
+    groupIds: [GROUP_ID],
+    userId: null as string | null,
+    scope: null as string[] | null
+  }
 }
 
 after(() => {
@@ -55,7 +61,12 @@ test('handleSearchPages: forwards query/locale/tags/limit and the actor to searc
   assert.deepEqual(call.locales, ['en'])
   assert.deepEqual(call.tags, ['hr'])
   assert.equal(call.limit, 5)
-  assert.deepEqual(call.actor, { groupIds: [GUEST_GROUP_ID], permissions: [] })
+  assert.deepEqual(call.actor, {
+    groupIds: [GROUP_ID],
+    permissions: [],
+    scope: null,
+    allowedClassifications: undefined
+  })
 })
 
 test('handleSearchPages: a caller with no write:pages/manage:pages hides drafts and protected excerpts', async () => {

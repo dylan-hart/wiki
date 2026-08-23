@@ -63,6 +63,11 @@ const routes = [
     component: () => import('@/pages/Search.vue')
   },
   {
+    path: '/_tags',
+    component: () => import('@/layouts/MainLayout.vue'),
+    children: [{ path: '', component: () => import('@/pages/TagsBrowse.vue') }]
+  },
+  {
     path: '/_admin',
     component: () => import('@/layouts/AdminLayout.vue'),
     children: [
@@ -75,6 +80,7 @@ const routes = [
       { path: ':siteid/approvals', component: () => import('@/pages/AdminApprovals.vue') },
       { path: ':siteid/blocks', component: () => import('@/pages/AdminBlocks.vue') },
       { path: ':siteid/editors', component: () => import('@/pages/AdminEditors.vue') },
+      { path: ':siteid/glossary', component: () => import('@/pages/AdminGlossary.vue') },
       { path: ':siteid/locale', component: () => import('@/pages/AdminLocale.vue') },
       { path: ':siteid/login', component: () => import('@/pages/AdminLogin.vue') },
       { path: ':siteid/navigation', component: () => import('@/pages/AdminNavigation.vue') },
@@ -88,6 +94,8 @@ const routes = [
       { path: 'users/:id?/:section?', component: () => import('@/pages/AdminUsers.vue') },
       // -> System
       { path: 'api', component: () => import('@/pages/AdminApi.vue') },
+      { path: 'audit', component: () => import('@/pages/AdminAuditLog.vue') },
+      { path: 'classification', component: () => import('@/pages/AdminClassification.vue') },
       { path: 'cluster', component: () => import('@/pages/AdminCluster.vue') },
       { path: 'extensions', component: () => import('@/pages/AdminExtensions.vue') },
       { path: 'icons', component: () => import('@/pages/AdminIcons.vue') },

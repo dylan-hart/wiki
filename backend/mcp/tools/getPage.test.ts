@@ -5,7 +5,14 @@ import { handleGetPage } from './getPage.ts'
 
 const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 const SITE_ID = 'site-a'
-const CTX = { keyId: 'key-1', permissions: [] as string[], siteId: null as string | null }
+const CTX = {
+  keyId: 'key-1',
+  permissions: [] as string[],
+  siteId: null as string | null,
+  groupIds: [GUEST_GROUP_ID],
+  userId: null as string | null,
+  scope: null as string[] | null
+}
 
 const BASE_PAGE = {
   id: 'page-1',

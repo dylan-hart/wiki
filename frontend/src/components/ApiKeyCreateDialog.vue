@@ -142,6 +142,33 @@
               :hint="t(`admin.api.newKeyScopeHint`)" />
           </w-item-section>
         </w-item>
+        <w-item>
+          <blueprint-icon icon="secure" />
+          <w-item-section>
+            <!--
+              OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --
+              Dylan's review feedback was that "No Limit" vs. picking one named level read as a
+              confusing UX. Every level starts checked, which is exactly equivalent to the old "No
+              Limit" default (see `allowedClassifications` below): the key may reach anything its
+              scope/groups' rules otherwise grant. Unchecking a level narrows the key -- it may never
+              be granted a page permission on a page classified at an unchecked level, whatever the
+              rules say.
+            -->
+            <div class="text-caption q-mb-xs">{{ t(`admin.api.newKeyClassificationLevels`) }}</div>
+            <div class="classification-grid grid grid-cols-2 gap-x-4 gap-y-1">
+              <w-checkbox
+                v-for="level of adminStore.classificationLevels"
+                :key="level.id"
+                v-model="state.keyClassifications"
+                :val="level.id"
+                :label="level.name"
+                dense />
+            </div>
+            <div class="text-caption text-grey mt-1">
+              {{ t(`admin.api.newKeyClassificationLevelsHint`) }}
+            </div>
+          </w-item-section>
+        </w-item>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
@@ -173,6 +200,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useAdminStore } from '@/stores/admin'
 
 // EMITS
 
@@ -185,6 +213,10 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 // I18N
 
 const { t } = useI18n()
+
+// STORES
+
+const adminStore = useAdminStore()
 
 // DATA
 
@@ -203,6 +235,10 @@ const state = reactive({
   loadingGroups: false,
   sites: [],
   loadingSites: false,
+  // -> The checked ids of the classification checkbox grid, initialized to every level once
+  //    `adminStore.classificationLevels` loads (see `onMounted`) -- all-checked, same as "No Limit"
+  //    was before this existed. See `allowedClassifications` below for what actually gets sent.
+  keyClassifications: [],
   loading: 0
 })
 
@@ -268,6 +304,18 @@ const siteOptions = computed(() => {
   return [{ id: null, title: t('admin.api.newKeySiteAllSites') }, ...state.sites]
 })
 
+/**
+ * What actually reaches the API (OpenProject #1205): `null` when every currently known level is
+ * checked -- equivalent to the old "No Limit" default, and it stays that way against a level added
+ * later too, exactly like a key created before this feature existed. Anything less than every level
+ * checked is sent as the explicit array of checked ids, which only narrows.
+ */
+const allowedClassifications = computed(() => {
+  const allIds = adminStore.classificationLevels.map((level) => level.id)
+  const isEveryLevelChecked = allIds.every((id) => state.keyClassifications.includes(id))
+  return isEveryLevelChecked ? null : state.keyClassifications
+})
+
 // VALIDATION RULES
 
 const keyNameValidation = [
@@ -326,6 +374,7 @@ async function create() {
         expiration: state.keyExpiration,
         groups: state.keyGroups,
         scope: state.keyScope.length > 0 ? state.keyScope : null,
+        allowedClassifications: allowedClassifications.value,
         siteId: state.keySiteId
       }
     }).json()
@@ -356,8 +405,22 @@ async function create() {
 
 // MOUNTED
 
-onMounted(() => {
+onMounted(async () => {
   loadGroups()
   loadSites()
+  state.loading++
+  try {
+    await adminStore.fetchClassificationLevels()
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.api.loadFailed'),
+      caption: err.message
+    })
+  }
+  // -> All-checked default (OpenProject #1205), equivalent to the old "No Limit" -- set only after
+  //    the levels are known, since the checkbox grid above has nothing to check before then.
+  state.keyClassifications = adminStore.classificationLevels.map((level) => level.id)
+  state.loading--
 })
 </script>

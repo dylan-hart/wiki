@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
-import { eq, sql } from 'drizzle-orm'
-import { sessions as sessionsTable } from '../db/schema.ts'
+import { eq, inArray, sql } from 'drizzle-orm'
+import { sessions as sessionsTable, userGroups as userGroupsTable } from '../db/schema.ts'
 
 /**
  * Sessions model
@@ -71,12 +71,48 @@ class Sessions {
   }
 
   /**
-   * Delete all sessions from a single user
+   * Delete all sessions from a single user.
+   *
+   * `session.groups`/`session.permissions` are snapshots taken at login (`models/users.ts`'s
+   * `updateSession`) and otherwise live up to the 30-day cookie age — so this is what makes a
+   * deactivation or a group-membership change (OpenProject #936) take effect for an open session
+   * immediately rather than on its next login: dropping the row is what logs the browser out on its
+   * very next request, the same way `rotateSecret()` above logs out every session at once.
    *
    * @param userId User ID
    */
   async clearSessionsFromUser(userId: string) {
     return WIKI.db.delete(sessionsTable).where(eq(sessionsTable.userId, userId))
+  }
+
+  /**
+   * Delete every session belonging to a CURRENT member of a group.
+   *
+   * The group-wide counterpart to `clearSessionsFromUser()` above: a group's global `permissions`
+   * column is also flattened onto `session.permissions` at login, so revoking one there is just as
+   * stale for every member's open session as revoking it from one user directly — this is what
+   * `models/groups.ts`'s own `reloadCache()` doc comment already promises for page RULES ("a revoked
+   * permission that waits for a logout is not revoked"), extended to cover this global-permission
+   * case too (OpenProject #936).
+   *
+   * @param groupId Group ID
+   * @returns How many sessions were ended
+   */
+  async clearSessionsForGroup(groupId: string): Promise<number> {
+    const members = await WIKI.db
+      .select({ userId: userGroupsTable.userId })
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.groupId, groupId))
+    if (members.length < 1) {
+      return 0
+    }
+    const result = await WIKI.db.delete(sessionsTable).where(
+      inArray(
+        sessionsTable.userId,
+        members.map((m) => m.userId)
+      )
+    )
+    return result.rowCount ?? 0
   }
 
   /**

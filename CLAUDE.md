@@ -11,18 +11,19 @@ read, tested and reasoned about. This applies to db columns, API payloads, store
 config keys alike; only real migrations under `backend/db/migrations/` are exempt, because Drizzle
 needs the history to get a live dev database to the current schema.
 
-Three independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
+Four independently-installed workspaces (each has its own `package.json` / `node_modules`, there is
 no root package or monorepo tooling):
 
-| Path        | What it is                                                    |
-| ----------- | ------------------------------------------------------------- |
-| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL |
-| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library  |
-| `blocks/`   | Lit web components users embed into wiki pages                 |
+| Path        | What it is                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------ |
+| `backend/`  | Fastify REST API server + job scheduler, Drizzle on PostgreSQL                            |
+| `frontend/` | Vue 3 / Vite SPA, Tailwind CSS + an in-repo component library                             |
+| `blocks/`   | Lit web components users embed into wiki pages                                           |
+| `e2e/`      | Playwright end-to-end suite, driving the built stack — see [Testing (e2e)](#testing-e2e) |
 
-Requires Node.js **26+** and PostgreSQL **16+**. All three workspaces are ESM (`"type": "module"`).
+Requires Node.js **26+** and PostgreSQL **16+**. All four workspaces are ESM (`"type": "module"`).
 
-The backend is **TypeScript 7**; `frontend/` and `blocks/` are JavaScript. See
+The backend is **TypeScript 7**; `frontend/`, `blocks/` and `e2e/` are JavaScript. See
 [TypeScript (backend)](#typescript-backend).
 
 ## Layout
@@ -33,8 +34,9 @@ The backend is **TypeScript 7**; `frontend/` and `blocks/` are JavaScript. See
   `frontend/vite.config.js` in dev mode to learn the proxy target port.
 - `assets/` — **build output** of the frontend (`vite build` writes here), plus static assets under
   `assets/_assets/`. Served by the backend. Don't hand-edit.
-- `dev/` — deployment/packaging artifacts: `dev/build/Dockerfile` (production image), `dev/helm/`,
-  `dev/packer/`, `dev/noto-emoji-build/`.
+- `dev/` — deployment/packaging artifacts: `dev/build/Dockerfile` (production image),
+  `dev/noto-emoji-build/`. The 2.x-era Helm chart and Packer image builder were deleted (see
+  `docs/variances.md`) — there is no 3.x release yet for either to deploy.
 - `.devcontainer/` — VS Code dev container (app + postgres + pgAdmin via docker-compose).
 - `localazy.json` — translation sync config; locale strings live in `backend/locales/`.
 
@@ -50,10 +52,14 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   prefix.
   - `api/schemas/` — shared JSON Schemas registered via `app.addSchema()` and referenced from route
     schemas as `{ $ref: 'Site#' }`. Register new shared schemas in `api/index.ts` *before* the routes.
-- `controllers/` — non-API HTTP routes. `site.ts` serves per-site resources (logo, favicon, login
+- `controllers/` — non-API HTTP routes: `site.ts` serves per-site resources (logo, favicon, login
   background) under `/_site`; `icons.ts` serves icons under `/_icons`, implementing the part of the
   Iconify API protocol the frontend speaks (`/_icons/<prefix>.json?icons=a,b` and
-  `/_icons/<prefix>/<name>.svg`). Public and cached hard — see [Icons](#icons).
+  `/_icons/<prefix>/<name>.svg`), public and cached hard — see [Icons](#icons); `blocks.ts` serves a
+  custom block's compiled JS under `/_blocks/custom/:siteId/:blockId.js`; `files.ts` serves stored
+  assets; `render.ts` serves a rendered page; `thumb.ts` serves page/asset thumbnails; `collab.ts` is
+  the Yjs collaborative-editing WebSocket upgrade; `metrics.ts` exposes Prometheus metrics;
+  `seo.ts` serves `robots.txt`/`sitemap.xml`; `terminal.ts` and `user.ts` round out the set.
 - `core/` — long-lived singletons: `config.ts` (yml + db-backed settings), `db.ts` (pg pool, Drizzle
   instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (poolifier thread pool +
   postgres-backed job queue).
@@ -63,16 +69,22 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `SystemIds` passed to each model's `init()` during first-run seeding.
 - `modules/` — pluggable extensions, discovered from disk. Each module is a directory with a
   `definition.yml` (key, title, props/config schema) plus its implementation — e.g.
-  `modules/authentication/local/`. `modules/storage/*` is definition-only so far: the admin area
-  stores a configuration per site and module, but no `storage.ts` exists yet and nothing reads or
-  writes content through a target — pages and assets go straight to the database.
+  `modules/authentication/local/`. Six kinds exist: `authentication/`, `storage/` (7 modules —
+  `disk`, `s3`, `azure`, `gcs`, `sftp`, `git`, `db` — each shipping a real `storage.ts`; see
+  `models/storage.ts`), `search/`, `analytics/`, `comments/`, `extensions/`.
+- `mcp/` — the in-process Model Context Protocol server (`bootstrap.ts`, `auth.ts`, `http.ts`),
+  exposing wiki content/actions to an MCP-speaking client over the instance's own HTTP surface.
+- `migration/` — the 2.5.x-to-3.0 import CLI: `cli.ts` and `orchestrator.ts` drive a source
+  `connector.ts`/`connectors/` implementation through staged `phases/`, `importers/` per record class,
+  and `mappers/` for field translation, recording provenance and a dry-run report along the way. See
+  `docs/migration/` for the source-schema and field-mapping specs this reads against.
 - `tasks/simple/` — jobs run in-process by the scheduler; each exports `task()`. File name is
   kebab-case, the task key is its camelCase form.
 - `tasks/workers/` — CPU-bound jobs run in a worker thread via `worker.ts`, which boots a minimal
   `WIKI` global (config + logger + lazy `ensureDb()`) and dynamically imports the task.
 - `base.yml` — system defaults for every config key. Do not edit as a user-facing config; it defines
   the shape merged with `config.yml` and the db `settings` table.
-- `helpers/` — small pure utilities (`common.ts`, `config.ts`).
+- `helpers/` — small pure utilities (`common.ts`, `config.ts`, `pageRules.ts`, `siteRules.ts`, …).
 - `types/` — ambient declarations: `global.d.ts` (the `WIKI` global) and `fastify.d.ts` (session +
   route-permission augmentations).
 - `locales/` — `en.json` source strings (Localazy-managed) + `metadata.js` language table (the one
@@ -229,8 +241,11 @@ Conventions established during the conversion, worth following in new code:
   wouldn't silently change runtime behavior. All four bugs that convention originally flagged
   (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
   `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
-  removed with them — `backend/` currently carries none (`grep -rn 'FIXME:' backend/` comes back
-  empty; see `docs/variances.md`'s "TODO/FIXME audit" section for the full account). If a future
+  removed with them. One `FIXME:` remains, unrelated to the TS conversion — `index.ts`'s note by the
+  session/cookie plugin registration, on `WIKI.config.auth.secret` being captured by value instead of
+  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) does not
+  actually stop a still-running instance from signing new cookies with the invalidated secret until
+  that instance restarts; echoed at `models/apiKeys.ts:236` and `models/sessions.ts:93`. If a future
   migration or refactor turns up another pre-existing bug outside its scope, follow the same
   pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
   rather than changing runtime behavior inline.
@@ -240,10 +255,12 @@ Conventions established during the conversion, worth following in new code:
 ### Style, linting, formatting
 
 **oxlint** for linting, **oxfmt** for formatting — not ESLint or Prettier (ESLint is explicitly
-disabled in `.vscode/settings.json`). Both are devDependencies of `backend/` and `frontend/`.
+disabled in `.vscode/settings.json`). oxlint is a devDependency of `backend/`, `frontend/` and
+`blocks/`; oxfmt only of `backend/` (its install is treated as the canonical one for the repo-root
+format check — see `.github/workflows/quality.yml`'s "Format Check" step comment).
 
 ```sh
-npx oxlint            # from backend/ or frontend/ — uses that dir's .oxlintrc.json
+npx oxlint            # from backend/, frontend/ or blocks/ — uses that dir's .oxlintrc.json
 npx oxfmt <paths>     # config is the repo-root .oxfmtrc.json
 ```
 
@@ -254,9 +271,10 @@ Otherwise follow **standard JS** rules. Note that much of `frontend/` predates o
 the standard-style space before parens (`function initializeRouter ()`); new and touched code should
 be oxfmt-formatted, but don't reformat untouched files as drive-by changes.
 
-Each workspace has its own `.oxlintrc.json` — the backend declares the `WIKI` global and node env;
-the frontend adds the `vue` plugin and the `API_CLIENT` / `EVENT_BUS` / `Temporal` globals. Only the
-`correctness` category is an error.
+Each of the three workspaces has its own `.oxlintrc.json` — the backend declares the `WIKI` global
+and node env; the frontend adds the `vue` plugin and the `API_CLIENT` / `EVENT_BUS` / `Temporal`
+globals; blocks declares a browser env, with no globals of its own to add. Only the `correctness`
+category is an error, everywhere.
 
 Both tools handle `.ts` with no extra configuration, and the backend's oxlint config already enables
 the `typescript` plugin. oxlint does not type-check — run `npm run typecheck` for that.
@@ -287,9 +305,9 @@ These apply to **every workspace**, `frontend/` included — not just the backen
 - **Use `es-toolkit`, not `lodash-es`.** Installed in both `backend/` and `frontend/`.
 - **Use the native `Temporal` API, not luxon.** See [Backend patterns](#backend-patterns) for the
   Temporal gotchas worth knowing; they apply on the frontend too.
-- **luxon and lodash-es are being removed entirely.** The migration is gradual: when you touch a file
-  that imports either one, convert that file's usages as part of the same change — but don't sweep
-  through untouched files as a drive-by. Once the last usage is gone, both dependencies get dropped.
+- **luxon and lodash-es have been removed entirely** — zero imports and zero manifest entries left in
+  either `backend/` or `frontend/`. Do not reintroduce either: use `es-toolkit`/`Temporal` in any new
+  code, including a file that once imported one of them.
 - Prefer real es-toolkit subpath exports (`es-toolkit/object`, `es-toolkit/array`,
   `es-toolkit/predicate`) over `es-toolkit/compat`. Two lodash helpers are compat-only and have direct
   equivalents: `defaultsDeep(source, defaults)` → `toMerged(defaults, source)` (note the argument
@@ -301,16 +319,16 @@ These apply to **every workspace**, `frontend/` included — not just the backen
 
 ### Permissions
 
-There are **two kinds of permission**, granted separately and checked in different places. Which
+There are **three kinds of permission**, granted separately and checked in different places. Which
 kind a name belongs to decides how it may be enforced, so it is the first thing to establish about
 any permission you touch.
 
-**Global permissions** are held site-wide, bound to no path: `access:admin`, `manage:users`,
-`manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`, `manage:system`. That list is
-the whole of it — the one offered by the group editor (`GroupEditOverlay.vue`). They live on a
-group's `permissions` column, are flattened onto `req.session.permissions` at login
-(`models/users.ts` → `updateSession`), and are what the per-route `config.permissions` hook
-checks. `manage:system` bypasses every check everywhere.
+**Global permissions** are held site-wide, bound to no path: `access:admin`, `read:users`,
+`manage:users`, `read:groups`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
+`manage:glossary`, `manage:system`. That list is the whole of it — the one offered by the group
+editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, are flattened onto
+`req.session.permissions` at login (`models/users.ts` → `updateSession`), and are what the per-route
+`config.permissions` hook checks. `manage:system` bypasses every check everywhere.
 
 **Page rule permissions** are bound to paths, and to locales and sites: `read:pages`, `write:pages`,
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
@@ -322,24 +340,43 @@ several rules match, the most specific one wins — `helpers/pageRules.ts` docum
 Ask `WIKI.models.groups.checkAccess(actor, permission, page)`, or `mayOnPage(req, permission, page)`
 in `api/pages.ts`.
 
+**Site-scoped delegation permissions** are bound to a site (not a path): `site:general`,
+`site:theme`, `site:navigation`, `site:blocks`, `site:approvals`, `site:login`, `site:locale`,
+`site:editors` (`SITE_PERMISSIONS` in `helpers/siteRules.ts`) — one per delegable admin settings
+surface, for handing a non-`manage:sites` user control of specific sites without making them a full
+site administrator. A group grants them through the **same rule rows** page permissions use
+(`GroupRule.roles` is one shared vocabulary space across both kinds — see
+`docs/decisions/delegated-per-site-administration.md`), just addressed by `sites` alone instead of
+`path`/`match`/`locales`: an empty `sites` array means every site, a populated one means only those
+ids. Nothing is granted by default; `helpers/siteRules.ts#resolveSiteRule` documents the ALLOW <
+DENY < FORCEALLOW tie-break, the same ordering `helpers/pageRules.ts` uses. Ask
+`WIKI.models.groups.checkSiteAccess(actor, permission, siteId)`.
+
 Consequences worth knowing:
 
-- **A page permission cannot be enforced by `config.permissions`.** That hook reads the group-wide
-  list only, so `permissions: ['write:pages']` refuses everybody. A route that turns on a page
-  permission declares no route permission and checks in the handler instead — say so with a
-  `No route-level permissions:` comment, as `api/pages.ts`, `api/assets.ts` and `api/blocks.ts` do.
-- **The two names are not interchangeable.** `manage:pages` does not imply `write:pages`: a rule
-  grants the exact strings in its `roles`.
-- **On the frontend**, `userStore.permissions` is the global list (from `users/whoami`) and
+- **A page or site-scoped permission cannot be enforced by `config.permissions`.** That hook reads
+  the group-wide list only, so `permissions: ['write:pages']` refuses everybody. A route that turns
+  on one of these declares no route permission and checks in the handler instead — say so with a
+  `No route-level permissions:` comment, as `api/pages.ts`, `api/assets.ts`, `api/blocks.ts` and
+  `api/sites.ts`'s site-scoped routes do.
+- **Names are not interchangeable across or within kinds.** `manage:pages` does not imply
+  `write:pages`, and `manage:sites` does not imply any `site:*` permission: a rule grants the exact
+  strings in its `roles`.
+- **On the frontend**, `userStore.permissions` is the global list (from `users/whoami`),
   `userStore.pagePermissions` is what the session holds AT THE CURRENT PATH (from
-  `pages/userPermissions`, refreshed per route in `App.vue`). `userStore.can()` ORs the two and
-  treats `manage:system` as a wildcard, so it answers "may do this somewhere". Gate a control over
-  the page in front of the reader on `pagePermissions` — that is what the endpoint behind the
-  button will check.
+  `pages/userPermissions`, refreshed per route in `App.vue`), and `userStore.sitePermissions` is what
+  it holds for one specific site (from `sites/:siteId/userPermissions`, fetched by
+  `fetchSitePermissions(siteId)` — see `composables/siteAdminAccess.js`, the admin area's nine
+  site-scoped pages). `userStore.can()` ORs the global and page lists and treats `manage:system` as a
+  wildcard, so it answers "may do this somewhere"; `userStore.canOnSite(permission, siteId)` is the
+  site-scoped counterpart, answering only for the site it was last fetched for — a stale or
+  mismatched `siteId` is refused, not answered with the wrong site's grant. Gate a control over the
+  page (or site) in front of the reader on `pagePermissions` (or `canOnSite`) — that is what the
+  endpoint behind the button will actually check.
 - **An anonymous request is the guests group**, not an absence of groups: that is how a wiki opens
   reading, and suggesting edits, to the public. Deny guests explicitly where an account is genuinely
   required (`reviewerFor` in `api/approvals.ts` is the worked example).
-- **Never invent a permission name.** Both lists above are closed; `can('browse:fileman')` and
+- **Never invent a permission name.** All three lists above are closed; `can('browse:fileman')` and
   friends matched nothing and silently hid the controls they guarded.
 
 ### Backend patterns
@@ -387,8 +424,22 @@ separate transpile or worker config.
 - **File convention: co-located `*.test.ts`.** A test lives next to the file it covers —
   `helpers/pageRules.ts` → `helpers/pageRules.test.ts` — not in a mirrored `test/` tree. `tsconfig.json`
   already includes all of `**/*.ts`, so test files are type-checked for free by `npm run typecheck`;
-  oxlint and oxfmt cover them the same way. `test/` itself is the one exception, reserved for shared
-  fixture code that is not itself a `*.test.ts` — see below.
+  oxlint and oxfmt cover them the same way. `test/` holds shared fixture code that is not itself a
+  `*.test.ts` (`db.ts`, `mocks.ts`, …), plus two narrow categories of test that genuinely have no
+  single co-located home: a DB-backed round trip spanning more than one source file rather than
+  unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
+  `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
+  this one is the real round trip between them), and a structural/self-consistency check against a
+  repo-root doc or CI config with no backend-workspace file to sit next to at all
+  (`changelog.test.ts` against `cliff.toml`, `release-checklist-doc.test.ts` against
+  `docs/release-checklist.md`, `release-workflow.test.ts` against `.github/workflows/build.yml` AND
+  `release.yml` together, `releasing-doc.test.ts` against `docs/versioning.md` — none of those
+  subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
+  this workspace). A test file that genuinely does have one specific co-located sibling belongs next
+  to it, not here — three such near-namesake pairs (`test/api/sites.test.ts` vs. `api/sites.test.ts`,
+  `test/core/config.test.ts` vs. `core/config.test.ts`, `test/core/scheduler.test.ts` vs.
+  `core/scheduler.test.ts`) existed as discovery hazards until this pass confirmed each co-located
+  file already fully superseded its `test/` namesake and deleted the redundant copy.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
@@ -415,7 +466,7 @@ separate transpile or worker config.
     `.devcontainer` postgres, or a container reused across several local invocations) from
     accumulating one abandoned schema per run.
   - A throwaway instance to point `DATABASE_URL` at: `docker run --rm -d --name wiki-test-db -p
-    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:17`, then
+    56001:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=postgres postgres:18`, then
     `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56001/postgres npm run test`. Nothing under
     `npm run test` spins up its own database — pointing `DATABASE_URL` at one, ephemeral or
     `.devcontainer`'s, is always the caller's choice to make.
@@ -447,8 +498,7 @@ separate transpile or worker config.
   prefix; authentication is the session cookie, sent with every request.
 - Cross-component messaging uses the `EVENT_BUS` global (mitt).
 - State lives in Pinia option stores. For utilities and dates use `es-toolkit` and `Temporal` — see
-  [Utilities and dates](#utilities-and-dates); the `lodash-es` and `luxon` still present in older
-  files are on their way out.
+  [Utilities and dates](#utilities-and-dates); `lodash-es` and `luxon` have both been fully removed.
 
 ### Testing (frontend)
 
@@ -534,8 +584,10 @@ would.
   different DOM emulator.
 - **File convention: co-located `component.test.js`**, matching the `*.test.ts` / `*.test.js`
   convention in `backend/` and `frontend/` — `block-gallery/component.js` →
-  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `*/component.test.js`
-  accordingly.
+  `block-gallery/component.test.js`. `vitest.config.js`'s `include` is `**/*.test.js`, wide enough to
+  also discover a future `shared/theme.test.js` or `shared/url-limit.test.js` (`shared/`'s
+  `url-limit.js`, `config.js`, `icons.js`, `theme.js` currently have no test coverage at all) — a
+  narrower `*/component.test.js` could only ever match inside a `block-*/` directory.
 - **Mounting pattern** — a block reads its content from the *light* DOM (the markdown body becomes its
   children before Lit ever renders), so a test builds that shape directly rather than passing props:
   ```js
@@ -557,11 +609,10 @@ would.
   fake timers or polling needed. `block-gallery/component.test.js`'s `describe('dark mode', ...)`
   block is the reference case — a template worth copying verbatim into the next block's suite, since
   the controller's behavior (not any one block's use of it) is what's actually being locked down.
-- **Not (yet) linted**: unlike `backend/` and `frontend/`, `blocks/` carries no `oxlint` devDependency
-  or `.oxlintrc.json` of its own — out of scope for this task, which is about test infrastructure, not
-  introducing linting to a workspace that has never had it. `npx oxlint` was run once here anyway (ad
-  hoc, no persistent config) purely to confirm the new test file itself is clean; it downloaded a
-  fresh `oxlint` binary and reported zero findings against the default ruleset.
+- **Linted the same way as `backend/` and `frontend/`**: `blocks/` has its own `oxlint` devDependency
+  and `.oxlintrc.json`, run the same way (`npx oxlint` from `blocks/`) and wired into
+  `.github/workflows/quality.yml`'s "Blocks Lint" step alongside the other two workspaces' — see
+  [Style, linting, formatting](#style-linting-formatting).
 
 ### Testing (e2e)
 
@@ -586,8 +637,8 @@ superset of one of them.
   timeout" is the task's own bar, and a missing env var is the single most likely way to trip it. A
   throwaway container works the same way `backend/`'s DB-backed tests document (`test/db.ts`):
   `docker run --rm -d --name wiki-e2e-db -p 56002:5432 -e POSTGRES_PASSWORD=postgres -e
-  POSTGRES_DB=postgres postgres:17`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
-  npm test`. In CI, a fresh `postgres:17` service container per run is what makes "seeded test
+  POSTGRES_DB=postgres postgres:18`, then `DATABASE_URL=postgres://postgres:postgres@127.0.0.1:56002/postgres
+  npm test`. In CI, a fresh `postgres:18` service container per run is what makes "seeded test
   database" true on every invocation, not just the first.
 - **The seed IS the app's own first-run path**, not a fixture this suite maintains separately: an
   empty database has no `settings` row, so `core/config.ts`'s `initDbValues()` runs exactly as it
@@ -608,10 +659,16 @@ superset of one of them.
   its signal that typed content has synced to the store, only renders above a 1024px-wide viewport
   (`EditorMarkdown.vue`'s `useMinWidth(1024)`).
 - **File convention**: specs are `tests/*.spec.js`, one per flow — `auth.spec.js` (flow 1),
-  `page-publish.spec.js` (flow 2), `multi-site.spec.js` (flow 3) — and `helpers/admin.js` holds what
-  more than one of them needs (`loginAsAdmin`, `createAndPublishPage`,
+  `page-publish.spec.js` (flow 2), `multi-site.spec.js` (flow 3), `rtl.spec.js` (Feature 413's RTL
+  support, seeding a synthetic RTL test locale straight into the database under test before its
+  suite runs), and `scheduler.spec.js` (the admin Scheduler UI's Upcoming/Active/Failed tabs).
+  `helpers/admin.js` holds what more than one spec needs (`loginAsAdmin`, `createAndPublishPage`,
   `expectAuthenticatedShell`/`expectGuestShell`, `uniqueSlug` for collision-free paths/hostnames
   across repeated runs against a database that already has a prior run's data in it).
+  `helpers/db.js` is `scheduler.spec.js`'s own direct-Postgres helper (a `pg` devDependency, since
+  `e2e/` otherwise never touches the database directly) for the handful of job states nothing in the
+  app's own API can plant on demand — an "already picked up by another instance" race, a stuck
+  `interrupted` row still owed a retry, a bulk-seeded history page past the UI's display limit.
 - **Monaco is a real, asynchronously-mounted editor, not a `<textarea>`.** `createAndPublishPage`
   waits for `.editor-markdown-editor .monaco-editor` before clicking into it — clicking the
   container before Monaco has rendered a focusable surface under it is a click with nothing to
@@ -652,41 +709,52 @@ superset of one of them.
 
 ### Testing (CI)
 
-`.github/workflows/build.yml`'s single `build` job runs every workspace's test suite — `backend/`,
-`frontend/`, `blocks/`, then the Playwright suite documented above — as ordinary steps, all placed
-**before** the Docker login/build/push steps at the bottom of the job. A failing step fails the job
-outright (GitHub Actions' default `continue-on-error: false`), so a broken test blocks the image
-from ever being built or pushed the same way a broken `npm run build` already did — there was no
-dedicated "test job" to add this to, so the steps went into the existing one, per the task's own
-either/or.
+Two workflow files split the work: `.github/workflows/quality.yml` (typecheck/lint/format +
+backend/frontend/blocks unit tests) and `.github/workflows/build.yml` (version stamping, asset/blocks
+building, the Playwright e2e suite, then the Docker publish). `quality.yml` is a `workflow_call:`
+target, not folded into `build.yml` directly: a plain `pull_request:` trigger added to `build.yml`
+itself would have no way to stop its expensive Docker build/push job from also queuing on every PR,
+where `needs:` only works between jobs in the *same* workflow run. `quality.yml`'s own header
+comment carries the full reasoning.
 
-- **One job, not two-plus-`needs:`.** Splitting build/test into separate jobs would mean either
-  re-installing everything in the test job (paying `npm ci`/`vite build` twice) or shuttling the
-  built `assets/`/`blocks/compiled`/`backend/node_modules` between jobs via `actions/upload-artifact`
-  — both slower and more moving parts than steps that already share one runner's filesystem and one
-  `npm ci` per workspace.
+- **`quality.yml` runs on every pull request directly, and on every `scarlett` push via
+  `build.yml`'s `quality` job (`uses: ./.github/workflows/quality.yml`).** Its steps: backend
+  typecheck, then per-workspace lint (`oxlint --deny-warnings`, so a warning fails the step the same
+  as an error — not just the `correctness`-category errors `oxlint` fails on by default) and the
+  frontend's icon/emoji drift checks, then a `Backend/Frontend/Blocks Tests` step per workspace
+  (`npm run test`), then one repo-wide `oxfmt --check`. A `postgres:18` service container backs the
+  backend's DB-backed model suites (skipped without one — see [Testing
+  (backend)](#testing-backend)); frontend and blocks never touch it. `setup-node`'s `cache: npm` is
+  set in every workflow, keyed on each workflow's own actual lockfiles, so a `scarlett` push's two
+  jobs (`quality` + `build`) don't each pay for a cold `npm ci`.
+- **`build.yml`'s `build` job `needs: quality`, and does not repeat its tests.** Re-running the same
+  three `npm run test` invocations in `build` on top of what `quality` already ran on the identical
+  commit would pay for them twice with no new coverage — the same "don't run the same suite twice per
+  commit" reasoning `e2e.yml`'s own removed push trigger (below) gives. Its own steps, after the
+  gate: stamp the alpha version, build `frontend/`'s assets and `blocks/compiled`, run the Playwright
+  e2e suite against that build, then log in to GHCR and build/push the Docker image — all **before**
+  the Docker steps, so a failing step (GitHub Actions' default `continue-on-error: false`) blocks the
+  image the same way a broken `npm run build` already did.
 - **The Playwright leg reuses the build that's already there, not a second one.** `e2e/`'s
   `playwright.config.js` boots `node backend` against `frontend/`'s `assets/` output (see "Testing
-  (e2e)" above) — both already produced by the "Build Assets" and "Install Backend Dependencies"
-  steps earlier in the same job, so this leg is exactly the "against a build of the stack" the task
-  asked for without an extra `npm run build`. The Docker image itself is never rebuilt for this
-  leg's sake: it is not built at all until every test step above — including this one — has already
-  passed, so there is exactly one `docker/build-push-action` invocation per run, staged and pushed
-  once, not staged once for testing and rebuilt again to push.
-- **One `postgres:17` service container, shared by every leg that needs a real database.** Declared
-  at the job level (not per-step), with `DATABASE_URL` set as a job-level `env:` so it's visible to
-  the backend test step (turning on task 756's DB-backed model suites, skipped locally without a
-  database) and the Playwright step (its own required `DATABASE_URL`, per "Testing (e2e)" above)
-  alike, without redeclaring it twice. The two don't collide: the model tests carve out their own
-  randomly-named schema per file (`backend/test/db.ts`) while Playwright seeds the default schema
-  through the app's real first-run path, and by the time Playwright's `webServer` starts, every
-  backend test file that touched the database has already finished and been cleaned up (sequential
-  steps in one job).
-- **`e2e.yml`'s own `push: branches: [scarlett]` trigger was deleted**, not left in alongside this —
-  that push event now runs the Playwright suite from *this* job already, and gaining nothing back
-  for a second install-browsers-and-run-the-suite pass on the same commit contradicts the "CI runtime
-  stays reasonable" bar the task set for itself. `e2e.yml` still runs standalone on `pull_request`
-  and `workflow_dispatch`, which `build.yml`'s push-only trigger doesn't cover.
+  (e2e)" above) — both already produced by earlier steps in the same job, so this leg is exactly
+  "against a build of the stack" with no extra `npm run build`. The Docker image itself is not built
+  at all until every step above — including this one — has already passed, so there is exactly one
+  `docker/build-push-action` invocation per run, not one for testing and a rebuild to push.
+- **`build`'s own `postgres:18` service container is for the Playwright leg's first-run seeding
+  only** — the backend's DB-backed model suites run in `quality`'s own separate service container
+  (above), not here.
+- **`e2e.yml`'s own `push: branches: [scarlett]` trigger was deleted**, not left in alongside
+  `build.yml`'s own Playwright step — that push event already runs the same suite from `build.yml`'s
+  `build` job, and gaining nothing back for a second install-browsers-and-run-the-suite pass on the
+  same commit contradicts the "CI runtime stays reasonable" bar this split was built against.
+  `e2e.yml` still runs standalone on `pull_request` and `workflow_dispatch`, which `build.yml`'s
+  push-only trigger doesn't cover.
+- **`release.yml`'s tag-push channel runs its own copy of the quality gates** (typecheck, lint,
+  drift checks, format — `--deny-warnings` there too) rather than depending on `build.yml`'s run for
+  the exact commit a release tag points at, so a release never publishes on a stale, skipped, or
+  not-yet-run gate. It does not repeat the unit or e2e suites, for the same already-covered-by-the-
+  `scarlett`-push reasoning as above — see its own header comment and `docs/release-checklist.md`.
 
 ### Icons
 
@@ -707,8 +775,8 @@ store; no SVG is ever written into content.
   Components that take an `icon` prop go through it too, so every form works there.
   - Every Iconify reference written **literally in this repo's source** is inlined at build time by
     `scripts/generate-icons.mjs` into `src/assets/icons.generated.js` (committed) and drawn as an
-    inline `<svg>`. Run `npm run icons` after adding or removing one; `check-icons.mjs` fails if the
-    bundle drifts. This is why the interface needs no icon webfont — and why nothing an
+    inline `<svg>`. Run `npm run icons` after adding or removing one; `npm run icons:check` fails if
+    the bundle drifts. This is why the interface needs no icon webfont — and why nothing an
     administrator does to icon sets can blank it, which fetching at runtime could not promise:
     resolution is gated on the set being enabled, and deleting a set drops every icon stored for it.
   - A reference built at runtime — an icon a **user** picked, stored on a page or nav item — is
@@ -726,20 +794,25 @@ store; no SVG is ever written into content.
 
 ### GraphQL is being removed
 
-An earlier iteration of 3.x used GraphQL/Apollo. **All of it is deprecated** — there is no GraphQL
-server left in `backend/`, and `APOLLO_CLIENT` is not defined as a global, so any call still going
-through it throws. `blocks/block-index/` also still imports a `tree.graphql`.
+An earlier iteration of 3.x used GraphQL/Apollo. **All of it is gone from the live surface** — there
+is no GraphQL server left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call
+through it would throw, and `blocks/block-index/` no longer imports a `tree.graphql` (its tree comes
+from `sites/…/tree/pages`, plain REST).
 
-Three files under `frontend/src/` make live `APOLLO_CLIENT` calls, and each needs a REST endpoint
-that does not exist yet, so the feature behind it is currently broken:
+Four route-*unreachable* pages under `frontend/src/pages/` are the only remnant: `AdminPages.vue`,
+`AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue` still call `this.$apollo.mutate`/
+`this.$apollo.queries.*` from an Options-API `apollo:` block — a different, older integration than
+the `APOLLO_CLIENT` global the paragraph above rules out, and one with nothing installed to back it,
+so any of these calls would throw `TypeError: Cannot read properties of undefined (reading
+'mutate')` the moment it ran. None of the four is presently linked from `routes.js` (dead code,
+not merely deprecated), so nothing exercises the throw today. Porting them to REST — or deleting
+them if the feature they back is superseded — is its own, separate work package rather than
+something to fix as a drive-by.
 
-| File | Feature |
-| ---- | ------- |
-| `components/AuthLoginPanel.vue` | self-registration (the `register()` call only — passkey login and 2FA are REST now) |
-| `pages/AdminNavigation.vue`, `pages/AdminUtilities.vue` | assorted admin actions |
-
-When touching such a file, port it to the REST API (`API_CLIENT` + the matching `backend/api/` route)
-rather than extending the GraphQL code. If the REST endpoint doesn't exist yet, add it under
-`backend/api/` following the schema + permissions conventions above — `sites/:siteId/images/:kind`,
-which replaced the logo and favicon upload mutations in `AdminGeneral.vue`, is a recent example of
-doing exactly that.
+Every other former GraphQL consumer has already been ported to REST — `components/AuthLoginPanel.vue`'s
+`register()` call included, alongside the passkey login and 2FA paths that were REST from the start.
+When touching one of the four remaining files, port it to the REST API (`API_CLIENT` + the matching
+`backend/api/` route) rather than extending the `$apollo` code. If the REST endpoint doesn't exist
+yet, add it under `backend/api/` following the schema + permissions conventions above —
+`sites/:siteId/images/:kind`, which replaced the logo and favicon upload mutations in
+`AdminGeneral.vue`, is a recent example of doing exactly that.

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { CronExpressionParser } from 'cron-parser'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import { createDeferred, type Deferred } from '../helpers/common.ts'
 import { connectListener, createNotifier, type ListenerHandle } from '../helpers/pubsub.ts'
 import { camelCase } from 'es-toolkit/string'
@@ -32,6 +32,18 @@ const DEFAULT_TASK_TIMEOUT = 300
 
 /** Fallback for `scheduler.staleJobTimeout`, in seconds, when nothing is configured. */
 const DEFAULT_STALE_JOB_TIMEOUT = 3600
+
+/**
+ * How long an `addJob({ promise: true })` deferred waits for a `jobCompleted` NOTIFY before giving up
+ * on its own (OpenProject #928).
+ *
+ * A multiple of `staleJobTimeout` rather than its own config key: that setting is already this
+ * scheduler's "nobody could still be working on this" threshold (`reapStaleJobs`'s own doc comment), so
+ * a promise waiting on a job that has gone stale, been reaped, and requeued should still be alive to
+ * see the requeued attempt finish — one plain `staleJobTimeout` would expire it out from under a job
+ * that is, in fact, still going to answer.
+ */
+const COMPLETION_PROMISE_TTL_MULTIPLIER = 2
 
 /**
  * How much longer than the task timeout the scheduler waits before giving up on its own.
@@ -193,6 +205,7 @@ export default {
     this.scheduledRef = setInterval(async () => {
       this.addScheduled()
       this.reapStaleJobs()
+      this.expireCompletionPromises()
     }, WIKI.config.scheduler.scheduledCheck * 1000)
 
     // -> Add scheduled jobs on init
@@ -225,7 +238,7 @@ export default {
     promise = false
   }: AddJobOptions): Promise<{ id: string; promise?: Promise<void> } | undefined> {
     try {
-      const jobId = uuid()
+      const jobId = crypto.randomUUID()
       const jobDefer = createDeferred()
       if (promise) {
         this.completionPromises.push({
@@ -261,6 +274,30 @@ export default {
       }
     } catch (err: any) {
       WIKI.logger.warn(`Failed to add job to scheduler: ${err.message}`)
+    }
+  },
+  /**
+   * Reject any `addJob({ promise: true })` deferred that has waited past its ceiling (OpenProject
+   * #928), and stop tracking it.
+   *
+   * The only way a `completionPromises` entry ever otherwise settles is a `jobCompleted` NOTIFY
+   * (`start()`'s `onNotification` handler above) — and postgres NOTIFY is not durable, so one missed
+   * during a LISTEN reconnect is simply gone. Without this sweep that left the deferred, and everything
+   * awaiting it (`api/system.ts`'s check-update route, for one), pending forever, and the map entry
+   * itself leaked for the life of the process. `added` (written by `addJob`, otherwise never read) is
+   * what makes each entry's age checkable.
+   */
+  expireCompletionPromises(): void {
+    const ttlSeconds =
+      (WIKI.config.scheduler.staleJobTimeout ?? DEFAULT_STALE_JOB_TIMEOUT) *
+      COMPLETION_PROMISE_TTL_MULTIPLIER
+    const cutoff = Temporal.Now.instant().subtract({ seconds: ttlSeconds })
+    const expired = remove(
+      this.completionPromises,
+      (p) => Temporal.Instant.compare(p.added, cutoff) < 0
+    )
+    for (const p of expired) {
+      p.reject(new Error(`Timed out after ${ttlSeconds}s waiting for job ${p.id} to complete.`))
     }
   },
   /**
@@ -485,6 +522,14 @@ export default {
    * The `UPDATE` is the claim: two instances sweeping at once both filter on `state = 'active'`, so
    * whichever commits second matches nothing and returns nothing.
    *
+   * A job that gets requeued below is not abandoned — `runJob` sends its own `jobCompleted` NOTIFY
+   * once the requeued attempt actually finishes, resolving whichever `addJob({ promise: true })`
+   * deferred is still waiting on that (unchanged) job id the ordinary way. A job that is skipped
+   * instead (its attempts are used up) has no such future: nothing is ever going to run it again, so
+   * this is the only place anything will ever report on it, and OpenProject #928 has this send the
+   * `jobCompleted` failure NOTIFY itself rather than leaving that job's deferred to time out on its own
+   * `expireCompletionPromises()` ceiling.
+   *
    * @returns How many jobs were requeued
    */
   async reapStaleJobs(): Promise<number> {
@@ -510,6 +555,16 @@ export default {
           WIKI.logger.warn(
             `Job ${job.id}: ${job.task} was interrupted and has no attempts left [ SKIPPED ]`
           )
+          notifier.send(
+            'scheduler',
+            JSON.stringify({
+              source: WIKI.INSTANCE_ID,
+              event: 'jobCompleted',
+              state: 'failed',
+              id: job.id,
+              errorMessage: job.lastErrorMessage
+            })
+          )
           continue
         }
         await WIKI.db.insert(jobsTable).values({
@@ -520,6 +575,16 @@ export default {
           retries: job.attempt,
           maxRetries: job.maxRetries,
           isScheduled: job.wasScheduled,
+          // -> Explicit, not left null: this job already passed whatever `waitUntil` it had before it
+          //    was claimed and interrupted, so it is due again right now regardless. Leaving it null
+          //    would still make `processJob`'s claim query pick it up immediately too (its `WHERE`
+          //    treats null the same as "already due") — but a *scheduled* row with a null `waitUntil`
+          //    crashes `addScheduled()`'s dedupe check the next time it runs (`j.waitUntil.getTime()`
+          //    on `null`), silently pausing cron seeding for this task until this row is claimed
+          //    (OpenProject #929). Setting a real timestamp here keeps every row `isScheduled = true`
+          //    ever produces satisfying that invariant, rather than defending against `null` at every
+          //    site that reads it.
+          waitUntil: new Date(),
           createdBy: WIKI.INSTANCE_ID
         })
         requeued++
@@ -578,10 +643,18 @@ export default {
               while (plannedIterations.hasNext()) {
                 try {
                   const next = plannedIterations.next()
-                  // -> Ensure this iteration isn't already scheduled
+                  // -> Ensure this iteration isn't already scheduled. `j.waitUntil &&` guards against
+                  //    a scheduled row with a null `waitUntil` — `reapStaleJobs` no longer produces
+                  //    one (OpenProject #929), but a null here must never crash this loop (silently
+                  //    pausing cron seeding for every task after it) regardless of how it got there:
+                  //    at worst, treating it as "not a match" schedules one harmless extra occurrence
+                  //    instead.
                   if (
                     !existingJobs.some(
-                      (j: any) => j.task === job.task && j.waitUntil.getTime() === next.getTime()
+                      (j: any) =>
+                        j.task === job.task &&
+                        j.waitUntil &&
+                        j.waitUntil.getTime() === next.getTime()
                     )
                   ) {
                     this.addJob({

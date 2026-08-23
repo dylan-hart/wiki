@@ -271,16 +271,27 @@ externally for that case except the absence of a log line, which is the point.
   - a general-purpose periodic full-cache-refresh is a real design decision (interval length, added DB
     load on every instance, at what count of instances this stops being negligible) that this
     "verify and document" task should surface rather than quietly bake in as a default.
-  - Separately, and out of scope for this task: `models/groups.ts`/`sites.ts`/`approvals.ts`'s own
-    `createGroup`/`updateGroup`/etc. call `this.reloadCache()` **locally only** — they never emit an
-    outbound event at all, `flushCaches` being the sole (manual) cross-instance path for that data
-    today. That is a pre-existing propagation gap independent of NOTIFY's delivery semantics — it
-    would exist even with a perfectly reliable transport — and is not something this task's scope
-    (event-bus delivery guarantees) covers closing.
+  - Separately, and out of scope for this task at the time: `models/groups.ts`/`sites.ts`/
+    `approvals.ts`'s own `createGroup`/`updateGroup`/etc. called `this.reloadCache()` **locally
+    only** — they never emitted an outbound event at all, `flushCaches` being the sole (manual)
+    cross-instance path for that data. That was a pre-existing propagation gap independent of
+    NOTIFY's delivery semantics — it would have existed even with a perfectly reliable transport —
+    and was left for a dedicated work package rather than folded into this one.
+    **Closed by task 966**: each of the three models now has a private `broadcastReload()` (mirrored
+    across all three — see `models/groups.ts`'s for the canonical shape) that every write path calls
+    instead of `reloadCache()` directly. It reloads this instance's own cache first, then emits
+    `reloadGroups`/`reloadSites`/`reloadApprovals` on `WIKI.events.outbound`; each model's
+    `subscribeToEvents()` (wired into `core/db.ts`'s `subscribeToNotifications()` alongside
+    `configSvc`/`maintenance`) reloads on the matching inbound event. Same at-most-once contract as
+    `reloadConfig`/`flushCaches` above, for the same reason: a missed notification leaves that
+    instance stale only until the next matching write anywhere, or its own restart — closed by
+    `postBoot()`'s unconditional `reloadCache()` on every boot, exactly like the other two.
 
-No production behavior changed as a result of this task: `core/db.ts`, `core/config.ts`, and
-`core/maintenance.ts` are unchanged apart from the doc comments above. The new coverage is
-`backend/core/db.test.ts`.
+No production behavior changed as a result of task 708: `core/db.ts`, `core/config.ts`, and
+`core/maintenance.ts` were unchanged apart from the doc comments above at the time. Task 966 (see
+above) has since changed `core/db.ts`, `models/groups.ts`, `models/sites.ts`, and
+`models/approvals.ts` for real, with regression coverage in each model's own `*.test.ts`. The task
+708 coverage remains `backend/core/db.test.ts`.
 
 ## Bugs found and fixed during this verification (task 704)
 

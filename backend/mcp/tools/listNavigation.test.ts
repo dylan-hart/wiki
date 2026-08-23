@@ -5,7 +5,14 @@ import { handleListNavigation } from './listNavigation.ts'
 
 const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 const SITE_ID = 'site-a'
-const CTX = { keyId: 'key-1', permissions: [] as string[], siteId: null as string | null }
+const CTX = {
+  keyId: 'key-1',
+  permissions: [] as string[],
+  siteId: null as string | null,
+  groupIds: [GUEST_GROUP_ID],
+  userId: null as string | null,
+  scope: null as string[] | null
+}
 
 const LEVEL = {
   path: 'docs',
@@ -18,7 +25,8 @@ const LEVEL = {
       title: 'Allowed',
       icon: null,
       isPage: true,
-      isFolder: false
+      isFolder: false,
+      classification: 'classification-restricted'
     },
     {
       path: 'docs/hidden',
@@ -26,13 +34,15 @@ const LEVEL = {
       title: 'Hidden',
       icon: null,
       isPage: true,
-      isFolder: false
+      isFolder: false,
+      classification: null
     }
   ]
 }
 
 let previousWiki: any
 let browseCalls: any[]
+let checkAccessCalls: any[]
 
 function install({
   browseEnabled = true,
@@ -40,6 +50,7 @@ function install({
   readablePaths = [] as string[]
 } = {}) {
   browseCalls = []
+  checkAccessCalls = []
   ;(globalThis as any).WIKI = {
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: {
@@ -52,8 +63,10 @@ function install({
     },
     models: {
       groups: {
-        checkAccess: (_actor: any, _permission: string, page: { path: string }) =>
-          readablePaths.includes(page.path)
+        checkAccess: (_actor: any, _permission: string, page: { path: string }) => {
+          checkAccessCalls.push(page)
+          return readablePaths.includes(page.path)
+        }
       },
       tree: {
         browse: async (params: any) => {
@@ -114,4 +127,12 @@ test('handleListNavigation: an explicit locale overrides the site default', asyn
   install({ readablePaths: [] })
   await handleListNavigation(CTX, { siteId: SITE_ID, locale: 'fr' })
   assert.equal(browseCalls[0].locale, 'fr')
+})
+
+test('handleListNavigation: passes each item’s own classification to checkAccess, not a hardcoded null (OpenProject #1128)', async () => {
+  install({ readablePaths: ['docs/allowed', 'docs/hidden'] })
+  await handleListNavigation(CTX, { siteId: SITE_ID })
+  const byPath = Object.fromEntries(checkAccessCalls.map((p) => [p.path, p.classification]))
+  assert.equal(byPath['docs/allowed'], 'classification-restricted')
+  assert.equal(byPath['docs/hidden'], null)
 })

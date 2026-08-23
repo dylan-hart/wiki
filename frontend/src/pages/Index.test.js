@@ -10,6 +10,8 @@ import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
+import { isActive as loadingIsActive } from '@/composables/loading'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * Regression coverage for task 633's wiring: `PageComments.vue` is mounted inside the article
@@ -72,7 +74,21 @@ async function mountIndex() {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> Real English messages for the couple of keys these tests assert the rendered text of
+  //    (`common.page.unpublished`, `common.page.lastModifiedOn`); every other `t()` call in the
+  //    component renders as its bare key, same as before this list existed, which none of these
+  //    tests reads.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        common: {
+          page: { unpublished: 'Unpublished', lastModifiedOn: 'Last modified on' }
+        }
+      }
+    }
+  })
 
   const wrapper = mount(Index, {
     global: {
@@ -353,9 +369,10 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
           tocDepth: { min: 1, max: 6 }
         })
     })
-    // -> `ensureSiteBlocks()`'s own fetch, consulted for a custom block's isCustom/id; empty is fine,
-    //    `block-diagram` is a built-in and resolves by its bare tag either way
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (empty here,
+    //    since this test never calls `applySiteInfo`) rather than a network call -- a miss falls
+    //    back to the bare tag, which is fine: `block-diagram` is a built-in and resolves by its
+    //    bare tag either way. See `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
 
     const router = createRouter({
       history: createMemoryHistory(),
@@ -390,6 +407,110 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
       call[0].map((entry) => (typeof entry === 'string' ? entry : entry.tag))
     )
     expect(loadedTags).toContain('block-diagram')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * OpenProject #947, item 1: the `/_create` and `/_edit` route-watcher branches called
+ * `loading.show()` then `await pageStore.pageCreate(...)`/`pageEdit(...)` with no try/catch, unlike
+ * the plain page-load branch (whose own catch handles every error `pageLoad` can throw). A rejection
+ * -- `pageEdit` throws `ERR_PAGE_NOT_FOUND` for a bad path, `pageCreate` can reject from its own
+ * `fetchConfigs()` network call -- left the full-screen loading overlay stuck up forever with the
+ * error only in the console.
+ */
+describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProject #947)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function mountAtRoute(path, { siteId = 'site-1' } = {}) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = siteId
+    /*
+      This fix's own `router.replace('/')` lands on the plain page-load branch for `/`, which --
+      since the API stub 404s everything -- runs its own, unrelated `ERR_PAGE_NOT_FOUND` handling
+      too. Authenticated with `manage:system` here specifically to land that on the quiet
+      `siteStore.overlay = 'Welcome'` outcome rather than a further `router.push('/login')` this
+      test's minimal route table does not register -- keeping the assertions below about what THIS
+      fix did, not about that unrelated cascade.
+    */
+    const userStore = useUserStore()
+    userStore.authenticated = true
+    userStore.permissions = ['manage:system']
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: { template: '<div />' } },
+        { path: '/_create/:editor?', component: Index },
+        { path: '/_edit/:pagePath(.*)?', component: Index }
+      ]
+    })
+    // -> Navigates straight to the target route as the FIRST navigation, matching
+    //    `mountAtMissingPath`'s own pattern above -- not `/` then a second `push()`, which would run
+    //    the immediate route watcher against `/` first (a 404 there, with this suite's guest/no-page
+    //    stub setup, itself pushes to `/login`, a route this router does not register) before ever
+    //    reaching the path this test actually cares about.
+    router.push(path)
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+
+    // -> `loading.show()`'s own 500ms delay (`composables/loading.js`) has to actually elapse for
+    //    `isActive` to ever flip `true` at all; advancing past it is what would have caught the
+    //    overlay stuck on `true` forever pre-fix, since the bare, unguarded `await` never reached the
+    //    matching `loading.hide()` below it.
+    await vi.advanceTimersByTimeAsync(600)
+
+    return { wrapper, router }
+  }
+
+  it('/_edit/<bad-path>: hides the overlay, notifies, and returns to "/" instead of stranding the app', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    // -> No mock needed: the default `API_CLIENT.get` stub resolves `{ json: () =>
+    //    Promise.resolve(undefined) }`, which `pageStore.pageLoad` (called by `pageEdit`) already
+    //    treats as `ERR_PAGE_NOT_FOUND` (`!pageData?.id`).
+    const { wrapper, router } = await mountAtRoute('/_edit/this-page-does-not-exist')
+
+    expect(loadingIsActive.value).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
+    expect(router.currentRoute.value.path).toBe('/')
+
+    wrapper.unmount()
+  })
+
+  it('/_create: hides the overlay and notifies instead of stranding the app when pageCreate rejects', async () => {
+    notifyQueue.splice(0, notifyQueue.length)
+    // -> Simplest real rejection: `pageCreate` awaits `editorStore.fetchConfigs()`, which throws
+    //    outright when there is no site id to fetch against -- no network mocking required.
+    const { wrapper } = await mountAtRoute('/_create/markdown', { siteId: '' })
+
+    expect(loadingIsActive.value).toBe(false)
+    expect(notifyQueue.at(-1)).toMatchObject({ type: 'negative' })
 
     wrapper.unmount()
   })

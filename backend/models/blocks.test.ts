@@ -42,7 +42,6 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
         isCustom: true,
         props: [{ name: 'title', type: 'string', label: 'Title' }],
         template: 'Body content',
-        elementTag: 'my-custom-widget',
         ...overrides
       })
       .returning({ id: blocksTable.id })
@@ -55,7 +54,7 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     return row!.id
   }
 
-  test('getSiteBlocks sources props/template/elementTag from the row for a custom block', async () => {
+  test('getSiteBlocks sources props/template from the row for a custom block, and elementTag is always block-{block}', async () => {
     await insertCustomBlock()
 
     const result = await blocksModel.getSiteBlocks(fixtures.siteId)
@@ -64,17 +63,7 @@ describe('blocks custom-block storage (DB-backed)', { skip: !hasTestDatabase() }
     assert.ok(custom, 'custom block should be listed')
     assert.deepEqual(custom!.props, [{ name: 'title', type: 'string', label: 'Title' }])
     assert.equal(custom!.template, 'Body content')
-    assert.equal(custom!.elementTag, 'my-custom-widget')
-  })
-
-  test('getSiteBlocks falls back to `block-{block}` when a custom row has no elementTag override', async () => {
-    await insertCustomBlock({ block: 'no-tag-widget', elementTag: '' })
-
-    const result = await blocksModel.getSiteBlocks(fixtures.siteId)
-    const custom = result.find((b) => b.block === 'no-tag-widget')
-
-    assert.ok(custom)
-    assert.equal(custom!.elementTag, 'block-no-tag-widget')
+    assert.equal(custom!.elementTag, 'block-my-widget')
   })
 
   test('getSiteBlocks does not source props/template from a built-in row even though the columns exist', async () => {

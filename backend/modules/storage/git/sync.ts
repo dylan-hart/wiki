@@ -14,14 +14,13 @@
  * the same regex 2.5.x runs over each `file.file` entry to pull the old/new halves out of git's
  * `old => new` / `dir/{old => new}/rest` rename notation. No separate rename-detection API call.
  *
- * Sync-direction config (push-only / pull-only / two-way): Feature 370 is the one landing
- * `StorageTarget.sync.mode`, and it had not reached this branch when this task was implemented (its
- * config lives only on the sibling `feature/content-dispatch-sync-engine` branch, which this branch
- * may not merge from). `sync()` therefore always runs the full two-way sequence below, matching
- * 2.5.x's `mode: 'sync'` — the only mode this fork's `definition.yml` exposes today (its `sync`
- * action is declared without a mode selector). See `docs/variances.md` for the tracked follow-up:
- * once `target.sync.mode` exists, the two `if (_.includes(['sync', 'pull'], mode))`-style guards
- * 2.5.x uses around the pull half and the push half belong here too.
+ * Sync-direction config (push-only / pull-only / two-way): `sync()` reads `target.sync.mode` and
+ * mirrors 2.5.x's own `if (_.includes(['sync', 'pull'], mode))` / `if (_.includes(['sync', 'push'],
+ * mode))` guards around the pull half and the push half — a `push`-only target never pulls (so
+ * "Force Sync" cannot import remote content into the DB, matching `definition.yml`'s own "The sync
+ * direction is respected" hint on that action) and a `pull`-only target never pushes. The reverse-
+ * mirror step (diff-importing whatever the pull brought in) is gated the same way as the pull half:
+ * nothing was pulled for a `push`-only target to reverse-mirror in the first place.
  */
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -366,27 +365,39 @@ export async function processDiffEntry(
  *
  * A rebase conflict is not caught here — see the header comment for why that is a deliberate,
  * verified match of 2.5.x rather than a gap: it aborts the sync and surfaces the rejection to
- * whichever caller invoked this action (the admin "Force Sync" button today; a scheduled job once
- * Feature 370 lands one), leaving the working copy mid-rebase for an administrator to resolve, the
- * same place a `git pull --rebase` run by hand would leave it.
+ * whichever caller invoked this action (the admin "Force Sync" button, or a scheduled job via
+ * `storageSyncTick`), leaving the working copy mid-rebase for an administrator to resolve, the same
+ * place a `git pull --rebase` run by hand would leave it.
  */
 export async function sync(target: StorageTarget): Promise<void> {
   const { git, repoPath } = await ensureRepo(target)
   const branch = target.config?.branch || 'main'
+  const mode = target.sync.mode
+  const pulls = ['sync', 'pull'].includes(mode)
+  const pushes = ['sync', 'push'].includes(mode)
 
   const beforeHash = await headHash(git)
 
-  if (beforeHash) {
-    WIKI.logger.info(`(STORAGE/GIT) Performing pull rebase from origin on branch ${branch}...`)
-    await git.pull('origin', branch, ['--rebase'])
-  } else {
-    // -> Nothing local to rebase yet — a plain pull is enough to bring the branch into existence.
-    WIKI.logger.info(`(STORAGE/GIT) Performing initial pull from origin on branch ${branch}...`)
-    await git.pull('origin', branch)
+  if (pulls) {
+    if (beforeHash) {
+      WIKI.logger.info(`(STORAGE/GIT) Performing pull rebase from origin on branch ${branch}...`)
+      await git.pull('origin', branch, ['--rebase'])
+    } else {
+      // -> Nothing local to rebase yet — a plain pull is enough to bring the branch into existence.
+      WIKI.logger.info(`(STORAGE/GIT) Performing initial pull from origin on branch ${branch}...`)
+      await git.pull('origin', branch)
+    }
   }
 
-  WIKI.logger.info(`(STORAGE/GIT) Performing push to origin on branch ${branch}...`)
-  await git.push('origin', branch, ['--signed=if-asked'])
+  if (pushes) {
+    WIKI.logger.info(`(STORAGE/GIT) Performing push to origin on branch ${branch}...`)
+    await git.push('origin', branch, ['--signed=if-asked'])
+  }
+
+  if (!pulls) {
+    // -> A push-only target has nothing pulled to reverse-mirror into the DB
+    return
+  }
 
   const afterHash = await headHash(git)
   if (!afterHash || !beforeHash || afterHash === beforeHash) {

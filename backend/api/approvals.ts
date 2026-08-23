@@ -60,7 +60,7 @@ async function loadSuggestablePage(req: FastifyRequest, siteId: string, pageId: 
 function reviewerFor(
   req: FastifyRequest,
   siteId: string,
-  page?: { path: string; locale: string | null; tags?: string[] }
+  page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
     return { groupIds: [], reviewsAll: false }
@@ -75,6 +75,7 @@ function reviewerFor(
         //    reviewer whose only `review:pages` grant is locale-scoped no longer gets blanket
         //    `reviewsAll` for a ref with no real page to carry a locale, which is the safe direction
         ...(page ?? { path: '', locale: null }),
+        classification: page?.classification ?? null,
         siteId
       }),
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
@@ -92,13 +93,12 @@ function isReviewerSession(req: FastifyRequest): boolean {
 /**
  * Whether this caller may read this site's approval rules — i.e. reach `AdminApprovals.vue` for it.
  *
- * `read:sites` and `manage:sites` keep working exactly as before delegation existed; `site:approvals`
+ * `manage:sites` keeps working exactly as before delegation existed; `site:approvals`
  * (see `helpers/siteRules.ts`) is the new, narrower alternative a rule can grant per site.
  */
 function mayReadApprovalRules(req: FastifyRequest, siteId: string): boolean {
   const actor = WIKI.models.groups.actorForRequest(req)
   return (
-    actor.permissions.includes('read:sites') ||
     actor.permissions.includes('manage:sites') ||
     WIKI.models.groups.checkSiteAccess(actor, 'site:approvals', siteId)
   )
@@ -222,7 +222,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List the approval rules of a site',
         description:
-          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `read:sites` or `manage:sites`, or `site:approvals` on this site.',
+          'Each rule says which pages accept edit suggestions, which groups may submit them, and which groups review them. A page matched by no rule accepts none, so a site with no rules has the feature off.\n\nRequires `manage:sites`, or `site:approvals` on this site.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -855,7 +855,8 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         locale: page.locale,
         tags: page.tags ?? [],
-        allowContributions: page.allowContributions
+        allowContributions: page.allowContributions,
+        classification: page.classification
       }
       const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
       if (!rule) {
@@ -939,7 +940,8 @@ async function routes(app: FastifyInstance) {
         path: page.path,
         locale: page.locale,
         tags: page.tags ?? [],
-        allowContributions: page.allowContributions
+        allowContributions: page.allowContributions,
+        classification: page.classification
       }
       const rule = await WIKI.models.approvals.findSubmitRule(req.params.siteId, pageRef, groupIds)
       if (!rule) {

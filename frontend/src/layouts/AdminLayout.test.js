@@ -34,14 +34,21 @@ describe('AdminLayout sidebar nav', () => {
   /**
    * Regression coverage for Task 614 (Feature 394, "Admin comments management UI rebuild"): the
    * sidebar Comments link used to be permanently `disabled` and only ever rendered behind
-   * `flagsStore.experimental`, alongside Analytics. Both of those gates are now gone -- the link is a
-   * normal, always-visible, clickable admin nav entry, matching General/Approvals.
+   * `flagsStore.experimental`, alongside Analytics. Both of those gates are gone -- the link is a
+   * normal, clickable admin nav entry, matching General/Approvals -- but (OpenProject #950) it is
+   * now gated on `manage:sites` the way General/Approvals already were, which every test in THIS
+   * describe block grants by default; see the separate "delegated admin" describe block below for
+   * coverage of a user who does not hold it.
    */
-  async function mountLayout({ experimental }) {
+  async function mountLayout({
+    experimental,
+    permissions = ['access:admin', 'manage:sites'],
+    sitePermissions = []
+  }) {
     setActivePinia(createPinia())
 
     const userStore = useUserStore()
-    userStore.permissions = ['access:admin', 'manage:sites']
+    userStore.permissions = permissions
 
     const flagsStore = useFlagsStore()
     flagsStore.experimental = experimental
@@ -56,7 +63,7 @@ describe('AdminLayout sidebar nav', () => {
         return { json: () => Promise.resolve([{ id: 'site1', title: 'Site 1' }]) }
       }
       if (typeof url === 'string' && url.endsWith('/userPermissions')) {
-        return { json: () => Promise.resolve([]) }
+        return { json: () => Promise.resolve(sitePermissions) }
       }
       return { json: () => Promise.resolve(undefined) }
     })
@@ -112,6 +119,30 @@ describe('AdminLayout sidebar nav', () => {
 
     expect(commentsItem).toBeDefined()
     expect(commentsItem.attributes('aria-disabled')).toBeUndefined()
+  })
+
+  /**
+   * OpenProject #950: unlike the other eight site-scoped sidebar entries (General, Approvals,
+   * Blocks, Editors, Locale, Login, Navigation, Theme -- each gated via `maySeeSiteSurface`/
+   * `manage:sites`), Analytics and Comments rendered for anyone holding `access:admin` at all, no
+   * `v-if`. Both pages require `manage:sites` server-side (`backend/api/analytics.ts`,
+   * `backend/api/comments.ts`'s admin routes), so a delegated administrator holding only a `site:*`
+   * permission -- `site:theme` here, an arbitrary one of the eight the other entries already gate on
+   * -- saw both links and got a 403 error toast over an empty page on click.
+   */
+  it('hides Analytics and Comments from a delegated admin who lacks manage:sites', async () => {
+    const wrapper = await mountLayout({
+      experimental: false,
+      permissions: ['access:admin'],
+      // -> `site:theme` is a per-site DELEGATED permission (`userStore.canOnSite`, fetched from
+      //    `sites/:id/userPermissions`), not a group-wide one -- an arbitrary one of the eight
+      //    `site:*` surfaces the other sidebar entries already gate on, chosen to prove this admin
+      //    genuinely has SOME delegated access, just not the `manage:sites` these two links need.
+      sitePermissions: ['site:theme']
+    })
+
+    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-bar-chart.svg')).toBeUndefined()
+    expect(findItemByIcon(wrapper, 'img:/_assets/icons/fluent-comments.svg')).toBeUndefined()
   })
 })
 

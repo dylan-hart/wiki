@@ -69,7 +69,10 @@
               <w-item-label caption>{{ t(`admin.theme.darkModeHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
-              <w-toggle v-model="state.config.dark" :aria-label="t(`admin.theme.darkMode`)" />
+              <w-toggle
+                v-model="state.config.dark"
+                :loading="state.loading > 0"
+                :aria-label="t(`admin.theme.darkMode`)" />
             </w-item-section>
           </w-item>
           <template v-for="cl of colorKeys" :key="cl">
@@ -228,6 +231,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.showPrintBtn"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.theme.showPrintBtn`)" />
             </w-item-section>
           </w-item>
@@ -383,9 +387,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.theme.title')
-})
+}))
 
 // DATA
 

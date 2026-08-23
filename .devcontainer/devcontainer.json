@@ -69,7 +69,7 @@
       "version": "26",
       "npmVersion": "none",
       "pnpmVersion": "none",
-      "nvmVersion": "latest"
+      "nvmVersion": "0.40.6"
     },
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/joedmck/devcontainer-features/cloudflared:1": {}

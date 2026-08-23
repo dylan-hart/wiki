@@ -72,7 +72,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       authorId: fixtures.userId,
       creatorId: fixtures.userId,
       ownerId: fixtures.userId,
-      siteId: overrides.siteId
+      siteId: overrides.siteId,
+      classification: fixtures.classificationId
     }
   }
 
@@ -119,6 +120,35 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     const fetched = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
     assert.ok(fetched)
     assert.equal(fetched!.path, 'docs/create-me')
+  })
+
+  test('createPage() records the pageHistory row as via: editor when the actor names no via (OpenProject #1119)', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/via-default' }),
+      actor
+    )
+    const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    assert.equal(entries.length, 1)
+    assert.equal(entries[0]!.via, 'editor')
+  })
+
+  test('createPage()/updatePage() record the pageHistory row as via: mcp when the actor says so (OpenProject #1119)', async () => {
+    const mcpActor: PageActor = { ...actor, via: 'mcp' }
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/via-mcp' }),
+      mcpActor
+    )
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Updated via MCP' }, mcpActor)
+
+    const { pageHistory: pageHistoryModel } = await import('./pageHistory.ts')
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    // -> Newest first: [0] is the update, [1] is the creation -- both attributed to the same actor.
+    assert.equal(entries.length, 2)
+    assert.equal(entries[0]!.via, 'mcp')
+    assert.equal(entries[1]!.via, 'mcp')
   })
 
   test('createPage refuses an empty title', async () => {
@@ -499,6 +529,228 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     )
   })
 
+  test('movePage rolls back the page row when the tree write fails partway through (OpenProject #1022)', async () => {
+    const source = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/txn-source' }),
+      actor
+    )
+    // -> An asset entry occupying the destination file name is invisible to the `pages`-table
+    //    duplicate-path probe (assets aren't pages), so the update proceeds and only the tree write,
+    //    a moment later inside the same transaction, hits the collision -- exactly the partial-failure
+    //    shape #1022 asks to no longer be able to happen.
+    await seedTreeEntry(fixtures.db, {
+      siteId: fixtures.siteId,
+      path: 'docs/txn-dest',
+      type: 'asset'
+    })
+
+    await assert.rejects(
+      pagesModel.movePage(fixtures.siteId, source.id, { path: 'docs/txn-dest' }, actor),
+      (err: any) => err.name === 'treeEntryDuplicate'
+    )
+
+    const untouched = await pagesModel.getPage({ siteId: fixtures.siteId, id: source.id })
+    assert.equal(untouched!.path, 'docs/txn-source')
+
+    const treeEntry = await WIKI.models.tree.getById(source.id)
+    assert.equal(treeEntry!.folderPath, 'docs')
+    assert.equal(treeEntry!.fileName, 'txn-source')
+  })
+
+  test('movePage with includeTranslations moves every twin along with the primary (OpenProject #1026)', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'en', title: 'English' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'fr', title: 'Français' }),
+      actor
+    )
+
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      en.id,
+      { path: 'docs/cascade-b', title: 'English, Renamed', includeTranslations: true },
+      actor
+    )
+    // -> The primary's own title change is its own -- the twin keeps its own title, only its path
+    //    moves along
+    assert.equal(moved!.path, 'docs/cascade-b')
+    assert.equal(moved!.title, 'English, Renamed')
+
+    const movedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(movedFr!.path, 'docs/cascade-b')
+    assert.equal(movedFr!.locale, 'fr')
+    assert.equal(movedFr!.title, 'Français')
+
+    // -> Both tree entries actually moved, not just the pages rows
+    const enTree = await WIKI.models.tree.getById(en.id)
+    assert.equal(enTree!.fileName, 'cascade-b')
+    const frTree = await WIKI.models.tree.getById(fr.id)
+    assert.equal(frTree!.fileName, 'cascade-b')
+
+    // -> The old path is free again in both locales
+    const reoccupied = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-a', locale: 'en', title: 'Reoccupied' }),
+      actor
+    )
+    assert.equal(reoccupied.path, 'docs/cascade-a')
+  })
+
+  test('movePage with includeTranslations leaves twins untouched when it does not exist', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-solo', locale: 'en' }),
+      actor
+    )
+    const moved = await pagesModel.movePage(
+      fixtures.siteId,
+      en.id,
+      { path: 'docs/cascade-solo-moved', includeTranslations: true },
+      actor
+    )
+    assert.equal(moved!.path, 'docs/cascade-solo-moved')
+  })
+
+  test('movePage with includeTranslations does not cascade a locale-only move', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-only', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-only-fr', locale: 'fr' }),
+      actor
+    )
+    await pagesModel.movePage(
+      fixtures.siteId,
+      fr.id,
+      { path: 'docs/cascade-locale-only-fr', title: 'Retitled', includeTranslations: true },
+      actor
+    )
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-locale-only')
+  })
+
+  test('movePage with includeTranslations: a third-locale occupant at the destination aborts the whole batch', async () => {
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort', locale: 'fr' }),
+      actor
+    )
+    // -> Sitting at the destination path, in the twin's own locale, occupied by neither the primary
+    //    nor the twin -- exactly what should make the whole batch fail rather than only the twin
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-abort-taken', locale: 'fr', title: 'Already Here' }),
+      actor
+    )
+
+    await assert.rejects(
+      pagesModel.movePage(
+        fixtures.siteId,
+        en.id,
+        { path: 'docs/cascade-abort-taken', includeTranslations: true },
+        actor
+      ),
+      (err: any) =>
+        err.statusCode === 409 && err.name === 'pageDuplicatePath' && /fr/.test(err.message)
+    )
+
+    // -> Neither the primary nor the untouched twin moved
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-abort')
+    const untouchedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(untouchedFr!.path, 'docs/cascade-abort')
+  })
+
+  test("movePage with includeTranslations: primary changing locale into a twin's own locale aborts the whole batch (OpenProject #1026)", async () => {
+    // -> The pre-transaction probes only see the DB as it is right now, so this collision -- the
+    //    primary landing in the SAME locale a twin is cascading into, at the SAME destination path --
+    //    isn't caught by either probe. It has to be caught by the `pages_siteId_locale_path_idx`
+    //    unique index firing mid-transaction and being translated to the same 409, the way a plain
+    //    two-request race already is.
+    const en = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-swap', locale: 'en' }),
+      actor
+    )
+    const fr = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/cascade-locale-swap', locale: 'fr' }),
+      actor
+    )
+
+    await assert.rejects(
+      pagesModel.movePage(
+        fixtures.siteId,
+        en.id,
+        { path: 'docs/cascade-locale-swap-b', locale: 'fr', includeTranslations: true },
+        actor
+      ),
+      (err: any) => err.statusCode === 409 && err.name === 'pageDuplicatePath'
+    )
+
+    // -> Neither moved, and neither changed locale
+    const untouchedEn = await pagesModel.getPage({ siteId: fixtures.siteId, id: en.id })
+    assert.equal(untouchedEn!.path, 'docs/cascade-locale-swap')
+    assert.equal(untouchedEn!.locale, 'en')
+    const untouchedFr = await pagesModel.getPage({ siteId: fixtures.siteId, id: fr.id })
+    assert.equal(untouchedFr!.path, 'docs/cascade-locale-swap')
+    assert.equal(untouchedFr!.locale, 'fr')
+  })
+
+  /**
+   * OpenProject #870: `models/glossary.ts#getCachedTerms` caches which page a term points at.
+   * Nothing about the glossary itself changes on a page move, so nothing would otherwise tell that
+   * cache the page it already resolved is now at a different path -- `movePage` has to invalidate it
+   * itself, the same way a term CRUD does.
+   */
+  test('movePage invalidates the glossary cache so a canonical page it renamed resolves to its new path', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/glossary-move-before' }),
+      actor
+    )
+    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      term: 'MoveCacheTerm',
+      definition: 'Points at a page that is about to move.',
+      pageId: page.id
+    })
+    try {
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      assert.equal(
+        before.find((t: any) => t.term === 'MoveCacheTerm')?.link,
+        '/docs/glossary-move-before'
+      )
+
+      await pagesModel.movePage(
+        fixtures.siteId,
+        page.id,
+        { path: 'docs/glossary-move-after' },
+        actor
+      )
+
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      assert.equal(
+        after.find((t: any) => t.term === 'MoveCacheTerm')?.link,
+        '/docs/glossary-move-after'
+      )
+    } finally {
+      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+    }
+  })
+
   test('deletePage removes the page and frees its path for reuse', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
@@ -547,6 +799,39 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(deleted, false)
+  })
+
+  /**
+   * OpenProject #870: the FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term
+   * canonically linked to a deleted page is unlinked at the db level -- but the cached, resolved copy
+   * of that link (`models/glossary.ts#getCachedTerms`) would keep serving the old one forever
+   * (`WIKI.cache` carries no TTL) unless `deletePage` drops it too.
+   */
+  test('deletePage invalidates the glossary cache so a term linked to it resolves to no link', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/glossary-delete-me' }),
+      actor
+    )
+    const term = await WIKI.models.glossary.createTerm(fixtures.siteId, {
+      term: 'DeleteCacheTerm',
+      definition: 'Points at a page that is about to be deleted.',
+      pageId: page.id
+    })
+    try {
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      assert.equal(
+        before.find((t: any) => t.term === 'DeleteCacheTerm')?.link,
+        '/docs/glossary-delete-me'
+      )
+
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
+      assert.equal(after.find((t: any) => t.term === 'DeleteCacheTerm')?.link, null)
+    } finally {
+      await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)
+    }
   })
 
   /**
@@ -787,6 +1072,218 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   test('getPathFromAlias returns null for an alias nobody uses', async () => {
     const resolved = await pagesModel.getPathFromAlias(fixtures.siteId, 'no-such-alias')
     assert.equal(resolved, null)
+  })
+
+  /**
+   * OpenProject #1080: the floor invariant itself, exercised through `createPage`/`updatePage`/
+   * `movePage` against a real parent/child hierarchy -- `models/classificationLevels.test.ts` only
+   * covers the pure `meetsFloor`/`stricterOf` math, and `api/pages.classification.test.ts` stubs the
+   * model entirely, so nothing else proves `resolveCreateClassification`'s parent lookup or
+   * `moveOnePageInTx`'s auto-bump actually run against real rows.
+   */
+  describe('classification floor invariant (OpenProject #1080)', () => {
+    let internalId: string
+    let restrictedId: string
+
+    before(async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      internalId = levels.find((l) => l.name === 'Internal')!.id
+      restrictedId = levels.find((l) => l.name === 'Restricted')!.id
+    })
+
+    test('a root-level page with no explicit classification defaults to the most-open level', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/root-default' }),
+        actor
+      )
+      assert.equal(page.classification, fixtures.classificationId)
+    })
+
+    test('a child page with no explicit classification inherits its immediate parent', async () => {
+      const parent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/inherit-parent', classification: restrictedId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: `${parent.path}/child` }),
+        actor
+      )
+      assert.equal(child.classification, restrictedId)
+    })
+
+    test('an explicit classification more open than the parent is rejected', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/reject-parent', classification: restrictedId }),
+        actor
+      )
+      await assert.rejects(
+        pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({
+            path: 'floor/reject-parent/child',
+            classification: fixtures.classificationId
+          }),
+          actor
+        ),
+        /classificationBelowFloor/
+      )
+    })
+
+    test('an explicit classification at or above the parent floor succeeds', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/accept-parent', classification: internalId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/accept-parent/child', classification: restrictedId }),
+        actor
+      )
+      assert.equal(child.classification, restrictedId)
+    })
+
+    test('updatePage rejects lowering below the immediate parent floor', async () => {
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/update-parent', classification: restrictedId }),
+        actor
+      )
+      const child = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/update-parent/child', classification: restrictedId }),
+        actor
+      )
+      await assert.rejects(
+        pagesModel.updatePage(
+          fixtures.siteId,
+          child.id,
+          { classification: fixtures.classificationId },
+          actor
+        ),
+        /classificationBelowFloor/
+      )
+    })
+
+    test('movePage auto-bumps a page onto a new, stricter parent floor', async () => {
+      const strictParent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/move-strict-parent', classification: restrictedId }),
+        actor
+      )
+      const openPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'floor/move-open-page',
+          classification: fixtures.classificationId
+        }),
+        actor
+      )
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        openPage.id,
+        { path: `${strictParent.path}/moved-in` },
+        actor
+      )
+      assert.equal(moved!.classification, restrictedId)
+    })
+
+    test('movePage never lowers a page already at or above the new floor', async () => {
+      const openParent = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'floor/move-open-parent',
+          classification: fixtures.classificationId
+        }),
+        actor
+      )
+      const strictPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'floor/move-strict-page', classification: restrictedId }),
+        actor
+      )
+      const moved = await pagesModel.movePage(
+        fixtures.siteId,
+        strictPage.id,
+        { path: `${openParent.path}/moved-in` },
+        actor
+      )
+      assert.equal(moved!.classification, restrictedId)
+    })
+  })
+
+  /**
+   * OpenProject #1081: "everything currently classified as X" -- `classificationReport()`'s per-level
+   * counts and `listByClassification()`'s drill-down, both instance-wide by default and narrowable to
+   * one site.
+   */
+  describe('classificationReport / listByClassification (OpenProject #1081)', () => {
+    test('every configured level is included, even at zero, in level order', async () => {
+      const report = await pagesModel.classificationReport()
+      assert.equal(report.length, 3)
+      assert.deepEqual(
+        report.map((r) => r.sortOrder),
+        [0, 1, 2]
+      )
+      assert.ok(report.every((r) => typeof r.count === 'number'))
+    })
+
+    test('counts and drill-down entries reflect what was actually created', async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const levels = classificationLevels.list()
+      const restricted = levels[levels.length - 1]!
+
+      const before = await pagesModel.classificationReport(fixtures.siteId)
+      const beforeCount = before.find((r) => r.levelId === restricted.id)!.count
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classification-report/one', classification: restricted.id }),
+        actor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'classification-report/two', classification: restricted.id }),
+        actor
+      )
+
+      const after = await pagesModel.classificationReport(fixtures.siteId)
+      assert.equal(after.find((r) => r.levelId === restricted.id)!.count, beforeCount + 2)
+
+      const drillDown = await pagesModel.listByClassification(restricted.id, {
+        siteId: fixtures.siteId
+      })
+      assert.equal(drillDown.total, beforeCount + 2)
+      const paths = drillDown.entries.map((e) => e.path)
+      assert.ok(paths.includes('classification-report/one'))
+      assert.ok(paths.includes('classification-report/two'))
+    })
+
+    test('listByClassification paginates with limit/offset', async () => {
+      const { classificationLevels } = await import('./classificationLevels.ts')
+      const publicLevel = classificationLevels.defaultLevel()
+
+      for (let i = 0; i < 3; i++) {
+        await pagesModel.createPage(
+          fixtures.siteId,
+          pageInput({ path: `classification-page/${i}`, classification: publicLevel.id }),
+          actor
+        )
+      }
+
+      const firstPage = await pagesModel.listByClassification(publicLevel.id, {
+        siteId: fixtures.siteId,
+        limit: 2,
+        offset: 0
+      })
+      assert.equal(firstPage.entries.length, 2)
+      assert.ok(firstPage.total >= 3)
+    })
   })
 })
 

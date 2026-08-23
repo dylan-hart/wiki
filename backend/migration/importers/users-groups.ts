@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { isEqual } from 'es-toolkit/predicate'
 import { nanoid } from 'nanoid'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 import type { WikiDb } from '../../core/db.ts'
 import {
   groups as groupsTable,
@@ -299,11 +299,14 @@ export const stubConvertUser: UserConverter = () => ({
 // doc's Task 730 paragraph and `docs/migration/2.5x-to-3.0-mapping.md`'s `groups` section.
 // ---------------------------------------------------------------------------
 
-/** The closed seven-name global-permission list documented in this repo's `CLAUDE.md` — the only
- * strings 3.0's `groups.permissions` column may hold. Everything else a 2.x source group's flat
- * `permissions` array might contain (`read:pages`, `write:pages`, …) only ever gated whether that
- * group's page rules took effect at all in 2.x — 3.0 has no equivalent global gate; the rules alone
- * govern page access — so those entries are dropped rather than carried into `groups.permissions`. */
+/** The closed global-permission list documented in this repo's `CLAUDE.md` — the only strings 3.0's
+ * `groups.permissions` column may hold. Everything else a 2.x source group's flat `permissions` array
+ * might contain (`read:pages`, `write:pages`, …) only ever gated whether that group's page rules took
+ * effect at all in 2.x — 3.0 has no equivalent global gate; the rules alone govern page access — so
+ * those entries are dropped rather than carried into `groups.permissions`. `manage:glossary` has no
+ * 2.x source concept to map from (the glossary feature is 3.0-only), so it is never a legacy source
+ * value and is intentionally absent here — this set filters what a 2.x export could actually contain,
+ * not the full current vocabulary. */
 const GLOBAL_PERMISSIONS = new Set([
   'manage:users',
   'manage:groups',
@@ -368,7 +371,7 @@ function convertPageRule(raw: unknown, index: number): GroupRule | undefined {
   const path = typeof source.path === 'string' ? source.path : ''
 
   return {
-    id: uuid(),
+    id: crypto.randomUUID(),
     name: synthesizeRuleName({ match, path }, index),
     roles: asStringArray(source.roles),
     match,

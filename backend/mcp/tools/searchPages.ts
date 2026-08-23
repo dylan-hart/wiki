@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-import { actorFor, maySeeEverything, type McpAuthContext } from '../auth.ts'
+import {
+  actorFor,
+  maySeeEverything,
+  type McpAuthContext,
+  type McpAuthContextGetter
+} from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 
 const MAX_LIMIT = 50
@@ -35,7 +40,7 @@ function toResult(payload: unknown): CallToolResult {
  * Full-text search over a site's pages, filtered to what the configured key may actually read — same
  * engine, same `read:pages` filtering and password-excerpt hiding as `/_api/sites/:siteId/pages/search`
  * (`api/pages.ts`), just reached in-process instead of over HTTP. See `mcp/auth.ts`'s `McpAuthContext`
- * doc comment for what "may actually read" resolves to under the interim auth model.
+ * doc comment for what "may actually read" resolves to — the caller's own real group membership.
  */
 export async function handleSearchPages(
   ctx: McpAuthContext,
@@ -63,7 +68,7 @@ export async function handleSearchPages(
   return toResult(result)
 }
 
-export function registerSearchPagesTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerSearchPagesTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'search_pages',
     {
@@ -71,6 +76,6 @@ export function registerSearchPagesTool(server: McpServer, ctx: McpAuthContext):
         "Full-text search over a wiki site's pages. Returns matching pages with a highlighted excerpt, restricted to what the configured key may read.",
       inputSchema: searchPagesInputSchema
     },
-    (args) => handleSearchPages(ctx, args)
+    (args) => handleSearchPages(getCtx(), args)
   )
 }

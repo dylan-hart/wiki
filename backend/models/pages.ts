@@ -1,16 +1,19 @@
-import { and, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
+  defaultLocale,
   generatePathHash,
   normalizePagePath,
   timingSafeCompare
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -59,6 +62,7 @@ export interface UnlockPageRef {
   path: string
   locale: string
   tags: string[]
+  classification: string
 }
 
 /** Fields kept in the `config` blob rather than as columns, and flattened again on the way out. */
@@ -122,6 +126,8 @@ export interface Page {
   authorName: string
   createdAt: Date
   updatedAt: Date
+  /** Classification level id (OpenProject #1079) -- never absent, there is no unclassified state. */
+  classification: string
 }
 
 /** Everything a page can be created with. */
@@ -144,6 +150,12 @@ export interface PageInput {
   password?: string
   relations?: any[]
   tags?: string[]
+  /**
+   * Classification level id (OpenProject #1079). Absent on create defaults to the immediate parent
+   * page's own level (or the most-open configured level, with no parent page to inherit from) — see
+   * `resolveCreateClassification`. Absent on update leaves the page's classification untouched.
+   */
+  classification?: string
   allowComments?: boolean
   allowContributions?: boolean
   allowRatings?: boolean
@@ -183,6 +195,10 @@ export interface GraphPageRow {
   title: string
   icon: string | null
   tags: string[]
+  /** The classification level id this page carries (OpenProject #1079) -- what `mayOnPage()`'s
+   *  CLASSIFICATION rule check (OpenProject #1126) and the graph's Classification grouping
+   *  (#1217) both key off. */
+  classification: string
   relations: {
     pos: 'left' | 'center' | 'right'
     label: string
@@ -200,11 +216,29 @@ export interface GraphPageRow {
  * CLAUDE.md's Permissions section), so deciding them takes more than the flat `permissions` list:
  * `groupIds` is what `WIKI.models.groups.checkAccess()` resolves a page rule against. See
  * `hasPermission()`.
+ *
+ * `scope`, when present, is an API key's own scope narrowing (`ApiKeyIdentity.scope`,
+ * `models/apiKeys.ts`) — `null`/absent means unrestricted (a session, or an unscoped key). This is
+ * structurally an `AccessActor` (`models/groups.ts`) too, and `hasPermission()` passes it straight
+ * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
+ * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
+ * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
  */
 export interface PageActor {
   id: string
   permissions: string[]
   groupIds: string[]
+  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
+  scope?: string[] | null
+  allowedClassifications?: string[] | null
+  /**
+   * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
+   * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to
+   * `pageHistory.record()`'s own `via` — see `PageHistoryVia`'s doc comment
+   * (`models/pageHistory.ts`) for why this lives on the actor rather than as a separate argument
+   * every write method would have to accept and pass along (OpenProject #1119).
+   */
+  via?: PageHistoryVia
 }
 
 /**
@@ -373,7 +407,8 @@ class Pages {
       authorId: row.authorId,
       authorName: row.authorName ?? '',
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
+      classification: row.classification
     }
   }
 
@@ -436,7 +471,7 @@ class Pages {
     } else if (hash) {
       conditions.push(eq(pagesTable.hash, hash))
       // -> A path is only unique within a locale, so without one this could match more than one page
-      conditions.push(eq(pagesTable.locale, locale ?? this.defaultLocale(siteId)))
+      conditions.push(eq(pagesTable.locale, locale ?? defaultLocale(siteId)))
     } else {
       return null
     }
@@ -462,7 +497,8 @@ class Pages {
       id: row.page.id,
       path: row.page.path,
       locale: row.page.locale,
-      tags: row.page.tags
+      tags: row.page.tags,
+      classification: row.page.classification
     }
     const isUnlocked = typeof unlocked === 'function' ? unlocked(unlockRef) : unlocked
     const includePassword =
@@ -519,6 +555,7 @@ class Pages {
         title: pagesTable.title,
         icon: pagesTable.icon,
         tags: pagesTable.tags,
+        classification: pagesTable.classification,
         relations: pagesTable.relations,
         links: pagesTable.links
       })
@@ -587,6 +624,130 @@ class Pages {
   }
 
   /**
+   * The immediate parent PAGE's classification, or null when there is none -- either because `path`
+   * is at the root, or because nothing is actually published at the parent path (an empty folder).
+   *
+   * "Immediate parent only" is the floor invariant's own scope (OpenProject #1080): a page is checked
+   * against its immediate parent's classification, not the whole ancestor chain, since a real parent
+   * already satisfies the floor against ITS OWN parent by induction.
+   *
+   * Public rather than private: `api/pages.ts`'s classification-conflicts resolve route needs it to
+   * enforce the same floor invariant against an admin-chosen target level (see that route's own
+   * comment on why `bulkSetClassification` alone was not enough).
+   */
+  async parentClassification(
+    siteId: string,
+    locale: string,
+    path: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<string | null> {
+    const parentPath = path.split('/').slice(0, -1).join('/')
+    if (!parentPath) {
+      return null
+    }
+    const rows = await db
+      .select({ classification: pagesTable.classification })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.locale, locale),
+          eq(pagesTable.path, parentPath)
+        )
+      )
+      .limit(1)
+    return rows[0]?.classification ?? null
+  }
+
+  /**
+   * The classification a new page should be created with, and the floor-invariant check on an
+   * explicitly requested one (OpenProject #1079/#1080).
+   *
+   * No parent page to inherit a floor from (root-level, or an empty folder) means no constraint: an
+   * explicit request is honored as given, and the default is the most-open configured level.
+   */
+  private async resolveCreateClassification(
+    siteId: string,
+    locale: string,
+    path: string,
+    requested: string | undefined
+  ): Promise<string> {
+    const floorId = await this.parentClassification(siteId, locale, path)
+    if (requested) {
+      if (!WIKI.models.classificationLevels.byId(requested)) {
+        throw new CustomError(
+          'classificationInvalid',
+          'This classification level does not exist.',
+          400
+        )
+      }
+      if (floorId && !WIKI.models.classificationLevels.meetsFloor(requested, floorId)) {
+        throw new CustomError(
+          'classificationBelowFloor',
+          "A page's classification cannot be more open than its parent page's.",
+          400
+        )
+      }
+      return requested
+    }
+    return floorId ?? WIKI.models.classificationLevels.defaultLevel().id
+  }
+
+  /**
+   * Every published page under `parentPath` (any depth) whose classification sits below `floorId` --
+   * what a retroactive parent-classification raise surfaces for an admin to resolve explicitly rather
+   * than cascading silently (OpenProject #1080's "classification resolution dialog").
+   */
+  async descendantsBelowFloor(
+    siteId: string,
+    locale: string,
+    parentPath: string,
+    floorId: string
+  ): Promise<{ id: string; path: string; title: string; classification: string }[]> {
+    const prefix = `${parentPath}/`
+    const rows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        title: pagesTable.title,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(
+        and(
+          eq(pagesTable.siteId, siteId),
+          eq(pagesTable.locale, locale),
+          sql`${pagesTable.path} LIKE ${prefix + '%'}`
+        )
+      )
+    return rows.filter(
+      (row) => !WIKI.models.classificationLevels.meetsFloor(row.classification, floorId)
+    )
+  }
+
+  /**
+   * Bump a set of pages (by id, all on this site) to a classification, in one transaction -- what
+   * resolving a classification-resolution-dialog conflict actually does to the descendants an admin
+   * chose to bring up to the new floor. No floor/permission checks here: the API route is the one
+   * place that decides who may call this and validates the target level, the same layering
+   * `updatePage`'s own caller (`api/pages.ts`) already follows for the declassification guardrail.
+   */
+  async bulkSetClassification(
+    siteId: string,
+    ids: string[],
+    classification: string
+  ): Promise<number> {
+    if (ids.length < 1) {
+      return 0
+    }
+    const result = await WIKI.db
+      .update(pagesTable)
+      .set({ classification, updatedAt: sql`now()` })
+      .where(and(eq(pagesTable.siteId, siteId), inArray(pagesTable.id, ids)))
+    return result.rowCount ?? 0
+  }
+
+  /**
    * Create a page.
    *
    * @param actor Who is saving it. Their permissions decide what survives sanitizing.
@@ -605,12 +766,12 @@ class Pages {
         400
       )
     }
-    const locale = input.locale || this.defaultLocale(siteId)
+    const locale = input.locale || defaultLocale(siteId)
     // -> A locale that used to be enabled and got turned off is not a valid target for a new page,
     //    including one recreated by the deletion-recovery flow (see `pageHistory.recoverDeletedPage`)
     //    into a locale that no longer exists
     const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-      this.defaultLocale(siteId)
+      defaultLocale(siteId)
     ]
     if (!activeLocales.includes(locale)) {
       throw new CustomError(
@@ -645,7 +806,18 @@ class Pages {
     }
 
     const alias = await this.validateAlias(siteId, input.alias)
-    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags }
+    const classification = await this.resolveCreateClassification(
+      siteId,
+      locale,
+      path,
+      input.classification
+    )
+    // -> `classification: null` here, deliberately, even though the value the page is ABOUT to be
+    //    created with is already known: `write:scripts`/`write:styles` are checked against the page
+    //    as it exists right now, which is not at all -- see `RulePageRef`'s own doc comment on why a
+    //    not-yet-existing page fails closed rather than reaching for a value that describes the page
+    //    it is about to become.
+    const pageRef: RulePageRef = { path, locale, siteId, tags: input.tags, classification: null }
     const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
       siteId,
       input.render ?? '',
@@ -666,6 +838,7 @@ class Pages {
           authorId: actor.id,
           creatorId: actor.id,
           ownerId: actor.id,
+          classification,
           config: this.buildConfig(input, siteId),
           content,
           contentType: EDITOR_CONTENT_TYPES[editor] ?? 'text',
@@ -730,6 +903,7 @@ class Pages {
       pageId: page.id,
       action: 'created',
       authorId: actor.id,
+      via: actor.via,
       reason: input.reasonForChange,
       versionDate: input.updatedAt ? new Date(input.updatedAt) : undefined
     })
@@ -837,12 +1011,36 @@ class Pages {
     if (patch.tags !== undefined) {
       values.tags = patch.tags
     }
+    // -> The declassification GUARDRAIL permission (`manage:classification`, OpenProject #1080) is
+    //    checked one layer up, in `api/pages.ts` -- the same layering every other page-rule
+    //    permission follows (see CLAUDE.md's Permissions section). This is the structural check: a
+    //    page's classification, whichever direction it moves, may never end up below its immediate
+    //    parent's floor.
+    if (patch.classification !== undefined) {
+      if (!WIKI.models.classificationLevels.byId(patch.classification)) {
+        throw new CustomError(
+          'classificationInvalid',
+          'This classification level does not exist.',
+          400
+        )
+      }
+      const floorId = await this.parentClassification(siteId, existing.locale, existing.path)
+      if (floorId && !WIKI.models.classificationLevels.meetsFloor(patch.classification, floorId)) {
+        throw new CustomError(
+          'classificationBelowFloor',
+          "A page's classification cannot be more open than its parent page's.",
+          400
+        )
+      }
+      values.classification = patch.classification
+    }
 
     const existingRef: RulePageRef = {
       path: existing.path,
       locale: existing.locale,
       siteId: existing.siteId,
-      tags: existing.tags ?? []
+      tags: existing.tags ?? [],
+      classification: existing.classification
     }
 
     // -> A render only means anything next to the content it came from, so the two move together
@@ -902,6 +1100,7 @@ class Pages {
       pageId: id,
       action: 'updated',
       authorId: actor.id,
+      via: actor.via,
       changedFields,
       reason: patch.reasonForChange
     })
@@ -947,16 +1146,178 @@ class Pages {
   }
 
   /**
+   * Other pages in this site sharing a path with `path`, excluding `excludeId` -- the translation
+   * link this data model uses (same `(siteId, path)`, other locales; see
+   * docs/decisions/locale-translation-linking.md). Used by `movePage`'s `includeTranslations`
+   * cascade to find the twins a rename has to carry along, and by the move/rename UI to offer it.
+   */
+  async getTranslations(siteId: string, path: string, excludeId: string): Promise<Page[]> {
+    const rows = await WIKI.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(
+        and(eq(pagesTable.siteId, siteId), eq(pagesTable.path, path), ne(pagesTable.id, excludeId))
+      )
+    const pages = await Promise.all(rows.map((row) => this.getPage({ siteId, id: row.id })))
+    return pages.filter((candidate): candidate is Page => candidate !== null)
+  }
+
+  /**
+   * The page + tree write for one page, run inside an already-open transaction -- shared between
+   * `movePage()`'s own move and its `includeTranslations` cascade, since a twin's move is exactly
+   * the same write against the twin's own current row, with its own (untouched) locale.
+   */
+  private async moveOnePageInTx(
+    tx: WikiTx,
+    siteId: string,
+    current: Page,
+    { path: newPath, title, locale: destLocale }: { path: string; title?: string; locale: string },
+    actor: PageActor
+  ): Promise<{ rawMoved: typeof pagesTable.$inferSelect; changedFields: string[] }> {
+    /*
+      Floor invariant on move (OpenProject #1080): unlike create/update, a move that lands a page
+      under a stricter parent auto-bumps it rather than refusing the move outright -- "no separate
+      confirmation step for a move" is the spec's own words. `stricterOf` is a no-op when the page is
+      already at or above the new floor (its own classification IS the stricter of the two already).
+      Read inside the transaction (`tx`, not `WIKI.db`) so a concurrent move of the parent cannot land
+      between this read and the write below.
+    */
+    const newFloorId =
+      newPath !== current.path || destLocale !== current.locale
+        ? await this.parentClassification(siteId, destLocale, newPath, tx)
+        : null
+    const classification = newFloorId
+      ? WIKI.models.classificationLevels.stricterOf(current.classification, newFloorId)
+      : current.classification
+
+    const rawMovedRows = await tx
+      .update(pagesTable)
+      .set({
+        path: newPath,
+        hash: generatePathHash(newPath),
+        locale: destLocale,
+        classification,
+        ...(title !== undefined ? { title: title.trim() } : {}),
+        authorId: actor.id,
+        updatedAt: sql`now()`
+      })
+      .where(eq(pagesTable.id, current.id))
+      .returning()
+
+    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
+    //    dropping and re-adding would create the destination folders but leave the old ones counted
+    const pathParts = newPath.split('/')
+    await WIKI.models.tree.deleteEntry(current.id, tx)
+    await WIKI.models.tree.addPage({
+      id: current.id,
+      parentPath: pathParts.slice(0, -1).join('/'),
+      fileName: pathParts.at(-1)!,
+      title: title !== undefined ? title.trim() : current.title,
+      locale: destLocale,
+      siteId,
+      tags: current.tags,
+      meta: this.treeMeta({ ...current, path: newPath }),
+      db: tx
+    })
+
+    // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound
+    //    links, and a history list has to be able to say so
+    const changedFields = [
+      ...(newPath !== current.path ? ['path'] : []),
+      ...(destLocale !== current.locale ? ['locale'] : []),
+      ...(title !== undefined && title.trim() !== current.title ? ['title'] : [])
+    ]
+
+    return { rawMoved: rawMovedRows[0]!, changedFields }
+  }
+
+  /**
+   * The side effects one moved page fires once its transaction has committed -- history, watchers,
+   * search, hooks and storage dispatch, all keyed to what THIS page changed rather than the batch as
+   * a whole, so an `includeTranslations` cascade fires one full set per twin, exactly as if each had
+   * been moved on its own (spec item 2 of OpenProject #1026).
+   */
+  private async recordMoveSideEffects(
+    siteId: string,
+    previous: Page,
+    rawMoved: typeof pagesTable.$inferSelect,
+    changedFields: string[],
+    actor: PageActor
+  ): Promise<Page> {
+    const moved = (await this.getPage({ siteId, id: previous.id })) as Page
+    await WIKI.models.pageHistory.record({
+      siteId,
+      pageId: previous.id,
+      action: 'moved',
+      authorId: actor.id,
+      via: actor.via,
+      changedFields
+    })
+    await this.notifyWatchers(
+      siteId,
+      previous.id,
+      'moved',
+      actor.id,
+      { title: moved.title, path: moved.path, locale: moved.locale },
+      changedFields
+    )
+    await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
+    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
+    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
+    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
+    //    where the page used to live (OpenProject #870).
+    if (moved.path !== previous.path || moved.locale !== previous.locale) {
+      WIKI.models.glossary.invalidateCache(siteId)
+    }
+    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
+    //    that has to find what the page used to be (the git target's own file for it, say) needs the
+    //    whole of where it was, not half of it
+    await WIKI.models.hooks.emit('page:rename', siteId, {
+      id: previous.id,
+      path: moved.path,
+      previousPath: previous.path,
+      locale: moved.locale,
+      previousLocale: previous.locale,
+      siteId,
+      authorId: actor.id
+    })
+    await WIKI.models.storage.dispatch('page:rename', {
+      id: previous.id,
+      path: moved.path,
+      previousPath: previous.path,
+      locale: moved.locale,
+      previousLocale: previous.locale,
+      siteId,
+      authorId: actor.id
+    })
+    return moved
+  }
+
+  /**
    * Move a page to another path and/or another locale, taking its tree entry with it.
    *
    * `locale` re-homes the page into another of the site's locales, which is a move in exactly the
    * sense a path change is: the page keeps its id, history and watchers, and the (siteId, locale,
    * path) it used to occupy is freed. Absent, the page stays in the locale it is already in.
+   *
+   * `includeTranslations` cascades a path change to every other locale's page sharing this page's
+   * CURRENT path (see `getTranslations` and docs/decisions/locale-translation-linking.md) -- the
+   * translation link this data model uses is the shared path itself, so a rename that moves only one
+   * locale's page silently strands its twins at the old one. All-or-nothing: every twin goes through
+   * the same reserved-segment and collision checks as the page being moved, and a 409 on any one of
+   * them aborts the whole batch, page and tree writes together (OpenProject #1026, built on the
+   * transaction OpenProject #1022 put under a single move). A locale-only move (path unchanged) never
+   * cascades -- twins are found by path, so they are unaffected by definition.
    */
   async movePage(
     siteId: string,
     id: string,
-    { path, title, locale }: { path: string; title?: string; locale?: string },
+    {
+      path,
+      title,
+      locale,
+      includeTranslations = false
+    }: { path: string; title?: string; locale?: string; includeTranslations?: boolean },
     actor: PageActor
   ): Promise<Page | null> {
     const page = await this.getPage({ siteId, id })
@@ -967,7 +1328,9 @@ class Pages {
     // -> Same reasoning as `tree.renameFolder`: only checked when the path is actually changing, so a
     //    title-only (or locale-only) move of an already-grandfathered page — one whose path predates
     //    this rule — isn't itself blocked. The route's own schema advertises rename-via-move, and a
-    //    page whose shadowing first segment is untouched by this call isn't newly at risk.
+    //    page whose shadowing first segment is untouched by this call isn't newly at risk. Path-only,
+    //    so it applies identically to every twin the cascade below moves to the same destination --
+    //    no need to repeat it per twin.
     if (newPath !== page.path) {
       const firstSegment = newPath.split('/')[0] ?? ''
       if (await WIKI.models.locales.isReservedLocaleCode(firstSegment)) {
@@ -983,7 +1346,7 @@ class Pages {
     //    may end up, whether by being created there or by being moved there
     if (destLocale !== page.locale) {
       const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? [
-        this.defaultLocale(siteId)
+        defaultLocale(siteId)
       ]
       if (!activeLocales.includes(destLocale)) {
         throw new CustomError(
@@ -1019,95 +1382,93 @@ class Pages {
       }
     }
 
-    // -> `.returning()` gets the raw row for free off the same write, which is what
-    //    `WIKI.models.search.renamed` wants (`SearchIndexablePage`, not the flattened `Page` shape)
-    let rawMovedRows
+    // -> Twins share this page's CURRENT path -- found before anything moves, since the primary no
+    //    longer shares it with anyone the moment its own row is updated. Reaching here with the path
+    //    unchanged means only the locale (or title) is moving (the no-op check above already
+    //    returned for a title-only move too), and twins are addressed by path, not by locale, so
+    //    there is nothing for them to inherit from a locale-only move.
+    const twins =
+      includeTranslations && newPath !== page.path
+        ? await this.getTranslations(siteId, page.path, id)
+        : []
+
+    for (const twin of twins) {
+      const duplicate = await WIKI.db
+        .select({ id: pagesTable.id })
+        .from(pagesTable)
+        .where(
+          and(
+            ne(pagesTable.id, twin.id),
+            eq(pagesTable.siteId, siteId),
+            eq(pagesTable.locale, twin.locale),
+            eq(pagesTable.path, newPath)
+          )
+        )
+        .limit(1)
+      if (duplicate.length > 0) {
+        throw new CustomError(
+          'pageDuplicatePath',
+          `A page already exists at this path in the "${twin.locale}" locale.`,
+          409
+        )
+      }
+    }
+
+    // -> Every page in the batch -- the one being moved, plus every twin `includeTranslations` pulls
+    //    along -- shares one transaction: a collision the probes above couldn't close (a race, or a
+    //    tree name collision only the insert itself can see) rolls the whole batch back rather than
+    //    leaving some twins moved and others stranded.
+    type MoveResult = {
+      previous: Page
+      rawMoved: typeof pagesTable.$inferSelect
+      changedFields: string[]
+    }
+    let results: MoveResult[]
     try {
-      rawMovedRows = await WIKI.db
-        .update(pagesTable)
-        .set({
-          path: newPath,
-          hash: generatePathHash(newPath),
-          locale: destLocale,
-          ...(title !== undefined ? { title: title.trim() } : {}),
-          authorId: actor.id,
-          updatedAt: sql`now()`
-        })
-        .where(eq(pagesTable.id, id))
-        .returning()
+      results = await WIKI.db.transaction(async (tx) => {
+        const primary = await this.moveOnePageInTx(
+          tx,
+          siteId,
+          page,
+          { path: newPath, title, locale: destLocale },
+          actor
+        )
+        const batch: MoveResult[] = [{ previous: page, ...primary }]
+        for (const twin of twins) {
+          const twinResult = await this.moveOnePageInTx(
+            tx,
+            siteId,
+            twin,
+            { path: newPath, locale: twin.locale },
+            actor
+          )
+          batch.push({ previous: twin, ...twinResult })
+        }
+        return batch
+      })
     } catch (err: any) {
-      // -> The probe above already covers the common case; this catches the race it cannot close --
-      //    two requests that both pass the probe before either updates
+      // -> The probes above already cover the common case; this catches the race they cannot close --
+      //    two requests that both pass a probe before either writes
       if (err.cause?.code === '23505' || err.code === '23505') {
         throw new CustomError('pageDuplicatePath', 'A page already exists at this path.', 409)
       }
       throw err
     }
-    const rawMoved = rawMovedRows[0]!
 
-    // -> The tree entry is what places the page in the site, so it is moved rather than rewritten:
-    //    dropping and re-adding would create the destination folders but leave the old ones counted
-    const pathParts = newPath.split('/')
-    await WIKI.models.tree.deleteEntry(id)
-    await WIKI.models.tree.addPage({
-      id,
-      parentPath: pathParts.slice(0, -1).join('/'),
-      fileName: pathParts.at(-1)!,
-      title: title !== undefined ? title.trim() : page.title,
-      locale: destLocale,
-      siteId,
-      tags: page.tags,
-      meta: this.treeMeta({ ...page, path: newPath })
-    })
-
-    const moved = (await this.getPage({ siteId, id })) as Page
-
-    // -> Recorded as its own kind of change rather than an edit: a move is what breaks inbound links,
-    //    and a history list has to be able to say so
-    const changedFields = [
-      ...(newPath !== page.path ? ['path'] : []),
-      ...(destLocale !== page.locale ? ['locale'] : []),
-      ...(title !== undefined && title.trim() !== page.title ? ['title'] : [])
-    ]
-    await WIKI.models.pageHistory.record({
-      siteId,
-      pageId: id,
-      action: 'moved',
-      authorId: actor.id,
-      changedFields
-    })
-    await this.notifyWatchers(
-      siteId,
-      id,
-      'moved',
-      actor.id,
-      { title: moved.title, path: moved.path, locale: moved.locale },
-      changedFields
-    )
-
-    await WIKI.models.search.renamed(siteId, rawMoved, page.path, page.locale)
-    // -> `previousLocale` alongside `previousPath` because a move can now change either: a consumer
-    //    that has to find what the page used to be (the git target's own file for it, say) needs the
-    //    whole of where it was, not half of it
-    await WIKI.models.hooks.emit('page:rename', siteId, {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      previousLocale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    await WIKI.models.storage.dispatch('page:rename', {
-      id,
-      path: moved.path,
-      previousPath: page.path,
-      locale: moved.locale,
-      previousLocale: page.locale,
-      siteId,
-      authorId: actor.id
-    })
-    return moved
+    let primaryMoved: Page | undefined
+    for (const result of results) {
+      const moved = await this.recordMoveSideEffects(
+        siteId,
+        result.previous,
+        result.rawMoved,
+        result.changedFields,
+        actor
+      )
+      if (result.previous.id === id) {
+        primaryMoved = moved
+      }
+    }
+    return primaryMoved!
   }
 
   /**
@@ -1125,7 +1486,8 @@ class Pages {
       siteId,
       pageId: id,
       action: 'deleted',
-      authorId: actor.id
+      authorId: actor.id,
+      via: actor.via
     })
     // -> Also before the row goes: deleting it below cascades `pageWatching` away, so the watch list
     //    has to be read while it still exists
@@ -1140,6 +1502,11 @@ class Pages {
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
+    // -> The FK from `glossaryTerms.pageId` is `set null` (see `db/schema.ts`), so a term canonically
+    //    linked to this page is unlinked at the db level already; the cached, resolved copy of that
+    //    link needs the same drop or it would keep pointing at a page that no longer exists
+    //    (OpenProject #870).
+    WIKI.models.glossary.invalidateCache(siteId)
 
     await WIKI.models.search.deleted(siteId, id)
     await WIKI.models.hooks.emit('page:delete', siteId, {
@@ -1184,7 +1551,8 @@ class Pages {
         siteId,
         pageId: entry.id,
         action: 'deleted',
-        authorId: actor.id
+        authorId: actor.id,
+        via: actor.via
       })
       // -> Same ordering as `deletePage`, and for the same reason: still before the bulk delete below.
       //    `DeletedEntry` carries no title (a folder deletion never loaded the page rows to begin
@@ -1201,6 +1569,9 @@ class Pages {
         entries.map((entry) => entry.id)
       )
     )
+    // -> Same reasoning as `deletePage`: a glossary term canonically linked to any of these pages has
+    //    a now-stale cached link (OpenProject #870). One call covers the whole batch.
+    WIKI.models.glossary.invalidateCache(siteId)
 
     // -> One per page, as deleting them one at a time would have sent: a subscriber mirroring the
     //    wiki has to hear about each page, not about the folder it happened to sit in
@@ -1318,8 +1689,72 @@ class Pages {
   }
 
   /**
-   * A site's page paths and last-updated times, for `/sitemap.xml` — the only bulk listing this model
-   * offers, because nothing else needs to see every page of a site at once.
+   * How many pages currently carry each classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the coverage half of the epic's auditability goal: what does the wiki
+   * actually consider sensitive, at a glance, before drilling into any one level's pages.
+   *
+   * Every level is included even at zero, in level order (most-open first) -- a level nothing is
+   * classified as is itself worth an admin seeing, not a row silently missing from the report.
+   */
+  async classificationReport(
+    siteId?: string
+  ): Promise<{ levelId: string; name: string; sortOrder: number; count: number }[]> {
+    const rows = await WIKI.db
+      .select({ classification: pagesTable.classification, count: sql<number>`count(*)::int` })
+      .from(pagesTable)
+      .where(siteId ? eq(pagesTable.siteId, siteId) : undefined)
+      .groupBy(pagesTable.classification)
+    const counts = new Map(rows.map((row) => [row.classification, row.count]))
+    return WIKI.models.classificationLevels.list().map((level) => ({
+      levelId: level.id,
+      name: level.name,
+      sortOrder: level.sortOrder,
+      count: counts.get(level.id) ?? 0
+    }))
+  }
+
+  /**
+   * Every page currently at one classification level, instance-wide or narrowed to one site
+   * (OpenProject #1081) -- the drill-down `classificationReport()`'s counts point into. Paginated,
+   * newest-updated first; metadata only, matching `listAllForSite()`'s own reasoning for staying out
+   * of content.
+   */
+  async listByClassification(
+    levelId: string,
+    { siteId, limit = 50, offset = 0 }: { siteId?: string; limit?: number; offset?: number } = {}
+  ): Promise<{
+    total: number
+    entries: { id: string; path: string; locale: string; title: string; siteId: string }[]
+  }> {
+    const conditions = [
+      eq(pagesTable.classification, levelId),
+      ...(siteId ? [eq(pagesTable.siteId, siteId)] : [])
+    ]
+    const where = and(...conditions)
+    const [totals, rows] = await Promise.all([
+      WIKI.db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(pagesTable)
+        .where(where),
+      WIKI.db
+        .select({
+          id: pagesTable.id,
+          path: pagesTable.path,
+          locale: pagesTable.locale,
+          title: pagesTable.title,
+          siteId: pagesTable.siteId
+        })
+        .from(pagesTable)
+        .where(where)
+        .orderBy(desc(pagesTable.updatedAt))
+        .limit(limit)
+        .offset(offset)
+    ])
+    return { total: totals[0]?.total ?? 0, entries: rows }
+  }
+
+  /**
+   * A site's page paths and last-updated times, for `/sitemap.xml`.
    *
    * `publishState`/`isBrowsable` are cheap column filters that describe every anonymous reader at
    * once, but they are not the whole of what a guest may see: an administrator can lock a published,
@@ -1337,6 +1772,7 @@ class Pages {
         path: pagesTable.path,
         locale: pagesTable.locale,
         tags: pagesTable.tags,
+        classification: pagesTable.classification,
         updatedAt: pagesTable.updatedAt
       })
       .from(pagesTable)
@@ -1355,17 +1791,11 @@ class Pages {
           path: row.path,
           locale: row.locale,
           siteId,
-          tags: row.tags
+          tags: row.tags,
+          classification: row.classification
         })
       )
       .map(({ path, locale, updatedAt }) => ({ path, locale, updatedAt }))
-  }
-
-  /**
-   * The locale a page belongs to when the request does not say.
-   */
-  private defaultLocale(siteId: string): string {
-    return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
   }
 
   /**

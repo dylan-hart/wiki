@@ -1,17 +1,21 @@
 /* global WIKI */
 import fs from 'node:fs'
-import ldap from 'ldapjs'
-import type { Client, SearchEntry, SearchOptions } from 'ldapjs'
+import { Client } from 'ldapts'
+import type { Entry, SearchOptions, SearchResult } from 'ldapts'
 import { ProvisionableLoginError } from '../../../models/authentication.ts'
 
 /** Only what this module actually calls, kept narrow so a test double needs no more than this. */
 type LdapClientFactory = (options: { url: string; tlsOptions: Record<string, any> }) => Client
 
-/** Attribute values as ldapjs hands them back: always an array, even for a single-value attribute. */
-function attributesOf(entry: SearchEntry): Record<string, string[]> {
+/** Attribute values as ldapts hands them back: a bare value for a single-value attribute, an array for multi-value. */
+function attributesOf(entry: Entry): Record<string, string[]> {
   const result: Record<string, string[]> = {}
-  for (const attr of entry.attributes) {
-    result[attr.type] = ([] as string[]).concat(attr.values)
+  for (const [key, value] of Object.entries(entry)) {
+    if (key === 'dn') {
+      continue
+    }
+    const values = Array.isArray(value) ? value : [value]
+    result[key] = values.map((v) => (Buffer.isBuffer(v) ? v.toString('utf8') : v))
   }
   return result
 }
@@ -46,7 +50,7 @@ function interpolate(template: string, vars: Record<string, string>): string {
 
 /**
  * OpenSSL verify-error codes Node's `tls` module reports for a certificate that fails to chain to a
- * trusted CA — as opposed to any other connection failure. `ldapjs` does not normalize or wrap these;
+ * trusted CA — as opposed to any other connection failure. `ldapts` does not normalize or wrap these;
  * they arrive here exactly as `tls` produced them on the socket error that failed the pending bind.
  */
 const CERT_TRUST_ERROR_CODES = new Set([
@@ -66,7 +70,7 @@ const CERT_TRUST_ERROR_CODES = new Set([
  * administrative bind that fails because the directory's certificate is not trusted is not "not
  * authorized to login" — it is a server (or `tlsCertPath`) misconfiguration the person signing in can
  * do nothing about, and previously came back indistinguishable from a bad password (upstream issue
- * #1232 / discussion #6891). `ldapjs`'s own `InvalidCredentialsError` carries none of these codes, so
+ * #1232 / discussion #6891). `ldapts`'s own `InvalidCredentialsError` carries none of these codes, so
  * this never misclassifies a real credential failure.
  */
 function isCertificateTrustError(err: any): boolean {
@@ -80,36 +84,13 @@ function isCertificateTrustError(err: any): boolean {
   )
 }
 
-function bindAsync(client: Client, dn: string, password: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    client.bind(dn, password, (err) => (err ? reject(err) : resolve()))
-  })
-}
-
-function searchAsync(client: Client, base: string, options: SearchOptions): Promise<SearchEntry[]> {
-  return new Promise((resolve, reject) => {
-    client.search(base, options, (err, res) => {
-      if (err) {
-        reject(err)
-        return
-      }
-      const entries: SearchEntry[] = []
-      res.on('searchEntry', (entry) => entries.push(entry))
-      res.on('error', (errSearch) => reject(errSearch))
-      res.on('end', () => resolve(entries))
-    })
-  })
-}
-
 /** Best-effort: a connection that is already broken has nothing useful to report on unbind. */
-function unbindAsync(client: Client): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      client.unbind(() => resolve())
-    } catch {
-      resolve()
-    }
-  })
+async function unbindQuietly(client: Client): Promise<void> {
+  try {
+    await client.unbind()
+  } catch {
+    // Nothing to report on a connection that's already broken.
+  }
 }
 
 /**
@@ -149,13 +130,13 @@ export default class LdapAuthentication {
   private tlsOptionsCache: Record<string, any> | null = null
 
   /**
-   * @param createLdapClient Defaults to the real `ldapjs` client. Overridable only so a test can hand
+   * @param createLdapClient Defaults to a real `ldapts` client. Overridable only so a test can hand
    *   in a double instead of talking to a real directory server.
    */
   constructor(
     strategyId: string,
     conf: Record<string, any>,
-    createLdapClient: LdapClientFactory = ldap.createClient as unknown as LdapClientFactory
+    createLdapClient: LdapClientFactory = (options) => new Client(options)
   ) {
     this.strategyId = strategyId
     this.conf = conf
@@ -179,14 +160,10 @@ export default class LdapAuthentication {
     }
 
     const adminClient = this.createLdapClient({ url, tlsOptions })
-    // -> Without a listener, a connection-level failure (bad host, refused connection) emits 'error'
-    //    on the client and crashes the process — the actual failure still surfaces through whichever
-    //    pending bind/search callback was queued when the connection died.
-    adminClient.on('error', () => {})
 
     try {
       try {
-        await bindAsync(adminClient, bindDn, bindCredentials)
+        await adminClient.bind(bindDn, bindCredentials)
       } catch (err: any) {
         if (isCertificateTrustError(err)) {
           WIKI.models.flags.authDebug(
@@ -200,9 +177,9 @@ export default class LdapAuthentication {
         throw new Error('ERR_STRATEGY_MISCONFIGURED')
       }
 
-      let entries: SearchEntry[]
+      let result: SearchResult
       try {
-        entries = await searchAsync(adminClient, searchBase, {
+        result = await adminClient.search(searchBase, {
           scope: 'sub',
           filter: interpolate(searchFilter, { username: escapeFilterValue(username) })
         })
@@ -213,6 +190,7 @@ export default class LdapAuthentication {
         throw new Error('ERR_LOGIN_FAILED')
       }
 
+      const entries = result.searchEntries
       if (entries.length !== 1) {
         WIKI.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: search for "${username}" returned ${entries.length} entries`
@@ -220,7 +198,7 @@ export default class LdapAuthentication {
         throw new Error('ERR_LOGIN_FAILED')
       }
       const entry = entries[0]
-      const dn = entry.objectName
+      const dn = entry.dn
       if (!dn) {
         throw new Error('ERR_LOGIN_FAILED')
       }
@@ -230,16 +208,15 @@ export default class LdapAuthentication {
       //    fail, and doing it on its own connection keeps a failed attempt from ever touching the
       //    connection still needed for the optional group search below.
       const userClient = this.createLdapClient({ url, tlsOptions })
-      userClient.on('error', () => {})
       try {
-        await bindAsync(userClient, dn, password)
+        await userClient.bind(dn, password)
       } catch {
         WIKI.models.flags.authDebug(
           `LDAP strategy ${this.strategyId}: verification bind for "${username}" failed`
         )
         throw new Error('ERR_LOGIN_FAILED')
       } finally {
-        await unbindAsync(userClient)
+        await unbindQuietly(userClient)
       }
 
       const attrs = attributesOf(entry)
@@ -259,7 +236,7 @@ export default class LdapAuthentication {
 
       throw new ProvisionableLoginError({ id, email, name: name || email, groups })
     } finally {
-      await unbindAsync(adminClient)
+      await unbindQuietly(adminClient)
     }
   }
 
@@ -268,7 +245,7 @@ export default class LdapAuthentication {
    * name by `models/users.ts`'s `syncProviderGroups()`, not here.
    *
    * `{{dn}}` is interpolated from `groupDnProperty`: "dn" (the default, and not a real attribute
-   * ldapjs would ever return) means the user entry's own distinguished name; anything else names an
+   * ldapts would ever return) means the user entry's own distinguished name; anything else names an
    * attribute read off the user entry already fetched, e.g. a `memberOf`-style value.
    */
   private async fetchGroups(
@@ -291,11 +268,11 @@ export default class LdapAuthentication {
       return []
     }
     try {
-      const entries = await searchAsync(client, groupSearchBase, {
+      const { searchEntries } = await client.search(groupSearchBase, {
         scope: (groupSearchScope as SearchOptions['scope']) || 'sub',
         filter: interpolate(groupSearchFilter, { dn: escapeFilterValue(dnValue) })
       })
-      return entries
+      return searchEntries
         .map((groupEntry) => attributesOf(groupEntry)[groupNameField]?.[0])
         .filter((name): name is string => Boolean(name))
     } catch (err: any) {

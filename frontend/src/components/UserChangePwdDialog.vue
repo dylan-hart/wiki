@@ -73,13 +73,13 @@
 
 <script setup>
 import { sampleSize } from 'es-toolkit/array'
-import zxcvbn from 'zxcvbn'
 
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -124,7 +124,7 @@ const passwordStrength = computed(() => {
       label: t('admin.users.pwdStrengthWeak')
     }
   } else {
-    switch (zxcvbn(state.userPassword).score) {
+    switch (passwordStrengthScore(state.userPassword)) {
       case 1:
         return {
           color: 'deep-orange-7',

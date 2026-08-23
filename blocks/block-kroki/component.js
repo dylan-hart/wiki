@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit'
-import { deflate } from 'pako'
+import { compress } from '../shared/compress.js'
 import { DarkMode } from '../shared/theme.js'
 import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
 
@@ -63,8 +63,8 @@ const CHUNK_SIZE = 0x8000
  * rather than add a server-side POST proxy for -- see `docs/variances.md` -- so `firstUpdated()` below
  * measures the result and refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
  */
-function encodeForUrl(source) {
-  const bytes = deflate(new TextEncoder().encode(source), { level: 9 })
+async function encodeForUrl(source) {
+  const bytes = await compress(new TextEncoder().encode(source), 'deflate')
   let binary = ''
   for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE))
@@ -329,11 +329,11 @@ digraph G {
    * nothing of the server beyond the picture: kroki.io sends no CORS headers at all, so a `fetch` for
    * the same URL is refused. It also means the browser caches the drawing like any other image.
    */
-  _url(source) {
+  async _url(source) {
     const server = (this.server?.trim() || DEFAULT_SERVER).replace(/\/+$/, '')
     const type = TYPES.includes(this.type) ? this.type : 'graphviz'
     const format = this.format === 'png' ? 'png' : 'svg'
-    return `${server}/${type}/${format}/${encodeForUrl(source)}`
+    return `${server}/${type}/${format}/${await encodeForUrl(source)}`
   }
 
   /**
@@ -379,7 +379,17 @@ digraph G {
         'This diagram is empty. Its source goes in the body of the block, inside a ```kroki fence.'
       return
     }
-    const url = this._url(source)
+    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
+    //    that needs to block it. Kept on the instance so a test can await the draw finishing.
+    this._ready = this._draw(source)
+  }
+
+  /**
+   * Encodes the source and, if the result fits, draws it -- the async continuation of
+   * `firstUpdated()`, split out because encoding now goes through the async `CompressionStream`.
+   */
+  async _draw(source) {
+    const url = await this._url(source)
     /*
       A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
       diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the

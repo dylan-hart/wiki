@@ -12,6 +12,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
+import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
@@ -1083,7 +1084,7 @@ describe('POST /sites/:siteId/pages/import', () => {
 
   before(async () => {
     checkAccess = mock.fn(() => true)
-    convertToMarkdown = mock.fn(async () => '# Converted\n')
+    convertToMarkdown = mock.fn(async () => ({ markdown: '# Converted\n' }))
 
     ;(globalThis as any).WIKI = {
       // -> `defaultLocale()` reads `WIKI.sites[siteId]?.config?.locales?.primary`, falling back to
@@ -1134,11 +1135,15 @@ describe('POST /sites/:siteId/pages/import', () => {
     checkAccess.mock.resetCalls()
     checkAccess.mock.mockImplementation(() => true)
     convertToMarkdown.mock.resetCalls()
-    convertToMarkdown.mock.mockImplementation(async () => '# Converted\n')
+    convertToMarkdown.mock.mockImplementation(async () => ({ markdown: '# Converted\n' }))
   })
 
   function importUrl(query: Record<string, string> = {}) {
-    const params = new URLSearchParams({ format: 'mediawiki', path: 'docs/new-page', ...query })
+    const params = new URLSearchParams({
+      fileName: 'notes.mediawiki',
+      path: 'docs/new-page',
+      ...query
+    })
     return `/sites/11111111-1111-1111-1111-111111111111/pages/import?${params.toString()}`
   }
 
@@ -1207,6 +1212,48 @@ describe('POST /sites/:siteId/pages/import', () => {
     assert.equal(call.data.toString(), body.toString())
   })
 
+  test("detects the format from fileName's extension when no format is given (OpenProject #1209)", async () => {
+    const body = Buffer.from('Some RST content')
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'design.rst' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: body
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(convertToMarkdown.mock.callCount(), 1)
+    assert.equal((convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test('an explicit format overrides what would otherwise be detected from fileName', async () => {
+    const body = Buffer.from('== Hello ==')
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'notes.rst', format: 'mediawiki' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: body
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'mediawiki'
+    )
+  })
+
+  test('answers 400 without asking the model when fileName has no recognized extension and no format is given', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ fileName: 'README' }),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: Buffer.from('nope')
+    })
+    assert.equal(res.statusCode, 400)
+    assert.match(res.json().message, /Could not detect an import format/)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
   test('rejects a format the schema does not know about', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -1216,6 +1263,382 @@ describe('POST /sites/:siteId/pages/import', () => {
     })
     assert.equal(res.statusCode, 400)
     assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
+  test("accepts format=markdown and passes the model's parsed title/description/tags through", async () => {
+    convertToMarkdown.mock.mockImplementation(async () => ({
+      markdown: '# Body\n',
+      title: 'From Front Matter',
+      description: 'A summary',
+      tags: ['alpha', 'beta']
+    }))
+
+    const res = await app.inject({
+      method: 'POST',
+      url: importUrl({ format: 'markdown' }),
+      headers: { 'content-type': 'text/markdown' },
+      payload: Buffer.from('---\ntitle: From Front Matter\n---\n\n# Body\n')
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), {
+      ok: true,
+      message: 'File converted successfully.',
+      markdown: '# Body\n',
+      title: 'From Front Matter',
+      description: 'A summary',
+      tags: ['alpha', 'beta']
+    })
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'markdown'
+    )
+  })
+})
+
+/**
+ * Builds a `multipart/form-data` body for `app.inject()`, using the platform's own `Response` to do
+ * the encoding (boundary, per-part headers) rather than hand-rolling it — the same bytes a browser's
+ * `fetch(..., { body: formData })` would send.
+ */
+async function buildMultipartPayload(
+  files: {
+    fieldName?: string
+    fileName: string
+    content: string
+    type?: string
+    /** Sent as this file's own `formats` field (OpenProject #1209) when given, overriding autodetection. */
+    formatOverride?: string
+  }[]
+): Promise<{ payload: Buffer; contentType: string }> {
+  const form = new FormData()
+  for (const file of files) {
+    form.append(
+      file.fieldName ?? 'files',
+      new Blob([file.content], { type: file.type ?? 'text/plain' }),
+      file.fileName
+    )
+    // -> Interleaved right after its own file, same order the frontend sends them in — the route
+    //    pairs a `formats` field with whichever upload it most recently pushed.
+    if (file.fieldName === undefined || file.fieldName === 'files') {
+      form.append('formats', file.formatOverride ?? '')
+    }
+  }
+  const res = new Response(form)
+  const payload = Buffer.from(await res.arrayBuffer())
+  const contentType = res.headers.get('content-type')!
+  return { payload, contentType }
+}
+
+/**
+ * Route-level test for `POST /sites/:siteId/pages/import/batch` (OpenProject #849).
+ *
+ * Same division of labor as the single-file import route above: conversion itself is
+ * `models/import.ts`'s job, already covered by `models/import.test.ts`. What this suite checks is
+ * the route's own wiring — the `write:pages` permission gate, that every uploaded file reaches the
+ * model, and that one file failing does not stop the rest of the batch from converting.
+ */
+describe('POST /sites/:siteId/pages/import/batch', () => {
+  let app: FastifyInstance
+  let checkAccess: ReturnType<typeof mock.fn>
+  let convertToMarkdown: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    checkAccess = mock.fn(() => true)
+    convertToMarkdown = mock.fn(async ({ data }: { data: Buffer }) => ({
+      markdown: `# ${data.toString()}\n`
+    }))
+
+    ;(globalThis as any).WIKI = {
+      sites: {},
+      models: {
+        groups: {
+          actorForRequest: () => ({ id: null, permissions: [] }),
+          checkAccess,
+          groupIdsForRequest: () => []
+        },
+        pageImport: {
+          convertToMarkdown
+        }
+      }
+    }
+
+    app = Fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      if (req.headers['x-test-anon'] !== 'true') {
+        ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      }
+      done()
+    })
+    await registerErrorSchema(app)
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    checkAccess.mock.resetCalls()
+    checkAccess.mock.mockImplementation(() => true)
+    convertToMarkdown.mock.resetCalls()
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => ({
+      markdown: `# ${data.toString()}\n`
+    }))
+  })
+
+  function batchUrl(query: Record<string, string> = {}) {
+    const params = new URLSearchParams({ path: 'docs/imported', ...query })
+    return `/sites/11111111-1111-1111-1111-111111111111/pages/import/batch?${params.toString()}`
+  }
+
+  test('an anonymous request is refused before any file is read', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'a.mediawiki', content: '= A =' }
+    ])
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType, 'x-test-anon': 'true' },
+      payload
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
+  test('refuses a caller without write:pages on the declared path', async () => {
+    checkAccess.mock.mockImplementation(() => false)
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'a.mediawiki', content: '= A =' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+    assert.equal(res.statusCode, 403)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+    const [, permission, page] = checkAccess.mock.calls[0].arguments as [
+      unknown,
+      string,
+      { path: string }
+    ]
+    assert.equal(permission, 'write:pages')
+    assert.equal(page.path, 'docs/imported')
+  })
+
+  test('rejects a request with no files without asking the model to convert anything', async () => {
+    const { payload, contentType } = await buildMultipartPayload([])
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(convertToMarkdown.mock.callCount(), 0)
+  })
+
+  test("autodetects each file's format from its own extension (OpenProject #1209)", async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'first.mediawiki', content: 'First' },
+      { fileName: 'second.rst', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.deepEqual(body.results, [
+      { fileName: 'first.mediawiki', ok: true, markdown: '# First\n' },
+      { fileName: 'second.rst', ok: true, markdown: '# Second\n' }
+    ])
+    assert.equal(convertToMarkdown.mock.callCount(), 2)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'mediawiki'
+    )
+    assert.equal((convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test("a per-file 'formats' override wins over that file's own detected extension", async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'first.mediawiki', content: 'First', formatOverride: 'textile' },
+      { fileName: 'second.rst', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      (convertToMarkdown.mock.calls[0].arguments[0] as { format: string }).format,
+      'textile'
+    )
+    assert.equal((convertToMarkdown.mock.calls[1].arguments[0] as { format: string }).format, 'rst')
+  })
+
+  test('a file with an unrecognized extension fails only its own entry, without asking the model', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'README', content: 'no extension' },
+      { fileName: 'second.rst', content: 'Second' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.results[0].fileName, 'README')
+    assert.equal(body.results[0].ok, false)
+    assert.match(body.results[0].message, /Could not detect an import format/)
+    assert.deepEqual(body.results[1], {
+      fileName: 'second.rst',
+      ok: true,
+      markdown: '# Second\n'
+    })
+    assert.equal(convertToMarkdown.mock.callCount(), 1)
+  })
+
+  test('one file failing does not stop the rest of the batch from converting', async () => {
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => {
+      if (data.toString() === 'bad') {
+        throw new CustomError(
+          'importNoContent',
+          'Pandoc converted this file but produced no usable content.',
+          400
+        )
+      }
+      return { markdown: `# ${data.toString()}\n` }
+    })
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'good.mediawiki', content: 'good' },
+      { fileName: 'bad.mediawiki', content: 'bad' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.results.length, 2)
+    assert.deepEqual(body.results[0], {
+      fileName: 'good.mediawiki',
+      ok: true,
+      markdown: '# good\n'
+    })
+    assert.equal(body.results[1].fileName, 'bad.mediawiki')
+    assert.equal(body.results[1].ok, false)
+    assert.match(body.results[1].message, /no usable content/)
+  })
+
+  /**
+   * Regression test (OpenProject #849 fix): `@fastify/multipart`'s default `throwFileSizeLimit: true`
+   * makes an oversized file's `toBuffer()` reject as the route's own comment describes, but it ALSO
+   * latches that rejection and replays it out of `req.files()`'s iterator on the very next
+   * `for await` step — even one that only advances past files already handled locally — turning "one
+   * bad file fails independently" into a 413 for the whole batch regardless of how many files after
+   * it converted fine. This sends a real oversized file (`MAX_IMPORT_SIZE`-plus-one, so the size
+   * limit itself trips rather than being mocked) ahead of a good one and asserts the batch still
+   * answers 200 with one failed entry and one successful one, not a request-level failure.
+   */
+  test('an oversized file fails only its own entry, not the whole batch', async () => {
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'toobig.mediawiki', content: 'x'.repeat(MAX_IMPORT_SIZE + 1) },
+      { fileName: 'fine.mediawiki', content: '= Fine =' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.ok, true)
+    assert.equal(body.results.length, 2)
+    assert.equal(body.results[0].fileName, 'toobig.mediawiki')
+    assert.equal(body.results[0].ok, false)
+    assert.match(body.results[0].message, /larger than the import limit/)
+    assert.deepEqual(body.results[1], {
+      fileName: 'fine.mediawiki',
+      ok: true,
+      markdown: '# = Fine =\n'
+    })
+  })
+
+  test("autodetects format: markdown from .md and passes each result's parsed title/description/tags through", async () => {
+    convertToMarkdown.mock.mockImplementation(async ({ data }: { data: Buffer }) => ({
+      markdown: '# Body\n',
+      title: `Title for ${data.toString()}`,
+      tags: ['imported']
+    }))
+    const { payload, contentType } = await buildMultipartPayload([
+      { fileName: 'one.md', content: 'one' },
+      { fileName: 'two.md', content: 'two' }
+    ])
+
+    const res = await app.inject({
+      method: 'POST',
+      url: batchUrl(),
+      headers: { 'content-type': contentType },
+      payload
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.deepEqual(body.results, [
+      {
+        fileName: 'one.md',
+        ok: true,
+        markdown: '# Body\n',
+        title: 'Title for one',
+        tags: ['imported']
+      },
+      {
+        fileName: 'two.md',
+        ok: true,
+        markdown: '# Body\n',
+        title: 'Title for two',
+        tags: ['imported']
+      }
+    ])
+    for (const call of convertToMarkdown.mock.calls) {
+      assert.equal((call.arguments[0] as { format: string }).format, 'markdown')
+    }
   })
 })
 
@@ -1762,7 +2185,9 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     })
 
     assert.equal(res.statusCode, 403)
-    assert.deepEqual(seenTargets, [{ path: 'overridden', locale: 'fr', siteId: SITE_ID }])
+    assert.deepEqual(seenTargets, [
+      { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
+    ])
   })
 
   test('POST recover recreates the page and returns it', async () => {
@@ -1829,6 +2254,30 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(body.error, 'pageInvalidLocale')
     assert.equal(body.statusCode, 400)
   })
+
+  test('POST recover rejects an empty-string locale at the schema, before it can reach the handler (OpenProject #1024)', async () => {
+    // -> Without `minLength: 1` here, `locale: ''` would pass validation, get permission-checked
+    //   against `target.locale = ''` (locale-scoped rules fail closed on that, same as null -- see
+    //   `helpers/pageRules.test.ts`), and then flow into `recoverDeletedPage` -> `createPage`, whose
+    //   own `input.locale || defaultLocale(siteId)` treats '' as unset and silently recreates the
+    //   page in the site's PRIMARY locale instead -- a different locale than the one just checked.
+    //   Rejecting '' outright at the boundary is what keeps the checked locale and the written one
+    //   the same value always.
+    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => {
+      throw new Error('recoverDeletedPage should not be called for a schema-invalid body')
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { locale: '' }
+    })
+
+    assert.equal(res.statusCode, 400)
+  })
 })
 
 /**
@@ -1837,8 +2286,10 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
  * `movePage` can now change a page's locale as well as its path, which makes where a page is going a
  * different place, in page-rule terms, from where it is: rules are matched on path AND locale, so the
  * source check alone would let a caller who may manage `en` push a page into a locale somebody else's
- * rules govern. The handler therefore checks `manage:pages` twice — once against the page as it
- * stands, once against the destination ref.
+ * rules govern. The handler checks `manage:pages` against the page as it stands, and `write:pages`
+ * against the destination ref — not `manage:pages` again: the group editor's own hint for
+ * `manage:pages` promises "other locations the user has WRITE ACCESS to", and `write:pages` is the
+ * same destination check `POST .../deleted/:versionId/recover` already makes (OpenProject #937).
  *
  * `checkAccess` is wired to the real `resolvePageRule` rather than a canned answer, so what passes
  * here is the actual rule-matching engine seeing the destination ref, not a stub agreeing it was
@@ -1848,11 +2299,15 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
   const SITE_ID = '11111111-1111-4111-8111-111111111111'
   const PAGE_ID = '22222222-2222-4222-8222-222222222222'
 
-  /** Manage anything in `en`, and nothing anywhere else — the rule the destination check exists for. */
+  /**
+   * Manage AND write anything in `en`, and nothing anywhere else — the rule the destination check
+   * exists for. Both roles are needed: `manage:pages` for the source-page check, `write:pages` for
+   * the destination check the same rule also has to satisfy in these "moving within `en`" cases.
+   */
   const manageEnglish: GroupRule = {
     id: 'manage-en',
     name: 'Manage English',
-    roles: ['manage:pages'],
+    roles: ['manage:pages', 'write:pages'],
     match: 'START',
     mode: 'ALLOW',
     path: '',
@@ -1971,6 +2426,339 @@ describe('PUT /sites/:siteId/pages/:pageId/path — destination permission', () 
     assert.equal(movePageCalls.length, 1)
     assert.equal(movePageCalls[0].patch.locale, 'fr')
     assert.equal(res.json().page.locale, 'fr')
+  })
+
+  test('managing the destination branch is not enough on its own: write:pages there is also required (OpenProject #937)', async () => {
+    // -> A caller who may MANAGE (move things around within) `fr`, but was never granted WRITE access
+    //    there, is exactly the gap #937 found: `manage:pages` on a destination branch used to be
+    //    treated as sufficient to land a page in it, when the group editor's own copy for
+    //    `manage:pages` promises only "locations the user has write access to".
+    const manageFrenchOnly: GroupRule = {
+      id: 'manage-fr-no-write',
+      name: 'Manage (not write) French',
+      roles: ['manage:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['fr'],
+      sites: []
+    }
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      actor: unknown,
+      permission: string,
+      page: RulePageRef
+    ) => {
+      const rule = resolvePageRule([manageEnglish, manageFrenchOnly], permission, page)
+      return rule ? rule.mode !== 'DENY' : false
+    }
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.equal(res.json().message, 'You are not allowed to move this page there.')
+    assert.equal(movePageCalls.length, 0)
+  })
+})
+
+/**
+ * Route-level test for `PUT /sites/:siteId/pages/:pageId/path`'s `includeTranslations` gate
+ * (OpenProject #1026, spec item 3): the batch needs `manage:pages` on each twin's own path AND
+ * `write:pages` on the shared destination for EVERY twin, not just the primary page -- checked here,
+ * before the model is asked to do anything, so a caller who may manage `en` cannot drag a `de`
+ * translation they have no rule over along for the ride. The destination check is `write:pages`, not
+ * `manage:pages`, for the same reason the primary move's destination check is (OpenProject #937).
+ */
+describe('PUT /sites/:siteId/pages/:pageId/path — includeTranslations permission gate', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+  const FR_ID = '33333333-3333-4333-8333-333333333333'
+  const DE_ID = '44444444-4444-4444-8444-444444444444'
+
+  /**
+   * Manage AND write `en` and `fr`, nothing else -- `de` is deliberately left ungoverned. Both roles
+   * are needed on the same rule here since every twin's own path and the shared destination all fall
+   * within `en`/`fr` in these fixtures.
+   */
+  const manageEnAndFr: GroupRule = {
+    id: 'manage-en-fr',
+    name: 'Manage EN+FR',
+    roles: ['manage:pages', 'write:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: ['en', 'fr'],
+    sites: []
+  }
+
+  const realCheckAccess = (_actor: unknown, permission: string, page: RulePageRef) => {
+    const rule = resolvePageRule([manageEnAndFr], permission, page)
+    return rule ? rule.mode !== 'DENY' : false
+  }
+
+  let app: FastifyInstance
+  let movePageCalls: any[] = []
+  let translations: Array<{
+    id: string
+    path: string
+    locale: string
+    title: string
+    tags: string[]
+  }>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      sites: { [SITE_ID]: { config: { locales: { primary: 'en', active: ['en', 'fr', 'de'] } } } },
+      models: {
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'docs/source',
+            hash: 'hash-1',
+            locale: 'en',
+            title: 'Source',
+            tags: []
+          }),
+          getTranslations: async () => translations,
+          movePage: async (siteId: string, id: string, patch: any) => {
+            movePageCalls.push({ siteId, id, patch })
+            return {
+              id,
+              path: patch.path,
+              locale: patch.locale ?? 'en',
+              title: 'Source',
+              hash: 'hash-2'
+            }
+          }
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          groupIdsForRequest: () => ['g1'],
+          checkAccess: realCheckAccess
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    movePageCalls = []
+    translations = []
+    ;(globalThis as any).WIKI.models.groups.checkAccess = realCheckAccess
+  })
+
+  test('no twins: includeTranslations reaches the model with nothing to permission-check', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+    assert.equal(movePageCalls[0].patch.includeTranslations, true)
+  })
+
+  test('every twin permitted: the batch reaches the model', async () => {
+    translations = [{ id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] }]
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(movePageCalls.length, 1)
+  })
+
+  test('a twin whose destination the caller may manage but not write to refuses the whole batch (OpenProject #937)', async () => {
+    // -> `en` keeps a full manage+write rule (the primary page's own path AND its destination both
+    //    sit in `en`); `fr` is scoped to manage-only, on its own -- unlike `manageEnAndFr` above,
+    //    this rule set gives the FR twin's OWN path `manage:pages` but grants `write:pages` nowhere
+    //    in `fr`, so the twin may be moved away from `docs/source` but not written into the shared
+    //    destination. That gap is exactly what #937 closes.
+    const manageWriteEn: GroupRule = {
+      id: 'manage-write-en',
+      name: 'Manage+write English',
+      roles: ['manage:pages', 'write:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['en'],
+      sites: []
+    }
+    const manageOnlyFr: GroupRule = {
+      id: 'manage-only-fr',
+      name: 'Manage (not write) French',
+      roles: ['manage:pages'],
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      locales: ['fr'],
+      sites: []
+    }
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      actor: unknown,
+      permission: string,
+      page: RulePageRef
+    ) => {
+      const rule = resolvePageRule([manageWriteEn, manageOnlyFr], permission, page)
+      return rule ? rule.mode !== 'DENY' : false
+    }
+    translations = [{ id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] }]
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /"fr"/)
+    assert.equal(movePageCalls.length, 0)
+  })
+
+  test('a twin outside every rule refuses the whole batch, naming its locale, before the model is asked', async () => {
+    translations = [
+      { id: FR_ID, path: 'docs/source', locale: 'fr', title: 'Source FR', tags: [] },
+      { id: DE_ID, path: 'docs/source', locale: 'de', title: 'Source DE', tags: [] }
+    ]
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/destination', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /"de"/)
+    assert.equal(movePageCalls.length, 0)
+  })
+
+  test('includeTranslations is ignored on a locale-only move: getTranslations is never consulted', async () => {
+    let getTranslationsCalled = false
+    ;(globalThis as any).WIKI.models.pages.getTranslations = async () => {
+      getTranslationsCalled = true
+      return []
+    }
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/path`,
+      payload: { path: 'docs/source', title: 'Retitled', includeTranslations: true }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(getTranslationsCalled, false)
+  })
+})
+
+/**
+ * Route-level test for `GET /sites/:siteId/pages/:pageId/translations` (OpenProject #1026): the
+ * query the move/rename dialog uses to decide whether to offer `includeTranslations` at all, and
+ * how many. Gated on `manage:pages` on the page -- the same permission actually moving it needs.
+ */
+describe('GET /sites/:siteId/pages/:pageId/translations', () => {
+  const SITE_ID = '11111111-1111-4111-8111-111111111111'
+  const PAGE_ID = '22222222-2222-4222-8222-222222222222'
+
+  let app: FastifyInstance
+  let mayOnPageResult = true
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        pages: {
+          getPage: async () => ({
+            id: PAGE_ID,
+            path: 'docs/source',
+            hash: 'hash-1',
+            locale: 'en',
+            title: 'Source',
+            tags: []
+          }),
+          getTranslations: async () => [
+            { id: 'fr-id', locale: 'fr', path: 'docs/source', title: 'Source FR' }
+          ]
+        },
+        groups: {
+          actorForRequest: () => ({ id: 'user-1', groupIds: ['g1'], permissions: [] }),
+          checkAccess: () => mayOnPageResult
+        }
+      }
+    }
+
+    app = Fastify({ ajv: { plugins: [[ajvFormats.default, {}] as any] } })
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
+      done()
+    })
+    app.setErrorHandler((error: any, _req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerApprovalSchemas(app)
+    await registerSchemas(app)
+    await registerErrorSchema(app)
+    await registerPageImportSchema(app)
+    await app.register(pagesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    mayOnPageResult = true
+  })
+
+  test('returns the twins as a flat list', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/translations`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), [
+      { id: 'fr-id', locale: 'fr', path: 'docs/source', title: 'Source FR' }
+    ])
+  })
+
+  test('403 when the caller may not manage this page', async () => {
+    mayOnPageResult = false
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/${PAGE_ID}/translations`
+    })
+    assert.equal(res.statusCode, 403)
   })
 })
 

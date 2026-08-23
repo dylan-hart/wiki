@@ -95,7 +95,8 @@ class FakePagesModel implements PagesWriteModel {
       authorId: actor.id,
       authorName: '',
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
+      classification: input.classification ?? 'classification-1'
     }
   }
 

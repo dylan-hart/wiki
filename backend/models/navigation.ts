@@ -160,6 +160,9 @@ class Navigation {
    * the generated items into the stored `items` column. The editor needs to keep the two apart itself
    * (e.g. only ever writing back the subset it loaded as stored), not rely on this method to do it.
    *
+   * @param siteId The site the menu is expected to belong to. Scopes the read the same way
+   *               `setNavItems`/`copyNav`'s writes already do — a row belonging to another site
+   *               answers as not-found rather than being handed back (OpenProject #941).
    * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
@@ -167,6 +170,7 @@ class Navigation {
    *                   an editor that could not see an item would drop it on the next save.
    */
   async getNav(
+    siteId: string,
     id: string,
     { userGroups = [], unfiltered = false }: { userGroups?: string[]; unfiltered?: boolean } = {}
   ): Promise<NavigationItem[]> {
@@ -178,7 +182,7 @@ class Navigation {
         locale: navigationTable.locale
       })
       .from(navigationTable)
-      .where(eq(navigationTable.id, id))
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
       .limit(1)
 
     const row = rows[0]
@@ -299,9 +303,9 @@ class Navigation {
    * per-page/per-folder menus, and copying one of those across sites isn't a use case this covers.
    *
    * Reads `siteId`'s active locales from the cached site config rather than taking them as a
-   * parameter, same as `defaultLocale` in `api/tree.ts` reaching into `WIKI.sites` directly — a site
-   * with none configured (or one this instance doesn't know about) resolves to an empty list rather
-   * than an error, since there is nothing to enumerate.
+   * parameter, same as `defaultLocale` in `helpers/common.ts` reaching into `WIKI.sites` directly —
+   * a site with none configured (or one this instance doesn't know about) resolves to an empty list
+   * rather than an error, since there is nothing to enumerate.
    */
   async siteRoots(siteId: string): Promise<{ locale: string; navigationId: string }[]> {
     const activeLocales: string[] = WIKI.sites[siteId]?.config?.locales?.active ?? []

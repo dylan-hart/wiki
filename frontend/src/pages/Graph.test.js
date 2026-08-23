@@ -69,6 +69,24 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(wrapper.find('canvas').exists()).toBe(true)
   })
 
+  it('switching edgeMode to classification (OpenProject #1217) does not throw', async () => {
+    const wrapper = await mountGraph()
+
+    wrapper.vm.edgeMode = 'classification'
+    await flushPromises()
+
+    expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
+  it('switching groupBy to classification (OpenProject #1217) does not throw', async () => {
+    const wrapper = await mountGraph()
+
+    wrapper.vm.groupBy = 'classification'
+    await flushPromises()
+
+    expect(wrapper.find('canvas').exists()).toBe(true)
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

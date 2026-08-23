@@ -1,7 +1,9 @@
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
+  blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
+  glossaryTerms as glossaryTermsTable,
   navigation as navigationTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
@@ -85,6 +87,25 @@ class Sites {
       WIKI.sitesMappings[site.hostname] = site.id
     }
     WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same —
+   * see `models/groups.ts`'s `broadcastReload()`, which this mirrors exactly, including the same
+   * "never call from inside `reloadCache()`" rule.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadSites')
+  }
+
+  /**
+   * Subscribe to HA propagation events
+   */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadSites', async () => {
+      await this.reloadCache()
+    })
   }
 
   async createSite(hostname: string, config: Record<string, any> = {}) {
@@ -216,8 +237,9 @@ class Sites {
     const newSiteConfig = newSite.config as { locales: { primary: string } }
     await WIKI.models.navigation.ensureSiteNav(newSite.id, newSiteConfig.locales.primary)
 
-    // -> Site lookups by id / hostname are served from cache, which must know about the new site
-    await WIKI.models.sites.reloadCache()
+    // -> Site lookups by id / hostname are served from cache, which must know about the new site —
+    //    on every instance, not just this one
+    await WIKI.models.sites.broadcastReload()
 
     // -> Otherwise the new site would have no blocks until the next restart
     await WIKI.models.blocks.syncSite(newSite.id)
@@ -273,7 +295,7 @@ class Sites {
       return false
     }
 
-    await WIKI.models.sites.reloadCache()
+    await WIKI.models.sites.broadcastReload()
     return true
   }
 
@@ -351,25 +373,27 @@ class Sites {
   }
 
   async deleteSite(id: string): Promise<boolean> {
-    // -> Block, storage and uploaded image rows belong to the site rather than to its content, and
-    //    their FK has no cascade, so they would otherwise block the delete. The site's own root
-    //    navigation row (`navigation.id = siteId`, created by `createSite` via
-    //    `navigation.ensureSiteNav`) is the same story and is cleaned up the same way — note this
-    //    filters by `id`, not `siteId`, so it only ever removes that one row and leaves per-page
-    //    navigation rows (keyed by tree entry id) alone. Content tables (pages, assets, the page
-    //    tree, and any navigation row still owned by one of them) deliberately still lack a cascade
-    //    — see the conflict handling in the route.
+    // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
+    //    rather than to its content, and their FK has no cascade, so they would otherwise block the
+    //    delete. Every navigation row this site owns — one per active locale's site-wide menu
+    //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
+    //    siteId`) plus any per-page override/hide row still standing — is the same story and is
+    //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
+    //    Content tables (pages, assets, the page tree) deliberately still lack a cascade — see the
+    //    conflict handling in the route.
     await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
+    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
     await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
     await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
-    await WIKI.db.delete(navigationTable).where(eq(navigationTable.id, id))
+    await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
+    await WIKI.db.delete(navigationTable).where(eq(navigationTable.siteId, id))
 
     const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
     if ((deletedResult.rowCount ?? 0) < 1) {
       return false
     }
 
-    await WIKI.models.sites.reloadCache()
+    await WIKI.models.sites.broadcastReload()
     return true
   }
 

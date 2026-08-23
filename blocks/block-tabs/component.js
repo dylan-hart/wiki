@@ -251,9 +251,21 @@ Content of the second tab.
     }
   }
 
+  /*
+    -> Self-heals an out-of-range `active` (hand-written markdown with too few tabs, or a stale value
+       left over after tabs were added/removed): without this, every panel hides and no tab in the
+       strip is marked active until the reader clicks one.
+  */
+  get _activeIndex() {
+    if (this._tabs.length < 1) {
+      return 0
+    }
+    return Math.min(Math.max(this.active, 0), this._tabs.length - 1)
+  }
+
   _showActive() {
     this._tabs.forEach(({ panel }, index) => {
-      panel.style.display = index === this.active ? 'block' : 'none'
+      panel.style.display = index === this._activeIndex ? 'block' : 'none'
     })
   }
 
@@ -309,7 +321,7 @@ Content of the second tab.
       return
     }
     event.preventDefault()
-    const next = (this.active + step + this._tabs.length) % this._tabs.length
+    const next = (this._activeIndex + step + this._tabs.length) % this._tabs.length
     this._select(next)
     this.renderRoot.querySelectorAll('.tab')[next]?.focus()
   }
@@ -354,9 +366,9 @@ Content of the second tab.
               <button
                 type="button"
                 role="tab"
-                class="tab ${index === this.active ? 'is-active' : ''}"
-                aria-selected="${index === this.active}"
-                tabindex="${index === this.active ? 0 : -1}"
+                class="tab ${index === this._activeIndex ? 'is-active' : ''}"
+                aria-selected="${index === this._activeIndex}"
+                tabindex="${index === this._activeIndex ? 0 : -1}"
                 @click="${() => this._select(index)}">
                 ${tab.svg ? unsafeSVG(tab.svg) : null}${tab.label}
               </button>

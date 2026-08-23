@@ -98,6 +98,15 @@ export const useSiteStore = defineStore('site', {
      */
     pdfExportAvailable: false,
     /**
+     * This site's enabled blocks, keyed by tag, as `{ id, isCustom }` — `backend/api/sites.ts`'s
+     * `siteBlocksInfoFor()`, carried on the same public site-info response `pdfExportAvailable`
+     * above travels on. Lets `Index.vue`'s block-loading scan resolve an undefined `block-*` element
+     * to a custom block's `/_blocks/custom/:siteId/:id.js` import URL (`blockImportUrl()` in
+     * `stores/common.js`) without calling the manage:sites-gated `GET /sites/:siteId/blocks` route,
+     * which every reader who isn't also an author gets refused (OpenProject #954).
+     */
+    blocksIndex: {},
+    /**
      * The extensions this site's content is written in, lowercase and without the dot. A path ending
      * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
      * router acts on for links inside pages and the server acts on for requests that reach it.
@@ -139,9 +148,13 @@ export const useSiteStore = defineStore('site', {
     /*
       Whether an optional, system-wide extension is installed -- key -> boolean, from
       `GET system/extensions/status`. Unlike `editors` above, this has nothing to do with any one
-      site's config: it is what gates a feature that needs a tool this instance may not have, e.g.
-      `pandoc` for the page-import menu item. Fetched lazily via `fetchExtensionsStatus`, same
-      cached-until-asked-again shape as `tags` / `tagsLoaded` below.
+      site's config: it is what gates a feature that needs a tool this instance may not have.
+      `PageNewMenu.vue`'s page-import item was the original caller but no longer needs it (OpenProject
+      #1092: `format: 'markdown'` needs no Pandoc extension, and every other format is now gated at
+      conversion time instead of at menu-render time) -- kept here as the general-purpose presence
+      check `GET system/extensions/status` itself is documented as (task 668), for the next feature
+      that needs to ask. Fetched lazily via `fetchExtensionsStatus`, same cached-until-asked-again
+      shape as `tags` / `tagsLoaded` below.
     */
     extensionsStatus: {},
     extensionsStatusLoaded: false,
@@ -261,6 +274,7 @@ export const useSiteStore = defineStore('site', {
         description: siteInfo.description,
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
+        blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,

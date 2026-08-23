@@ -123,30 +123,36 @@
           </w-card-actions>
         </w-card>
       </div>
-      <!-- .col-12.col-sm-6.col-lg-3 -->
-      <!-- q-card -->
-      <!-- q-card-section.admin-dashboard-card -->
-      <!-- img(src='/_assets/icons/fluent-tag.svg') -->
-      <!-- div -->
-      <!-- strong {{ t('admin.tags.title') }} -->
-      <!-- span {{adminStore.info.tagsTotal}} -->
-      <!-- q-separator -->
-      <!-- q-card-actions(align='right') -->
-      <!-- q-btn( -->
-      <!-- flat -->
-      <!-- color='primary' -->
-      <!-- icon='la:tags' -->
-      <!-- :label='t(`common.actions.manage`)' -->
-      <!-- :disable='!userStore.can(`manage:sites`)' -->
-      <!-- :to='`/_admin/` + adminStore.currentSiteId + `/tags`' -->
-      <!-- ) -->
+      <div class="col-span-12 sm:col-span-6 lg:col-span-3">
+        <w-card>
+          <w-card-section class="admin-dashboard-card">
+            <img src="/_assets/icons/fluent-document-in-folder.svg" />
+            <div>
+              <strong>{{ t('admin.pages.title') }}</strong>
+              <span>{{ adminStore.info.pagesTotal }}</span>
+            </div>
+          </w-card-section>
+          <w-separator />
+          <w-card-actions align="right">
+            <w-btn
+              flat
+              :color="actionColor"
+              icon="la:sitemap"
+              :label="t(`common.actions.view`)"
+              to="/" />
+          </w-card-actions>
+        </w-card>
+      </div>
       <div class="col-span-12 sm:col-span-6 lg:col-span-3">
         <w-card>
           <w-card-section class="admin-dashboard-card">
             <img src="/_assets/icons/fluent-female-working-with-a-laptop.svg" />
             <div>
-              <strong>Logins</strong>
-              <small>{{ adminStore.info.loginsPastDay }} <i>/ past 24h</i></small>
+              <strong>{{ t(`admin.dashboard.logins`) }}</strong>
+              <small
+                >{{ adminStore.info.loginsPastDay }}
+                <i>{{ t(`admin.dashboard.pastDay`) }}</i></small
+              >
             </div>
           </w-card-section>
           <w-separator />
@@ -165,7 +171,7 @@
           <w-card-section class="admin-dashboard-card">
             <img :src="versionCard.icon" />
             <div>
-              <strong>Wiki.js version</strong>
+              <strong>{{ t(`admin.dashboard.wikiVersion`) }}</strong>
               <small :class="{ pending: versionCard.pending }"
                 >{{ versionCard.status }}
                 <i v-if="versionCard.version"
@@ -400,9 +406,9 @@ const versionCard = computed(() => {
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.dashboard.title')
-})
+}))
 
 // METHODS
 
@@ -422,7 +428,7 @@ async function loadLastLogins() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load the last logins.',
+      message: t(`admin.dashboard.lastLoginsLoadFailed`),
       caption: err.message
     })
   }
@@ -435,7 +441,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to refresh the dashboard.',
+      message: t(`admin.dashboard.refreshFailed`),
       caption: err.message
     })
   }

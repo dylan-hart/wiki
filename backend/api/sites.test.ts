@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, test } from 'node:test'
+import { after, before, beforeEach, mock, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -45,8 +45,9 @@ async function getSiteByHostname({
 
 /**
  * What `getSiteBlocks` returns for the next request, set per-test. Only the fields
- * `blocksConfigFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
- * `configFields`, `config` — the rest of the real `SiteBlock` shape is irrelevant to this route.
+ * `siteBlocksInfoFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
+ * `configFields`, `config`, `id`, `isCustom` — the rest of the real `SiteBlock` shape is irrelevant
+ * to this route.
  */
 let siteBlocksResult: any[] = []
 async function getSiteBlocks(_siteId: string) {
@@ -171,6 +172,9 @@ before(async () => {
       },
       blocks: {
         getSiteBlocks
+      },
+      auditLog: {
+        record: mock.fn(async () => {})
       }
     },
     logger: { warn: () => {} }
@@ -463,6 +467,30 @@ test('manage:sites may still save a patch touching fields beyond theme', async (
 })
 
 /**
+ * OpenProject #989: a site settings edit is one of the events the audit log is meant to capture.
+ * The tests above stub `auditLog.record` only to keep the route from throwing — this checks it is
+ * actually called, with the fields the patch actually touched.
+ */
+test('a successful update records a site.settingsUpdated audit log entry', async () => {
+  ;(globalThis as any).WIKI.models.auditLog.record.mock.resetCalls()
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: { 'x-test-permissions': 'manage:sites' },
+    payload: { title: 'Renamed Again' }
+  })
+  assert.equal(res.statusCode, 200)
+  const calls = (globalThis as any).WIKI.models.auditLog.record.mock.calls
+  assert.equal(calls.length, 1)
+  const call = calls[0].arguments[0]
+  assert.equal(call.event, 'site.settingsUpdated')
+  assert.equal(call.targetType, 'site')
+  assert.equal(call.targetId, PUT_SITE_ID)
+  assert.equal(call.targetLabel, 'Renamed Again')
+  assert.deepEqual(call.detail, { changedFields: ['title'] })
+})
+
+/**
  * Task #683: `PUT /:siteId` now also accepts the per-surface `site:*` permissions from task #682,
  * checked key by key against `SITE_FIELD_PERMISSIONS` since five surfaces (general/theme/login/
  * locale/editors) share this one route (`docs/decisions/delegated-per-site-administration.md` §3).
@@ -596,7 +624,7 @@ test('site:general does not grant DELETE /:siteId, which stays manage:sites-only
       // -> A held but unrelated global permission, so the route-level hook's "some permission held"
       //    401 branch is not what refuses this -- the "not one of the route's permissions" 403
       //    branch is, which is the thing this test is actually about.
-      'x-test-permissions': 'read:sites',
+      'x-test-permissions': 'manage:navigation',
       'x-test-site-permissions': `site:general@${PUT_SITE_ID}`
     }
   })
@@ -904,4 +932,53 @@ test('blocksConfig omits an enabled block that declares no config fields', async
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json().blocksConfig, {})
+})
+
+/**
+ * `blocksIndex` on the same public site-info response, so the page view (`Index.vue`'s block-loading
+ * scan, via `siteStore.blocksIndex`) can resolve an undefined `block-*` element to its `id`/`isCustom`
+ * without the manage:sites-gated `GET /sites/:siteId/blocks` route either — see `siteBlocksInfoFor`
+ * in api/sites.ts and OpenProject #954.
+ */
+test('blocksIndex includes an enabled block, custom or built-in, keyed by tag', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: true,
+      isCustom: false,
+      id: 'builtin-map-id',
+      configFields: [],
+      config: {}
+    },
+    {
+      block: 'widget',
+      isEnabled: true,
+      isCustom: true,
+      id: 'custom-widget-id',
+      configFields: [],
+      config: {}
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksIndex, {
+    map: { id: 'builtin-map-id', isCustom: false },
+    widget: { id: 'custom-widget-id', isCustom: true }
+  })
+})
+
+test('blocksIndex omits a disabled block', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: false,
+      isCustom: false,
+      id: 'builtin-map-id',
+      configFields: [],
+      config: {}
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksIndex, {})
 })

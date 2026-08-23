@@ -4,9 +4,9 @@
 key: pandoc
 title: Pandoc
 description: >-
-  Converts between markup formats. Not wired into any feature in this fork yet — detection is all
-  this extension does today. Planned use is importing content from other wikis and formats such as
-  MediaWiki, AsciiDoc, Textile or DocBook, which falls under the Migration & Upgrade Path epic.
+  Converts between markup formats. Backs page import (single-file and multi-file batch) from
+  MediaWiki, Textile, DocBook, reStructuredText, docx and odt into the markdown editor's format
+  (models/import.ts's convertToMarkdown()).
 website: 'https://pandoc.org'
 detect:
   type: command

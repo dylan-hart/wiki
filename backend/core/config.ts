@@ -1,11 +1,11 @@
 import { toMerged } from 'es-toolkit/object'
 import { isPlainObject } from 'es-toolkit/predicate'
-import chalk from 'chalk'
+import { styleText } from 'node:util'
 import cfgHelper from '../helpers/config.ts'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { load } from 'js-yaml'
-import { v4 as uuid } from 'uuid'
+import crypto from 'node:crypto'
 
 /**
  * Config is assembled at runtime from config.yml + base.yml + the `settings` DB table, so its shape
@@ -28,7 +28,7 @@ export default {
     }
 
     if (!silent) {
-      process.stdout.write(chalk.blue(`Loading configuration from ${confPaths.config}... `))
+      process.stdout.write(styleText('blue', `Loading configuration from ${confPaths.config}... `))
     }
 
     let appconfig: ConfigObject = {}
@@ -40,14 +40,17 @@ export default {
       ) as ConfigObject
       appdata = load(await fs.readFile(confPaths.data, 'utf8')) as ConfigObject
       if (!silent) {
-        console.info(chalk.green.bold('OK'))
+        console.info(styleText(['green', 'bold'], 'OK'))
       }
     } catch (err: any) {
-      console.error(chalk.red.bold('FAILED'))
+      console.error(styleText(['red', 'bold'], 'FAILED'))
       console.error(err.message)
 
       console.error(
-        chalk.red.bold('>>> Unable to read configuration file! Did you create the config.yml file?')
+        styleText(
+          ['red', 'bold'],
+          '>>> Unable to read configuration file! Did you create the config.yml file?'
+        )
       )
       process.exit(1)
     }
@@ -75,13 +78,14 @@ export default {
     // Load DB Password from Docker Secret File
     if (process.env.DB_PASS_FILE) {
       if (!silent) {
-        console.info(chalk.blue('DB_PASS_FILE is defined. Will use secret from file.'))
+        console.info(styleText('blue', 'DB_PASS_FILE is defined. Will use secret from file.'))
       }
       try {
         appconfig.db.pass = (await fs.readFile(process.env.DB_PASS_FILE, 'utf8')).trim()
       } catch (err: any) {
         console.error(
-          chalk.red.bold(
+          styleText(
+            ['red', 'bold'],
             '>>> Failed to read Docker Secret File using path defined in DB_PASS_FILE env variable!'
           )
         )
@@ -140,18 +144,22 @@ export default {
    */
   async initDbValues(): Promise<void> {
     const ids = {
-      groupAdminId: uuid(),
+      groupAdminId: crypto.randomUUID(),
       groupUserId: WIKI.data.systemIds.usersGroupId,
       groupGuestId: WIKI.data.systemIds.guestsGroupId,
-      siteId: uuid(),
+      siteId: crypto.randomUUID(),
       authModuleId: WIKI.data.systemIds.localAuthId,
-      userAdminId: uuid(),
-      userGuestId: uuid()
+      userAdminId: crypto.randomUUID(),
+      userGuestId: crypto.randomUUID(),
+      classificationPublicId: WIKI.data.systemIds.classificationPublicId,
+      classificationInternalId: WIKI.data.systemIds.classificationInternalId,
+      classificationRestrictedId: WIKI.data.systemIds.classificationRestrictedId
     }
 
     await WIKI.models.settings.init(ids)
     await WIKI.models.sites.init(ids)
     await WIKI.models.groups.init(ids)
+    await WIKI.models.classificationLevels.init(ids)
     await WIKI.models.authentication.init(ids)
     await WIKI.models.users.init(ids)
     await WIKI.models.jobs.init()

@@ -140,6 +140,14 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       //    external index has no `password IS NULL` to check per-row the way postgres does. Never
       //    returned to a caller — `query()` only ever filters on it.
       options: { searchEnabled: false, returnEnabled: false }
+    },
+    {
+      name: 'classification',
+      type: 'literal',
+      // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at
+      //    index time from `pages.classification` the same way `tags`/`editor`/`publishState` already
+      //    are. Never searched or faceted, same treatment as `id`/`icon` above.
+      options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
     }
   ]
 }
@@ -364,6 +372,7 @@ export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
       publishState: page.publishState,
       icon: page.icon ?? '',
       hasPassword: page.password != null ? 'true' : 'false',
+      classification: page.classification,
       // -> Same conversion `api/pages.ts` uses for a `Date` column headed into an ISO string: an exact
       //    instant, so millisecond precision (what the rest of the codebase emits) is enough.
       updatedAt: page.updatedAt.toTemporalInstant().toString({ smallestUnit: 'millisecond' })
@@ -775,9 +784,21 @@ export class AwsCloudSearchModule implements SearchModule {
   private readonly clientFactory: (config: Record<string, any>) => CloudSearchAdminClient
   private readonly queryClientFactory: (config: Record<string, any>) => CloudSearchQueryClient
   private readonly pageSource: RebuildPageSource
-  /** One client per site: each site's region/credentials can point at a different account. */
-  private readonly clients = new Map<string, CloudSearchAdminClient>()
-  private readonly queryClients = new Map<string, CloudSearchQueryClient>()
+  /**
+   * One client per site, each tagged with the config (as JSON) it was built from -- the same
+   * `configKey` pattern `elasticsearch`/`algolia`'s `getClient()` already use -- so that changing
+   * `region`/`accessKeyId`/`secretAccessKey`/`endpoint`/`domain` in the admin area invalidates the
+   * cached client on the very next call instead of silently keeping the old one until a process
+   * restart (OpenProject #922).
+   */
+  private readonly clients = new Map<
+    string,
+    { client: CloudSearchAdminClient; configKey: string }
+  >()
+  private readonly queryClients = new Map<
+    string,
+    { client: CloudSearchQueryClient; configKey: string }
+  >()
 
   constructor(
     clientFactory: (
@@ -794,20 +815,24 @@ export class AwsCloudSearchModule implements SearchModule {
   }
 
   private clientFor(siteId: string, config: Record<string, any>): CloudSearchAdminClient {
-    let client = this.clients.get(siteId)
-    if (!client) {
-      client = this.clientFactory(config)
-      this.clients.set(siteId, client)
+    const configKey = JSON.stringify(config)
+    const cached = this.clients.get(siteId)
+    if (cached && cached.configKey === configKey) {
+      return cached.client
     }
+    const client = this.clientFactory(config)
+    this.clients.set(siteId, { client, configKey })
     return client
   }
 
   private queryClientFor(siteId: string, config: Record<string, any>): CloudSearchQueryClient {
-    let client = this.queryClients.get(siteId)
-    if (!client) {
-      client = this.queryClientFactory(config)
-      this.queryClients.set(siteId, client)
+    const configKey = JSON.stringify(config)
+    const cached = this.queryClients.get(siteId)
+    if (cached && cached.configKey === configKey) {
+      return cached.client
     }
+    const client = this.queryClientFactory(config)
+    this.queryClients.set(siteId, { client, configKey })
     return client
   }
 
@@ -935,7 +960,8 @@ export class AwsCloudSearchModule implements SearchModule {
    * just a normal reindex of the (now differently-pathed) document rather than a delete-then-recreate
    * under a new key. Same reasoning `azure-search`'s own `renamed` documents — unlike the `db` engine,
    * whose `ts` vector never stores the path at all, this module's index does store `path` as a
-   * filterable field, so it does need rewriting here.
+   * filterable field, so it does need rewriting here. A locale change is rewritten by the same
+   * reindex, which is why this module needs no `previousLocale` of its own either.
    */
   async renamed(siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)
@@ -948,6 +974,31 @@ export class AwsCloudSearchModule implements SearchModule {
   ): Promise<{ rows: CloudSearchHit[]; count: number }> {
     const response = await client.search(request)
     return { rows: response.hits.hit, count: response.hits.found }
+  }
+
+  /**
+   * Every document id currently in a site's domain, `matchall`-queried in pages so a large domain is
+   * never pulled through in one request. No `filterQuery`/`siteId` clause is needed -- unlike
+   * `azure-search`, this module's domain is already scoped to one site (`buildFilterQuery`'s own doc
+   * comment explains why). `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
+   * re-uploaded to find what should no longer be there.
+   */
+  private async fetchAllIds(client: CloudSearchQueryClient): Promise<string[]> {
+    const PAGE_SIZE = 1000
+    const ids: string[] = []
+    let start = 0
+    for (;;) {
+      const { rows } = await this.runQuery(client, { query: 'matchall', start, size: PAGE_SIZE })
+      if (rows.length === 0) {
+        break
+      }
+      ids.push(...rows.map((row) => row.id))
+      start += rows.length
+      if (rows.length < PAGE_SIZE) {
+        break
+      }
+    }
+    return ids
   }
 
   /**
@@ -1036,7 +1087,12 @@ export class AwsCloudSearchModule implements SearchModule {
             path: fieldValue(row, 'path'),
             locale: fieldValue(row, 'locale'),
             siteId,
-            tags: fieldValues(row, 'tags')
+            tags: fieldValues(row, 'tags'),
+            // -> Indexed at write time by `toIndexDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: fieldValue(row, 'classification') || null
           })
         )
       : rows
@@ -1146,10 +1202,19 @@ export class AwsCloudSearchModule implements SearchModule {
    * Each locale's rows are paginated through `pageSource.pageBatch` (`REBUILD_BATCH_SIZE` at a time)
    * and every batch's documents are pushed through `uploadBatch` before the next page of rows is read,
    * so the working set stays one batch wide regardless of domain size.
+   *
+   * Purges ghost documents afterwards (OpenProject #922): `uploadBatch` only ever adds/overwrites, so a
+   * page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc comment
+   * names as what a later rebuild is supposed to put right -- stayed in the domain forever. Every id
+   * currently in the domain (`fetchAllIds`) that was not just re-uploaded is stale and gets removed with
+   * an SDF `delete` entry.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
     WIKI.logger.info(`Rebuilding the AWS CloudSearch domain for ${locales.length} locale(s)...`)
+    const client = this.queryClientFor(siteId, this.configFor(siteId))
+    const existingIds = await this.fetchAllIds(client)
+    const uploadedIds = new Set<string>()
     const result: RebuildResult = { pages: 0, locales: [] }
 
     for (const locale of locales) {
@@ -1160,6 +1225,9 @@ export class AwsCloudSearchModule implements SearchModule {
         batch = await this.pageSource.pageBatch(siteId, locale, offset, REBUILD_BATCH_SIZE)
         if (batch.length > 0) {
           await this.uploadBatch(siteId, batch.map(toIndexDocument))
+          for (const page of batch) {
+            uploadedIds.add(page.id)
+          }
           localePages += batch.length
           offset += batch.length
         }
@@ -1168,6 +1236,17 @@ export class AwsCloudSearchModule implements SearchModule {
       result.pages += localePages
       result.locales.push({ locale, pages: localePages })
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
+    }
+
+    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+    if (staleIds.length > 0) {
+      await this.uploadBatch(
+        siteId,
+        staleIds.map((id) => ({ type: 'delete' as const, id }))
+      )
+      WIKI.logger.info(
+        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+      )
     }
 
     WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)

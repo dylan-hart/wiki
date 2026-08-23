@@ -114,7 +114,10 @@ describe(
         siteId: seededSiteId,
         authModuleId: randomUUID(),
         userAdminId: randomUUID(),
-        userGuestId: randomUUID()
+        userGuestId: randomUUID(),
+        classificationPublicId: randomUUID(),
+        classificationInternalId: randomUUID(),
+        classificationRestrictedId: randomUUID()
       })
       const [row] = await fixtures.db
         .select()
@@ -382,7 +385,10 @@ describe('sites default config (DB-backed)', { skip: !hasTestDatabase() }, () =>
       siteId,
       authModuleId: randomUUID(),
       userAdminId: randomUUID(),
-      userGuestId: randomUUID()
+      userGuestId: randomUUID(),
+      classificationPublicId: randomUUID(),
+      classificationInternalId: randomUUID(),
+      classificationRestrictedId: randomUUID()
     })
 
     const site = await sitesModel.getSiteById({ id: siteId, forceReload: true })
@@ -452,12 +458,19 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
 
 /**
  * Regression test for task 686: `createSite` unconditionally gives every site its own root
- * navigation row (`navigation.ensureSiteNav`, keyed by `id = siteId`), but until this fix
- * `deleteSite` never cleaned it up — so a brand-new site with zero pages still hit the `navigation`
- * table's FK (no cascade) and failed to delete with a 23503, reported by the route as a 409 "still
- * holds content" conflict. This suite runs the real `deleteSite`/`createPage` methods against a
- * migrated, per-run-fresh database (see `test/db.ts`) rather than mocking the query builder, since
- * the behavior under test is the FK interaction itself.
+ * navigation row (`navigation.ensureSiteNav`), but until this fix `deleteSite` never cleaned it up —
+ * so a brand-new site with zero pages still hit the `navigation` table's FK (no cascade) and failed
+ * to delete with a 23503, reported by the route as a 409 "still holds content" conflict. This suite
+ * runs the real `deleteSite`/`createPage` methods against a migrated, per-run-fresh database (see
+ * `test/db.ts`) rather than mocking the query builder, since the behavior under test is the FK
+ * interaction itself.
+ *
+ * Since #990 (locale-scoped site menus), `ensureSiteNav`'s row is addressed by its own
+ * `defaultRandom()` `id` and by the `siteId` column the FK constraint actually checks — `id` is
+ * never `= siteId`. The "deletes cleanly" case below asserts against `siteId`, not `id`, for exactly
+ * that reason (OpenProject #1046): querying `eq(navigationTable.id, siteId)` would return zero rows
+ * whether or not `deleteSite` ever ran, since a random nav-row id practically never collides with a
+ * site id — that query would pass even if `deleteSite` had never been fixed at all.
  */
 describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -498,7 +511,7 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const remainingNav = await fixtures.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
-      .where(eq(navigationTable.id, siteId))
+      .where(eq(navigationTable.siteId, siteId))
     assert.equal(remainingNav.length, 0)
   })
 
@@ -519,5 +532,73 @@ describe('sites.deleteSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(err.code === '23503' || err.cause?.code === '23503', true)
       return true
     })
+  })
+})
+
+/**
+ * OpenProject #966: same fix, and the same reasoning, as `models/groups.ts`'s
+ * `groups.broadcastReload` suite — `createSite`/`updateSite`/`deleteSite` used to call
+ * `reloadCache()` directly, refreshing only this instance's own cache. See that suite's doc comment
+ * for the full writeup; this one just re-proves the wiring for the sites model.
+ */
+describe('sites.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = { localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588' }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('createSite broadcasts reloadSites after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.createSite(`broadcast-create-${randomBytes(6).toString('hex')}.localhost`)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('updateSite broadcasts reloadSites after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.updateSite(fixtures.siteId, { isEnabled: false })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('deleteSite broadcasts reloadSites after refreshing this instance', async () => {
+    // -> Inserted directly rather than through `createSite()`, which also creates a root navigation
+    //    row — deliberately sidestepped here (a pre-existing, unrelated FK issue between
+    //    `deleteSite()` and that row is tracked separately; see the note in the WP966 report) so this
+    //    test isolates exactly what it's meant to check: the broadcast, not navigation cleanup.
+    const hostname = `broadcast-delete-${randomBytes(6).toString('hex')}.localhost`
+    const [created] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname, isEnabled: true, config: { locales: { primary: 'en' } } })
+      .returning({ id: sitesTable.id })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await sites.deleteSite(created!.id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadSites'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadSites event to reloadCache', async () => {
+    let reloaded = false
+    const originalReloadCache = sites.reloadCache.bind(sites)
+    sites.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      sites.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadSites')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadSites handler')
+      await handler()
+      assert.equal(reloaded, true)
+    } finally {
+      sites.reloadCache = originalReloadCache
+    }
   })
 })

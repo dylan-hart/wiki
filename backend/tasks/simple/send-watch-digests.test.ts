@@ -131,6 +131,20 @@ describe('send-watch-digests task', () => {
     assert.equal(sendPageWatchDigest.mock.calls.length, 2)
     const siteIds = sendPageWatchDigest.mock.calls.map((c: any) => c.arguments[0].siteId).sort()
     assert.deepEqual(siteIds, ['site-1', 'site-2'])
+    // -> `markManyDelivered` takes only an id list -- no siteId of its own -- so a group's delivered
+    //   ids are tied to its site by call ORDER: the task awaits `sendPageWatchDigest` then
+    //   `markManyDelivered` in the same loop iteration before moving to the next group, so call `i`
+    //   of each mock belongs to the same group. Pinned here so each group is confirmed to mark only
+    //   ITS OWN event delivered, not both events in one call and not the other group's id.
+    assert.equal(markManyDelivered.mock.calls.length, 2)
+    const deliveredIdsBySite = new Map(
+      sendPageWatchDigest.mock.calls.map((c: any, i: number) => [
+        c.arguments[0].siteId,
+        markManyDelivered.mock.calls[i]!.arguments[0]
+      ])
+    )
+    assert.deepEqual(deliveredIdsBySite.get('site-1'), ['ev-1'])
+    assert.deepEqual(deliveredIdsBySite.get('site-2'), ['ev-2'])
   })
 
   test('events for different users are grouped and sent as separate digests', async () => {

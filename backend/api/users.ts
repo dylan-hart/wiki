@@ -1,5 +1,6 @@
 import { CustomError, rethrowAsBadRequest } from '../helpers/common.ts'
 import { detectImageMime, imageMimeTypes } from '../helpers/images.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { UserPatch, UserProfilePatch } from '../models/users.ts'
 import type { KeyExpiration } from '../models/apiKeys.ts'
@@ -598,6 +599,7 @@ async function routes(app: FastifyInstance) {
       name: string
       expiration: KeyExpiration
       scope?: string[] | null
+      allowedClassifications?: string[] | null
       siteId?: string | null
     }
   }>(
@@ -625,6 +627,16 @@ async function routes(app: FastifyInstance) {
               description:
                 'An explicit permission allow-list to narrow the token to. Omit or pass null for no narrowing — the token then carries the full extent of your own current permissions. Can only narrow: a permission here you do not hold still grants nothing.',
               items: { $ref: 'ApiKeyScopePermission#' }
+            },
+            allowedClassifications: {
+              type: ['array', 'null'],
+              default: null,
+              description:
+                'A per-level classification allow-set (OpenProject #1205): the token may never be granted a page permission on a page whose classification is not in this list -- what keeps a Claude agent authenticating with this token away from your most sensitive pages even though your account can read them. Omit or pass null for unrestricted (every level, including one added later).',
+              items: {
+                type: 'string',
+                format: 'uuid'
+              }
             },
             siteId: {
               type: ['string', 'null'],
@@ -667,13 +679,30 @@ async function routes(app: FastifyInstance) {
       if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
         return reply.badRequest('This site does not exist.')
       }
+      // -> null is unrestricted; any other value must be a list naming only real classification levels
+      if (
+        req.body.allowedClassifications != null &&
+        req.body.allowedClassifications.some((id) => !WIKI.models.classificationLevels.byId(id))
+      ) {
+        return reply.badRequest('One of the classification levels does not exist.')
+      }
 
       const { id, key } = await WIKI.models.apiKeys.createKey({
         name: req.body.name,
         expiration: req.body.expiration,
         scope: req.body.scope ?? null,
+        allowedClassifications: req.body.allowedClassifications ?? null,
         siteId: req.body.siteId ?? null,
         userId
+      })
+
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.issued',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: id,
+        targetLabel: req.body.name,
+        detail: { personal: true, siteId: req.body.siteId ?? null }
       })
 
       return {
@@ -736,6 +765,14 @@ async function routes(app: FastifyInstance) {
       }
 
       await WIKI.models.apiKeys.revokeKeyForUser(key.id, userId)
+      await WIKI.models.auditLog.record({
+        event: 'apiKey.revoked',
+        actor: actorFromRequest(req),
+        targetType: 'apiKey',
+        targetId: key.id,
+        targetLabel: key.name,
+        detail: { personal: true }
+      })
 
       return {
         ok: true,
@@ -1663,12 +1700,12 @@ async function routes(app: FastifyInstance) {
     '/',
     {
       config: {
-        permissions: ['create:users', 'manage:users']
+        permissions: ['manage:users']
       },
       schema: {
         summary: 'Create a new user',
         description:
-          'Creates a user authenticated against the local strategy. `sendWelcomeEmail` is accepted but not yet supported, as the server has no mail transport.',
+          'Creates a user authenticated against the local strategy. When `sendWelcomeEmail` is set, the new user is emailed a link to set their own password instead of being told it directly — this requires a configured mail transport (Admin > Mail Configuration), or the request is refused before the user is created. `sendWelcomeEmailFromSiteId` picks which site the link is built against; omitted, it falls back to the instance-wide default base URL.',
         tags: ['Users'],
         body: {
           type: 'object',
@@ -1749,11 +1786,12 @@ async function routes(app: FastifyInstance) {
       if (await WIKI.models.users.getByEmail(req.body.email.toLowerCase())) {
         throw new CustomError('userCreateDuplicateEmail', 'A user with this email already exists.')
       }
-      // -> There is no mail transport yet, so accepting this flag would silently drop the request
-      if (req.body.sendWelcomeEmail) {
+      // -> Refuse up front, before the user is created, rather than creating it and only then
+      //    discovering there is nowhere to send the email from.
+      if (req.body.sendWelcomeEmail && !WIKI.models.mail.isConfigured()) {
         throw new CustomError(
           'userCreateWelcomeEmailUnavailable',
-          'Sending a welcome email is not supported yet, as mail delivery is not implemented.'
+          'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
 
@@ -1765,6 +1803,35 @@ async function routes(app: FastifyInstance) {
           groups: req.body.groups ?? [],
           mustChangePassword: req.body.mustChangePassword ?? false
         })
+        await WIKI.models.auditLog.record({
+          event: 'user.created',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: id,
+          targetLabel: req.body.email,
+          detail: { groups: req.body.groups ?? [] }
+        })
+        if (req.body.sendWelcomeEmail) {
+          try {
+            const token = await WIKI.models.users.generateToken({
+              kind: 'resetPwd',
+              userId: id,
+              meta: { strategyId: WIKI.data.systemIds.localAuthId }
+            })
+            await WIKI.models.mail.sendWelcomeEmail({
+              to: req.body.email,
+              name: req.body.name,
+              token,
+              siteId: req.body.sendWelcomeEmailFromSiteId
+            })
+          } catch (err: any) {
+            // -> The user already exists; a failed welcome email must not turn this into a failed
+            //    creation, same as `resetPassword`'s own sendPasswordResetConfirmed catch.
+            WIKI.logger.warn(
+              `Failed to send the welcome email to ${req.body.email}: ${err.message}`
+            )
+          }
+        }
         return {
           ok: true,
           message: 'User created successfully.',
@@ -1967,6 +2034,25 @@ async function routes(app: FastifyInstance) {
         if (req.body.auth !== undefined) {
           await WIKI.models.users.setUserAuthFlags(req.params.userId, req.body.auth)
         }
+        // -> OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login,
+        //    otherwise live for up to the 30-day cookie age -- deactivating an account or changing
+        //    its group membership must end its open sessions now, the same way a personal API token
+        //    already revalidates `isActive` live on every request (`models/apiKeys.ts`).
+        if (patch.isActive === false || req.body.groups !== undefined) {
+          await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
+        }
+        await WIKI.models.auditLog.record({
+          event: 'user.updated',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email,
+          detail: {
+            changedFields: Object.keys(patch),
+            ...(req.body.groups !== undefined && { groups: req.body.groups }),
+            ...(req.body.auth !== undefined && { auth: Object.keys(req.body.auth) })
+          }
+        })
         return {
           ok: true,
           message: 'User updated successfully.'
@@ -2052,6 +2138,14 @@ async function routes(app: FastifyInstance) {
       if (!updated) {
         return reply.notFound('User does not exist.')
       }
+      const user = await WIKI.models.users.getById(req.params.userId)
+      await WIKI.models.auditLog.record({
+        event: 'user.passwordReset',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: req.params.userId,
+        targetLabel: user?.email ?? ''
+      })
       return {
         ok: true,
         message: 'User password updated successfully.'
@@ -2235,9 +2329,98 @@ async function routes(app: FastifyInstance) {
         rethrowAsBadRequest(err)
       }
 
+      await WIKI.models.auditLog.record({
+        event: 'user.tfaDisabledByAdmin',
+        actor: actorFromRequest(req),
+        targetType: 'user',
+        targetId: user.id,
+        targetLabel: user.email
+      })
+
       return {
         ok: true,
         message: '2FA invalidated successfully.'
+      }
+    }
+  )
+
+  app.post<{ Params: { userId: string }; Body: { targetUserId: string } }>(
+    '/:userId/reassignContent',
+    {
+      config: {
+        permissions: ['manage:users']
+      },
+      schema: {
+        summary: 'Reassign a user’s authored content to another user',
+        description:
+          'Transfers every page (as author, creator, and/or owner) and every asset `userId` authored to `targetUserId`, in a single bulk action. Use this ahead of deleting a user who still owns pages or assets — the delete route refuses until nothing points at them anymore.',
+        tags: ['Users'],
+        params: {
+          type: 'object',
+          properties: {
+            userId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['userId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            targetUserId: {
+              type: 'string',
+              format: 'uuid'
+            }
+          },
+          required: ['targetUserId']
+        },
+        response: {
+          200: {
+            description: 'Content reassigned successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              pagesReassigned: {
+                type: 'integer'
+              },
+              assetsReassigned: {
+                type: 'integer'
+              }
+            }
+          },
+          400: { $ref: 'ApiError#' },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const user = await WIKI.models.users.getById(req.params.userId)
+      if (!user) {
+        return reply.notFound('User does not exist.')
+      }
+
+      const systemUserRefusal = await systemUserGuard(req, user.id)
+      if (systemUserRefusal) {
+        throw systemUserRefusal
+      }
+
+      try {
+        const result = await WIKI.models.users.reassignContent(user.id, req.body.targetUserId)
+        return {
+          ok: true,
+          message: 'Content reassigned successfully.',
+          ...result
+        }
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
       }
     }
   )
@@ -2310,6 +2493,13 @@ async function routes(app: FastifyInstance) {
 
       try {
         await WIKI.models.users.deleteUser(user.id)
+        await WIKI.models.auditLog.record({
+          event: 'user.deleted',
+          actor: actorFromRequest(req),
+          targetType: 'user',
+          targetId: user.id,
+          targetLabel: user.email
+        })
         return reply.code(204).send()
       } catch (err: any) {
         // -> Pages and assets reference users without a cascade, so a user who authored content

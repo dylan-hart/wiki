@@ -43,9 +43,22 @@ describe('puppeteer extension definition', () => {
   })
 })
 
+// Regression coverage for OpenProject #1091: the description used to read "Not wired into any
+// feature in this fork yet" and describe import as a future plan, written before both the
+// single-file import route and #849's batch import existed. It must describe current reality.
 describe('pandoc extension definition', () => {
   test('still promises multi-format page import', async () => {
     const definition = await readDefinition('pandoc')
     assert.match(definition.description, /import/i)
+  })
+
+  test('does not claim it is unwired -- import (single and batch) actually consumes it now', async () => {
+    const definition = await readDefinition('pandoc')
+    assert.doesNotMatch(definition.description, /not wired into any feature/i)
+  })
+
+  test('mentions batch import, not just the single-file case', async () => {
+    const definition = await readDefinition('pandoc')
+    assert.match(definition.description, /batch/i)
   })
 })

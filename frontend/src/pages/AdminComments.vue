@@ -70,21 +70,13 @@
                 <w-icon v-if="!prov.isAvailable" name="mdi:minus-box-outline" color="grey" />
                 <w-icon
                   v-else-if="state.selectedModule === prov.module"
-                  name="mdi:checkbox-marked-circle-outline"
-                  color="primary" />
+                  name="mdi:checkbox-marked-circle-outline" />
                 <w-icon v-else name="mdi:checkbox-blank-circle-outline" color="grey" />
               </w-item-section>
               <w-item-section>
-                <w-item-label
-                  :class="
-                    !prov.isAvailable
-                      ? `text-grey`
-                      : state.selectedModule === prov.module
-                        ? `text-primary`
-                        : ``
-                  "
-                  >{{ prov.title }}</w-item-label
-                >
+                <w-item-label :class="!prov.isAvailable ? `text-grey` : ``">{{
+                  prov.title
+                }}</w-item-label>
                 <w-item-label caption>{{ prov.description }}</w-item-label>
               </w-item-section>
               <w-item-section side>
@@ -329,9 +321,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.comments.title')
-})
+}))
 
 // DATA
 

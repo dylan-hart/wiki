@@ -6,15 +6,15 @@ on:
       - scarlett
 
 jobs:
-  # Delegates to quality.yml (task 766) so the exact same typecheck/lint/format gate that runs on
-  # every pull request also blocks this push-triggered job before it reaches `Build Assets`, `Build
-  # Blocks`, or the Docker login/build/push steps below. A `pull_request:` trigger was deliberately
-  # NOT added directly to this workflow: `build`'s Docker publish (and its Playwright/Postgres-backed
-  # test legs) has no place running against every PR, and `needs:` can't reach across workflow files
-  # to gate it selectively -- see quality.yml's own header comment for the full reasoning. Adding
-  # `pull_request:` here would mean either running the whole expensive pipeline on every PR too, or
-  # threading `if: github.event_name == 'push'` through several jobs for no benefit over the split
-  # already in place.
+  # Delegates to quality.yml (task 766) so the exact same typecheck/lint/format/unit-test gate that
+  # runs on every pull request also blocks this push-triggered job before it reaches `Build Assets`,
+  # `Build Blocks`, or the Docker login/build/push steps below. A `pull_request:` trigger was
+  # deliberately NOT added directly to this workflow: `build`'s Docker publish (and its
+  # Playwright/Postgres-backed e2e leg) has no place running against every PR, and `needs:` can't
+  # reach across workflow files to gate it selectively -- see quality.yml's own header comment for
+  # the full reasoning. Adding `pull_request:` here would mean either running the whole expensive
+  # pipeline on every PR too, or threading `if: github.event_name == 'push'` through several jobs for
+  # no benefit over the split already in place.
   quality:
     name: Quality Gates
     uses: ./.github/workflows/quality.yml
@@ -27,15 +27,12 @@ jobs:
       contents: read
       packages: write
 
-    # Backing store for the backend's DB-backed model tests (task 756's fixtures switch themselves
-    # on whenever DATABASE_URL is set) and for the Playwright suite's own first-run seeding. One
-    # service container per run, so "seeded test database" is true on every invocation and every
-    # test leg below shares it without colliding: model tests carve out their own randomly-named
-    # schema per file (backend/test/db.ts), the Playwright leg boots the backend straight against
-    # the default schema.
+    # Backing store for the Playwright suite's own first-run seeding below (the backend's DB-backed
+    # model tests run in the `quality` job this one `needs:`, against their own postgres service --
+    # see quality.yml -- not here).
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
@@ -57,6 +54,12 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 26.x
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            blocks/package-lock.json
+            e2e/package-lock.json
 
       - name: Set Build Variables
         run: |
@@ -71,19 +74,11 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      - name: Run Backend Tests
-        working-directory: backend
-        run: npm run test
-
       - name: Build Assets
         working-directory: frontend
         run: |
           npm ci
           npm run build
-
-      - name: Run Frontend Tests
-        working-directory: frontend
-        run: npm run test
 
       - name: Build Blocks
         working-directory: blocks
@@ -91,9 +86,11 @@ jobs:
           npm ci
           npm run build
 
-      - name: Run Blocks Tests
-        working-directory: blocks
-        run: npm run test
+      # The backend/frontend/blocks unit suites already ran in the `quality` job above (needs:
+      # quality gates this job on them) -- re-running the same three `npm run test` invocations here
+      # would just pay for them a second time per push with no new coverage. This job's postgres
+      # service and DATABASE_URL are still needed below, for the Playwright leg's own first-run
+      # seeding.
 
       # The e2e suite's own webServer boots `node backend` (backend/'s deps and the frontend's
       # `assets/` build were already produced by the steps above) and serves the frontend build the

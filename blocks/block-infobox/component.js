@@ -1,6 +1,21 @@
 import { LitElement, html, css } from 'lit'
-import { load as parseYaml } from 'js-yaml'
+import { load as parseYamlRaw, CORE_SCHEMA, timestampTag } from 'js-yaml'
 import { DarkMode } from '../shared/theme.js'
+
+/*
+  OpenProject #956: `load()`'s own default is `CORE_SCHEMA` (js-yaml 5's YAML-1.2-only schema),
+  which -- unlike the `DEFAULT_SCHEMA` older js-yaml majors shipped -- has no `!!timestamp` type, so
+  a bare date ("Founded: 2020-01-01") resolves to the plain string "2020-01-01", never a `Date`.
+  `valueOf()` below has a `Date`-formatting branch that depended on this, so it needs the tag added
+  back explicitly. `withTags(timestampTag)` alone, not a switch to the fuller `YAML11_SCHEMA`, so a
+  bare date is still recognized without also pulling in YAML 1.1's `yes`/`no`/`on`/`off` booleans or
+  octal integers changing how every other value in an infobox parses.
+*/
+const INFOBOX_SCHEMA = CORE_SCHEMA.withTags(timestampTag)
+
+function parseYaml(source) {
+  return parseYamlRaw(source, { schema: INFOBOX_SCHEMA })
+}
 
 /**
  * Yes and no, drawn rather than spelled out.
@@ -82,8 +97,26 @@ function linkOf(text) {
  * list squeezed into half a column.
  */
 function valueOf(value) {
+  // -> A valueless key ("City:") parses to `null`; shown as nothing rather than the literal word
+  //    "null" a bare `String()` would produce.
+  if (value === null || value === undefined) {
+    return ''
+  }
   if (typeof value === 'boolean') {
     return value ? YES_SVG : NO_SVG
+  }
+  if (value instanceof Date) {
+    // -> A bare YAML date ("Founded: 2020-01-01", opted back into `!!timestamp` resolution above) is
+    //    a calendar date with no time of day, and js-yaml represents it as UTC midnight -- so it has
+    //    to be read back out in UTC too. Left to the default (local) zone, `toLocaleDateString` shifts
+    //    it backward a day in any negative-offset timezone: UTC midnight Jan 1st is 7pm/8pm Dec 31st
+    //    across the whole of the Americas, which would print the wrong date on most readers' clocks.
+    return value.toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC'
+    })
   }
   if (Array.isArray(value)) {
     // -> Joined by hand rather than with `join`, so that a boolean among them is still drawn
@@ -109,8 +142,19 @@ function valueOf(value) {
  * of related facts. Anything else is a single row.
  */
 function rowsOf(value) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return Object.entries(value).map(([label, nested]) => ({ label, value: nested }))
+  // -> `typeof value === 'object'` alone also matches a `Date` (a bare YAML date, e.g.
+  //    "Founded: 2020-01-01") and `null` (a valueless key) — neither is a nested mapping, and
+  //    `Object.entries()` on either is `[]`, which left `render()` reading `rows[0].label` off an
+  //    empty array. `constructor === Object` is what js-yaml's default schema actually produces for
+  //    a mapping; everything else falls through to the single-row branch below.
+  if (value?.constructor === Object) {
+    const entries = Object.entries(value)
+    // -> An empty mapping ("Key: {}") is shown as a single row with an empty value, not a
+    //    zero-member group `render()` would have nothing to head with.
+    if (entries.length === 0) {
+      return [{ value: null }]
+    }
+    return entries.map(([label, nested]) => ({ label, value: nested }))
   }
   return [{ value }]
 }

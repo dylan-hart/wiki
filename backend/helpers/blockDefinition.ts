@@ -176,3 +176,68 @@ export function extractBlockDefinition(
     throw err
   }
 }
+
+/**
+ * The custom element tag a `component.js`'s own top-level `customElements.define(...)` call
+ * registers, if it makes one with a literal tag name.
+ *
+ * Every block, built-in or uploaded, is required to register exactly `block-{definition.block}` —
+ * that contract is documented on the upload route and is what the frontend's block loader
+ * (`loadBlocks()`) and `blockMarkdown()`/`findBlocks()` (`frontend/src/helpers/blocks.js`) both
+ * hardcode. Nothing here extracts an override: an upload whose `define()` call names anything other
+ * than the tag its own definition promises is a mistake worth rejecting, not a feature to support —
+ * see `extractDefinedElementTag`'s caller in `api/blocks.ts` for the check itself.
+ *
+ * Walks top-level statements only, same as `extractBlockDefinition`'s search for `static
+ * definition`: a component that only calls `define()` conditionally, or from inside a function, is
+ * not the shape every block in this repo actually uses (`grep -rn 'customElements.define'
+ * blocks/*\/component.js` — always a bare top-level call), so is treated as registering nothing
+ * findable rather than guessed at.
+ *
+ * @param source Raw `component.js` text — never evaluated, only parsed.
+ * @returns The tag name, or null if the source has no top-level `customElements.define('tag', ...)`
+ *   call (optionally through `window.`) with a literal string tag, or fails to parse at all.
+ */
+export function extractDefinedElementTag(source: string): string | null {
+  let ast
+  try {
+    ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module' })
+  } catch {
+    return null
+  }
+
+  // -> The last matching call wins, same convention `extractBlockDefinition` uses for the last
+  //    matching `static definition`: a source with more than one define() is unusual, and the last
+  //    one written is the more likely to be the one actually meant.
+  let tag: string | null = null
+  for (const node of ast.body) {
+    if (node.type !== 'ExpressionStatement' || node.expression.type !== 'CallExpression') {
+      continue
+    }
+    const call = node.expression
+    const callee = call.callee
+    if (callee.type !== 'MemberExpression' || callee.computed) {
+      continue
+    }
+    if (callee.property.type !== 'Identifier' || callee.property.name !== 'define') {
+      continue
+    }
+    const target = callee.object
+    const isCustomElements =
+      (target.type === 'Identifier' && target.name === 'customElements') ||
+      (target.type === 'MemberExpression' &&
+        !target.computed &&
+        target.object.type === 'Identifier' &&
+        target.object.name === 'window' &&
+        target.property.type === 'Identifier' &&
+        target.property.name === 'customElements')
+    if (!isCustomElements) {
+      continue
+    }
+    const [tagArg] = call.arguments
+    if (tagArg?.type === 'Literal' && typeof tagArg.value === 'string') {
+      tag = tagArg.value
+    }
+  }
+  return tag
+}

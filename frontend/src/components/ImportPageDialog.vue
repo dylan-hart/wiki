@@ -33,9 +33,16 @@
             emit-value
             option-value="value"
             option-label="label"
+            option-disable="disable"
             options-dense
             hide-bottom-space
             :label="t(`pages.import.format`)" />
+          <p v-if="pandocMissing" class="text-caption text-grey mt-2">
+            {{ t(`pages.import.pandocMissing`) }}
+            <router-link to="/_admin/extensions">{{
+              t(`pages.import.pandocMissingLink`)
+            }}</router-link>
+          </p>
         </w-card-section>
         <w-card-actions class="card-actions">
           <w-space />
@@ -93,7 +100,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
@@ -103,30 +110,40 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { useSiteStore } from '@/stores/site'
 
 /**
- * Pick a file in one of Pandoc's supported formats, convert it to Markdown through
- * `POST sites/:siteId/pages/import`, and hand the result back to whoever opened this dialog — it
- * only converts and previews, it never saves anything itself. `PageNewMenu.vue` is the only opener
+ * Pick a file — Wiki.js's own Markdown, or one of Pandoc's supported formats — convert it to Markdown
+ * through `POST sites/:siteId/pages/import`, and hand the result back to whoever opened this dialog —
+ * it only converts and previews, it never saves anything itself. `PageNewMenu.vue` is the only opener
  * today: it takes the `ok` payload straight into `pageStore.pageCreate()`, exactly like every other
  * "New … Page" entry there.
+ *
+ * `format: 'markdown'` (OpenProject #1092) needs no Pandoc extension at all — it is a pass-through
+ * read of the file's own bytes, so this dialog (unlike the other formats it offers) works on an
+ * instance with no Pandoc installed. A leading YAML front-matter block, if the file has one, is parsed
+ * server-side into `title`/`description`/`tags`, which is why `convert()` below reads those back off
+ * the response rather than only ever defaulting the title from the file name.
  */
 
 /**
  * Source formats this dialog offers, matching `SUPPORTED_IMPORT_FORMATS` in
  * `backend/models/import.ts`. Not imported from there: `backend/` and `frontend/` are separate,
  * independently-installed workspaces with no shared module between them (see CLAUDE.md's `Layout`
- * section), so the two lists are kept in step by hand.
+ * section), so the two lists are kept in step by hand. `markdown` is listed first as the native
+ * format needing no Pandoc extension — every other entry still does.
  */
 const FORMATS = [
-  { value: 'mediawiki', label: 'MediaWiki' },
-  { value: 'textile', label: 'Textile' },
-  { value: 'docbook', label: 'DocBook' },
-  { value: 'rst', label: 'reStructuredText' },
-  { value: 'docx', label: 'Word Document (.docx)' },
-  { value: 'odt', label: 'OpenDocument Text (.odt)' }
+  { value: 'markdown', label: 'Markdown (.md)', needsPandoc: false },
+  { value: 'mediawiki', label: 'MediaWiki', needsPandoc: true },
+  { value: 'textile', label: 'Textile', needsPandoc: true },
+  { value: 'docbook', label: 'DocBook', needsPandoc: true },
+  { value: 'rst', label: 'reStructuredText', needsPandoc: true },
+  { value: 'docx', label: 'Word Document (.docx)', needsPandoc: true },
+  { value: 'odt', label: 'OpenDocument Text (.odt)', needsPandoc: true }
 ]
 
 /** File extension -> format, for auto-detecting `state.format` off the chosen file's name. */
 const EXTENSION_FORMATS = {
+  md: 'markdown',
+  markdown: 'markdown',
   wiki: 'mediawiki',
   mediawiki: 'mediawiki',
   textile: 'textile',
@@ -172,18 +189,46 @@ const state = reactive({
   format: null,
   converting: false,
   markdown: '',
-  title: ''
+  title: '',
+  description: '',
+  tags: []
 })
 
 const fileIpt = ref(null)
 
+// -> Whether Pandoc is installed decides which formats are pickable at all (OpenProject #1209);
+//    fetched once per dialog open rather than assumed stale from an earlier visit to this page.
+onMounted(() => {
+  siteStore.fetchExtensionsStatus()
+})
+
 // COMPUTED
 
-const formatOptions = computed(() => FORMATS)
+/** True once we know for sure this instance has no Pandoc extension -- before the check resolves, nothing is disabled yet rather than flashing every format grayed out. */
+const pandocMissing = computed(
+  () => siteStore.extensionsStatusLoaded && !siteStore.extensionsStatus.pandoc
+)
+
+const formatOptions = computed(() =>
+  FORMATS.map((f) => ({
+    ...f,
+    disable: f.needsPandoc && pandocMissing.value,
+    label: f.needsPandoc && pandocMissing.value ? `${f.label} (needs Pandoc)` : f.label
+  }))
+)
 
 const acceptExtensions = computed(() => `.${Object.keys(EXTENSION_FORMATS).join(',.')}`)
 
-const canConvert = computed(() => Boolean(state.file) && Boolean(state.format))
+const selectedFormatNeedsPandoc = computed(
+  () => FORMATS.find((f) => f.value === state.format)?.needsPandoc ?? false
+)
+
+const canConvert = computed(
+  () =>
+    Boolean(state.file) &&
+    Boolean(state.format) &&
+    !(selectedFormatNeedsPandoc.value && pandocMissing.value)
+)
 
 // METHODS
 
@@ -215,8 +260,9 @@ async function convert() {
   }
   state.converting = true
   try {
-    const markdown = await API_CLIENT.post(`sites/${siteStore.id}/pages/import`, {
+    const resp = await API_CLIENT.post(`sites/${siteStore.id}/pages/import`, {
       searchParams: {
+        fileName: state.fileName,
         format: state.format,
         path: props.basePath || ''
       },
@@ -224,11 +270,16 @@ async function convert() {
         'content-type': state.file.type || 'application/octet-stream'
       },
       body: state.file
-    })
-      .json()
-      .then((resp) => resp?.markdown ?? '')
+    }).json()
 
-    state.markdown = markdown
+    state.markdown = resp?.markdown ?? ''
+    // -> A `markdown` import's front matter (OpenProject #1092) names the actual title/description/
+    //    tags the file was authored with -- preferred here over the file-name default set on pick.
+    if (resp?.title) {
+      state.title = resp.title
+    }
+    state.description = resp?.description ?? ''
+    state.tags = resp?.tags ?? []
     state.step = 'preview'
   } catch (err) {
     // -> The server's own message carries which of unsupported format / missing Pandoc / a failed
@@ -245,7 +296,9 @@ async function convert() {
 function confirm() {
   onDialogOK({
     content: state.markdown,
-    title: state.title
+    title: state.title,
+    description: state.description,
+    tags: state.tags
   })
 }
 </script>

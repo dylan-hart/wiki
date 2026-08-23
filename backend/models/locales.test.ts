@@ -1,4 +1,4 @@
-import { describe, test, before, after } from 'node:test'
+import { describe, test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdtemp, mkdir, writeFile, rm, utimes } from 'node:fs/promises'
@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { eq } from 'drizzle-orm'
-import { localeCode, computeCompleteness } from './locales.ts'
+import { localeCode, computeCompleteness, parseSideloadLocalePack } from './locales.ts'
 import { locales as localesTable } from '../db/schema.ts'
 import {
   hasTestDatabase,
@@ -128,6 +128,78 @@ describe('computeCompleteness()', () => {
 })
 
 /**
+ * `parseSideloadLocalePack()` (see `locales.ts`, OpenProject #820): the pure validation
+ * `sideloadFromDataPath` runs each `<dataPath>/locales/<code>.json` file's parsed content through
+ * before it ever touches disk timestamps or the DB. A sideload file is self-contained (no
+ * `locales/metadata.js` entry backing it up), so this is what actually enforces its shape.
+ */
+describe('parseSideloadLocalePack()', () => {
+  test('accepts a fully-specified pack', () => {
+    const result = parseSideloadLocalePack({
+      name: 'Klingon',
+      nativeName: 'tlhIngan Hol',
+      language: 'tlh',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: { hello: 'nuqneH' }
+    })
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.ok ? result.pack : undefined, {
+      name: 'Klingon',
+      nativeName: 'tlhIngan Hol',
+      language: 'tlh',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: { hello: 'nuqneH' }
+    })
+  })
+
+  test('fills in nativeName, region, script and isRTL defaults when omitted', () => {
+    const result = parseSideloadLocalePack({ name: 'Klingon', language: 'tlh', strings: {} })
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.ok ? result.pack : undefined, {
+      name: 'Klingon',
+      nativeName: 'Klingon',
+      language: 'tlh',
+      region: '',
+      script: '',
+      isRTL: false,
+      strings: {}
+    })
+  })
+
+  test('rejects a non-object', () => {
+    const result = parseSideloadLocalePack('not an object')
+    assert.equal(result.ok, false)
+  })
+
+  test('rejects a pack missing "name"', () => {
+    const result = parseSideloadLocalePack({ language: 'tlh', strings: {} })
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.error, /name/)
+  })
+
+  test('rejects a pack missing "language"', () => {
+    const result = parseSideloadLocalePack({ name: 'Klingon', strings: {} })
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.error, /language/)
+  })
+
+  test('rejects a pack missing "strings"', () => {
+    const result = parseSideloadLocalePack({ name: 'Klingon', language: 'tlh' })
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.error, /strings/)
+  })
+
+  test('rejects a pack whose "strings" is not an object', () => {
+    const result = parseSideloadLocalePack({ name: 'Klingon', language: 'tlh', strings: 'nope' })
+    assert.equal(result.ok, false)
+  })
+})
+
+/**
  * `refreshFromDisk()` DB-backed: confirms `completeness` is actually persisted through the real
  * insert/onConflictDoUpdate call (not just computed and dropped), and that the mtime-based skip path
  * leaves the previously-computed value in place rather than resetting it — the "intentionally left as
@@ -199,6 +271,139 @@ describe('refreshFromDisk() completeness (DB-backed)', { skip: !hasTestDatabase(
       50,
       'skip path must not clear or corrupt the last-computed value'
     )
+  })
+})
+
+/**
+ * `sideloadFromDataPath()` DB-backed (OpenProject #820): the actual disk -> DB path a dropped-in
+ * `<dataPath>/locales/<code>.json` file takes, independent of `locales/metadata.js` — a sideload
+ * file can name a code the built-in language table has never declared, or override one that is.
+ * Each test resets the sideload directory itself so files from one test never leak, force-reloaded,
+ * into the next.
+ */
+describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+  let scratchDir: string
+  let sideloadDir: string
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+
+    scratchDir = await mkdtemp(path.join(tmpdir(), 'wiki-sideload-test-'))
+    await mkdir(path.join(scratchDir, 'server/locales'), { recursive: true })
+
+    const baseStrings = Object.fromEntries(
+      Array.from({ length: 4 }, (_, i) => [`key${i}`, `value${i}`])
+    )
+    await writeFile(path.join(scratchDir, 'server/locales/en.json'), JSON.stringify(baseStrings))
+
+    WIKI.SERVERPATH = path.join(scratchDir, 'server')
+    WIKI.ROOTPATH = scratchDir
+    WIKI.config.dataPath = path.join(scratchDir, 'data')
+    sideloadDir = path.join(scratchDir, 'data/locales')
+  })
+
+  beforeEach(async () => {
+    await rm(sideloadDir, { recursive: true, force: true })
+    await mkdir(sideloadDir, { recursive: true })
+  })
+
+  after(async () => {
+    await rm(scratchDir, { recursive: true, force: true })
+    await teardownTestDb()
+  })
+
+  test('loads a brand-new locale code no metadata.js entry backs', async () => {
+    await writeFile(
+      path.join(sideloadDir, 'tlh.json'),
+      JSON.stringify({
+        name: 'Klingon',
+        nativeName: 'tlhIngan Hol',
+        language: 'tlh',
+        strings: { key0: 'wa', key1: 'cha' }
+      })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['tlh'])
+    assert.deepEqual(result.skipped, [])
+
+    const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'tlh'))
+    assert.ok(row, 'expected the sideloaded tlh row to exist')
+    assert.equal(row!.name, 'Klingon')
+    assert.equal(row!.completeness, 50)
+  })
+
+  test('updates an existing code, taking priority over what is already in the DB', async () => {
+    await seedLocale(fixtures.db, { code: 'de', name: 'German (stale)' })
+
+    await writeFile(
+      path.join(sideloadDir, 'de.json'),
+      JSON.stringify({
+        name: 'German (sideloaded)',
+        language: 'de',
+        strings: { key0: 'eins', key1: 'zwei', key2: 'drei', key3: 'vier' }
+      })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['de'])
+
+    const [row] = await fixtures.db.select().from(localesTable).where(eq(localesTable.code, 'de'))
+    assert.equal(row!.name, 'German (sideloaded)')
+    assert.equal(row!.completeness, 100)
+  })
+
+  test('skips a malformed pack and reports why, without touching valid ones', async () => {
+    await writeFile(path.join(sideloadDir, 'broken.json'), '{ not valid json')
+    await writeFile(
+      path.join(sideloadDir, 'fr.json'),
+      JSON.stringify({ name: 'French', language: 'fr', strings: { key0: 'un' } })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['fr'])
+    assert.equal(result.skipped.length, 1)
+    assert.equal(result.skipped[0]!.code, 'broken')
+  })
+
+  test('skips a pack that violates a DB column constraint, without aborting the rest of the scan', async () => {
+    // -> Passes `parseSideloadLocalePack`'s shape validation (a string) but is far past `language`'s
+    //    `varchar(8)` column limit, so the insert itself is what has to catch this.
+    await writeFile(
+      path.join(sideloadDir, 'toolong.json'),
+      JSON.stringify({ name: 'Too Long', language: 'a'.repeat(20), strings: { key0: 'x' } })
+    )
+    await writeFile(
+      path.join(sideloadDir, 'es.json'),
+      JSON.stringify({ name: 'Spanish', language: 'es', strings: { key0: 'uno' } })
+    )
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result.loaded, ['es'])
+    assert.equal(result.skipped.length, 1)
+    assert.equal(result.skipped[0]!.code, 'toolong')
+    assert.match(result.skipped[0]!.error, /could not be saved/)
+
+    const [row] = await fixtures.db
+      .select()
+      .from(localesTable)
+      .where(eq(localesTable.code, 'toolong'))
+    assert.equal(row, undefined, 'the rejected row must not have been inserted')
+  })
+
+  test('a missing sideload directory is not an error', async () => {
+    const missingRoot = await mkdtemp(path.join(tmpdir(), 'wiki-sideload-missing-'))
+    const previousDataPath = WIKI.config.dataPath
+    WIKI.config.dataPath = path.join(missingRoot, 'never-created')
+
+    const result = await localesModel.sideloadFromDataPath({ force: true })
+    assert.deepEqual(result, { loaded: [], skipped: [] })
+
+    WIKI.config.dataPath = previousDataPath
+    await rm(missingRoot, { recursive: true, force: true })
   })
 })
 

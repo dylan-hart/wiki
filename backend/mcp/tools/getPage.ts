@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { generatePathHash, normalizePagePath } from '../../helpers/common.ts'
-import { actorFor, McpToolError, type McpAuthContext } from '../auth.ts'
+import { actorFor, McpToolError, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 
 const getPageInputSchema = {
@@ -96,7 +96,7 @@ export async function handleGetPage(
   })
 }
 
-export function registerGetPageTool(server: McpServer, ctx: McpAuthContext): void {
+export function registerGetPageTool(server: McpServer, getCtx: McpAuthContextGetter): void {
   server.registerTool(
     'get_page',
     {
@@ -104,6 +104,6 @@ export function registerGetPageTool(server: McpServer, ctx: McpAuthContext): voi
         'Read a single wiki page by path: its rendered content plus metadata, and optionally its raw source.',
       inputSchema: getPageInputSchema
     },
-    (args) => handleGetPage(ctx, args)
+    (args) => handleGetPage(getCtx(), args)
   )
 }

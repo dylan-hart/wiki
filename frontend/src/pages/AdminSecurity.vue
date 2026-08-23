@@ -73,6 +73,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.disallowIframe"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.disallowIframe`)" />
             </w-item-section>
           </w-item>
@@ -88,6 +89,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.enforceSameOriginReferrerPolicy"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.enforceSameOriginReferrerPolicy`)" />
             </w-item-section>
           </w-item>
@@ -103,6 +105,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.disallowOpenRedirect"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.disallowOpenRedirect`)" />
             </w-item-section>
           </w-item>
@@ -116,6 +119,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.forceAssetDownload"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.forceAssetDownload`)" />
             </w-item-section>
           </w-item>
@@ -129,6 +133,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.trustProxy"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.trustProxy`)" />
             </w-item-section>
           </w-item>
@@ -179,6 +184,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.enforceHsts"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.enforceHsts`)" />
             </w-item-section>
           </w-item>
@@ -244,6 +250,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.authRateLimitEnabled"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.rateLimitEnabled`)" />
             </w-item-section>
           </w-item>
@@ -337,6 +344,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.apiRateLimitEnabled"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.apiRateLimitEnabled`)" />
             </w-item-section>
           </w-item>
@@ -459,6 +467,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.uploadScanSVG"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.scanSVG`)" />
             </w-item-section>
           </w-item>
@@ -537,6 +546,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.enforceCsp"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.security.enforceCsp`)" />
             </w-item-section>
           </w-item>
@@ -576,8 +586,8 @@ import { loading } from '@/composables/loading'
 import { useSiteStore } from '@/stores/site'
 
 import { filesize } from 'filesize'
-import filesizeParser from 'filesize-parser'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { parseFileSize } from '@/helpers/fileSize'
 
 // STORES
 
@@ -589,9 +599,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.security.title')
-})
+}))
 
 // DATA
 
@@ -684,7 +694,7 @@ async function save() {
   try {
     let uploadMaxFileSize
     try {
-      uploadMaxFileSize = filesizeParser(state.humanUploadMaxFileSize || '0')
+      uploadMaxFileSize = parseFileSize(state.humanUploadMaxFileSize || '0')
     } catch {
       throw new Error(t('admin.security.maxUploadSizeInvalid'))
     }

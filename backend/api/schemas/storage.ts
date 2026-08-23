@@ -115,6 +115,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           scheduleOverride: {
             type: ['string', 'null'],
             description: 'Overrides the module schedule for this target, or null to trust it.'
+          },
+          supportsContentSync: {
+            type: 'boolean',
+            description:
+              'Whether the module actually writes content on a page/asset change. False for a module that is configuration- and manual-action-only (e.g. disk, sftp) even when its supported mode is `push` — enabling such a target does not make it sync live.'
           }
         }
       },

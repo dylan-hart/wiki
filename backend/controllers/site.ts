@@ -1,5 +1,4 @@
-import { validate as uuidValidate } from 'uuid'
-import { guardSiteEnabled, replyWithFile } from '../helpers/common.ts'
+import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -59,7 +58,7 @@ async function routes(app: FastifyInstance) {
       let site: any
       if (req.params.siteId === 'current' && req.hostname) {
         site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
-      } else if (uuidValidate(req.params.siteId)) {
+      } else if (isValidUuid(req.params.siteId)) {
         site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       } else {
         site = await WIKI.models.sites.getSiteByHostname({ hostname: req.params.siteId })

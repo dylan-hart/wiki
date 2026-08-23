@@ -150,6 +150,94 @@
           </w-item>
         </w-list>
       </w-card>
+
+      <div class="flex flex-wrap items-center mt-6 mb-2">
+        <div class="min-w-0 flex-1">
+          <div class="text-h6">{{ t('admin.blocks.credentialsTitle') }}</div>
+          <div class="text-body2 text-grey">{{ t('admin.blocks.credentialsSubtitle') }}</div>
+        </div>
+        <w-btn
+          class="acrylic-btn"
+          unelevated
+          icon="la:plus"
+          :label="t(`admin.blocks.credentialAdd`)"
+          color="primary"
+          @click="addCredential" />
+      </div>
+      <w-card>
+        <w-list separator v-if="state.credentials.length > 0">
+          <w-item v-for="credential of state.credentials" :key="credential.id">
+            <w-item-section>
+              <w-item-label
+                ><strong>{{ credential.name }}</strong></w-item-label
+              >
+              <w-item-label caption class="flex items-center">
+                <w-chip
+                  class="m-0"
+                  square
+                  dense
+                  :color="dark.isActive ? `blue-grey-8` : `blue-grey-1`"
+                  :text-color="dark.isActive ? `white` : `blue-grey-9`">
+                  <span class="text-caption">{{ credential.id }}</span>
+                </w-chip>
+                <w-btn
+                  class="ml-1"
+                  icon="la:copy"
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  :aria-label="t(`admin.blocks.credentialCopyId`)"
+                  @click="copyCredentialId(credential.id)">
+                  <w-tooltip>{{ t(`admin.blocks.credentialCopyId`) }}</w-tooltip>
+                </w-btn>
+              </w-item-label>
+              <w-item-label caption class="flex flex-wrap items-center gap-1 mt-1">
+                <w-icon name="la:globe" size="14px" class="mr-1" />
+                <span v-if="credential.allowedDomains?.length" class="text-caption">
+                  {{ credential.allowedDomains.join(', ') }}
+                </span>
+                <span v-else class="text-caption text-negative">{{
+                  t('admin.blocks.credentialAllowedDomainsEmpty')
+                }}</span>
+              </w-item-label>
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                class="mr-2"
+                icon="la:globe"
+                :label="t(`admin.blocks.credentialDomains`)"
+                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                outline
+                no-caps
+                padding="xs md"
+                @click="editDomains(credential)" />
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                class="mr-2"
+                icon="la:sync-alt"
+                :label="t(`admin.blocks.credentialRotate`)"
+                :color="dark.isActive ? `blue-grey-3` : `blue-grey-8`"
+                outline
+                no-caps
+                padding="xs md"
+                @click="rotateCredential(credential)" />
+            </w-item-section>
+            <w-item-section side>
+              <w-btn
+                icon="la:trash"
+                :aria-label="t(`common.actions.delete`)"
+                color="negative"
+                outline
+                no-caps
+                padding="xs sm"
+                @click="deleteCredential(credential)" />
+            </w-item-section>
+          </w-item>
+        </w-list>
+        <div class="p-4 text-grey" v-else>{{ t('admin.blocks.credentialsEmpty') }}</div>
+      </w-card>
     </div>
     <w-dialog v-model="state.configDialog.open">
       <w-card style="width: 500px; max-width: 90vw">
@@ -195,6 +283,7 @@ import { confirm, dialog } from '@/composables/dialog'
 import { useSiteAdminAccess } from '@/composables/siteAdminAccess'
 
 import BlockUploadDialog from '@/components/BlockUploadDialog.vue'
+import BlockCredentialDialog from '@/components/BlockCredentialDialog.vue'
 
 import { useAdminStore } from '@/stores/admin'
 import { useFlagsStore } from '@/stores/flags'
@@ -203,6 +292,7 @@ import { useSiteStore } from '@/stores/site'
 import { pick } from 'es-toolkit/object'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { seedConfigValues } from '@/helpers/blocks'
+import { copyToClipboard } from '@/helpers/clipboard'
 
 import BlockPropsForm from '@/components/BlockPropsForm.vue'
 
@@ -225,13 +315,14 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
-  title: t('admin.editors.title')
-})
+useMeta(() => ({
+  title: t('admin.blocks.title')
+}))
 
 const state = reactive({
   loading: 0,
   blocks: [],
+  credentials: [],
   configDialog: {
     open: false,
     /** The block being configured -- the same object as in `state.blocks`, not a copy. */
@@ -283,8 +374,92 @@ async function load() {
       caption: err.message
     })
   }
+  await loadCredentials()
   loading.hide()
   state.loading--
+}
+
+/**
+ * Loaded separately from `load()`'s own error handling: a caller without `site:blocks` on this
+ * site never reaches this page at all (`useSiteAdminAccess`), so a failure here is a genuine fault
+ * rather than the expected shape for a caller with less access, same as the blocks list above.
+ */
+async function loadCredentials() {
+  try {
+    state.credentials =
+      (await API_CLIENT.get(`sites/${adminStore.currentSiteId}/block-credentials`).json()) ?? []
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.blocks.credentialsLoadFailed'),
+      caption: apiErrorMessage(err)
+    })
+  }
+}
+
+function addCredential() {
+  dialog({ component: BlockCredentialDialog, componentProps: { mode: 'create' } }).onOk(
+    (credential) => {
+      if (credential) {
+        state.credentials.push(credential)
+      }
+    }
+  )
+}
+
+function rotateCredential(credential) {
+  dialog({
+    component: BlockCredentialDialog,
+    componentProps: { mode: 'rotate', credential }
+  })
+}
+
+function editDomains(credential) {
+  dialog({
+    component: BlockCredentialDialog,
+    componentProps: { mode: 'domains', credential }
+  }).onOk(() => {
+    loadCredentials()
+  })
+}
+
+function deleteCredential(credential) {
+  confirm({
+    title: t('admin.blocks.credentialDelete'),
+    message: t('admin.blocks.credentialDeleteConfirm', { name: credential.name }),
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      await API_CLIENT.delete(
+        `sites/${adminStore.currentSiteId}/block-credentials/${credential.id}`
+      )
+      state.credentials = state.credentials.filter((c) => c.id !== credential.id)
+      notify({
+        type: 'positive',
+        message: t('admin.blocks.credentialDeleteSuccess')
+      })
+    } catch (err) {
+      notify({
+        type: 'negative',
+        message: t('admin.blocks.credentialDeleteFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  })
+}
+
+async function copyCredentialId(id) {
+  try {
+    await copyToClipboard(id)
+    notify({ type: 'positive', message: t('admin.blocks.credentialIdCopied') })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: t('admin.blocks.credentialCopyFailed'),
+      caption: err.message
+    })
+  }
 }
 
 async function save() {

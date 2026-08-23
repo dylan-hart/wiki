@@ -61,6 +61,30 @@ describe('site store: applySiteInfo() pdfExportAvailable', () => {
   })
 })
 
+/**
+ * OpenProject #954: `blocksIndex` reaches `siteStore` from `applySiteInfo` the same way
+ * `pdfExportAvailable` does above, so `Index.vue`'s block-loading scan can resolve a custom block's
+ * `id`/`isCustom` off the store instead of calling the manage:sites-gated `GET /sites/:siteId/blocks`
+ * route, which a plain reader is refused.
+ */
+describe('site store: applySiteInfo() blocksIndex', () => {
+  it('adopts blocksIndex from the site payload', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(
+      siteInfoFixture({ blocksIndex: { widget: { id: 'custom-widget-id', isCustom: true } } })
+    )
+
+    expect(store.blocksIndex).toEqual({ widget: { id: 'custom-widget-id', isCustom: true } })
+  })
+
+  it('defaults to an empty object when the payload omits it', () => {
+    const store = useSiteStore()
+    store.applySiteInfo(siteInfoFixture())
+
+    expect(store.blocksIndex).toEqual({})
+  })
+})
+
 describe('site store: features.comments default', () => {
   it('defaults to false, so PageComments has something real to gate on before the backend sends it', () => {
     const store = useSiteStore()

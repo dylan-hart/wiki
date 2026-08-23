@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { CustomError } from '../helpers/common.ts'
+import { parseFrontMatter } from '../helpers/pageSerialization.ts'
 
 /** How long a single pandoc conversion may run before it is killed. */
 const IMPORT_TIMEOUT = 30 * 1000
@@ -14,11 +15,23 @@ const IMPORT_TIMEOUT = 30 * 1000
  */
 export const MAX_IMPORT_SIZE = 25 * 1024 * 1024
 
+/**
+ * The most files a single batch import request may carry.
+ *
+ * Each pandoc-format file spawns its own pandoc process (`convertToMarkdown` -> `runPandoc`), so this
+ * bounds how many concurrent conversions one request can trigger rather than any storage concern —
+ * generous enough for "a folder of exported wiki pages" while keeping one request from turning into an
+ * unbounded pandoc fork bomb. A `markdown` file spawns no process at all (OpenProject #1092) but is
+ * capped by the same number for simplicity — one limit for the whole batch, not a different one per
+ * format sharing it.
+ */
+export const MAX_IMPORT_BATCH_FILES = 20
+
 /** How much of pandoc's stderr is kept when reporting a failure, taken from the end where the error is. */
 const importErrorLength = 800
 
 /**
- * Source formats this endpoint accepts, as `-f` values pandoc understands.
+ * Source formats that need Pandoc, as `-f` values pandoc understands.
  *
  * The subset of pandoc's readers that make sense as a *wiki page* import: markup another wiki might
  * export as (MediaWiki, Textile, DocBook, reStructuredText) plus the two office document formats
@@ -26,7 +39,7 @@ const importErrorLength = 800
  * its own JSON AST — that either aren't "somebody's wiki page" or need options this endpoint doesn't
  * expose, and are deliberately left out rather than accepted and left to confuse whoever picks them.
  */
-export const SUPPORTED_IMPORT_FORMATS = [
+export const PANDOC_IMPORT_FORMATS = [
   'mediawiki',
   'textile',
   'docbook',
@@ -35,6 +48,17 @@ export const SUPPORTED_IMPORT_FORMATS = [
   'odt'
 ] as const
 
+export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
+
+/**
+ * Every format this endpoint accepts: the Pandoc-backed formats above, plus `markdown` (OpenProject
+ * #1092) — Wiki.js's own native page format needs no conversion at all, so it is a pass-through read
+ * of the file's UTF-8 bytes rather than another `-f` value handed to pandoc. This is what makes bulk
+ * import possible on an instance with no Pandoc extension installed at all: migrating from another
+ * Wiki.js instance, an Obsidian vault, or any docs-as-markdown repo needs none of it.
+ */
+export const SUPPORTED_IMPORT_FORMATS = [...PANDOC_IMPORT_FORMATS, 'markdown'] as const
+
 export type ImportFormat = (typeof SUPPORTED_IMPORT_FORMATS)[number]
 
 function isSupportedFormat(format: string): format is ImportFormat {
@@ -42,13 +66,58 @@ function isSupportedFormat(format: string): format is ImportFormat {
 }
 
 /**
+ * File extension (lowercase, no dot) -> the import format it implies.
+ *
+ * Mirrors the frontend's own `EXTENSION_FORMATS` in `ImportPageDialog.vue` / `ImportBatchPageDialog.vue`
+ * (kept in step by hand — see those files' header comments), and is what `detectImportFormat` below
+ * uses to resolve a per-file format from its name (OpenProject #1209), rather than one format applied
+ * across an entire batch.
+ */
+export const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
+  md: 'markdown',
+  markdown: 'markdown',
+  wiki: 'mediawiki',
+  mediawiki: 'mediawiki',
+  textile: 'textile',
+  dbk: 'docbook',
+  docbook: 'docbook',
+  rst: 'rst',
+  docx: 'docx',
+  odt: 'odt'
+}
+
+/**
+ * Resolve a file's import format from its own name, the way the single- and batch-import routes now
+ * detect per file (OpenProject #1209) instead of trusting one caller-declared format for a whole
+ * batch. Case-insensitive on the extension; returns `null` for no extension or one this endpoint does
+ * not recognize, which the caller turns into a per-file error rather than guessing.
+ */
+export function detectImportFormat(fileName: string): ImportFormat | null {
+  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : null
+  return ext ? (IMPORT_EXTENSION_FORMATS[ext] ?? null) : null
+}
+
+/** What a converted file hands back — the Markdown body, plus whatever metadata the source carried. */
+export interface ImportConversionResult {
+  markdown: string
+  /** Only ever set for `format: 'markdown'` with a leading YAML front-matter block. */
+  title?: string
+  description?: string
+  tags?: string[]
+}
+
+/**
  * Import model
  *
- * Converts a file in another wiki's or word processor's format into the GitHub-flavored Markdown the
- * markdown editor works in, by shelling out to Pandoc — an extension like Puppeteer, not a bundled
- * dependency, and one this instance may not have. `ensureCanImport` is the same kind of guard
- * `models/rendering.ts`'s `ensureCanRender` is for Puppeteer: asked before any work starts, so a
- * missing tool is reported as a clean 503 rather than discovered mid-conversion.
+ * Turns an uploaded file into the GitHub-flavored Markdown the markdown editor works in. A `markdown`
+ * file is a pass-through: its bytes already ARE the page's content, so the only work is decoding UTF-8
+ * and, if present, splitting a leading YAML front-matter header into title/description/tags
+ * (OpenProject #1092). Every other supported format is converted by shelling out to Pandoc — an
+ * extension like Puppeteer, not a bundled dependency, and one this instance may not have.
+ * `ensureCanImport` is the same kind of guard `models/rendering.ts`'s `ensureCanRender` is for
+ * Puppeteer: asked before any pandoc-backed work starts, so a missing tool is reported as a clean 503
+ * rather than discovered mid-conversion — the markdown pass-through never calls it, since it has
+ * nothing to be missing.
  */
 class Import {
   /**
@@ -75,15 +144,23 @@ class Import {
   /**
    * Convert an uploaded file to GitHub-flavored Markdown.
    *
-   * @throws {CustomError} Pandoc is not installed (503, same shape as `renderPuppeteerMissing`),
-   *   `format` isn't one this endpoint accepts, the file is empty or larger than
-   *   {@link MAX_IMPORT_SIZE}, the file isn't valid input for the declared format (pandoc's own
-   *   stderr, surfaced the way `models/extensions.ts`'s `install()` surfaces npm's), or the
+   * `format: 'markdown'` never touches Pandoc: the file's bytes are decoded as UTF-8 and handed back
+   * as-is, with a leading YAML front-matter block (if any) split off into `title`/`description`/`tags`
+   * rather than left as literal page content. Every other format still needs Pandoc.
+   *
+   * @throws {CustomError} `format` isn't one this endpoint accepts, the file is empty or larger than
+   *   {@link MAX_IMPORT_SIZE}, or — for a non-`markdown` format — Pandoc is not installed (503, same
+   *   shape as `renderPuppeteerMissing`), the file isn't valid input for the declared format (pandoc's
+   *   own stderr, surfaced the way `models/extensions.ts`'s `install()` surfaces npm's), or the
    *   conversion produced nothing usable.
    */
-  async convertToMarkdown({ format, data }: { format: string; data: Buffer }): Promise<string> {
-    await this.ensureCanImport()
-
+  async convertToMarkdown({
+    format,
+    data
+  }: {
+    format: string
+    data: Buffer
+  }): Promise<ImportConversionResult> {
     if (!isSupportedFormat(format)) {
       throw new CustomError(
         'importUnsupportedFormat',
@@ -102,6 +179,33 @@ class Import {
       )
     }
 
+    if (format === 'markdown') {
+      // -> A UTF-8 BOM (U+FEFF) is common on files exported from Windows tools (Obsidian, Notepad)
+      //    but isn't part of the content: left in, it sits ahead of the leading `---` and silently
+      //    defeats `parseFrontMatter`'s anchored match, so the whole front-matter block would be
+      //    imported as literal page text instead of being split off.
+      let text = data.toString('utf8')
+      if (text.charCodeAt(0) === 0xfeff) {
+        text = text.slice(1)
+      }
+      if (!text.trim()) {
+        throw new CustomError('importNoContent', 'This file has no content to import.', 400)
+      }
+      const parsed = parseFrontMatter(text)
+      const result: ImportConversionResult = { markdown: parsed.content }
+      if (parsed.title) {
+        result.title = parsed.title
+      }
+      if (parsed.description) {
+        result.description = parsed.description
+      }
+      if (parsed.tags) {
+        result.tags = parsed.tags
+      }
+      return result
+    }
+
+    await this.ensureCanImport()
     const markdown = await this.runPandoc(format, data)
     if (!markdown.trim()) {
       throw new CustomError(
@@ -110,7 +214,7 @@ class Import {
         400
       )
     }
-    return markdown
+    return { markdown }
   }
 
   /**
@@ -122,7 +226,7 @@ class Import {
    * `convertToMarkdown`) so a test can replace it without a real pandoc binary on the machine running
    * the test.
    */
-  protected runPandoc(format: ImportFormat, data: Buffer): Promise<string> {
+  protected runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'pandoc',

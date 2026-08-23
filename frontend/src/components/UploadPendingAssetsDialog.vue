@@ -57,27 +57,24 @@ const state = reactive({
 // MOUNTED
 
 onMounted(async () => {
-  state.total = editorStore.pendingAssets.length ?? 0
+  // -> Snapshotted once: the loop below prunes `editorStore.pendingAssets` as each item lands, and
+  //    iterating the live (reactive) array while removing from it out from under itself is exactly
+  //    the kind of thing to not rely on.
+  const items = [...editorStore.pendingAssets]
+  state.total = items.length ?? 0
   state.current = 0
 
   await new Promise((resolve) => setTimeout(resolve, 500))
 
-  /*
-    What the editor has to rewrite, collected as it goes. The editor makes these replacements against
-    its own model rather than reloading the page's text, which is what keeps an upload from reading as
-    a rewrite of the whole document -- see `reloadEditorContent` in `EditorMarkdown.vue`.
-  */
-  const replacements = []
-
   try {
-    for (const item of editorStore.pendingAssets) {
+    for (const item of items) {
       state.current++
       // -> The body is the file itself rather than a multipart form, and the locale is left to the
       //    server, which uses the site's primary one
       const resp = await API_CLIENT.post(`sites/${siteStore.id}/assets`, {
         searchParams: {
-          fileName: item.fileName
-          // TODO: Upload to page specific folder
+          fileName: item.fileName,
+          parentPath: pageStore.folderPath
         },
         headers: {
           'content-type': item.file.type || 'application/octet-stream'
@@ -93,11 +90,21 @@ onMounted(async () => {
       //    server says it stored
       const storedPath = assetPath(resp?.asset?.folderPath, resp?.asset?.fileName)
       pageStore.content = pageStore.content.replaceAll(item.blobUrl, storedPath)
-      replacements.push({ from: item.blobUrl, to: storedPath })
+      /*
+        Applied to the editor's own model, and pruned from `pendingAssets`, immediately -- not
+        batched until every item has landed. Before this fix, a later item's failure left the
+        editor still showing the blob URLs for every item that HAD already succeeded (only
+        `pageStore.content` was rewritten, and the next debounced flush from the live editor model
+        would overwrite that rewrite right back out again), while `pendingAssets` still listed them
+        as pending -- so retrying the save re-uploaded already-uploaded items as `name-1.ext`
+        duplicates (OpenProject #945).
+      */
+      EVENT_BUS.emit('reloadEditorContent', {
+        replacements: [{ from: item.blobUrl, to: storedPath }]
+      })
+      editorStore.pendingAssets = editorStore.pendingAssets.filter((pending) => pending !== item)
       URL.revokeObjectURL(item.blobUrl)
     }
-    editorStore.pendingAssets = []
-    EVENT_BUS.emit('reloadEditorContent', { replacements })
     onDialogOK()
   } catch (err) {
     notify({

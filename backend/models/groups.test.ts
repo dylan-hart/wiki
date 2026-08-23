@@ -76,6 +76,93 @@ describe('groups.groupIdsForRequest', () => {
 })
 
 /**
+ * OpenProject #930: `actorForRequest` is where an API key's `scope` reaches `AccessActor` at all --
+ * `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` only ever see what this returns.
+ */
+describe('groups.actorForRequest', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test("carries a scoped API key's scope through onto the actor", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: null,
+        scope: ['read:pages']
+      }
+    } as unknown as FastifyRequest
+    assert.deepEqual(groups.actorForRequest(req), {
+      groupIds: ['key-group'],
+      permissions: ['read:pages'],
+      scope: ['read:pages'],
+      allowedClassifications: null
+    })
+  })
+
+  test("an unscoped API key's null scope comes through as null, not absent", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: null,
+        scope: null
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).scope, null)
+  })
+
+  test('a session-authenticated request (no API key) always gets a null scope', () => {
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: 'user-1' },
+        groups: ['g'],
+        permissions: ['read:pages']
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).scope, null)
+  })
+})
+
+/**
+ * OpenProject #1127: the actor `models/rendering.ts`'s background re-render job passes to
+ * `glossary.getCachedTerms` when reprocessing already-published content with no specific reader to
+ * speak for.
+ */
+describe('groups.guestActor', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('resolves to the guests group with no group-wide permissions', () => {
+    assert.deepEqual(groups.guestActor(), {
+      groupIds: ['guests-group-id'],
+      permissions: []
+    })
+  })
+})
+
+/**
  * `groups.checkAccess` is the one place a page permission is decided (see the "Permissions" section
  * of CLAUDE.md) — it pools a set of groups' rules and hands them to `helpers/pageRules.ts`, which
  * Task 753 already covers rule-matching logic for in isolation. What is genuinely `models/groups.ts`'s
@@ -124,6 +211,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -133,6 +221,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -142,6 +231,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'engineering/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -151,6 +241,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'marketing/onboarding',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -175,6 +266,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'public/readme',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -184,6 +276,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'secret/plans',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -199,6 +292,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'anything',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       true
@@ -214,6 +308,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         path: 'anything',
         locale: 'en',
         siteId: null,
+        classification: null,
         tags: []
       }),
       false
@@ -265,6 +360,158 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #930: an API key's `scope` only narrows the group-wide permission UNION
+   * (`narrowToScope()` in `models/apiKeys.ts`) -- `groupIds` themselves are handed through
+   * unnarrowed, so a key scoped to `['read:pages']` still resolved every page permission its
+   * groups' rules granted, since neither `checkAccess()` nor `mayHoldPermissionSomewhere()`
+   * consulted scope at all. These lock down the fix: a permission absent from `scope` is refused
+   * before any rule is even resolved, and `null`/absent scope (a session, or an unscoped key)
+   * stays unrestricted.
+   */
+  test('a scoped actor is refused a page-rule permission outside its scope, even though a rule grants it (OpenProject #930)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'], mode: 'ALLOW' })])
+
+    const unscoped = { groupIds: [fixtures.groupId], permissions: [] }
+    const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
+
+    assert.equal(
+      groupsModel.checkAccess(unscoped, 'write:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+    assert.equal(
+      groupsModel.checkAccess(scoped, 'write:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      false
+    )
+    assert.equal(
+      groupsModel.checkAccess(scoped, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+  })
+
+  test('checkAccess is unrestricted for a null/absent scope', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'] })])
+
+    const page = { path: 'anything', locale: 'en', siteId: null, classification: null, tags: [] }
+    assert.equal(
+      groupsModel.checkAccess(
+        { groupIds: [fixtures.groupId], permissions: [], scope: null },
+        'read:pages',
+        page
+      ),
+      true
+    )
+    assert.equal(
+      groupsModel.checkAccess(
+        { groupIds: [fixtures.groupId], permissions: [] },
+        'read:pages',
+        page
+      ),
+      true
+    )
+  })
+
+  test('checkAccess still bypasses scope for manage:system, same as it bypasses the rules', async () => {
+    await setGroupRules([rule({ mode: 'DENY', roles: ['read:pages'] })])
+
+    const actor = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      scope: ['write:pages']
+    }
+    assert.equal(
+      groupsModel.checkAccess(actor, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null,
+        tags: []
+      }),
+      true
+    )
+  })
+
+  test('mayHoldPermissionSomewhere filters the asked permissions down to scope before consulting rules', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'] })])
+
+    const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages']),
+      true
+    )
+  })
+
+  /**
+   * OpenProject #1205 (replacing the earlier #1055 single-value ceiling): an actor whose
+   * `allowedClassifications` allow-set does not name a page's classification may never be granted a
+   * page permission on it, regardless of what its groups' rules say.
+   */
+  test('an allowedClassifications-scoped actor is refused on a page outside its allow-set, even though a rule grants it (OpenProject #1205)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted', sortOrder: 99 })
+
+    const capped = {
+      groupIds: [fixtures.groupId],
+      permissions: [],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    const publicPage = {
+      path: 'public-page',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+    const restrictedPage = {
+      path: 'restricted-page',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', publicPage), true)
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', restrictedPage), false)
+    // -> An uncapped actor is unaffected -- the same rule grants it on both pages
+    const uncapped = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.checkAccess(uncapped, 'read:pages', restrictedPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  test('allowedClassifications does not gate a page whose own classification is unknown (null)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
+    const capped = {
+      groupIds: [fixtures.groupId],
+      permissions: [],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    assert.equal(
+      groupsModel.checkAccess(capped, 'read:pages', {
+        path: 'some-asset',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      true
+    )
+  })
+
+  /**
    * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
    * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
    * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory
@@ -283,6 +530,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
           path,
           locale: 'en',
           siteId: null,
+          classification: null,
           tags: []
         }),
         expected,
@@ -411,5 +659,103 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), false)
+  })
+
+  /**
+   * OpenProject #930: `site:*` names are not offered in an API key's scope vocabulary at all
+   * (`ALL_PERMISSIONS` in `helpers/permissions.ts` is `GLOBAL_PERMISSIONS` + `PAGE_PERMISSIONS`
+   * only), so any actor with a non-null scope can never name one -- a scoped key therefore never
+   * reaches site-admin surfaces through `checkSiteAccess()`, regardless of what its groups' rules
+   * grant, exactly the same "narrow, never grant beyond" guarantee `checkAccess()` now enforces for
+   * page permissions.
+   */
+  test('checkSiteAccess refuses every site permission once an actor carries a scope', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
+    assert.equal(groupsModel.checkSiteAccess(scoped, 'site:theme', fixtures.siteId), false)
+  })
+
+  test('checkSiteAccess is unrestricted for a null/absent scope', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [], scope: null }
+    assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+  })
+})
+
+/**
+ * OpenProject #966: `createGroup`/`updateGroup`/`deleteGroup` used to call `this.reloadCache()`
+ * directly, which only ever refreshes this instance's own in-memory cache — a revoked permission
+ * (or a newly-granted one) took effect on the instance that handled the write, but every other
+ * instance in a cluster kept serving its stale copy until an admin ran "Flush Caches" or the
+ * instance restarted. `broadcastReload()` is the fix: every write path now goes through it instead
+ * of `reloadCache()` directly, and it emits on `WIKI.events.outbound` (which `core/db.ts`'s real
+ * NOTIFY-based bus, unused here, is what actually carries to other instances — see
+ * `dev/multi-instance-verify/README.md` §8).
+ */
+describe('groups.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+    // -> `updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
+    //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty.
+    WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('createGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.createGroup('Broadcast Test Group')
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('updateGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.updateGroup(fixtures.groupId, { rules: [] })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('deleteGroup broadcasts reloadGroups after refreshing this instance', async () => {
+    const id = await groupsModel.createGroup('Broadcast Delete Target')
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await groupsModel.deleteGroup(id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadGroups'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadGroups event to reloadCache', async () => {
+    let reloaded = false
+    const originalReloadCache = groupsModel.reloadCache.bind(groupsModel)
+    groupsModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      groupsModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadGroups')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadGroups handler')
+      await handler()
+      assert.equal(reloaded, true)
+    } finally {
+      groupsModel.reloadCache = originalReloadCache
+    }
   })
 })

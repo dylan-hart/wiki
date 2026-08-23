@@ -1,10 +1,12 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  defaultLocale,
   guardSiteEnabled,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
+  matchLocaleCode,
   requestOrigin,
   resolveRequestSite,
   shouldPrefixLocale,
@@ -50,6 +52,73 @@ describe('stripLocalePrefix', () => {
 
   test('returns null with an empty active list', () => {
     assert.equal(stripLocalePrefix('/fr/page', locales({ active: [] })), null)
+  })
+})
+
+/**
+ * The single case-insensitive matcher `stripLocalePrefix` above and `helpers/appShell.ts`'s
+ * `resolveAppShellLocale` both delegate to now (OpenProject #1024's consolidation), rather than each
+ * keeping its own inlined `.find((code) => code.toLowerCase() === ...)`.
+ */
+describe('matchLocaleCode', () => {
+  test('returns the canonically-cased match for a differently-cased candidate', () => {
+    assert.equal(matchLocaleCode('FR', ['en', 'fr']), 'fr')
+  })
+
+  test('returns the exact match unchanged', () => {
+    assert.equal(matchLocaleCode('fr', ['en', 'fr']), 'fr')
+  })
+
+  test('returns null when nothing matches', () => {
+    assert.equal(matchLocaleCode('de', ['en', 'fr']), null)
+  })
+
+  test('returns null with no active list', () => {
+    assert.equal(matchLocaleCode('fr', null), null)
+    assert.equal(matchLocaleCode('fr', undefined), null)
+  })
+
+  test('returns null with an empty active list', () => {
+    assert.equal(matchLocaleCode('fr', []), null)
+  })
+})
+
+/**
+ * The single source `api/tree.ts`, `api/pages.ts` and `models/pages.ts` all delegate to now
+ * (OpenProject #1024's consolidation), rather than each keeping its own copy of the same
+ * `WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'` fallback.
+ */
+describe('defaultLocale', () => {
+  let previousWiki: any
+
+  test("returns the site's configured primary locale", () => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites: { 'site-1': { config: { locales: { primary: 'fr' } } } } }
+    try {
+      assert.equal(defaultLocale('site-1'), 'fr')
+    } finally {
+      ;(globalThis as any).WIKI = previousWiki
+    }
+  })
+
+  test("falls back to 'en' for an unknown site", () => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites: {} }
+    try {
+      assert.equal(defaultLocale('no-such-site'), 'en')
+    } finally {
+      ;(globalThis as any).WIKI = previousWiki
+    }
+  })
+
+  test("falls back to 'en' when the site has no locales configured", () => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites: { 'site-1': { config: {} } } }
+    try {
+      assert.equal(defaultLocale('site-1'), 'en')
+    } finally {
+      ;(globalThis as any).WIKI = previousWiki
+    }
   })
 })
 

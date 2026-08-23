@@ -150,7 +150,11 @@ export default {
         sslOptions.key = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.key), 'utf-8')
       }
       if (sslOptions.pfx) {
-        sslOptions.pfx = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.pfx), 'utf-8')
+        // -> PKCS#12 is binary DER, unlike `ca`/`cert`/`key` (PEM, text) above -- reading it as
+        //    'utf-8' corrupts the bundle and fails the TLS handshake with a confusing error
+        //    (OpenProject #940). No encoding argument means `readFile` returns the raw `Buffer` node-
+        //    postgres expects for `pfx`.
+        sslOptions.pfx = await fs.readFile(path.resolve(WIKI.ROOTPATH, sslOptions.pfx))
       }
     } else {
       sslOptions = true
@@ -224,12 +228,15 @@ export default {
    * mirror that faithfully on the sending side rather than trying to paper over it: a send with no
    * live client is a silent no-op, never buffered.
    *
-   * Both current subscribers below already tolerate a missed notification, but not for the same
-   * reason a naive read of their code might suggest — neither re-checks the DB on a timer:
-   *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler and `maintenance.subscribeToEvents()`'s
-   *    `flushCaches`/`disconnectWebsockets` handlers are purely edge-triggered. A missed one has no
-   *    independent side channel back except another matching event later, or this instance's own
-   *    restart.
+   * All five current subscribers below already tolerate a missed notification, but not for the same
+   * reason a naive read of their code might suggest — none re-checks the DB on a timer:
+   *  - `configSvc.subscribeToEvents()`'s `reloadConfig` handler, `maintenance.subscribeToEvents()`'s
+   *    `flushCaches`/`disconnectWebsockets` handlers, and `groups`/`sites`/`approvals`'
+   *    `reloadGroups`/`reloadSites`/`reloadApprovals` handlers (each model's own `broadcastReload()`
+   *    is what emits the matching outbound event, right after refreshing this instance's own cache —
+   *    see `models/groups.ts`'s `broadcastReload()` for the shape every one of them follows) are
+   *    purely edge-triggered. A missed one has no independent side channel back except another
+   *    matching event later, or this instance's own restart.
    *  - What actually closes the common case is `index.ts`: `preBoot()` calls
    *    `configSvc.loadFromDb()` and `postBoot()` calls `groups`/`sites`/`locales`/`approvals`
    *    `.reloadCache()` **unconditionally on every boot**, not gated on any notification having
@@ -240,9 +247,10 @@ export default {
    *    reconnect window while it otherwise stays up the whole time: nothing re-syncs until the next
    *    matching event or a restart. Judged low-severity (bounded window, and every current event —
    *    `reloadConfig` on every settings save, `flushCaches`/`disconnectWebsockets` as one-shot admin
-   *    actions with no persisted state of their own to diverge from) and left as a documented
-   *    at-most-once contract rather than closed with a new poller — see
-   *    `dev/multi-instance-verify/README.md` §8 and `core/db.test.ts` for the full writeup and
+   *    actions, `reloadGroups`/`reloadSites`/`reloadApprovals` on their respective model writes —
+   *    has no state beyond what the database already holds and the next write's own broadcast will
+   *    resync) and left as a documented at-most-once contract rather than closed with a new poller —
+   *    see `dev/multi-instance-verify/README.md` §8 and `core/db.test.ts` for the full writeup and
    *    regression coverage. A future subscriber that needs stronger guarantees should re-sync from
    *    the DB itself (on an interval, or at least on its own boot) rather than assume this channel
    *    ever redelivers.
@@ -287,6 +295,9 @@ export default {
     // WIKI.auth.subscribeToEvents()
     WIKI.configSvc.subscribeToEvents()
     maintenance.subscribeToEvents()
+    WIKI.models.groups.subscribeToEvents()
+    WIKI.models.sites.subscribeToEvents()
+    WIKI.models.approvals.subscribeToEvents()
     // WIKI.db.pages.subscribeToEvents()
 
     WIKI.logger.info('Event Listener initialized successfully: [ OK ]')

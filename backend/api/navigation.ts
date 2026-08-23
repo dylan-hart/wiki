@@ -78,7 +78,7 @@ async function routes(app: FastifyInstance) {
           'Reading a menu in full requires manage:navigation, or site:navigation on this site.'
         )
       }
-      return WIKI.models.navigation.getNav(req.params.navId, {
+      return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
         unfiltered
       })
@@ -91,13 +91,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string; navId: string } }>(
     '/sites/:siteId/navigation/:navId/mode',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: "Get a menu's source mode",
         description:
-          "A menu row's own `mode` (`static`/`auto`/`mixed`) with no item resolution -- what `NavEditMenu.vue`'s mode selector asks before it has anything to save, so it can preselect the option actually stored rather than always defaulting to `static`. `static` for a menu with no row yet, the same fallback `GET /sites/:siteId/navigation/:navId` falls back to.",
+          "A menu row's own `mode` (`static`/`auto`/`mixed`) with no item resolution -- what `NavEditMenu.vue`'s mode selector asks before it has anything to save, so it can preselect the option actually stored rather than always defaulting to `static`. `static` for a menu with no row yet, the same fallback `GET /sites/:siteId/navigation/:navId` falls back to.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -121,7 +122,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       return { mode: await WIKI.models.navigation.getMode(req.params.navId) }
     }
   )
@@ -185,13 +189,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string }; Querystring: { locale: string } }>(
     '/sites/:siteId/navigation/default',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: "Get a locale's site-wide default menu row id",
         description:
-          "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.",
+          "The site-wide default menu's own row id for one locale — created empty on demand, exactly like editing a page into it would. Not the site id: the default menu is identified by `(siteId, locale)` rather than by an id equal to the site's own, since a site with more than one active locale has one such menu per locale. What an admin screen editing the default menu directly (rather than through a page) asks for, since it otherwise has no way to learn that id.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -220,7 +225,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       return {
         navigationId: await WIKI.models.navigation.ensureSiteNav(
           req.params.siteId,
@@ -236,13 +244,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string } }>(
     '/sites/:siteId/navigation/roots',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: "List a site's default menu roots, one per active locale",
         description:
-          "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.",
+          "The site-wide default menu's own row id for every one of this site's active locales (`site.config.locales.active`) — created empty on demand, exactly like `GET .../navigation/default` does for a single locale. What a 'copy from' picker lists so an admin can choose a source menu by locale, or by site via `GET /sites` followed by this same call against the chosen site, without needing to know a raw navigation uuid up front.\n\nDeliberately scoped to the site-wide default only, not every override — copying a specific page-level override across sites isn't a use case this covers; see `GET .../navigation/overrides` for those.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -269,6 +278,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
@@ -282,13 +294,14 @@ async function routes(app: FastifyInstance) {
   app.get<{ Params: { siteId: string }; Querystring: { locale?: string } }>(
     '/sites/:siteId/navigation/overrides',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: 'List navigation overrides',
         description:
-          'Every tree entry in the site whose navigation mode is not `inherit` — the pages and folders that override or hide the sidebar, rather than falling back to whatever an ancestor decides. A flat list across the whole site, not scoped to one subtree, which is what an admin screen managing overrides needs to show them all at once.\n\n`locale` restricts it to one locale; every locale comes back when omitted.',
+          'Every tree entry in the site whose navigation mode is not `inherit` — the pages and folders that override or hide the sidebar, rather than falling back to whatever an ancestor decides. A flat list across the whole site, not scoped to one subtree, which is what an admin screen managing overrides needs to show them all at once.\n\n`locale` restricts it to one locale; every locale comes back when omitted.\n\nRequires `manage:navigation`, or `site:navigation` on this site.',
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -327,7 +340,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       return WIKI.models.navigation.listOverrides(req.params.siteId, {
         locale: req.query.locale
       })
@@ -343,13 +359,14 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/navigation/:navId',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`.
+      */
       schema: {
         summary: "Set a menu's items directly",
         description:
-          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — a locale's site-wide default (its own row id from `GET /sites/:siteId/navigation/default`) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` names neither an existing menu row of this site nor one of its own tree entries.",
+          "Writes a menu's items straight to the row named by `navId`, with no page or mode resolution.\n\nFor a caller that already knows exactly which row it means — a locale's site-wide default (its own row id from `GET /sites/:siteId/navigation/default`) or an override's own `navigationId` from `GET /sites/:siteId/navigation/overrides` — rather than one editing the sidebar of a particular page, which should keep using `PUT /sites/:siteId/navigation/pages/:pageId` so that saving from a page that inherits repoints at the ancestor it inherits from. Refused when `navId` names neither an existing menu row of this site nor one of its own tree entries.\n\nRequires `manage:navigation`, or `site:navigation` on this site.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -383,7 +400,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
       await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
       return {
         ok: true,
@@ -401,13 +421,18 @@ async function routes(app: FastifyInstance) {
   }>(
     '/sites/:siteId/navigation/:targetNavId/copy',
     {
-      config: {
-        permissions: ['manage:navigation']
-      },
+      /*
+        No route-level `permissions`: same reasoning as the inherited-menu GET below — see
+        `canManageNavigation`. Checked against BOTH the target site and, when it differs, the
+        resolved source site: `site:navigation` is granted per site (OpenProject #933's own
+        `helpers/siteRules.ts` — a rule's `sites` array can scope it to exactly one), so a caller
+        delegated only on the target could otherwise use `sourceSiteId` to read and duplicate a
+        DIFFERENT site's menu into the target without ever holding a permission on that site at all.
+      */
       schema: {
         summary: 'Copy a menu onto another',
         description:
-          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.",
+          "Clones a source menu's items onto the target named by `targetNavId`, giving every item — top-level and nested child alike — a fresh id so the target's sortable list never collides with the source's.\n\n`sourceSiteId` defaults to the path's `:siteId`, which is the same-site case — copying one locale's menu onto another within one site, matching 2.5.x's 'copy from locale'. Giving a different `sourceSiteId` is the cross-site case. `mode: replace` overwrites the target's items outright; `mode: append` pushes the clones onto whatever the target already has. `visibilityGroups` travel over unchanged, since groups are instance-wide; item `target` paths are copied unrewritten, which is a known best-effort limitation, same as 2.5.x. Refused when the source or target id does not name an existing menu row.\n\nRequires `manage:navigation`, or `site:navigation` on the target site — and, when `sourceSiteId` names a different site, `site:navigation` on that site too.",
         tags: ['Navigation'],
         params: {
           type: 'object',
@@ -449,9 +474,16 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      if (!canManageNavigation(req, req.params.siteId)) {
+        return reply.forbidden()
+      }
+      const sourceSiteId = req.body.sourceSiteId ?? req.params.siteId
+      if (sourceSiteId !== req.params.siteId && !canManageNavigation(req, sourceSiteId)) {
+        return reply.forbidden()
+      }
       await WIKI.models.navigation.copyNav({
-        sourceSiteId: req.body.sourceSiteId ?? req.params.siteId,
+        sourceSiteId,
         sourceId: req.body.sourceNavId,
         targetSiteId: req.params.siteId,
         targetId: req.params.targetNavId,

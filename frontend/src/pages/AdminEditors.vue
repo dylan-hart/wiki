@@ -77,6 +77,7 @@
                   v-model="state.config[editor.id]"
                   :label="t(`admin.sites.isActive`)"
                   :aria-label="t(`admin.sites.isActive`)"
+                  :loading="state.loading > 0"
                   :disabled="editor.isDisabled" />
               </w-item-section>
             </w-item>
@@ -120,9 +121,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.editors.title')
-})
+}))
 
 // -> Task 492: `api`/`blog`/`channel` rows removed. None had a backing `EDITOR_CONTENT_TYPES` entry
 //    (backend/models/pages.ts), schema property (backend/api/schemas/site.ts), or reachable
@@ -147,12 +148,13 @@ const editors = reactive([
   {
     id: 'asciidoc',
     icon: 'asciidoc',
-    // -> Task 491: a real, if minimal, editor now exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
-    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. No `hasConfig`: it
-    //    has no configuration overlay, matching the equally no-frills `code` row. `useRendering` stays
-    //    off because there is no AsciiDoc-to-HTML rendering pipeline yet -- that's a later Feature; the
+    // -> Task 491: a real, if minimal, editor exists (`EditorAsciidoc.vue`) storing raw AsciiDoc
+    //    source with a matching `contentType` -- see `base.yml`/`models/pages.ts`. OpenProject #988
+    //    added the AsciiDoc-to-HTML render pipeline (`renderers/asciidoc.js`), so `useRendering` is on
+    //    like `markdown`'s and `code`'s. No `hasConfig`: it has no configuration overlay, matching the
+    //    equally no-frills `code` row -- and unlike `markdown`, still no live preview pane; the
     //    description below says so.
-    useRendering: false
+    useRendering: true
   },
   {
     id: 'code',

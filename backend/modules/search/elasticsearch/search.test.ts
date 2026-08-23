@@ -12,6 +12,7 @@ import {
   buildEsQuery,
   getTlsOptions,
   pageToDocument,
+  toSniffIntervalMs,
   type ElasticsearchPageDocument
 } from './search.ts'
 import type { AccessActor } from '../../../models/groups.ts'
@@ -32,6 +33,7 @@ function fakePage(overrides: Partial<Record<string, any>> = {}): SearchIndexable
     editor: 'markdown',
     publishState: 'published',
     isSearchable: true,
+    classification: 'classification-1',
     password: null,
     searchContent: 'Some page content about getting started.',
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -158,6 +160,32 @@ describe('getTlsOptions()', () => {
   })
 })
 
+/**
+ * OpenProject #923: `definition.yml` documents `sniffInterval` as seconds ("Interval in seconds to
+ * check for an updated list of nodes..."), but `@elastic/elasticsearch`'s own client option is
+ * milliseconds -- a value entered as "300 seconds" was passed straight through and made the client
+ * sniff cluster topology every 300ms, a 1000x more aggressive poll than configured.
+ */
+describe('toSniffIntervalMs()', () => {
+  test('multiplies a positive value by 1000 to convert seconds to milliseconds', () => {
+    assert.equal(toSniffIntervalMs(300), 300_000)
+    assert.equal(toSniffIntervalMs(1), 1000)
+  })
+
+  test('0 disables sniffing, matching definition.yml’s own "0 disables it"', () => {
+    assert.equal(toSniffIntervalMs(0), false)
+  })
+
+  test('a negative value also disables sniffing rather than producing a negative interval', () => {
+    assert.equal(toSniffIntervalMs(-5), false)
+  })
+
+  test('a non-number (unset config) disables sniffing rather than throwing', () => {
+    assert.equal(toSniffIntervalMs(undefined), false)
+    assert.equal(toSniffIntervalMs(null), false)
+  })
+})
+
 describe('pageToDocument()', () => {
   test('carries every field a document needs, including content for an unprotected page', () => {
     const doc = pageToDocument(fakePage())
@@ -169,6 +197,7 @@ describe('pageToDocument()', () => {
     assert.equal(doc.editor, 'markdown')
     assert.equal(doc.publishState, 'published')
     assert.equal(doc.isSearchable, true)
+    assert.equal(doc.classification, 'classification-1')
   })
 
   test('omits content entirely for a password-protected page', () => {
@@ -483,6 +512,47 @@ describe('ElasticsearchSearchModule', () => {
       ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
     }
     assert.equal(calls.search!.length, 1)
+  })
+
+  test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const { mod, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      hits: {
+        total: { value: 1 },
+        hits: [
+          {
+            _id: 'p1',
+            _score: 1,
+            _source: {
+              path: 'restricted',
+              locale: 'en',
+              title: 'Restricted',
+              description: '',
+              tags: [],
+              classification: 'classification-restricted',
+              updatedAt: 'x'
+            }
+          }
+        ]
+      }
+    })
+    const seen: any[] = []
+    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: AccessActor,
+      _permission: string,
+      page: any
+    ) => {
+      seen.push(page.classification)
+      return true
+    }
+
+    try {
+      await mod.query({ siteId, query: '', actor: { groupIds: [], permissions: [] } })
+      assert.deepEqual(seen, ['classification-restricted'])
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
+    }
   })
 
   test('query() with no actor returns every hit unfiltered', async () => {

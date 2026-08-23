@@ -29,6 +29,10 @@ async function mountPlantuml(body = '', attrs = {}) {
   Object.assign(el, attrs)
   document.body.appendChild(el)
   await el.updateComplete
+  // -> firstUpdated() kicks off _draw() without awaiting it (encoding now goes through the async
+  //    CompressionStream), so the state change it produces lands after this first update cycle.
+  await el._ready
+  await el.updateComplete
   return el
 }
 

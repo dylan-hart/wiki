@@ -1,12 +1,24 @@
-import { validate as uuidValidate } from 'uuid'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import fastifyMultipart from '@fastify/multipart'
 import type { PageActor, PageInput } from '../models/pages.ts'
-import { MAX_IMPORT_SIZE, SUPPORTED_IMPORT_FORMATS } from '../models/import.ts'
+import {
+  detectImportFormat,
+  MAX_IMPORT_BATCH_FILES,
+  MAX_IMPORT_SIZE,
+  SUPPORTED_IMPORT_FORMATS
+} from '../models/import.ts'
 import { SEARCH_ORDER_BY, type SearchOrderBy } from '../models/search.ts'
-import { generatePathHash, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
+import {
+  defaultLocale,
+  generatePathHash,
+  guardSiteEnabled,
+  isValidUuid,
+  normalizePagePath
+} from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
 import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
  * A safe filename stem for a page export, from its path.
@@ -19,16 +31,6 @@ import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 function exportFilenameStem(path: string): string {
   const segment = path.split('/').filter(Boolean).pop() || 'home'
   return segment.replaceAll(/[^a-z0-9-]+/gi, '-')
-}
-
-/**
- * The locale content belongs to when the request does not say.
- *
- * Mirrors `api/tree.ts`'s own copy — a site always has a primary locale, so this is the answer for
- * most requests rather than a fallback.
- */
-function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -85,7 +87,9 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
     return {
       id: req.apiKey.userId,
       permissions: req.apiKey.permissions,
-      groupIds: req.apiKey.groupIds
+      groupIds: req.apiKey.groupIds,
+      scope: req.apiKey.scope,
+      allowedClassifications: req.apiKey.allowedClassifications
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -94,7 +98,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
   return {
     id: req.session.user.id,
     permissions: req.session.permissions ?? [],
-    groupIds: WIKI.models.groups.groupIdsForRequest(req)
+    groupIds: WIKI.models.groups.groupIdsForRequest(req),
+    scope: null
   }
 }
 
@@ -113,7 +118,7 @@ const PAGE_PASSWORD_BYPASS_ROLES = ['write:pages', 'manage:pages']
 export function mayBypassPassword(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): boolean {
   return mayOnPage(req, 'write:pages', siteId, page) || mayOnPage(req, 'manage:pages', siteId, page)
 }
@@ -127,7 +132,13 @@ export function mayBypassPassword(
 export function unlockedFor(
   req: FastifyRequest,
   siteId: string,
-  page: { id: string; path: string; locale: string | null; tags?: string[] }
+  page: {
+    id: string
+    path: string
+    locale: string | null
+    tags?: string[]
+    classification?: string | null
+  }
 ): boolean {
   return (
     mayBypassPassword(req, siteId, page) || Boolean(req.session?.unlockedPages?.includes(page.id))
@@ -149,10 +160,44 @@ export function mayOnPage(
   req: FastifyRequest,
   permission: string,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: {
+    path: string
+    locale: string | null
+    tags?: string[]
+    /** Absent for a page that does not exist yet (a create-permission check) -- see `RulePageRef`. */
+    classification?: string | null
+  }
 ): boolean {
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     ...page,
+    classification: page.classification ?? null,
+    siteId
+  })
+}
+
+/**
+ * Records a `page.classificationChanged` audit log entry (OpenProject #1081) -- called from every
+ * site a page's classification actually changes: the PATCH route (an explicit set, raise or lower),
+ * the move route (an auto-bump onto a stricter parent), and the classification-conflicts resolve
+ * route (a bulk bump). A no-op when `from === to`, so a caller does not have to re-check that itself.
+ */
+async function recordClassificationChange(
+  req: FastifyRequest,
+  siteId: string,
+  page: { id: string; path: string },
+  from: string,
+  to: string
+): Promise<void> {
+  if (from === to) {
+    return
+  }
+  await WIKI.models.auditLog.record({
+    event: 'page.classificationChanged',
+    actor: actorFromRequest(req),
+    targetType: 'page',
+    targetId: page.id,
+    targetLabel: page.path,
+    detail: { from, to },
     siteId
   })
 }
@@ -174,7 +219,7 @@ export function mayOnPage(
 export function pagePermissionsFor(
   req: FastifyRequest,
   siteId: string,
-  page: { path: string; locale: string | null; tags?: string[] }
+  page: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): string[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   /*
@@ -186,7 +231,11 @@ export function pagePermissionsFor(
     return PAGE_PERMISSIONS
   }
   return PAGE_PERMISSIONS.filter((permission) =>
-    WIKI.models.groups.checkAccess(actor, permission, { ...page, siteId })
+    WIKI.models.groups.checkAccess(actor, permission, {
+      ...page,
+      classification: page.classification ?? null,
+      siteId
+    })
   )
 }
 
@@ -237,6 +286,29 @@ async function routes(app: FastifyInstance) {
       done(null, body)
     }
   )
+
+  // -> IMPORT PAGES (BATCH)'s body carries several files in one request, which the raw-bytes approach
+  //    above has no room for — `@fastify/multipart` claims `multipart/form-data` specifically, which
+  //    Fastify matches ahead of the generic `'*'` parser above regardless of registration order.
+  //    `throwFileSizeLimit: false` (OpenProject #849 fix): the default `true` makes an oversized
+  //    file's `toBuffer()` reject as documented below, but the plugin ALSO latches that rejection as
+  //    `lastError` and replays it out of `req.files()`'s own iterator on the very next `for await`
+  //    step — even one that only advances past files already handled — which turned "one bad file
+  //    fails independently" into "one oversized file 413s the whole batch, however many files came
+  //    after it converted fine". Disabled, a stream still stops accepting bytes past the limit and
+  //    `file.file.truncated` still flips true; the route below reads that flag itself instead of
+  //    trusting `toBuffer()` to throw.
+  //    `fields: MAX_IMPORT_BATCH_FILES` (OpenProject #1209): one optional `formats` text field per
+  //    `files` entry, interleaved file-then-its-format by the frontend, lets a caller override a
+  //    single file's autodetected format without giving every field in the batch one.
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: MAX_IMPORT_SIZE,
+      files: MAX_IMPORT_BATCH_FILES,
+      fields: MAX_IMPORT_BATCH_FILES
+    },
+    throwFileSizeLimit: false
+  })
 
   /**
    * LIST PAGES
@@ -558,7 +630,7 @@ async function routes(app: FastifyInstance) {
       if (!enforceApiKeySite(req, reply, req.params.siteId)) {
         return reply
       }
-      const isId = uuidValidate(req.params.pageIdOrHash)
+      const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
       const wantsContent = Boolean(req.query.withContent) && Boolean(actor)
@@ -598,7 +670,8 @@ async function routes(app: FastifyInstance) {
           path: page.path,
           locale: page.locale,
           tags: page.tags ?? [],
-          allowContributions: page.allowContributions
+          allowContributions: page.allowContributions,
+          classification: page.classification
         }),
         // -> One indexed lookup on (pageId, userId), and none at all for a reader with no account
         WIKI.models.pageWatching.isWatching(page.id, actorId),
@@ -685,7 +758,7 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const isId = uuidValidate(req.params.pageIdOrHash)
+      const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       const page = await WIKI.models.pages.unlockPage({
         siteId: req.params.siteId,
@@ -783,7 +856,7 @@ async function routes(app: FastifyInstance) {
    */
   app.post<{
     Params: { siteId: string }
-    Querystring: { format: string; path: string; locale?: string }
+    Querystring: { fileName: string; format?: string; path: string; locale?: string }
   }>(
     '/sites/:siteId/pages/import',
     {
@@ -794,17 +867,24 @@ async function routes(app: FastifyInstance) {
       */
       schema: {
         summary: 'Convert an uploaded file to Markdown',
-        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`format\` says what the bytes are; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\nNeeds the Pandoc extension, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        description: `The body is the file itself, not a multipart form — send the bytes with their \`Content-Type\`. At most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. \`fileName\`'s extension decides the format (OpenProject #1209) unless \`format\` overrides it; the result is GitHub-flavored Markdown, ready to hand to the markdown editor or POST as a new page's \`content\` — this endpoint only converts, it does not save anything.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through — the file's own bytes, with a leading YAML front-matter block (if any) split off into \`title\`/\`description\`/\`tags\` — and needs no Pandoc extension. Every other format still needs Pandoc, and answers 503 without it. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
         tags: ['Pages'],
         consumes: ['*/*'],
         params: siteIdParam,
         querystring: {
           type: 'object',
           properties: {
+            fileName: {
+              type: 'string',
+              minLength: 1,
+              description:
+                "The uploaded file's own name, used to detect its format from its extension (OpenProject #1209)."
+            },
             format: {
               type: 'string',
               enum: [...SUPPORTED_IMPORT_FORMATS],
-              description: "The uploaded file's format."
+              description:
+                'Overrides the format detected from `fileName`. Only needed when detection got it wrong or the extension is ambiguous.'
             },
             path: {
               type: 'string',
@@ -815,11 +895,12 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: "The site's primary locale when absent."
             }
           },
-          required: ['format', 'path']
+          required: ['fileName', 'path']
         },
         response: {
           200: { $ref: 'PageImportResult#' }
@@ -843,14 +924,177 @@ async function routes(app: FastifyInstance) {
       if (!Buffer.isBuffer(data) || data.length < 1) {
         return reply.badRequest('No file was sent.')
       }
-      const markdown = await WIKI.models.pageImport.convertToMarkdown({
-        format: req.query.format,
+      const format = req.query.format || detectImportFormat(req.query.fileName)
+      if (!format) {
+        return reply.badRequest(
+          `Could not detect an import format from '${req.query.fileName}'. Pass 'format' explicitly.`
+        )
+      }
+      const result = await WIKI.models.pageImport.convertToMarkdown({
+        format,
         data
       })
       return {
         ok: true,
         message: 'File converted successfully.',
-        markdown
+        markdown: result.markdown,
+        title: result.title,
+        description: result.description,
+        tags: result.tags
+      }
+    }
+  )
+
+  /**
+   * IMPORT PAGES (BATCH)
+   */
+  app.post<{
+    Params: { siteId: string }
+    Querystring: { path: string; locale?: string }
+  }>(
+    '/sites/:siteId/pages/import/batch',
+    {
+      /*
+        No route-level `permissions`: same reasoning as IMPORT PAGE CONTENT above — `write:pages` is
+        granted by a group's page RULES, checked in the handler against the declared `path`.
+      */
+      schema: {
+        summary: 'Convert several uploaded files to Markdown in one request',
+        description: `A \`multipart/form-data\` sibling of \`POST .../pages/import\` (OpenProject #849): several files in one request (field name \`files\`, repeated), each file's format autodetected from its own extension (OpenProject #1209; field name \`formats\`, repeated in the same order as \`files\`, overrides a single file's detection when non-empty). At most ${MAX_IMPORT_BATCH_FILES} files, each at most ${Math.round(MAX_IMPORT_SIZE / 1024 / 1024)} MB. The response carries one result per file, in the order they were sent — a bad file in the batch does not stop the rest from converting, so check each entry's own \`ok\`. Convert-only, exactly like the single-file endpoint: nothing is saved here, which is what lets the caller assign each result its own destination and review it before saving.\n\n\`format: 'markdown'\` (OpenProject #1092) is a pass-through and needs no Pandoc extension — every other format still does, and answers 503 without it. A file whose extension is not recognized fails only its own entry, same as any other per-file conversion failure. \`path\` is not written to, only checked: converting content requires \`write:pages\` on wherever the caller says they intend to save it.`,
+        tags: ['Pages'],
+        consumes: ['multipart/form-data'],
+        params: siteIdParam,
+        querystring: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              maxLength: 255,
+              pattern: '^/?[a-zA-Z0-9-_/]*$',
+              description:
+                'Where the converted content would be saved. Used only to check permission — nothing is written here.'
+            },
+            locale: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 10,
+              description: "The site's primary locale when absent."
+            }
+          },
+          required: ['path']
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              ok: { type: 'boolean' },
+              message: { type: 'string' },
+              results: {
+                type: 'array',
+                items: { $ref: 'PageImportBatchItem#' }
+              }
+            }
+          }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Importing a page requires a logged in user.')
+      }
+      if (
+        !mayOnPage(req, 'write:pages', req.params.siteId, {
+          path: req.query.path,
+          locale: req.query.locale ?? defaultLocale(req.params.siteId)
+        })
+      ) {
+        return reply.forbidden('You are not allowed to write a page here.')
+      }
+
+      /*
+        Read every part off the request before converting any file: `req.parts()` is a streaming
+        iterator over the one multipart body, and its next part is only available once the current
+        one has been consumed (`@fastify/busboy`'s own constraint) — so buffering has to happen one
+        part at a time, in the order they arrived, before conversion can run in parallel below.
+        `req.files()` won't do here since it skips field parts entirely, and a per-file format
+        override (OpenProject #1209) travels as a `formats` field the frontend interleaves right
+        after its own file — the last-pushed upload is always the one it belongs to. A file's
+        oversize is checked via `file.truncated` after `toBuffer()` resolves, not by catching a
+        throw — see the `throwFileSizeLimit: false` comment on the plugin registration above for why
+        letting an oversized file throw here would still fail the whole batch anyway.
+      */
+      const uploads: (
+        | { fileName: string; data: Buffer; formatOverride: string }
+        | { fileName: string; error: string }
+      )[] = []
+      for await (const part of req.parts()) {
+        if (part.type === 'file') {
+          const data = await part.toBuffer()
+          if (part.file.truncated) {
+            uploads.push({
+              fileName: part.filename,
+              error: 'This file is larger than the import limit.'
+            })
+          } else {
+            uploads.push({ fileName: part.filename, data, formatOverride: '' })
+          }
+          continue
+        }
+        const last = uploads.at(-1)
+        if (
+          part.fieldname === 'formats' &&
+          last &&
+          !('error' in last) &&
+          typeof part.value === 'string'
+        ) {
+          last.formatOverride = part.value
+        }
+      }
+      if (uploads.length < 1) {
+        return reply.badRequest('No files were sent.')
+      }
+
+      const results = await Promise.all(
+        uploads.map(async (upload) => {
+          if ('error' in upload) {
+            return { fileName: upload.fileName, ok: false, message: upload.error }
+          }
+          const format = upload.formatOverride || detectImportFormat(upload.fileName)
+          if (!format) {
+            return {
+              fileName: upload.fileName,
+              ok: false,
+              message: `Could not detect an import format from '${upload.fileName}'.`
+            }
+          }
+          try {
+            const result = await WIKI.models.pageImport.convertToMarkdown({
+              format,
+              data: upload.data
+            })
+            return {
+              fileName: upload.fileName,
+              ok: true,
+              markdown: result.markdown,
+              title: result.title,
+              description: result.description,
+              tags: result.tags
+            }
+          } catch (err: any) {
+            return {
+              fileName: upload.fileName,
+              ok: false,
+              message: err.message || 'This file could not be converted.'
+            }
+          }
+        })
+      )
+
+      return {
+        ok: true,
+        message: `${results.filter((r) => r.ok).length} of ${results.length} file(s) converted successfully.`,
+        results
       }
     }
   )
@@ -890,7 +1134,21 @@ async function routes(app: FastifyInstance) {
             properties: {
               ok: { type: 'boolean' },
               message: { type: 'string' },
-              page: { $ref: 'Page#' }
+              page: { $ref: 'Page#' },
+              classificationConflicts: {
+                type: 'array',
+                description:
+                  "Present only when this save raised the page's own classification and left one or more descendants below the new floor (OpenProject #1080) -- not cascaded automatically. Resolve via POST …/classification-conflicts/resolve.",
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    title: { type: 'string' },
+                    classification: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
             }
           },
           401: { $ref: 'ApiError#' },
@@ -934,6 +1192,26 @@ async function routes(app: FastifyInstance) {
       }
       if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
         return reply.forbidden('You are not allowed to edit this page.')
+      }
+      /*
+        Declassification guardrail (OpenProject #1080): lowering a page's classification (making it
+        MORE open) is not covered by `write:pages`/`manage:pages` alone -- it needs `manage:classification`
+        ON THIS PAGE too, so an editor who can write the page cannot silently declassify it by editing
+        metadata. Raising it needs nothing beyond the ordinary write permission already checked above;
+        the floor-invariant/level-exists validation itself happens in `updatePage()`.
+      */
+      if (
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(
+          req.body.classification,
+          target.classification
+        ) &&
+        !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+      ) {
+        return reply.forbidden(
+          'Lowering this page’s classification requires the manage:classification permission on it.'
+        )
       }
       /*
         Optimistic concurrency: `expectedUpdatedAt` is the `updatedAt` the editor's save started from.
@@ -992,11 +1270,263 @@ async function routes(app: FastifyInstance) {
         authorId: actor.id,
         authorName: page.authorName ?? ''
       })
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
+      /*
+        Retroactive parent classification raise (OpenProject #1080): raising THIS page's own
+        classification does not cascade to its descendants -- some may now sit below the new floor.
+        Rather than silently leaving them there, or silently bumping them, this surfaces the list for
+        an admin to resolve explicitly (`ClassificationResolutionDialog.vue`), via
+        `POST …/classification-conflicts/resolve`. Only computed when the classification actually got
+        stricter -- a lower/unchanged classification can only ever WIDEN what the old floor already
+        permitted, so there is nothing new to surface.
+      */
+      const classificationConflicts =
+        req.body.classification !== undefined &&
+        req.body.classification !== target.classification &&
+        WIKI.models.classificationLevels.isLowerThan(target.classification, req.body.classification)
+          ? await WIKI.models.pages.descendantsBelowFloor(
+              req.params.siteId,
+              page.locale,
+              page.path,
+              page.classification
+            )
+          : []
       return {
         ok: true,
         message: 'Page updated successfully.',
-        page
+        page,
+        ...(classificationConflicts.length > 0 ? { classificationConflicts } : {})
       }
+    }
+  )
+
+  /**
+   * RESOLVE CLASSIFICATION CONFLICTS
+   *
+   * The other half of the retroactive-parent-raise flow above: bumps the named descendants to a
+   * classification an admin chose (typically the new parent floor `classificationConflicts` reported,
+   * but not required to be — see the dialog's own doc comment for why leaving that open is deliberate).
+   *
+   * The dialog only ever asks for a raise, but this endpoint takes an arbitrary target level from the
+   * request body and only gates it on `write:pages` — a caller is not the dialog, so both guarantees
+   * `updatePage`'s own PATCH route enforces have to be checked here too, per page, rather than assumed:
+   * the floor invariant against EACH target's own immediate parent (a bulk write does not get to skip
+   * the check a single one would have to pass), and the declassification guardrail
+   * (`manage:classification`) whenever the chosen level is actually more open than a given target's
+   * current one. `bulkSetClassification` itself still does neither -- this is what makes that safe to
+   * call afterwards.
+   */
+  app.post<{
+    Params: { siteId: string }
+    Body: { pageIds: string[]; classification: string }
+  }>(
+    '/sites/:siteId/pages/classification-conflicts/resolve',
+    {
+      // -> No route-level permissions: page-rule permissions, checked per page below.
+      schema: {
+        summary: 'Bump a set of pages to a classification level',
+        description:
+          "Resolves the descendants a classification-resolution-dialog conflict listed, by setting each to the chosen level. Every id must belong to this site and the caller must hold write:pages on each; lowering one below its current level also needs manage:classification on it, the same declassification guardrail the PATCH route enforces. The chosen level may never leave a page below its own immediate parent's floor.",
+        tags: ['Pages'],
+        params: siteIdParam,
+        body: {
+          type: 'object',
+          required: ['pageIds', 'classification'],
+          properties: {
+            pageIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1 },
+            classification: { type: 'string', format: 'uuid' }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: { ok: { type: 'boolean' }, updated: { type: 'integer' } }
+          },
+          400: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized('Resolving a classification conflict requires a logged in user.')
+      }
+      if (!WIKI.models.classificationLevels.byId(req.body.classification)) {
+        return reply.badRequest('This classification level does not exist.')
+      }
+      const targets: { id: string; path: string; classification: string }[] = []
+      for (const pageId of req.body.pageIds) {
+        const target = await WIKI.models.pages.getPage({ siteId: req.params.siteId, id: pageId })
+        if (!target) {
+          return reply.notFound('One of these pages does not exist.')
+        }
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, target)) {
+          return reply.forbidden('You are not allowed to edit one of these pages.')
+        }
+        // -> Same declassification guardrail as the PATCH route: bringing a page UP needs nothing
+        //    extra, but this endpoint is not restricted to raises the way the dialog that drives it
+        //    is -- a caller asking for an actual lowering still needs manage:classification on it.
+        if (
+          WIKI.models.classificationLevels.isLowerThan(
+            req.body.classification,
+            target.classification
+          ) &&
+          !mayOnPage(req, 'manage:classification', req.params.siteId, target)
+        ) {
+          return reply.forbidden(
+            'Lowering this page’s classification requires the manage:classification permission on it.'
+          )
+        }
+        // -> Same floor invariant every other classification write enforces: this bulk write does
+        //    not get to leave a page below its own immediate parent's floor just because it arrived
+        //    through the resolve flow rather than a single PATCH.
+        const floorId = await WIKI.models.pages.parentClassification(
+          req.params.siteId,
+          target.locale,
+          target.path
+        )
+        if (
+          floorId &&
+          !WIKI.models.classificationLevels.meetsFloor(req.body.classification, floorId)
+        ) {
+          return reply.badRequest(
+            "A page's classification cannot be more open than its parent page's."
+          )
+        }
+        targets.push(target)
+      }
+      const updated = await WIKI.models.pages.bulkSetClassification(
+        req.params.siteId,
+        req.body.pageIds,
+        req.body.classification
+      )
+      for (const target of targets) {
+        await recordClassificationChange(
+          req,
+          req.params.siteId,
+          target,
+          target.classification,
+          req.body.classification
+        )
+      }
+      return { ok: true, updated }
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT (OpenProject #1081)
+   *
+   * "Everything currently classified as X", instance-wide by default -- the coverage half of the
+   * epic's auditability goal, alongside the `page.classificationChanged` events now feeding OpenProject
+   * #989's audit log. `manage:system` only: this deliberately bypasses every page rule (it exists to
+   * show an administrator what the rules are protecting, not to be gated by them), the same reasoning
+   * `api/auditLog.ts` uses for its own listing.
+   */
+  app.get<{ Querystring: { siteId?: string } }>(
+    '/pages/classification-report',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'How many pages currently carry each classification level',
+        description:
+          'Every configured level is included, even at zero, in level order. Instance-wide unless siteId narrows it to one site.',
+        tags: ['Pages'],
+        querystring: {
+          type: 'object',
+          properties: { siteId: { type: 'string', format: 'uuid' } }
+        },
+        response: {
+          200: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                levelId: { type: 'string', format: 'uuid' },
+                name: { type: 'string' },
+                sortOrder: { type: 'integer' },
+                count: { type: 'integer' }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.classificationReport(req.query.siteId)
+    }
+  )
+
+  /**
+   * CLASSIFICATION REPORT — DRILL DOWN (OpenProject #1081)
+   */
+  app.get<{
+    Params: { levelId: string }
+    Querystring: { siteId?: string; limit?: number; offset?: number }
+  }>(
+    '/pages/classification-report/:levelId',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'List every page currently at one classification level',
+        description: 'Paginated, newest-updated first. Instance-wide unless siteId narrows it.',
+        tags: ['Pages'],
+        params: {
+          type: 'object',
+          properties: { levelId: { type: 'string', format: 'uuid' } },
+          required: ['levelId']
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            siteId: { type: 'string', format: 'uuid' },
+            limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+            offset: { type: 'integer', minimum: 0, default: 0 }
+          }
+        },
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              total: { type: 'integer' },
+              entries: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', format: 'uuid' },
+                    path: { type: 'string' },
+                    locale: { type: 'string' },
+                    title: { type: 'string' },
+                    siteId: { type: 'string', format: 'uuid' }
+                  }
+                }
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req) => {
+      return WIKI.models.pages.listByClassification(req.params.levelId, {
+        siteId: req.query.siteId,
+        limit: req.query.limit,
+        offset: req.query.offset
+      })
     }
   )
 
@@ -1005,7 +1535,7 @@ async function routes(app: FastifyInstance) {
    */
   app.put<{
     Params: { siteId: string; pageId: string }
-    Body: { path: string; title?: string; locale?: string }
+    Body: { path: string; title?: string; locale?: string; includeTranslations?: boolean }
   }>(
     '/sites/:siteId/pages/:pageId/path',
     {
@@ -1017,7 +1547,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Move a page to another path',
         description:
-          'Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND on where it is going: a rule that opens one branch or one locale is not permission to move pages out of it into somewhere else.',
+          "Also renames it when a title is given, and re-homes it into another locale of the same site when one is given. The tree entry moves with it, and any folder the new path needs is created. A destination another page already occupies -- including one that wins a race against this same request -- answers `pageDuplicatePath` (409), the same JSON error shape every other page-creation failure uses, not a generic 500; a locale the site does not have enabled answers `pageInvalidLocale` (400).\n\nThe caller needs `manage:pages` on the page as it is now AND `write:pages` on where it is going -- the same destination check `POST .../deleted/:versionId/recover` makes, since arriving somewhere is a write there whether the page came from a fresh create or from moving out of another branch.\n\n`includeTranslations` cascades the path change to every other locale's page sharing this page's current path (its translations -- see docs/decisions/locale-translation-linking.md). All-or-nothing: the caller needs `manage:pages` on each twin's own path AND `write:pages` on the shared destination, and a 409 or 403 on any single translation aborts the whole batch, naming which locale it was.",
         tags: ['Pages'],
         params: pageIdParam,
         body: {
@@ -1038,6 +1568,11 @@ async function routes(app: FastifyInstance) {
               type: 'string',
               maxLength: 10,
               description: 'Move the page into this locale. Unchanged when absent.'
+            },
+            includeTranslations: {
+              type: 'boolean',
+              description:
+                "Move every other locale's page sharing this page's current path along with it. Ignored when the path is not actually changing -- a locale-only move has no translations to carry, since they are found by path."
             }
           }
         },
@@ -1078,17 +1613,50 @@ async function routes(app: FastifyInstance) {
       }
       // -> Where it is going is its own question: rules are matched on path AND locale, so being
       //    allowed to manage a page where it sits now says nothing about the destination. Checked
-      //    against the same permission, since arriving somewhere is as much a change to that place as
-      //    leaving is to this one. The ref carries the page's tags because they travel with it, so a
-      //    rule that grants by tag applies at the destination exactly as it does at the source; the
+      //    against `write:pages`, not `manage:pages` -- the group editor's own hint for `manage:pages`
+      //    promises "other locations the user has WRITE ACCESS to", and `write:pages` is exactly the
+      //    permission `POST .../deleted/:versionId/recover` already checks against its own target
+      //    path for the same reason: landing a page somewhere is a write there, whatever put it in
+      //    motion (OpenProject #937). The ref carries the page's tags because they travel with it, so
+      //    a rule that grants by tag applies at the destination exactly as it does at the source; the
       //    path is normalized the way `movePage` will store it, so that a leading slash in the body
       //    cannot make a rule miss.
       const destPath = normalizePagePath(req.body.path)
       const destLocale = req.body.locale ?? target.locale
       if (destPath !== target.path || destLocale !== target.locale) {
         const destRef = { path: destPath, locale: destLocale, tags: target.tags }
-        if (!mayOnPage(req, 'manage:pages', req.params.siteId, destRef)) {
+        if (!mayOnPage(req, 'write:pages', req.params.siteId, destRef)) {
           return reply.forbidden('You are not allowed to move this page there.')
+        }
+      }
+      // -> `includeTranslations` cascades to every other locale's page sharing this page's CURRENT
+      //    path -- checked here, before the model is asked to do anything, because a batch move is
+      //    "everyone involved may go" or nothing: a rule that lets this caller manage `en` but not
+      //    `fr` must not let them drag the `fr` translation along for the ride just because they may
+      //    manage the primary page. Each twin still needs `manage:pages` to be moved away from its OWN
+      //    path, same as the primary; the shared destination needs `write:pages`, same reasoning as
+      //    above.
+      if (req.body.includeTranslations && destPath !== target.path) {
+        const translations = await WIKI.models.pages.getTranslations(
+          req.params.siteId,
+          target.path,
+          target.id
+        )
+        for (const translation of translations) {
+          const sourceRef = {
+            path: translation.path,
+            locale: translation.locale,
+            tags: translation.tags
+          }
+          const destRef = { path: destPath, locale: translation.locale, tags: translation.tags }
+          if (
+            !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
+            !mayOnPage(req, 'write:pages', req.params.siteId, destRef)
+          ) {
+            return reply.forbidden(
+              `You are not allowed to move the "${translation.locale}" translation of this page.`
+            )
+          }
         }
       }
       const page = await WIKI.models.pages.movePage(
@@ -1100,11 +1668,84 @@ async function routes(app: FastifyInstance) {
       if (!page) {
         return reply.notFound('This page does not exist.')
       }
+      // -> Only ever fires from the floor-invariant auto-bump (OpenProject #1080): an ordinary move
+      //    (or a title/locale-only one) never touches classification, so `from === to` there and
+      //    `recordClassificationChange` is a no-op. Covers the primary page only -- `movePage()`
+      //    returns just that one, not an `includeTranslations` twin also auto-bumped in the same
+      //    call, so a twin's own bump goes unlogged here. Narrow, documented gap rather than
+      //    threading the whole batch back out through the model for this alone.
+      await recordClassificationChange(
+        req,
+        req.params.siteId,
+        page,
+        target.classification,
+        page.classification
+      )
       return {
         ok: true,
         message: 'Page moved successfully.',
         page
       }
+    }
+  )
+
+  /**
+   * PAGE TRANSLATIONS
+   */
+  app.get<{ Params: { siteId: string; pageId: string } }>(
+    '/sites/:siteId/pages/:pageId/translations',
+    {
+      /*
+        No route-level `permissions`: that hook reads the group-wide list, and `manage:pages` here is
+        a page permission granted by a rule. Checked against this page below instead.
+      */
+      schema: {
+        summary: "Get a page's translations",
+        description:
+          "Other locales' pages sharing this page's path -- the translation link this data model uses (see docs/decisions/locale-translation-linking.md). What the move/rename dialog queries to offer `includeTranslations`, and what that option cascades a path change to.\n\nNeeds `manage:pages` on this page, the same permission moving it needs.",
+        tags: ['Pages'],
+        params: pageIdParam,
+        response: {
+          200: {
+            description: "This page's translations, one entry per other locale sharing its path",
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                locale: { type: 'string' },
+                path: { type: 'string' },
+                title: { type: 'string' }
+              }
+            }
+          },
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const target = await WIKI.models.pages.getPage({
+        siteId: req.params.siteId,
+        id: req.params.pageId
+      })
+      if (!target) {
+        return reply.notFound('This page does not exist.')
+      }
+      if (!mayOnPage(req, 'manage:pages', req.params.siteId, target)) {
+        return reply.forbidden('You are not allowed to manage this page.')
+      }
+      const translations = await WIKI.models.pages.getTranslations(
+        req.params.siteId,
+        target.path,
+        target.id
+      )
+      return translations.map((translation) => ({
+        id: translation.id,
+        locale: translation.locale,
+        path: translation.path,
+        title: translation.title
+      }))
     }
   )
 
@@ -1532,6 +2173,7 @@ async function routes(app: FastifyInstance) {
             },
             locale: {
               type: 'string',
+              minLength: 1,
               maxLength: 10,
               description: 'Recreate in this locale instead of the one the page was deleted from.'
             }

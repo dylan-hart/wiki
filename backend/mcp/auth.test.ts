@@ -4,27 +4,54 @@ import { ApiKeyError } from '../models/apiKeys.ts'
 import {
   actorFor,
   assertSiteInScope,
+  auditActorFor,
   authenticateApiKey,
+  contextFromIdentity,
   maySeeEverything,
-  McpToolError
+  McpToolError,
+  pageActorFor
 } from './auth.ts'
-
-const GUEST_GROUP_ID = '10000000-0000-4000-8000-000000000001'
 
 let previousWiki: any
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
   ;(globalThis as any).WIKI = {
-    data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     models: {
       apiKeys: {
         verify: async (token: string) => {
           if (token === 'valid-token') {
-            return { id: 'key-1', permissions: ['read:pages'], siteId: null }
+            return {
+              id: 'key-1',
+              permissions: ['read:pages'],
+              siteId: null,
+              groupIds: ['group-a'],
+              userId: null,
+              scope: null,
+              allowedClassifications: null
+            }
           }
           if (token === 'scoped-token') {
-            return { id: 'key-2', permissions: [], siteId: 'site-1' }
+            return {
+              id: 'key-2',
+              permissions: [],
+              siteId: 'site-1',
+              groupIds: [],
+              userId: null,
+              scope: ['read:pages'],
+              allowedClassifications: null
+            }
+          }
+          if (token === 'personal-token') {
+            return {
+              id: 'key-3',
+              permissions: ['read:pages'],
+              siteId: null,
+              groupIds: ['group-owner'],
+              userId: 'user-1',
+              scope: null,
+              allowedClassifications: null
+            }
           }
           throw new ApiKeyError('API key has been revoked.')
         }
@@ -45,9 +72,49 @@ after(() => {
   ;(globalThis as any).WIKI = previousWiki
 })
 
-test('authenticateApiKey: resolves a valid token to its keyId, permissions and siteId', async () => {
+test('authenticateApiKey: resolves a valid token to its keyId, permissions, siteId and groupIds', async () => {
   const ctx = await authenticateApiKey('valid-token')
-  assert.deepEqual(ctx, { keyId: 'key-1', permissions: ['read:pages'], siteId: null })
+  assert.deepEqual(ctx, {
+    keyId: 'key-1',
+    permissions: ['read:pages'],
+    siteId: null,
+    groupIds: ['group-a'],
+    userId: null,
+    scope: null,
+    allowedClassifications: null
+  })
+})
+
+test('authenticateApiKey: a scoped token carries its scope through', async () => {
+  const ctx = await authenticateApiKey('scoped-token')
+  assert.deepEqual(ctx.scope, ['read:pages'])
+})
+
+test('authenticateApiKey: a personal access token carries its owner userId through', async () => {
+  const ctx = await authenticateApiKey('personal-token')
+  assert.equal(ctx.userId, 'user-1')
+  assert.deepEqual(ctx.groupIds, ['group-owner'])
+})
+
+test('contextFromIdentity: maps an already-verified ApiKeyIdentity the same way', () => {
+  const ctx = contextFromIdentity({
+    id: 'key-9',
+    permissions: ['manage:system'],
+    siteId: null,
+    groupIds: ['group-x'],
+    userId: null,
+    scope: null,
+    allowedClassifications: null
+  })
+  assert.deepEqual(ctx, {
+    keyId: 'key-9',
+    permissions: ['manage:system'],
+    siteId: null,
+    groupIds: ['group-x'],
+    userId: null,
+    scope: null,
+    allowedClassifications: null
+  })
 })
 
 test('authenticateApiKey: wraps an ApiKeyError into an McpToolError with a useful message', async () => {
@@ -61,44 +128,100 @@ test('authenticateApiKey: wraps an ApiKeyError into an McpToolError with a usefu
   )
 })
 
-test('actorFor: always resolves to the guests group, carrying the key permissions along', () => {
-  const actor = actorFor({ keyId: 'key-1', permissions: ['manage:system'], siteId: null })
-  assert.deepEqual(actor, { groupIds: [GUEST_GROUP_ID], permissions: ['manage:system'] })
+function ctx(overrides: Partial<Parameters<typeof actorFor>[0]> = {}) {
+  return {
+    keyId: 'key-1',
+    permissions: [] as string[],
+    siteId: null as string | null,
+    groupIds: [] as string[],
+    userId: null as string | null,
+    scope: null as string[] | null,
+    ...overrides
+  }
+}
+
+test('actorFor: resolves to the identity own groups, carrying the key permissions along', () => {
+  const actor = actorFor(ctx({ permissions: ['manage:system'], groupIds: ['group-a'] }))
+  assert.deepEqual(actor, {
+    groupIds: ['group-a'],
+    permissions: ['manage:system'],
+    scope: null,
+    allowedClassifications: undefined
+  })
+})
+
+test('actorFor: an admin-issued key with no configured groups grants no page rules', () => {
+  const actor = actorFor(ctx({ permissions: ['read:pages'], groupIds: [] }))
+  assert.deepEqual(actor, {
+    groupIds: [],
+    permissions: ['read:pages'],
+    scope: null,
+    allowedClassifications: undefined
+  })
+})
+
+test('actorFor: threads scope and allowedClassifications through, for checkAccess to narrow by (OpenProject #930/#1205)', () => {
+  const actor = actorFor(
+    ctx({
+      permissions: ['read:pages'],
+      groupIds: ['group-a'],
+      scope: ['read:pages'],
+      allowedClassifications: ['level-internal']
+    })
+  )
+  assert.deepEqual(actor, {
+    groupIds: ['group-a'],
+    permissions: ['read:pages'],
+    scope: ['read:pages'],
+    allowedClassifications: ['level-internal']
+  })
 })
 
 test('maySeeEverything: true when the actor holds write:pages or manage:pages anywhere', () => {
-  assert.equal(
-    maySeeEverything(actorFor({ keyId: 'k', permissions: ['write:pages'], siteId: null })),
-    true
-  )
-  assert.equal(
-    maySeeEverything(actorFor({ keyId: 'k', permissions: ['read:pages'], siteId: null })),
-    false
-  )
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['write:pages'] }))), true)
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['read:pages'] }))), false)
 })
 
 test('maySeeEverything: manage:system counts too, via mayHoldPermissionSomewhere', () => {
-  assert.equal(
-    maySeeEverything(actorFor({ keyId: 'k', permissions: ['manage:system'], siteId: null })),
-    true
-  )
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['manage:system'] }))), true)
 })
 
 test('assertSiteInScope: an unscoped key (siteId null) may reach any site', () => {
-  assert.doesNotThrow(() =>
-    assertSiteInScope({ keyId: 'k', permissions: [], siteId: null }, 'any-site')
-  )
+  assert.doesNotThrow(() => assertSiteInScope(ctx({ siteId: null }), 'any-site'))
 })
 
 test('assertSiteInScope: a site-scoped key may reach its own site', () => {
-  assert.doesNotThrow(() =>
-    assertSiteInScope({ keyId: 'k', permissions: [], siteId: 'site-1' }, 'site-1')
-  )
+  assert.doesNotThrow(() => assertSiteInScope(ctx({ siteId: 'site-1' }), 'site-1'))
 })
 
 test('assertSiteInScope: a site-scoped key is refused against a different site', () => {
-  assert.throws(
-    () => assertSiteInScope({ keyId: 'k', permissions: [], siteId: 'site-1' }, 'site-2'),
-    McpToolError
+  assert.throws(() => assertSiteInScope(ctx({ siteId: 'site-1' }), 'site-2'), McpToolError)
+})
+
+// -> OpenProject #1119: page-history provenance -- an MCP-authored edit must be distinguishable from
+//   one made through the standard editor.
+test('pageActorFor: null for an admin-issued key (no userId)', () => {
+  assert.equal(pageActorFor(ctx({ userId: null })), null)
+})
+
+test('pageActorFor: a personal access token is attributed to its owner, tagged via: mcp', () => {
+  const actor = pageActorFor(
+    ctx({ userId: 'user-1', permissions: ['write:pages'], groupIds: ['group-a'] })
   )
+  assert.deepEqual(actor, {
+    id: 'user-1',
+    permissions: ['write:pages'],
+    groupIds: ['group-a'],
+    scope: null,
+    allowedClassifications: undefined,
+    via: 'mcp'
+  })
+})
+
+// -> OpenProject #1118: instance-wide audit log visibility into MCP activity.
+test('auditActorFor: named by the key id, the same way actorFromRequest() names any apiKey-authenticated request', () => {
+  assert.deepEqual(auditActorFor(ctx({ keyId: 'key-42' })), {
+    id: null,
+    name: 'API Key key-42'
+  })
 })

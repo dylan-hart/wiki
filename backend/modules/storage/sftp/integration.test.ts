@@ -205,7 +205,13 @@ describe('exportAll — full run against a seeded site (real server)', () => {
         directAccess: false
       },
       versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-      sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+      sync: {
+        supportedModes: ['push'],
+        schedule: false,
+        mode: 'push',
+        scheduleOverride: null,
+        supportsContentSync: false
+      },
       props: {},
       config: makeConfig(),
       actions: [],

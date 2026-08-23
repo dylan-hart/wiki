@@ -41,6 +41,8 @@ export interface ElasticsearchPageDocument {
   editor: string
   publishState: string
   isSearchable: boolean
+  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
+  classification: string
   updatedAt: string
   /** Absent for a password-protected page — same reasoning as the Algolia module's `pageToDocument`:
    *  a value once sent to an external service can't be un-sent by a later query-time bug. */
@@ -81,6 +83,9 @@ const INDEX_MAPPINGS = {
     publishState: { type: 'keyword' },
     icon: { type: 'keyword' },
     isSearchable: { type: 'boolean' },
+    // -> OpenProject #1125: what `query()` checks a CLASSIFICATION rule against, populated at index
+    //    time from `pages.classification` the same way `tags`/`editor`/`publishState` already are.
+    classification: { type: 'keyword' },
     updatedAt: { type: 'date' }
   }
 } as const
@@ -105,6 +110,20 @@ export function getTlsOptions(config: Record<string, any>): TlsConnectionOptions
 }
 
 /**
+ * `sniffInterval` in milliseconds, the unit `@elastic/elasticsearch`'s client option actually expects
+ * (OpenProject #923) -- `definition.yml` documents and the admin area collects the value in *seconds*
+ * ("Interval in seconds to check for an updated list of nodes..."), so the stored config value has to
+ * be multiplied here rather than passed straight through. `0` (or anything not positive) still means
+ * "disabled", matching the definition's own "0 disables it" and the SDK's own `false` sentinel for that.
+ *
+ * Its own exported function -- like `getTlsOptions` above -- so the conversion is a plain unit test
+ * rather than something only checkable by inspecting a constructed `Client`'s internal transport state.
+ */
+export function toSniffIntervalMs(sniffInterval: unknown): number | false {
+  return typeof sniffInterval === 'number' && sniffInterval > 0 ? sniffInterval * 1000 : false
+}
+
+/**
  * A page row, as an Elasticsearch document. See `INDEX_MAPPINGS`'s doc comment for why `siteId`
  * travels on every document despite not being one of `SearchPagesParams`' own filters.
  */
@@ -124,6 +143,7 @@ export function pageToDocument(page: SearchIndexablePage): ElasticsearchPageDocu
     editor: page.editor,
     publishState: page.publishState,
     isSearchable: page.isSearchable,
+    classification: page.classification,
     updatedAt,
     ...(page.password ? {} : { content: page.searchContent ?? '' })
   }
@@ -254,9 +274,10 @@ interface SiteClient {
  * no reason to still be running. Recorded in `docs/variances.md`.
  *
  * State (`clients`) and lazy per-site resolution follow the Algolia module's `AlgoliaSearchModule`
- * exactly, for the same reason: `models/search.ts`'s dispatcher never actually calls `init()` before
- * the first `query`/`created`/etc. (see that module's class doc comment), so every hook here resolves
- * its own client through `getClient()` rather than depending on `init()` having run first.
+ * exactly, for the same reason: `models/search.ts`'s `selectEngine()`/`initActiveEngines()` do call
+ * `init()` now (OpenProject #920, see that module's class doc comment), but every hook here still
+ * resolves its own client through `getClient()` independently rather than depending on `init()` having
+ * run first.
  */
 export class ElasticsearchSearchModule implements SearchModule {
   private clients = new Map<string, SiteClient>()
@@ -274,7 +295,7 @@ export class ElasticsearchSearchModule implements SearchModule {
       nodes: hosts,
       tls: getTlsOptions(config),
       sniffOnStart: !!config.sniffOnStart,
-      sniffInterval: config.sniffInterval > 0 ? config.sniffInterval : false,
+      sniffInterval: toSniffIntervalMs(config.sniffInterval),
       name: 'wiki-js'
     })
   }
@@ -368,7 +389,8 @@ export class ElasticsearchSearchModule implements SearchModule {
    * move never touches (`models/pages.ts`'s `movePage` updates the row in place). A rename is
    * therefore an ordinary re-index of the same document via `client.index`, same as `created`/
    * `updated` -- the identical reasoning already recorded for the Algolia module's `renamed()` in
-   * `docs/variances.md`.
+   * `docs/variances.md`. A locale change is rewritten by the same reindex, which is why this module
+   * needs no `previousLocale` of its own either.
    */
   async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)
@@ -383,7 +405,16 @@ export class ElasticsearchSearchModule implements SearchModule {
       from: offset,
       size: limit,
       query: buildEsQuery(params) as any,
-      _source: ['title', 'description', 'path', 'locale', 'tags', 'icon', 'updatedAt']
+      _source: [
+        'title',
+        'description',
+        'path',
+        'locale',
+        'tags',
+        'icon',
+        'classification',
+        'updatedAt'
+      ]
     })
     const hits = (response.hits?.hits ?? []).filter((hit) => hit._source)
 
@@ -399,7 +430,12 @@ export class ElasticsearchSearchModule implements SearchModule {
             path: hit._source!.path,
             locale: hit._source!.locale,
             siteId,
-            tags: hit._source!.tags ?? []
+            tags: hit._source!.tags ?? [],
+            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: hit._source!.classification ?? null
           })
         )
       : hits
@@ -485,6 +521,7 @@ export class ElasticsearchSearchModule implements SearchModule {
           editor: pagesTable.editor,
           publishState: pagesTable.publishState,
           isSearchable: pagesTable.isSearchable,
+          classification: pagesTable.classification,
           password: pagesTable.password,
           searchContent: pagesTable.searchContent,
           updatedAt: pagesTable.updatedAt

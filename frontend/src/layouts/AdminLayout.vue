@@ -151,7 +151,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/analytics`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-bar-chart.svg" />
               </w-item-section>
@@ -159,7 +160,8 @@
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/comments`"
-              active-class="bg-primary text-white">
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:sites`)">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-comments.svg" />
               </w-item-section>
@@ -182,6 +184,15 @@
                 <w-icon name="img:/_assets/icons/fluent-cashbook.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.editors.title') }}</w-item-section>
+            </w-item>
+            <w-item
+              :to="`/_admin/` + adminStore.currentSiteId + `/glossary`"
+              active-class="bg-primary text-white"
+              v-if="userStore.can(`manage:glossary`)">
+              <w-item-section avatar>
+                <w-icon name="img:/_assets/icons/fluent-find-and-replace.svg" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.glossary.title') }}</w-item-section>
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/locale`"
@@ -226,20 +237,6 @@
                 <w-icon name="img:/_assets/icons/fluent-ssd.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.storage.title') }}</w-item-section>
-              <w-item-section side>
-                <!-- TODO: Reflect site storage status -->
-                <status-light :color="true ? `positive` : `warning`" :pulse="false" />
-              </w-item-section>
-            </w-item>
-            <w-item
-              :to="`/_admin/` + adminStore.currentSiteId + `/tags`"
-              active-class="bg-primary text-white"
-              disabled
-              v-if="flagsStore.experimental && userStore.can(`manage:sites`)">
-              <w-item-section avatar>
-                <w-icon name="img:/_assets/icons/fluent-tag.svg" />
-              </w-item-section>
-              <w-item-section>{{ t('admin.tags.title') }}</w-item-section>
             </w-item>
             <w-item
               :to="`/_admin/` + adminStore.currentSiteId + `/theme`"
@@ -305,15 +302,17 @@
                 <status-light :color="adminStore.info.isApiEnabled ? `positive` : `negative`" />
               </w-item-section>
             </w-item>
-            <w-item
-              to="/_admin/audit"
-              active-class="bg-primary text-white"
-              disabled
-              v-if="flagsStore.experimental">
+            <w-item to="/_admin/audit" active-class="bg-primary text-white">
               <w-item-section avatar>
                 <w-icon name="img:/_assets/icons/fluent-event-log.svg" />
               </w-item-section>
               <w-item-section>{{ t('admin.audit.title') }}</w-item-section>
+            </w-item>
+            <w-item to="/_admin/classification" active-class="bg-primary text-white">
+              <w-item-section avatar>
+                <w-icon name="la:layer-group" />
+              </w-item-section>
+              <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
             </w-item>
             <w-item to="/_admin/extensions" active-class="bg-primary text-white">
               <w-item-section avatar>
@@ -726,6 +725,7 @@ onMounted(async () => {
   }
 
   adminStore.fetchLocales()
+  adminStore.fetchClassificationLevels()
   await adminStore.fetchSites()
   if (route.params.siteid) {
     adminStore.$patch({

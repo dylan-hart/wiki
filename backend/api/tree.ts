@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath } from '../helpers/common.ts'
+import { decodeTreePath, defaultLocale } from '../helpers/common.ts'
 import { actorFrom } from './pages.ts'
 
 interface TreeQuery {
@@ -24,16 +24,6 @@ interface FolderBody {
   pathName: string
   title: string
   locale?: string
-}
-
-/**
- * The locale content belongs to when the request does not say.
- *
- * A site always has a primary locale, and an instance that never turned locales on has exactly that
- * one — so this is the answer for most requests rather than a fallback.
- */
-function defaultLocale(siteId: string): string {
-  return WIKI.sites[siteId]?.config?.locales?.primary ?? 'en'
 }
 
 /** Comma-separated query lists, which is how the browser sends a multi-valued filter here. */
@@ -91,7 +81,12 @@ const folderIdParam = {
  * folder on every listing, which is not worth what it costs.
  */
 export function visibleTreeItems<
-  T extends { type?: string; folderPath?: string; fileName?: string }
+  T extends {
+    type?: string
+    folderPath?: string
+    fileName?: string
+    classification?: string | null
+  }
 >(req: FastifyRequest, siteId: string, locale: string, items: T[]): T[] {
   const actor = WIKI.models.groups.actorForRequest(req)
   return items.filter((item) => {
@@ -101,7 +96,11 @@ export function visibleTreeItems<
       path,
       siteId,
       locale,
-      tags: (item as any).tags ?? []
+      tags: (item as any).tags ?? [],
+      // -> `getTree()` (OpenProject #1128) joins `pages.classification` in for a page-type item;
+      //    a folder or asset carries none, the same "no CLASSIFICATION rule matches" null it always
+      //    had.
+      classification: item.classification ?? null
     })
   })
 }
@@ -129,7 +128,10 @@ export function mayOnFolder(
   return WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), permission, {
     path,
     siteId,
-    locale
+    locale,
+    // -> A folder is not a page and carries no classification of its own -- same treatment as
+    //    `mayOnAsset` in `api/assets.ts`.
+    classification: null
   })
 }
 
@@ -333,7 +335,11 @@ async function routes(app: FastifyInstance) {
           WIKI.models.groups.checkAccess(actor, 'read:pages', {
             path: item.path,
             siteId: req.params.siteId,
-            locale
+            locale,
+            // -> `tree.browse()` (OpenProject #1128) joins `pages.classification` in for a page at
+            //    this path; a folder-only entry carries none, same "no CLASSIFICATION rule matches"
+            //    null it always had.
+            classification: item.classification
           })
         )
       }
@@ -419,10 +425,11 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
+      const locale = req.query.locale ?? defaultLocale(req.params.siteId)
       const pages = await WIKI.models.tree.listPages({
         siteId: req.params.siteId,
         path: req.query.path,
-        locale: req.query.locale ?? defaultLocale(req.params.siteId),
+        locale,
         tags: splitList(req.query.tags),
         limit: req.query.limit,
         orderBy: req.query.orderBy,
@@ -437,7 +444,9 @@ async function routes(app: FastifyInstance) {
         WIKI.models.groups.checkAccess(actor, 'read:pages', {
           path: page.path,
           siteId: req.params.siteId,
-          locale: req.query.locale ?? defaultLocale(req.params.siteId)
+          locale,
+          // -> `tree.listPages()` (OpenProject #1128) now joins `pages.classification` in directly.
+          classification: page.classification
         })
       )
     }

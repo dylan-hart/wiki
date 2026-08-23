@@ -33,6 +33,8 @@ interface AssetRow {
   folderPath: string
   fileName: string
   data: Buffer
+  /** Defaults to `data.length` when omitted — set explicitly to exercise the "large" bucket. */
+  fileSize?: number
 }
 
 /** Installs a `WIKI` stub. `pages`/`assets` back both the listing and per-item lookup calls. */
@@ -95,7 +97,8 @@ function installWiki(
             id: a.id,
             kind: a.kind,
             folderPath: a.folderPath,
-            fileName: a.fileName
+            fileName: a.fileName,
+            fileSize: a.fileSize ?? a.data.length
           }))
         ),
         getContent: mock.fn(async (id: string) => {
@@ -270,6 +273,56 @@ describe('git storage: syncUntracked', () => {
     await syncUntracked(noPagesTarget)
 
     await assert.rejects(fs.access(path.join(repoPath, 'foo.md')))
+  })
+
+  // -> OpenProject #924: the asset gate must be size-aware (`belongsInTarget`), matching
+  //    `Storage.dispatch()`'s own classification, not a kind-only re-check that disagrees with it.
+  test('includes an oversized asset through the large bucket even though its kind bucket is not covered', async () => {
+    installWiki(rootPath, {
+      assets: [
+        {
+          id: 'a1',
+          kind: 'image',
+          folderPath: '',
+          fileName: 'huge.png',
+          data: Buffer.from('x'),
+          fileSize: 10 * 1024 * 1024 // -> 10MB, over the 5MB threshold below
+        }
+      ]
+    })
+    const largeOnlyTarget = makeTarget({
+      config: { ...target.config },
+      contentTypes: { activeTypes: ['large'], largeThreshold: '5MB' } // -> no 'images'
+    })
+    const { repoPath } = await ensureRepo(largeOnlyTarget)
+
+    await syncUntracked(largeOnlyTarget)
+
+    await assert.doesNotReject(fs.access(path.join(repoPath, 'huge.png')))
+  })
+
+  test('skips an oversized asset when the target covers its kind bucket but not large', async () => {
+    installWiki(rootPath, {
+      assets: [
+        {
+          id: 'a1',
+          kind: 'image',
+          folderPath: '',
+          fileName: 'huge.png',
+          data: Buffer.from('x'),
+          fileSize: 10 * 1024 * 1024
+        }
+      ]
+    })
+    const imagesOnlyTarget = makeTarget({
+      config: { ...target.config },
+      contentTypes: { activeTypes: ['images'], largeThreshold: '5MB' } // -> no 'large'
+    })
+    const { repoPath } = await ensureRepo(imagesOnlyTarget)
+
+    await syncUntracked(imagesOnlyTarget)
+
+    await assert.rejects(fs.access(path.join(repoPath, 'huge.png')))
   })
 })
 

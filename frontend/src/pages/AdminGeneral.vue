@@ -166,6 +166,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.browse"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowBrowse`)" />
             </w-item-section>
           </w-item>
@@ -181,6 +182,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.collaborativeEditing"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowCollaborativeEditing`)" />
             </w-item-section>
           </w-item>
@@ -194,6 +196,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.comments"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowComments`)" />
             </w-item-section>
           </w-item>
@@ -207,6 +210,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.profile"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowProfile`)" />
             </w-item-section>
           </w-item>
@@ -237,6 +241,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.search"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowSearch`)" />
             </w-item-section>
           </w-item>
@@ -362,6 +367,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.logoText"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.displaySiteTitle`)" />
             </w-item-section>
           </w-item>
@@ -432,6 +438,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.discoverable"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.discoverable`)" />
             </w-item-section>
           </w-item>
@@ -498,6 +505,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.robots.index"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.searchAllowIndexing`)" />
             </w-item-section>
           </w-item>
@@ -511,6 +519,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.robots.follow"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.searchAllowFollow`)" />
             </w-item-section>
           </w-item>
@@ -522,7 +531,10 @@
               <w-item-label caption>{{ t(`admin.general.sitemapHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
-              <w-toggle v-model="state.config.sitemap" :aria-label="t(`admin.general.sitemap`)" />
+              <w-toggle
+                v-model="state.config.sitemap"
+                :loading="state.loading > 0"
+                :aria-label="t(`admin.general.sitemap`)" />
             </w-item-section>
           </w-item>
         </w-card>
@@ -570,9 +582,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
-  title: t('admin.dashboard.title')
-})
+useMeta(() => ({
+  title: t('admin.general.title')
+}))
 
 // DATA
 
@@ -682,16 +694,27 @@ watch(
 async function load() {
   state.loading++
   loading.show()
-  const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
-  state.config = toMerged(defaultConfig(), {
-    ...resp,
-    pageExtensions: resp.pageExtensions.join(',')
-  })
-  state.hasLogo = resp?.assets?.logo ?? false
-  state.hasFavicon = resp?.assets?.favicon ?? false
-  // -> The hostname this site was actually serving as of this load, so save() can tell a real
-  //    rename apart from every other field change. See the comment in save() for why that matters.
-  loadedHostname = resp?.hostname ?? ''
+  // -> Unlike every sibling admin page's own `load()`, this ran bare between `loading.show()`/
+  //    `hide()` with no try/catch -- a network blip, 403, or restarting backend left the full-screen
+  //    overlay stuck over the whole admin area with no error shown (OpenProject #947).
+  try {
+    const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
+    state.config = toMerged(defaultConfig(), {
+      ...resp,
+      pageExtensions: resp.pageExtensions.join(',')
+    })
+    state.hasLogo = resp?.assets?.logo ?? false
+    state.hasFavicon = resp?.assets?.favicon ?? false
+    // -> The hostname this site was actually serving as of this load, so save() can tell a real
+    //    rename apart from every other field change. See the comment in save() for why that matters.
+    loadedHostname = resp?.hostname ?? ''
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: 'Failed to load site configuration.',
+      caption: err.message
+    })
+  }
   loading.hide()
   state.loading--
 }

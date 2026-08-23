@@ -1,8 +1,25 @@
 import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
+import { getBlockImportUrl } from '../shared/config.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
+
+/**
+ * An attribute that means "off" when it says so.
+ *
+ * MDC writes every prop with a value, and Lit's own Boolean converter reads any string at all as
+ * true — `showTitle="false"` included. The picker never writes that one, since it leaves a prop out
+ * while it holds its default, but a page written by hand can say it and means it. See `block-index`,
+ * where this converter's own doc comment explains why the `boolean` prop below also declares
+ * `default: false`.
+ */
+const boolean = {
+  converter: {
+    fromAttribute: (value) => value !== null && value !== 'false',
+    toAttribute: (value) => (value ? 'true' : null)
+  }
+}
 
 /**
  * Strip a path down to the form the server stores, so that `/Foo/Bar/` and `foo/bar` are one page
@@ -44,7 +61,9 @@ export class BlockIncludeElement extends LitElement {
         name: 'showTitle',
         type: 'boolean',
         label: 'Show Title',
-        hint: "Draw the included page's title above it."
+        hint: "Draw the included page's title above it.",
+        // -> Stated, so that a toggle switched on and then off again writes nothing into the page
+        default: false
       }
     ]
   }
@@ -67,7 +86,7 @@ export class BlockIncludeElement extends LitElement {
        * Whether to draw the included page's title above it
        * @type {boolean}
        */
-      showTitle: { type: Boolean },
+      showTitle: boolean,
 
       // Internal Properties
       _loading: { state: true },
@@ -128,7 +147,11 @@ export class BlockIncludeElement extends LitElement {
    * Fetch the components for any block the included page brought with it.
    *
    * The page view scans for undefined elements once, when it loads a page, so anything arriving
-   * afterwards has to ask for itself. Same contract: the element's tag names the file to fetch.
+   * afterwards has to ask for itself. Same contract: the element's tag names the file to fetch --
+   * except a custom block doesn't have a flat, tag-only file to fetch: its code lives at
+   * `/_blocks/custom/:siteId/:id.js`, which `getBlockImportUrl()` resolves the same way the page
+   * view's own scan does (`stores/common.js`'s `blockImportUrl()`). Without this, a custom block
+   * nested inside transcluded content 404'd for every reader, author or not (OpenProject #954).
    */
   async _loadNestedBlocks() {
     for (const el of this.querySelectorAll(':not(:defined)')) {
@@ -137,7 +160,7 @@ export class BlockIncludeElement extends LitElement {
         continue
       }
       try {
-        await import(/* @vite-ignore */ `/_blocks/${tag}.js`)
+        await import(/* @vite-ignore */ await getBlockImportUrl(tag))
       } catch (err) {
         console.warn(`Failed to load ${tag}: ${err.message}`)
       }

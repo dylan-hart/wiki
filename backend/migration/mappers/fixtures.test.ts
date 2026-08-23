@@ -46,6 +46,14 @@ async function loadFixture<T>(name: string): Promise<T> {
 }
 
 before(async () => {
+  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
+  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime — see
+  //    `models/storage.test.ts`'s own `before()`. `storage.ts`'s `convertSyncInterval` parses with
+  //    `Temporal.Duration.from()`, which the git fixture row below exercises.
+  if (typeof Temporal === 'undefined') {
+    const polyfill = await import('@js-temporal/polyfill')
+    ;(globalThis as any).Temporal = polyfill.Temporal
+  }
   ;(globalThis as any).WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..', '..'),
     data: {},
@@ -297,7 +305,7 @@ describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
 
   const SITE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
 
-  test('disk row: direct prop copy, mode/syncInterval dropped and reported', async () => {
+  test('disk row: direct prop copy, mode maps straight through (disk only ever supports push), no syncInterval to convert', async () => {
     const rows = await loadFixture<SourceStorageRow[]>('2.5x-storage.json')
     const disk = rows.find((r) => r.key === 'disk')!
     const result = mapStorageRow(disk, { resolver: await resolver(), siteId: SITE_ID })
@@ -312,14 +320,14 @@ describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
         module: 'disk',
         values: {
           isEnabled: true,
-          config: { path: '/var/wiki/data', createDailyBackups: true }
+          config: { path: '/var/wiki/data', createDailyBackups: true },
+          syncMode: 'push'
         }
-      },
-      droppedFields: { mode: 'push', syncInterval: null }
+      }
     })
   })
 
-  test('git row: sshPrivateKeyMode "contents"->"inline" enum rename, alwaysNamespace dropped (confirmed NO DESTINATION)', async () => {
+  test('git row: sshPrivateKeyMode "contents"->"inline" enum rename, alwaysNamespace dropped (confirmed NO DESTINATION), mode/syncInterval both convert', async () => {
     const rows = await loadFixture<SourceStorageRow[]>('2.5x-storage.json')
     const git = rows.find((r) => r.key === 'git')!
     const result = mapStorageRow(git, { resolver: await resolver(), siteId: SITE_ID })
@@ -341,7 +349,12 @@ describe('fixture: 2.5x-storage.json -> mapStorageRow', () => {
       localRepoPath: './data/repo',
       gitBinaryPath: ''
     })
-    assert.deepEqual(result.droppedFields, { mode: 'sync', syncInterval: '*/15 * * * *' })
+    // -> git's fixture mode ('sync') is one of its own supportedModes, and its cron syncInterval
+    //    ('*/15 * * * *', every 15 minutes) is one of the two convertible shapes -- both map through,
+    //    nothing left to report as dropped.
+    assert.equal(result.update!.values.syncMode, 'sync')
+    assert.equal(result.update!.values.scheduleOverride, 'PT15M')
+    assert.equal(result.droppedFields, undefined)
     // alwaysNamespace never reached buildConfig at all — not merely defaulted away.
     assert.ok(!('alwaysNamespace' in result.update!.values.config))
   })

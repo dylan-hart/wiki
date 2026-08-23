@@ -495,5 +495,25 @@ describe('DiagramRender.render', () => {
       })
       assert.equal(fetchMock.mock.callCount(), 0)
     })
+
+    test('refuses to reach a PlantUML server at all when the instance is in offline mode (OpenProject #820)', async () => {
+      const fetchMock = mock.fn(async () => new Response(new Uint8Array(), { status: 200 }))
+      ;(globalThis as any).fetch = fetchMock
+      ;(globalThis as any).WIKI.config.offline = true
+
+      try {
+        await assert.rejects(
+          diagramRender.render({ type: 'plantuml', source: '@startuml\nA -> B\n@enduml' }),
+          (err: any) => {
+            assert.equal(err.name, 'diagramRenderOffline')
+            assert.equal(err.statusCode, 503)
+            return true
+          }
+        )
+        assert.equal(fetchMock.mock.callCount(), 0)
+      } finally {
+        ;(globalThis as any).WIKI.config.offline = false
+      }
+    })
   })
 })

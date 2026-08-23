@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify'
-import { requestOrigin, localizedPagePath, type LocaleRoutingConfig } from '../helpers/common.ts'
+import {
+  requestOrigin,
+  localizedPagePath,
+  guardSiteEnabled,
+  type LocaleRoutingConfig
+} from '../helpers/common.ts'
 
 /** The two flags a site's SEO settings hold, as read off `site.config`. */
 interface RobotsConfig {
@@ -120,6 +125,11 @@ async function routes(app: FastifyInstance) {
     if (!site) {
       return reply.notFound()
     }
+    // -> Resolved by hostname independently of the page/shell hook, so a disabled site's robots
+    //    directives stay reachable by direct URL until this stops them the same way
+    if (guardSiteEnabled(site, reply)) {
+      return
+    }
 
     const sitemapUrl = `${requestOrigin(req.protocol, req.hostname)}/sitemap.xml`
     return reply.type('text/plain; charset=utf-8').send(buildRobotsTxt(site.config, sitemapUrl))
@@ -129,6 +139,11 @@ async function routes(app: FastifyInstance) {
     const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site || !site.config?.sitemap) {
       return reply.notFound()
+    }
+    // -> A disabled site's sitemap still enumerates its page paths, which is exactly the kind of
+    //    identifying content the other resolved-by-hostname controllers already refuse to leak
+    if (guardSiteEnabled(site, reply)) {
+      return
     }
 
     const pages = await WIKI.models.pages.listPagesForSitemap(site.id)

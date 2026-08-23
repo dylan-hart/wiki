@@ -11,7 +11,7 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683)', () => {
   /**
    * Task #683: `/sites/:siteId/approvals/rules` (GET/POST/PUT/DELETE) — the routes behind
-   * `AdminApprovals.vue` — used to gate on the blanket route-level `read:sites`/`manage:sites`. They
+   * `AdminApprovals.vue` — used to gate on the blanket route-level `manage:sites`. They
    * now also accept the site-scoped `site:approvals` permission from task #682 (`checkSiteAccess()`),
    * checked in-handler via `mayReadApprovalRules`/`mayManageApprovalRules` since `config.permissions`
    * cannot express a per-site check.
@@ -140,11 +140,11 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     deleteRuleCalls = []
   })
 
-  test('read:sites may list approval rules', async () => {
+  test('manage:sites may list approval rules', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE_ID}/approvals/rules`,
-      headers: { 'x-test-permissions': 'read:sites' }
+      headers: { 'x-test-permissions': 'manage:sites' }
     })
     assert.equal(res.statusCode, 200)
     assert.equal(res.json().length, 1)
@@ -168,7 +168,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     assert.equal(res.statusCode, 403)
   })
 
-  test('a caller with none of read:sites/manage:sites/site:approvals is refused on GET', async () => {
+  test('a caller with none of manage:sites/site:approvals is refused on GET', async () => {
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE_ID}/approvals/rules`,
@@ -194,11 +194,11 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     assert.equal(createRuleCalls.length, 1)
   })
 
-  test('read:sites alone may not create a rule (read-only)', async () => {
+  test('an unrelated permission alone may not create a rule', async () => {
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/approvals/rules`,
-      headers: { 'x-test-permissions': 'read:sites' },
+      headers: { 'x-test-permissions': 'manage:navigation' },
       payload: {
         name: 'New rule',
         match: 'START',

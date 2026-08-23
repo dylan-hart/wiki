@@ -190,13 +190,6 @@ props:
     icon: person
     default: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'
     order: 22
-  mappingPicture:
-    type: String
-    title: Avatar Picture Claim Mapping
-    hint: (optional) The claim holding a URL to the user's avatar picture.
-    icon: image
-    default: ''
-    order: 23
   mapGroups:
     type: Boolean
     title: Map Groups

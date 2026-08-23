@@ -112,7 +112,11 @@ export const useEditorStore = defineStore('editor', {
         this.pendingAssets.push({
           id: fileId,
           kind: 'blob',
-          file: new File(data, fileName, { type: data.type }),
+          // -> The `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` -- `data`
+          //    wrapped in an array is what a raw Blob (e.g. canvas `toBlob` output) needs here;
+          //    passing it directly threw `The "sources" argument must be a sequence`
+          //    (OpenProject #952).
+          file: new File([data], fileName, { type: data.type }),
           fileName,
           blobUrl
         })
@@ -128,10 +132,17 @@ export const useEditorStore = defineStore('editor', {
         // -> The editor configs are part of the site config, which is one request rather than a
         //    dedicated endpoint
         const siteInfo = await API_CLIENT.get(`sites/${siteStore.id}`).json()
+        // -> The resolved glossary term list (OpenProject #870): folded into the markdown editor's own
+        //    config bag rather than fetched separately at each `MarkdownRenderer` call site, since
+        //    every one of those already reads `editorStore.editors.markdown` for its config.
+        const glossaryTerms = await API_CLIENT.get(`sites/${siteStore.id}/glossary/terms`).json()
         this.$patch({
           editors: {
             asciidoc: siteInfo?.editors?.asciidoc?.config ?? {},
-            markdown: siteInfo?.editors?.markdown?.config ?? {},
+            markdown: {
+              ...siteInfo?.editors?.markdown?.config,
+              glossaryTerms: glossaryTerms ?? []
+            },
             wysiwyg: siteInfo?.editors?.wysiwyg?.config ?? {}
           },
           configIsLoaded: true

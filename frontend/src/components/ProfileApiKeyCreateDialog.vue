@@ -92,6 +92,36 @@
               :hint="t(`profile.api.newKeyScopeHint`)" />
           </w-item-section>
         </w-item>
+        <w-item>
+          <blueprint-icon icon="secure" />
+          <w-item-section>
+            <!--
+              OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --
+              same review feedback and reasoning as `ApiKeyCreateDialog.vue`'s admin form. Every level
+              starts checked, equivalent to the old "No Limit" default (see `allowedClassifications`
+              below): the token may reach anything its own scope/rules otherwise grant. Unchecking a
+              level narrows it -- the token may never be granted a page permission on a page classified
+              at an unchecked level, whatever the rules say. This is the control that resolves the "an
+              agent authenticating with my token can read my password pages too" concern the feature
+              exists for.
+            -->
+            <div class="text-caption q-mb-xs">
+              {{ t(`profile.api.newKeyClassificationLevels`) }}
+            </div>
+            <div class="classification-grid grid grid-cols-2 gap-x-4 gap-y-1">
+              <w-checkbox
+                v-for="level of adminStore.classificationLevels"
+                :key="level.id"
+                v-model="state.keyClassifications"
+                :val="level.id"
+                :label="level.name"
+                dense />
+            </div>
+            <div class="text-caption text-grey mt-1">
+              {{ t(`profile.api.newKeyClassificationLevelsHint`) }}
+            </div>
+          </w-item-section>
+        </w-item>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
@@ -123,6 +153,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { useAdminStore } from '@/stores/admin'
 
 // EMITS
 
@@ -136,6 +167,10 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 
 const { t } = useI18n()
 
+// STORES
+
+const adminStore = useAdminStore()
+
 // DATA
 
 const state = reactive({
@@ -148,6 +183,10 @@ const state = reactive({
   keySiteId: null,
   sites: [],
   loadingSites: false,
+  // -> The checked ids of the classification checkbox grid, initialized to every level once
+  //    `adminStore.classificationLevels` loads (see `onMounted`) -- all-checked, same as "No Limit"
+  //    was before this existed. See `allowedClassifications` below for what actually gets sent.
+  keyClassifications: [],
   loading: 0
 })
 
@@ -202,6 +241,18 @@ const siteOptions = computed(() => {
   return [{ id: null, title: t('profile.api.newKeySiteAllSites') }, ...state.sites]
 })
 
+/**
+ * What actually reaches the API (OpenProject #1205): `null` when every currently known level is
+ * checked -- equivalent to the old "No Limit" default, and it stays that way against a level added
+ * later too, exactly like a token created before this feature existed. Anything less than every
+ * level checked is sent as the explicit array of checked ids, which only narrows.
+ */
+const allowedClassifications = computed(() => {
+  const allIds = adminStore.classificationLevels.map((level) => level.id)
+  const isEveryLevelChecked = allIds.every((id) => state.keyClassifications.includes(id))
+  return isEveryLevelChecked ? null : state.keyClassifications
+})
+
 // VALIDATION RULES
 
 const keyNameValidation = [
@@ -240,6 +291,7 @@ async function create() {
         name: state.keyName,
         expiration: state.keyExpiration,
         scope: state.keyScope.length > 0 ? state.keyScope : null,
+        allowedClassifications: allowedClassifications.value,
         siteId: state.keySiteId
       }
     }).json()
@@ -271,7 +323,19 @@ async function create() {
 
 // MOUNTED
 
-onMounted(() => {
+onMounted(async () => {
   loadSites()
+  state.loading++
+  try {
+    await adminStore.fetchClassificationLevels()
+  } catch {
+    // -> Same read-access-blind-eye treatment as `loadSites()` above -- the level list is
+    //    public-access (`GET /classification-levels` needs no permission), but this stays defensive
+    //    either way, leaving the checkbox grid empty rather than surfacing an error.
+  }
+  // -> All-checked default (OpenProject #1205), equivalent to the old "No Limit" -- set only after
+  //    the levels are known, since the checkbox grid above has nothing to check before then.
+  state.keyClassifications = adminStore.classificationLevels.map((level) => level.id)
+  state.loading--
 })
 </script>

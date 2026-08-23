@@ -11,11 +11,14 @@
  */
 export const GLOBAL_PERMISSIONS: string[] = [
   'access:admin',
+  'read:users',
   'manage:users',
+  'read:groups',
   'manage:groups',
   'manage:navigation',
   'manage:theme',
   'manage:sites',
+  'manage:glossary',
   'manage:system'
 ]
 
@@ -39,7 +42,14 @@ export const PAGE_PERMISSIONS: string[] = [
   'manage:assets',
   'read:comments',
   'write:comments',
-  'manage:comments'
+  'manage:comments',
+  /**
+   * OpenProject #1080's declassification guardrail: lowering a page's classification (making it
+   * MORE open) needs this on top of `write:pages`/`manage:pages`, so an ordinary editor cannot
+   * silently declassify a sensitive page by editing metadata. Raising it (making it stricter) needs
+   * only the ordinary write permission -- see `api/pages.ts`'s PATCH route.
+   */
+  'manage:classification'
 ]
 
 /** Every permission string that means anything anywhere — the union of both closed lists above. */

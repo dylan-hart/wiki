@@ -90,6 +90,10 @@ export interface ApiKey {
   // -> An explicit permission allow-list the key is narrowed to, or null for no narrowing (the key
   //    carries the full union of its groups' permissions). See `narrowToScope()`.
   scope: string[] | null
+  // -> A per-level allow-set (OpenProject #1205), or null for unrestricted (today's only behavior
+  //    for a key created before this existed, and the default). Checked in `groups.checkAccess()`
+  //    alongside `scope` above, on every page-rule decision.
+  allowedClassifications: string[] | null
   // -> The single site this key is pinned to, or null for instance-wide (every site) — today's only
   //    behavior. Signed into the token as the `site` claim; see `ApiKeyIdentity`.
   siteId: string | null
@@ -132,6 +136,18 @@ export interface ApiKeyIdentity {
   //    guests group's rules for every page permission, regardless of what the key's own groups (or, for
   //    a personal token, its owner's current groups) actually granted.
   groupIds: string[]
+  // -> The key's own scope narrowing (the stored `ApiKey.scope`), unnarrowed by anything above:
+  //    `permissions` is already the intersection against it (`narrowToScope()`), but `groupIds` is
+  //    still the identity's full, unnarrowed group membership. `models/groups.ts`'s `AccessActor`
+  //    carries this through so `checkAccess()`/`mayHoldPermissionSomewhere()`/`checkSiteAccess()` can
+  //    intersect a page/site permission against it too before pooling rules from those groups --
+  //    without this, a key scoped to `['read:pages']` still held every page permission its groups'
+  //    rules granted, since scope was never consulted on the rule-pooling path (OpenProject #930).
+  scope: string[] | null
+  // -> Per-level allow-set (OpenProject #1205), or null for unrestricted. Carried straight through
+  //    from the row -- unlike `groupIds`/`permissions`, this is never resolved live from anything, so
+  //    there is nothing to differ between an admin-issued key and a personal token here.
+  allowedClassifications: string[] | null
   // -> The user this key acts as, or null for an admin-issued key with no identity of its own — see
   //    the `userId` column comment in `db/schema.ts`.
   userId: string | null
@@ -151,6 +167,7 @@ const keySelection = {
   keyShort: apiKeysTable.keyShort,
   groups: apiKeysTable.groups,
   scope: apiKeysTable.scope,
+  allowedClassifications: apiKeysTable.allowedClassifications,
   siteId: apiKeysTable.siteId,
   userId: apiKeysTable.userId,
   expiration: apiKeysTable.expiration,
@@ -305,6 +322,7 @@ class ApiKeys {
     expiration,
     groups = [],
     scope = null,
+    allowedClassifications = null,
     siteId = null,
     userId = null
   }: {
@@ -314,6 +332,8 @@ class ApiKeys {
     groups?: string[]
     /** An explicit permission allow-list to narrow the key to, or null for no narrowing. */
     scope?: string[] | null
+    /** A per-level classification allow-set (OpenProject #1205), or null for unrestricted. */
+    allowedClassifications?: string[] | null
     /** The single site to pin the key to, or null for instance-wide (every site). */
     siteId?: string | null
     /** The user this is a personal access token for, or null for an admin-issued key. */
@@ -343,6 +363,7 @@ class ApiKeys {
       keyShort: key.slice(-8),
       groups: effectiveGroups,
       scope,
+      allowedClassifications,
       siteId,
       userId,
       expiration: new Date(expiresAt.epochMilliseconds),
@@ -525,6 +546,8 @@ class ApiKeys {
         userId: key.userId,
         groupIds: owner.groupIds,
         permissions: narrowToScope(owner.permissions, key.scope),
+        scope: key.scope,
+        allowedClassifications: key.allowedClassifications,
         siteId
       }
     }
@@ -535,6 +558,8 @@ class ApiKeys {
       userId: null,
       groupIds,
       permissions: await this.resolvePermissions(groupIds, key.scope),
+      scope: key.scope,
+      allowedClassifications: key.allowedClassifications,
       siteId
     }
   }

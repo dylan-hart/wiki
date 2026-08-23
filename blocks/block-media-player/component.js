@@ -163,13 +163,13 @@ export class BlockMediaPlayerElement extends LitElement {
         ${
           media.kind === 'video'
             ? html`
-                <video class="media-display" controls @error="${() => this._onError()}">
-                  <source src="${src}" type="${media.mime}" />
+                <video class="media-display" controls>
+                  <source src="${src}" type="${media.mime}" @error="${() => this._onError()}" />
                 </video>
               `
             : html`
-                <audio class="media-display" controls @error="${() => this._onError()}">
-                  <source src="${src}" type="${media.mime}" />
+                <audio class="media-display" controls>
+                  <source src="${src}" type="${media.mime}" @error="${() => this._onError()}" />
                 </audio>
               `
         }

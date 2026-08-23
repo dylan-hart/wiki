@@ -77,7 +77,13 @@ function makeTarget(configOverrides: Record<string, any> = {}): StorageTarget {
       directAccess: true
     },
     versioning: { isSupported: false, isForceEnabled: false, enabled: false },
-    sync: { supportedModes: ['push'], schedule: false, mode: 'push', scheduleOverride: null },
+    sync: {
+      supportedModes: ['push'],
+      schedule: false,
+      mode: 'push',
+      scheduleOverride: null,
+      supportsContentSync: true
+    },
     props: {},
     config: {
       accountName: 'test-project',
@@ -313,14 +319,19 @@ describe('gcs storage / exportAll', () => {
   })
 })
 
-describe('gcs storage / getDirectAccessUrl', () => {
+describe('gcs storage / getDirectUrl', () => {
   test('requests a short-TTL, read-only signed URL for the object', async () => {
     const target = makeTarget()
 
-    const url = await storageModule.getDirectAccessUrl(target, {
-      folderPath: 'images',
-      fileName: 'pic.png'
-    })
+    const url = await storageModule.getDirectUrl!(
+      {
+        id: 'asset-1',
+        updatedAt: new Date('2024-01-01T00:00:00Z'),
+        folderPath: 'images',
+        fileName: 'pic.png'
+      },
+      target
+    )
 
     assert.equal(url, 'https://storage.googleapis.com/signed')
     assert.equal(getSignedUrlMock.mock.callCount(), 1)

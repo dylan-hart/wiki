@@ -65,7 +65,14 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
   }
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('approves cleanly when the page has not moved since the submission was based on it', async () => {
@@ -269,7 +276,14 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('a rule requiring 2 approvals leaves the page untouched after the first, and writes it on the second from a different reviewer', async () => {
@@ -554,7 +568,14 @@ describe('approvals reviewer notification (DB-backed)', { skip: !hasTestDatabase
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   /**
@@ -757,7 +778,14 @@ describe(
     })
 
     function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-      return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
     }
 
     test('returns a rule when two enabled rules both match the same page for the same groups', async () => {
@@ -867,7 +895,14 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
   })
 
   function pageRef(page: { id: string; path: string }): ApprovalPageRef {
-    return { id: page.id, path: page.path, locale: 'en', tags: [], allowContributions: true }
+    return {
+      id: page.id,
+      path: page.path,
+      locale: 'en',
+      tags: [],
+      allowContributions: true,
+      classification: null
+    }
   }
 
   test('two different guests suggesting an edit to the same page both persist', async () => {
@@ -1017,12 +1052,96 @@ describe('approvals pageViewerState siteId threading (task 678)', () => {
       path: 'engineering/onboarding',
       locale: 'en',
       tags: [],
-      allowContributions: false
+      allowContributions: false,
+      classification: null
     })
 
     assert.equal(checkAccessCalls.length, 1)
     assert.equal(checkAccessCalls[0].siteId, '11111111-1111-4111-8111-111111111111')
     // -> Task 992: the ref's locale threads through too, same as siteId did for task 678
     assert.equal(checkAccessCalls[0].locale, 'en')
+  })
+})
+
+/**
+ * OpenProject #966: same fix, and the same reasoning, as `models/groups.ts`'s
+ * `groups.broadcastReload` suite — `createRule`/`updateRule`/`deleteRule` used to call
+ * `reloadCache()` directly, refreshing only this instance's own cache. See that suite's doc comment
+ * for the full writeup; this one just re-proves the wiring for the approvals model.
+ */
+describe('approvals.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let approvalsModel: typeof import('./approvals.ts').approvals
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('createRule broadcasts reloadApprovals after refreshing this instance', async () => {
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await approvalsModel.createRule(fixtures.siteId, {
+      name: 'broadcast create',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: [fixtures.groupId]
+    })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
+  })
+
+  test('updateRule broadcasts reloadApprovals after refreshing this instance', async () => {
+    const rule = await approvalsModel.createRule(fixtures.siteId, {
+      name: 'broadcast update',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: [fixtures.groupId]
+    })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await approvalsModel.updateRule(fixtures.siteId, rule.id, { isEnabled: false })
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
+  })
+
+  test('deleteRule broadcasts reloadApprovals after refreshing this instance', async () => {
+    const rule = await approvalsModel.createRule(fixtures.siteId, {
+      name: 'broadcast delete',
+      isEnabled: true,
+      match: 'START',
+      path: '',
+      submitterGroups: [],
+      reviewerGroups: [fixtures.groupId]
+    })
+    ;(WIKI.events.outbound.emit as any).mock.resetCalls()
+    await approvalsModel.deleteRule(fixtures.siteId, rule.id)
+    const calls = (WIKI.events.outbound.emit as any).mock.calls
+    assert.ok(calls.some((c: any) => c.arguments[0] === 'reloadApprovals'))
+  })
+
+  test('subscribeToEvents wires the inbound reloadApprovals event to reloadCache', async () => {
+    let reloaded = false
+    const originalReloadCache = approvalsModel.reloadCache.bind(approvalsModel)
+    approvalsModel.reloadCache = async () => {
+      reloaded = true
+      await originalReloadCache()
+    }
+    try {
+      approvalsModel.subscribeToEvents()
+      const onCalls = (WIKI.events.inbound.on as any).mock.calls
+      const handler = onCalls.find((c: any) => c.arguments[0] === 'reloadApprovals')?.arguments[1]
+      assert.ok(handler, 'expected subscribeToEvents to register a reloadApprovals handler')
+      await handler()
+      assert.equal(reloaded, true)
+    } finally {
+      approvalsModel.reloadCache = originalReloadCache
+    }
   })
 })

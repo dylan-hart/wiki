@@ -59,7 +59,8 @@ test('hasPermission: a page-rule write:scripts grant with no global permissions 
     hasPermission(actor, 'write:scripts', {
       path: 'docs/allowed/getting-started',
       locale: 'en',
-      siteId: null
+      siteId: null,
+      classification: null
     }),
     true
   )
@@ -68,7 +69,12 @@ test('hasPermission: a page-rule write:scripts grant with no global permissions 
 test('hasPermission: the same actor is refused on a page outside the rule scope', () => {
   const actor = { id: 'user-1', permissions: [], groupIds: ['rule-group'] }
   assert.equal(
-    hasPermission(actor, 'write:scripts', { path: 'other/page', locale: 'en', siteId: null }),
+    hasPermission(actor, 'write:scripts', {
+      path: 'other/page',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
     false
   )
 })
@@ -81,7 +87,8 @@ test('hasPermission: holding write:scripts in the global permissions list alone,
     hasPermission(actor, 'write:scripts', {
       path: 'docs/allowed/getting-started',
       locale: 'en',
-      siteId: null
+      siteId: null,
+      classification: null
     }),
     false
   )
@@ -90,11 +97,21 @@ test('hasPermission: holding write:scripts in the global permissions list alone,
 test('hasPermission: manage:system still bypasses everywhere, via checkAccess', () => {
   const actor = { id: 'user-1', permissions: ['manage:system'], groupIds: [] }
   assert.equal(
-    hasPermission(actor, 'write:scripts', { path: 'other/page', locale: 'en', siteId: null }),
+    hasPermission(actor, 'write:scripts', {
+      path: 'other/page',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
     true
   )
   assert.equal(
-    hasPermission(actor, 'write:styles', { path: 'other/page', locale: 'en', siteId: null }),
+    hasPermission(actor, 'write:styles', {
+      path: 'other/page',
+      locale: 'en',
+      siteId: null,
+      classification: null
+    }),
     true
   )
 })

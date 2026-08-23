@@ -40,6 +40,8 @@ export interface AlgoliaPageDocument {
   editor: string
   publishState: string
   isSearchable: boolean
+  /** Classification level id (OpenProject #1079) — what `query()` checks a CLASSIFICATION rule against. */
+  classification: string
   updatedAt: string
   /** Absent for a password-protected page — see `pageToDocument`'s doc comment for why. */
   content?: string
@@ -83,6 +85,7 @@ function escapeFilterValue(value: string): string {
  */
 export function buildFilters(params: SearchPagesParams): string {
   const {
+    siteId,
     path = '',
     locales = [],
     tags = [],
@@ -92,7 +95,10 @@ export function buildFilters(params: SearchPagesParams): string {
     includeDrafts = false
   } = params
 
-  const clauses = ['isSearchable:true']
+  // -> Unconditional and first, mirroring the Elasticsearch module's unconditional `term: { siteId }`
+  //    filter (OpenProject #921): with two sites sharing an app/index -- exactly what the defaults
+  //    produce (`indexName: wiki`) -- an unscoped query returned the other site's pages too.
+  const clauses = [`siteId:"${escapeFilterValue(siteId)}"`, 'isSearchable:true']
 
   // -> Matches what a page view shows an anonymous reader, so search cannot surface a page that could
   //    not then be opened -- same reasoning as `db/search.ts`'s `publicOnly` branch.
@@ -154,6 +160,7 @@ export function pageToDocument(page: SearchIndexablePage): AlgoliaPageDocument {
     editor: page.editor,
     publishState: page.publishState,
     isSearchable: page.isSearchable,
+    classification: page.classification,
     updatedAt,
     ...(page.password ? {} : { content: page.searchContent ?? '' })
   }
@@ -245,13 +252,10 @@ interface SiteClient {
  * and index.
  *
  * `getClient()` builds and caches that state lazily, keyed by the config actually in effect, rather
- * than relying only on `init()` having run first: `init()` exists so the fields task #549's
- * `SearchModule` interface mandates (e.g. `searchableAttributes`) are pushed to Algolia as soon as an
- * operator selects and configures this engine, but nothing in `models/search.ts`'s current call graph
- * invokes it before the first `query`/`created`/etc. call -- `getActiveEngine()` only resolves and
- * returns the module, and `selectEngine()` only persists config. Every hook below therefore resolves
- * its own client through `getClient()`, the same way it would if `init()` had never run, so this
- * module works correctly regardless of whether that wiring is added later.
+ * than relying only on `init()` having run first: `models/search.ts`'s `selectEngine()` and
+ * `initActiveEngines()` do call `init()` now (OpenProject #920), but every hook below still resolves
+ * its own client through `getClient()` independently, so this module keeps working the same way even
+ * for a client built before either of those existed, or if `init()` itself ever fails.
  */
 export class AlgoliaSearchModule implements SearchModule {
   private clients = new Map<string, SiteClient>()
@@ -272,14 +276,18 @@ export class AlgoliaSearchModule implements SearchModule {
         // -> Unlike 2.5.x, which indexed none of these as facets: `tags`/`locale`/`editor`/
         //    `publishState` are what `buildFilters()` needs to turn a `SearchPagesParams` field into
         //    an Algolia `filters` facet equality, and `pathAncestors`/`isSearchable` are what it needs
-        //    for the `path` prefix filter and the always-on searchability gate.
+        //    for the `path` prefix filter and the always-on searchability gate. `siteId` (OpenProject
+        //    #921) is what scopes every query -- and `rebuild()`'s purge -- to one site's own records
+        //    when two sites share an index, which a plain `filters` equality on an unfaceted attribute
+        //    Algolia would otherwise reject.
         attributesForFaceting: [
           'tags',
           'locale',
           'editor',
           'publishState',
           'isSearchable',
-          'pathAncestors'
+          'pathAncestors',
+          'siteId'
         ]
       }
     })
@@ -354,7 +362,9 @@ export class AlgoliaSearchModule implements SearchModule {
    * rename had to `deleteObject` the old id and `addObject` a new one -- this schema's `pages.id` is a
    * stable UUID a move never touches (`models/pages.ts`'s `movePage` updates the row in place). A
    * rename is therefore an ordinary update of the same Algolia object via `saveObject`, which keeps the
-   * page continuously findable instead of briefly missing between a delete and an add.
+   * page continuously findable instead of briefly missing between a delete and an add. A locale
+   * change is rewritten by the same update, which is why this module needs no `previousLocale` of
+   * its own either.
    */
   async renamed(_siteId: string, page: SearchIndexablePage, _previousPath: string): Promise<void> {
     await this.indexPage(page)
@@ -387,7 +397,12 @@ export class AlgoliaSearchModule implements SearchModule {
             path: hit.path,
             locale: hit.locale,
             siteId,
-            tags: hit.tags ?? []
+            tags: hit.tags ?? [],
+            // -> Indexed at write time by `pageToDocument` (OpenProject #1125) -- a document written
+            //    before this field existed has none, which falls back to the same fail-closed `null`
+            //    treatment `helpers/pageRules.ts` documents for a genuinely unknown classification. A
+            //    full reindex (`rebuild()`) backfills every existing document with its real value.
+            classification: hit.classification ?? null
           })
         )
       : hits
@@ -432,13 +447,22 @@ export class AlgoliaSearchModule implements SearchModule {
    * 2.5.x's `WIKI.models.knex(...).stream()`), each page immediately regrouped into
    * Algolia-size-limited batches by `batchDocuments()` and sent with `client.batch()` -- so the whole
    * table is never held in memory at once, the same property the old knex stream had.
+   *
+   * Purges only this site's records first (`deleteBy` on the `siteId` facet), not the whole index
+   * (OpenProject #921): with two sites sharing an app/index -- exactly what the defaults produce
+   * (`indexName: wiki`) -- the previous unconditional `clearObjects` permanently deleted every other
+   * site's records on the very first rebuild. Mirrors the Elasticsearch module's own siteId-scoped
+   * `deleteByQuery` before its own re-add loop.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const PAGE_SIZE = 500
     const { client, indexName } = await this.getClient(siteId)
 
     WIKI.logger.info('(SEARCH/ALGOLIA) Rebuilding index...')
-    await client.clearObjects({ indexName })
+    await client.deleteBy({
+      indexName,
+      deleteByParams: { filters: `siteId:"${escapeFilterValue(siteId)}"` }
+    })
 
     const pageCounts: Record<string, number> = {}
     let total = 0
@@ -462,6 +486,7 @@ export class AlgoliaSearchModule implements SearchModule {
           editor: pagesTable.editor,
           publishState: pagesTable.publishState,
           isSearchable: pagesTable.isSearchable,
+          classification: pagesTable.classification,
           password: pagesTable.password,
           searchContent: pagesTable.searchContent,
           updatedAt: pagesTable.updatedAt

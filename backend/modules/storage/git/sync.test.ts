@@ -144,6 +144,12 @@ function makeTarget(overrides: Partial<StorageTarget> = {}): StorageTarget {
       directAccess: false
     },
     versioning: { isSupported: true, isForceEnabled: true, enabled: true },
+    sync: {
+      supportedModes: ['sync', 'push', 'pull'],
+      schedule: false,
+      mode: 'sync',
+      scheduleOverride: null
+    },
     props: {},
     config: {
       authType: 'basic',
@@ -595,6 +601,60 @@ describe('git storage: sync', () => {
     void peerPath
     const log = await peer.log()
     assert.ok(log.all.some((entry) => entry.message === 'docs: create mine'))
+  })
+
+  // -> OpenProject #925: sync.mode must be respected, not always run the full two-way sequence.
+  test('a push-only target never pulls remote content — its push rejects rather than silently rebasing first', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git, repoPath } = await ensureRepo(target)
+    await git.pull('origin', 'main')
+    await fs.writeFile(path.join(repoPath, 'mine.md'), 'local content')
+    await git.add('mine.md')
+    await git.commit('docs: create mine')
+
+    // -> The remote diverges after local's last pull, exactly the shape "a rebase conflict rejects"
+    //    below exercises for two-way mode. A two-way (or pull-capable) sync would rebase onto this
+    //    first and the push would then succeed; a push-only sync must not — proven here by the raw
+    //    git push itself rejecting as non-fast-forward, since nothing rebased it onto the new tip.
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    await assert.rejects(sync({ ...target, sync: { ...target.sync, mode: 'push' } }))
+
+    // -> Rejected before ever reaching the DB-import step, and the peer's file was never pulled down
+    assert.equal(calls.createPage.length, 0)
+    await assert.rejects(fs.access(path.join(repoPath, 'welcome.md')))
+    void peerPath
+  })
+
+  test('a pull-only target never pushes local commits to origin', async () => {
+    installWiki(localPath, { pages: [] })
+    const { git, repoPath } = await ensureRepo(target)
+    await git.pull('origin', 'main')
+    await fs.writeFile(path.join(repoPath, 'mine.md'), 'local content')
+    await git.add('mine.md')
+    await git.commit('docs: create mine')
+
+    const { peer, peerPath } = await makePeer(originPath)
+    await fs.writeFile(path.join(peerPath, 'welcome.md'), '# Hello there')
+    await peer.add('welcome.md')
+    await peer.commit('docs: create welcome')
+    await peer.push('origin', 'main')
+
+    const calls = installWiki(localPath, { pages: [] })
+    await sync({ ...target, sync: { ...target.sync, mode: 'pull' } })
+
+    // -> Pulled and DB-imported the peer's change...
+    assert.equal(calls.createPage.length, 1)
+    assert.equal(calls.createPage[0].input.path, 'welcome')
+    // -> ...but never pushed the local one
+    const log = await peer.log()
+    assert.ok(!log.all.some((entry) => entry.message === 'docs: create mine'))
+    void peerPath
   })
 
   test('a rebase conflict rejects rather than being force-resolved', async () => {

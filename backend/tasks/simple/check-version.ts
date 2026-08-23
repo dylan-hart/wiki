@@ -1,4 +1,9 @@
 export async function task(): Promise<void> {
+  if (WIKI.config.offline) {
+    WIKI.logger.info('Skipping version check: this instance is in offline mode.')
+    return
+  }
+
   WIKI.logger.info('Checking for latest version...')
 
   try {

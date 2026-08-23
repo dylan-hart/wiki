@@ -123,6 +123,20 @@
                     : t('admin.api.scopedTo', { scope: key.scope.join(', ') })
                 }}</w-item-label>
                 <!--
+                  OpenProject #1205: `null` is unrestricted, the same as every key before this
+                  existed -- same "no narrowing" treatment as `scope` above, rather than a blank
+                  line. An empty array is a distinct, deliberately-reachable state (every level
+                  unchecked) and gets its own wording rather than reading as "unrestricted".
+                -->
+                <template v-if="key.allowedClassifications != null">
+                  <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
+                    t('admin.api.limitedToNone')
+                  }}</w-item-label>
+                  <w-item-label v-else caption>{{
+                    t('admin.api.limitedTo', { levels: classificationLevelNames(key) })
+                  }}</w-item-label>
+                </template>
+                <!--
                   Which site the key is pinned to: `null` is instance-wide, the same as every key
                   before site-pinning existed, so it gets the same "All Sites" wording the picker
                   itself uses rather than reading as a missing value.
@@ -212,9 +226,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.api.title')
-})
+}))
 
 // DATA
 
@@ -226,6 +240,7 @@ const state = reactive({
   groups: [],
   sites: [],
   users: [],
+  classificationLevels: [],
   /** When the signing keypair was generated — what an invalidated key is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -309,6 +324,20 @@ function ownerName(key) {
   return state.users.find((u) => u.id === key.userId)?.name ?? key.userId
 }
 
+/** A classification level's name, by id -- falling back to the id for a level since deleted. */
+function classificationLevelName(id) {
+  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
+/**
+ * A key's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
+ * unrestricted, the same as every key before this existed, so that state renders no line at all
+ * (see the template) rather than an empty list.
+ */
+function classificationLevelNames(key) {
+  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
+}
+
 async function load() {
   state.loading++
   loading.show()
@@ -318,18 +347,21 @@ async function load() {
     //    invalidated it, and users so a personal token (`key.userId` set) can name its owner --
     //    `limit: 100` rather than every page: this is a display convenience for naming an owner, not
     //    a picker that has to be complete, and `ownerName()` falls back to the raw ID beyond that.
-    const [keys, apiState, groups, sites, certs, usersResp] = await Promise.all([
-      API_CLIENT.get('api-keys').json(),
-      API_CLIENT.get('system/api').json(),
-      API_CLIENT.get('groups').json(),
-      API_CLIENT.get('sites').json(),
-      API_CLIENT.get('system/certificates').json(),
-      API_CLIENT.get('users', { searchParams: { limit: 100 } }).json()
-    ])
+    const [keys, apiState, groups, sites, certs, usersResp, classificationLevels] =
+      await Promise.all([
+        API_CLIENT.get('api-keys').json(),
+        API_CLIENT.get('system/api').json(),
+        API_CLIENT.get('groups').json(),
+        API_CLIENT.get('sites').json(),
+        API_CLIENT.get('system/certificates').json(),
+        API_CLIENT.get('users', { searchParams: { limit: 100 } }).json(),
+        API_CLIENT.get('classification-levels').json()
+      ])
     state.keys = keys ?? []
     state.groups = groups ?? []
     state.sites = sites ?? []
     state.users = usersResp?.users ?? []
+    state.classificationLevels = classificationLevels ?? []
     state.enabled = apiState?.isEnabled === true
     state.certificatesGeneratedAt = certs?.generatedAt ?? null
     // -> Keeps the status light in the admin sidebar in step without another round trip

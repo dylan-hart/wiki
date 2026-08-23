@@ -225,7 +225,9 @@ describe('page store: pageSave() concurrency', () => {
         })
     })
 
-    await expect(pageStore.pageSave()).resolves.toBeUndefined()
+    // -> `pageSave()` now resolves `{ classificationConflicts }` on an update (OpenProject #1080) --
+    //    empty here, since this response carries none.
+    await expect(pageStore.pageSave()).resolves.toEqual({ classificationConflicts: [] })
 
     const [, retryOpts] = API_CLIENT.patch.mock.calls[1]
     expect(retryOpts.json.expectedUpdatedAt).toBe(conflictSnapshot.updatedAt)
@@ -273,6 +275,43 @@ describe('page store: pageSave() reads the live editor first (OpenProject #806)'
     expect(opts.json.render).toBe('<p><img src="/assets/pasted.png"></p>')
     expect(opts.json.content).not.toContain('blob:')
     expect(opts.json.render).not.toContain('blob:')
+  })
+
+  it('awaits an asynchronous contentFlusher before building the save body (EditorAsciidoc.vue)', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      content: 'stale',
+      render: 'stale'
+    })
+    // -> Stands in for `EditorAsciidoc.vue`'s `flushEditorContent`, genuinely asynchronous because
+    //    Asciidoctor's `convert` is (`renderers/asciidoc.js`)
+    editorStore.contentFlusher = async () => {
+      await Promise.resolve()
+      pageStore.content = '= Typed\n\nBody.'
+      pageStore.render = '<h1>Typed</h1><p>Body.</p>'
+    }
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: { id: '5', updatedAt: '2026-01-02T00:00:00.000Z', relations: [], tocDepth: {} }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    const [, opts] = API_CLIENT.patch.mock.calls[0]
+    expect(opts.json.content).toBe('= Typed\n\nBody.')
+    expect(opts.json.render).toBe('<h1>Typed</h1><p>Body.</p>')
   })
 
   it('leaves content/render exactly as stored when no editor is mounted (contentFlusher unset)', async () => {
@@ -595,6 +634,32 @@ describe('page store: pageCreate()', () => {
 
     expect(editorStore.hasPendingChanges).toBe(false)
   })
+
+  /**
+   * OpenProject #1092: a `format: 'markdown'` import's front-matter tags need somewhere to land --
+   * `tags` used to be hardcoded to `[]` here regardless of what was passed in.
+   */
+  it('carries an explicit tags argument through, instead of always starting empty', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown', tags: ['alpha', 'beta'] })
+
+    expect(pageStore.tags).toEqual(['alpha', 'beta'])
+  })
+
+  it('defaults tags to an empty array when none is passed', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter('/_create/markdown')
+
+    await pageStore.pageCreate({ editor: 'markdown' })
+
+    expect(pageStore.tags).toEqual([])
+  })
 })
 
 /**
@@ -646,6 +711,32 @@ describe('page store: pageMove()', () => {
     await pageStore.pageMove({ id: 'page-2', path: 'elsewhere', locale: 'fr' })
 
     expect(pageStore.router.replace).not.toHaveBeenCalled()
+  })
+
+  it('sends includeTranslations when the caller asks for the cascade (OpenProject #1026)', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere', includeTranslations: true })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'elsewhere', includeTranslations: true }
+    })
+  })
+
+  it('omits includeTranslations from the body when falsy', async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    pageStore.router = stubRouter()
+    pageStore.$patch({ id: 'page-1', locale: 'en', path: 'some-page' })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere', includeTranslations: false })
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
+      json: { path: 'elsewhere' }
+    })
   })
 })
 

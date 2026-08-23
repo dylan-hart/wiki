@@ -56,9 +56,16 @@ describe('parseLargeThreshold', () => {
     assert.equal(parseLargeThreshold('5 MB', 0), 5 * 1024 * 1024)
   })
 
+  // -> OpenProject #927: a decimal threshold is exactly what the admin API validates and saves
+  //    (models/storage.ts's /^\d+(\.\d+)?\s?(B|KB|MB|GB|TB)$/i), so this parser must accept it too —
+  //    it used to silently fall back to Infinity for one, never classifying anything as large.
+  test('parses a decimal amount', () => {
+    assert.equal(parseLargeThreshold('2.5MB', 0), 2.5 * 1024 * 1024)
+    assert.equal(parseLargeThreshold('0.5KB', 0), 0.5 * 1024)
+  })
+
   test('falls back on an unparseable value', () => {
     assert.equal(parseLargeThreshold('not-a-size', 42), 42)
-    assert.equal(parseLargeThreshold('5.5MB', 42), 42)
     assert.equal(parseLargeThreshold(undefined, 42), 42)
     assert.equal(parseLargeThreshold(null, 42), 42)
   })

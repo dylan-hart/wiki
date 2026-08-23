@@ -26,22 +26,28 @@ const SIZE_UNIT_BYTES = {
 type SizeUnit = keyof typeof SIZE_UNIT_BYTES
 
 /**
- * Parse a `largeThreshold` config string (e.g. `5MB`, `512KB`) into a byte count.
+ * Parse a `largeThreshold` config string (e.g. `5MB`, `512KB`, `2.5MB`) into a byte count.
  *
- * Mirrors `durationToSeconds` in `helpers/common.ts`: one whole number and one unit, no decimals or
- * internal spaces, case-insensitive. `contentTypes.largeThreshold` on a storage target
- * (`models/storage.ts`) is the only place this format is configured.
+ * The single parser every caller of `largeThreshold` shares (OpenProject #927) — `models/storage.ts`'s
+ * `Storage.targetCoversEvent()` (the write-path dispatch gate, size-aware since OpenProject #924) and
+ * this file's own `categoryOf`/`belongsInTarget` (the blob targets' `exportAll` gate) both go through
+ * this, rather than each keeping its own regex that can silently drift out of step with the other —
+ * which is exactly what happened before: this function used to reject a decimal value the admin API
+ * had already validated and saved (`^\d+(\.\d+)?\s?(B|KB|…)$`, `models/storage.ts`'s
+ * `validateTarget()`), silently falling back to `Infinity` and never classifying anything as large for
+ * a target with a threshold like `2.5MB`. The accepted format now matches that validation regex
+ * exactly, including the optional decimal and the optional single space before the unit.
  *
  * @param fallback Returned for anything unparseable, so one bad setting cannot silently reclassify
  *   every asset as large (or none of them)
  */
 export function parseLargeThreshold(value: unknown, fallback: number): number {
-  const match = /^(\d+)\s*(b|kb|mb|gb|tb)$/i.exec(String(value ?? '').trim())
+  const match = /^(\d+(?:\.\d+)?)\s?(b|kb|mb|gb|tb)$/i.exec(String(value ?? '').trim())
   if (!match) {
     return fallback
   }
   const unit = match[2]!.toLowerCase() as SizeUnit
-  const bytes = Number(match[1]) * SIZE_UNIT_BYTES[unit]
+  const bytes = Number.parseFloat(match[1]!) * SIZE_UNIT_BYTES[unit]
   return bytes > 0 ? bytes : fallback
 }
 

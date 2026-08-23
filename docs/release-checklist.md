@@ -36,15 +36,17 @@ this document still anticipates.
 ### 1. CI quality gates green
 
 **Owner: Feature #423 ("Stand up CI quality gates")** for the continuous alpha channel
-(`build.yml`); **enforced independently, today, by `.github/workflows/release.yml`** (task #777)
-for the release channel itself. As of this writing #423 has not landed in `build.yml`, so a
-`scarlett` push still has no typecheck/lint/format/drift job to read — but that no longer matters
-for whether a release can happen: `release.yml` runs the same checks as its own hard gate on every
-`vX.Y.Z` tag push, and a red result there stops the job before the Docker push or GitHub Release
-step, full stop. See [Status of automation](#status-of-automation).
+(`build.yml`); **also enforced independently by `.github/workflows/release.yml`** (task #777) for
+the release channel itself. #423 has since landed in `build.yml`: every `scarlett` push runs a
+`quality` job (`.github/workflows/quality.yml`, shared with `pull_request`) that the `build` job
+`needs:`, so a red typecheck/lint/format/drift result there stops the Docker publish the same way a
+red `release.yml` run stops a release tag. `release.yml` still runs its own copy of the same checks
+rather than depending on `build.yml`'s run for the exact commit a release tag points at — see that
+workflow's own header comment for why. See [Status of automation](#status-of-automation).
 
 For the release commit, confirm **all** of the following are green (read from the `release.yml`
-run for the pushed tag, once #423 also lands in `build.yml` this is corroborated by that job too):
+run for the pushed tag; the `quality.yml` run against the same commit's `scarlett` push corroborates
+it too):
 
 - [ ] Backend `npm run typecheck` — must be green (zero errors).
 - [ ] `oxlint` — must be green (zero warnings/errors) across all three workspaces
@@ -60,12 +62,12 @@ failure looks unrelated." Fix it, or get it fixed, and re-run.
 
 **Owner: Feature #424 ("Build test infrastructure from zero").** This item is deliberately **not**
 a step in `release.yml` (task #777) even though the suites exist and run in CI today: the release
-workflow's own top-of-file comment spells out why — `build.yml`'s `build` job already runs all
-four suites (backend, frontend, blocks, e2e) against every `scarlett` push, including the commit a
-release tag points at, so re-running them a second time on the tag push would be an expensive echo
-of a check that already ran, not an independent gate. This item therefore stays a manual "look at
-the `build.yml` run for the release commit" read, recorded in the release PR, not a `release.yml`
-CI assertion.
+workflow's own top-of-file comment spells out why — `build.yml`'s `quality` job already runs the
+backend/frontend/blocks suites and its `build` job already runs the e2e Playwright suite against
+every `scarlett` push, including the commit a release tag points at, so re-running them a second
+time on the tag push would be an expensive echo of a check that already ran, not an independent
+gate. This item therefore stays a manual "look at the `build.yml` run for the release commit" read,
+recorded in the release PR, not a `release.yml` CI assertion.
 
 **Enforceable today.** Feature #424 has landed on this branch: every workspace has a real test
 suite wired into `build.yml` as a required step, run in this order, each one gating the steps after
@@ -189,13 +191,13 @@ human call, not something this checklist should ever try to automate away.
 A snapshot of what's real today versus what this document anticipates, so nobody mistakes the
 future-tense sections above for present-tense fact:
 
-| Item                   | Owner                    | Exists on `scarlett` today?                                                              |
-| ---------------------- | ------------------------ | ---------------------------------------------------------------------------------------- |
-| 1. CI quality gates    | Feature #423 / task #777 | Partially — enforced in `release.yml` (task #777); still missing from `build.yml`        |
-| 2. Test suites         | Feature #424             | Yes — all four suites (backend/frontend/blocks/e2e) run as required steps in `build.yml` |
-| 3. `docs/variances.md` | Feature #425             | Yes — file exists and is populated; #425 formalizes ongoing discipline around it         |
-| 4. Bundle drift guards | Feature #423 / task #777 | Partially — same as item 1, `release.yml` only                                           |
-| 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                            |
+| Item                   | Owner                    | Exists on `scarlett` today?                                                                                                                                     |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. CI quality gates    | Feature #423 / task #777 | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again  |
+| 2. Test suites         | Feature #424             | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job |
+| 3. `docs/variances.md` | Feature #425             | Yes — file exists and is populated; #425 formalizes ongoing discipline around it                                                                                 |
+| 4. Bundle drift guards | Feature #423 / task #777 | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                           |
+| 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                                                                                                    |
 
 Nothing in this table is a criticism of those Features — they are each independently in progress
 under the same parent Feature (#426) as this document, at the time it was written. This table
@@ -216,5 +218,9 @@ N/A to an enforced gate in the same change.
 - `.github/workflows/release.yml` — the gated release channel (task #777): the workflow that
   actually enforces item 1 of this checklist on every `vX.Y.Z` tag push, and whose own top-of-file
   comment explains why items 2 and 5 stay manual sign-off rather than becoming workflow steps.
-- `.github/workflows/build.yml` — the continuous alpha channel, unchanged by the split. Item 1 also
-  lands here once Feature #423 wires its own gate into this file.
+- `.github/workflows/build.yml` — the continuous alpha channel. Its `build` job `needs:` the
+  `quality` job (`quality.yml`) for item 1, and runs the e2e Playwright suite itself for the rest
+  of item 2.
+- `.github/workflows/quality.yml` — item 1's actual gate (typecheck/lint/format/drift) plus the
+  backend/frontend/blocks unit suites for item 2, shared between `pull_request`, `build.yml`'s
+  `quality` job, and `workflow_dispatch`.

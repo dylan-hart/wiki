@@ -1070,7 +1070,15 @@ class Rendering {
           }
           const html = await renderer.render(
             page.content ?? '',
-            WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config ?? {},
+            {
+              ...WIKI.sites[entry.siteId]?.config?.editors?.[page.editor]?.config,
+              // -> No specific reader to speak for in a background re-render (OpenProject #1127) --
+              //    resolved as an anonymous visitor would be, rather than skipping the check.
+              glossaryTerms: await WIKI.models.glossary.getCachedTerms(
+                entry.siteId,
+                WIKI.models.groups.guestActor()
+              )
+            },
             { pagePath: page.path }
           )
           await WIKI.models.pages.storeRender(

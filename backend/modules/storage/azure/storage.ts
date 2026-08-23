@@ -201,14 +201,14 @@ async function exportAll(target: StorageTarget): Promise<void> {
  * (`generateSasUrl` performs no network call), scoped to read-only (`BlobSASPermissions.parse('r')`)
  * on a short expiry — the same shape as `s3`'s presigned GET, `getSignedUrl`.
  *
- * This module only supplies the URL-generation half of that: `s3`/`azure`/`gcs` are the only targets
- * that declare `assetDelivery.isDirectAccessSupported: true`, and nothing calls this yet — the
- * `/content` serving path that would (Feature 368) and the write-path dispatch hook that would keep a
- * target's container in sync in the first place (Feature 370) both land separately.
+ * `s3`/`azure`/`gcs` are the only targets that declare `assetDelivery.isDirectAccessSupported: true`;
+ * `models/assets.ts`'s `directUrlFor()` calls this (as `StorageModule.getDirectUrl`) whenever a
+ * target both enables `assetDelivery.directAccess` and has a module implementing it — asset first,
+ * target second, matching every other `StorageModule` handler's argument order.
  */
-async function getDirectAccessUrl(
-  target: StorageTarget,
-  asset: { folderPath: string; fileName: string }
+async function getDirectUrl(
+  asset: { folderPath: string; fileName: string },
+  target: StorageTarget
 ): Promise<string> {
   const container = await getClient(target)
   const key = keyFor(target, asset.folderPath, asset.fileName)
@@ -226,7 +226,7 @@ const azureStorage: StorageModule = {
   assetDeleted,
   assetRenamed,
   exportAll,
-  getDirectAccessUrl
+  getDirectUrl
 }
 
 export default azureStorage

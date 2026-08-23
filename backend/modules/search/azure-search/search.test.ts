@@ -149,6 +149,7 @@ function page(overrides: Partial<SearchIndexablePage> = {}): SearchIndexablePage
     isBrowsable: true,
     isSearchable: true,
     isSearchableComputed: true,
+    classification: 'classification-1',
     password: null,
     ratingScore: 0,
     ratingCount: new Date('2024-01-01T00:00:00Z'),
@@ -170,6 +171,7 @@ describe('azure-search module: buildIndexSchema', () => {
     const names = schema.fields.map((f) => f.name)
     assert.equal(new Set(names).size, names.length)
     assert.deepEqual(names.sort(), [
+      'classification',
       'content',
       'description',
       'editor',
@@ -337,6 +339,7 @@ describe('azure-search module: toIndexDocument', () => {
     assert.equal(doc.content, 'Hello kangaroo content')
     assert.deepEqual(doc.tags, ['animals'])
     assert.equal(doc.hasPassword, false)
+    assert.equal(doc.classification, 'classification-1')
     assert.equal(doc.updatedAt, '2024-01-02T03:04:05.678Z')
   })
 
@@ -487,6 +490,50 @@ describe('azure-search module: created/updated/deleted/renamed', () => {
   })
 })
 
+/**
+ * OpenProject #922: the query client used to be cached by siteId alone, so changing
+ * `serviceName`/`adminApiKey`/`indexName` in the admin area had no effect until a process restart.
+ * Cached alongside a `configKey` (as JSON) now, mirroring the pattern `elasticsearch`/`algolia`'s
+ * `getClient()` already use.
+ */
+describe('azure-search module: query client caching', () => {
+  test('reuses the same client across calls when the site config is unchanged', async () => {
+    let factoryCalls = 0
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => {
+      factoryCalls++
+      return client
+    })
+
+    await azureSearch.created(page())
+    await azureSearch.created(page())
+
+    assert.equal(factoryCalls, 1)
+  })
+
+  test('builds a fresh client once the site config changes, rather than keeping a stale one', async () => {
+    let factoryCalls = 0
+    const client = fakeQueryClient()
+    const azureSearch = new AzureSearchModule(undefined, () => {
+      factoryCalls++
+      return client
+    })
+    const engines = (globalThis as any).WIKI.sites['site-1'].config.search.engines
+    const originalConfig = engines['azure-search']
+
+    try {
+      await azureSearch.created(page())
+      assert.equal(factoryCalls, 1)
+
+      engines['azure-search'] = { ...originalConfig, indexName: 'wiki-v2' }
+      await azureSearch.created(page())
+      assert.equal(factoryCalls, 2)
+    } finally {
+      engines['azure-search'] = originalConfig
+    }
+  })
+})
+
 describe('azure-search module: query()', () => {
   function row(overrides: Partial<AzureSearchRow['document']> = {}, score = 1): AzureSearchRow {
     return {
@@ -601,6 +648,29 @@ describe('azure-search module: query()', () => {
     assert.equal(result.results.length, 1)
     assert.equal(result.results[0]!.id, 'p2')
     assert.equal(result.totalHits, 1)
+    WIKI.models.groups.checkAccess = () => true
+  })
+
+  test('passes each row’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {
+    const client = fakeQueryClient([
+      { count: 1, rows: [row({ classification: 'classification-restricted' })] }
+    ])
+    const azureSearch = new AzureSearchModule(undefined, () => client)
+    const actor = { groupIds: [], permissions: [] }
+    const seen: any[] = []
+    ;(WIKI.models.groups.checkAccess as any) = (_actor: any, _perm: any, p: any) => {
+      seen.push(p.classification)
+      return true
+    }
+
+    await azureSearch.query({
+      siteId: 'site-1',
+      query: 'kangaroo',
+      actor,
+      hideProtectedContent: false
+    })
+
+    assert.deepEqual(seen, ['classification-restricted'])
     WIKI.models.groups.checkAccess = () => true
   })
 
@@ -742,6 +812,71 @@ describe('azure-search module: rebuild()', () => {
 
     assert.deepEqual(result, { pages: 0, locales: [{ locale: 'en', pages: 0 }] })
     assert.equal(client.merged.length, 0)
+  })
+
+  /**
+   * OpenProject #922: `rebuild()` only ever upserted, so a page deleted while this engine was
+   * unreachable stayed in the index forever -- a ghost result. It now queries every id already in the
+   * index for the site and deletes whichever ones were not just re-uploaded.
+   */
+  describe('purges ghost documents', () => {
+    test('deletes an indexed id that was not re-uploaded, keeps the ones that were', async () => {
+      const client = fakeQueryClient([
+        {
+          count: 2,
+          rows: [
+            { document: { id: 'stays' }, score: 1 },
+            { document: { id: 'ghost' }, score: 1 }
+          ]
+        }
+      ])
+      const source = fakePageSource({ en: [page({ id: 'stays' })] })
+      const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+      await azureSearch.rebuild('site-1')
+
+      assert.deepEqual(client.deleted, [{ keyName: 'id', keyValues: ['ghost'] }])
+    })
+
+    test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
+      const client = fakeQueryClient([{ count: 1, rows: [{ document: { id: 'p1' }, score: 1 }] }])
+      const source = fakePageSource({ en: [page({ id: 'p1' })] })
+      const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+      await azureSearch.rebuild('site-1')
+
+      assert.deepEqual(client.deleted, [])
+    })
+
+    test('the stale-id lookup is scoped to the site, not just any indexed id', async () => {
+      const client = fakeQueryClient([
+        { count: 1, rows: [{ document: { id: 'ghost' }, score: 1 }] }
+      ])
+      const source = fakePageSource({ en: [] })
+      const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+      await azureSearch.rebuild('site-1')
+
+      assert.match(client.searches[0]!.options.filter, /siteId eq 'site-1'/)
+    })
+
+    test('chunks deleteDocuments at REBUILD_BATCH_SIZE, mirroring the upload loop above', async () => {
+      const ghostCount = REBUILD_BATCH_SIZE + 1
+      const rows = Array.from({ length: ghostCount }, (_, i) => ({
+        document: { id: `ghost-${i}` },
+        score: 1
+      }))
+      const client = fakeQueryClient([{ count: ghostCount, rows }])
+      const source = fakePageSource({ en: [] })
+      const azureSearch = new AzureSearchModule(undefined, () => client, source)
+
+      await azureSearch.rebuild('site-1')
+
+      assert.equal(client.deleted.length, 2)
+      assert.equal(client.deleted[0]!.keyValues.length, REBUILD_BATCH_SIZE)
+      assert.equal(client.deleted[1]!.keyValues.length, 1)
+      assert.equal(client.deleted.flatMap((d) => d.keyValues).length, ghostCount)
+    })
   })
 })
 

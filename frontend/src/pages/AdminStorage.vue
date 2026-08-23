@@ -421,6 +421,21 @@
                   :class="dark.isActive ? `bg-negative text-white` : `bg-grey-2 text-grey-7`"
                   >{{ t('admin.storage.actionsInactiveWarn') }}</w-banner
                 >
+                <!--
+                  A module such as disk/sftp declares `push` mode but implements none of the write-path
+                  content handlers (see `StorageDefinition.supportsContentSync`) — enabling it does not
+                  make it sync on every page/asset change, only the actions below actually write
+                  anything. Shown whenever there IS at least one action, so it doesn't pile onto
+                  noActions above for a module with neither.
+                -->
+                <w-banner
+                  class="mt-4"
+                  v-else-if="!state.target.sync?.supportsContentSync"
+                  :class="
+                    dark.isActive ? `bg-deep-orange text-white` : `bg-orange-1 text-deep-orange`
+                  "
+                  >{{ t('admin.storage.noLiveSync') }}</w-banner
+                >
               </w-card-section>
               <template v-if="state.target.isEnabled" v-for="(act, idx) in state.target.actions">
                 <w-separator class="my-2" inset v-if="idx > 0" />
@@ -730,9 +745,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.storage.title')
-})
+}))
 
 // DATA
 

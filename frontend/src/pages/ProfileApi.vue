@@ -61,6 +61,14 @@
                   ? t('profile.api.newKeyFullAccess')
                   : t('profile.api.scopedTo', { scope: key.scope.join(', ') })
               }}</w-item-label>
+              <template v-if="key.allowedClassifications != null">
+                <w-item-label v-if="key.allowedClassifications.length < 1" caption>{{
+                  t('profile.api.limitedToNone')
+                }}</w-item-label>
+                <w-item-label v-else caption>{{
+                  t('profile.api.limitedTo', { levels: classificationLevelNames(key) })
+                }}</w-item-label>
+              </template>
               <w-item-label caption>{{
                 t('profile.api.keySite', { site: siteName(key) })
               }}</w-item-label>
@@ -131,9 +139,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('profile.api.title')
-})
+}))
 
 // DATA
 
@@ -141,6 +149,7 @@ const state = reactive({
   loading: 0,
   keys: [],
   sites: [],
+  classificationLevels: [],
   /** When the signing keypair was generated -- what an invalidated token is invalidated by. */
   certificatesGeneratedAt: null
 })
@@ -205,6 +214,20 @@ function siteName(key) {
   return state.sites.find((s) => s.id === key.siteId)?.title ?? key.siteId
 }
 
+/** A classification level's name, by id -- falling back to the id for a level since deleted. */
+function classificationLevelName(id) {
+  return state.classificationLevels.find((l) => l.id === id)?.name ?? id
+}
+
+/**
+ * A token's `allowedClassifications` (OpenProject #1205), joined by name for display -- `null` is
+ * unrestricted, the same as every token before this existed, so that state renders no line at all
+ * (see the template) rather than an empty list.
+ */
+function classificationLevelNames(key) {
+  return key.allowedClassifications.map((id) => classificationLevelName(id)).join(', ')
+}
+
 async function load() {
   state.loading++
   try {
@@ -230,6 +253,14 @@ async function load() {
     state.sites = (await API_CLIENT.get('sites').json()) ?? []
   } catch {
     state.sites = []
+  }
+  // -> Public-access (needs no permission), so this one is not wrapped in the same "degrade
+  //    silently" reasoning as `sites` above -- it should always succeed, but still fails soft into
+  //    `classificationLevelName()`'s own id fallback rather than take down the token list.
+  try {
+    state.classificationLevels = (await API_CLIENT.get('classification-levels').json()) ?? []
+  } catch {
+    state.classificationLevels = []
   }
   state.loading--
 }

@@ -79,6 +79,14 @@ const { t } = useI18n()
 // STATE
 
 let editor
+/**
+ * The `debounce()`-wrapped content-change handler, kept only so `onBeforeUnmount` can `cancel()` it.
+ * Without this, a debounced call still pending when the component unmounts fires ~500ms later,
+ * reading `editor.getValue()` off the already-`dispose()`d editor and potentially patching
+ * `pageStore.content` after the session has ended (the #808 bug class; see `EditorMarkdown.vue`'s
+ * matching comment) (OpenProject #943).
+ */
+let debouncedContentChange = null
 const monacoRef = ref(null)
 
 /*
@@ -144,6 +152,24 @@ function insertAtCursor(content) {
   editor.focus()
 }
 
+/**
+ * Applies the editor's current value to the store immediately, bypassing the debounce below.
+ *
+ * Registered as `editorStore.contentFlusher` so `pageSave()` can call it before saving -- see
+ * `EditorMarkdown.vue`'s matching `flushEditorContent` and the comment on `contentFlusher` in
+ * `stores/page.js`'s `pageSave` for why: without it, typing then immediately clicking Save (or
+ * Ctrl+S) within the 500ms debounce window saves the page without the last edits (OpenProject #943,
+ * the #806 bug class).
+ */
+function flushEditorContent() {
+  const value = editor.getValue()
+  pageStore.$patch({
+    content: value,
+    render: value,
+    contentLoaded: true
+  })
+}
+
 // MOUNTED
 
 onMounted(() => {
@@ -182,29 +208,35 @@ onMounted(() => {
 
   // -> Handle content change: the raw source goes to both `content` and `render` -- see the component
   //    doc comment for why there is no rendering step in between.
-  editor.onDidChangeModelContent(
-    debounce(() => {
-      editorStore.$patch({
-        lastChangeTimestamp: Temporal.Now.instant()
-      })
-      const value = editor.getValue()
-      pageStore.$patch({
-        content: value,
-        render: value,
-        // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-        //    the guard in `pageSave`
-        contentLoaded: true
-      })
-    }, 500)
-  )
+  debouncedContentChange = debounce(() => {
+    editorStore.$patch({
+      lastChangeTimestamp: Temporal.Now.instant()
+    })
+    // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+    //    the guard in `pageSave`
+    pageStore.contentLoaded = true
+    flushEditorContent()
+  }, 500)
+  editor.onDidChangeModelContent(debouncedContentChange)
 
   editor.focus()
 
   EVENT_BUS.on('insertAsset', insertAssetClb)
+
+  // -> See `flushEditorContent` above and `pageSave()` in `stores/page.js` for why this exists
+  editorStore.contentFlusher = flushEditorContent
 })
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
+  // -> Only clear it if it is still this instance's -- guards against a second mount's registration
+  //    being torn down by the first's unmount in whatever order they settle in
+  if (editorStore.contentFlusher === flushEditorContent) {
+    editorStore.contentFlusher = null
+  }
+  // -> A pending debounced call left uncancelled fires ~500ms after unmount, against an editor that
+  //    `dispose()` (below) has already torn down (OpenProject #943, the #808 bug class).
+  debouncedContentChange?.cancel()
   if (editor) {
     editor.dispose()
   }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 import { useEditorStore } from './editor.js'
+import { useSiteStore } from './site.js'
 
 beforeEach(() => {
   setActivePinia(createPinia())
@@ -66,6 +67,52 @@ describe('editor store: fetchUserSettings()', () => {
   })
 })
 
+/**
+ * OpenProject #870: the resolved glossary term list is fetched alongside the site's editor config and
+ * folded into `editors.markdown`, since that is what every `MarkdownRenderer` call site already reads.
+ */
+describe('editor store: fetchConfigs() glossary terms (OpenProject #870)', () => {
+  it("folds the resolved glossary terms into the markdown editor's config", async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockImplementationOnce((url) => {
+      expect(url).toBe('sites/site-1')
+      return {
+        json: () => Promise.resolve({ editors: { markdown: { config: { underline: true } } } })
+      }
+    })
+    API_CLIENT.get.mockImplementationOnce((url) => {
+      expect(url).toBe('sites/site-1/glossary/terms')
+      return {
+        json: () =>
+          Promise.resolve([
+            { term: 'API', definition: 'Application Programming Interface', link: null }
+          ])
+      }
+    })
+
+    await store.fetchConfigs()
+
+    expect(store.editors.markdown).toEqual({
+      underline: true,
+      glossaryTerms: [{ term: 'API', definition: 'Application Programming Interface', link: null }]
+    })
+  })
+
+  it('defaults to an empty glossary term list rather than leaving it undefined', async () => {
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const store = useEditorStore()
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(undefined) })
+
+    await store.fetchConfigs()
+
+    expect(store.editors.markdown).toEqual({ glossaryTerms: [] })
+  })
+})
+
 /*
   OpenProject #806 follow-up: every browser hands a clipboard-pasted file the same literal name,
   "image.png", so every paste on every page used to upload to the same asset path -- and the site's
@@ -107,5 +154,47 @@ describe('editor store: addPendingAsset() (OpenProject #806 follow-up)', () => {
     store.addPendingAsset(file, { generateUniqueName: true })
 
     expect(store.pendingAssets[0].fileName.endsWith('.webp')).toBe(true)
+  })
+})
+
+/**
+ * OpenProject #952: the `File` constructor takes an ITERABLE of BlobParts, not a bare `Blob` --
+ * `new File(data, fileName, ...)` with a raw Blob threw `The "sources" argument must be a sequence`
+ * rather than queuing it. This branch is currently dead in the app (the only caller,
+ * `EditorMarkdown.vue`'s paste/drop handling, always passes real `File` instances), but the moment
+ * any future caller hands it a raw Blob (e.g. canvas `toBlob()` output), it must queue successfully
+ * rather than throw.
+ */
+describe('editor store: addPendingAsset() Blob branch (OpenProject #952)', () => {
+  it('queues a raw (non-File) Blob without throwing', () => {
+    const store = useEditorStore()
+    const blob = new Blob(['a'], { type: 'image/png' })
+
+    expect(() => store.addPendingAsset(blob)).not.toThrow()
+    expect(store.pendingAssets).toHaveLength(1)
+  })
+
+  it('wraps the Blob in a real File, named from the mime-type table', () => {
+    const store = useEditorStore()
+    const blob = new Blob(['a'], { type: 'image/webp' })
+
+    store.addPendingAsset(blob)
+
+    const asset = store.pendingAssets[0]
+    expect(asset.kind).toBe('blob')
+    expect(asset.file).toBeInstanceOf(File)
+    expect(asset.file.type).toBe('image/webp')
+    expect(asset.fileName.endsWith('.webp')).toBe(true)
+    expect(asset.file.name).toBe(asset.fileName)
+  })
+
+  it('preserves the blob content in the wrapped File', async () => {
+    const store = useEditorStore()
+    const blob = new Blob(['hello blob'], { type: 'text/plain' })
+
+    store.addPendingAsset(blob)
+
+    const text = await store.pendingAssets[0].file.text()
+    expect(text).toBe('hello blob')
   })
 })

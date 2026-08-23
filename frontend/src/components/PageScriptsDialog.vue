@@ -102,15 +102,26 @@ const languageLabel = computed(() => {
   }
 })
 
-const contentStoreKey = computed(() => {
-  return 'script' + props.mode.charAt(0).toUpperCase() + props.mode.slice(1)
-})
+/*
+  An explicit lookup rather than deriving the key by capitalizing `props.mode` (OpenProject #1130):
+  that scheme happens to land on the real pageStore field for `jsLoad`/`jsUnload`
+  (`scriptJsLoad`/`scriptJsUnload`) but not for `styles`, whose actual field is `scriptCss` --
+  `'script' + 'Styles'` produced `scriptStyles`, a property that doesn't exist on the store and isn't
+  in `pageSave()`'s `pick()` allowlist either, so the CSS editor read and wrote nothing at all.
+*/
+const MODE_STORE_KEYS = {
+  jsLoad: 'scriptJsLoad',
+  jsUnload: 'scriptJsUnload',
+  styles: 'scriptCss'
+}
+
+const contentStoreKey = computed(() => MODE_STORE_KEYS[props.mode])
 
 // METHODS
 
 function persist() {
   pageStore.$patch({
-    [contentStoreKey]: state.content
+    [contentStoreKey.value]: state.content
   })
 }
 

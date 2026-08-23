@@ -60,6 +60,16 @@ export const apiKeys = pgTable(
     //    actually addressed to is a follow-up (Epic 11, Multi-Site Platform) — this column and the
     //    claim it is signed into only carry the data.
     siteId: uuid().references(() => sites.id),
+    // -> A per-level allow-set (OpenProject #1205, replacing the earlier #1055 single-value
+    //    "ceiling"): null means unrestricted (today's only behavior, and the default, and stays
+    //    unrestricted against any level added later), an array of level ids means this key/token may
+    //    never be granted a page permission on a page whose classification is not IN this set --
+    //    checked in `groups.checkAccess()` alongside `scope` above, before any rule is even
+    //    consulted. `jsonb` rather than a uuid column with an FK, same shape as `scope` above -- a
+    //    free allow-set has no single value left for a column-level FK to reference.
+    //    `models/classificationLevels.ts#delete()`'s "in use" guard checks this column with a jsonb
+    //    containment query instead, for the same reason it still checks `pages`.
+    allowedClassifications: jsonb().$type<string[] | null>().default(null),
     // -> Non-null makes this a personal access token: created by and acting as this user, rather than
     //    an admin-issued key carrying `groups` above. A personal token's permissions are never read
     //    from `groups` (left `[]` for these rows) or snapshotted at creation — `models/apiKeys.ts`'s
@@ -78,6 +88,68 @@ export const apiKeys = pgTable(
   (table) => [
     index('apiKeys_siteId_idx').on(table.siteId),
     index('apiKeys_userId_idx').on(table.userId)
+  ]
+)
+
+// AUDIT LOG ----------------------------
+/**
+ * One row per instance-wide, permission-affecting event: user/group/permission changes, API key
+ * issuance and revocation, site settings edits, storage-target changes, and login history.
+ *
+ * Deliberately narrower than page history (`pageHistory` below) -- page content edits are already
+ * covered there, per page, and repeating them here would be a second copy of the same events with
+ * none of the diffing/restore machinery that makes the page-scoped table useful. This table answers
+ * "what happened on this wiki" instead of "what happened to this page".
+ *
+ * Append-only: nothing ever updates a row, and the only deletions are the retention job
+ * (`tasks/simple/clean-audit-log.ts`) trimming rows older than the configured window.
+ */
+export const auditLog = pgTable(
+  'auditLog',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    /**
+     * `<subject>.<verb>`, e.g. `user.created`, `group.permissionsChanged`, `apiKey.issued`,
+     * `login.success`. A varchar rather than an enum, same reasoning as `pageHistory.action`: a new
+     * event kind should not need a migration. `models/auditLog.ts`'s `AUDIT_EVENTS` is the closed
+     * list callers are expected to use.
+     */
+    event: varchar({ length: 64 }).notNull(),
+    // -> Null once the account is gone, or for an event with no human actor (a scheduled job).
+    //    `set null` rather than `restrict`/`cascade`: a log entry survives its actor exactly the way
+    //    `pageHistory.authorId` does, for the same reason -- deleting a user must not be blocked by,
+    //    or take down, the record of what they once did.
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    // -> Snapshotted at write time, same reasoning as `pageHistory` keeping `locale`/`path`/`title`
+    //    as columns rather than joining live: a renamed or deleted account must not rewrite history
+    //    that already happened under the old name.
+    actorName: varchar({ length: 255 }).notNull().default(''),
+    actorIp: varchar({ length: 64 }).notNull().default(''),
+    // -> What kind of thing the event happened to -- `user`, `group`, `apiKey`, `site`,
+    //    `storageTarget` -- and its id/label at the time. Not a foreign key: several of those
+    //    target tables (`groups`, `apiKeys`, ...) have no stable reason to keep a row alive just
+    //    because it once appeared in a log, and a deleted group's history is exactly the case this
+    //    table exists to keep.
+    targetType: varchar({ length: 32 }).notNull().default(''),
+    targetId: varchar({ length: 255 }).notNull().default(''),
+    targetLabel: varchar({ length: 255 }).notNull().default(''),
+    // -> What changed, shaped per event -- e.g. `{ changedFields: [...] }` for an update, `{ groups:
+    //    [...] }` for a key issuance. Free-form the same way `pageHistory.meta` is, for the same
+    //    reason: a field added to the thing being logged should not need this table's shape to change.
+    detail: jsonb().notNull().default({}),
+    // -> Null for an event with no site context (user/group/apiKey management). Site settings and
+    //    storage-target changes are per-site, and a login happens against the site it was attempted
+    //    on, so those rows carry it.
+    siteId: uuid().references(() => sites.id, { onDelete: 'set null' }),
+    createdAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> The admin list's default view: newest first, across the whole instance
+    index('auditLog_createdAt_idx').on(table.createdAt),
+    // -> Filtering by actor or by event, the other two filters the admin list offers
+    index('auditLog_actorId_idx').on(table.actorId, table.createdAt),
+    index('auditLog_event_idx').on(table.event, table.createdAt),
+    index('auditLog_siteId_idx').on(table.siteId, table.createdAt)
   ]
 )
 
@@ -229,9 +301,6 @@ export const blocks = pgTable(
     // -> Body the editor writes between the opening and closing lines, for a custom block whose
     //    content is other blocks. Empty for one that takes none.
     template: text().notNull().default(''),
-    // -> Overrides the `block-{block}` element name a custom component's code actually registers
-    //    itself under. Empty string means no override — render as `block-{block}` like a built-in.
-    elementTag: varchar({ length: 255 }).notNull().default(''),
     siteId: uuid()
       .notNull()
       .references(() => sites.id)
@@ -276,6 +345,55 @@ export const blockCode = pgTable('blockCode', {
   updatedAt: timestamp().notNull().defaultNow()
 })
 
+// BLOCK CREDENTIALS --------------------
+/**
+ * A secret held server-side only, for a block whose props (embedded in a page's own markdown, plainly
+ * readable by anyone holding `read:source`) must never carry the credential itself — `block-live-data`
+ * (OpenProject #868) is the first, and so far only, consumer. A block prop stores this row's `id`
+ * alone; resolving `secret` happens entirely server-side (`models/blockCredentials.ts`'s
+ * `getCredentialForResolve()`) and it is never serialized back into an API response — see that
+ * model's header comment.
+ * `allowedDomains` is the deny-by-default scoping list `models/liveData.ts#resolve()` checks a
+ * block's configured URL against before ever attaching the secret — see that file's header comment.
+ */
+export const blockCredentials = pgTable(
+  'blockCredentials',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    name: varchar({ length: 255 }).notNull(),
+    secret: text().notNull(),
+    allowedDomains: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [index('blockCredentials_siteId_idx').on(table.siteId)]
+)
+
+// CLASSIFICATION LEVELS -----------------
+/**
+ * The admin-configurable sensitivity levels a page may carry (OpenProject #1079), same pattern as
+ * `groups`: seeded with three defaults (`public` / `internal` / `restricted`, at the fixed
+ * `systemIds` below) that an administrator may rename, reorder, add to, or remove -- no pluggable
+ * external classification provider, plain Wiki.js data.
+ *
+ * Instance-wide, not per-site, mirroring `groups` itself.
+ */
+export const classificationLevels = pgTable('classificationLevels', {
+  id: uuid().primaryKey().defaultRandom(),
+  name: varchar({ length: 255 }).notNull(),
+  // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
+  //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
+  sortOrder: integer().notNull().default(0),
+  createdAt: timestamp().notNull().defaultNow(),
+  updatedAt: timestamp().notNull().defaultNow()
+})
+
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
   id: uuid().primaryKey().defaultRandom(),
@@ -289,6 +407,74 @@ export const groups = pgTable('groups', {
   createdAt: timestamp().notNull().defaultNow(),
   updatedAt: timestamp().notNull().defaultNow()
 })
+
+// GLOSSARY TERMS -----------------------
+export const glossaryTerms = pgTable(
+  'glossaryTerms',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    term: varchar({ length: 255 }).notNull(),
+    definition: text().notNull(),
+    // -> Alternate surface forms (acronyms, alternate names) that resolve to this same term's
+    //    `definition`/`pageId` -- no per-alias override (OpenProject #1110). Uniqueness across this
+    //    column combined with `term`, and across rows, is enforced at the application level in
+    //    `models/glossary.ts` -- a plain index cannot express "unique across an array column + a
+    //    scalar column, combined, across every row".
+    aliases: text()
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> The term's canonical page, optional. `set null` rather than `cascade`: deleting the linked
+    //    page should unlink the term, not delete the definition itself.
+    pageId: uuid().references(() => pages.id, { onDelete: 'set null' })
+  },
+  (table) => [
+    index('glossaryTerms_siteId_idx').on(table.siteId),
+    // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
+    //    differ only by case are a duplicate, not two distinct terms. This only guards `term` itself --
+    //    alias collisions (with another row's term OR aliases) are checked in `models/glossary.ts`.
+    uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
+  ]
+)
+
+// GLOSSARY VERSIONS --------------------
+/**
+ * One row per saved snapshot of a site's ENTIRE glossary term list (OpenProject #1113) -- not a
+ * per-term history mirroring `pageHistory`. Written whenever the admin staged-edit workflow saves,
+ * an import replaces the glossary, or a version is restored, each of which goes through
+ * `models/glossary.ts`'s `saveVersion()`. Append-only: nothing ever updates a row; nothing currently
+ * prunes them either, unlike `auditLog`'s retention job -- a glossary's version count is small and
+ * human-triggered, not one row per API call.
+ */
+export const glossaryVersions = pgTable(
+  'glossaryVersions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    // -> The GlossaryExport shape (`models/glossary.ts`) -- the SAME JSON representation
+    //    export/import use (OpenProject #1114), so a version can be exported or restored through the
+    //    exact same wholesale-replace path as an import.
+    snapshot: jsonb().notNull(),
+    termCount: integer().notNull(),
+    // -> Same reasoning as `auditLog.actorId`/`actorName`: `set null` so a log entry survives its
+    //    actor, `actorName` snapshotted at write time so a renamed/deleted account doesn't rewrite
+    //    history that already happened under the old name.
+    actorId: uuid().references(() => users.id, { onDelete: 'set null' }),
+    actorName: varchar({ length: 255 }).notNull().default(''),
+    createdAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    index('glossaryVersions_siteId_idx').on(table.siteId),
+    index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
+  ]
+)
 
 // HOOKS -------------------------------
 export const hookStateEnum = pgEnum('hookState', ['pending', 'success', 'error'])
@@ -600,13 +786,27 @@ export const pages = pgTable(
       .references(() => users.id),
     siteId: uuid()
       .notNull()
-      .references(() => sites.id)
+      .references(() => sites.id),
+    // -> Every page always has a classification -- there is no unclassified state (OpenProject
+    //    #1079). `models/pages.ts#createPage` always resolves and supplies one explicitly (the
+    //    floor-invariant value against the parent, or the most-open level) on every real insert, so
+    //    this default is never read by application code -- it exists purely so that ADDING this
+    //    column to a table that may already hold pages (this branch's own dev database included, not
+    //    just a hypothetical prior release) backfills them to the fixed `classificationPublicId`
+    //    system row (`base.yml`) instead of the migration itself failing outright on existing rows.
+    //    No `onDelete` clause, so the FK's default RESTRICT is what stops an administrator deleting a
+    //    level still in use -- see `models/classificationLevels.ts#delete`.
+    classification: uuid()
+      .notNull()
+      .default('30000000-0000-4000-8000-000000000001')
+      .references(() => classificationLevels.id)
   },
   (table) => [
     index('pages_authorId_idx').on(table.authorId),
     index('pages_creatorId_idx').on(table.creatorId),
     index('pages_ownerId_idx').on(table.ownerId),
     index('pages_siteId_idx').on(table.siteId),
+    index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
     index('pages_isSearchableComputed_idx').on(table.isSearchableComputed),
@@ -679,6 +879,89 @@ export const comments = pgTable(
   ]
 )
 
+// CHECKLIST RUN LOG --------------------
+/**
+ * One row per run ("execution") of a `block-checklist`. An item is checked off inside one execution;
+ * once every item named at start time is checked, that execution completes automatically and the
+ * next check on the same block starts a fresh one — the operational equivalent of a runbook resetting
+ * for the next shift, with no separate scheduler needed to make that happen.
+ *
+ * This is a run log, not editorial history: distinct from `pageHistory` (content revisions) and from
+ * `pageEditSubmissions`/`pageEditSubmissionApprovals` (the Approvals publish workflow) above — it
+ * records that someone actually performed the procedure, not that a page's content changed.
+ *
+ * `blockKey` is the block's own `runKey` prop (see `blocks/block-checklist/component.js`), not a
+ * position in the page's content — it is what lets the same checklist keep one run log across
+ * ordinary page edits, and what lets a page carry more than one independent checklist.
+ *
+ * At most one INCOMPLETE execution may exist per `(pageId, blockKey)` at a time — enforced by
+ * `checklistExecutions_active_idx`, a unique index scoped to `completedAt IS NULL` rows. This is the
+ * database-level guarantee `models/checklists.ts`'s `checkItem` relies on to start a new execution
+ * safely under concurrent requests: the losing insert of a race falls back to reading the row the
+ * winner created, rather than either creating two active runs or needing an application-level lock.
+ */
+export const checklistExecutions = pgTable(
+  'checklistExecutions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    blockKey: varchar({ length: 255 }).notNull(),
+    // -> Snapshotted at start from the block's own item count, not recomputed later — an author
+    //    editing the checklist mid-run does not retroactively change what "every item" meant for a
+    //    run already in progress.
+    itemCount: integer().notNull(),
+    startedAt: timestamp().notNull().defaultNow(),
+    // -> Null once the account is gone, rather than holding the account hostage. Mirrors
+    //    `comments.authorId`.
+    startedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    completedAt: timestamp(),
+    completedBy: uuid().references(() => users.id, { onDelete: 'set null' })
+  },
+  (table) => [
+    // -> The history/latest-execution queries: every run of one checklist, most recent first.
+    index('checklistExecutions_pageId_blockKey_idx').on(
+      table.pageId,
+      table.blockKey,
+      table.startedAt
+    ),
+    uniqueIndex('checklistExecutions_active_idx')
+      .on(table.pageId, table.blockKey)
+      .where(sql`"completedAt" IS NULL`)
+  ]
+)
+
+/**
+ * One row per item checked off within one execution — the actual "who checked which item when" the
+ * feature exists to record. Never updated or deleted: checking an already-checked item again is a
+ * no-op (`checklistItemChecks_execution_item_idx` is what `checkItem`'s `onConflictDoNothing` targets),
+ * and there is deliberately no "uncheck" — undoing an entry is exactly what a run log should not do.
+ * Redoing a checklist means starting a new execution instead.
+ */
+export const checklistItemChecks = pgTable(
+  'checklistItemChecks',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    executionId: uuid()
+      .notNull()
+      .references(() => checklistExecutions.id, { onDelete: 'cascade' }),
+    // -> The item's position in the block's rendered list at check time (`item-0`, `item-1`, ...) --
+    //    see `blocks/block-checklist/component.js`. Not the item's text, which can be edited without
+    //    the item having changed in any way that should re-open a run.
+    itemKey: varchar({ length: 255 }).notNull(),
+    checkedBy: uuid().references(() => users.id, { onDelete: 'set null' }),
+    checkedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    uniqueIndex('checklistItemChecks_execution_item_idx').on(table.executionId, table.itemKey),
+    index('checklistItemChecks_executionId_idx').on(table.executionId, table.checkedAt)
+  ]
+)
+
 // PAGE HISTORY ------------------------
 /**
  * One row per change to a page: what it looked like afterwards, who made it, and what kind of change
@@ -705,6 +988,13 @@ export const pageHistory = pgTable(
      * kind of change later does not need a migration.
      */
     action: varchar({ length: 16 }).notNull().default('updated'),
+    /**
+     * What actually made this change: the standard editor, or an MCP tool call (`create_page`/
+     * `update_page`, OpenProject #1119). A varchar rather than an enum, same reasoning as `action`
+     * above -- a new source should not need a migration. `models/pageHistory.ts`'s `pageHistoryVia`
+     * is the closed list callers are expected to use today.
+     */
+    via: varchar({ length: 16 }).notNull().default('editor'),
     /** Which fields this change touched, so a history list can summarise it without diffing. */
     changedFields: text()
       .array()

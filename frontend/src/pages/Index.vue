@@ -42,11 +42,13 @@
       -->
       <div class="flex-none items-center justify-end hidden sm:flex" v-if="!isUnsavedNewPage">
         <template v-if="pageStore.publishState === 'draft'">
-          <div class="text-caption text-accent"><strong>Unpublished</strong></div>
+          <div class="text-caption text-accent">
+            <strong>{{ t(`common.page.unpublished`) }}</strong>
+          </div>
           <w-separator class="mx-2" vertical />
         </template>
         <div class="text-caption text-grey-6">
-          Last modified on <strong>{{ lastModified }}</strong>
+          {{ t(`common.page.lastModifiedOn`) }} <strong>{{ lastModified }}</strong>
         </div>
       </div>
     </div>
@@ -619,7 +621,13 @@ const lastModified = computed(() => {
  * written into the markup, so the bar takes a single flat list.
  */
 const breadcrumbs = computed(() => [
-  { key: 'home', icon: 'la:home', to: '/', ariaLabel: 'Home', tooltip: 'Home' },
+  {
+    key: 'home',
+    icon: 'la:home',
+    to: '/',
+    ariaLabel: t(`common.header.home`),
+    tooltip: t(`common.header.home`)
+  },
   ...pageStore.breadcrumbs.map((brd) => ({
     key: brd.id,
     icon: brd.icon,
@@ -683,31 +691,6 @@ function onHashChange() {
   scrollToAnchorWhenReady(window.location.hash)
 }
 
-/**
- * The blocks this site has, cached against the site it was fetched for -- `loadBlocks()` below needs
- * a record's `isCustom`/`id` to build a custom block's per-site import URL, which the bare tag name
- * scraped off the rendered content does not carry.
- *
- * Left empty on a failed fetch rather than surfaced as an error: every element still resolves as the
- * bare tag it would have been before this list existed, which `loadBlocks()` treats as a built-in
- * guess -- a built-in still loads by its flat, site-independent URL either way, and a custom block
- * simply does not resolve, the same "preview being too generous is the better failure" trade
- * `EditorMarkdown.vue`'s own `loadSiteBlocks()` documents for the same list.
- */
-let siteBlocksSiteId = null
-let siteBlocks = []
-async function ensureSiteBlocks() {
-  if (siteBlocksSiteId !== siteStore.id) {
-    siteBlocksSiteId = siteStore.id
-    try {
-      siteBlocks = (await API_CLIENT.get(`sites/${siteStore.id}/blocks`).json()) ?? []
-    } catch {
-      siteBlocks = []
-    }
-  }
-  return siteBlocks
-}
-
 watch(
   () => route.path,
   async (newValue) => {
@@ -722,7 +705,7 @@ watch(
       if (!route.params.editor) {
         notify({
           type: 'negative',
-          message: 'No editor specified!'
+          message: t(`editor.noEditorSpecified`)
         })
         return router.replace('/')
       }
@@ -734,8 +717,18 @@ watch(
       if (route.query.locale) {
         pageCreateArgs.locale = route.query.locale
       }
-      await pageStore.pageCreate(pageCreateArgs)
-      loading.hide()
+      // -> Unlike the plain page-load branch below (whose own catch handles every error this store
+      //    can throw), this had none at all -- `pageCreate` can reject (its own `fetchConfigs()` call
+      //    is a network request), which left the full-screen loading overlay up forever with the
+      //    error only in the console (OpenProject #947).
+      try {
+        await pageStore.pageCreate(pageCreateArgs)
+      } catch (err) {
+        notify({ type: 'negative', message: err.message })
+        router.replace('/')
+      } finally {
+        loading.hide()
+      }
       return
     }
 
@@ -745,12 +738,30 @@ watch(
         return router.replace('/')
       }
       loading.show()
-      await pageStore.pageEdit({
-        path: route.params.pagePath,
-        locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
-        fromNavigate: true
-      })
-      loading.hide()
+      // -> `pageEdit` throws `ERR_PAGE_NOT_FOUND`/`ERR_PAGE_UNAUTHORIZED` for a bad path (it calls
+      //    `pageLoad` internally, the same one the plain page-load branch below guards) -- left
+      //    unguarded here, `/_edit/<bad-path>` stranded the app behind the loading overlay forever
+      //    (OpenProject #947).
+      try {
+        await pageStore.pageEdit({
+          path: route.params.pagePath,
+          locale: typeof route.query.locale === 'string' ? route.query.locale : undefined,
+          fromNavigate: true
+        })
+      } catch (err) {
+        if (err.message === 'ERR_PAGE_UNAUTHORIZED') {
+          router.replace('/_error/unauthorized')
+        } else {
+          notify({
+            type: 'negative',
+            message:
+              err.message === 'ERR_PAGE_NOT_FOUND' ? 'This page does not exist.' : err.message
+          })
+          router.replace('/')
+        }
+      } finally {
+        loading.hide()
+      }
       return
     }
 
@@ -799,11 +810,21 @@ watch(
       }
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
-      nextTick(async () => {
-        const blocks = await ensureSiteBlocks()
+      nextTick(() => {
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
-          const record = blocks.find((b) => b.elementTag === tag)
+          // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
+          //    every reader's browser already has) rather than `GET sites/:siteId/blocks`, which
+          //    is gated to authors/administrators and silently 403s for a plain reader -- see
+          //    `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954). A tag not found
+          //    there -- most likely because it isn't a block at all -- falls back to the bare tag,
+          //    which `loadBlocks()` treats as a built-in guess: a built-in loads by its flat,
+          //    site-independent URL either way, and a custom block simply does not resolve, the
+          //    same "preview being too generous is the better failure" trade `EditorMarkdown.vue`'s
+          //    own `loadSiteBlocks()` documents for its own (author-gated) copy of this list.
+          const record = tag.startsWith('block-')
+            ? siteStore.blocksIndex[tag.slice('block-'.length)]
+            : undefined
           commonStore.loadBlocks([record ? { tag, isCustom: record.isCustom, id: record.id } : tag])
         }
         /*
@@ -1004,8 +1025,13 @@ async function createPage() {
     return
   }
   loading.show()
-  await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
-  loading.hide()
+  try {
+    await pageStore.pageCreate({ editor, path: pageStore.path, locale: pageStore.locale })
+  } catch (err) {
+    notify({ type: 'negative', message: err.message })
+  } finally {
+    loading.hide()
+  }
 }
 
 /**
