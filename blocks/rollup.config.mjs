@@ -1,4 +1,4 @@
-import fs from 'node:fs'
+import fs, { globSync } from 'node:fs'
 import path from 'node:path'
 
 import summary from 'rollup-plugin-summary'
@@ -6,14 +6,24 @@ import terser from '@rollup/plugin-terser'
 import resolve from '@rollup/plugin-node-resolve'
 import commonjs from '@rollup/plugin-commonjs'
 
-import * as glob from 'glob'
+const IGNORED_DIR_PREFIXES = ['dist/', 'node_modules/']
 
-const IGNORED_DIRS = ['dist/**', 'node_modules/**']
+/**
+ * `fs.globSync`'s `exclude` option is a predicate over each matched path, not a list of glob
+ * patterns the way the `glob` package's `ignore` was -- this is the equivalent for the two
+ * prefixes that mattered here. In practice neither can ever match: every pattern below is already
+ * scoped to a `block-*` directory, which `dist` and `node_modules` themselves never are. Kept
+ * anyway, so a differently-shaped future pattern does not quietly start reading either directory.
+ */
+function isIgnoredPath(matchedPath) {
+  const posixPath = toPosix(matchedPath)
+  return IGNORED_DIR_PREFIXES.some((prefix) => posixPath.startsWith(prefix))
+}
 
 /**
  * A path with every `\` turned into a `/`, regardless of platform.
  *
- * `glob.sync()` results and Rollup's module `id`s are not guaranteed to be `/`-separated -- on
+ * `globSync()` results and Rollup's module `id`s are not guaranteed to be `/`-separated -- on
  * Windows they come back with the platform's own `\`, which every hardcoded `.split('/')` and
  * `.endsWith('/component.js')` below silently never matched, mangling every block's output filename
  * and leaving `blocks.manifest.json` a valid, empty `[]` with no error (confirmed against a real
@@ -145,7 +155,7 @@ function blocksManifest() {
     name: 'blocks-manifest',
     buildStart() {
       definitions.clear()
-      expectedBlockCount = glob.sync('@(block-*)/component.js', { ignore: IGNORED_DIRS }).length
+      expectedBlockCount = globSync('block-*/component.js', { exclude: isIgnoredPath }).length
     },
     transform(code, id) {
       // -> `path.basename`, not a hardcoded `.endsWith('/component.js')`: a Rollup module `id` uses
@@ -214,8 +224,8 @@ function blockAssets() {
   return {
     name: 'block-assets',
     buildStart() {
-      for (const listPath of glob.sync('@(block-*)/assets.json', { ignore: IGNORED_DIRS })) {
-        // -> `glob.sync()`'s own result, not a module id -- same Windows-separator hazard as the
+      for (const listPath of globSync('block-*/assets.json', { exclude: isIgnoredPath })) {
+        // -> `globSync()`'s own result, not a module id -- same Windows-separator hazard as the
         //    `input` map below and `blocksManifest()` above, so normalized the same way.
         const blockDir = toPosix(listPath).split('/')[0]
         this.addWatchFile(listPath)
@@ -259,10 +269,10 @@ export default {
       used to be the entire `\`-joined string on Windows, since `.split('/')` never split it) produced
       an output file like `block-checklist\component.js.js` instead of `block-checklist.js`, which the
       runtime loader never asks for. `file` itself -- the entry's VALUE, a real filesystem path Rollup
-      reads with `fs` -- is left in whatever form `glob.sync()` returned it in; only the name derived
+      reads with `fs` -- is left in whatever form `globSync()` returned it in; only the name derived
       from it needs normalizing.
     */
-    ...glob.sync('@(block-*)/component.js', { ignore: IGNORED_DIRS }).map((file) => {
+    ...globSync('block-*/component.js', { exclude: isIgnoredPath }).map((file) => {
       const fileParts = toPosix(file).split('/')
       return [fileParts[0], file]
     }),
@@ -274,7 +284,7 @@ export default {
       at it with `new URL('<block>.worker.js', import.meta.url)`. See `block-pdf`, which runs pdf.js's
       parser off the page's thread.
     */
-    ...glob.sync('@(block-*)/worker.js', { ignore: IGNORED_DIRS }).map((file) => {
+    ...globSync('block-*/worker.js', { exclude: isIgnoredPath }).map((file) => {
       const fileParts = toPosix(file).split('/')
       return [`${fileParts[0]}.worker`, file]
     })

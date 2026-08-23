@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit'
-import { deflateRaw } from 'pako'
+import { compress } from '../shared/compress.js'
 import { DarkMode } from '../shared/theme.js'
 import { MAX_DIAGRAM_URL_LENGTH, explainUrlTooLarge } from '../shared/url-limit.js'
 
@@ -26,8 +26,8 @@ const ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
  * rather than add a server-side POST proxy for -- see `docs/variances.md` -- so `firstUpdated()` below
  * measures the result and refuses to draw a diagram whose URL would exceed `MAX_DIAGRAM_URL_LENGTH`.
  */
-function encodeForUrl(source) {
-  const bytes = deflateRaw(new TextEncoder().encode(source), { level: 9 })
+async function encodeForUrl(source) {
+  const bytes = await compress(new TextEncoder().encode(source), 'deflate-raw')
   let encoded = ''
   for (let i = 0; i < bytes.length; i += 3) {
     const b1 = bytes[i]
@@ -221,10 +221,10 @@ Bob --> Alice : hi
    * nothing of the server beyond the picture: no CORS headers, which a PlantUML behind somebody's own
    * proxy may well not send. It also means the browser caches the drawing like any other image.
    */
-  _url(source) {
+  async _url(source) {
     const server = (this.server?.trim() || DEFAULT_SERVER).replace(/\/+$/, '')
     const format = this.format === 'png' ? 'png' : 'svg'
-    return `${server}/${format}/${encodeForUrl(source)}`
+    return `${server}/${format}/${await encodeForUrl(source)}`
   }
 
   /**
@@ -276,7 +276,17 @@ Bob --> Alice : hi
       }
       return
     }
-    const url = this._url(source)
+    // -> Not awaited: Lit does not wait on firstUpdated's return value, and there is nothing here
+    //    that needs to block it. Kept on the instance so a test can await the draw finishing.
+    this._ready = this._draw(source)
+  }
+
+  /**
+   * Encodes the source and, if the result fits, draws it -- the async continuation of
+   * `firstUpdated()`, split out because encoding now goes through the async `CompressionStream`.
+   */
+  async _draw(source) {
+    const url = await this._url(source)
     /*
       A pre-flight guard, not a reaction to the request that would otherwise follow: without it, a
       diagram whose encoded URL outgrows what a server or reverse proxy accepts fails only once the
