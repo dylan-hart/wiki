@@ -582,6 +582,33 @@ describe('App.vue router.beforeEach() unsaved-changes guard', () => {
     expect(openDialogs).toHaveLength(0)
     expect(router.currentRoute.value.path).toBe('/other')
   })
+
+  /**
+   * Regression for OpenProject #1129: Page Properties (e.g. an edited tag list) makes the page dirty
+   * without ever setting `editorStore.isActive` -- the old `isActive && hasPendingChanges` guard let
+   * this navigate away silently, discarding the edit with no warning at all.
+   */
+  it('blocks navigation and shows a confirm dialog when there are pending changes but no editor is active', async () => {
+    seedReadySession()
+    const router = makeRouter()
+    await mountReady(router)
+    const editorStore = useEditorStore()
+    editorStore.$patch({
+      lastSaveTimestamp: Temporal.Now.instant(),
+      lastChangeTimestamp: Temporal.Now.instant().add({ seconds: 1 })
+    })
+
+    const navPromise = router.push('/other')
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(router.currentRoute.value.path).toBe('/')
+
+    closeDialog(openDialogs[0].id, true, true)
+    await navPromise
+
+    expect(router.currentRoute.value.path).toBe('/other')
+  })
 })
 
 /**

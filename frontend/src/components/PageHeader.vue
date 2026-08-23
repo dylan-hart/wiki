@@ -588,9 +588,18 @@ async function discardChanges() {
     dropped -- and that is an edit to a page that exists, however the editor was last used.
   */
   if (editorStore.isActive && editorStore.mode === 'create') {
+    /*
+      Timestamps equalized here too, not just `isActive` (OpenProject #1129 follow-on): App.vue's
+      navigation guards gate on `hasPendingChanges` alone, so leaving them unequal would have the
+      `router.replace` below -- a real navigation -- immediately re-trigger a confirm prompt for the
+      discard the reader just clicked through.
+    */
+    const discardedAt = Temporal.Now.instant()
     editorStore.$patch({
       isActive: false,
-      editor: ''
+      editor: '',
+      lastSaveTimestamp: discardedAt,
+      lastChangeTimestamp: discardedAt
     })
 
     // Is it the home page in create mode?

@@ -282,11 +282,21 @@ router.beforeEach(async (to, from) => {
     inherit a stale "an editor is open" flag; unlike that handler, there is no page state to revert
     here, since the destination is about to load its own.
 
+    `hasPendingChanges` alone, not `isActive && hasPendingChanges` (OpenProject #1129): Page
+    Properties can make the page dirty -- e.g. an edited tag list -- with no editor ever opened, via
+    its own `pageStore.$subscribe` bumping `lastChangeTimestamp` regardless of `isActive`
+    (`PagePropertiesDialog.vue`/`PageTags.vue`). The old `isActive &&` requirement missed that case
+    entirely, letting a reader edit tags, navigate away, and lose the edit with no warning at all.
+    `isActive` on its own adds nothing `hasPendingChanges` doesn't already cover -- `pageLoad()` (and
+    every other place that opens a fresh editing session) equalizes both timestamps as its baseline,
+    so an active-but-untouched editor already reads `hasPendingChanges: false`; `isActive ||
+    hasPendingChanges` was tried first and rejected, since it warns on simply having opened an editor
+    with nothing typed into it yet, a real regression a still-passing sibling test in `App.test.js`
+    catches.
+
     NOT covered: typing a new address into the bar, following an external link, or closing the tab --
-    each of those is a page unload, not a router navigation, and `beforeEach` never fires for it.
-    `editor.unsavedWarning` in `en.json` is an unused string that reads like it was minted for a
-    `beforeunload` handler to cover exactly that gap; none exists yet, and adding one is a separate
-    piece of work from this guard.
+    each of those is a page unload, not a router navigation, and `beforeEach` never fires for it. The
+    `beforeunload` handler below covers that gap, gated on the same condition.
 
     `pageStore.pageCreate()`'s own un-awaited `router.push()` into `/_create/...` (the header's New
     Page menu, mid-edit) is not a special case here: it synchronously re-patches `editorStore` --
@@ -294,7 +304,7 @@ router.beforeEach(async (to, from) => {
     guard ever gets a turn to run, so `hasPendingChanges` already reads false for that navigation by
     the time this condition is checked. See the comment at that patch for why the ordering holds.
   */
-  if (editorStore.isActive && editorStore.hasPendingChanges && to.path !== from.path) {
+  if (editorStore.hasPendingChanges && to.path !== from.path) {
     /*
       A second navigation -- a double click, or one fired while the dialog above is still up --
       reaches this guard before the first one's `await` resolves: vue-router only cancels a
@@ -341,10 +351,20 @@ router.beforeEach(async (to, from) => {
       commonStore.routerLoading = false
       return false
     }
+    /*
+      The two timestamps are equalized here too, not just `isActive` (OpenProject #1129 follow-on):
+      this guard's own gate is `hasPendingChanges` alone now, so leaving them unequal after a
+      confirmed discard would have the very next navigation immediately re-prompt for a discard that
+      already happened, since nothing else resets them until the destination page's own `pageLoad()`
+      runs. Same baseline-reset shape `pageStore.pageLoad()`/`pageSave()`/`pageCreate()` already use.
+    */
+    const discardedAt = Temporal.Now.instant()
     editorStore.$patch({
       isActive: false,
       editor: '',
-      mode: 'edit'
+      mode: 'edit',
+      lastSaveTimestamp: discardedAt,
+      lastChangeTimestamp: discardedAt
     })
   }
 
@@ -446,7 +466,7 @@ router.beforeEach(async (to, from) => {
 })
 
 /*
-  -> Unsaved editor changes, browser-level (OpenProject #818)
+  -> Unsaved editor changes, browser-level (OpenProject #818, condition fixed for #1129)
   The router guard above only fires for an in-SPA navigation -- typing a new address into the bar,
   following an external link, closing the tab, or refreshing is a page unload instead, which
   `beforeEach` never sees (see the comment on that guard). `beforeunload` is the only hook that does,
@@ -457,9 +477,12 @@ router.beforeEach(async (to, from) => {
   as something else -- but `returnValue` still has to be set to a truthy value, since that (not the
   string itself) is what tells the browser to prompt at all. `editor.unsavedWarning` in `en.json` was
   minted for exactly this and sat unused until now.
+
+  `hasPendingChanges` alone, matching the router guard above -- see its comment for why `isActive`
+  was dropped rather than OR'd in.
 */
 window.addEventListener('beforeunload', (e) => {
-  if (editorStore.isActive && editorStore.hasPendingChanges) {
+  if (editorStore.hasPendingChanges) {
     e.preventDefault()
     e.returnValue = i18n.t('editor.unsavedWarning')
     return e.returnValue
