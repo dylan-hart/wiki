@@ -711,10 +711,10 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * OpenProject #870: `models/glossary.ts#getCachedTerms` bakes a term's canonical-page link in at
-   * cache-build time. Nothing about the glossary itself changes on a page move, so nothing would
-   * otherwise tell that cache the link it already resolved is now pointing at the page's old path --
-   * `movePage` has to invalidate it itself, the same way a term CRUD does.
+   * OpenProject #870: `models/glossary.ts#getCachedTerms` caches which page a term points at.
+   * Nothing about the glossary itself changes on a page move, so nothing would otherwise tell that
+   * cache the page it already resolved is now at a different path -- `movePage` has to invalidate it
+   * itself, the same way a term CRUD does.
    */
   test('movePage invalidates the glossary cache so a canonical page it renamed resolves to its new path', async () => {
     const page = await pagesModel.createPage(
@@ -728,7 +728,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageId: page.id
     })
     try {
-      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         before.find((t: any) => t.term === 'MoveCacheTerm')?.link,
         '/docs/glossary-move-before'
@@ -741,7 +741,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
         actor
       )
 
-      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         after.find((t: any) => t.term === 'MoveCacheTerm')?.link,
         '/docs/glossary-move-after'
@@ -819,7 +819,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       pageId: page.id
     })
     try {
-      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      const before = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(
         before.find((t: any) => t.term === 'DeleteCacheTerm')?.link,
         '/docs/glossary-delete-me'
@@ -827,7 +827,7 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
 
       await pagesModel.deletePage(fixtures.siteId, page.id, actor)
 
-      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId)
+      const after = await WIKI.models.glossary.getCachedTerms(fixtures.siteId, actor)
       assert.equal(after.find((t: any) => t.term === 'DeleteCacheTerm')?.link, null)
     } finally {
       await WIKI.models.glossary.deleteTerm(fixtures.siteId, term.id)

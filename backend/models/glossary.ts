@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import type { WikiDbOrTx } from '../core/db.ts'
+import type { AccessActor } from './groups.ts'
 import {
   glossaryTerms as glossaryTermsTable,
   glossaryVersions as glossaryVersionsTable,
@@ -35,6 +36,22 @@ export interface CachedGlossaryTerm {
   definition: string
   aliases: string[]
   link: string | null
+}
+
+/**
+ * The actor-blind shape actually cached under `WIKI.cache` (OpenProject #1127) -- everything
+ * `getCachedTerms` needs to resolve a `link` per actor, without a `link` baked in for any one of
+ * them. `pagePath` null means the term has no canonical page at all, the same "renders as plain text"
+ * case a denied actor now also gets.
+ */
+interface CachedGlossaryEntry {
+  term: string
+  definition: string
+  aliases: string[]
+  pagePath: string | null
+  pageLocale: string | null
+  pageClassification: string | null
+  pageTags: string[]
 }
 
 /**
@@ -99,9 +116,12 @@ function cacheKey(siteId: string): string {
  *
  * The admin CRUD screen is the source of truth for the term list — nothing here is derived from page
  * content, unlike `models/tags.ts`. `getCachedTerms` is the one method the rendering pipeline calls:
- * it resolves each term's canonical page (if any) to a link and caches the result under `WIKI.cache`,
- * invalidated by every write below the same way `models/locales.ts` refreshes its own `WIKI.cache`
- * entry — the next read after a write simply rebuilds it.
+ * it resolves each term's canonical page (if any) to a link, per the calling actor's `read:pages`
+ * access (OpenProject #1127) — a term whose page that actor may not read renders as plain, unlinked
+ * text. Only the raw term→page mapping is cached under `WIKI.cache` (`getRawCachedTerms`), invalidated
+ * by every write below the same way `models/locales.ts` refreshes its own `WIKI.cache` entry; the link
+ * resolution itself is never cached, so it stays correct per actor without needing its own
+ * invalidation whenever a group's rules change.
  */
 class Glossary {
   async listTerms(siteId: string): Promise<GlossaryTerm[]> {
@@ -552,14 +572,14 @@ class Glossary {
   }
 
   /**
-   * The term list the rendering pipeline matches against — sorted longest-term-first isn't done here,
-   * that is the markdown plugin's own concern (`renderers/modules/markdown-it-glossary.js`); this just
-   * hands back every term with its definition and, when a canonical page is set, the link to it.
+   * The raw, actor-blind term→page mapping, cached under `WIKI.cache` — the part that is genuinely
+   * the same for everyone (which page a term points at). `getCachedTerms` is what turns this into a
+   * `link`, fresh per actor, on every call.
    */
-  async getCachedTerms(siteId: string): Promise<CachedGlossaryTerm[]> {
+  private async getRawCachedTerms(siteId: string): Promise<CachedGlossaryEntry[]> {
     const key = cacheKey(siteId)
     if (WIKI.cache.has(key)) {
-      return WIKI.cache.get(key) as CachedGlossaryTerm[]
+      return WIKI.cache.get(key) as CachedGlossaryEntry[]
     }
 
     const rows = await WIKI.db
@@ -568,29 +588,61 @@ class Glossary {
         definition: glossaryTermsTable.definition,
         aliases: glossaryTermsTable.aliases,
         pagePath: pagesTable.path,
-        pageLocale: pagesTable.locale
+        pageLocale: pagesTable.locale,
+        pageClassification: pagesTable.classification,
+        pageTags: pagesTable.tags
       })
       .from(glossaryTermsTable)
       .leftJoin(pagesTable, eq(glossaryTermsTable.pageId, pagesTable.id))
       .where(eq(glossaryTermsTable.siteId, siteId))
 
-    const locales = WIKI.sites[siteId]?.config?.locales
-    const terms: CachedGlossaryTerm[] = rows.map((row) => ({
+    const entries: CachedGlossaryEntry[] = rows.map((row) => ({
       term: row.term,
       definition: row.definition,
       aliases: row.aliases,
-      link: row.pagePath ? localizedPagePath(row.pagePath, row.pageLocale ?? '', locales) : null
+      pagePath: row.pagePath,
+      pageLocale: row.pageLocale,
+      pageClassification: row.pageClassification ?? null,
+      pageTags: row.pageTags ?? []
     }))
 
-    WIKI.cache.set(key, terms)
-    return terms
+    WIKI.cache.set(key, entries)
+    return entries
   }
 
   /**
-   * Drops the resolved-term cache for a site. Public because a canonical page's path (or existence)
+   * The term list the rendering pipeline matches against — sorted longest-term-first isn't done here,
+   * that is the markdown plugin's own concern (`renderers/modules/markdown-it-glossary.js`); this just
+   * hands back every term with its definition and, when `actor` may read the canonical page set for
+   * it, the link to it (OpenProject #1127). A term with no canonical page, or whose page `actor` may
+   * not read, comes back with `link: null` — rendered as plain, unlinked text either way.
+   */
+  async getCachedTerms(siteId: string, actor: AccessActor): Promise<CachedGlossaryTerm[]> {
+    const entries = await this.getRawCachedTerms(siteId)
+    const locales = WIKI.sites[siteId]?.config?.locales
+    return entries.map((entry) => ({
+      term: entry.term,
+      definition: entry.definition,
+      aliases: entry.aliases,
+      link:
+        entry.pagePath &&
+        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path: entry.pagePath,
+          locale: entry.pageLocale,
+          siteId,
+          classification: entry.pageClassification,
+          tags: entry.pageTags
+        })
+          ? localizedPagePath(entry.pagePath, entry.pageLocale ?? '', locales)
+          : null
+    }))
+  }
+
+  /**
+   * Drops the raw term→page cache for a site. Public because a canonical page's path (or existence)
    * can change from outside this model — `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned`
-   * call this too, since `getCachedTerms` bakes each term's link in at cache-build time and nothing
-   * else would otherwise tell it a linked page moved or was deleted (OpenProject #870).
+   * call this too, since `getRawCachedTerms` caches which page a term points at and nothing else would
+   * otherwise tell it a linked page moved or was deleted (OpenProject #870).
    */
   invalidateCache(siteId: string): void {
     WIKI.cache.del(cacheKey(siteId))

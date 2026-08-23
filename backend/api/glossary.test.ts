@@ -18,6 +18,7 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 const SITE_1_ID = randomUUID()
 const UNKNOWN_SITE_ID = randomUUID()
 const TERM_ID = randomUUID()
+const ACTOR_SENTINEL = { groupIds: ['sentinel-group'], permissions: [] }
 
 const VERSION_ID = randomUUID()
 
@@ -56,13 +57,19 @@ before(async () => {
   ;(globalThis as any).WIKI = {
     sites: { [SITE_1_ID]: { id: SITE_1_ID, config: {} } },
     models: {
+      groups: {
+        // -> OpenProject #1127: the route hands this straight to `getCachedTerms` as its `actor` --
+        //    a fixed sentinel is enough to prove the wiring, since permission filtering itself is
+        //    `models/groups.ts`/`models/glossary.ts`'s own DB-backed coverage, not this route's.
+        actorForRequest: () => ACTOR_SENTINEL
+      },
       glossary: {
         listTerms: async (siteId: string) => {
           listTermsCalls.push(siteId)
           return [{ id: TERM_ID, term: 'API', definition: 'Application Programming Interface.' }]
         },
-        getCachedTerms: async (siteId: string) => {
-          getCachedTermsCalls.push(siteId)
+        getCachedTerms: async (siteId: string, actor: any) => {
+          getCachedTermsCalls.push({ siteId, actor })
           return [{ term: 'API', definition: 'Application Programming Interface.', link: null }]
         },
         createTerm: async (siteId: string, values: any) => {
@@ -161,7 +168,7 @@ test('GET /sites/:siteId/glossary/terms answers 404 for an unknown site', async 
 test('GET /sites/:siteId/glossary/terms returns the resolved, cached list', async () => {
   const res = await app.inject({ method: 'GET', url: `/sites/${SITE_1_ID}/glossary/terms` })
   assert.equal(res.statusCode, 200)
-  assert.deepEqual(getCachedTermsCalls, [SITE_1_ID])
+  assert.deepEqual(getCachedTermsCalls, [{ siteId: SITE_1_ID, actor: ACTOR_SENTINEL }])
   assert.deepEqual(res.json(), [
     { term: 'API', definition: 'Application Programming Interface.', link: null }
   ])

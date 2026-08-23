@@ -274,6 +274,17 @@ class Groups {
   }
 
   /**
+   * The actor for a caller that speaks for no specific requester (OpenProject #1127) — the one caller
+   * today is `models/rendering.ts`'s background re-render job, which reprocesses already-published
+   * content generically rather than on behalf of any one reader. It resolves permission-gated content
+   * (a glossary term's canonical-page link) the same way an anonymous visitor's own request would,
+   * rather than skipping the check entirely.
+   */
+  guestActor(): AccessActor {
+    return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+  }
+
+  /**
    * Whether `permission` survives this actor's scope narrowing, if it has one.
    *
    * `null`/absent scope is unrestricted (a session, or a key issued with no scope). A scope that IS

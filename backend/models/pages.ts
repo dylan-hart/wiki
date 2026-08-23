@@ -1262,10 +1262,10 @@ class Pages {
       changedFields
     )
     await WIKI.models.search.renamed(siteId, rawMoved, previous.path, previous.locale)
-    // -> A glossary term's cached link is baked in at cache-build time (`models/glossary.ts`'s
-    //    `getCachedTerms`), so a canonical page's path or locale changing has to drop it too, the same
-    //    way a term CRUD does -- otherwise the cache would keep serving a link to where the page used
-    //    to live (OpenProject #870).
+    // -> A glossary term's cached canonical-page mapping (`models/glossary.ts`'s `getRawCachedTerms`)
+    //    caches the page's path/locale, so a canonical page's path or locale changing has to drop it
+    //    too, the same way a term CRUD does -- otherwise the cache would keep resolving a link to
+    //    where the page used to live (OpenProject #870).
     if (moved.path !== previous.path || moved.locale !== previous.locale) {
       WIKI.models.glossary.invalidateCache(siteId)
     }

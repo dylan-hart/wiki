@@ -71,7 +71,10 @@ async function routes(app: FastifyInstance) {
         gated content, the same way an Iconify icon isn't (see CLAUDE.md's Icons section). This is
         the cached, resolved list the rendering pipeline matches against (see
         `renderers/modules/markdown-it-glossary.js`), fetched by the editor itself so its live preview
-        and the render it saves stay in step with what a reader will eventually see.
+        and the render it saves stay in step with what a reader will eventually see. Each term's
+        `link` IS gated, though (OpenProject #1127): `getCachedTerms` resolves it against the calling
+        actor's own `read:pages` access, so an editor with no access to a term's canonical page gets
+        `link: null` for it -- the page's title/existence never leaks into a render this route feeds.
       */
       schema: {
         summary: 'List the resolved glossary terms the rendering pipeline matches against',
@@ -99,7 +102,10 @@ async function routes(app: FastifyInstance) {
       if (!WIKI.sites[req.params.siteId]) {
         return reply.notFound('This site does not exist.')
       }
-      return WIKI.models.glossary.getCachedTerms(req.params.siteId)
+      return WIKI.models.glossary.getCachedTerms(
+        req.params.siteId,
+        WIKI.models.groups.actorForRequest(req)
+      )
     }
   )
 

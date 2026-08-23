@@ -138,6 +138,31 @@ describe('groups.actorForRequest', () => {
 })
 
 /**
+ * OpenProject #1127: the actor `models/rendering.ts`'s background re-render job passes to
+ * `glossary.getCachedTerms` when reprocessing already-published content with no specific reader to
+ * speak for.
+ */
+describe('groups.guestActor', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { data: { systemIds: { guestsGroupId: 'guests-group-id' } } }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('resolves to the guests group with no group-wide permissions', () => {
+    assert.deepEqual(groups.guestActor(), {
+      groupIds: ['guests-group-id'],
+      permissions: []
+    })
+  })
+})
+
+/**
  * `groups.checkAccess` is the one place a page permission is decided (see the "Permissions" section
  * of CLAUDE.md) — it pools a set of groups' rules and hands them to `helpers/pageRules.ts`, which
  * Task 753 already covers rule-matching logic for in isolation. What is genuinely `models/groups.ts`'s

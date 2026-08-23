@@ -1,7 +1,10 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { groups as groupsTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { AccessActor } from './groups.ts'
 
 // -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via `Date#toTemporalInstant()`
 //    + `Temporal.Instant.compare()`, matching CLAUDE.md's "Backend patterns". That is only a runtime
@@ -209,7 +212,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       definition: 'No canonical page.'
     })
 
-    const cached = await glossaryModel.getCachedTerms(fixtures.siteId)
+    const cached = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
     const byTerm = Object.fromEntries(cached.map((t) => [t.term, t]))
 
     // -> The fixture site's primary locale is 'en' (test/db.ts), so an 'en' page link carries no
@@ -219,26 +222,85 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
     assert.equal(byTerm.CacheNone!.link, null)
   })
 
+  /**
+   * OpenProject #1127: `getCachedTerms` used to bake a term's canonical-page `link` in with no
+   * permission check at all -- every reader got the same resolved link regardless of whether they
+   * could read the linked page themselves. It now resolves `link` fresh per `actor`'s own
+   * `read:pages` access, so an actor without it sees the term as plain, unlinked text (the definition
+   * still comes through -- only the link is gated), exactly like a term with no canonical page set.
+   */
+  test('getCachedTerms() resolves a link only for an actor with read:pages on the canonical page', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/gated-term-target' }),
+      actor
+    )
+    const term = await glossaryModel.createTerm(fixtures.siteId, {
+      term: 'GatedTerm',
+      definition: 'Points at a page not every actor may read.',
+      pageId: page.id
+    })
+    try {
+      // -> The fixture group's own `rules` column starts empty (`setupTestDb`), so an actor speaking
+      //    only for it -- no `manage:system`, unlike the shared `actor` above -- gets no ALLOW rule
+      //    at all: fails closed, per `helpers/pageRules.ts`.
+      const noAccessActor: AccessActor = { groupIds: [fixtures.groupId], permissions: [] }
+      const denied = await glossaryModel.getCachedTerms(fixtures.siteId, noAccessActor)
+      const deniedTerm = denied.find((t) => t.term === 'GatedTerm')
+      assert.equal(deniedTerm?.link, null)
+      assert.equal(deniedTerm?.definition, 'Points at a page not every actor may read.')
+
+      await fixtures.db
+        .update(groupsTable)
+        .set({
+          rules: [
+            {
+              id: 'allow-gated-term-target',
+              name: 'Allow',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+
+      const allowed = await glossaryModel.getCachedTerms(fixtures.siteId, noAccessActor)
+      assert.equal(allowed.find((t) => t.term === 'GatedTerm')?.link, '/docs/gated-term-target')
+    } finally {
+      await glossaryModel.deleteTerm(fixtures.siteId, term.id)
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [] })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+    }
+  })
+
   test('a write invalidates the cache: the next read sees the change, not a stale one', async () => {
     const created = await glossaryModel.createTerm(fixtures.siteId, {
       term: 'Mutable',
       definition: 'Before update.'
     })
-    const before = await glossaryModel.getCachedTerms(fixtures.siteId)
+    const before = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
     assert.equal(before.find((t) => t.term === 'Mutable')?.definition, 'Before update.')
 
     await glossaryModel.updateTerm(fixtures.siteId, created.id, { definition: 'After update.' })
 
-    const after = await glossaryModel.getCachedTerms(fixtures.siteId)
+    const after = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
     assert.equal(after.find((t) => t.term === 'Mutable')?.definition, 'After update.')
   })
 
   test('a second read within the cache window hits the cache rather than the database', async () => {
     await glossaryModel.createTerm(fixtures.siteId, { term: 'CacheHit', definition: 'Cached.' })
-    await glossaryModel.getCachedTerms(fixtures.siteId)
+    await glossaryModel.getCachedTerms(fixtures.siteId, actor)
     const getCallsBefore = (WIKI.cache.get as any).mock.callCount()
 
-    await glossaryModel.getCachedTerms(fixtures.siteId)
+    await glossaryModel.getCachedTerms(fixtures.siteId, actor)
 
     assert.equal((WIKI.cache.get as any).mock.callCount(), getCallsBefore + 1)
   })
@@ -340,7 +402,7 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
         aliases: ['AL']
       })
 
-      const cached = await glossaryModel.getCachedTerms(fixtures.siteId)
+      const cached = await glossaryModel.getCachedTerms(fixtures.siteId, actor)
       assert.deepEqual(cached.find((t) => t.term === 'Aliased')?.aliases, ['AL'])
     })
   })
