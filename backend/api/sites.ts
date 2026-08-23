@@ -133,38 +133,56 @@ export async function buildSitePayload(site: {
   isEnabled: boolean
   config: Record<string, any>
 }): Promise<Record<string, any>> {
+  const { blocksConfig, blocksIndex } = await siteBlocksInfoFor(site.id)
   return {
     ...site.config,
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
-    blocksConfig: await blocksConfigFor(site.id)
+    blocksConfig,
+    blocksIndex
   }
 }
 
 /**
- * The site's per-block config, keyed by block tag, for a reader's browser.
+ * The site's per-block config and tag-to-block index, both for a reader's browser.
  *
- * Built from `getSiteBlocks` rather than a route of its own: `GET /sites/:siteId/blocks` (see
- * `mayListBlocks` in `api/blocks.ts`) is gated to authors and administrators, and a page reader is
- * neither. This travels instead on the site-info response every reader's browser already fetches
- * publicly, so a block like `block-map` can resolve its site-wide config (a tile server URL, an API
- * key) without ever calling the gated route.
+ * Built from one `getSiteBlocks` call rather than a route of its own: `GET /sites/:siteId/blocks`
+ * (see `mayListBlocks` in `api/blocks.ts`) is gated to authors and administrators, and a page reader
+ * is neither. Both travel instead on the site-info response every reader's browser already fetches
+ * publicly:
  *
- * Only a block that is both enabled and declares at least one `config` field is included: a disabled
- * block's config must never reach a reader's browser, and a block with nothing configurable would
- * only add an empty object to every page's payload for no reader to use.
+ *   - `blocksConfig` lets a block like `block-map` resolve its site-wide config (a tile server URL,
+ *     an API key) without ever calling the gated route.
+ *   - `blocksIndex` lets the page view resolve an undefined `block-*` element to its `id`/`isCustom`
+ *     — what `blockImportUrl()` (`stores/common.js`) needs to build a custom block's
+ *     `/_blocks/custom/:siteId/:id.js` import URL — without the gated route either. Before this
+ *     existed, that resolution went through `GET /sites/:siteId/blocks` directly (OpenProject #954),
+ *     so a custom block silently 404'd (falling through to the built-in, tag-only URL) for every
+ *     reader who wasn't also an author.
+ *
+ * Both are filtered to enabled blocks only: a disabled block must never reach a reader's browser,
+ * neither its config nor a URL to fetch its code from. `blocksConfig` additionally excludes a block
+ * with nothing configurable, so it doesn't add an empty object to every page's payload for no reader
+ * to use.
  */
-async function blocksConfigFor(siteId: string): Promise<Record<string, object>> {
+async function siteBlocksInfoFor(
+  siteId: string
+): Promise<{ blocksConfig: Record<string, object>; blocksIndex: Record<string, object> }> {
   const siteBlocks = await WIKI.models.blocks.getSiteBlocks(siteId)
   const blocksConfig: Record<string, object> = {}
+  const blocksIndex: Record<string, object> = {}
   for (const block of siteBlocks) {
-    if (block.isEnabled && block.configFields.length > 0) {
+    if (!block.isEnabled) {
+      continue
+    }
+    if (block.configFields.length > 0) {
       blocksConfig[block.block] = block.config ?? {}
     }
+    blocksIndex[block.block] = { id: block.id, isCustom: block.isCustom }
   }
-  return blocksConfig
+  return { blocksConfig, blocksIndex }
 }
 
 /**

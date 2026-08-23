@@ -45,8 +45,9 @@ async function getSiteByHostname({
 
 /**
  * What `getSiteBlocks` returns for the next request, set per-test. Only the fields
- * `blocksConfigFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
- * `configFields`, `config` — the rest of the real `SiteBlock` shape is irrelevant to this route.
+ * `siteBlocksInfoFor` (api/sites.ts) actually reads are relevant here — `block`, `isEnabled`,
+ * `configFields`, `config`, `id`, `isCustom` — the rest of the real `SiteBlock` shape is irrelevant
+ * to this route.
  */
 let siteBlocksResult: any[] = []
 async function getSiteBlocks(_siteId: string) {
@@ -931,4 +932,53 @@ test('blocksConfig omits an enabled block that declares no config fields', async
   const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json().blocksConfig, {})
+})
+
+/**
+ * `blocksIndex` on the same public site-info response, so the page view (`Index.vue`'s block-loading
+ * scan, via `siteStore.blocksIndex`) can resolve an undefined `block-*` element to its `id`/`isCustom`
+ * without the manage:sites-gated `GET /sites/:siteId/blocks` route either — see `siteBlocksInfoFor`
+ * in api/sites.ts and OpenProject #954.
+ */
+test('blocksIndex includes an enabled block, custom or built-in, keyed by tag', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: true,
+      isCustom: false,
+      id: 'builtin-map-id',
+      configFields: [],
+      config: {}
+    },
+    {
+      block: 'widget',
+      isEnabled: true,
+      isCustom: true,
+      id: 'custom-widget-id',
+      configFields: [],
+      config: {}
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksIndex, {
+    map: { id: 'builtin-map-id', isCustom: false },
+    widget: { id: 'custom-widget-id', isCustom: true }
+  })
+})
+
+test('blocksIndex omits a disabled block', async () => {
+  siteBlocksResult = [
+    {
+      block: 'map',
+      isEnabled: false,
+      isCustom: false,
+      id: 'builtin-map-id',
+      configFields: [],
+      config: {}
+    }
+  ]
+  const res = await app.inject({ method: 'GET', url: '/somehost.example.com' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().blocksIndex, {})
 })

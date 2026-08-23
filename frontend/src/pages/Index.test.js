@@ -369,9 +369,10 @@ describe('Index.vue: read-path block loading for a directly-loaded/reloaded page
           tocDepth: { min: 1, max: 6 }
         })
     })
-    // -> `ensureSiteBlocks()`'s own fetch, consulted for a custom block's isCustom/id; empty is fine,
-    //    `block-diagram` is a built-in and resolves by its bare tag either way
-    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([]) })
+    // -> The block-loading scan resolves `block-diagram` off `siteStore.blocksIndex` (empty here,
+    //    since this test never calls `applySiteInfo`) rather than a network call -- a miss falls
+    //    back to the bare tag, which is fine: `block-diagram` is a built-in and resolves by its
+    //    bare tag either way. See `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954).
 
     const router = createRouter({
       history: createMemoryHistory(),

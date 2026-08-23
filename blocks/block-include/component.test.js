@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+/*
+ * OpenProject #954: `_loadNestedBlocks()` resolves a nested block's import URL through
+ * `getBlockImportUrl()` (`../shared/config.js`) rather than a hardcoded `/_blocks/${tag}.js`, so a
+ * custom block transcluded via `block-include` resolves for readers too, not just authors. Mocked
+ * here rather than stubbed via `fetch` (as `../shared/config.test.js` covers `getBlockImportUrl`
+ * itself) so this suite can assert on *which* tag the component asked to resolve, independent of
+ * that function's own URL-building logic.
+ */
+vi.mock('../shared/config.js', () => ({
+  getBlockImportUrl: vi.fn(async (tag) => `/mock-blocks/${tag}.js`)
+}))
+
 import './component.js'
+import { getBlockImportUrl } from '../shared/config.js'
 
 const SITE_ID = 'site-1'
 
@@ -156,6 +169,26 @@ describe('block-include', () => {
     const el = await mountInclude({ path: 'broken-page' })
 
     expect(el.textContent).toContain('could not be included')
+  })
+
+  /*
+   * OpenProject #954: before this fix, `_loadNestedBlocks()` always fetched `/_blocks/${tag}.js`,
+   * which 404s for a custom block -- it has no such flat file, only a per-site
+   * `/_blocks/custom/:siteId/:id.js` route. This mounts a transcluded page whose content brings an
+   * undefined `<block-widget>` element with it and asserts the component resolves that tag through
+   * `getBlockImportUrl()` instead of guessing a URL itself.
+   */
+  it("resolves a nested block's import URL through getBlockImportUrl(), not a hardcoded flat path", async () => {
+    globalThis.API_CLIENT.get = vi.fn(() => ({
+      json: () => Promise.resolve(stubPage({ render: '<p>Text</p><block-widget></block-widget>' }))
+    }))
+
+    await mountInclude({ path: 'page-with-nested-block' })
+    // -> `_loadNestedBlocks()`'s own `import()` attempt needs a further turn past `mountInclude`'s
+    //    own waits to settle (it rejects, since nothing is actually served at the mocked URL)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(getBlockImportUrl).toHaveBeenCalledWith('block-widget')
   })
 
   it('points at the unlock prompt rather than asking for a password itself, for a locked page', async () => {

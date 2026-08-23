@@ -1,5 +1,6 @@
 import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
+import { getBlockImportUrl } from '../shared/config.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
@@ -146,7 +147,11 @@ export class BlockIncludeElement extends LitElement {
    * Fetch the components for any block the included page brought with it.
    *
    * The page view scans for undefined elements once, when it loads a page, so anything arriving
-   * afterwards has to ask for itself. Same contract: the element's tag names the file to fetch.
+   * afterwards has to ask for itself. Same contract: the element's tag names the file to fetch --
+   * except a custom block doesn't have a flat, tag-only file to fetch: its code lives at
+   * `/_blocks/custom/:siteId/:id.js`, which `getBlockImportUrl()` resolves the same way the page
+   * view's own scan does (`stores/common.js`'s `blockImportUrl()`). Without this, a custom block
+   * nested inside transcluded content 404'd for every reader, author or not (OpenProject #954).
    */
   async _loadNestedBlocks() {
     for (const el of this.querySelectorAll(':not(:defined)')) {
@@ -155,7 +160,7 @@ export class BlockIncludeElement extends LitElement {
         continue
       }
       try {
-        await import(/* @vite-ignore */ `/_blocks/${tag}.js`)
+        await import(/* @vite-ignore */ await getBlockImportUrl(tag))
       } catch (err) {
         console.warn(`Failed to load ${tag}: ${err.message}`)
       }

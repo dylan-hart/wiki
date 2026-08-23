@@ -27,10 +27,27 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       blocksConfig: {
         type: 'object',
         description:
-          "This site's per-block config, keyed by block tag, for a block that is enabled AND declares at least one config field. Never includes a disabled block or one with nothing configurable — see `blocksConfigFor` in api/sites.ts. Lets a reader's browser resolve a block's site-wide config (e.g. block-map's tile server URL) without the manage:sites-gated GET /sites/:siteId/blocks route.",
+          "This site's per-block config, keyed by block tag, for a block that is enabled AND declares at least one config field. Never includes a disabled block or one with nothing configurable — see `siteBlocksInfoFor` in api/sites.ts. Lets a reader's browser resolve a block's site-wide config (e.g. block-map's tile server URL) without the manage:sites-gated GET /sites/:siteId/blocks route.",
         additionalProperties: {
           type: 'object',
           additionalProperties: true
+        }
+      },
+      blocksIndex: {
+        type: 'object',
+        description:
+          "This site's enabled blocks, keyed by block tag, as `{ id, isCustom }`. Never includes a disabled block — see `siteBlocksInfoFor` in api/sites.ts. Lets a reader's browser resolve an undefined `block-*` element to a custom block's `/_blocks/custom/:siteId/:id.js` import URL without the manage:sites-gated GET /sites/:siteId/blocks route (OpenProject #954).",
+        additionalProperties: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              format: 'uuid'
+            },
+            isCustom: {
+              type: 'boolean'
+            }
+          }
         }
       },
       title: {
