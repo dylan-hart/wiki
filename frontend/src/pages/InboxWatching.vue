@@ -152,9 +152,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('inbox.watching')
-})
+}))
 
 // DATA
 
