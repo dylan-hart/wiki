@@ -134,36 +134,26 @@ describe('sharp and puppeteer definition.yml architecture/platform constraints (
 })
 
 /**
- * Task 665: `pandoc/definition.yml` used to describe Pandoc as "Required to import content from
- * other wikis and formats such as MediaWiki, AsciiDoc, Textile or DocBook" — present tense, as if an
- * importer already existed. It doesn't: there is no reference to Pandoc anywhere under `backend/api`
- * or `frontend/src` beyond the generic "comes from the operating system" install-instructions copy
- * shared with Git. This guards the fix — description no longer claims current functionality, and
- * stays traceable to the epic that would actually build a Pandoc-backed importer — rather than
- * letting the misleading wording quietly come back.
+ * Task 665 caught `pandoc/definition.yml` describing Pandoc as "Required to import content from
+ * other wikis and formats such as MediaWiki, AsciiDoc, Textile or DocBook" while no importer existed
+ * anywhere under `backend/api` or `frontend/src` -- present tense claiming functionality that wasn't
+ * there yet. Feature 402 (tasks 667/668) has since built that importer for real
+ * (`models/import.ts`'s `convertToMarkdown()`, backed by a real `pandoc` subprocess -- see
+ * `models/import.ts`). This now guards the opposite drift: the description must name the concrete
+ * integration point it actually has, not regress to vague "coming eventually" language now that the
+ * feature is real.
  */
-describe('pandoc definition.yml description accuracy (Task 665)', () => {
-  test('does not claim Pandoc-backed import already works in this fork', async () => {
+describe('pandoc definition.yml description accuracy (Task 665, superseded by Feature 402)', () => {
+  test('names the real integration point and the formats it backs, not a future promise', async () => {
     const raw = await readFile(
       path.join(import.meta.dirname, '..', 'modules', 'extensions', 'pandoc', 'definition.yml'),
       'utf8'
     )
     const definition = load(raw) as ExtensionDefinition
 
-    assert.doesNotMatch(definition.description, /required to import/i)
-    assert.doesNotMatch(definition.description, /\bimports\b/i)
-  })
-
-  test('names it as unimplemented and cross-links the epic that would own a Pandoc-backed importer', async () => {
-    const raw = await readFile(
-      path.join(import.meta.dirname, '..', 'modules', 'extensions', 'pandoc', 'definition.yml'),
-      'utf8'
-    )
-    const definition = load(raw) as ExtensionDefinition
-
-    assert.match(definition.description, /not.*(wired|used|hooked)/i)
-    assert.match(definition.description, /migration.*upgrade path/i)
-    // -> The forward-looking formats stay named, so the traceability has something concrete to point at
+    // -> Traceable to the code path that actually calls pandoc, not just an epic that might one day.
+    assert.match(definition.description, /models\/import\.ts/i)
+    assert.match(definition.description, /convertToMarkdown/i)
     assert.match(definition.description, /mediawiki/i)
   })
 })

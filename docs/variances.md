@@ -1278,20 +1278,33 @@ paginated-print concern this codebase has no visual-regression/PDF-rendering har
 automatically. A human reviewer with a real PDF export in hand should confirm the fix visually before
 this ships; that is the only verification method that would actually observe it.
 
-## OpenProject #988 — `npm run build` (frontend) logs Node-built-in externalization notices for `@asciidoctor/core`'s browser bundle
+## OpenProject #988 — `npm run build` (frontend) logs Node-built-in externalization notices and a `new URL(..., import.meta.url)` notice for `@asciidoctor/core`'s browser bundle
 
 **Date:** 2026-08-21
 **Feature:** #988 (AsciiDoc render pipeline)
 
-`vite build` in `frontend/` prints four informational lines for the `EditorAsciidoc` chunk:
+`vite build` in `frontend/` prints five informational lines for the `EditorAsciidoc` chunk:
 
+```
+new URL('../../data', import.meta.url) doesn't exist at build time, it will remain unchanged to be
+resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress
+this warning.
+```
+plus four more:
 ```
 [plugin rolldown:vite-resolve] Module "node:fs/promises" has been externalized for browser
 compatibility, imported by ".../@asciidoctor/core/build/browser/index.js". ...
 ```
 (and the same for `node:fs`, `node:path`, `node:async_hooks`).
 
-**Why this is not fixable here:** the `asciidoctor` npm package's `exports` map picks
+The `new URL(...)` line comes from the same file, a few lines above the dynamic `node:*` imports:
+`build/browser/index.js` sets `DATA_DIR = new URL('../../data', import.meta.url).pathname` (and
+`LIB_DIR`/`ROOT_DIR` the same way) inside a `try { ... } catch` block that also reads
+`process.env.HOME`/`USERPROFILE` for `USER_HOME` — the same Node-side path/data resolution the
+existing four notices are about, just Vite's static-analysis pass on the `new URL(...)` call itself
+rather than on the dynamic `import('node:...')` calls it guards.
+
+**Why this is not fixable here:** same root cause as the four `node:*` notices above — the `asciidoctor` npm package's `exports` map picks
 `@asciidoctor/core/build/browser/index.js` for a client build via the `"browser"` condition — the
 package's own, maintainer-built browser bundle, not a resolution mistake. That file still contains
 `await import('node:fs/promises')` / `await import('node:fs')` / `await import('node:path')` /

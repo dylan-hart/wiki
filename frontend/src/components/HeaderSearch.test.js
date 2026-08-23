@@ -51,51 +51,6 @@ async function mountWithTags(tags) {
   return wrapper
 }
 
-/**
- * OpenProject #987, #1120, #1218: the browse-by-tags entry point, moved here from `HeaderNav.vue`
- * (`HeaderNav.test.js` asserts it no longer renders one of its own) so it can dock flush against the
- * search field's right edge, matching the 2.5.x reference layout -- `la:tags` rather than the
- * previous `la:hashtag`, which read as a `#` operator glyph rather than a tag shape.
- */
-describe('HeaderSearch "Browse by tags" entry point (OpenProject #1218)', () => {
-  it('renders a link to /_tags docked against the field, unconditionally', async () => {
-    const wrapper = await mountWithTags([])
-
-    const tagsLink = wrapper.find('.header-search-tags-btn')
-    expect(tagsLink.exists()).toBe(true)
-    expect(tagsLink.attributes('href')).toBe('/_tags')
-  })
-
-  it('uses the la:tags icon, not la:hashtag', async () => {
-    const wrapper = await mountWithTags([])
-
-    expect(wrapper.find('.header-search-tags-btn [data-icon]').attributes('data-icon')).toBe(
-      'la:tags'
-    )
-  })
-
-  it('does not render in row (phone) form, which has no room to dock a second control', async () => {
-    setActivePinia(createPinia())
-    const siteStore = useSiteStore()
-    siteStore.features.search = true
-
-    const router = createRouter({
-      history: createMemoryHistory(),
-      routes: [{ path: '/', component: { template: '<div />' } }]
-    })
-    router.push('/')
-    await router.isReady()
-
-    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
-    const wrapper = mount(HeaderSearch, {
-      props: { row: true },
-      global: { plugins: [router, i18n] }
-    })
-
-    expect(wrapper.find('.header-search-tags-btn').exists()).toBe(false)
-  })
-})
-
 describe('HeaderSearch popularTags', () => {
   it('sorts tags by usage count descending, most-used first', async () => {
     const wrapper = await mountWithTags([

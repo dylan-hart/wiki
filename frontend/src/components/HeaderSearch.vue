@@ -15,96 +15,69 @@
       `top: 100%` on the panel lands on the bottom edge of the header instead of 12px above it.
     -->
     <div class="header-search relative flex h-full min-w-0 flex-1 flex-col justify-center">
-      <div class="header-search-row-inline flex items-stretch">
-        <div
-          class="header-search-field"
-          :class="{
-            'is-focused': state.searchIsFocused,
-            'header-search-field--row': row,
-            'header-search-field--docked': !row
-          }">
-          <w-circular-progress
-            v-if="siteStore.searchIsLoading && route.path !== `/_search`"
-            class="header-search-lead"
-            instant-feedback
-            indeterminate
-            rounded
-            color="primary"
-            size="18px" />
-          <w-icon v-else class="header-search-lead" name="la:search" />
+      <div
+        class="header-search-field"
+        :class="{ 'is-focused': state.searchIsFocused, 'header-search-field--row': row }">
+        <w-circular-progress
+          v-if="siteStore.searchIsLoading && route.path !== `/_search`"
+          class="header-search-lead"
+          instant-feedback
+          indeterminate
+          rounded
+          color="primary"
+          size="18px" />
+        <w-icon v-else class="header-search-lead" name="la:search" />
 
-          <input
-            ref="searchField"
-            v-model="siteStore.search"
-            type="text"
-            class="header-search-input"
-            :placeholder="t('common.header.search')"
-            :aria-label="t('common.header.search')"
-            autocomplete="off"
-            @keyup.enter="onSearchEnter"
-            @focus="state.searchIsFocused = true"
-            @blur="checkSearchFocus" />
-
-          <!--
-            `mousedown.prevent` keeps the press from pulling focus out of the input: the blur would
-            swap the badge to its right (see below) and the resulting reflow shifts this button out
-            from under the pointer before it can be released, eating the click.
-          -->
-          <button
-            v-if="siteStore.search.length > 0"
-            type="button"
-            class="header-search-clear"
-            :aria-label="t('common.actions.clear')"
-            @mousedown.prevent
-            @click="clearSearch">
-            <w-icon name="la:times" />
-          </button>
-          <!--
-            The shortcut hint doubles as the focus affordance, so it gives way to whatever the field
-            has to say once it is in use.
-
-            Never in `row` form: that is the phone field, opened by a button, and a keyboard shortcut is
-            not something the device it exists for can offer. The focus test moves onto the branch below,
-            which the chain used to get for free from this one.
-          -->
-          <span
-            v-if="!row && !state.searchIsFocused"
-            class="header-search-kbd"
-            aria-hidden="true"
-            @click="searchField.focus()">
-            Ctrl+K
-          </span>
-          <span
-            v-else-if="
-              state.searchIsFocused &&
-              siteStore.search &&
-              siteStore.search !== siteStore.searchLastQuery
-            "
-            class="header-search-kbd">
-            Press Enter
-          </span>
-        </div>
+        <input
+          ref="searchField"
+          v-model="siteStore.search"
+          type="text"
+          class="header-search-input"
+          :placeholder="t('common.header.search')"
+          :aria-label="t('common.header.search')"
+          autocomplete="off"
+          @keyup.enter="onSearchEnter"
+          @focus="state.searchIsFocused = true"
+          @blur="checkSearchFocus" />
 
         <!--
-          -> 2.5.x parity (OpenProject #987, #1120, #1218): docked flush against the search field's
-             right edge so the two read as one continuous pill, matching the 2.5.x reference. Never
-             in `row` form -- that is the phone field's own full-width row, with no room for a second
-             control glued to it; the phone header falls back to `HeaderActionsMenu`'s overflow menu
-             instead for its other icon buttons (see `HeaderNav`), and this one simply isn't offered
-             there below the breakpoint.
-
-          `la:tags` rather than the previous `la:hashtag`: a `#` glyph reads as an operator, not a
-          tag, and doesn't match either the reference icon or every other tag control in the app
-          (`PagePropertiesDialog.vue`, `Index.vue`).
+          `mousedown.prevent` keeps the press from pulling focus out of the input: the blur would
+          swap the badge to its right (see below) and the resulting reflow shifts this button out
+          from under the pointer before it can be released, eating the click.
         -->
-        <router-link
-          v-if="!row"
-          to="/_tags"
-          class="header-search-tags-btn"
-          :aria-label="t('common.header.browseTags')">
-          <w-icon name="la:tags" />
-          <w-tooltip>{{ t('common.header.browseTags') }}</w-tooltip>
-        </router-link>
+        <button
+          v-if="siteStore.search.length > 0"
+          type="button"
+          class="header-search-clear"
+          :aria-label="t('common.actions.clear')"
+          @mousedown.prevent
+          @click="clearSearch">
+          <w-icon name="la:times" />
+        </button>
+        <!--
+          The shortcut hint doubles as the focus affordance, so it gives way to whatever the field
+          has to say once it is in use.
+
+          Never in `row` form: that is the phone field, opened by a button, and a keyboard shortcut is
+          not something the device it exists for can offer. The focus test moves onto the branch below,
+          which the chain used to get for free from this one.
+        -->
+        <span
+          v-if="!row && !state.searchIsFocused"
+          class="header-search-kbd"
+          aria-hidden="true"
+          @click="searchField.focus()">
+          Ctrl+K
+        </span>
+        <span
+          v-else-if="
+            state.searchIsFocused &&
+            siteStore.search &&
+            siteStore.search !== siteStore.searchLastQuery
+          "
+          class="header-search-kbd">
+          Press Enter
+        </span>
       </div>
 
       <div class="searchpanel" ref="searchPanel" v-if="searchPanelIsShown">
@@ -577,15 +550,6 @@ defineExpose({ focus, state })
   }
 
   /*
-    Docked against the tags button below (never in `row` form, which stands alone) -- squares off
-    the right corners so the seam between the two doesn't double-round, leaving only the left half
-    of the pill.
-  */
-  &-field--docked {
-    border-radius: 9999px 0 0 9999px;
-  }
-
-  /*
     In `row` form, a wash of black over whatever is behind rather than a grey of its own.
 
     The row is the site's sidebar colour (see `HeaderNav`), which is the site's to choose -- so a fixed
@@ -665,31 +629,6 @@ defineExpose({ focus, state })
     opacity: 0.5;
     cursor: pointer;
     user-select: none;
-  }
-}
-
-/*
-  The browse-by-tags button docked to the search field's right edge (OpenProject #987, #1120,
-  #1218) -- same fixed 40px height and dark fill as `.header-search-field`, so the seam between the
-  two reads as one continuous pill rather than a field with a detached button beside it. Only the
-  right corners are rounded; the left edge butts flush against the field's now-square right edge.
-*/
-.header-search-tags-btn {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 0 9999px 9999px 0;
-  background-color: #212121;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 20px;
-  transition: background-color 0.25s var(--ease-standard);
-
-  &:hover,
-  &:focus-visible {
-    background-color: #2f2f2f;
   }
 }
 

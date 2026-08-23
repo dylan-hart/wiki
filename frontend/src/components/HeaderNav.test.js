@@ -61,15 +61,25 @@ async function mountHeaderNav() {
 }
 
 /**
- * OpenProject #1218: the browse-by-tags entry point moved out of this button group entirely, docked
- * to the search field instead (`HeaderSearch.test.js` covers it now) -- so it must NOT be one of the
- * icons `HeaderNav` itself renders any more, with `HeaderSearch` stubbed out of the picture here.
+ * OpenProject #1120 (2.5.x parity, epic #987): the only way into `/_tags` was clicking an existing
+ * tag chip on an already-tagged page -- nothing in the header pointed there for a reader who isn't
+ * on one yet. `common.header.browseTags` already existed in the locale file, unused, which is what
+ * this reinstates.
  */
-describe('HeaderNav "Browse by tags" entry point (OpenProject #1218)', () => {
-  it('no longer renders its own link to /_tags -- that now lives in HeaderSearch', async () => {
+describe('HeaderNav "Browse by tags" entry point (OpenProject #1120)', () => {
+  it('renders a link to /_tags beside the other header action buttons', async () => {
     const { wrapper } = await mountHeaderNav()
 
     const tagsLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/_tags')
-    expect(tagsLink).toBeFalsy()
+    expect(tagsLink).toBeTruthy()
+  })
+
+  it('shows unconditionally -- unlike the graph button, it is gated on no feature flag', async () => {
+    const { wrapper, siteStore } = await mountHeaderNav()
+    siteStore.features.browse = false
+    await wrapper.vm.$nextTick()
+
+    const tagsLink = wrapper.findAll('a').find((a) => a.attributes('href') === '/_tags')
+    expect(tagsLink).toBeTruthy()
   })
 })

@@ -81,35 +81,23 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import {
-  bindCollabEditor,
-  collabStatusEffects,
-  collabUserColor,
-  startCollabSession,
-  stopCollabSession
-} from '@/composables/collab'
 import { dialog } from '@/composables/dialog'
-import { notify } from '@/composables/notify'
 
 import { assetPath } from '@/helpers/assets'
 import { createPageMentionSuggestion } from '@/helpers/editorMentions'
 
 import LinkPickerDialog from '@/components/LinkPickerDialog.vue'
 
-import { useCollabStore } from '@/stores/collab'
 import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
-import { useUserStore } from '@/stores/user'
 
-import { useEditor, EditorContent, Editor } from '@tiptap/vue-3'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
-import Collaboration from '@tiptap/extension-collaboration'
-import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Color } from '@tiptap/extension-color'
 import FontFamily from '@tiptap/extension-font-family'
 import Highlight from '@tiptap/extension-highlight'
@@ -132,42 +120,17 @@ const lowlight = createLowlight(common)
 
 // STORES
 
-const collabStore = useCollabStore()
 const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
-const userStore = useUserStore()
 
 // I18N
 
 const { t } = useI18n()
 
-// COMPUTED
-
-/**
- * Whether this edit is shared with whoever else has the page open. Mirrors `EditorMarkdown.vue`'s
- * own `collabEnabled` exactly -- see its doc comment for why each condition is there.
- */
-const collabEnabled = computed(
-  () =>
-    siteStore.features.collaborativeEditing &&
-    userStore.authenticated &&
-    editorStore.mode === 'edit' &&
-    Boolean(pageStore.id)
-)
-
 // STATE
 
 let editor = null
-/**
- * Stop handles for the two collab watchers started in `onMounted`, kept for the same reason
- * `EditorMarkdown.vue`'s own pair are (see its matching comment, OpenProject #942): both are
- * registered inside a callback Vue does not auto-bind to this component's effect scope the way it
- * does an unconditional top-level `watch()`, so left running past unmount they fire against a
- * disposed editor and duplicate "saved by X" notifications on a later mount of the same page.
- */
-let stopCollabStatusWatch = null
-let stopCollabLastSaveWatch = null
 
 const thumbStyle = {
   right: '2px',
@@ -738,97 +701,35 @@ const menuBar = [
 
 // METHODS
 
-/**
- * The TipTap extension list, parameterized by whether a live collaboration session is bound.
+/*
+ * Live collaboration: still deferred, not wired -- but both premises the original deferral rested on
+ * are now false, so this comment exists to say why the deferral itself still stands (OpenProject
+ * #944, item 4).
  *
- * Split out so the interim (non-collaborative) editor `init()` builds immediately and the
- * collaborative one `swapToCollabEditor()` builds once synced share every other option -- only the
- * `undoRedo`/`Collaboration`/`CollaborationCaret` entries differ (OpenProject #1124, wiring live
- * collaboration into this editor -- see that WP for why the deferral this comment used to explain no
- * longer applies).
+ * Task 485 (feature 367) originally deferred this for two concrete, checkable reasons:
+ *
+ *  - This component had no caller. That is no longer true: `pages/Index.vue`'s `wysiwyg` entry in
+ *    `editorComponents` is live (the sibling Editor Selection feature re-enabled it), so mounting
+ *    this editor is now a real, reachable path, not a dead one.
+ *  - Its `@tiptap/*` dependencies were not installed. They are now -- all eleven packages this file
+ *    imports resolve at v3.30.1 in `package.json`/`node_modules` (task 484 fixed the two v2-shaped
+ *    imports that kept this from building at all).
+ *
+ * The re-decision: still not wired here, because turning it on is a materially bigger change than
+ * either premise going stale implies. `EditorMarkdown.vue`'s collab session binds a *Monaco* model
+ * through `y-monaco`'s `MonacoBinding`, which `bindCollabEditor`'s factory shape already
+ * accommodates -- but a TipTap document needs `@tiptap/extension-collaboration` (a currently
+ * uninstalled dependency of its own) plus `@tiptap/extension-collaboration-cursor` for remote
+ * cursors/awareness, both configured with the shared `Y.Doc` `startCollabSession` creates, and a
+ * decision about how this editor's per-keystroke `onUpdate` (which currently owns writing
+ * `pageStore.content`/`render` directly) coexists with a CRDT that wants to own the document instead.
+ * That is new design and testing surface belonging to a follow-up work item, not a byproduct of a
+ * toolbar bug-fix pass -- filed as OpenProject #1124. The dead `Y.Doc`/`IndexeddbPersistence`/
+ * `WebsocketProvider` stub that used to sit in `init()` below was already removed when this comment
+ * was first written, and `composables/collab.js`'s `bindCollabEditor` already takes a binding
+ * factory rather than hardcoding `y-monaco`, so #1124 has exactly this component's own `onUpdate`
+ * handoff left to design -- nothing to redo in `composables/collab.js` itself.
  */
-function buildExtensions(collab) {
-  return [
-    StarterKit.configure({
-      codeBlock: false,
-      // -> Configured explicitly below instead, so its options (`openOnClick`) can be set for this
-      //    editing surface -- leaving it on here as well would register the `link` node twice and
-      //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
-      link: false,
-      // -> `Collaboration`'s own undo/redo, backed by Yjs's `UndoManager`, replaces this once a
-      //    session is bound -- keeping both registered logs `Collaboration.onCreate()`'s "not
-      //    compatible with @tiptap/extension-undo-redo" warning, and only one of the two `undo`/
-      //    `redo` command definitions actually wins. (`history` was StarterKit's tiptap v2 key for
-      //    this; v3 renamed it to `undoRedo`, so the `{ depth: 500 }` written here before OpenProject
-      //    #1124 was a silent no-op that never actually capped the undo stack.)
-      undoRedo: collab ? false : { depth: 500 }
-    }),
-    CodeBlockLowlight.configure({
-      lowlight
-    }),
-    Color,
-    FontFamily,
-    Highlight.configure({
-      multicolor: true
-    }),
-    Image,
-    Link.configure({
-      // -> A click in the editor places the cursor, as in any other mark; without this, clicking
-      //    linked text navigates the browser away instead of letting it be edited.
-      openOnClick: false
-    }),
-    Mention.configure({
-      suggestion: createPageMentionSuggestion(siteStore)
-    }),
-    Placeholder.configure({
-      placeholder: 'Enter some content here...'
-    }),
-    Table.configure({
-      resizable: true
-    }),
-    TableRow,
-    TableHeader,
-    TableCell,
-    TaskList,
-    TaskItem,
-    // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
-    //    list, so every alignment button was a silent no-op (OpenProject #944).
-    TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    TextStyle,
-    Typography,
-    ...(collab
-      ? [
-          Collaboration.configure({ fragment: collab.fragment }),
-          CollaborationCaret.configure({
-            provider: { awareness: collab.awareness },
-            user: collab.user
-          })
-        ]
-      : [])
-  ]
-}
-
-/**
- * Writes the editor's current state into the page store on every change, local or remote alike -- the
- * same "the editor buffer feeds the store, the store feeds Save" flow this component has always had.
- * A CRDT changes who is allowed to originate a change, not who is responsible for keeping
- * `pageStore.content` in step with what the editor is showing right now: a change that arrived from
- * another collaborator is exactly as real as one typed locally, and `pageSave` still reads the current
- * buffer either way (OpenProject #1124). Shared between the interim and collaborative editors so both
- * behave identically here.
- */
-function handleEditorUpdate({ editor }) {
-  editorStore.$patch({
-    lastChangeTimestamp: Temporal.Now.instant()
-  })
-  pageStore.$patch({
-    content: JSON.stringify(editor.getJSON()),
-    // -> What the author has typed IS the source, whatever the load did or did not deliver; see
-    //    the guard in `pageSave`
-    contentLoaded: true,
-    render: editor.getHTML()
-  })
-}
 
 function init() {
   // -> Setup Editor View
@@ -836,81 +737,70 @@ function init() {
     hideSideNav: false
   })
 
-  // -> Initialize TipTap. Starts read-only when a collab session is about to be started -- see the
-  //    collaboration block in `onMounted` below for why, and `swapToCollabEditor()` for what replaces
-  //    this instance once that session has synced.
+  // -> Initialize TipTap
   editor = useEditor({
     content:
       pageStore.content && pageStore.content.startsWith('{')
         ? JSON.parse(pageStore.content)
         : `<p>${pageStore.content}</p>`,
-    editable: !collabEnabled.value,
-    extensions: buildExtensions(null),
-    onUpdate: handleEditorUpdate
+    extensions: [
+      StarterKit.configure({
+        codeBlock: false,
+        // -> Configured explicitly below instead, so its options (`openOnClick`) can be set for this
+        //    editing surface -- leaving it on here as well would register the `link` node twice and
+        //    emit a `[tiptap warn]: Duplicate extension names found` on every mount.
+        link: false,
+        history: {
+          depth: 500
+        }
+      }),
+      CodeBlockLowlight.configure({
+        lowlight
+      }),
+      Color,
+      FontFamily,
+      Highlight.configure({
+        multicolor: true
+      }),
+      Image,
+      Link.configure({
+        // -> A click in the editor places the cursor, as in any other mark; without this, clicking
+        //    linked text navigates the browser away instead of letting it be edited.
+        openOnClick: false
+      }),
+      Mention.configure({
+        suggestion: createPageMentionSuggestion(siteStore)
+      }),
+      Placeholder.configure({
+        placeholder: 'Enter some content here...'
+      }),
+      Table.configure({
+        resizable: true
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      TaskList,
+      TaskItem,
+      // -> Unconfigured, `types` defaults to `[]` and `setTextAlign()` maps over an empty node-type
+      //    list, so every alignment button was a silent no-op (OpenProject #944).
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      TextStyle,
+      Typography
+    ],
+    onUpdate: ({ editor }) => {
+      editorStore.$patch({
+        lastChangeTimestamp: Temporal.Now.instant()
+      })
+      pageStore.$patch({
+        content: JSON.stringify(editor.getJSON()),
+        // -> What the author has typed IS the source, whatever the load did or did not deliver; see
+        //    the guard in `pageSave`
+        contentLoaded: true,
+        render: editor.getHTML()
+      })
+    }
   })
-}
-
-/**
- * Hands the editor over to the shared document once collaboration has synced (OpenProject #1124).
- *
- * TipTap's `Collaboration` extension can only be attached at construction: unlike `y-monaco`'s
- * `MonacoBinding`, which `EditorMarkdown.vue` constructs against an already-live editor via
- * `bindCollabEditor`, there is no supported way to register a packaged Extension -- as opposed to a
- * raw ProseMirror plugin, which `Editor#registerPlugin` does allow after the fact -- onto an editor
- * that already exists. Attaching it at construction time unconditionally, instead of waiting for
- * `bindCollabEditor`'s post-sync gate the way this does, was considered and rejected: `y-tiptap`'s
- * sync plugin overwrites the editor's content with whatever the shared document currently holds the
- * instant it mounts, so building the collaborative editor before the session has synced would blank
- * the page's just-loaded content in favour of an empty document, with no equivalent of the read-only
- * guard `EditorMarkdown.vue` gets by delaying the *binding* rather than the whole editor. So the
- * interim editor `init()` builds stays the only one until this runs, once, and this one replaces it
- * outright rather than trying to reuse it.
- *
- * `ytext` is `startCollabSession`'s plain-text `content` field, sized for Monaco's markdown source --
- * not usable here, since TipTap's collaboration is a tree CRDT (a `Y.XmlFragment`), not a flat-text
- * one. This editor gets its own root type on the *same* shared `Y.Doc` instead (`ytext.doc`, which
- * Yjs sets once a root type is first read off a document): same room, same participants, same
- * header-field and save-notification wiring, independent content type.
- */
-function swapToCollabEditor(ytext, awareness) {
-  const fragment = ytext.doc.getXmlFragment('wysiwygBody')
-  /*
-    Nobody has written to this field yet -- either this is the first person to open the page
-    collaboratively, or the room emptied out since. Either way, what this editor was just showing
-    (the page's saved content) becomes the room's starting state, the same way `core/collab.ts`'s
-    `buildSeed()` seeds a fresh room's markdown field from `page.content` server-side. That seeding is
-    deliberately server-side and coordinated across instances (see its own doc comment) because a Yjs
-    document cannot safely be seeded twice; this field has no equivalent coordination, so two people
-    opening a brand new room in the same instant could both seed at once and end up with the content
-    duplicated. Accepted as a narrow, unlikely race rather than reason to hold this WP for a matching
-    server-side seed path, which would need the backend to carry its own copy of this editor's
-    ProseMirror schema just to build one.
-  */
-  const seedContent = fragment.length === 0 ? editor.value.getJSON() : null
-  const previousEditor = editor.value
-
-  editor.value = new Editor({
-    editable: true,
-    extensions: buildExtensions({
-      fragment,
-      awareness,
-      user: {
-        id: userStore.id,
-        name: userStore.name,
-        hasAvatar: userStore.hasAvatar,
-        color: collabUserColor(userStore.id)
-      }
-    }),
-    onUpdate: handleEditorUpdate
-  })
-  previousEditor.destroy()
-
-  if (seedContent) {
-    // -> `emitUpdate: false`: nothing changed that `pageStore` doesn't already have from the interim
-    //    editor above -- `y-tiptap`'s sync plugin observes the dispatched transaction regardless of
-    //    the TipTap-level "update" event this flag gates.
-    editor.value.commands.setContent(seedContent, { emitUpdate: false })
-  }
 }
 
 /**
@@ -1002,86 +892,16 @@ function snapshot() {
 // MOUNTED
 
 onMounted(() => {
+  // init()
   EVENT_BUS.on('insertAsset', insertAssetClb)
-})
-
-init()
-
-// -> Live collaboration. Registered as its own `onMounted`, and after `init()` above rather than
-//    before it, specifically so it runs *after* `useEditor()`'s own internal `onMounted` (which
-//    `init()` registers by calling `useEditor()`) has constructed `editor.value` -- `useEditor()`
-//    defers construction to its own mount hook rather than building synchronously the way
-//    `EditorMarkdown.vue`'s Monaco editor does, and Vue runs mount hooks in registration order, so
-//    this has to be registered after that one is.
-onMounted(() => {
-  if (!collabEnabled.value) {
-    return
-  }
-
-  /*
-    "Someone else already has this open" -- said once, before the collab session below has even
-    asked to connect. `pageStore.activeEditors` came with the page itself (`viewer.activeEditors` on
-    `GET .../pages/:id`, task 546), read off whatever room `core/collab.ts` already has for it on this
-    instance -- so this can be shown immediately, without waiting on a socket. Page-level, not
-    editor-specific, so this is identical to `EditorMarkdown.vue`'s own use of it.
-  */
-  if (pageStore.activeEditors.count > 0) {
-    notify({
-      type: 'info',
-      message: t('editor.collab.activeEditors', pageStore.activeEditors.count, {
-        count: pageStore.activeEditors.count
-      })
-    })
-  }
-
-  editor.value.setEditable(false)
-  startCollabSession({ siteId: siteStore.id, pageId: pageStore.id })
-
-  stopCollabStatusWatch = watch(
-    () => collabStore.status,
-    (status) => {
-      const effects = collabStatusEffects(status, collabStore.hasSynced)
-      if (effects.shouldBindEditor) {
-        bindCollabEditor((ytext, awareness) => swapToCollabEditor(ytext, awareness))
-      }
-      editor.value.setEditable(!effects.readOnly)
-      if (effects.notifyDenied) {
-        notify({
-          type: 'warning',
-          message: t('editor.collab.notAllowed')
-        })
-      }
-    }
-  )
-
-  /*
-    Somebody else saved the page. The editor state has already been put back to "nothing pending" by
-    the session -- this is only so that the author is told why their Save button went quiet.
-  */
-  stopCollabLastSaveWatch = watch(
-    () => collabStore.lastSave,
-    (lastSave) => {
-      if (lastSave && lastSave.authorId !== userStore.id) {
-        notify({
-          type: 'positive',
-          message: t('editor.collab.savedBy', { name: lastSave.authorName })
-        })
-      }
-    }
-  )
 })
 
 onBeforeUnmount(() => {
   EVENT_BUS.off('insertAsset', insertAssetClb)
-  // -> Stopped before `stopCollabSession()` below patches `collabStore.status` to `off` -- left
-  //    running they fire past unmount against a disposed editor (OpenProject #942).
-  stopCollabStatusWatch?.()
-  stopCollabLastSaveWatch?.()
-  // -> Before the editor goes: leaving the room is what takes this author's avatar out of everyone
-  //    else's header
-  stopCollabSession()
   editor.value.destroy()
 })
+
+init()
 
 // -> Exposed for tests only, so a mounted instance can drive the TipTap editor directly (e.g.
 //    `wrapper.vm.editor.chain().focus().insertContent(...).run()`) the way the toolbar's own
@@ -1249,36 +1069,6 @@ defineExpose({ editor, menuBar })
       color: #ced4da;
       pointer-events: none;
       height: 0;
-    }
-
-    /*
-      Remote collaborators' cursors (OpenProject #1124). `CollaborationCaret`'s default `render`/
-      `selectionRender` build these two classes with nothing but a per-user `border-color`/
-      `background-color` already inlined -- everything about their layout is left to CSS, matching
-      the shape of TipTap's own documented example for this extension.
-    */
-    .collaboration-carets__caret {
-      position: relative;
-      margin-left: -1px;
-      margin-right: -1px;
-      border-left: 1px solid;
-      border-right: 1px solid;
-      word-break: normal;
-      pointer-events: none;
-    }
-
-    .collaboration-carets__label {
-      position: absolute;
-      top: -1.4em;
-      left: -1px;
-      padding: 0.1rem 0.3rem;
-      border-radius: 3px 3px 3px 0;
-      font-size: 0.7rem;
-      font-weight: 600;
-      line-height: normal;
-      color: #fff;
-      white-space: nowrap;
-      user-select: none;
     }
   }
 }
