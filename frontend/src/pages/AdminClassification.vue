@@ -4,7 +4,7 @@
       <div class="flex-none">
         <w-icon
           class="admin-icon animated fadeInLeft"
-          name="la:shield-alt"
+          name="la:layer-group"
           size="48px"
           color="primary" />
       </div>

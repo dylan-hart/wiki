@@ -310,7 +310,7 @@
             </w-item>
             <w-item to="/_admin/classification" active-class="bg-primary text-white">
               <w-item-section avatar>
-                <w-icon name="la:shield-alt" />
+                <w-icon name="la:layer-group" />
               </w-item-section>
               <w-item-section>{{ t('admin.classification.title') }}</w-item-section>
             </w-item>

@@ -402,7 +402,7 @@ const quickaccess = [
   { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
   {
     key: 'refCardClassification',
-    icon: 'la:shield-alt',
+    icon: 'la:layer-group',
     label: t('editor.props.classification')
   },
   { key: 'refCardVisibility', icon: 'la:eye', label: t('editor.props.visibility') }
