@@ -1385,3 +1385,75 @@ locale-pack sideload init-container) were updated to describe the deleted chart'
 past tense rather than left claiming a still-working feature. A future work package standing up a
 real 3.x Helm chart (once a 3.x release exists to package) should treat that file's two updated
 sections as the spec for what the chart's `values.yaml` needs to re-offer.
+
+## Dependency audit accepted exceptions (Issue #1152, OpenProject #1190)
+
+**Date:** 2026-08-23
+**Feature:** #1190
+
+The 2026-08-22 dependency audit (Issue #1152) flagged a handful of packages that look outdated or
+unmaintained by version-age heuristics alone but are deliberately kept. Recorded here so a future
+currency pass doesn't "fix" any of them without re-reading the reasoning below.
+
+### `s3rver` 3.7.1 + `@types/s3rver` (backend, dev-only)
+
+Unmaintained upstream since 2021, but it is dev-only and test-only — the S3 storage module's
+`storage.emulated.test.ts` uses it to emulate an S3-compatible backend without a real bucket — and it
+still works correctly against the `modules/storage/s3/storage.ts` code it exercises. The alternatives
+(a MinIO container, LocalStack) are heavier processes to stand up in CI/local test runs for no gain
+in what the test actually verifies (the storage module's request shape and response handling, not
+S3-server behavior itself). Revisit if `s3rver` stops working against a future AWS SDK major, not
+before.
+
+### `@js-temporal/polyfill` (backend, dev-only)
+
+A devDependency, dynamically imported at runtime by `index.ts`/`worker.ts` only when the `Temporal`
+global is missing. `engines` requires Node ≥26, which has `Temporal` natively, so production code
+never reaches that import — it exists solely to keep backend dev/test working on an older local Node.
+Recorded so a future pass doesn't try to either remove it (breaks pre-26 dev sandboxes) or promote it
+to a regular dependency (production never needs it).
+
+### Stale-but-functionally-complete libraries kept as-is
+
+- **`mitt`** 3.0.1 — the event-bus library backing `EVENT_BUS`. Last published 2021; the API surface
+  it wraps (`on`/`off`/`emit`) is complete for what this codebase asks of it, and there's nothing
+  outstanding to fix.
+- **`d3-drag`/`d3-force`/`d3-polygon`/`d3-quadtree`/`d3-selection`/`d3-zoom`** (all v3, the knowledge
+  graph's force-layout dependencies) — stable since 2021 and still the current major; there is no v4
+  to move to.
+- **`leaflet`** 1.9.4 (`block-map`'s dependency) — latest stable 1.x release. A 2.x rewrite (ESM,
+  dropping the UMD/AMD build) has been announced upstream but not shipped; revisit once it reaches a
+  stable release.
+- **The small, frozen-format markdown-it plugins** — `markdown-it-abbr`, `markdown-it-footnote`,
+  `markdown-it-mark`, `markdown-it-sub`, `markdown-it-sup`, `markdown-it-expand-tabs`,
+  `markdown-it-multimd-table`, and **`markdown-it-task-lists`** (kept over the newer
+  `@mdit/plugin-tasklist` per the #1180 decision — its checkbox markup interacts with existing styling
+  and the tiptap task-list extensions, and parity-testing cost outweighs the maintenance-status gain
+  for a tiny frozen-format plugin; revisit if it breaks on a future markdown-it bump). Each targets a
+  narrow, unchanging piece of CommonMark-adjacent syntax with no active development needed.
+- **`akismet-api`** 6.0.0 (backend) — last published 2023; a thin wrapper over Akismet's HTTP API,
+  actively in use by the comments spam check. Nothing about the API it wraps has changed.
+
+`markdown-it-decorate` is intentionally **not** listed above — it is being dropped, not kept, per
+Task #1180's decision to standardize on `markdown-it-attrs`.
+
+### `happy-dom` (frontend) vs `jsdom` (blocks) — different test-environment emulators by design
+
+Already documented as deliberate in root `CLAUDE.md` (see "Testing (frontend)" and "Testing
+(blocks)"): frontend's Vitest suite uses `happy-dom` for speed across a large component suite, while
+blocks' suite uses `jsdom` for its more complete `MutationObserver`/shadow-DOM/attribute-reflection
+coverage, which the dark-mode controller test in particular depends on. Cross-referenced here rather
+than duplicated — see CLAUDE.md for the full reasoning.
+
+### `@twemoji/api` pinned to 17.0.2, one patch behind `twemoji-assets`
+
+Surfaced while investigating WP #1189's currency pass. `@twemoji/api` 17.0.3 depends on
+`@twemoji/parser` 17.0.2, which is the exact parser regression Bug #1151 documents (it stops matching
+✌️ ☝️ 🕵️ 🏋️ and six other shortcodes, and mis-resolves `:eye_speech_bubble:` to a codepoint with no
+SVG in `twemoji-assets`). `@twemoji/parser` has no 17.0.3 release to fix this upstream. `frontend/`
+stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twemoji/parser` to 17.0.1
+(the last release that matches correctly) — see the comment at `frontend/vite.config.js`'s
+`verifyTwemojiCoverage()`. This is unrelated to the `twemoji-assets` tarball dependency (the SVG
+artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
+drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
+until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
