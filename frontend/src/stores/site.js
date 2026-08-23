@@ -98,6 +98,15 @@ export const useSiteStore = defineStore('site', {
      */
     pdfExportAvailable: false,
     /**
+     * This site's enabled blocks, keyed by tag, as `{ id, isCustom }` — `backend/api/sites.ts`'s
+     * `siteBlocksInfoFor()`, carried on the same public site-info response `pdfExportAvailable`
+     * above travels on. Lets `Index.vue`'s block-loading scan resolve an undefined `block-*` element
+     * to a custom block's `/_blocks/custom/:siteId/:id.js` import URL (`blockImportUrl()` in
+     * `stores/common.js`) without calling the manage:sites-gated `GET /sites/:siteId/blocks` route,
+     * which every reader who isn't also an author gets refused (OpenProject #954).
+     */
+    blocksIndex: {},
+    /**
      * The extensions this site's content is written in, lowercase and without the dot. A path ending
      * in one of them addresses the page underneath it — `/foo/bar.md` is `/foo/bar` — which the
      * router acts on for links inside pages and the server acts on for requests that reach it.
@@ -265,6 +274,7 @@ export const useSiteStore = defineStore('site', {
         description: siteInfo.description,
         logoText: siteInfo.logoText,
         pdfExportAvailable: siteInfo.pdfExportAvailable ?? false,
+        blocksIndex: siteInfo.blocksIndex ?? {},
         pageExtensions: siteInfo.pageExtensions ?? [],
         company: siteInfo.company,
         contentLicense: siteInfo.contentLicense,

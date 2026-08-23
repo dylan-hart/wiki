@@ -691,31 +691,6 @@ function onHashChange() {
   scrollToAnchorWhenReady(window.location.hash)
 }
 
-/**
- * The blocks this site has, cached against the site it was fetched for -- `loadBlocks()` below needs
- * a record's `isCustom`/`id` to build a custom block's per-site import URL, which the bare tag name
- * scraped off the rendered content does not carry.
- *
- * Left empty on a failed fetch rather than surfaced as an error: every element still resolves as the
- * bare tag it would have been before this list existed, which `loadBlocks()` treats as a built-in
- * guess -- a built-in still loads by its flat, site-independent URL either way, and a custom block
- * simply does not resolve, the same "preview being too generous is the better failure" trade
- * `EditorMarkdown.vue`'s own `loadSiteBlocks()` documents for the same list.
- */
-let siteBlocksSiteId = null
-let siteBlocks = []
-async function ensureSiteBlocks() {
-  if (siteBlocksSiteId !== siteStore.id) {
-    siteBlocksSiteId = siteStore.id
-    try {
-      siteBlocks = (await API_CLIENT.get(`sites/${siteStore.id}/blocks`).json()) ?? []
-    } catch {
-      siteBlocks = []
-    }
-  }
-  return siteBlocks
-}
-
 watch(
   () => route.path,
   async (newValue) => {
@@ -835,11 +810,21 @@ watch(
       }
       // -> Load Blocks. `?.` because a locked page draws its lock screen in place of the article, so
       //    there is no content element to scan -- and nothing in it to scan for.
-      nextTick(async () => {
-        const blocks = await ensureSiteBlocks()
+      nextTick(() => {
         for (const block of pageContents.value?.querySelectorAll(':not(:defined)') ?? []) {
           const tag = block.tagName.toLowerCase()
-          const record = blocks.find((b) => b.elementTag === tag)
+          // -> Resolved off `siteStore.blocksIndex` (a public field on the site-info response
+          //    every reader's browser already has) rather than `GET sites/:siteId/blocks`, which
+          //    is gated to authors/administrators and silently 403s for a plain reader -- see
+          //    `siteBlocksInfoFor` in `backend/api/sites.ts` (OpenProject #954). A tag not found
+          //    there -- most likely because it isn't a block at all -- falls back to the bare tag,
+          //    which `loadBlocks()` treats as a built-in guess: a built-in loads by its flat,
+          //    site-independent URL either way, and a custom block simply does not resolve, the
+          //    same "preview being too generous is the better failure" trade `EditorMarkdown.vue`'s
+          //    own `loadSiteBlocks()` documents for its own (author-gated) copy of this list.
+          const record = tag.startsWith('block-')
+            ? siteStore.blocksIndex[tag.slice('block-'.length)]
+            : undefined
           commonStore.loadBlocks([record ? { tag, isCustom: record.isCustom, id: record.id } : tag])
         }
         /*

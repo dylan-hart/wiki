@@ -1,25 +1,36 @@
 /**
- * Site-level block config, for blocks.
+ * Site-level block config and import-URL resolution, for blocks.
  *
  * An admin sets a field like a tile server URL once for the whole site, in a block's admin config —
  * see `config` on a block's `static definition`, alongside `props`, which an author sets per use in
- * the editor instead. A reader's page must never call `GET /sites/:siteId/blocks` to get at it: that
- * route is gated to authors and administrators (`mayListBlocks` in `backend/api/blocks.ts`), which a
- * plain reader is neither.
+ * the editor instead. A reader's page must never call `GET /sites/:siteId/blocks` to get at either
+ * this or a custom block's id: that route is gated to authors and administrators (`mayListBlocks` in
+ * `backend/api/blocks.ts`), which a plain reader is neither.
  *
- * So this reads it off the public site-info response instead — `GET /_api/sites/current`, the same
- * hostname-based site routing the frontend already resolves `current` through — which now carries a
- * `blocksConfig` map keyed by block tag (`blocksConfigFor` in `backend/api/sites.ts`). A relative
- * fetch is enough: it resolves against whatever hostname the page is actually being read on, so no
- * site ID needs to be threaded down from the frontend to reach a block sitting in page content.
+ * So both read off the public site-info response instead — `GET /_api/sites/current`, the same
+ * hostname-based site routing the frontend already resolves `current` through — which carries a
+ * `blocksConfig` map keyed by block tag and a `blocksIndex` map of `{ id, isCustom }` per enabled
+ * block (`siteBlocksInfoFor` in `backend/api/sites.ts`). A relative fetch is enough: it resolves
+ * against whatever hostname the page is actually being read on, so no site ID needs to be threaded
+ * down from the frontend to reach a block sitting in page content.
  *
  * Fetched once per page load and cached, the same pattern as `fetchIcon` in `./icons.js`: the whole
- * map in one request, not one request per block instance, so a page with several maps on it still
+ * payload in one request, not one request per block instance, so a page with several maps -- or a
+ * transcluded page with several custom blocks in it (`block-include`'s `_loadNestedBlocks`) -- still
  * only asks once.
  */
 
-/** The site's block config map, once fetched. Holds the promise, so concurrent callers share one request. */
-let configPromise = null
+/** The site-info payload, once fetched. Holds the promise, so concurrent callers share one request. */
+let sitePromise = null
+
+function fetchSite() {
+  if (!sitePromise) {
+    sitePromise = fetch('/_api/sites/current')
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .catch(() => null)
+  }
+  return sitePromise
+}
 
 /**
  * The site-level config for one block tag.
@@ -31,22 +42,47 @@ let configPromise = null
  * @returns {Promise<Record<string, any>>}
  */
 export async function getBlockConfig(tag) {
-  if (!configPromise) {
-    configPromise = fetch('/_api/sites/current')
-      .then((resp) => (resp.ok ? resp.json() : null))
-      .then((site) => site?.blocksConfig ?? {})
-      .catch(() => ({}))
-  }
-  const blocksConfig = await configPromise
-  return blocksConfig[tag] ?? {}
+  const site = await fetchSite()
+  return site?.blocksConfig?.[tag] ?? {}
 }
 
 /**
- * Test-only: forgets the cached fetch, so a new `getBlockConfig` call issues a fresh request.
+ * Where a custom or built-in block's compiled component lives, for the dynamic `import()` a reader's
+ * page runs to upgrade an undefined `block-*` element.
+ *
+ * Resolved off `blocksIndex` (see file header) rather than the tag alone: a built-in's compiled
+ * output is a flat file under `blocks/compiled`, served by the static `/_blocks/` mount and addressed
+ * by its tag on every site, but a custom block has no such file -- its code is a per-site row, served
+ * by `/_blocks/custom/:siteId/:id.js` (`controllers/blocks.ts`), which needs the site and the block's
+ * own id rather than just its tag. Mirrors `blockImportUrl()` in `frontend/src/stores/common.js`,
+ * which resolves the same URL for the app's own page view — this is the `blocks/` workspace's
+ * equivalent for a block that has to resolve it for itself (a nested block inside transcluded
+ * content, loaded after the page view's own scan already ran).
+ *
+ * Falls back to the flat, tag-only URL for anything `blocksIndex` doesn't have an entry for --
+ * disabled, or not a real block at all -- the same "preview being too generous is the better
+ * failure" trade `getBlockConfig` above makes for a missing config.
+ *
+ * @param {string} elementTag The element's tag name, e.g. `block-map`.
+ * @returns {Promise<string>}
+ */
+export async function getBlockImportUrl(elementTag) {
+  const site = await fetchSite()
+  const tag = elementTag.replace(/^block-/, '')
+  const record = site?.blocksIndex?.[tag]
+  if (record?.isCustom && site?.id) {
+    return `/_blocks/custom/${site.id}/${record.id}.js`
+  }
+  return `/_blocks/${elementTag}.js`
+}
+
+/**
+ * Test-only: forgets the cached fetch, so a new `getBlockConfig`/`getBlockImportUrl` call issues a
+ * fresh request.
  *
  * The module-level cache is deliberate in production (see above) but would otherwise leak the first
  * test's mocked response into every test that runs after it in the same file.
  */
 export function _resetBlockConfigCache() {
-  configPromise = null
+  sitePromise = null
 }
