@@ -5,8 +5,10 @@ import { createI18n } from 'vue-i18n'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import FileManager from './FileManager.vue'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { queue as notifyQueue } from '@/composables/notify'
+import { closeDialog, openDialogs } from '@/composables/dialog'
 
 /**
  * OpenProject #790: `FileManager.vue` had no drag-and-drop upload on-ramp, only the file-picker's
@@ -29,6 +31,17 @@ const i18n = createI18n({
         dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
         dropFoldersRejectedCount: '{count} folders were skipped',
         uploadSuccess: 'File(s) uploaded successfully.'
+      },
+      pages: {
+        homepageGuard: {
+          deleteTitle: 'Delete the Home Page?',
+          deleteMessage:
+            "**{name}** is set as this site's home page. Deleting it will leave the site root with no page until another one takes its place at `home`.",
+          moveTitle: 'Move the Home Page?',
+          moveMessage:
+            "**{name}** is set as this site's home page. Moving it away from `home` will leave the site root with no page until another one takes its place there.",
+          proceed: 'Continue'
+        }
       }
     }
   }
@@ -355,6 +368,166 @@ describe('FileManager context menu (OpenProject #859, #861, #862, #863, #864)', 
     expect(text).not.toContain('Edit Image')
     expect(text).not.toContain('Resize Image')
     expect(text).not.toContain('Move to')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * WP #1149: extra confirmation before deleting or moving a site's homepage, from the file manager's
+ * own delete/rename-move entry points (`delItem`/`renameMovePage`) -- the tree-item counterparts to
+ * `PageActionsCol.test.js`'s "homepage guard" suite, which covers the page view's action rail. Calls
+ * the exposed `<script setup>` functions directly on `wrapper.vm`, the same pattern
+ * `openItem()`/`state.fileList` above already use.
+ */
+describe('FileManager homepage guard (WP #1149)', () => {
+  async function mountFileManagerForGuard() {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    const pageStore = usePageStore()
+    // -> `initializeStore(router)` (stores/index.js) is what wires this up for real, at app boot; a
+    //    bare `createPinia()` never runs it, and `pageMove` dereferences it for the moved page
+    pageStore.router = { replace: vi.fn() }
+
+    const router = createRouter({ history: createWebHistory(), routes: [] })
+
+    const wrapper = mount(FileManager, {
+      global: {
+        plugins: [i18n, router],
+        stubs: { Tree: true, NewMenu: true, LocaleSelectorMenu: true }
+      },
+      attachTo: document.body
+    })
+    await flushPromises()
+    return { wrapper, siteStore, pageStore }
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks()
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('confirms before deleting a page at the root-level home path, then opens the real delete dialog', async () => {
+    const { wrapper } = await mountFileManagerForGuard()
+
+    wrapper.vm.delItem({
+      type: 'page',
+      id: 'home-1',
+      title: 'Welcome',
+      fileName: 'home',
+      folderPath: ''
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Delete the Home Page?',
+      cancel: true,
+      color: 'negative'
+    })
+    expect(openDialogs[0].props.message).toContain('Welcome')
+
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ pageId: 'home-1', pageName: 'Welcome' })
+
+    wrapper.unmount()
+  })
+
+  it('deletes an ordinary page with no extra guard', async () => {
+    const { wrapper } = await mountFileManagerForGuard()
+
+    wrapper.vm.delItem({
+      type: 'page',
+      id: 'p2',
+      title: 'Getting Started',
+      fileName: 'getting-started',
+      folderPath: 'docs'
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ pageId: 'p2', pageName: 'Getting Started' })
+
+    wrapper.unmount()
+  })
+
+  it('confirms before moving a page off the home path', async () => {
+    const { wrapper, siteStore } = await mountFileManagerForGuard()
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    wrapper.vm.renameMovePage({ id: 'home-1', title: 'Welcome', fileName: 'home', folderPath: '' })
+    closeDialog(openDialogs[0].id, true, {
+      path: 'about-us',
+      title: 'Welcome',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Move the Home Page?',
+      cancel: true,
+      color: 'negative'
+    })
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/pages/home-1/path`,
+      expect.anything()
+    )
+
+    wrapper.unmount()
+  })
+
+  it('does not guard a title-only rename of the home page (path unchanged)', async () => {
+    const { wrapper } = await mountFileManagerForGuard()
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    wrapper.vm.renameMovePage({ id: 'home-1', title: 'Welcome', fileName: 'home', folderPath: '' })
+    closeDialog(openDialogs[0].id, true, {
+      path: 'home',
+      title: 'New Title',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(0)
+    expect(API_CLIENT.patch).toHaveBeenCalled()
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('moves an ordinary page with no extra guard', async () => {
+    const { wrapper, siteStore } = await mountFileManagerForGuard()
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    wrapper.vm.renameMovePage({
+      id: 'p2',
+      title: 'Getting Started',
+      fileName: 'getting-started',
+      folderPath: 'docs'
+    })
+    closeDialog(openDialogs[0].id, true, {
+      path: 'docs/other',
+      title: 'Getting Started',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(0)
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      `sites/${siteStore.id}/pages/p2/path`,
+      expect.anything()
+    )
 
     wrapper.unmount()
   })

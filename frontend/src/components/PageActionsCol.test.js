@@ -15,6 +15,68 @@ import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 import { useEditorStore } from '@/stores/editor'
 import { queue as notifyQueue } from '@/composables/notify'
+import { closeDialog, openDialogs } from '@/composables/dialog'
+
+const HOMEPAGE_GUARD_MESSAGES = {
+  en: {
+    pages: {
+      homepageGuard: {
+        deleteTitle: 'Delete the Home Page?',
+        deleteMessage:
+          "**{name}** is set as this site's home page. Deleting it will leave the site root with no page until another one takes its place at `home`.",
+        moveTitle: 'Move the Home Page?',
+        moveMessage:
+          "**{name}** is set as this site's home page. Moving it away from `home` will leave the site root with no page until another one takes its place there.",
+        proceed: 'Continue'
+      }
+    }
+  }
+}
+
+/**
+ * WP #1149: extra confirmation before deleting or moving a site's homepage (the hardcoded `home` /
+ * `''` path convention -- `pageStore.isHome`). Its own mount helper because it needs
+ * `delete:pages`/`manage:pages` (neither of the mount helpers above grant both) plus the real
+ * `pages.homepageGuard.*` strings, which the other helpers' empty `messages: { en: {} }` never needed
+ * to assert against.
+ */
+async function mountRailForGuard({
+  path = 'home',
+  permissions = ['delete:pages', 'manage:pages']
+} = {}) {
+  setActivePinia(createPinia())
+
+  const pageStore = usePageStore()
+  pageStore.id = 'page-1'
+  pageStore.path = path
+  pageStore.title = 'Welcome'
+  pageStore.editor = 'markdown'
+  // -> `initializeStore(router)` (stores/index.js) is what wires this up for real, at app boot; a
+  //    bare `createPinia()` never runs it, and `pageMove` dereferences it for the page it just moved
+  pageStore.router = { replace: vi.fn() }
+
+  const siteStore = useSiteStore()
+  siteStore.id = 'site-1'
+
+  const userStore = useUserStore()
+  userStore.permissions = permissions
+
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }]
+  })
+  router.push('/')
+  await router.isReady()
+
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: HOMEPAGE_GUARD_MESSAGES })
+
+  const wrapper = mount(PageActionsCol, {
+    attachTo: document.body,
+    global: { plugins: [router, i18n] }
+  })
+
+  return { wrapper, pageStore, siteStore, userStore, router }
+}
 
 /**
  * Task 502: the standalone "Page Source" rail button is retired in favour of a single "Export Page"
@@ -534,5 +596,142 @@ describe('PageActionsCol page actions menu', () => {
     ;({ wrapper } = await mountRailWithPageActions({ editor: 'code' }))
 
     expect(wrapper.find('[aria-label="Page Actions"]').exists()).toBe(false)
+  })
+})
+
+describe('PageActionsCol homepage guard (WP #1149)', () => {
+  let wrapper
+
+  beforeEach(() => {
+    notifyQueue.splice(0, notifyQueue.length)
+  })
+
+  afterEach(() => {
+    wrapper?.unmount()
+    wrapper = undefined
+    openDialogs.splice(0, openDialogs.length)
+  })
+
+  it('confirms before deleting the home page, then opens the real delete dialog', async () => {
+    ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
+
+    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Delete the Home Page?',
+      cancel: true,
+      color: 'negative'
+    })
+    expect(openDialogs[0].props.message).toContain('Welcome')
+
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ pageId: 'page-1', pageName: 'Welcome' })
+  })
+
+  it('does not delete the home page when the guard is cancelled', async () => {
+    ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
+
+    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(0)
+  })
+
+  it('deletes an ordinary page with no extra guard', async () => {
+    ;({ wrapper } = await mountRailForGuard({ path: 'docs/getting-started' }))
+
+    await wrapper.get('[aria-label="Delete Page"]').trigger('click')
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({ pageId: 'page-1', pageName: 'Welcome' })
+  })
+
+  it('confirms before moving the home page off `home`', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailForGuard({ path: 'home' }))
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, true, {
+      path: 'about-us',
+      title: 'Welcome',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(1)
+    expect(openDialogs[0].props).toMatchObject({
+      title: 'Move the Home Page?',
+      cancel: true,
+      color: 'negative'
+    })
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+
+    closeDialog(openDialogs[0].id, true, true)
+    await flushPromises()
+
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      `sites/${ctx.siteStore.id}/pages/${ctx.pageStore.id}/path`,
+      expect.anything()
+    )
+  })
+
+  it('does not move when the homepage move guard is cancelled', async () => {
+    ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
+
+    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, true, {
+      path: 'about-us',
+      title: 'Welcome',
+      includeTranslations: false
+    })
+    await flushPromises()
+    closeDialog(openDialogs[0].id, false)
+    await flushPromises()
+
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+    expect(openDialogs).toHaveLength(0)
+  })
+
+  it('does not guard a title-only rename of the home page (path unchanged)', async () => {
+    ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
+    API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, true, {
+      path: 'home',
+      title: 'New Title',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(0)
+    expect(API_CLIENT.patch).toHaveBeenCalled()
+    expect(API_CLIENT.put).not.toHaveBeenCalled()
+  })
+
+  it('moves an ordinary page with no extra guard', async () => {
+    let ctx
+    ;({ wrapper } = ctx = await mountRailForGuard({ path: 'docs/getting-started' }))
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
+
+    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    closeDialog(openDialogs[0].id, true, {
+      path: 'docs/other',
+      title: 'Getting Started',
+      includeTranslations: false
+    })
+    await flushPromises()
+
+    expect(openDialogs).toHaveLength(0)
+    expect(API_CLIENT.put).toHaveBeenCalledWith(
+      `sites/${ctx.siteStore.id}/pages/${ctx.pageStore.id}/path`,
+      expect.anything()
+    )
   })
 })

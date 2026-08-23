@@ -5,7 +5,7 @@ import { pick } from 'es-toolkit/object'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
-import { localizedPagePath } from '@/helpers/pagePaths'
+import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 
 /**
  * The icon a page starts with.
@@ -130,7 +130,7 @@ export const usePageStore = defineStore('page', {
       return state.path.split('/').slice(0, -1).join('/')
     },
     isHome: (state) => {
-      return ['', 'home'].includes(state.path)
+      return isHomePath(state.path)
     },
     /**
      * Where to send someone who is leaving the editor on this page.

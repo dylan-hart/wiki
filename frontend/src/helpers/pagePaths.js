@@ -16,6 +16,18 @@ export function normalizePagePath(input) {
 }
 
 /**
+ * Whether a bare page path is the site's home page.
+ *
+ * The 3.x convention is a hardcoded path, never a configurable field: `''` is the tree root's own
+ * placeholder before a real path is chosen, and `home` is where a freshly-seeded site's root page
+ * always lands (see `WelcomeOverlay.vue`) — both count as "is the home page" for a guard that has to
+ * catch someone about to delete or move it out from under every visitor landing on the site's root.
+ */
+export function isHomePath(path) {
+  return path === '' || path === 'home'
+}
+
+/**
  * Fast, non-cryptographic 53-bit hash of a page path, as a URL-safe hex string.
  *
  * Mirrors `generatePathHash` in the backend's `helpers/common.ts` bit for bit — a page is addressed
