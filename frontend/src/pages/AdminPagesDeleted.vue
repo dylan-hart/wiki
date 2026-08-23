@@ -140,9 +140,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('history.recovery.title')
-})
+}))
 
 // DATA
 

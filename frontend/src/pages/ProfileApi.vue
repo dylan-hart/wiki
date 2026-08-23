@@ -134,9 +134,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('profile.api.title')
-})
+}))
 
 // DATA
 

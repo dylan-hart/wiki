@@ -98,6 +98,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.autoLogin"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.login.bypassScreen`)" />
             </w-item-section>
           </w-item>
@@ -111,6 +112,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.bypassUnauthorized"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.login.bypassUnauthorized`)" />
             </w-item-section>
           </w-item>
@@ -269,9 +271,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.login.title')
-})
+}))
 
 // DATA
 
