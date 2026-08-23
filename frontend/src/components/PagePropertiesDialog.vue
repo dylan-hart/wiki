@@ -8,7 +8,13 @@
     <!-- -> Offset comes from the stylesheet now, relative to this card; see SideDialog -->
     <div class="floating-sidepanel-quickaccess animated fadeIn" v-if="state.showQuickAccess">
       <template v-for="(qa, idx) of quickaccess" :key="`qa-` + qa.key">
-        <w-btn :icon="qa.icon" flat padding="sm xs" size="sm" @click="jumpToSection(qa.key)">
+        <w-btn
+          :icon="qa.icon"
+          flat
+          padding="sm xs"
+          size="sm"
+          :aria-label="qa.label"
+          @click="jumpToSection(qa.key)">
           <w-tooltip anchor="center left" self="center right">{{ qa.label }}</w-tooltip>
         </w-btn>
         <w-separator dark v-if="idx < quickaccess.length - 1" />
@@ -27,7 +33,12 @@
         :href="siteStore.docsBase + `/guide/page-properties`"
         target="_blank"
         type="a" />
-      <w-btn icon="la:times" dense flat @click="siteStore.sideDialogShown = false" />
+      <w-btn
+        icon="la:times"
+        dense
+        flat
+        :aria-label="t(`common.actions.close`)"
+        @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
     <w-scroll-area
       ref="scrollArea"
@@ -151,9 +162,22 @@
           <w-tooltip>{{ t('editor.props.relationAddHint') }}</w-tooltip>
         </w-btn>
       </w-card-section>
-      <w-card-section class="alt-card" id="refCardScripts">
+      <!--
+        Gated on `write:scripts`/`write:styles` (OpenProject #1131), not just the `write:pages` this
+        whole panel is already behind: the backend drops an edit to a field the actor lacks the
+        specific permission for rather than refusing the save (`buildScripts()` in
+        `backend/models/pages.ts`), so a control offered without the matching permission would look
+        like it worked and silently no-op. The section itself, and its quick-access jump-rail entry
+        below, disappear together when neither permission is held -- nothing left in the section to
+        jump to otherwise.
+      -->
+      <w-card-section
+        class="alt-card"
+        id="refCardScripts"
+        v-if="userStore.can(`write:scripts`) || userStore.can(`write:styles`)">
         <div class="w-section-header">{{ t('editor.props.scripts') }}</div>
         <w-btn
+          v-if="userStore.can(`write:scripts`)"
           class="w-full"
           :label="t(`editor.props.jsLoad`)"
           icon="la:js-square"
@@ -164,6 +188,7 @@
           <w-tooltip>{{ t('editor.props.jsLoadHint') }}</w-tooltip>
         </w-btn>
         <w-btn
+          v-if="userStore.can(`write:scripts`)"
           class="w-full mt-2"
           :label="t(`editor.props.jsUnload`)"
           icon="la:js-square"
@@ -174,6 +199,7 @@
           <w-tooltip>{{ t('editor.props.jsUnloadHint') }}</w-tooltip>
         </w-btn>
         <w-btn
+          v-if="userStore.can(`write:styles`)"
           class="w-full mt-2"
           :label="t(`editor.props.styles`)"
           icon="la:css3-alt"
@@ -353,7 +379,6 @@ import { useI18n } from 'vue-i18n'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 
 import { useAdminStore } from '@/stores/admin'
-import { useEditorStore } from '@/stores/editor'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
@@ -366,7 +391,6 @@ import PageTags from './PageTags.vue'
 // STORES
 
 const adminStore = useAdminStore()
-const editorStore = useEditorStore()
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
@@ -392,11 +416,18 @@ const state = reactive({
   originalClassification: pageStore.classification
 })
 
-const quickaccess = [
+/**
+ * The `refCardScripts` entry is dropped when the reader holds neither `write:scripts` nor
+ * `write:styles` (OpenProject #1131) -- that section itself doesn't render for them either, so a
+ * jump-rail button that scrolled to nothing would be its own small bug.
+ */
+const quickaccess = computed(() => [
   { key: 'refCardInfo', icon: 'la:info-circle', label: t('editor.props.info') },
   { key: 'refCardPublishState', icon: 'la:power-off', label: t('editor.props.publishState') },
-  { key: 'refCardRelations', icon: 'la:sun', label: t('editor.props.relations') },
-  { key: 'refCardScripts', icon: 'la:code', label: t('editor.props.scripts') },
+  { key: 'refCardRelations', icon: 'la:link', label: t('editor.props.relations') },
+  ...(userStore.can(`write:scripts`) || userStore.can(`write:styles`)
+    ? [{ key: 'refCardScripts', icon: 'la:code', label: t('editor.props.scripts') }]
+    : []),
   { key: 'refCardSidebar', icon: 'la:ruler-vertical', label: t('editor.props.sidebar') },
   { key: 'refCardSocial', icon: 'la:comments', label: t('editor.props.social') },
   { key: 'refCardTags', icon: 'la:tags', label: t('editor.props.tags') },
@@ -406,7 +437,7 @@ const quickaccess = [
     label: t('editor.props.classification')
   },
   { key: 'refCardVisibility', icon: 'la:eye', label: t('editor.props.visibility') }
-]
+])
 
 // REFS
 
@@ -450,11 +481,14 @@ const mayLowerClassification = computed(() => {
 
 // WATCHERS
 
-pageStore.$subscribe(() => {
-  editorStore.$patch({
-    lastChangeTimestamp: Temporal.Now.instant()
-  })
-})
+/*
+  No `pageStore.$subscribe` of this component's own (OpenProject #1133): `<page-tags edit />` below
+  is always rendered, unconditionally, whenever this panel is open, and `PageTags.vue` registers the
+  identical whole-store subscribe itself whenever `props.edit` is true. A second one here would just
+  double-patch `lastChangeTimestamp` on every mutation this panel makes, tags included -- harmless
+  since `hasPendingChanges` only checks inequality, but redundant. `PageTags.vue` keeps its own copy
+  because it is also used standalone, outside Properties, where nothing else would fire the signal.
+*/
 
 // METHODS
 
@@ -478,6 +512,23 @@ function jumpToSection(id) {
     behavior: 'smooth'
   })
 }
+/*
+  Watched rather than read once in `onMounted` (OpenProject #1133): this panel can mount before
+  `pageStore.pageLoad()` resolves, and a one-time read left `state.requirePassword` stuck at whatever
+  it saw at that moment even after the real password arrived. `immediate: true` still covers the
+  already-loaded case `onMounted` used to handle, so nothing here depends on load ordering any more.
+  `toggleRequirePassword` below also writes `pageStore.password`, but only ever to `''` while turning
+  the toggle off -- `state.requirePassword` is already `false` by then from the toggle's own
+  `v-model`, so this watcher re-deriving the same value is a no-op, not a fight over who owns it.
+*/
+watch(
+  () => pageStore.password,
+  (newValue) => {
+    state.requirePassword = newValue?.length > 0
+  },
+  { immediate: true }
+)
+
 function toggleRequirePassword(newValue) {
   if (newValue) {
     nextTick(() => {
@@ -494,8 +545,6 @@ function toggleRequirePassword(newValue) {
 // MOUNTED
 
 onMounted(async () => {
-  state.requirePassword = pageStore.password?.length > 0
-
   // -> Title is the field this panel is opened to edit, so the caret starts there
   nextTick(() => {
     iptTitle.value?.focus()
