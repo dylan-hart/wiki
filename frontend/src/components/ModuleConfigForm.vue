@@ -47,6 +47,7 @@
             v-model="cfg.value"
             dense
             :type="inputTypeFor(cfg)"
+            :autocomplete="cfg.sensitive ? 'new-password' : null"
             :aria-label="cfg.title"
             :disable="cfg.readOnly" />
         </w-item-section>
@@ -66,6 +67,12 @@
  * caller's own reactive editable state (`AdminStorage.vue`'s `state.target.config`,
  * `AdminSearch.vue`'s `selectedEngine.config`), and a `v-model` on the prop as a whole would only be
  * that same object one indirection further away.
+ *
+ * A `sensitive` field gets `autocomplete="new-password"` (input or textarea alike, since
+ * `sshPrivateKeyContent` is `sensitive` and `multiline`), matching `HeaderSearch.vue`'s existing use
+ * of `autocomplete` to stop a bare field from being treated as a login field (OpenProject #830) --
+ * without it a `type="password"` field like S3's secret key or Git's PAT draws password-manager
+ * autofill scanning it has no business doing on a config field.
  *
  * Extracted (task #556) from what had been two independently-maintained, byte-for-byte-identical
  * copies of this same template block: `AdminStorage.vue`'s own target config editor, and
