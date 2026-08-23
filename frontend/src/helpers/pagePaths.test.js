@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  isHomePath,
   localizedPagePath,
   matchLocaleCode,
   pagePathHash,
@@ -8,6 +9,24 @@ import {
   resolveRouteLocale,
   shouldPrefixLocale
 } from './pagePaths.js'
+
+describe('isHomePath', () => {
+  it('treats the empty path as the home page', () => {
+    expect(isHomePath('')).toBe(true)
+  })
+
+  it('treats the literal `home` path as the home page', () => {
+    expect(isHomePath('home')).toBe(true)
+  })
+
+  it('does not treat an ordinary page path as the home page', () => {
+    expect(isHomePath('some/page')).toBe(false)
+  })
+
+  it('does not treat a path merely containing `home` as the home page', () => {
+    expect(isHomePath('home/nested')).toBe(false)
+  })
+})
 
 describe('parseLocalePrefix', () => {
   const codes = ['en', 'fr']

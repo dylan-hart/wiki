@@ -310,7 +310,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fileSave } from 'browser-fs-access'
 
-import { dialog } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import {
@@ -562,45 +562,74 @@ function renamePage() {
       itemFileName: pageStore.path,
       locale: pageStore.locale
     }
-  }).onOk(async (renamedPageOpts) => {
-    try {
-      if (renamedPageOpts.path === pageStore.path) {
-        await pageStore.pageRename({ id: pageStore.id, title: renamedPageOpts.title })
-        notify({
-          type: 'positive',
-          message: 'Page renamed successfully.'
-        })
-      } else {
-        await pageStore.pageMove({
-          id: pageStore.id,
-          path: renamedPageOpts.path,
-          title: renamedPageOpts.title,
-          includeTranslations: renamedPageOpts.includeTranslations
-        })
-        notify({
-          type: 'positive',
-          message: 'Page moved successfully.'
-        })
-      }
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: err.message
-      })
+  }).onOk((renamedPageOpts) => {
+    const isMove = renamedPageOpts.path !== pageStore.path
+    // -> A title-only rename never moves the page off `home`, so only an actual move needs the guard
+    if (isMove && pageStore.isHome) {
+      confirm({
+        title: t('pages.homepageGuard.moveTitle'),
+        message: t('pages.homepageGuard.moveMessage', { name: pageStore.title }),
+        cancel: true,
+        color: 'negative',
+        okLabel: t('pages.homepageGuard.proceed')
+      }).onOk(() => applyRenameOrMove(renamedPageOpts, isMove))
+    } else {
+      applyRenameOrMove(renamedPageOpts, isMove)
     }
   })
 }
 
-function deletePage() {
-  dialog({
-    component: defineAsyncComponent(() => import('../components/PageDeleteDialog.vue')),
-    componentProps: {
-      pageId: pageStore.id,
-      pageName: pageStore.title
+async function applyRenameOrMove(renamedPageOpts, isMove) {
+  try {
+    if (!isMove) {
+      await pageStore.pageRename({ id: pageStore.id, title: renamedPageOpts.title })
+      notify({
+        type: 'positive',
+        message: 'Page renamed successfully.'
+      })
+    } else {
+      await pageStore.pageMove({
+        id: pageStore.id,
+        path: renamedPageOpts.path,
+        title: renamedPageOpts.title,
+        includeTranslations: renamedPageOpts.includeTranslations
+      })
+      notify({
+        type: 'positive',
+        message: 'Page moved successfully.'
+      })
     }
-  }).onOk(() => {
-    router.replace('/')
-  })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: err.message
+    })
+  }
+}
+
+function deletePage() {
+  const openDeleteDialog = () => {
+    dialog({
+      component: defineAsyncComponent(() => import('../components/PageDeleteDialog.vue')),
+      componentProps: {
+        pageId: pageStore.id,
+        pageName: pageStore.title
+      }
+    }).onOk(() => {
+      router.replace('/')
+    })
+  }
+  if (pageStore.isHome) {
+    confirm({
+      title: t('pages.homepageGuard.deleteTitle'),
+      message: t('pages.homepageGuard.deleteMessage', { name: pageStore.title }),
+      cancel: true,
+      color: 'negative',
+      okLabel: t('pages.homepageGuard.proceed')
+    }).onOk(openDeleteDialog)
+  } else {
+    openDeleteDialog()
+  }
 }
 
 function removePendingAsset(item) {
