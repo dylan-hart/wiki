@@ -166,6 +166,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.browse"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowBrowse`)" />
             </w-item-section>
           </w-item>
@@ -181,6 +182,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.collaborativeEditing"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowCollaborativeEditing`)" />
             </w-item-section>
           </w-item>
@@ -194,6 +196,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.comments"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowComments`)" />
             </w-item-section>
           </w-item>
@@ -207,6 +210,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.profile"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowProfile`)" />
             </w-item-section>
           </w-item>
@@ -237,6 +241,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.features.search"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.allowSearch`)" />
             </w-item-section>
           </w-item>
@@ -362,6 +367,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.logoText"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.displaySiteTitle`)" />
             </w-item-section>
           </w-item>
@@ -432,6 +438,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.discoverable"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.discoverable`)" />
             </w-item-section>
           </w-item>
@@ -498,6 +505,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.robots.index"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.searchAllowIndexing`)" />
             </w-item-section>
           </w-item>
@@ -511,6 +519,7 @@
             <w-item-section avatar>
               <w-toggle
                 v-model="state.config.robots.follow"
+                :loading="state.loading > 0"
                 :aria-label="t(`admin.general.searchAllowFollow`)" />
             </w-item-section>
           </w-item>
@@ -522,7 +531,10 @@
               <w-item-label caption>{{ t(`admin.general.sitemapHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
-              <w-toggle v-model="state.config.sitemap" :aria-label="t(`admin.general.sitemap`)" />
+              <w-toggle
+                v-model="state.config.sitemap"
+                :loading="state.loading > 0"
+                :aria-label="t(`admin.general.sitemap`)" />
             </w-item-section>
           </w-item>
         </w-card>
@@ -570,9 +582,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.general.title')
-})
+}))
 
 // DATA
 

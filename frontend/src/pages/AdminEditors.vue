@@ -77,6 +77,7 @@
                   v-model="state.config[editor.id]"
                   :label="t(`admin.sites.isActive`)"
                   :aria-label="t(`admin.sites.isActive`)"
+                  :loading="state.loading > 0"
                   :disabled="editor.isDisabled" />
               </w-item-section>
             </w-item>
@@ -120,9 +121,9 @@ const { t } = useI18n()
 
 // META
 
-useMeta({
+useMeta(() => ({
   title: t('admin.editors.title')
-})
+}))
 
 // -> Task 492: `api`/`blog`/`channel` rows removed. None had a backing `EDITOR_CONTENT_TYPES` entry
 //    (backend/models/pages.ts), schema property (backend/api/schemas/site.ts), or reachable

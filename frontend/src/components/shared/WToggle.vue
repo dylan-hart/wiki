@@ -4,30 +4,39 @@
     role="switch"
     :aria-checked="String(isOn)"
     :aria-label="label ? undefined : ariaLabel"
+    :aria-busy="loading || undefined"
     :disabled="isDisabled"
     class="w-toggle w-unstyled inline-flex flex-nowrap items-center gap-2 rounded outline-offset-2 focus-visible:outline-2"
     :class="isDisabled ? 'w-toggle--disabled pointer-events-none' : 'cursor-pointer'"
     @click="toggle">
     <span
-      class="w-toggle__track relative inline-flex shrink-0 items-center rounded-full"
+      class="w-toggle__track relative inline-flex shrink-0 items-center justify-center rounded-full"
       :class="dense ? 'h-5 w-10' : 'h-6 w-12'">
       <!--
-        The glow is clipped by its own layer rather than by the track, so the knob (a sibling) keeps
-        its shadows intact -- clipping the track would cut the relief off at its edge.
+        While the real value is still being fetched, a spinner stands in for the whole track rather
+        than the knob rendering at its `false` default and animating to the correct position once
+        `loading` drops -- see the file header comment.
       -->
-      <span class="w-toggle__glow-clip">
+      <w-spinner v-if="loading" :size="dense ? '12px' : '14px'" />
+      <template v-else>
+        <!--
+          The glow is clipped by its own layer rather than by the track, so the knob (a sibling) keeps
+          its shadows intact -- clipping the track would cut the relief off at its edge.
+        -->
+        <span class="w-toggle__glow-clip">
+          <span
+            class="w-toggle__glow absolute top-1/2 -translate-y-1/2 scale-125 rounded-full"
+            :class="[dense ? 'size-4' : 'size-5', knobOffset]" />
+        </span>
         <span
-          class="w-toggle__glow absolute top-1/2 -translate-y-1/2 scale-125 rounded-full"
-          :class="[dense ? 'size-4' : 'size-5', knobOffset]" />
-      </span>
-      <span
-        class="w-toggle__knob inline-flex items-center justify-center rounded-full transition-transform duration-200"
-        :class="[dense ? 'size-4' : 'size-5', knobOffset]">
-        <w-icon
-          class="w-toggle__mark"
-          :name="isOn ? 'mdi:check' : 'mdi:close'"
-          :size="dense ? '11px' : '13px'" />
-      </span>
+          class="w-toggle__knob inline-flex items-center justify-center rounded-full transition-transform duration-200"
+          :class="[dense ? 'size-4' : 'size-5', knobOffset]">
+          <w-icon
+            class="w-toggle__mark"
+            :name="isOn ? 'mdi:check' : 'mdi:close'"
+            :size="dense ? '11px' : '13px'" />
+        </span>
+      </template>
     </span>
     <span v-if="label" class="w-toggle__label pt-px text-caption">{{ label }}</span>
   </button>
@@ -54,6 +63,12 @@ import { computed } from 'vue'
  * There is no `color` prop and no per-call-site glyphs: the switch says the same thing everywhere,
  * in one place, rather than each caller picking a tint and a pair of icons. A toggle that needs to
  * signal danger should say so in its label.
+ *
+ * `loading` is for a value seeded with a placeholder default (`false`, typically) that an async
+ * `load()` overwrites once the real value arrives: bound straight through, the toggle would mount on
+ * the placeholder and visibly animate to the fetched value the moment it lands. Passing
+ * `:loading="state.loading"` for as long as that fetch is in flight swaps the knob for a spinner
+ * instead, so the control mounts already showing its real state and never animates from a wrong one.
  */
 const props = defineProps({
   modelValue: {
@@ -81,6 +96,11 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Shows a spinner in place of the knob and blocks interaction -- see the file header comment. */
+  loading: {
+    type: Boolean,
+    default: false
+  },
   /**
    * Present only when `modelValue` is an array: the value this toggle contributes to it. Lets a set
    * of toggles bind to one array of selected values.
@@ -101,7 +121,7 @@ const isOn = computed(() =>
   isArrayModel.value ? props.modelValue.includes(props.val) : props.modelValue === true
 )
 
-const isDisabled = computed(() => props.disable || props.disabled)
+const isDisabled = computed(() => props.disable || props.disabled || props.loading)
 
 /** Shared by the knob and the glow behind it, so the two cannot drift apart. */
 const knobOffset = computed(() => {
