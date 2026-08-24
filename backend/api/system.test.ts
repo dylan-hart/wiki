@@ -130,6 +130,7 @@ describe('GET /info', () => {
         db: { host: 'db-test-host' },
         api: { isEnabled: true },
         metrics: { isEnabled: false },
+        pageviews: { isEnabled: true },
         mail: { host: '' },
         update: { version: '3.0.1', versionDate: '2026-01-01T00:00:00.000Z' },
         port: 3042
@@ -178,6 +179,13 @@ describe('GET /info', () => {
     assert.equal(res.statusCode, 200)
     const body = res.json()
     assert.equal(body.httpPort, 3042)
+  })
+
+  test('GET /info reports isPageviewsEnabled from config, not hardcoded', async () => {
+    const res = await app.inject({ method: 'GET', url: '/info' })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.isPageviewsEnabled, true)
   })
 })
 

@@ -15,6 +15,11 @@
           contributorCountFor(hoveredNode) === 1 ? '' : 's'
         }}
       </template>
+      <template v-if="sizeBy === 'visits' && !hoveredNode.synthetic">
+        · {{ pageviewCountFor(hoveredNode) }} visit{{
+          pageviewCountFor(hoveredNode) === 1 ? '' : 's'
+        }}
+      </template>
     </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
@@ -44,14 +49,7 @@
         </div>
         <div class="graph-view-control-group">
           <span class="graph-view-control-caption">Size by</span>
-          <w-btn-toggle
-            v-model="sizeBy"
-            no-caps
-            aria-label="Size by"
-            :options="[
-              { label: 'Uniform', value: 'uniform' },
-              { label: 'Edit volume', value: 'edits' }
-            ]" />
+          <w-btn-toggle v-model="sizeBy" no-caps aria-label="Size by" :options="sizeByOptions" />
         </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
@@ -59,6 +57,27 @@
           label="Count edits by"
           :options="[
             { value: 'editor', label: 'Editor' },
+            { value: 'mcp', label: 'MCP' }
+          ]" />
+        <div v-if="sizeBy === 'visits'" class="graph-view-control-group">
+          <span class="graph-view-control-caption">Over</span>
+          <w-btn-toggle
+            v-model="pageviewsWindow"
+            no-caps
+            aria-label="Time window"
+            :options="[
+              { label: '30 days', value: 'last30d' },
+              { label: '6 months', value: 'last6mo' },
+              { label: '2 years', value: 'last2yr' }
+            ]" />
+        </div>
+        <GraphClientTypeFilter
+          v-if="sizeBy === 'visits'"
+          v-model="pageviewClientTypes"
+          label="Count visits by"
+          :options="[
+            { value: 'browser', label: 'Browser' },
+            { value: 'api', label: 'API' },
             { value: 'mcp', label: 'MCP' }
           ]" />
       </div>
@@ -172,6 +191,38 @@ const sizeBy = ref('uniform')
  *  together (see `contributorCountFor()`). Irrelevant while `sizeBy` is 'uniform', but kept around
  *  rather than reset, so re-enabling 'edits' remembers the last filter chosen. */
 const contributorTypes = ref(['editor', 'mcp'])
+
+/** Whether pageview tracking is on at all (OpenProject #1238's admin opt-out,
+ *  `WIKI.config.pageviews.isEnabled`, read via `GET system/pageviews` same as `AdminPageviews.vue`
+ *  does). While off, nothing is being logged, so 'visits' sizing has no data to point at --
+ *  `sizeByOptions` below omits the option entirely rather than showing a control for data that
+ *  doesn't exist (OpenProject #1140's own scope decision). Defaults to `false` until the check
+ *  resolves, which is the safe default: hidden-until-proven-on, not shown-until-proven-off. */
+const pageviewsTrackingEnabled = ref(false)
+
+/** 'Size by' control options (OpenProject #1141's 'uniform'/'edits', plus #1140's 'visits') --
+ *  a computed rather than a static template literal so 'visits' can be omitted while pageview
+ *  tracking is disabled. */
+const sizeByOptions = computed(() => {
+  const options = [
+    { label: 'Uniform', value: 'uniform' },
+    { label: 'Edit volume', value: 'edits' }
+  ]
+  if (pageviewsTrackingEnabled.value) {
+    options.push({ label: 'Page visits', value: 'visits' })
+  }
+  return options
+})
+
+/** Which of the pageview log's fixed trailing windows (OpenProject #1140/#1238) 'visits' sizing
+ *  reads -- matches `backend/models/pageviews.ts#pageviewWindows`. Irrelevant while `sizeBy` isn't
+ *  'visits', same "kept around, not reset" reasoning as `contributorTypes`. */
+const pageviewsWindow = ref('last30d')
+
+/** Which pageview `clientType`s count toward 'visits' sizing -- all three checked by default. See
+ *  `pageviewCountFor()` for why summing the checked buckets is exact here (unlike
+ *  `contributorCountFor()`'s editor/mcp union, which needs the backend's precomputed `all`). */
+const pageviewClientTypes = ref(['browser', 'api', 'mcp'])
 
 /** Drill-down filter state (OpenProject #875): the AND of whichever of these are non-empty narrows
  *  the visible node/edge subset -- see `graphFilters.js#computeVisibleSubset` (Task 25). `'site'` is
@@ -308,6 +359,13 @@ const MIN_CONTRIBUTOR_RADIUS = 5
 const MAX_CONTRIBUTOR_RADIUS = 22
 const CONTRIBUTOR_RADIUS_SCALE = 3
 
+/** Same sqrt-scaling reasoning as the contributor constants above, for 'visits' sizing (OpenProject
+ *  #1140) -- same starting values too, so switching between the two sizing modes doesn't itself
+ *  make the graph look dramatically different at a glance. */
+const MIN_PAGEVIEW_RADIUS = 5
+const MAX_PAGEVIEW_RADIUS = 22
+const PAGEVIEW_RADIUS_SCALE = 3
+
 /** How many unique contributors count toward a node's 'edits'-mode size, per the currently-checked
  *  `contributorTypes`. Both checked (the default) reads the backend's pre-unioned
  *  `contributors.all` rather than adding `editor + mcp` together -- a contributor who used both
@@ -332,32 +390,54 @@ function contributorCountFor(node) {
   return 0
 }
 
+/** How many unique visitors count toward a node's 'visits'-mode size, per the currently-checked
+ *  `pageviewClientTypes`, within the currently-selected `pageviewsWindow`. Unlike
+ *  `contributorCountFor()`, this is a plain sum of the checked buckets rather than reading a
+ *  precomputed 'all' -- exact for any subset here (see `backend/models/pageviews.ts
+ *  #countsForGraph()`'s doc comment: each client type hashes a disjoint identity space, so there is
+ *  no double-counting to guard against, and summing all three equals the backend's own `all`). */
+function pageviewCountFor(node) {
+  const counts = node.pageviews?.[pageviewsWindow.value]
+  if (!counts) {
+    return 0
+  }
+  return pageviewClientTypes.value.reduce((sum, type) => sum + (counts[type] ?? 0), 0)
+}
+
 /** A node's drawn radius: synthetic nodes are always the fixed `3`, and a real node is the fixed
- *  `5` unless `sizeBy` is 'edits', in which case it scales with `contributorCountFor()`. */
+ *  `5` unless `sizeBy` is 'edits' or 'visits', in which case it scales with `contributorCountFor()`
+ *  or `pageviewCountFor()` respectively. */
 function radiusFor(node) {
   if (node.synthetic) {
     return 3
   }
-  if (sizeBy.value !== 'edits') {
-    return 5
+  if (sizeBy.value === 'edits') {
+    const count = contributorCountFor(node)
+    return Math.min(
+      MAX_CONTRIBUTOR_RADIUS,
+      MIN_CONTRIBUTOR_RADIUS + Math.sqrt(count) * CONTRIBUTOR_RADIUS_SCALE
+    )
   }
-  const count = contributorCountFor(node)
-  return Math.min(
-    MAX_CONTRIBUTOR_RADIUS,
-    MIN_CONTRIBUTOR_RADIUS + Math.sqrt(count) * CONTRIBUTOR_RADIUS_SCALE
-  )
+  if (sizeBy.value === 'visits') {
+    const count = pageviewCountFor(node)
+    return Math.min(
+      MAX_PAGEVIEW_RADIUS,
+      MIN_PAGEVIEW_RADIUS + Math.sqrt(count) * PAGEVIEW_RADIUS_SCALE
+    )
+  }
+  return 5
 }
 
 /** `forceCollide`'s own fixed `14`px starting point (see the comment on `startSimulation` below)
- *  stays the collide radius in 'uniform' mode, unchanged from before #1141 -- only 'edits' mode
- *  derives it from `radiusFor()`, so a node bigger than the old fixed dot still gets room not to
+ *  stays the collide radius in 'uniform' mode, unchanged from before #1141 -- only 'edits'/'visits'
+ *  mode derives it from `radiusFor()`, so a node bigger than the old fixed dot still gets room not to
  *  overlap its neighbors. `d3-force`'s `forceCollide` caches a function radius per node at
  *  `initialize()` time (same one-time-evaluation shape as the `forceX`/`forceY` pair #1158 replaced),
- *  so this is re-read only by re-attaching the force -- the `sizeBy`/`contributorTypes` watcher
- *  below does that on toggle; it needs no per-tick recompute the way #1158's cluster centroids did,
- *  since a node's own contributor count never changes mid-session. */
+ *  so this is re-read only by re-attaching the force -- the sizing-related watcher below does that on
+ *  toggle; it needs no per-tick recompute the way #1158's cluster centroids did, since a node's own
+ *  contributor/pageview count never changes mid-session. */
 function collideRadiusFor(node) {
-  return sizeBy.value === 'edits' ? radiusFor(node) + 2 : 14
+  return sizeBy.value === 'edits' || sizeBy.value === 'visits' ? radiusFor(node) + 2 : 14
 }
 
 function drawEdges() {
@@ -626,6 +706,20 @@ async function loadGraph() {
   }
 }
 
+/** Whether pageview tracking is currently on (OpenProject #1238's admin opt-out), same endpoint
+ *  `AdminPageviews.vue` reads. A failed check is treated as "off" -- the safer default given
+ *  `pageviewsTrackingEnabled`'s own doc comment, and consistent with `loadGraph()`'s own
+ *  try/catch-and-recover shape below. Called after `loadGraph()` in `onMounted` (not raced with it)
+ *  so a test asserting on the graph fetch being the FIRST `API_CLIENT.get` call keeps holding. */
+async function loadPageviewsTrackingState() {
+  try {
+    const resp = await API_CLIENT.get('system/pageviews').json()
+    pageviewsTrackingEnabled.value = resp?.isEnabled === true
+  } catch {
+    pageviewsTrackingEnabled.value = false
+  }
+}
+
 /** Recomputes `nodes.value`/`edges.value` (what the simulation actually runs on) from `allNodes`
  *  against `activeFilters`, then layers on the current `edgeMode`'s synthetic nodes/edges -- the 872
  *  endpoint's `relation`/`link` edges (`computeVisibleSubset`'s `visibleEdges`) are deliberately not
@@ -655,10 +749,19 @@ watch(groupBy, () => {
  *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
  *  call needed: neither the visible node set nor any edge changes here, only how big each dot
  *  draws and how much room `collide` gives it. */
-watch([sizeBy, contributorTypes], () => {
+watch([sizeBy, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
   simulation?.force('collide', forceCollide(collideRadiusFor))
   simulation?.alpha(0.3).restart()
   redraw()
+})
+
+/** OpenProject #1140's own scope decision: while pageview tracking is off, 'visits' sizing has no
+ *  data behind it -- if the admin opt-out toggles off while this control is active (e.g. in another
+ *  tab), fall back to 'uniform' rather than leaving a now-hidden option selected. */
+watch(pageviewsTrackingEnabled, (enabled) => {
+  if (!enabled && sizeBy.value === 'visits') {
+    sizeBy.value = 'uniform'
+  }
 })
 
 /*
@@ -700,6 +803,7 @@ onMounted(() => {
   })
   resizeObserver.observe(containerRef.value)
   loadGraph()
+  loadPageviewsTrackingState()
 })
 
 onBeforeUnmount(() => {

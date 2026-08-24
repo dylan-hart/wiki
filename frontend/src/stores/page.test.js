@@ -237,6 +237,83 @@ describe('page store: pageSave() concurrency', () => {
   })
 })
 
+/**
+ * OpenProject #1012: a newly created page can change what an `auto`/`mixed` menu generates from the
+ * tree -- it is a new entry, not an edit to one already there -- with nothing on the backend to tell
+ * an already-open tab. An ordinary content update never adds or removes a tree entry, so it must NOT
+ * pay for the same force-refetch on every save.
+ */
+describe('page store: pageSave() same-tab navigation invalidation (OpenProject #1012)', () => {
+  it('force-refetches the sidebar menu after a create-mode save, even with the same nav id already cached', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    // -> Already cached under this id -- the plain "id changed" gate `fetchNavigation()` otherwise
+    //    applies would skip a refetch here if this test didn't force past it.
+    siteStore.nav.currentId = 'nav-1'
+    editorStore.$patch({ mode: 'create' })
+    pageStore.$patch({ id: 0, contentLoaded: true, locale: 'en', path: 'new-page', updatedAt: '' })
+    pageStore.router = { replace: () => Promise.resolve() }
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '9',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'item-new' }])
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual([{ id: 'item-new' }])
+  })
+
+  it('does not touch the sidebar menu on an ordinary (non-create) save', async () => {
+    const pageStore = usePageStore()
+    const editorStore = useEditorStore()
+    const siteStore = useSiteStore()
+
+    siteStore.id = 'site-1'
+    editorStore.mode = 'edit'
+    pageStore.$patch({
+      id: '5',
+      contentLoaded: true,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      navigationId: 'nav-1'
+    })
+
+    API_CLIENT.patch.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          ok: true,
+          page: {
+            id: '5',
+            navigationId: 'nav-1',
+            updatedAt: '2026-01-01T01:00:00.000Z',
+            relations: [],
+            tocDepth: {}
+          }
+        })
+    })
+
+    await pageStore.pageSave()
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+})
+
 describe('page store: pageSave() reads the live editor first (OpenProject #806)', () => {
   it('flushes editorStore.contentFlusher before building the save body, replacing a stale content/render pair', async () => {
     const pageStore = usePageStore()
@@ -737,6 +814,32 @@ describe('page store: pageMove()', () => {
     expect(API_CLIENT.put).toHaveBeenCalledWith('sites/site-1/pages/page-1/path', {
       json: { path: 'elsewhere' }
     })
+  })
+
+  /**
+   * OpenProject #1012: a move can change what an `auto`/`mixed` menu generates from the tree behind
+   * an unchanged `navigationId` -- the moved page's new parent, its position among siblings -- with
+   * nothing telling an already-open tab. Confirmed here with `siteStore.nav.currentId` ALREADY equal
+   * to the id being force-refetched, which is exactly the case `fetchNavigation()`'s own "already
+   * showing this menu" gate would otherwise skip.
+   */
+  it("force-refetches the currently viewed page's own nav menu after a move, even though the moved page is a different one entirely", async () => {
+    makeMultiLocaleSite()
+    const pageStore = usePageStore()
+    const siteStore = useSiteStore()
+    pageStore.router = stubRouter()
+    // -> The page actually being viewed in this tab -- distinct from `page-1`, the one being moved.
+    pageStore.$patch({ id: 'page-2', locale: 'en', path: 'viewed-page', navigationId: 'nav-1' })
+    siteStore.nav.currentId = 'nav-1'
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'item-after-move' }])
+    })
+
+    await pageStore.pageMove({ id: 'page-1', path: 'elsewhere' })
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(siteStore.nav.items).toEqual([{ id: 'item-after-move' }])
   })
 })
 

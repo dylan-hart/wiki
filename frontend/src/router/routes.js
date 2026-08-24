@@ -101,6 +101,7 @@ const routes = [
       { path: 'icons', component: () => import('@/pages/AdminIcons.vue') },
       { path: 'mail', component: () => import('@/pages/AdminMail.vue') },
       { path: 'metrics', component: () => import('@/pages/AdminMetrics.vue') },
+      { path: 'pageviews', component: () => import('@/pages/AdminPageviews.vue') },
       { path: 'rendering', component: () => import('@/pages/AdminRendering.vue') },
       { path: 'scheduler', component: () => import('@/pages/AdminScheduler.vue') },
       { path: 'search', component: () => import('@/pages/AdminSearch.vue') },

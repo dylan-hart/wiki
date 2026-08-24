@@ -124,6 +124,12 @@ class Settings {
         }
       },
       {
+        key: 'pageviews',
+        value: {
+          isEnabled: true
+        }
+      },
+      {
         key: 'search',
         value: {
           termHighlighting: true,

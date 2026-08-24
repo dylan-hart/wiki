@@ -415,6 +415,11 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
         },
         comments: {
           countForPage: async () => 0
+        },
+        // -> The route's best-effort pageview logging (OpenProject #1238) -- a no-op stub is all this
+        //    fixture needs, since what's under test here is collab/search wiring, not pageviews.
+        pageviews: {
+          record: async () => {}
         }
       },
       collab: {
@@ -970,7 +975,10 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — withContent requires read:s
           })
         },
         pageWatching: { isWatching: async () => false },
-        comments: { countForPage: async () => 0 }
+        comments: { countForPage: async () => 0 },
+        // -> The route's best-effort pageview logging (OpenProject #1238) -- a no-op stub, since
+        //    this suite is about the read:source gate, not pageviews.
+        pageviews: { record: async () => {} }
       },
       sites: {}
     }

@@ -172,6 +172,70 @@ describe('site store: fetchExtensionsStatus()', () => {
 })
 
 /**
+ * OpenProject #1012: `NavSidebar.vue`'s watcher used to gate this call itself
+ * (`newValue !== siteStore.nav.currentId`), which meant nothing else in the app could ever force a
+ * refetch of a menu it already had cached -- exactly the situation right after an admin nav edit, a
+ * nav copy, or a page create/move/delete changes what a cached id's own items now are. The gate now
+ * lives here instead, with a `forceRefresh` escape hatch for every same-tab invalidation caller.
+ */
+describe('site store: fetchNavigation()', () => {
+  it('fetches and caches the menu for a not-yet-seen id', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'item-1' }])
+    })
+
+    await store.fetchNavigation('nav-1')
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(store.nav).toEqual({ currentId: 'nav-1', items: [{ id: 'item-1' }] })
+  })
+
+  it('skips the request for an id already cached, unless forceRefresh is passed', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }] } })
+
+    await store.fetchNavigation('nav-1')
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+    expect(store.nav.items).toEqual([{ id: 'stale' }])
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'fresh' }])
+    })
+    await store.fetchNavigation('nav-1', true)
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+    expect(store.nav.items).toEqual([{ id: 'fresh' }])
+  })
+
+  it('does nothing for a falsy id, forceRefresh or not', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+
+    await store.fetchNavigation(null)
+    await store.fetchNavigation(undefined, true)
+
+    expect(API_CLIENT.get).not.toHaveBeenCalled()
+  })
+
+  it('still refetches a DIFFERENT id even without forceRefresh, same as before', async () => {
+    const store = useSiteStore()
+    store.id = 'site-1'
+    store.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'old' }] } })
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve([{ id: 'new' }])
+    })
+    await store.fetchNavigation('nav-2')
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-2')
+    expect(store.nav).toEqual({ currentId: 'nav-2', items: [{ id: 'new' }] })
+  })
+})
+
+/**
  * Regression coverage for feature 413 ("RTL support end-to-end"), task 716: `locales.active`
  * descriptors must carry a real `isRTL` signal so App.vue can set `dir` on `<html>` without a second
  * request to `/_api/locales`.

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify'
 import type { GraphPageRow } from '../models/pages.ts'
 import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
+import type { PageviewCountsForGraph } from '../models/pageviews.ts'
+import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
 import { mayOnPage } from './pages.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 
@@ -26,6 +28,13 @@ export interface GraphNode {
    *  the graph's edit-volume node sizing. Always present, zeroed rather than omitted for a page
    *  with no history to look up. */
   contributors: PageHistoryContributorCounts
+  /** Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the
+   *  graph's page-visit-volume node sizing -- split by trailing window and client type so the
+   *  frontend's window selector and client-type checkboxes both work client-side against this one
+   *  fetched payload. Always present, zeroed rather than omitted for a page with no pageviews
+   *  logged (including while `WIKI.config.pageviews.isEnabled` is off, in which case there is
+   *  nothing to log in the first place). */
+  pageviews: PageviewCountsForGraph
 }
 
 /** One edge — an authored relation or an extracted internal link, always between two visible nodes. */
@@ -64,6 +73,9 @@ export function folderOf(path: string): string {
  * `contributorsFor` resolves a page id to its edit-volume contributor counts (OpenProject #1141),
  * same testability reasoning as `classificationName` — defaults to an all-zero stand-in so an
  * existing caller that doesn't care about node sizing keeps working unchanged.
+ *
+ * `pageviewsFor` resolves a page id to its page-visit-volume counts (OpenProject #1140), same
+ * testability reasoning and same all-zero-default shape as `contributorsFor`.
  */
 export function assembleGraph(
   rows: GraphPageRow[],
@@ -73,6 +85,11 @@ export function assembleGraph(
     editor: 0,
     mcp: 0,
     all: 0
+  }),
+  pageviewsFor: (pageId: string) => PageviewCountsForGraph = () => ({
+    last30d: { browser: 0, api: 0, mcp: 0, all: 0 },
+    last6mo: { browser: 0, api: 0, mcp: 0, all: 0 },
+    last2yr: { browser: 0, api: 0, mcp: 0, all: 0 }
   })
 ): Graph {
   const visible = rows.filter(canRead)
@@ -86,7 +103,8 @@ export function assembleGraph(
     tags: row.tags,
     folder: folderOf(row.path),
     classification: classificationName(row.classification),
-    contributors: contributorsFor(row.id)
+    contributors: contributorsFor(row.id),
+    pageviews: pageviewsFor(row.id)
   }))
 
   const edges: GraphEdge[] = []
@@ -149,11 +167,13 @@ async function routes(app: FastifyInstance) {
       const contributorCounts = await WIKI.models.pageHistory.contributorCountsForGraph(
         req.params.siteId
       )
+      const pageviewCounts = await WIKI.models.pageviews.countsForGraph(req.params.siteId)
       return assembleGraph(
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
-        (pageId) => contributorCounts.get(pageId) ?? { editor: 0, mcp: 0, all: 0 }
+        (pageId) => contributorCounts.get(pageId) ?? { editor: 0, mcp: 0, all: 0 },
+        (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }
   )

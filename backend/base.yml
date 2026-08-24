@@ -68,6 +68,11 @@ defaults:
       verifySSL: true
     metrics:
       isEnabled: false
+    # Whether page views are logged at all (OpenProject #1238) -- on by default, the admin opt-out this
+    # feeds is a `manage:system` toggle in `api/system.ts`. Off means the write path no-ops entirely:
+    # no row is ever inserted, not merely hidden from a later read.
+    pageviews:
+      isEnabled: true
     auth:
       autoLogin: false
       enforce2FA: false

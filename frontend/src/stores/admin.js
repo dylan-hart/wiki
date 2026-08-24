@@ -20,6 +20,7 @@ export const useAdminStore = defineStore('admin', {
       isApiEnabled: false,
       isMailConfigured: false,
       isMetricsEnabled: false,
+      isPageviewsEnabled: false,
       isSchedulerHealthy: false
     },
     overlay: null,
@@ -68,6 +69,7 @@ export const useAdminStore = defineStore('admin', {
       this.info.latestVersion = resp?.latestVersion ?? 'n/a'
       this.info.isApiEnabled = resp?.isApiEnabled ?? false
       this.info.isMetricsEnabled = resp?.isMetricsEnabled ?? false
+      this.info.isPageviewsEnabled = resp?.isPageviewsEnabled ?? false
       this.info.isMailConfigured = resp?.isMailConfigured ?? false
       this.info.isSchedulerHealthy = resp?.isSchedulerHealthy ?? false
     },

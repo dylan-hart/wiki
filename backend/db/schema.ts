@@ -1257,6 +1257,59 @@ export const pageWatchEvents = pgTable(
   ]
 )
 
+// PAGEVIEWS ----------------------------
+/**
+ * One row per page view -- a log, not a counter -- so that a reader (OpenProject #1140, the knowledge
+ * graph sizing nodes by visit volume) can count DISTINCT visitors over any trailing window it likes
+ * (30 days / 6 months / 2 years) rather than being stuck with whatever a running total already
+ * collapsed away. `models/pageviews.ts#record()` is the only writer, called best-effort from both
+ * places a page is actually read -- `GET /sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`) and the
+ * MCP `get_page` tool (`mcp/tools/getPage.ts`) -- so `clientType` genuinely distinguishes the two,
+ * rather than being a column only one call site ever set.
+ *
+ * `clientType` is a varchar rather than a real pg enum, same reasoning as `pageHistory.via`: a fourth
+ * kind of caller should not need a migration. `models/pageviews.ts`'s `pageviewClientTypes` is the
+ * closed list callers are expected to use today -- `browser` (session/cookie-identified), `api` (a
+ * bearer API key), `mcp` (an MCP tool call, which is the same bearer-key mechanism under the hood but
+ * counted apart per #1140's explicit "web browser vs. API/MCP access" breakdown).
+ *
+ * `visitorHash` is a stored hash, never the raw session id or API key id it was computed from --
+ * unique-visitor counting needs to tell two visitors apart, not know who either one is. A browser view
+ * hashes the session's own id (so two views in the same session/cookie are one visitor); an `api`/`mcp`
+ * view hashes the calling key's id (so two calls on the same key are one visitor, and a different key
+ * is a different one, regardless of which human or agent is actually holding it).
+ *
+ * `pageId` IS a foreign key here, unlike `pageHistory.pageId`/`pageWatchEvents.pageId`: those exist to
+ * outlive the page they describe (recovering or notifying about one that's gone), but a view count for
+ * a page that no longer exists has nothing left to size in the graph -- so it cascades away with the
+ * page, the same way `pageWatching.pageId` and `pageRenderQueue.pageId` do.
+ */
+export const pageviews = pgTable(
+  'pageviews',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    siteId: uuid()
+      .notNull()
+      .references(() => sites.id),
+    pageId: uuid()
+      .notNull()
+      .references(() => pages.id, { onDelete: 'cascade' }),
+    /** `browser` | `api` | `mcp` -- see this table's own doc comment. */
+    clientType: varchar({ length: 16 }).notNull(),
+    /** A sha256 hex digest, never the raw session id or API key id it was computed from. */
+    visitorHash: text().notNull(),
+    viewedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> "Distinct visitorHash for this page within a trailing window" -- the one query this table
+    //    exists for (#1140's graph sizing).
+    index('pageviews_pageId_viewedAt_idx').on(table.pageId, table.viewedAt),
+    // -> How the retention purge (`tasks/simple/purge-pageviews.ts`) finds rows older than 2 years,
+    //    mirroring `rateLimits_updatedAt_idx`'s same purge-by-timestamp shape.
+    index('pageviews_viewedAt_idx').on(table.viewedAt)
+  ]
+)
+
 // PAGE RENDER QUEUE -------------------
 /**
  * A page waiting for the server to render it, one row per page.

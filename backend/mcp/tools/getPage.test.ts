@@ -64,6 +64,11 @@ function install({ pageExists = true, hasPassword = false, access = [] as string
             ...((withContent && !locked) || false ? { content: BASE_PAGE.content } : {})
           }
         }
+      },
+      // -> The tool's best-effort pageview logging (OpenProject #1238) -- a no-op stub, since this
+      //    suite is about read/lock/permission behavior, not pageviews.
+      pageviews: {
+        record: async () => {}
       }
     }
   }

@@ -88,6 +88,16 @@ declare module 'fastify' {
      */
     passkeyRegistration?: PasskeyChallenge
     passkeyLogin?: PasskeyChallenge
+    /**
+     * Set the first time a browser-side pageview is logged for this session (`api/pages.ts`'s
+     * `recordPageview()`). The value itself is never read — writing anything at all is what marks the
+     * session modified, which is what makes `@fastify/session` persist it (`saveUninitialized: false`
+     * otherwise never would) so the same anonymous reader is recognizable as one visitor across
+     * repeat page views instead of a fresh one on every request. Mirrors `unlockedPages`' own doc
+     * comment: "unlocking a page is what first gives an anonymous reader a session" — viewing one is
+     * now the same, for the same reason.
+     */
+    pageViewed?: boolean
   }
 
   interface FastifyContextConfig {
