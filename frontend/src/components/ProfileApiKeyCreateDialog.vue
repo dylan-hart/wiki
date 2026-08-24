@@ -100,9 +100,19 @@
               <div class="text-caption q-mb-xs">
                 {{ t(`profile.api.newKeyClassificationLevels`) }}
               </div>
+              <!--
+                OpenProject #1261 follow-up: this field shares row 3 of the 2-column grid above with
+                Permission Scopes (#1292/#1293), so it only ever gets ~half the dialog's width --
+                measured at ~310px, against ~618px for `ApiKeyCreateDialog.vue`'s single-column admin
+                form, which is why that dialog keeps the wider 9rem floor. A 9rem (144px) floor still
+                only fits 2 columns in 310px, stranding the 3rd of the 3 default levels alone on its
+                own row -- the same defect #1261 was filed against. 5.5rem (88px) fits all 3 in either
+                context with room to spare (real-browser-measured: `frontend/test/realGridLayout.js`,
+                used by this component's own test suite) without cramping the labels.
+              -->
               <div
                 class="classification-grid grid gap-x-4 gap-y-1"
-                style="grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))">
+                style="grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr))">
                 <w-checkbox
                   v-for="level of adminStore.classificationLevels"
                   :key="level.id"

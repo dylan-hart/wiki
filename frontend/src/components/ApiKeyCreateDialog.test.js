@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
+import { chromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -222,6 +223,53 @@ describe('ApiKeyCreateDialog layout', () => {
     const classificationGrid = new DOMWrapper(document.body).find('.classification-grid')
     expect(classificationGrid.classes()).not.toContain('grid-cols-2')
     expect(classificationGrid.attributes('style')).toContain('auto-fit')
+  })
+})
+
+/**
+ * OpenProject #1261, real-layout regression: the assertion above only checks the inline style string
+ * for `"auto-fit"`, which cannot tell an unaffected layout from a broken one -- see
+ * `ProfileApiKeyCreateDialog.test.js`'s matching suite for the full explanation and
+ * `test/realGridLayout.js` for why a real headless Chromium page is what actually answers "how many
+ * columns did this render as." This dialog's own form stayed single-column (#1292/#1293 only reworks
+ * the profile-scoped twin), so `.classification-grid` gets the full ~618px card width here rather
+ * than the ~310px half-row the profile dialog's field shares with Permission Scopes -- confirming
+ * this width was never broken, and stays that way.
+ */
+describe('ApiKeyCreateDialog classification grid — real layout', () => {
+  let browser
+
+  beforeAll(async () => {
+    browser = await chromium.launch()
+  })
+
+  afterAll(async () => {
+    await browser.close()
+  })
+
+  it('lays out all 3 default classification levels on one row at the real ~618px admin-form width', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-internal', name: 'Internal', sortOrder: 1 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const html = new DOMWrapper(document.body).find('.classification-grid').html()
+    const items = await measureClassificationGrid({ browser, html, containerWidth: 618 })
+
+    expect(items).toHaveLength(3)
+    const rows = new Set(items.map((item) => Math.round(item.y)))
+    expect(rows.size).toBe(1)
   })
 })
 
