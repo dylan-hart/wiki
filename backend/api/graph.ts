@@ -84,13 +84,10 @@ export function assembleGraph(
   contributorsFor: (pageId: string) => PageHistoryContributorCounts = () => ({
     editor: 0,
     mcp: 0,
-    all: 0
+    all: 0,
+    total: { editor: 0, mcp: 0, all: 0 }
   }),
-  pageviewsFor: (pageId: string) => PageviewCountsForGraph = () => ({
-    last30d: { browser: 0, api: 0, mcp: 0, all: 0 },
-    last6mo: { browser: 0, api: 0, mcp: 0, all: 0 },
-    last2yr: { browser: 0, api: 0, mcp: 0, all: 0 }
-  })
+  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
   const visiblePaths = new Set(visible.map((row) => row.path))
@@ -172,7 +169,13 @@ async function routes(app: FastifyInstance) {
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
-        (pageId) => contributorCounts.get(pageId) ?? { editor: 0, mcp: 0, all: 0 },
+        (pageId) =>
+          contributorCounts.get(pageId) ?? {
+            editor: 0,
+            mcp: 0,
+            all: 0,
+            total: { editor: 0, mcp: 0, all: 0 }
+          },
         (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }
