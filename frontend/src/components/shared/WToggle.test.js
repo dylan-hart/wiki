@@ -52,4 +52,24 @@ describe('WToggle', () => {
     expect(wrapper.find('.w-spinner').exists()).toBe(false)
     expect(wrapper.find('.w-toggle__knob').exists()).toBe(true)
   })
+
+  it.each([
+    { dense: false, modelValue: false, expected: 'translate-x-0.5' },
+    { dense: false, modelValue: true, expected: 'translate-x-6.5' },
+    { dense: true, modelValue: false, expected: 'translate-x-0.5' },
+    { dense: true, modelValue: true, expected: 'translate-x-5.5' }
+  ])(
+    'offsets the knob by $expected when dense=$dense modelValue=$modelValue',
+    ({ dense, modelValue, expected }) => {
+      const wrapper = mount(WToggle, { props: { modelValue, ariaLabel: 'Feature', dense } })
+
+      expect(wrapper.find('.w-toggle__knob').classes()).toContain(expected)
+    }
+  )
+
+  it('does not centre the knob rest position on the track', () => {
+    const wrapper = mount(WToggle, { props: { modelValue: false, ariaLabel: 'Feature' } })
+
+    expect(wrapper.find('.w-toggle__track').classes()).not.toContain('justify-center')
+  })
 })
