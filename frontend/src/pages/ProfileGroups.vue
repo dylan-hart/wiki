@@ -18,6 +18,26 @@
           </w-item-section>
         </w-item>
       </w-list>
+
+      <!--
+        Informational only -- these are groups the viewer does NOT belong to, so there is nothing here
+        for them to act on. Dimmed with opacity-60 rather than hidden or styled as a warning, the same
+        "still part of the page, just not actionable" treatment AdminApprovals.vue uses for a disabled
+        rule.
+      -->
+      <template v-if="state.otherGroups.length > 0">
+        <div class="text-body2 mt-6">{{ t('profile.otherGroups') }}</div>
+        <w-list class="mt-2" bordered separator>
+          <w-item v-for="grp of state.otherGroups" :key="grp.id">
+            <w-item-section avatar class="opacity-60">
+              <w-avatar color="grey" text-color="white" icon="la:users" rounded />
+            </w-item-section>
+            <w-item-section class="opacity-60">
+              <strong>{{ grp.name }}</strong>
+            </w-item-section>
+          </w-item>
+        </w-list>
+      </template>
     </div>
 
     <w-inner-loading :showing="state.loading > 0" />
@@ -45,6 +65,7 @@ useMeta(() => ({
 
 const state = reactive({
   groups: [],
+  otherGroups: [],
   loading: 0
 })
 
@@ -53,12 +74,23 @@ const state = reactive({
 /**
  * The groups come from the session's own endpoint rather than from `users/:id`: reading an arbitrary
  * user requires `read:users`, which a regular user does not have.
+ *
+ * The response is a plain array of the groups the user belongs to, UNLESS the site has
+ * `features.showOtherGroups` enabled, in which case it is `{ groups, otherGroups }` -- see
+ * `backend/api/users.ts`'s `/profile/groups` route for why the shape itself is what carries the
+ * gating, rather than the frontend filtering a fetched-in-full list.
  */
 async function fetchGroups() {
   state.loading++
   try {
-    const groups = await API_CLIENT.get('users/profile/groups').json()
-    state.groups = groups ?? []
+    const data = await API_CLIENT.get('users/profile/groups').json()
+    if (Array.isArray(data)) {
+      state.groups = data ?? []
+      state.otherGroups = []
+    } else {
+      state.groups = data?.groups ?? []
+      state.otherGroups = data?.otherGroups ?? []
+    }
   } catch (err) {
     notify({
       type: 'negative',
