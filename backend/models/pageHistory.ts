@@ -328,23 +328,27 @@ class PageHistory {
     const distinctAuthor = sql<number>`count(distinct ${pageHistoryTable.authorId})::int`
     const totalRows = sql<number>`count(*)::int`
 
-    const byVia = await WIKI.db
-      .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: distinctAuthor })
-      .from(pageHistoryTable)
-      .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-      .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
-
-    const overall = await WIKI.db
-      .select({ pageId: pageHistoryTable.pageId, count: distinctAuthor })
-      .from(pageHistoryTable)
-      .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
-      .groupBy(pageHistoryTable.pageId)
-
-    const totalByVia = await WIKI.db
-      .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: totalRows })
-      .from(pageHistoryTable)
-      .where(eq(pageHistoryTable.siteId, siteId))
-      .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
+    const [byVia, overall, totalByVia] = await Promise.all([
+      WIKI.db
+        .select({
+          pageId: pageHistoryTable.pageId,
+          via: pageHistoryTable.via,
+          count: distinctAuthor
+        })
+        .from(pageHistoryTable)
+        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
+        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via),
+      WIKI.db
+        .select({ pageId: pageHistoryTable.pageId, count: distinctAuthor })
+        .from(pageHistoryTable)
+        .where(and(eq(pageHistoryTable.siteId, siteId), isNotNull(pageHistoryTable.authorId)))
+        .groupBy(pageHistoryTable.pageId),
+      WIKI.db
+        .select({ pageId: pageHistoryTable.pageId, via: pageHistoryTable.via, count: totalRows })
+        .from(pageHistoryTable)
+        .where(eq(pageHistoryTable.siteId, siteId))
+        .groupBy(pageHistoryTable.pageId, pageHistoryTable.via)
+    ])
 
     const result = new Map<string, PageHistoryContributorCounts>()
     for (const row of overall) {

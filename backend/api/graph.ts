@@ -160,11 +160,11 @@ async function routes(app: FastifyInstance) {
       if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
         return
       }
-      const rows = await WIKI.models.pages.listAllForGraph(req.params.siteId)
-      const contributorCounts = await WIKI.models.pageHistory.contributorCountsForGraph(
-        req.params.siteId
-      )
-      const pageviewCounts = await WIKI.models.pageviews.countsForGraph(req.params.siteId)
+      const [rows, contributorCounts, pageviewCounts] = await Promise.all([
+        WIKI.models.pages.listAllForGraph(req.params.siteId),
+        WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
+        WIKI.models.pageviews.countsForGraph(req.params.siteId)
+      ])
       return assembleGraph(
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),

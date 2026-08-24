@@ -11,6 +11,8 @@
  * (`read:users`, `read:groups`, `manage:glossary`, `manage:classification` were missing here; see
  * OpenProject #1272).
  */
+import { groupBy } from 'es-toolkit/array'
+
 export const API_KEY_SCOPES = [
   'access:admin',
   'read:users',
@@ -47,13 +49,6 @@ export const API_KEY_SCOPES = [
  * currently has only `review:pages`) still gets its own group, rather than being special-cased away.
  */
 export function groupScopesByVerb(scopes = API_KEY_SCOPES) {
-  const groups = new Map()
-  for (const scope of scopes) {
-    const verb = scope.split(':')[0]
-    if (!groups.has(verb)) {
-      groups.set(verb, [])
-    }
-    groups.get(verb).push(scope)
-  }
-  return [...groups.entries()].map(([verb, children]) => ({ verb, scopes: children }))
+  const grouped = groupBy(scopes, (scope) => scope.split(':')[0])
+  return Object.entries(grouped).map(([verb, children]) => ({ verb, scopes: children }))
 }

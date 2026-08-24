@@ -586,11 +586,13 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply.unauthorized()
       }
-      const groups = await WIKI.models.users.getUserGroups(userId)
       if (!(await isShowOtherGroupsEnabled(req))) {
-        return groups
+        return await WIKI.models.users.getUserGroups(userId)
       }
-      const otherGroups = await WIKI.models.users.getNonMemberGroups(userId)
+      const [groups, otherGroups] = await Promise.all([
+        WIKI.models.users.getUserGroups(userId),
+        WIKI.models.users.getNonMemberGroups(userId)
+      ])
       return { groups, otherGroups }
     }
   )
