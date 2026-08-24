@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { lt, sql } from 'drizzle-orm'
+import { eq, lt, sql } from 'drizzle-orm'
 import { pageviews as pageviewsTable } from '../db/schema.ts'
 
 /**
@@ -11,6 +11,50 @@ import { pageviews as pageviewsTable } from '../db/schema.ts'
  */
 export const pageviewClientTypes = ['browser', 'api', 'mcp'] as const
 export type PageviewClientType = (typeof pageviewClientTypes)[number]
+
+function isPageviewClientType(value: string): value is PageviewClientType {
+  return (pageviewClientTypes as readonly string[]).includes(value)
+}
+
+/**
+ * The three fixed trailing windows OpenProject #1140's graph node sizing aggregates over --
+ * matching the 2-year retention (`purgeExpired()` below), so "last2yr" and "all-time" are the same
+ * query once that has run.
+ */
+export const pageviewWindows = ['last30d', 'last6mo', 'last2yr'] as const
+export type PageviewWindow = (typeof pageviewWindows)[number]
+
+const WINDOW_INTERVALS: Record<PageviewWindow, string> = {
+  last30d: '30 days',
+  last6mo: '6 months',
+  last2yr: '2 years'
+}
+
+/** Unique-visitor counts for one page within one trailing window, split by `clientType`. */
+export type PageviewCountsByClientType = {
+  browser: number
+  api: number
+  mcp: number
+  /** The union across all three -- see `countsForGraph()`'s doc comment for why this is a plain sum,
+   *  not a separate dedup query the way `pageHistory.contributorCountsForGraph()`'s `all` is. */
+  all: number
+}
+
+export type PageviewCountsForGraph = Record<PageviewWindow, PageviewCountsByClientType>
+
+function zeroPageviewCountsByClientType(): PageviewCountsByClientType {
+  return { browser: 0, api: 0, mcp: 0, all: 0 }
+}
+
+/** All-zero counts for a page with no pageview rows at all -- the same shape `countsForGraph()`
+ *  returns for a page it has an entry for, so a caller never has to special-case "missing". */
+export function zeroPageviewCountsForGraph(): PageviewCountsForGraph {
+  return {
+    last30d: zeroPageviewCountsByClientType(),
+    last6mo: zeroPageviewCountsByClientType(),
+    last2yr: zeroPageviewCountsByClientType()
+  }
+}
 
 /**
  * Never store a raw session id or API key id -- `visitorHash` only needs to tell two visitors apart,
@@ -62,6 +106,58 @@ class Pageviews {
     } catch (err: any) {
       WIKI.logger.warn(`Failed to record a pageview: ${err.message}`)
     }
+  }
+
+  /**
+   * Unique-visitor counts per page, for OpenProject #1140's "size by page visit volume" node sizing --
+   * the `pageviewsFor` accessor `api/graph.ts#assembleGraph` takes, same testability shape as
+   * `pageHistory.contributorCountsForGraph()` (#1141). Split by `clientType` across each of the three
+   * fixed trailing windows (30 days / 6 months / 2 years, matching retention) so the frontend's
+   * client-type checkboxes and window selector both work client-side against one fetched payload,
+   * with no re-fetch on either control changing -- the same "fetched once" design the rest of the
+   * graph follows (see `api/graph.ts`'s own doc comment on `assembleGraph`).
+   *
+   * Unlike `contributorCountsForGraph()`, no separate "overall" query is needed for the `all` bucket:
+   * a contributor's identity there (`authorId`) is the SAME value regardless of which channel
+   * (`via`) they used, so summing `editor` + `mcp` would double-count a contributor who used both.
+   * A visitor's identity here is scoped to its own `clientType`'s hash domain instead -- a `browser`
+   * view hashes the session id, an `api`/`mcp` view hashes the calling key's id -- so a `browser`
+   * hash and an `api` hash can never coincide for the same real visitor. Summing the three
+   * per-clientType distinct counts is therefore already exact, not an approximation: `all` is that
+   * sum, computed directly below rather than with a fourth query.
+   */
+  async countsForGraph(siteId: string): Promise<Map<string, PageviewCountsForGraph>> {
+    const distinct30d = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last30d)}' then ${pageviewsTable.visitorHash} end)::int`
+    const distinct6mo = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then ${pageviewsTable.visitorHash} end)::int`
+    const distinct2yr = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then ${pageviewsTable.visitorHash} end)::int`
+
+    const rows = await WIKI.db
+      .select({
+        pageId: pageviewsTable.pageId,
+        clientType: pageviewsTable.clientType,
+        last30d: distinct30d,
+        last6mo: distinct6mo,
+        last2yr: distinct2yr
+      })
+      .from(pageviewsTable)
+      .where(eq(pageviewsTable.siteId, siteId))
+      .groupBy(pageviewsTable.pageId, pageviewsTable.clientType)
+
+    const result = new Map<string, PageviewCountsForGraph>()
+    for (const row of rows) {
+      if (!isPageviewClientType(row.clientType)) {
+        continue
+      }
+      const clientType = row.clientType
+      const entry = result.get(row.pageId) ?? zeroPageviewCountsForGraph()
+      for (const window of pageviewWindows) {
+        const count = row[window]
+        entry[window][clientType] = count
+        entry[window].all += count
+      }
+      result.set(row.pageId, entry)
+    }
+    return result
   }
 
   /**

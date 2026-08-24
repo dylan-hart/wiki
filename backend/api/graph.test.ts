@@ -188,4 +188,41 @@ describe('assembleGraph', () => {
 
     assert.deepEqual(result.nodes[0]!.contributors, { editor: 0, mcp: 0, all: 0 })
   })
+
+  const ZERO_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
+  const ZERO_PAGEVIEWS = {
+    last30d: ZERO_PAGEVIEW_WINDOW,
+    last6mo: ZERO_PAGEVIEW_WINDOW,
+    last2yr: ZERO_PAGEVIEW_WINDOW
+  }
+
+  // -> OpenProject #1140: node.pageviews is the resolved page-visit-volume counts, not looked up by
+  //    the test itself -- `pageviewsFor` stands in for `pageviews.countsForGraph()`.
+  test("resolves each node's pageview counts through the pageviewsFor accessor, keyed by id", () => {
+    const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
+    const pageAViews = {
+      last30d: { browser: 5, api: 2, mcp: 0, all: 7 },
+      last6mo: { browser: 20, api: 8, mcp: 1, all: 29 },
+      last2yr: { browser: 50, api: 10, mcp: 3, all: 63 }
+    }
+
+    const result = assembleGraph(
+      rows,
+      () => true,
+      undefined,
+      undefined,
+      (pageId) => (pageId === 'page-a' ? pageAViews : ZERO_PAGEVIEWS)
+    )
+
+    assert.deepEqual(result.nodes.find((n) => n.path === 'a')!.pageviews, pageAViews)
+    assert.deepEqual(result.nodes.find((n) => n.path === 'b')!.pageviews, ZERO_PAGEVIEWS)
+  })
+
+  test('pageviews default to all-zero across every window when no pageviewsFor accessor is given', () => {
+    const rows = [makeRow({ path: 'a' })]
+
+    const result = assembleGraph(rows, () => true)
+
+    assert.deepEqual(result.nodes[0]!.pageviews, ZERO_PAGEVIEWS)
+  })
 })

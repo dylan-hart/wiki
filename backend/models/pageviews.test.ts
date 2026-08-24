@@ -129,4 +129,86 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
     assert.ok(!hashes.includes(hashVisitor('old-visitor')), 'a 3-year-old row should be purged')
     assert.ok(hashes.includes(hashVisitor('recent-visitor')), 'a 1-day-old row should survive')
   })
+
+  describe('countsForGraph', () => {
+    let countsPageId: string
+
+    before(async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'pageviews-counts-test',
+          title: 'Pageviews Counts Test',
+          editor: 'markdown',
+          content: 'x'
+        },
+        actor
+      )
+      countsPageId = page.id
+
+      await fixtures.db.insert(pageviewsTable).values([
+        // -> Two distinct browser visitors, one of whom came back within 30 days -- both count
+        //    within 6mo/2yr, only one (the recent revisit) counts within 30d.
+        {
+          siteId: fixtures.siteId,
+          pageId: countsPageId,
+          clientType: 'browser',
+          visitorHash: hashVisitor('graph-session-1'),
+          viewedAt: sql`now() - interval '5 days'`
+        },
+        {
+          siteId: fixtures.siteId,
+          pageId: countsPageId,
+          clientType: 'browser',
+          visitorHash: hashVisitor('graph-session-1'),
+          viewedAt: sql`now() - interval '1 day'`
+        },
+        {
+          siteId: fixtures.siteId,
+          pageId: countsPageId,
+          clientType: 'browser',
+          visitorHash: hashVisitor('graph-session-2'),
+          viewedAt: sql`now() - interval '3 months'`
+        },
+        // -> One `api` visitor, outside the 30d window but inside 6mo/2yr.
+        {
+          siteId: fixtures.siteId,
+          pageId: countsPageId,
+          clientType: 'api',
+          visitorHash: hashVisitor('graph-api-key-1'),
+          viewedAt: sql`now() - interval '2 months'`
+        },
+        // -> One `mcp` visitor, outside every window but the 2yr one.
+        {
+          siteId: fixtures.siteId,
+          pageId: countsPageId,
+          clientType: 'mcp',
+          visitorHash: hashVisitor('graph-mcp-key-1'),
+          viewedAt: sql`now() - interval '18 months'`
+        }
+      ] as any)
+    })
+
+    test('dedupes by visitorHash within each window and client type, and sums to "all"', async () => {
+      const counts = await pageviewsModel.countsForGraph(fixtures.siteId)
+
+      assert.deepEqual(counts.get(countsPageId), {
+        last30d: { browser: 1, api: 0, mcp: 0, all: 1 },
+        last6mo: { browser: 2, api: 1, mcp: 0, all: 3 },
+        last2yr: { browser: 2, api: 1, mcp: 1, all: 4 }
+      })
+    })
+
+    test('a page with no pageviews at all is simply absent from the map', async () => {
+      const otherPage = await pagesModel.createPage(
+        fixtures.siteId,
+        { path: 'pageviews-counts-empty', title: 'No Views', editor: 'markdown', content: 'x' },
+        actor
+      )
+
+      const counts = await pageviewsModel.countsForGraph(fixtures.siteId)
+
+      assert.equal(counts.has(otherPage.id), false)
+    })
+  })
 })

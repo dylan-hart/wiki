@@ -27,6 +27,55 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * GRAPHPAGEVIEWWINDOWCOUNTS — unique-visitor counts for one page within one trailing window,
+   * split by pageview `clientType` (OpenProject #1140). Registered before GRAPHPAGEVIEWCOUNTS,
+   * which `$ref`s it once per window.
+   */
+  app.addSchema({
+    $id: 'GraphPageviewWindowCounts',
+    type: 'object',
+    properties: {
+      browser: {
+        type: 'integer',
+        description: 'Unique visitors (by session/cookie) who read the page through a web browser.'
+      },
+      api: {
+        type: 'integer',
+        description: 'Unique visitors (by API key id) who read the page through the REST API.'
+      },
+      mcp: {
+        type: 'integer',
+        description: 'Unique visitors (by API key id) who read the page through an MCP tool call.'
+      },
+      all: {
+        type: 'integer',
+        description:
+          'Unique visitors across all three client types combined for this window -- exactly the sum of the three above, since each client type hashes a disjoint identity space (session id vs. API key id).'
+      }
+    },
+    required: ['browser', 'api', 'mcp', 'all']
+  })
+
+  /**
+   * GRAPHPAGEVIEWCOUNTS — unique-visitor counts for one page, across the three fixed trailing
+   * windows OpenProject #1140's node sizing aggregates over (30 days / 6 months / 2 years, matching
+   * the pageview log's own 2-year retention). Registered before GRAPHNODE, which `$ref`s it.
+   */
+  app.addSchema({
+    $id: 'GraphPageviewCounts',
+    type: 'object',
+    properties: {
+      last30d: { $ref: 'GraphPageviewWindowCounts#', description: 'Trailing 30 days.' },
+      last6mo: { $ref: 'GraphPageviewWindowCounts#', description: 'Trailing 6 months.' },
+      last2yr: {
+        $ref: 'GraphPageviewWindowCounts#',
+        description: 'Trailing 2 years -- the same span as the pageview log retention window.'
+      }
+    },
+    required: ['last30d', 'last6mo', 'last2yr']
+  })
+
+  /**
    * GRAPHNODE — one page the caller may read, as a knowledge-graph node (OpenProject #872).
    */
   app.addSchema({
@@ -52,6 +101,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         $ref: 'GraphContributorCounts#',
         description:
           "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing."
+      },
+      pageviews: {
+        $ref: 'GraphPageviewCounts#',
+        description:
+          "Unique-visitor counts from this page's pageview log (OpenProject #1140), the source for the graph's page-visit-volume node sizing. Zeroed while pageview tracking is disabled (`WIKI.config.pageviews.isEnabled`), same as for a page with no pageviews logged."
       }
     }
   })
