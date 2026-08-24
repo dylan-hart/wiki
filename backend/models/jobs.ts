@@ -55,6 +55,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '20 0 * * *',
     type: 'system'
   },
+  // -> Sweeps `pageviews` rows past the 2-year retention window -- see
+  //    `tasks/simple/purge-pageviews.ts` / `models/pageviews.ts#purgeExpired()`. Offset alongside the
+  //    other midnight housekeeping jobs above.
+  {
+    task: 'purgePageviews',
+    cron: '25 0 * * *',
+    type: 'system'
+  },
   {
     task: 'updateLocales',
     cron: '0 0 * * *',

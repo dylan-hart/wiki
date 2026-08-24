@@ -154,6 +154,10 @@ async function routes(app: FastifyInstance) {
                 type: 'boolean',
                 description: 'Whether the Prometheus metrics endpoint is turned on.'
               },
+              isPageviewsEnabled: {
+                type: 'boolean',
+                description: 'Whether page views are logged (OpenProject #1238).'
+              },
               isSchedulerHealthy: {
                 type: 'boolean',
                 description:
@@ -220,6 +224,7 @@ async function routes(app: FastifyInstance) {
         isApiEnabled: WIKI.config.api.isEnabled === true,
         isMailConfigured: WIKI.config?.mail?.host?.length > 2,
         isMetricsEnabled: WIKI.config.metrics.isEnabled === true,
+        isPageviewsEnabled: WIKI.config.pageviews.isEnabled === true,
         isSchedulerHealthy: await WIKI.models.jobs.isHealthy(),
         latestVersion: WIKI.config.update.version,
         latestVersionReleaseDate: WIKI.config.update.versionDate,
@@ -750,6 +755,104 @@ async function routes(app: FastifyInstance) {
         message: req.body.isEnabled
           ? 'Metrics endpoint enabled successfully.'
           : 'Metrics endpoint disabled successfully.',
+        isEnabled: req.body.isEnabled
+      }
+    }
+  )
+
+  /**
+   * GET PAGEVIEW TRACKING STATE
+   */
+  app.get(
+    '/pageviews',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Get the pageview tracking state',
+        description:
+          'Whether page views are logged at all (OpenProject #1238). While this is off, neither write path -- the page-read route nor the MCP `get_page` tool -- inserts a row, so this is the switch behind the knowledge graph\'s "size by page visit volume" control (OpenProject #1140).',
+        tags: ['System'],
+        response: {
+          200: {
+            description: 'Pageview tracking state',
+            type: 'object',
+            properties: {
+              isEnabled: {
+                type: 'boolean'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' }
+        }
+      }
+    },
+    async () => {
+      return { isEnabled: WIKI.config.pageviews.isEnabled === true }
+    }
+  )
+
+  /**
+   * SET PAGEVIEW TRACKING STATE
+   */
+  app.put<{ Body: { isEnabled: boolean } }>(
+    '/pageviews',
+    {
+      config: {
+        permissions: ['manage:system']
+      },
+      schema: {
+        summary: 'Turn pageview tracking on or off',
+        description:
+          "Turning it off stops the write path from inserting any new pageview row, immediately -- it does not merely stop a later read from counting what's already there. Existing rows are untouched (and still age out on the normal 2-year retention job) until tracking is turned back on.",
+        tags: ['System'],
+        body: {
+          type: 'object',
+          required: ['isEnabled'],
+          properties: {
+            isEnabled: {
+              type: 'boolean'
+            }
+          }
+        },
+        response: {
+          200: {
+            description: 'Pageview tracking state updated successfully',
+            type: 'object',
+            properties: {
+              ok: {
+                type: 'boolean'
+              },
+              message: {
+                type: 'string'
+              },
+              isEnabled: {
+                type: 'boolean'
+              }
+            }
+          },
+          401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
+          500: { $ref: 'ApiError#', description: 'The pageview tracking state could not be saved.' }
+        }
+      }
+    },
+    async (req, reply) => {
+      const previousConfig = WIKI.config.pageviews
+      WIKI.config.pageviews = { ...previousConfig, isEnabled: req.body.isEnabled }
+
+      if (!(await WIKI.configSvc.saveToDb(['pageviews']))) {
+        WIKI.config.pageviews = previousConfig
+        return reply.internalServerError('Failed to save the pageview tracking state.')
+      }
+
+      return {
+        ok: true,
+        message: req.body.isEnabled
+          ? 'Pageview tracking enabled successfully.'
+          : 'Pageview tracking disabled successfully.',
         isEnabled: req.body.isEnabled
       }
     }
