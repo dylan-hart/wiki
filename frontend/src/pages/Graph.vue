@@ -51,6 +51,17 @@
           <span class="graph-view-control-caption">Size by</span>
           <w-btn-toggle v-model="sizeBy" no-caps aria-label="Size by" :options="sizeByOptions" />
         </div>
+        <div class="graph-view-control-group">
+          <span class="graph-view-control-caption">Count</span>
+          <w-btn-toggle
+            v-model="sizeCountMode"
+            no-caps
+            aria-label="Unique or total"
+            :options="[
+              { label: 'Unique', value: 'unique' },
+              { label: 'Total', value: 'total' }
+            ]" />
+        </div>
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
           v-model="contributorTypes"
@@ -181,15 +192,21 @@ const groupBy = ref('folder')
  *  (`allEdges` below) are still fetched but not wired into either mode's rendering. */
 const edgeMode = ref('paths')
 
-/** Node-sizing dimension (OpenProject #1141): 'uniform' (default, every real node the same fixed
- *  radius) or 'edits', which scales a node's radius by its unique-contributor count -- see
- *  `radiusFor()`. */
-const sizeBy = ref('uniform')
+/** Node-sizing dimension (OpenProject #1141/#1269): 'edits' (default), which scales a node's radius
+ *  by its contributor count, or 'visits', by its pageview count -- see `radiusFor()`. There is no
+ *  'uniform' mode any more (OpenProject #1270 dropped it): every real node is always sized by one
+ *  of these two dimensions. */
+const sizeBy = ref('edits')
+
+/** Whether 'edits'/'visits' sizing (and the hover tooltip's count) reads the unique-identity figure
+ *  or the raw row-count figure (OpenProject #1269's backend fields, #1270's toggle) --
+ *  `contributorCountFor()`/`pageviewCountFor()` are the single place this is read. */
+const sizeCountMode = ref('unique')
 
 /** Which of `pageHistory.via`'s buckets count toward 'edits' sizing -- both checked by default,
  *  which reads the backend's pre-unioned `contributors.all` rather than adding the two buckets
- *  together (see `contributorCountFor()`). Irrelevant while `sizeBy` is 'uniform', but kept around
- *  rather than reset, so re-enabling 'edits' remembers the last filter chosen. */
+ *  together (see `contributorCountFor()`). Irrelevant while `sizeBy` is 'visits', but kept around
+ *  rather than reset, so switching back to 'edits' remembers the last filter chosen. */
 const contributorTypes = ref(['editor', 'mcp'])
 
 /** Whether pageview tracking is on at all (OpenProject #1238's admin opt-out,
@@ -200,16 +217,13 @@ const contributorTypes = ref(['editor', 'mcp'])
  *  resolves, which is the safe default: hidden-until-proven-on, not shown-until-proven-off. */
 const pageviewsTrackingEnabled = ref(false)
 
-/** 'Size by' control options (OpenProject #1141's 'uniform'/'edits', plus #1140's 'visits') --
- *  a computed rather than a static template literal so 'visits' can be omitted while pageview
- *  tracking is disabled. */
+/** 'Size by' control options (OpenProject #1141's 'edits', plus #1140's 'visits') -- a computed
+ *  rather than a static template literal so 'visits' can be omitted while pageview tracking is
+ *  disabled. No 'uniform' option any more (OpenProject #1270). */
 const sizeByOptions = computed(() => {
-  const options = [
-    { label: 'Uniform', value: 'uniform' },
-    { label: 'Edit volume', value: 'edits' }
-  ]
+  const options = [{ label: 'Edits', value: 'edits' }]
   if (pageviewsTrackingEnabled.value) {
-    options.push({ label: 'Page visits', value: 'visits' })
+    options.push({ label: 'Visits', value: 'visits' })
   }
   return options
 })
@@ -353,8 +367,8 @@ const clusters = ref([])
  *  its contributor count, the standard convention for encoding a magnitude in a circle's size --
  *  linear radius scaling would make a 4x-more-contributed page look ~16x more prominent by area,
  *  overwhelming the rest of the graph. `MIN`/`MAX` are starting points for visual tuning, same
- *  caveat as the constants above -- `MIN` matches the 'uniform' mode's fixed radius so switching
- *  into 'edits' mode doesn't shrink an untouched page's dot. */
+ *  caveat as the constants above -- `MIN` matches the pre-#1270 'uniform' mode's fixed radius so an
+ *  untouched page's dot is no smaller than it used to be. */
 const MIN_CONTRIBUTOR_RADIUS = 5
 const MAX_CONTRIBUTOR_RADIUS = 22
 const CONTRIBUTOR_RADIUS_SCALE = 3
@@ -366,16 +380,21 @@ const MIN_PAGEVIEW_RADIUS = 5
 const MAX_PAGEVIEW_RADIUS = 22
 const PAGEVIEW_RADIUS_SCALE = 3
 
-/** How many unique contributors count toward a node's 'edits'-mode size, per the currently-checked
- *  `contributorTypes`. Both checked (the default) reads the backend's pre-unioned
- *  `contributors.all` rather than adding `editor + mcp` together -- a contributor who used both
- *  channels would otherwise be counted twice. Neither checked sizes every real node at the floor,
- *  same as 'uniform' mode. */
+/** How many contributors count toward a node's 'edits'-mode size, per the currently-checked
+ *  `contributorTypes` and the currently-selected `sizeCountMode`. `sizeCountMode === 'total'` reads
+ *  the raw (not-distinct) row counts (OpenProject #1269's `contributors.total`) instead of the
+ *  unique-contributor figures at the object's top level; either way, both types checked (the
+ *  default) reads the backend's pre-summed `all` rather than adding `editor + mcp` together -- for
+ *  the unique figures a contributor who used both channels would otherwise be counted twice, and
+ *  for the total figures `all` is already an exact sum either way (see
+ *  `backend/models/pageHistory.ts#contributorCountsForGraph()`'s doc comment). Neither type checked
+ *  sizes every real node at the floor. */
 function contributorCountFor(node) {
-  const counts = node.contributors
-  if (!counts) {
+  const raw = node.contributors
+  if (!raw) {
     return 0
   }
+  const counts = sizeCountMode.value === 'total' ? raw.total : raw
   const countsEditor = contributorTypes.value.includes('editor')
   const countsMcp = contributorTypes.value.includes('mcp')
   if (countsEditor && countsMcp) {
@@ -390,23 +409,27 @@ function contributorCountFor(node) {
   return 0
 }
 
-/** How many unique visitors count toward a node's 'visits'-mode size, per the currently-checked
- *  `pageviewClientTypes`, within the currently-selected `pageviewsWindow`. Unlike
- *  `contributorCountFor()`, this is a plain sum of the checked buckets rather than reading a
- *  precomputed 'all' -- exact for any subset here (see `backend/models/pageviews.ts
- *  #countsForGraph()`'s doc comment: each client type hashes a disjoint identity space, so there is
- *  no double-counting to guard against, and summing all three equals the backend's own `all`). */
+/** How many visitors count toward a node's 'visits'-mode size, per the currently-checked
+ *  `pageviewClientTypes`, within the currently-selected `pageviewsWindow` and `sizeCountMode`.
+ *  `sizeCountMode === 'total'` reads the raw (not-distinct) row counts (OpenProject #1269's
+ *  `pageviews.<window>.total`) instead of the unique-visitor figures at the window object's top
+ *  level. Either way this is a plain sum of the checked buckets rather than reading a precomputed
+ *  'all' -- exact for any subset here (see `backend/models/pageviews.ts#countsForGraph()`'s doc
+ *  comment: each client type hashes a disjoint identity space for the unique figures, and a raw row
+ *  count carries no identity to double-count at all, so summing all three always equals the
+ *  backend's own `all`). */
 function pageviewCountFor(node) {
-  const counts = node.pageviews?.[pageviewsWindow.value]
-  if (!counts) {
+  const windowCounts = node.pageviews?.[pageviewsWindow.value]
+  if (!windowCounts) {
     return 0
   }
+  const counts = sizeCountMode.value === 'total' ? windowCounts.total : windowCounts
   return pageviewClientTypes.value.reduce((sum, type) => sum + (counts[type] ?? 0), 0)
 }
 
-/** A node's drawn radius: synthetic nodes are always the fixed `3`, and a real node is the fixed
- *  `5` unless `sizeBy` is 'edits' or 'visits', in which case it scales with `contributorCountFor()`
- *  or `pageviewCountFor()` respectively. */
+/** A node's drawn radius: synthetic nodes are always the fixed `3`; a real node scales with
+ *  `contributorCountFor()` when `sizeBy` is 'edits', or `pageviewCountFor()` when it's 'visits' --
+ *  the only two values `sizeBy` can hold now that 'uniform' is gone (OpenProject #1270). */
 function radiusFor(node) {
   if (node.synthetic) {
     return 3
@@ -418,26 +441,20 @@ function radiusFor(node) {
       MIN_CONTRIBUTOR_RADIUS + Math.sqrt(count) * CONTRIBUTOR_RADIUS_SCALE
     )
   }
-  if (sizeBy.value === 'visits') {
-    const count = pageviewCountFor(node)
-    return Math.min(
-      MAX_PAGEVIEW_RADIUS,
-      MIN_PAGEVIEW_RADIUS + Math.sqrt(count) * PAGEVIEW_RADIUS_SCALE
-    )
-  }
-  return 5
+  const count = pageviewCountFor(node)
+  return Math.min(
+    MAX_PAGEVIEW_RADIUS,
+    MIN_PAGEVIEW_RADIUS + Math.sqrt(count) * PAGEVIEW_RADIUS_SCALE
+  )
 }
 
-/** `forceCollide`'s own fixed `14`px starting point (see the comment on `startSimulation` below)
- *  stays the collide radius in 'uniform' mode, unchanged from before #1141 -- only 'edits'/'visits'
- *  mode derives it from `radiusFor()`, so a node bigger than the old fixed dot still gets room not to
- *  overlap its neighbors. `d3-force`'s `forceCollide` caches a function radius per node at
- *  `initialize()` time (same one-time-evaluation shape as the `forceX`/`forceY` pair #1158 replaced),
- *  so this is re-read only by re-attaching the force -- the sizing-related watcher below does that on
- *  toggle; it needs no per-tick recompute the way #1158's cluster centroids did, since a node's own
- *  contributor/pageview count never changes mid-session. */
+/** `d3-force`'s `forceCollide` caches a function radius per node at `initialize()` time (same
+ *  one-time-evaluation shape as the `forceX`/`forceY` pair #1158 replaced), so this is re-read only
+ *  by re-attaching the force -- the sizing-related watcher below does that on toggle; it needs no
+ *  per-tick recompute the way #1158's cluster centroids did, since a node's own contributor/pageview
+ *  count never changes mid-session. */
 function collideRadiusFor(node) {
-  return sizeBy.value === 'edits' || sizeBy.value === 'visits' ? radiusFor(node) + 2 : 14
+  return radiusFor(node) + 2
 }
 
 function drawEdges() {
@@ -749,7 +766,7 @@ watch(groupBy, () => {
  *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
  *  call needed: neither the visible node set nor any edge changes here, only how big each dot
  *  draws and how much room `collide` gives it. */
-watch([sizeBy, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
+watch([sizeBy, sizeCountMode, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
   simulation?.force('collide', forceCollide(collideRadiusFor))
   simulation?.alpha(0.3).restart()
   redraw()
@@ -757,10 +774,11 @@ watch([sizeBy, contributorTypes, pageviewsWindow, pageviewClientTypes], () => {
 
 /** OpenProject #1140's own scope decision: while pageview tracking is off, 'visits' sizing has no
  *  data behind it -- if the admin opt-out toggles off while this control is active (e.g. in another
- *  tab), fall back to 'uniform' rather than leaving a now-hidden option selected. */
+ *  tab), fall back to 'edits' rather than leaving a now-hidden option selected. No 'uniform' mode
+ *  to fall back to any more (OpenProject #1270). */
 watch(pageviewsTrackingEnabled, (enabled) => {
   if (!enabled && sizeBy.value === 'visits') {
-    sizeBy.value = 'uniform'
+    sizeBy.value = 'edits'
   }
 })
 

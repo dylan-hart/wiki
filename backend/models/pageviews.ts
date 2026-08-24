@@ -40,19 +40,30 @@ export type PageviewCountsByClientType = {
   all: number
 }
 
-export type PageviewCountsForGraph = Record<PageviewWindow, PageviewCountsByClientType>
+/** One trailing window's unique-visitor counts, plus the sibling raw (not-distinct) row counts for
+ *  the same breakdown -- OpenProject #1269's Unique/Total graph-sizing toggle. `total` sums cleanly
+ *  the same way `all` above does: a raw row count carries no visitor identity to double-count. */
+export type PageviewWindowCounts = PageviewCountsByClientType & {
+  total: PageviewCountsByClientType
+}
+
+export type PageviewCountsForGraph = Record<PageviewWindow, PageviewWindowCounts>
 
 function zeroPageviewCountsByClientType(): PageviewCountsByClientType {
   return { browser: 0, api: 0, mcp: 0, all: 0 }
+}
+
+function zeroPageviewWindowCounts(): PageviewWindowCounts {
+  return { ...zeroPageviewCountsByClientType(), total: zeroPageviewCountsByClientType() }
 }
 
 /** All-zero counts for a page with no pageview rows at all -- the same shape `countsForGraph()`
  *  returns for a page it has an entry for, so a caller never has to special-case "missing". */
 export function zeroPageviewCountsForGraph(): PageviewCountsForGraph {
   return {
-    last30d: zeroPageviewCountsByClientType(),
-    last6mo: zeroPageviewCountsByClientType(),
-    last2yr: zeroPageviewCountsByClientType()
+    last30d: zeroPageviewWindowCounts(),
+    last6mo: zeroPageviewWindowCounts(),
+    last2yr: zeroPageviewWindowCounts()
   }
 }
 
@@ -125,11 +136,19 @@ class Pageviews {
    * hash and an `api` hash can never coincide for the same real visitor. Summing the three
    * per-clientType distinct counts is therefore already exact, not an approximation: `all` is that
    * sum, computed directly below rather than with a fourth query.
+   *
+   * Each window also carries a sibling `total` -- the raw (not `distinct`) row count for the same
+   * window/clientType breakdown, OpenProject #1269's counterpart to the unique counts above, for the
+   * frontend's Unique/Total sizing toggle (#1270). Computed in the same query and the same
+   * `GROUP BY`, since a raw `count(*)` needs no identity column at all.
    */
   async countsForGraph(siteId: string): Promise<Map<string, PageviewCountsForGraph>> {
     const distinct30d = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last30d)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct6mo = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then ${pageviewsTable.visitorHash} end)::int`
     const distinct2yr = sql<number>`count(distinct case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then ${pageviewsTable.visitorHash} end)::int`
+    const total30d = sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last30d)}' then 1 end)::int`
+    const total6mo = sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last6mo)}' then 1 end)::int`
+    const total2yr = sql<number>`count(case when ${pageviewsTable.viewedAt} >= now() - interval '${sql.raw(WINDOW_INTERVALS.last2yr)}' then 1 end)::int`
 
     const rows = await WIKI.db
       .select({
@@ -137,11 +156,20 @@ class Pageviews {
         clientType: pageviewsTable.clientType,
         last30d: distinct30d,
         last6mo: distinct6mo,
-        last2yr: distinct2yr
+        last2yr: distinct2yr,
+        last30dTotal: total30d,
+        last6moTotal: total6mo,
+        last2yrTotal: total2yr
       })
       .from(pageviewsTable)
       .where(eq(pageviewsTable.siteId, siteId))
       .groupBy(pageviewsTable.pageId, pageviewsTable.clientType)
+
+    const totalKeys = {
+      last30d: 'last30dTotal',
+      last6mo: 'last6moTotal',
+      last2yr: 'last2yrTotal'
+    } as const
 
     const result = new Map<string, PageviewCountsForGraph>()
     for (const row of rows) {
@@ -154,6 +182,9 @@ class Pageviews {
         const count = row[window]
         entry[window][clientType] = count
         entry[window].all += count
+        const totalCount = row[totalKeys[window]]
+        entry[window].total[clientType] = totalCount
+        entry[window].total.all += totalCount
       }
       result.set(row.pageId, entry)
     }

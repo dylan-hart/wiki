@@ -2,6 +2,31 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
+   * GRAPHTOTALCONTRIBUTORCOUNTS — raw (not distinct) history-row counts for one page's edit history,
+   * split by `via`, the sibling of GRAPHCONTRIBUTORCOUNTS below for the Unique/Total sizing toggle
+   * (OpenProject #1269/#1270). Registered before GRAPHCONTRIBUTORCOUNTS, which `$ref`s it.
+   */
+  app.addSchema({
+    $id: 'GraphTotalContributorCounts',
+    type: 'object',
+    properties: {
+      editor: {
+        type: 'integer',
+        description: 'History rows recorded through the standard web editor / REST save.'
+      },
+      mcp: {
+        type: 'integer',
+        description: 'History rows recorded through an MCP tool call.'
+      },
+      all: {
+        type: 'integer',
+        description: 'History rows across both channels combined -- a plain sum of the two above.'
+      }
+    },
+    required: ['editor', 'mcp', 'all']
+  })
+
+  /**
    * GRAPHCONTRIBUTORCOUNTS — unique-contributor counts for one page's edit history, split by
    * `pageHistory.via` (OpenProject #1141). Registered before GRAPHNODE, which `$ref`s it.
    */
@@ -21,9 +46,34 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'integer',
         description:
           'Unique contributors across both channels combined -- not the sum of the two above, since a contributor who used both would otherwise be counted twice.'
+      },
+      total: {
+        $ref: 'GraphTotalContributorCounts#',
+        description:
+          "Raw history-row counts (not distinct authors) for the same via split, OpenProject #1269 -- unlike `all` above, not filtered to surviving authors, so a since-deleted contributor's edits still count here."
       }
     },
-    required: ['editor', 'mcp', 'all']
+    required: ['editor', 'mcp', 'all', 'total']
+  })
+
+  /**
+   * GRAPHTOTALPAGEVIEWWINDOWCOUNTS — raw (not distinct) pageview-row counts for one page within one
+   * trailing window, split by `clientType`, the sibling of GRAPHPAGEVIEWWINDOWCOUNTS below for the
+   * Unique/Total sizing toggle (OpenProject #1269/#1270). Registered before it, which `$ref`s it.
+   */
+  app.addSchema({
+    $id: 'GraphTotalPageviewWindowCounts',
+    type: 'object',
+    properties: {
+      browser: { type: 'integer', description: 'Pageview rows logged through a web browser.' },
+      api: { type: 'integer', description: 'Pageview rows logged through the REST API.' },
+      mcp: { type: 'integer', description: 'Pageview rows logged through an MCP tool call.' },
+      all: {
+        type: 'integer',
+        description: 'Pageview rows across all three client types combined for this window.'
+      }
+    },
+    required: ['browser', 'api', 'mcp', 'all']
   })
 
   /**
@@ -51,9 +101,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'integer',
         description:
           'Unique visitors across all three client types combined for this window -- exactly the sum of the three above, since each client type hashes a disjoint identity space (session id vs. API key id).'
+      },
+      total: {
+        $ref: 'GraphTotalPageviewWindowCounts#',
+        description:
+          'Raw pageview-row counts (not distinct visitors) for the same window/clientType breakdown, OpenProject #1269.'
       }
     },
-    required: ['browser', 'api', 'mcp', 'all']
+    required: ['browser', 'api', 'mcp', 'all', 'total']
   })
 
   /**
