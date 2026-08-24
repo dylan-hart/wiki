@@ -208,6 +208,24 @@ describe('ApiKeyCreateDialog site picker', () => {
 })
 
 /**
+ * OpenProject #1261: the classification checkbox grid reflows with the level count instead of a
+ * fixed `grid-cols-2` -- see `ProfileApiKeyCreateDialog.test.js`'s matching layout suite for the
+ * same fix on the profile-scoped twin. This dialog's own overall field layout is untouched (out of
+ * scope for #1292/#1293, which only covers `ProfileApiKeyCreateDialog.vue`).
+ */
+describe('ApiKeyCreateDialog layout', () => {
+  it('sizes the classification checkbox grid to reflow with the level count rather than a fixed 2-column split', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const classificationGrid = new DOMWrapper(document.body).find('.classification-grid')
+    expect(classificationGrid.classes()).not.toContain('grid-cols-2')
+    expect(classificationGrid.attributes('style')).toContain('auto-fit')
+  })
+})
+
+/**
  * OpenProject #1272: the verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) that replaced
  * the earlier flat `w-select multiple use-chips` field. `wrapper.vm.state.keyScope` is still a flat
  * array of scope strings either way -- the picker only changed the UI reaching it, not the wire

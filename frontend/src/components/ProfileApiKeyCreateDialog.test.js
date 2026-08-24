@@ -162,6 +162,44 @@ describe('ProfileApiKeyCreateDialog', () => {
 })
 
 /**
+ * OpenProject #1292/#1293: the single-column stack of 5 fields is now a responsive 2-column grid
+ * (Name spanning both columns, then Expiration/Site and Permission Scopes/Classification Access
+ * paired beneath it), collapsing to the original single-column order below the `md` breakpoint. See
+ * `WDialog` for why `DOMWrapper(document.body)` is used, as in the scope-tree suite below.
+ */
+describe('ProfileApiKeyCreateDialog layout', () => {
+  function body() {
+    return new DOMWrapper(document.body)
+  }
+
+  it('groups the 5 fields into a 2-column grid with Name spanning both columns', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const grid = body().find('[class*="md:grid-cols-2"]')
+    expect(grid.exists()).toBe(true)
+
+    const items = grid.findAll(':scope > .w-item')
+    expect(items).toHaveLength(5)
+    expect(items[0].classes()).toContain('md:col-span-2')
+    for (const item of items.slice(1)) {
+      expect(item.classes()).not.toContain('md:col-span-2')
+    }
+  })
+
+  it('sizes the classification checkbox grid to reflow with the level count rather than a fixed 2-column split', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const classificationGrid = body().find('.classification-grid')
+    expect(classificationGrid.classes()).not.toContain('grid-cols-2')
+    expect(classificationGrid.attributes('style')).toContain('auto-fit')
+  })
+})
+
+/**
  * OpenProject #1272: the same verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) as
  * `ApiKeyCreateDialog.vue`'s admin form, replacing the earlier flat `w-select multiple use-chips`
  * field here too. `wrapper.vm.state.keyScope` is still a flat array of scope strings -- the picker

@@ -1,6 +1,6 @@
 <template>
   <w-dialog v-model="dialogVisible" @hide="onDialogHide">
-    <w-card style="min-width: 650px">
+    <w-card style="width: 700px; max-width: 94vw">
       <w-card-section class="card-header">
         <w-icon name="img:/_assets/icons/fluent-plus-plus.svg" size="sm" class="mr-2" />
         <span>{{ t(`profile.api.newKeyTitle`) }}</span>
@@ -15,104 +15,108 @@
         {{ t(`profile.api.newKeyInfo`) }}
       </w-card-section>
       <w-form ref="createKeyForm" class="py-2" @submit="create">
-        <w-item>
-          <blueprint-icon icon="grand-master-key" />
-          <w-item-section>
-            <w-input
-              ref="iptName"
-              v-model="state.keyName"
-              outlined
-              dense
-              :rules="keyNameValidation"
-              hide-bottom-space
-              :label="t(`profile.api.newKeyName`)"
-              :hint="t(`profile.api.newKeyNameHint`)"
-              lazy-rules="ondemand"
-              autofocus />
-          </w-item-section>
-        </w-item>
-        <w-item>
-          <blueprint-icon icon="schedule" />
-          <w-item-section>
-            <w-select
-              v-model="state.keyExpiration"
-              outlined
-              :options="expirations"
-              map-options
-              option-value="value"
-              option-label="text"
-              emit-value
-              options-dense
-              dense
-              hide-bottom-space
-              :label="t(`profile.api.newKeyExpiration`)"
-              :hint="t(`profile.api.newKeyExpirationHint`)" />
-          </w-item-section>
-        </w-item>
-        <w-item>
-          <blueprint-icon icon="home" />
-          <w-item-section>
-            <w-select
-              v-model="state.keySiteId"
-              outlined
-              :options="siteOptions"
-              map-options
-              option-value="id"
-              option-label="title"
-              emit-value
-              options-dense
-              dense
-              hide-bottom-space
-              :label="t(`profile.api.newKeySite`)"
-              :hint="t(`profile.api.newKeySiteHint`)"
-              :loading="state.loadingSites" />
-          </w-item-section>
-        </w-item>
-        <w-item>
-          <blueprint-icon icon="lock" />
-          <w-item-section>
-            <!--
-              Left empty, the token carries the full extent of the creator's own current permissions --
-              picking anything here narrows it, exactly like the admin form's scope field.
+        <div class="grid grid-cols-1 gap-x-4 md:grid-cols-2">
+          <w-item class="md:col-span-2">
+            <blueprint-icon icon="grand-master-key" />
+            <w-item-section>
+              <w-input
+                ref="iptName"
+                v-model="state.keyName"
+                outlined
+                dense
+                :rules="keyNameValidation"
+                hide-bottom-space
+                :label="t(`profile.api.newKeyName`)"
+                :hint="t(`profile.api.newKeyNameHint`)"
+                lazy-rules="ondemand"
+                autofocus />
+            </w-item-section>
+          </w-item>
+          <w-item>
+            <blueprint-icon icon="schedule" />
+            <w-item-section>
+              <w-select
+                v-model="state.keyExpiration"
+                outlined
+                :options="expirations"
+                map-options
+                option-value="value"
+                option-label="text"
+                emit-value
+                options-dense
+                dense
+                hide-bottom-space
+                :label="t(`profile.api.newKeyExpiration`)"
+                :hint="t(`profile.api.newKeyExpirationHint`)" />
+            </w-item-section>
+          </w-item>
+          <w-item>
+            <blueprint-icon icon="home" />
+            <w-item-section>
+              <w-select
+                v-model="state.keySiteId"
+                outlined
+                :options="siteOptions"
+                map-options
+                option-value="id"
+                option-label="title"
+                emit-value
+                options-dense
+                dense
+                hide-bottom-space
+                :label="t(`profile.api.newKeySite`)"
+                :hint="t(`profile.api.newKeySiteHint`)"
+                :loading="state.loadingSites" />
+            </w-item-section>
+          </w-item>
+          <w-item>
+            <blueprint-icon icon="lock" />
+            <w-item-section>
+              <!--
+                Left empty, the token carries the full extent of the creator's own current permissions --
+                picking anything here narrows it, exactly like the admin form's scope field.
 
-              OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
-              `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
-            -->
-            <div class="text-caption q-mb-xs">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
-            <api-key-scope-picker v-model="state.keyScope" />
-            <div class="text-caption text-grey mt-1">{{ t(`profile.api.newKeyScopeHint`) }}</div>
-          </w-item-section>
-        </w-item>
-        <w-item>
-          <blueprint-icon icon="secure" />
-          <w-item-section>
-            <!--
-              OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --
-              same review feedback and reasoning as `ApiKeyCreateDialog.vue`'s admin form. Every level
-              starts checked, equivalent to the old "No Limit" default (see `allowedClassifications`
-              below): the token may reach anything its own scope/rules otherwise grant. Unchecking a
-              level narrows it -- the token may never be granted a page permission on a page classified
-              at an unchecked level, whatever the rules say. This is the control that resolves the "an
-              agent authenticating with my token can read my password pages too" concern the feature
-              exists for.
-            -->
-            <div class="text-caption q-mb-xs">
-              {{ t(`profile.api.newKeyClassificationLevels`) }}
-            </div>
-            <div class="classification-grid grid grid-cols-2 gap-x-4 gap-y-1">
-              <w-checkbox
-                v-for="level of adminStore.classificationLevels"
-                :key="level.id"
-                v-model="state.keyClassifications"
-                :val="level.id"
-                :label="level.name"
-                dense />
-            </div>
-            <div class="text-caption text-grey mt-1">
-              {{ t(`profile.api.newKeyClassificationLevelsHint`) }}
-            </div>
-          </w-item-section>
-        </w-item>
+                OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
+                `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
+              -->
+              <div class="text-caption q-mb-xs">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
+              <api-key-scope-picker v-model="state.keyScope" />
+              <div class="text-caption text-grey mt-1">{{ t(`profile.api.newKeyScopeHint`) }}</div>
+            </w-item-section>
+          </w-item>
+          <w-item>
+            <blueprint-icon icon="secure" />
+            <w-item-section>
+              <!--
+                OpenProject #1205: a checkbox grid replacing the earlier #1055 single-select "ceiling" --
+                same review feedback and reasoning as `ApiKeyCreateDialog.vue`'s admin form. Every level
+                starts checked, equivalent to the old "No Limit" default (see `allowedClassifications`
+                below): the token may reach anything its own scope/rules otherwise grant. Unchecking a
+                level narrows it -- the token may never be granted a page permission on a page classified
+                at an unchecked level, whatever the rules say. This is the control that resolves the "an
+                agent authenticating with my token can read my password pages too" concern the feature
+                exists for.
+              -->
+              <div class="text-caption q-mb-xs">
+                {{ t(`profile.api.newKeyClassificationLevels`) }}
+              </div>
+              <div
+                class="classification-grid grid gap-x-4 gap-y-1"
+                style="grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))">
+                <w-checkbox
+                  v-for="level of adminStore.classificationLevels"
+                  :key="level.id"
+                  v-model="state.keyClassifications"
+                  :val="level.id"
+                  :label="level.name"
+                  dense />
+              </div>
+              <div class="text-caption text-grey mt-1">
+                {{ t(`profile.api.newKeyClassificationLevelsHint`) }}
+              </div>
+            </w-item-section>
+          </w-item>
+        </div>
       </w-form>
       <w-card-actions class="card-actions">
         <w-space />
