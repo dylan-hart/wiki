@@ -34,6 +34,27 @@ describe('WCheckbox', () => {
     expect(wrapper.emitted('update:modelValue')[1]).toEqual([['a']])
   })
 
+  it('renders the mixed dash glyph, not the check glyph, when indeterminate', () => {
+    const wrapper = mount(WCheckbox, {
+      props: { modelValue: false, ariaLabel: 'Group', indeterminate: true }
+    })
+
+    expect(wrapper.attributes('aria-checked')).toBe('mixed')
+    expect(wrapper.find('.w-checkbox__box--on').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="mdi:minus"]').exists()).toBe(true)
+    expect(wrapper.find('[data-icon="mdi:check"]').exists()).toBe(false)
+  })
+
+  it('reports the click as a plain boolean flip while indeterminate, leaving the parent to decide', async () => {
+    const wrapper = mount(WCheckbox, {
+      props: { modelValue: false, ariaLabel: 'Group', indeterminate: true }
+    })
+
+    await wrapper.trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([[true]])
+  })
+
   it('marks the button element disabled, via either the disable or disabled prop', () => {
     const viaDisable = mount(WCheckbox, {
       props: { modelValue: false, ariaLabel: 'Enabled', disable: true }

@@ -893,6 +893,26 @@ class Users {
   }
 
   /**
+   * The groups a user does NOT belong to, by name. Only the identity of each group — same shape as
+   * `getUserGroups()` — for the profile page's admin-gated "other groups" section; never member count
+   * or any other metadata.
+   */
+  async getNonMemberGroups(userId: string): Promise<Array<{ id: string; name: string }>> {
+    return WIKI.db
+      .select({ id: groupsTable.id, name: groupsTable.name })
+      .from(groupsTable)
+      .where(
+        notExists(
+          WIKI.db
+            .select({ exists: sql`1` })
+            .from(userGroups)
+            .where(and(eq(userGroups.groupId, groupsTable.id), eq(userGroups.userId, userId)))
+        )
+      )
+      .orderBy(groupsTable.name)
+  }
+
+  /**
    * The IDs of the groups a user belongs to
    */
   async getUserGroupIds(userId: string): Promise<string[]> {

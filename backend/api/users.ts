@@ -19,6 +19,20 @@ interface UserUpdateBody {
 /** How large an avatar upload may be, before any resizing. */
 const avatarUploadLimit = 2 * 1024 * 1024
 
+/** A group's identity only -- no member count, no permissions. Shared by both halves of `GET /profile/groups`. */
+const GROUP_IDENTITY_SCHEMA = {
+  type: 'object',
+  properties: {
+    id: {
+      type: 'string',
+      format: 'uuid'
+    },
+    name: {
+      type: 'string'
+    }
+  }
+}
+
 /**
  * The user the session belongs to, or null when the request is not from a logged in user.
  *
@@ -88,6 +102,20 @@ async function isProfileEditable(req: FastifyRequest): Promise<boolean> {
     ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     : null
   return !site || site.config?.features?.profile !== false
+}
+
+/**
+ * Whether the profile Groups tab's "other groups" section is enabled on the site being browsed.
+ *
+ * Off by default: unlike `isProfileEditable`, an unresolvable site does NOT fall back to enabled --
+ * naming every group's identity to every logged in user is only ever done because an administrator
+ * explicitly opted in, never as a default.
+ */
+async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
+  const site = req.hostname
+    ? await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    : null
+  return site?.config?.features?.showOtherGroups === true
 }
 
 /**
@@ -510,7 +538,10 @@ async function routes(app: FastifyInstance) {
    * GET OWN GROUPS
    *
    * A user may see which groups it belongs to without holding `read:groups`, which would expose every
-   * group on the instance.
+   * group on the instance. When the site being browsed has `features.showOtherGroups` enabled, the
+   * response also names the groups the caller does NOT belong to -- gated here, at the source, rather
+   * than always fetching the full roster and trusting the frontend to hide the non-member half: that
+   * would defeat this route's entire reason for existing (see above), the moment the setting is off.
    */
   app.get(
     '/profile/groups',
@@ -518,24 +549,32 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Get the groups the logged in user belongs to',
         description:
-          'Only the identity of each group. Reading what a group grants requires `read:groups`.',
+          'Only the identity of each group. Reading what a group grants requires `read:groups`. When ' +
+          'the site enables `features.showOtherGroups`, the response also names the groups the caller ' +
+          'does NOT belong to.',
         tags: ['Users'],
         response: {
           200: {
-            description: 'Groups the user belongs to',
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                id: {
-                  type: 'string',
-                  format: 'uuid'
+            description:
+              'The groups the user belongs to (the default shape), or -- only when the site enables ' +
+              '`features.showOtherGroups` -- an object naming both the groups it belongs to and the ' +
+              'ones it does not.',
+            oneOf: [
+              {
+                type: 'array',
+                description: 'The default shape: only the groups the caller belongs to.',
+                items: GROUP_IDENTITY_SCHEMA
+              },
+              {
+                type: 'object',
+                description: 'Shown only when the site enables `features.showOtherGroups`.',
+                properties: {
+                  groups: { type: 'array', items: GROUP_IDENTITY_SCHEMA },
+                  otherGroups: { type: 'array', items: GROUP_IDENTITY_SCHEMA }
                 },
-                name: {
-                  type: 'string'
-                }
+                required: ['groups', 'otherGroups']
               }
-            }
+            ]
           },
           401: { $ref: 'ApiError#' }
         }
@@ -547,7 +586,14 @@ async function routes(app: FastifyInstance) {
       if (!userId) {
         return reply.unauthorized()
       }
-      return WIKI.models.users.getUserGroups(userId)
+      if (!(await isShowOtherGroupsEnabled(req))) {
+        return await WIKI.models.users.getUserGroups(userId)
+      }
+      const [groups, otherGroups] = await Promise.all([
+        WIKI.models.users.getUserGroups(userId),
+        WIKI.models.users.getNonMemberGroups(userId)
+      ])
+      return { groups, otherGroups }
     }
   )
 

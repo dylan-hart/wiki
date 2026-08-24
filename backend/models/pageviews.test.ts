@@ -193,9 +193,29 @@ describe('pageviews model', { skip: !hasTestDatabase() }, () => {
       const counts = await pageviewsModel.countsForGraph(fixtures.siteId)
 
       assert.deepEqual(counts.get(countsPageId), {
-        last30d: { browser: 1, api: 0, mcp: 0, all: 1 },
-        last6mo: { browser: 2, api: 1, mcp: 0, all: 3 },
-        last2yr: { browser: 2, api: 1, mcp: 1, all: 4 }
+        last30d: {
+          browser: 1,
+          api: 0,
+          mcp: 0,
+          all: 1,
+          // -> Both `graph-session-1` rows (5 days and 1 day ago) fall inside 30d -- raw total
+          //    counts both, unlike the deduped `browser: 1` above.
+          total: { browser: 2, api: 0, mcp: 0, all: 2 }
+        },
+        last6mo: {
+          browser: 2,
+          api: 1,
+          mcp: 0,
+          all: 3,
+          total: { browser: 3, api: 1, mcp: 0, all: 4 }
+        },
+        last2yr: {
+          browser: 2,
+          api: 1,
+          mcp: 1,
+          all: 4,
+          total: { browser: 3, api: 1, mcp: 1, all: 5 }
+        }
       })
     })
 

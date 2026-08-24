@@ -84,13 +84,10 @@ export function assembleGraph(
   contributorsFor: (pageId: string) => PageHistoryContributorCounts = () => ({
     editor: 0,
     mcp: 0,
-    all: 0
+    all: 0,
+    total: { editor: 0, mcp: 0, all: 0 }
   }),
-  pageviewsFor: (pageId: string) => PageviewCountsForGraph = () => ({
-    last30d: { browser: 0, api: 0, mcp: 0, all: 0 },
-    last6mo: { browser: 0, api: 0, mcp: 0, all: 0 },
-    last2yr: { browser: 0, api: 0, mcp: 0, all: 0 }
-  })
+  pageviewsFor: (pageId: string) => PageviewCountsForGraph = zeroPageviewCountsForGraph
 ): Graph {
   const visible = rows.filter(canRead)
   const visiblePaths = new Set(visible.map((row) => row.path))
@@ -163,16 +160,22 @@ async function routes(app: FastifyInstance) {
       if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
         return
       }
-      const rows = await WIKI.models.pages.listAllForGraph(req.params.siteId)
-      const contributorCounts = await WIKI.models.pageHistory.contributorCountsForGraph(
-        req.params.siteId
-      )
-      const pageviewCounts = await WIKI.models.pageviews.countsForGraph(req.params.siteId)
+      const [rows, contributorCounts, pageviewCounts] = await Promise.all([
+        WIKI.models.pages.listAllForGraph(req.params.siteId),
+        WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
+        WIKI.models.pageviews.countsForGraph(req.params.siteId)
+      ])
       return assembleGraph(
         rows,
         (row) => mayOnPage(req, 'read:pages', req.params.siteId, row),
         (id) => WIKI.models.classificationLevels.byId(id)?.name ?? null,
-        (pageId) => contributorCounts.get(pageId) ?? { editor: 0, mcp: 0, all: 0 },
+        (pageId) =>
+          contributorCounts.get(pageId) ?? {
+            editor: 0,
+            mcp: 0,
+            all: 0,
+            total: { editor: 0, mcp: 0, all: 0 }
+          },
         (pageId) => pageviewCounts.get(pageId) ?? zeroPageviewCountsForGraph()
       )
     }

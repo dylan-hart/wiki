@@ -229,7 +229,14 @@ describe(
       })
 
       const counts = await pageHistoryModel.contributorCountsForGraph(fixtures.siteId)
-      assert.deepEqual(counts.get(page.id), { editor: 2, mcp: 1, all: 3 })
+      // -> `total` is raw row counts, not distinct authors: 3 editor-via rows (createPage's own
+      //    `created` row plus the two `record()` calls above) and 1 mcp-via row.
+      assert.deepEqual(counts.get(page.id), {
+        editor: 2,
+        mcp: 1,
+        all: 3,
+        total: { editor: 3, mcp: 1, all: 4 }
+      })
     })
 
     test('contributorCountsForGraph excludes edits by since-deleted authors from every count', async () => {
@@ -260,8 +267,15 @@ describe(
       const counts = await pageHistoryModel.contributorCountsForGraph(fixtures.siteId)
       // -> `actor` (fixtures.userId) is still the sole surviving contributor from createPage's own
       //    `created` row; the deleted author's `updated` row's authorId went to null on cascade and
-      //    is excluded, not counted as a synthetic contributor.
-      assert.deepEqual(counts.get(page.id), { editor: 1, mcp: 0, all: 1 })
+      //    is excluded, not counted as a synthetic contributor. `total`, unlike the unique fields,
+      //    is NOT filtered to surviving authors -- both rows (the `created` row and the
+      //    since-deleted author's `updated` row) still count as real edit-volume rows.
+      assert.deepEqual(counts.get(page.id), {
+        editor: 1,
+        mcp: 0,
+        all: 1,
+        total: { editor: 2, mcp: 0, all: 2 }
+      })
     })
 
     test('recoverDeletedPage refuses an unknown or non-deleted version id', async () => {

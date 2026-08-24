@@ -128,7 +128,8 @@ export const useSiteStore = defineStore('site', {
       profile: false,
       ratingsMode: 'off',
       reasonForChange: 'required',
-      search: false
+      search: false,
+      showOtherGroups: false
     },
     /** How this site handles signing in. Set in the admin area's Login section. */
     auth: {

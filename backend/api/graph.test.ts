@@ -156,29 +156,24 @@ describe('assembleGraph', () => {
     assert.equal(result.nodes[0]!.classification, null)
   })
 
+  const ZERO_TOTAL_CONTRIBUTORS = { editor: 0, mcp: 0, all: 0 }
+
   // -> OpenProject #1141: node.contributors is the resolved edit-volume counts, not looked up by
   //    the test itself -- `contributorsFor` stands in for `pageHistory.contributorCountsForGraph()`.
   test("resolves each node's contributor counts through the contributorsFor accessor, keyed by id", () => {
     const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
+    const pageAContributors = { editor: 3, mcp: 1, all: 4, total: { editor: 5, mcp: 2, all: 7 } }
+    const zeroContributors = { editor: 0, mcp: 0, all: 0, total: ZERO_TOTAL_CONTRIBUTORS }
 
     const result = assembleGraph(
       rows,
       () => true,
       undefined,
-      (pageId) =>
-        pageId === 'page-a' ? { editor: 3, mcp: 1, all: 4 } : { editor: 0, mcp: 0, all: 0 }
+      (pageId) => (pageId === 'page-a' ? pageAContributors : zeroContributors)
     )
 
-    assert.deepEqual(result.nodes.find((n) => n.path === 'a')!.contributors, {
-      editor: 3,
-      mcp: 1,
-      all: 4
-    })
-    assert.deepEqual(result.nodes.find((n) => n.path === 'b')!.contributors, {
-      editor: 0,
-      mcp: 0,
-      all: 0
-    })
+    assert.deepEqual(result.nodes.find((n) => n.path === 'a')!.contributors, pageAContributors)
+    assert.deepEqual(result.nodes.find((n) => n.path === 'b')!.contributors, zeroContributors)
   })
 
   test('contributors default to all-zero when no contributorsFor accessor is given', () => {
@@ -186,10 +181,22 @@ describe('assembleGraph', () => {
 
     const result = assembleGraph(rows, () => true)
 
-    assert.deepEqual(result.nodes[0]!.contributors, { editor: 0, mcp: 0, all: 0 })
+    assert.deepEqual(result.nodes[0]!.contributors, {
+      editor: 0,
+      mcp: 0,
+      all: 0,
+      total: ZERO_TOTAL_CONTRIBUTORS
+    })
   })
 
-  const ZERO_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
+  const ZERO_TOTAL_PAGEVIEW_WINDOW = { browser: 0, api: 0, mcp: 0, all: 0 }
+  const ZERO_PAGEVIEW_WINDOW = {
+    browser: 0,
+    api: 0,
+    mcp: 0,
+    all: 0,
+    total: ZERO_TOTAL_PAGEVIEW_WINDOW
+  }
   const ZERO_PAGEVIEWS = {
     last30d: ZERO_PAGEVIEW_WINDOW,
     last6mo: ZERO_PAGEVIEW_WINDOW,
@@ -201,9 +208,27 @@ describe('assembleGraph', () => {
   test("resolves each node's pageview counts through the pageviewsFor accessor, keyed by id", () => {
     const rows = [makeRow({ path: 'a', id: 'page-a' }), makeRow({ path: 'b', id: 'page-b' })]
     const pageAViews = {
-      last30d: { browser: 5, api: 2, mcp: 0, all: 7 },
-      last6mo: { browser: 20, api: 8, mcp: 1, all: 29 },
-      last2yr: { browser: 50, api: 10, mcp: 3, all: 63 }
+      last30d: {
+        browser: 5,
+        api: 2,
+        mcp: 0,
+        all: 7,
+        total: { browser: 9, api: 3, mcp: 0, all: 12 }
+      },
+      last6mo: {
+        browser: 20,
+        api: 8,
+        mcp: 1,
+        all: 29,
+        total: { browser: 40, api: 15, mcp: 2, all: 57 }
+      },
+      last2yr: {
+        browser: 50,
+        api: 10,
+        mcp: 3,
+        all: 63,
+        total: { browser: 80, api: 18, mcp: 5, all: 103 }
+      }
     }
 
     const result = assembleGraph(
