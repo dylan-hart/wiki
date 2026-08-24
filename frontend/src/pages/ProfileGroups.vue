@@ -26,7 +26,9 @@
         rule.
       -->
       <template v-if="state.otherGroups.length > 0">
-        <div class="text-body2 mt-6">{{ t('profile.otherGroups') }}</div>
+        <div class="text-body2 mt-6">
+          {{ t('profile.otherGroups', { siteName: siteStore.title }) }}
+        </div>
         <w-list class="mt-2" bordered separator>
           <w-item v-for="grp of state.otherGroups" :key="grp.id">
             <w-item-section avatar class="opacity-60">
@@ -49,11 +51,16 @@ import { useI18n } from 'vue-i18n'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
+import { useSiteStore } from '@/stores/site'
 import { onMounted, reactive } from 'vue'
 
 // I18N
 
 const { t } = useI18n()
+
+// STORES
+
+const siteStore = useSiteStore()
 
 // META
 

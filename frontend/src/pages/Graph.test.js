@@ -317,6 +317,38 @@ describe('Graph.vue (OpenProject #891)', () => {
     expect(totalRadius).toBeGreaterThan(uniqueRadius)
   })
 
+  it('drawLabels hides labels below the visibility threshold, shows them at/above it (OpenProject #1287/#1288)', async () => {
+    const wrapper = await mountGraph()
+
+    // -> `1.2` sits between the old `1.5` threshold and the new, lower one -- proving labels now
+    //    persist at a zoom level that used to hide them.
+    wrapper.vm.zoomTransform = { k: 1.05, x: 0, y: 0 }
+    wrapper.vm.drawLabels()
+    expect(wrapper.vm.ctx.fillText).not.toHaveBeenCalled()
+
+    wrapper.vm.ctx.fillText.mockClear()
+    wrapper.vm.zoomTransform = { k: 1.2, x: 0, y: 0 }
+    wrapper.vm.drawLabels()
+    expect(wrapper.vm.ctx.fillText).toHaveBeenCalled()
+  })
+
+  it('drawLabels caps the effective on-screen font size at high zoom (OpenProject #1287/#1288)', async () => {
+    const wrapper = await mountGraph()
+
+    wrapper.vm.zoomTransform = { k: 2, x: 0, y: 0 }
+    wrapper.vm.drawLabels()
+    const [belowCapPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
+    // -> Below the cap (2 * 10px = 20px effective), the base font size is unchanged.
+    expect(Number(belowCapPx)).toBe(10)
+
+    wrapper.vm.zoomTransform = { k: 8, x: 0, y: 0 }
+    wrapper.vm.drawLabels()
+    const [atMaxZoomPx] = wrapper.vm.ctx.font.match(/[\d.]+/)
+    // -> At max zoom, the drawn font is scaled down so `fontPx * k` stops growing past the cap.
+    expect(Number(atMaxZoomPx)).toBeLessThan(10)
+    expect(Number(atMaxZoomPx) * 8).toBeLessThanOrEqual(24)
+  })
+
   it('recovers from a fetch failure without throwing', async () => {
     setActivePinia(createPinia())
     const siteStore = useSiteStore()

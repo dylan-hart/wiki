@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
+import { chromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -158,6 +159,99 @@ describe('ProfileApiKeyCreateDialog', () => {
         json: expect.objectContaining({ allowedClassifications: ['level-restricted'] })
       })
     )
+  })
+})
+
+/**
+ * OpenProject #1292/#1293: the single-column stack of 5 fields is now a responsive 2-column grid
+ * (Name spanning both columns, then Expiration/Site and Permission Scopes/Classification Access
+ * paired beneath it), collapsing to the original single-column order below the `md` breakpoint. See
+ * `WDialog` for why `DOMWrapper(document.body)` is used, as in the scope-tree suite below.
+ */
+describe('ProfileApiKeyCreateDialog layout', () => {
+  function body() {
+    return new DOMWrapper(document.body)
+  }
+
+  it('groups the 5 fields into a 2-column grid with Name spanning both columns', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const grid = body().find('[class*="md:grid-cols-2"]')
+    expect(grid.exists()).toBe(true)
+
+    const items = grid.findAll(':scope > .w-item')
+    expect(items).toHaveLength(5)
+    expect(items[0].classes()).toContain('md:col-span-2')
+    for (const item of items.slice(1)) {
+      expect(item.classes()).not.toContain('md:col-span-2')
+    }
+  })
+
+  it('sizes the classification checkbox grid to reflow with the level count rather than a fixed 2-column split', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const classificationGrid = body().find('.classification-grid')
+    expect(classificationGrid.classes()).not.toContain('grid-cols-2')
+    expect(classificationGrid.attributes('style')).toContain('auto-fit')
+  })
+})
+
+/**
+ * OpenProject #1261, real-layout regression: the assertions above only check that the inline style
+ * string contains `"auto-fit"` -- which was already true when this exact defect shipped, since
+ * neither `jsdom` nor `happy-dom` runs a layout engine to catch what that style actually computes to
+ * at this dialog's real width. This field shares row 3 of the 2-column grid (#1292/#1293) with
+ * Permission Scopes, so `.classification-grid` only ever gets ~half the dialog's ~700px width --
+ * measured at ~310px, not the ~618px `ApiKeyCreateDialog.test.js`'s own matching suite covers for the
+ * single-column admin form. See `test/realGridLayout.js` for why a real headless Chromium page is
+ * what actually answers "how many columns did this render as."
+ */
+describe('ProfileApiKeyCreateDialog classification grid — real layout', () => {
+  let browser
+
+  function body() {
+    return new DOMWrapper(document.body)
+  }
+
+  beforeAll(async () => {
+    browser = await chromium.launch()
+  })
+
+  afterAll(async () => {
+    await browser.close()
+  })
+
+  function mockThreeDefaultLevels() {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'classification-levels') {
+        return {
+          json: () =>
+            Promise.resolve([
+              { id: 'level-public', name: 'Public', sortOrder: 0 },
+              { id: 'level-internal', name: 'Internal', sortOrder: 1 },
+              { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
+            ])
+        }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+  }
+
+  it('lays out all 3 default classification levels on one row at the real ~310px row-3 width', async () => {
+    mockThreeDefaultLevels()
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const html = body().find('.classification-grid').html()
+    const items = await measureClassificationGrid({ browser, html, containerWidth: 310 })
+
+    expect(items).toHaveLength(3)
+    const rows = new Set(items.map((item) => Math.round(item.y)))
+    expect(rows.size).toBe(1)
   })
 })
 

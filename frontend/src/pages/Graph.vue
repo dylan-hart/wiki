@@ -92,12 +92,6 @@
             { value: 'mcp', label: 'MCP' }
           ]" />
       </div>
-      <div class="graph-view-legend">
-        <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
-          <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
-          <span class="graph-view-legend-label">{{ entry.key }}</span>
-        </div>
-      </div>
     </div>
     <div class="graph-view-filters">
       <w-select
@@ -132,6 +126,12 @@
         dense
         :label="t('graph.filters.clear')"
         @click="clearFilters" />
+      <div class="graph-view-legend">
+        <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
+          <span class="graph-view-legend-swatch" :style="{ backgroundColor: entry.color }" />
+          <span class="graph-view-legend-label">{{ entry.key }}</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -358,9 +358,10 @@ const zoomTransform = ref(null)
 const clusters = ref([])
 
 /*
-  Node radius (5), edge stroke color/opacity, and the `scale < 1.5` label threshold below are
-  starting points for visual tuning, not verified-correct constants -- adjust them against a real
-  graph in the browser once there's data on screen.
+  Node radius (5) and edge stroke color/opacity below are starting points for visual tuning, not
+  verified-correct constants -- adjust them against a real graph in the browser once there's data on
+  screen. The label zoom threshold/size cap (`drawLabels()`, OpenProject #1287/#1288) have since been
+  tuned past that starting point.
 */
 
 /** Sqrt scaling (OpenProject #1141), not linear: a node's drawn AREA should read as proportional to
@@ -506,14 +507,27 @@ function drawNodes() {
   }
 }
 
+/** Below this zoom level a label is unreadably small anyway; skipping the fillText calls entirely
+ *  is also what keeps a dense graph's label layer from becoming visual noise. Lowered from the
+ *  earlier `1.5` (OpenProject #1287/#1288) so labels persist roughly 4px of effective on-screen
+ *  size longer before hiding: at the `10px` base font, `1.5` hid labels at 15px effective, `1.1`
+ *  now hides them at 11px. */
+const LABEL_BASE_FONT_PX = 10
+const LABEL_VISIBILITY_ZOOM_THRESHOLD = 1.1
+
+/** Caps how large a label ever draws on screen, regardless of zoom -- without this, the base font is
+ *  drawn inside the canvas's `ctx.scale(k, k)` transform, so effective on-screen size is
+ *  `LABEL_BASE_FONT_PX * k` uncapped, reaching 80px at the max zoom (`k = 8`, see `attachZoom()`'s
+ *  `scaleExtent`). `24` reads as roughly what a label already looks like comfortably zoomed in. */
+const LABEL_MAX_EFFECTIVE_FONT_PX = 24
+
 function drawLabels() {
   const scale = zoomTransform.value?.k ?? 1
-  // -> Below this zoom level a label is unreadably small anyway; skipping the fillText calls
-  //    entirely is also what keeps a dense graph's label layer from becoming visual noise.
-  if (scale < 1.5) {
+  if (scale < LABEL_VISIBILITY_ZOOM_THRESHOLD) {
     return
   }
-  ctx.font = '10px sans-serif'
+  const fontPx = Math.min(LABEL_BASE_FONT_PX, LABEL_MAX_EFFECTIVE_FONT_PX / scale)
+  ctx.font = `${fontPx}px sans-serif`
   ctx.fillStyle = '#333'
   for (const node of nodes.value) {
     if (node.x === undefined) {
@@ -900,12 +914,12 @@ onBeforeUnmount(() => {
 .graph-view-legend {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: none;
   gap: 4px;
   padding: 8px 12px;
   border-radius: 4px;
   backdrop-filter: blur(4px);
+  max-height: 240px;
   overflow-y: auto;
 
   @at-root .body--light & {
