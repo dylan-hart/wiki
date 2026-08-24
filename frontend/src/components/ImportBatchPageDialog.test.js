@@ -5,6 +5,7 @@ import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import ImportBatchPageDialog from './ImportBatchPageDialog.vue'
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 import { queue as notifyQueue } from '@/composables/notify'
@@ -525,6 +526,55 @@ describe('ImportBatchPageDialog', () => {
       await selectFiles([new File(['a'], 'one.docx', { type: 'application/octet-stream' })])
 
       expect(body().find('.import-convert-btn').attributes('disabled')).toBeUndefined()
+    })
+  })
+
+  /**
+   * OpenProject #1012: each new page in the batch can change what an `auto`/`mixed` menu generates
+   * from the tree, the same as a single `pageSave()` create -- but this is a whole batch of them, so
+   * `saveAll()` invalidates once at the end rather than once per row, which would re-trigger the tree
+   * walk per row instead of per import.
+   */
+  describe('same-tab navigation invalidation (OpenProject #1012)', () => {
+    it('force-refetches the sidebar nav once, after at least one row saved', async () => {
+      const wrapper = await convertOneGoodFile()
+      const pageStore = usePageStore()
+      const siteStore = useSiteStore()
+      pageStore.navigationId = 'nav-1'
+      siteStore.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }] } })
+
+      globalThis.API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({ ok: true, page: { id: 'p1', path: 'docs/good' } })
+      })
+      globalThis.API_CLIENT.get.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue([{ id: 'fresh' }])
+      })
+
+      await body().find('.import-batch-save-btn').trigger('click')
+      await flushPromises()
+
+      expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-1')
+      expect(siteStore.nav.items).toEqual([{ id: 'fresh' }])
+      expect(wrapper.exists()).toBe(true)
+    })
+
+    it('does not touch the sidebar nav when every row failed to save', async () => {
+      await convertOneGoodFile()
+      const pageStore = usePageStore()
+      const siteStore = useSiteStore()
+      pageStore.navigationId = 'nav-1'
+      siteStore.$patch({ nav: { currentId: 'nav-1', items: [{ id: 'stale' }] } })
+
+      globalThis.API_CLIENT.post.mockImplementationOnce(() => {
+        throw new Error('network down')
+      })
+      globalThis.API_CLIENT.get.mockClear()
+
+      await body().find('.import-batch-save-btn').trigger('click')
+      await flushPromises()
+
+      expect(globalThis.API_CLIENT.get).not.toHaveBeenCalled()
+      expect(siteStore.nav.items).toEqual([{ id: 'stale' }])
     })
   })
 })

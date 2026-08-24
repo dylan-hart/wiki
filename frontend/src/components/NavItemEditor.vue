@@ -573,7 +573,16 @@ const emit = defineEmits([
    * disable against this, so it is pushed out as a normal event rather than left for the host to
    * reach for by reading `editorRef.value.loading` across the component boundary.
    */
-  'update:loading'
+  'update:loading',
+  /**
+   * `copyFrom()` below persists immediately (`POST .../:navId/copy`), unlike every other change in
+   * this editor -- which stays local until the host's own Save button calls `buildSaveItems()` and
+   * saves it. That means the reader-facing sidebar can go stale from this ONE action without the
+   * host ever calling its own save path -- OpenProject #1012. Pushed out as an event, matching this
+   * component's "deliberately ignorant of where the menu lives" design (see the header comment): it
+   * knows the copy just wrote to the server, not whether that menu is the one currently on screen.
+   */
+  'copied'
 ])
 
 // I18N
@@ -897,6 +906,9 @@ async function copyFrom(sourceSiteId, sourceNavId) {
       throw new Error(resp.message || 'An unexpected error occured.')
     }
     await loadMenuItems()
+    // -> OpenProject #1012: this already persisted server-side, unlike the rest of this editor's
+    //    changes -- see the `copied` event's own doc comment above for why the host needs telling.
+    emit('copied')
     notify({
       type: 'warning',
       message: t('navEdit.copyFromWarn')

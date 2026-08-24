@@ -62,9 +62,10 @@ const barStyle = {
 watch(
   () => pageStore.navigationId,
   (newValue) => {
-    if (newValue && newValue !== siteStore.nav.currentId) {
-      siteStore.fetchNavigation(newValue)
-    }
+    // -> The "already showing this menu" gate now lives in `fetchNavigation()` itself (OpenProject
+    //    #1012), so a same-tab invalidation elsewhere in the app can bypass it with `forceRefresh`
+    //    without this watcher needing to know why.
+    siteStore.fetchNavigation(newValue)
   },
   { immediate: true }
 )

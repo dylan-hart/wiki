@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 
 import NavItemEditor from './NavItemEditor.vue'
@@ -393,6 +393,48 @@ describe('NavItemEditor', () => {
         'This menu is generated automatically from the page tree.'
       )
       expect(wrapper.findAll('button').some((b) => b.text().includes('Delete'))).toBe(true)
+    })
+  })
+
+  /**
+   * OpenProject #1012: `copyFrom()` persists immediately (`POST .../:navId/copy`), unlike every
+   * other change in this editor, which stays local until the HOST's own Save button calls
+   * `buildSaveItems()`. That means the host needs telling this one action already reached the
+   * server, which is what the `copied` event is for -- see its own doc comment on the `defineEmits`
+   * array.
+   */
+  describe('copy from... (OpenProject #1012)', () => {
+    it("persists the copy immediately and emits 'copied', ahead of the editor's own Save", async () => {
+      // -> Two roots (`copyLocales.length > 1`) is what makes `canCopyFrom` true and shows the action.
+      const wrapper = mountEditor({
+        roots: [
+          { locale: 'en', navigationId: 'nav-1' },
+          { locale: 'fr', navigationId: 'nav-fr' }
+        ]
+      })
+      await vi.waitUntil(() => !wrapper.vm.loading)
+
+      dialog.mockReturnValueOnce({
+        onOk: (cb) => cb({ sourceSiteId: null, sourceNavId: 'nav-fr' })
+      })
+      API_CLIENT.post.mockReturnValueOnce({
+        json: vi.fn().mockResolvedValue({ ok: true })
+      })
+
+      const panel = await openKebabMenu(wrapper)
+      // -> The click listener lives on the `w-item` row's own root element, further up the DOM tree
+      //    than this exact-text label -- dispatching here and letting it bubble reaches it either way.
+      const copyLabel = Array.from(panel.querySelectorAll('*')).find(
+        (el) => el.textContent.trim() === 'Copy from...'
+      )
+      copyLabel.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      await vi.waitUntil(() => API_CLIENT.post.mock.calls.length >= 1)
+      await flushPromises()
+
+      expect(API_CLIENT.post).toHaveBeenCalledWith('sites/site-1/navigation/nav-1/copy', {
+        json: { sourceSiteId: null, sourceNavId: 'nav-fr', mode: 'append' }
+      })
+      expect(wrapper.emitted('copied')).toBeTruthy()
     })
   })
 })

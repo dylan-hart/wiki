@@ -677,6 +677,15 @@ export const usePageStore = defineStore('page', {
         //    locale detection and lands on whichever translation that picks.
         this.router.replace(localizedPagePath(path, locale ?? this.locale, siteStore.localeRouting))
       }
+      /*
+        OpenProject #1012: a move does not touch the page's own `navigationId` (`movePage()` never
+        writes it), but it CAN change what an `auto`/`mixed` menu generates from the tree behind that
+        same unchanged id -- the moved page's new parent folder, its position among siblings -- with
+        nothing on the backend to tell an already-open tab. Force-refetches whatever menu THIS tab's
+        currently viewed page resolves to, whether or not that is the page that got moved: a no-op
+        re-fetch of unrelated, still-correct data when it isn't, the fix itself when it is.
+      */
+      await siteStore.fetchNavigation(this.navigationId, true)
     },
     /**
      * PAGE - Rename
@@ -824,6 +833,8 @@ export const usePageStore = defineStore('page', {
           classificationConflicts = resp?.classificationConflicts ?? []
         }
 
+        const wasCreate = editorStore.mode === 'create'
+
         // Update page store
         this.$patch({
           ...pageData,
@@ -832,6 +843,19 @@ export const usePageStore = defineStore('page', {
           ),
           tocDepth: pick(pageData.tocDepth, ['min', 'max'])
         })
+
+        /*
+          OpenProject #1012: a newly created page can change what an `auto`/`mixed` menu generates
+          from the tree -- it is a new entry, not an edit to one already there -- with nothing on the
+          backend to tell an already-open tab. `this.navigationId` is already the just-created page's
+          own (`this.$patch()` above just applied it, from the server's `models/tree.ts`-assigned
+          value), which is exactly the menu the reader is about to land on via `editorExitPath` below
+          -- an ordinary content update (`wasCreate` false) never adds or removes a tree entry, so it
+          is left alone rather than force-refetching on every save.
+        */
+        if (wasCreate) {
+          await siteStore.fetchNavigation(this.navigationId, true)
+        }
 
         /*
           Ahead of the create-mode navigation just below: `App.vue`'s router guard reads

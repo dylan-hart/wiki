@@ -54,7 +54,8 @@
       :nav-id="navId"
       :menu-mode="menuMode"
       @load-error="close"
-      @update:loading="state.editorLoading = $event" />
+      @update:loading="state.editorLoading = $event"
+      @copied="onCopied" />
   </w-layout>
 </template>
 
@@ -159,6 +160,15 @@ function close() {
   siteStore.$patch({ overlay: '' })
 }
 
+/**
+ * `nav-item-editor`'s "Copy from..." action (OpenProject #1012) persists on its own, ahead of this
+ * overlay's own Save button -- see `NavItemEditor.vue`'s `copied` event doc comment. Force-refetch
+ * for the same reason `save()` below does: the id may not have changed even though its items did.
+ */
+async function onCopied() {
+  await siteStore.fetchNavigation(navId.value, true)
+}
+
 async function save() {
   state.saving++
   loading.show()
@@ -193,8 +203,10 @@ async function save() {
       navigationMode: resp.navigationMode,
       navigationId: resp.navigationId ?? null
     })
-    // -> Redraw the sidebar from what was just saved, rather than waiting for a navigation
-    await siteStore.fetchNavigation(resp.navigationId ?? navId.value)
+    // -> Redraw the sidebar from what was just saved, rather than waiting for a navigation.
+    //    `forceRefresh: true` (OpenProject #1012) because the id itself may not have changed even
+    //    though its items just did -- `fetchNavigation()`'s own cache check would otherwise skip it.
+    await siteStore.fetchNavigation(resp.navigationId ?? navId.value, true)
     close()
   } catch (err) {
     notify({

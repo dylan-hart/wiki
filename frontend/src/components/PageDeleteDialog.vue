@@ -45,6 +45,7 @@ import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { reactive } from 'vue'
 
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { apiErrorMessage } from '@/helpers/apiError'
 
@@ -71,6 +72,7 @@ const { dialogVisible, onDialogHide, onDialogOK, onDialogCancel } = useDialogCom
 
 // STORES
 
+const pageStore = usePageStore()
 const siteStore = useSiteStore()
 
 // I18N
@@ -93,6 +95,17 @@ async function confirm() {
       type: 'positive',
       message: t('pageDeleteDialog.deleteSuccess')
     })
+    /*
+      OpenProject #1012: a deleted page drops out of whatever `auto`/`mixed` menu generated from it,
+      and `models/tree.ts`/`models/pages.ts` also clean up any per-page nav override the deleted
+      entry itself held (`navigation.deleteNavForEntries`) -- neither is visible to an already-open
+      tab without this. Both callers of this dialog (`PageActionsCol.vue`, `FileManager.vue`)
+      navigate or reload their own view in their own `onOk`, after this promise resolves, so
+      `pageStore.navigationId` here is still whatever it was going into the delete -- correct to
+      force-refetch before that follow-up settles, since it is exactly what the sidebar is showing
+      right now and needs told the deleted entry is gone.
+    */
+    await siteStore.fetchNavigation(pageStore.navigationId, true)
     onDialogOK()
   } catch (err) {
     // -> ky throws above 400 — a page deleted from another tab answers 404

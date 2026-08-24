@@ -33,7 +33,8 @@
         :site-id="siteId"
         :nav-id="navId"
         @load-error="onDialogCancel"
-        @update:loading="state.editorLoading = $event" />
+        @update:loading="state.editorLoading = $event"
+        @copied="onCopied" />
     </w-layout>
   </w-dialog>
 </template>
@@ -45,6 +46,9 @@ import { computed, reactive, ref } from 'vue'
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { loading } from '@/composables/loading'
 import { notify } from '@/composables/notify'
+
+import { usePageStore } from '@/stores/page'
+import { useSiteStore } from '@/stores/site'
 
 import { apiErrorMessage } from '@/helpers/apiError'
 import NavItemEditor from '@/components/NavItemEditor.vue'
@@ -58,6 +62,11 @@ import NavItemEditor from '@/components/NavItemEditor.vue'
  * `NavEditOverlay.vue`'s page-context save: there is no page and no mode here, just a menu whose id
  * the caller already knows.
  */
+
+// STORES
+
+const pageStore = usePageStore()
+const siteStore = useSiteStore()
 
 // PROPS
 
@@ -105,6 +114,27 @@ const isBusy = computed(() => state.saving > 0 || state.editorLoading)
 
 // METHODS
 
+/**
+ * Neither this dialog's own save nor `nav-item-editor`'s "Copy from..." action (`@copied`, below)
+ * has any page context of its own to know whether the reader-facing sidebar (`NavSidebar.vue`, keyed
+ * off `siteStore.nav`/`pageStore.navigationId`) needs to see the change -- unlike
+ * `NavEditOverlay.vue`'s page-context save, which always knows exactly which menu it just changed
+ * (OpenProject #1012). `adminStore.currentSiteId` (what `props.siteId` resolves from) can differ
+ * from `siteStore.id`, the site actually loaded in this browser tab, so this only forces a refetch
+ * when they match; refetching `pageStore.navigationId` (whatever menu the tab's current page
+ * actually shows) rather than `props.navId` covers it either way -- a no-op re-fetch of unrelated,
+ * still-correct data when the two differ, and the fix itself when they don't.
+ */
+async function invalidateSidebarNav() {
+  if (props.siteId === siteStore.id) {
+    await siteStore.fetchNavigation(pageStore.navigationId, true)
+  }
+}
+
+async function onCopied() {
+  await invalidateSidebarNav()
+}
+
 async function save() {
   state.saving++
   loading.show()
@@ -121,6 +151,7 @@ async function save() {
       type: 'positive',
       message: t('navEdit.saveSuccess')
     })
+    await invalidateSidebarNav()
     onDialogOK()
   } catch (err) {
     notify({

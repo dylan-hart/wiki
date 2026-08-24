@@ -198,6 +198,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 import { MarkdownRenderer } from '@/renderers/markdown'
 
+import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
 import { useEditorStore } from '@/stores/editor'
 
@@ -272,6 +273,7 @@ const { dialogVisible, onDialogHide, onDialogCancel } = useDialogComponent()
 
 // STORES
 
+const pageStore = usePageStore()
 const siteStore = useSiteStore()
 const editorStore = useEditorStore()
 
@@ -707,6 +709,15 @@ async function saveAll() {
   state.saving = false
   const saved = state.results.filter((r) => r.saveStatus === 'saved').length
   const failed = state.results.filter((r) => r.saveStatus === 'failed').length
+  /*
+    OpenProject #1012: each new page can change what an `auto`/`mixed` menu generates from the tree,
+    the same as a single `pageSave()` create -- but this is a whole batch of them, so invalidate once
+    here rather than once per `saveRow()`, which would re-trigger the tree walk per row instead of
+    per import.
+  */
+  if (saved > 0) {
+    await siteStore.fetchNavigation(pageStore.navigationId, true)
+  }
   if (failed === 0) {
     notify({ type: 'positive', message: t('pages.importBatch.saveAllSuccess', { saved }) })
   } else {

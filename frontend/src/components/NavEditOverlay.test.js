@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import NavEditOverlay from './NavEditOverlay.vue'
+import NavItemEditor from './NavItemEditor.vue'
 import BlueprintIcon from './BlueprintIcon.vue'
 import { usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
@@ -154,5 +155,51 @@ describe('NavEditOverlay', () => {
     expect(wrapper.text()).toContain('This menu is generated automatically from the page tree.')
     const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
     expect(saveBtn.attributes('disabled')).not.toBeUndefined()
+  })
+
+  /**
+   * OpenProject #1012: the reader-facing sidebar (`NavSidebar.vue`) must reflect this save in the
+   * same tab without a reload, even when the save resolves to an id the store already has cached --
+   * exactly the "already showing this menu" case `fetchNavigation()`'s own gate exists for, which is
+   * why this save must force past it.
+   */
+  it('force-refetches the sidebar nav on save, even though the resolved id is already cached', async () => {
+    const { wrapper, siteStore } = mountOverlay()
+    await flushPromises()
+
+    siteStore.$patch({ nav: { currentId: 'nav-x', items: [{ id: 'stale' }] } })
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: vi
+        .fn()
+        .mockResolvedValue({ ok: true, navigationMode: 'inherit', navigationId: 'nav-x' })
+    })
+
+    const saveBtn = wrapper.findAll('button').find((b) => b.text().includes('Save'))
+    await saveBtn.trigger('click')
+    await vi.waitUntil(() => siteStore.overlay === '')
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/nav-x')
+    // -> The default `API_CLIENT.get` mock resolves `SERVER_ITEMS` for any id -- no longer `stale`
+    //    is the proof the gate was bypassed, not just that some request went out.
+    expect(siteStore.nav.items).toEqual(SERVER_ITEMS)
+  })
+
+  /**
+   * `nav-item-editor`'s "Copy from..." action persists immediately, ahead of this overlay's own Save
+   * button (see `NavItemEditor.vue`'s `copied` event doc comment) -- so the sidebar has to be
+   * invalidated from that event too, not only from `save()`.
+   */
+  it("force-refetches the sidebar nav when nav-item-editor emits 'copied'", async () => {
+    const { wrapper, siteStore } = mountOverlay({ navId: 'inherited-nav-1', mode: 'inherit' })
+    await flushPromises()
+
+    siteStore.$patch({ nav: { currentId: 'inherited-nav-1', items: [{ id: 'stale' }] } })
+
+    await wrapper.findComponent(NavItemEditor).vm.$emit('copied')
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/navigation/inherited-nav-1')
+    expect(siteStore.nav.items).toEqual(SERVER_ITEMS)
   })
 })

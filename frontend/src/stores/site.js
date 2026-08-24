@@ -351,8 +351,19 @@ export const useSiteStore = defineStore('site', {
      *
      * @param id The page's `navigationId`, which addresses either a tree entry that overrides the menu
      *           or the site itself for the one every page inherits
+     * @param forceRefresh Skip the "already showing this menu" check below and refetch anyway
+     *           (OpenProject #1012). The check exists so a plain route change within the same menu
+     *           doesn't re-trigger `generateFromTree`'s tree walk for an `auto`/`mixed` menu on every
+     *           navigation -- but it also means the same `id` can go stale the moment a nav-mutating
+     *           action changes what THAT id resolves to. Every same-tab invalidation after an admin
+     *           nav edit, a nav copy, or a page create/move/delete passes `true` here for exactly that
+     *           reason; `NavSidebar.vue`'s passive `pageStore.navigationId` watcher is the only caller
+     *           that leaves it `false`, since nothing changed there for a menu it already has cached.
      */
-    async fetchNavigation(id) {
+    async fetchNavigation(id, forceRefresh = false) {
+      if (!id || (!forceRefresh && id === this.nav.currentId)) {
+        return
+      }
       try {
         const items = await API_CLIENT.get(`sites/${this.id}/navigation/${id}`).json()
         this.$patch({
