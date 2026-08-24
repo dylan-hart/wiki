@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
+import { useSiteStore } from '@/stores/site'
 import ProfileGroups from './ProfileGroups.vue'
 
 /**
@@ -12,6 +14,9 @@ import ProfileGroups from './ProfileGroups.vue'
  * `{ groups, otherGroups }` (the section renders, subdued).
  */
 function mountPage() {
+  setActivePinia(createPinia())
+  useSiteStore().title = 'Acme Wiki'
+
   const i18n = createI18n({
     legacy: false,
     locale: 'en',
@@ -22,7 +27,7 @@ function mountPage() {
           groupsInfo: "You're currently part of the following groups:",
           groupsLoadingFailed: 'Failed to load groups.',
           groupsNone: "You're not part of any group.",
-          otherGroups: 'Other groups:'
+          otherGroups: "You're not part of these other {siteName} groups:"
         }
       }
     }
@@ -47,7 +52,7 @@ describe('ProfileGroups: other groups section', () => {
     await flush(wrapper)
 
     expect(wrapper.text()).toContain('Editors')
-    expect(wrapper.text()).not.toContain('Other groups:')
+    expect(wrapper.text()).not.toContain('Acme Wiki')
     expect(wrapper.vm.state.otherGroups).toStrictEqual([])
   })
 
@@ -63,7 +68,7 @@ describe('ProfileGroups: other groups section', () => {
     const wrapper = mountPage()
     await flush(wrapper)
 
-    expect(wrapper.text()).not.toContain('Other groups:')
+    expect(wrapper.text()).not.toContain('Acme Wiki')
   })
 
   it('renders the subdued section when the response includes non-member groups', async () => {
@@ -78,7 +83,7 @@ describe('ProfileGroups: other groups section', () => {
     const wrapper = mountPage()
     await flush(wrapper)
 
-    expect(wrapper.text()).toContain('Other groups:')
+    expect(wrapper.text()).toContain("You're not part of these other Acme Wiki groups:")
     expect(wrapper.text()).toContain('Reviewers')
 
     // -> Subdued per the project's opacity-60 convention (AdminApprovals.vue's disabled-rule rows),
