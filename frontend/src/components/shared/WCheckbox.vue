@@ -3,7 +3,7 @@
   <button
     type="button"
     role="checkbox"
-    :aria-checked="String(isOn)"
+    :aria-checked="indeterminate ? 'mixed' : String(isOn)"
     :aria-label="label ? undefined : ariaLabel"
     :disabled="isDisabled"
     class="w-checkbox w-unstyled inline-flex flex-nowrap items-center gap-2 rounded outline-offset-2 focus-visible:outline-2"
@@ -14,12 +14,17 @@
       cut into the surface, and ticking it fills that well rather than painting a flat block. The
       rim and the shadows come from the style block; `size-5` and the radius stay here because they
       are metrics rather than relief.
+
+      Indeterminate fills the same as checked (a well with nothing in it reads as unchecked, not as a
+      third state) but shows a dash rather than the check glyph, so all three states stay visually
+      distinct from one another.
     -->
     <span
       class="w-checkbox__box inline-flex size-5 shrink-0 items-center justify-center rounded-sm transition-colors"
-      :class="isOn ? 'w-checkbox__box--on text-white' : ''"
-      :style="isOn ? { backgroundColor: `var(--color-${color})` } : undefined">
-      <w-icon v-if="isOn" name="mdi:check" size="0.9em" />
+      :class="isOn || indeterminate ? 'w-checkbox__box--on text-white' : ''"
+      :style="isOn || indeterminate ? { backgroundColor: `var(--color-${color})` } : undefined">
+      <w-icon v-if="indeterminate" name="mdi:minus" size="0.9em" />
+      <w-icon v-else-if="isOn" name="mdi:check" size="0.9em" />
     </span>
     <!--
       Same treatment as the switch's label, down to the optical centring: `text-caption` rather than
@@ -62,6 +67,18 @@ const props = defineProps({
     default: false
   },
   disabled: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * Tri-state "mixed" rendering, for a group checkbox standing in for a set of children that are
+   * only partly selected. Purely visual -- it has no click semantics of its own beyond `toggle()`'s
+   * usual boolean flip below, which is what the box's own `isOn` reads as `false` while
+   * indeterminate (since `modelValue` is neither `true` nor an array containing `val`), so a click
+   * still emits `true`. The parent decides what that means -- in a tri-state group checkbox, "select
+   * every child", the standard tri-state convention.
+   */
+  indeterminate: {
     type: Boolean,
     default: false
   },
