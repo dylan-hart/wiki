@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
+import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 /**
  * OpenProject #788: the self-service counterpart to `ApiKeyCreateDialog.vue`, minus the groups
@@ -153,6 +157,102 @@ describe('ProfileApiKeyCreateDialog', () => {
       expect.objectContaining({
         json: expect.objectContaining({ allowedClassifications: ['level-restricted'] })
       })
+    )
+  })
+})
+
+/**
+ * OpenProject #1272: the same verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) as
+ * `ApiKeyCreateDialog.vue`'s admin form, replacing the earlier flat `w-select multiple use-chips`
+ * field here too. `wrapper.vm.state.keyScope` is still a flat array of scope strings -- the picker
+ * only changed the UI reaching it, not the wire shape.
+ *
+ * `WDialog` renders its content behind a `<teleport to="body">`, which lands it as a real child of
+ * `document.body`, outside `@vue/test-utils`'s own tracked tree -- `wrapper.find()` never sees it.
+ * Every query below goes through the real DOM instead, via a `DOMWrapper(document.body)` -- same
+ * pattern `ApiKeyCreateDialog.test.js`'s own scope-tree suite uses.
+ */
+describe('ProfileApiKeyCreateDialog scope tree', () => {
+  function body() {
+    return new DOMWrapper(document.body)
+  }
+
+  function groupCheckbox(verb) {
+    return body().find(`[role="checkbox"][aria-label="${verb}"]`)
+  }
+
+  function groupToggleButton(verb) {
+    return [...body().findAll('.api-key-scope-picker__group-toggle')].find((btn) =>
+      btn.text().startsWith(verb)
+    )
+  }
+
+  function leafCheckbox(scope) {
+    return [...body().findAll('[role="checkbox"]')].find((el) => el.text().includes(scope))
+  }
+
+  it('renders the closed scope vocabulary as one group per verb, including a single-member group', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(groupCheckbox('manage').exists()).toBe(true)
+    expect(groupCheckbox('read').exists()).toBe(true)
+    expect(groupCheckbox('review').exists()).toBe(true)
+  })
+
+  it('toggling one leaf scope checkbox narrows keyScope to just that scope', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupToggleButton('manage').trigger('click')
+    await leafCheckbox('manage:users').trigger('click')
+
+    expect(wrapper.vm.state.keyScope).toEqual(['manage:users'])
+  })
+
+  it('clicking a group checkbox selects every scope in that group, and a second click deselects them', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupCheckbox('read').trigger('click')
+    expect(wrapper.vm.state.keyScope).toEqual(
+      expect.arrayContaining([
+        'read:pages',
+        'read:source',
+        'read:history',
+        'read:assets',
+        'read:comments'
+      ])
+    )
+    expect(groupCheckbox('read').attributes('aria-checked')).toBe('true')
+
+    await groupCheckbox('read').trigger('click')
+    expect(wrapper.vm.state.keyScope).toEqual([])
+  })
+
+  it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
+    })
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupToggleButton('read').trigger('click')
+    await leafCheckbox('read:pages').trigger('click')
+
+    expect(groupCheckbox('read').attributes('aria-checked')).toBe('mixed')
+
+    wrapper.vm.state.keyName = 'My Token'
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.create()
+
+    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
+      'users/profile/api-keys',
+      expect.objectContaining({ json: expect.objectContaining({ scope: ['read:pages'] }) })
     )
   })
 })

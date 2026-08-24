@@ -124,22 +124,13 @@
               gets identical behavior. Selecting anything narrows the key: the API always intersects
               this list against what the groups actually grant, so a permission picked here that no
               selected group holds still grants nothing (`apiKeys.narrowToScope`, backend).
+
+              OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
+              `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
             -->
-            <w-select
-              v-model="state.keyScope"
-              outlined
-              :options="scopeOptions"
-              multiple
-              map-options
-              emit-value
-              option-value="value"
-              option-label="label"
-              options-dense
-              dense
-              use-chips
-              hide-bottom-space
-              :label="t(`admin.api.newKeyPermissionScopes`)"
-              :hint="t(`admin.api.newKeyScopeHint`)" />
+            <div class="text-caption q-mb-xs">{{ t(`admin.api.newKeyPermissionScopes`) }}</div>
+            <api-key-scope-picker v-model="state.keyScope" />
+            <div class="text-caption text-grey mt-1">{{ t(`admin.api.newKeyScopeHint`) }}</div>
           </w-item-section>
         </w-item>
         <w-item>
@@ -199,6 +190,7 @@ import { notify } from '@/composables/notify'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import ApiKeyCopyDialog from './ApiKeyCopyDialog.vue'
+import ApiKeyScopePicker from './ApiKeyScopePicker.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { useAdminStore } from '@/stores/admin'
 
@@ -256,37 +248,6 @@ const expirations = [
   { value: '1y', text: t('admin.api.expiration1y') },
   { value: '3y', text: t('admin.api.expiration3y') }
 ]
-
-/**
- * The closed permission vocabulary a scope entry may name -- mirrors `ALL_PERMISSIONS`
- * (`backend/helpers/permissions.ts`), which is what the API actually validates a scope against.
- * Duplicated rather than fetched: it is a fixed, closed list (see CLAUDE.md's "Permissions"
- * section), the same way `GroupEditOverlay.vue`'s own `permissions` / `rules` arrays are.
- */
-const scopeOptions = [
-  'access:admin',
-  'manage:users',
-  'manage:groups',
-  'manage:navigation',
-  'manage:theme',
-  'manage:sites',
-  'manage:system',
-  'read:pages',
-  'write:pages',
-  'review:pages',
-  'manage:pages',
-  'delete:pages',
-  'write:styles',
-  'write:scripts',
-  'read:source',
-  'read:history',
-  'read:assets',
-  'write:assets',
-  'manage:assets',
-  'read:comments',
-  'write:comments',
-  'manage:comments'
-].map((value) => ({ value, label: value }))
 
 // REFS
 
