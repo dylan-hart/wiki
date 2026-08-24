@@ -146,7 +146,9 @@
               rules say.
             -->
             <div class="text-caption q-mb-xs">{{ t(`admin.api.newKeyClassificationLevels`) }}</div>
-            <div class="classification-grid grid grid-cols-2 gap-x-4 gap-y-1">
+            <div
+              class="classification-grid grid gap-x-4 gap-y-1"
+              style="grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))">
               <w-checkbox
                 v-for="level of adminStore.classificationLevels"
                 :key="level.id"
