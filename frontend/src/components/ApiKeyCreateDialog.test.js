@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it } from 'vitest'
+import { DOMWrapper, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ApiKeyCreateDialog from './ApiKeyCreateDialog.vue'
+
+afterEach(() => {
+  document.body.innerHTML = ''
+})
 
 /**
  * Covers the site-picker added alongside the scope control (task 622): a new key defaults to
@@ -199,6 +203,110 @@ describe('ApiKeyCreateDialog site picker', () => {
       expect.objectContaining({
         json: expect.objectContaining({ allowedClassifications: ['level-public'] })
       })
+    )
+  })
+})
+
+/**
+ * OpenProject #1272: the verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) that replaced
+ * the earlier flat `w-select multiple use-chips` field. `wrapper.vm.state.keyScope` is still a flat
+ * array of scope strings either way -- the picker only changed the UI reaching it, not the wire
+ * shape -- so these tests drive the tree through the DOM and assert against that same state, plus
+ * one round trip through `create()` proving the array actually reaches the API unchanged.
+ *
+ * `WDialog` renders its content behind a `<teleport to="body">` (see `ImportBatchPageDialog.test.js`'s
+ * own header comment for the same pattern), which lands it as a real child of `document.body`, outside
+ * `@vue/test-utils`'s own tracked tree -- `wrapper.find()` never sees it. Every query below goes
+ * through the real DOM instead, via a `DOMWrapper(document.body)`.
+ */
+describe('ApiKeyCreateDialog scope tree', () => {
+  function body() {
+    return new DOMWrapper(document.body)
+  }
+
+  function groupCheckbox(verb) {
+    return body().find(`[role="checkbox"][aria-label="${verb}"]`)
+  }
+
+  function groupToggleButton(verb) {
+    return [...body().findAll('.api-key-scope-picker__group-toggle')].find((btn) =>
+      btn.text().startsWith(verb)
+    )
+  }
+
+  function leafCheckbox(scope) {
+    return [...body().findAll('[role="checkbox"]')].find((el) => el.text().includes(scope))
+  }
+
+  it('renders the closed scope vocabulary as one group per verb, including a single-member group', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(groupCheckbox('manage').exists()).toBe(true)
+    expect(groupCheckbox('read').exists()).toBe(true)
+    // -> `review:pages` is the only `review:*` scope today -- still its own group, not folded away
+    expect(groupCheckbox('review').exists()).toBe(true)
+  })
+
+  it('toggling one leaf scope checkbox narrows keyScope to just that scope', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupToggleButton('manage').trigger('click')
+    await leafCheckbox('manage:users').trigger('click')
+
+    expect(wrapper.vm.state.keyScope).toEqual(['manage:users'])
+  })
+
+  it('clicking a group checkbox selects every scope in that group, and a second click deselects them', async () => {
+    globalThis.API_CLIENT.get.mockImplementation(() => ({ json: () => Promise.resolve([]) }))
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupCheckbox('read').trigger('click')
+    expect(wrapper.vm.state.keyScope).toEqual(
+      expect.arrayContaining([
+        'read:pages',
+        'read:source',
+        'read:history',
+        'read:assets',
+        'read:comments'
+      ])
+    )
+    expect(groupCheckbox('read').attributes('aria-checked')).toBe('true')
+
+    await groupCheckbox('read').trigger('click')
+    expect(wrapper.vm.state.keyScope).toEqual([])
+  })
+
+  it('shows the group checkbox as mixed once only some of its scopes are checked, and sends the narrowed list on create', async () => {
+    globalThis.API_CLIENT.get.mockImplementation((resource) => {
+      if (resource === 'groups') {
+        return { json: () => Promise.resolve([{ id: 'group-1', name: 'Editors' }]) }
+      }
+      return { json: () => Promise.resolve([]) }
+    })
+    globalThis.API_CLIENT.post.mockReturnValue({
+      json: () => Promise.resolve({ ok: true, key: 'abc.def.ghi' })
+    })
+    const wrapper = mountDialog()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await groupToggleButton('read').trigger('click')
+    await leafCheckbox('read:pages').trigger('click')
+
+    expect(groupCheckbox('read').attributes('aria-checked')).toBe('mixed')
+
+    wrapper.vm.state.keyName = 'My Key'
+    wrapper.vm.state.keyGroups = ['group-1']
+    await wrapper.vm.$nextTick()
+    await wrapper.vm.create()
+
+    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
+      'api-keys',
+      expect.objectContaining({ json: expect.objectContaining({ scope: ['read:pages'] }) })
     )
   })
 })
