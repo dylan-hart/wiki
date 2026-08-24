@@ -10,14 +10,18 @@
     :class="isDisabled ? 'w-toggle--disabled pointer-events-none' : 'cursor-pointer'"
     @click="toggle">
     <span
-      class="w-toggle__track relative inline-flex shrink-0 items-center justify-center rounded-full"
+      class="w-toggle__track relative inline-flex shrink-0 items-center rounded-full"
       :class="dense ? 'h-5 w-10' : 'h-6 w-12'">
       <!--
         While the real value is still being fetched, a spinner stands in for the whole track rather
         than the knob rendering at its `false` default and animating to the correct position once
-        `loading` drops -- see the file header comment.
+        `loading` drops -- see the file header comment. It's centred by its own absolute layer
+        rather than the track's own flex alignment, which the knob's offsets below assume is a
+        flush-left rest position.
       -->
-      <w-spinner v-if="loading" :size="dense ? '12px' : '14px'" />
+      <span v-if="loading" class="absolute inset-0 flex items-center justify-center">
+        <w-spinner :size="dense ? '12px' : '14px'" />
+      </span>
       <template v-else>
         <!--
           The glow is clipped by its own layer rather than by the track, so the knob (a sibling) keeps
