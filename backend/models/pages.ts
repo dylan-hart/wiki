@@ -190,6 +190,9 @@ export interface PageInput {
 
 /** One page's worth of raw data for the knowledge graph endpoint (OpenProject #872). */
 export interface GraphPageRow {
+  /** Real page id -- the join key `pageHistory.pageId` uses for the edit-volume node-sizing counts
+   *  (OpenProject #1141), not otherwise surfaced on a `GraphNode`. */
+  id: string
   path: string
   locale: string
   title: string
@@ -550,6 +553,7 @@ class Pages {
   async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
     return WIKI.db
       .select({
+        id: pagesTable.id,
         path: pagesTable.path,
         locale: pagesTable.locale,
         title: pagesTable.title,

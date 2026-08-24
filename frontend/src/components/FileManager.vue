@@ -558,7 +558,7 @@ import {
 } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { dialog } from '@/composables/dialog'
+import { confirm, dialog } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { useMinWidth, useScreen } from '@/composables/screen'
 import { useDark } from '@/composables/dark'
@@ -574,7 +574,7 @@ import Tree from './TreeNav.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { assetUrl } from '@/helpers/assets'
 import fileTypes from '@/helpers/fileTypes'
-import { localizedPagePath } from '@/helpers/pagePaths'
+import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
 import FolderCreateDialog from '@/components/FolderCreateDialog.vue'
 import FolderDeleteDialog from '@/components/FolderDeleteDialog.vue'
 import FolderRenameDialog from '@/components/FolderRenameDialog.vue'
@@ -1240,49 +1240,78 @@ function renameMovePage(item) {
       // -> See the same note in `duplicatePage`, just above
       locale: state.locale
     }
-  }).onOk(async (opts) => {
-    try {
-      if (opts.path === currentPath) {
-        await pageStore.pageRename({ id: item.id, title: opts.title })
-        notify({
-          type: 'positive',
-          message: 'Page renamed successfully.'
-        })
-      } else {
-        await pageStore.pageMove({
-          id: item.id,
-          path: opts.path,
-          title: opts.title,
-          includeTranslations: opts.includeTranslations
-        })
-        notify({
-          type: 'positive',
-          message: 'Page moved successfully.'
-        })
-      }
-      // -> Reload current view
-      await loadTree({ parentId: state.currentFolderId })
-    } catch (err) {
-      notify({
-        type: 'negative',
-        message: 'Failed to rename or move page.',
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
-      })
+  }).onOk((opts) => {
+    const isMove = opts.path !== currentPath
+    // -> A title-only rename never moves the page off `home`, so only an actual move needs the guard
+    if (isMove && isHomePath(currentPath)) {
+      confirm({
+        title: t('pages.homepageGuard.moveTitle'),
+        message: t('pages.homepageGuard.moveMessage', { name: item.title }),
+        cancel: true,
+        color: 'negative',
+        okLabel: t('pages.homepageGuard.proceed')
+      }).onOk(() => applyRenameOrMovePage(item, opts, isMove))
+    } else {
+      applyRenameOrMovePage(item, opts, isMove)
     }
   })
 }
 
-function delPage(pageId, pageName) {
-  dialog({
-    component: defineAsyncComponent(() => import('@/components/PageDeleteDialog.vue')),
-    componentProps: {
-      pageId,
-      pageName
+async function applyRenameOrMovePage(item, opts, isMove) {
+  try {
+    if (!isMove) {
+      await pageStore.pageRename({ id: item.id, title: opts.title })
+      notify({
+        type: 'positive',
+        message: 'Page renamed successfully.'
+      })
+    } else {
+      await pageStore.pageMove({
+        id: item.id,
+        path: opts.path,
+        title: opts.title,
+        includeTranslations: opts.includeTranslations
+      })
+      notify({
+        type: 'positive',
+        message: 'Page moved successfully.'
+      })
     }
-  }).onOk(() => {
     // -> Reload current view
-    loadTree({ parentId: state.currentFolderId })
-  })
+    await loadTree({ parentId: state.currentFolderId })
+  } catch (err) {
+    notify({
+      type: 'negative',
+      message: 'Failed to rename or move page.',
+      caption: apiErrorMessage(err, 'An unexpected error occured.')
+    })
+  }
+}
+
+function delPage(pageId, pageName, pagePath) {
+  const openDeleteDialog = () => {
+    dialog({
+      component: defineAsyncComponent(() => import('@/components/PageDeleteDialog.vue')),
+      componentProps: {
+        pageId,
+        pageName
+      }
+    }).onOk(() => {
+      // -> Reload current view
+      loadTree({ parentId: state.currentFolderId })
+    })
+  }
+  if (isHomePath(pagePath)) {
+    confirm({
+      title: t('pages.homepageGuard.deleteTitle'),
+      message: t('pages.homepageGuard.deleteMessage', { name: pageName }),
+      cancel: true,
+      color: 'negative',
+      okLabel: t('pages.homepageGuard.proceed')
+    }).onOk(openDeleteDialog)
+  } else {
+    openDeleteDialog()
+  }
 }
 
 // --------------------------------------
@@ -1647,7 +1676,8 @@ function delItem(item) {
       break
     }
     case 'page': {
-      delPage(item.id, item.title)
+      const path = item.folderPath ? `${item.folderPath}/${item.fileName}` : item.fileName
+      delPage(item.id, item.title, path)
       break
     }
   }

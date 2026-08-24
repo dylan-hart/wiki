@@ -4,10 +4,16 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
+vi.mock('browser-fs-access', () => ({
+  fileSave: vi.fn().mockResolvedValue(undefined)
+}))
+
+import { fileSave } from 'browser-fs-access'
 import AdminUtilities from './AdminUtilities.vue'
 import BlueprintIcon from '@/components/BlueprintIcon.vue'
 import { useSiteStore } from '@/stores/site'
 import { closeDialog, openDialogs } from '@/composables/dialog'
+import { queue as notifyQueue } from '@/composables/notify'
 
 /**
  * The `import` utility used to be `disabled` with no handler at all (task 585). These tests cover the
@@ -22,6 +28,10 @@ const messages = {
   en: {
     'admin.utilities.title': 'Utilities',
     'admin.utilities.subtitle': '',
+    'admin.utilities.export': 'Export',
+    'admin.utilities.exportHint': '',
+    'admin.utilities.exportSuccess': 'Content export saved.',
+    'admin.utilities.exportFailed': "Failed to export the site's content.",
     'admin.utilities.import': 'Import',
     'admin.utilities.importHint': '',
     'admin.utilities.importConfirm': "This will replace {site}'s content.",
@@ -77,6 +87,81 @@ async function pickFile(wrapper) {
   await input.trigger('change')
   return file
 }
+
+/**
+ * The `export` utility used to be a permanently `disabled` button with no handler at all (WP 1214).
+ * There is no separate status route for an export job — `GET /export/:jobId/download` itself answers
+ * 409 while the job is still running — so `exportContent` polls that same download route until it
+ * stops 409-ing, then saves whatever it resolves to.
+ */
+describe('AdminUtilities export', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    fileSave.mockClear()
+    notifyQueue.length = 0
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function conflictError() {
+    return Object.assign(new Error('Conflict'), { response: { status: 409 } })
+  }
+
+  it('queues an export for the current site and polls the download route until it saves the file', async () => {
+    const wrapper = await mountUtilities()
+    const blob = new Blob(['fake tarball bytes'], { type: 'application/gzip' })
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'job-5' })
+    })
+    API_CLIENT.get
+      .mockReturnValueOnce({ blob: () => Promise.reject(conflictError()) })
+      .mockReturnValueOnce({ blob: () => Promise.reject(conflictError()) })
+      .mockReturnValueOnce({ blob: () => Promise.resolve(blob) })
+
+    await wrapper.find('[aria-label="Export"]').trigger('click')
+    await flushPromises()
+
+    expect(API_CLIENT.post).toHaveBeenCalledWith('system/export', {
+      json: { siteId: 'aaaaaaaa-0000-4000-8000-000000000001' }
+    })
+
+    // -> Three polls of the download route: 409, 409, then the finished archive.
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+
+    expect(API_CLIENT.get).toHaveBeenCalledTimes(3)
+    expect(API_CLIENT.get).toHaveBeenCalledWith('system/export/job-5/download')
+    expect(fileSave).toHaveBeenCalledWith(
+      blob,
+      expect.objectContaining({ fileName: 'export-job-5.tar.gz' })
+    )
+  })
+
+  it('shows an error when the download route fails for a reason other than "not ready yet"', async () => {
+    const wrapper = await mountUtilities()
+
+    API_CLIENT.post.mockReturnValueOnce({
+      json: () => Promise.resolve({ ok: true, id: 'job-6' })
+    })
+    API_CLIENT.get.mockReturnValueOnce({
+      blob: () => Promise.reject(new Error('Server error'))
+    })
+
+    await wrapper.find('[aria-label="Export"]').trigger('click')
+    await flushPromises()
+
+    expect(fileSave).not.toHaveBeenCalled()
+    expect(notifyQueue.at(-1)).toMatchObject({
+      type: 'negative',
+      message: "Failed to export the site's content."
+    })
+  })
+})
 
 describe('AdminUtilities import', () => {
   it('opens a destructive-action confirmation once a file is picked, before uploading anything', async () => {

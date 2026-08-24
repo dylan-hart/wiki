@@ -2,6 +2,31 @@ import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
+   * GRAPHCONTRIBUTORCOUNTS — unique-contributor counts for one page's edit history, split by
+   * `pageHistory.via` (OpenProject #1141). Registered before GRAPHNODE, which `$ref`s it.
+   */
+  app.addSchema({
+    $id: 'GraphContributorCounts',
+    type: 'object',
+    properties: {
+      editor: {
+        type: 'integer',
+        description: 'Unique contributors who edited through the standard web editor / REST save.'
+      },
+      mcp: {
+        type: 'integer',
+        description: 'Unique contributors who edited through an MCP tool call.'
+      },
+      all: {
+        type: 'integer',
+        description:
+          'Unique contributors across both channels combined -- not the sum of the two above, since a contributor who used both would otherwise be counted twice.'
+      }
+    },
+    required: ['editor', 'mcp', 'all']
+  })
+
+  /**
    * GRAPHNODE — one page the caller may read, as a knowledge-graph node (OpenProject #872).
    */
   app.addSchema({
@@ -22,6 +47,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: ['string', 'null'],
         description:
           "The page's classification level display name (OpenProject #1079/#1217), resolved server-side from its classification id. Null when the id no longer resolves to a configured level."
+      },
+      contributors: {
+        $ref: 'GraphContributorCounts#',
+        description:
+          "Unique-contributor counts from this page's edit history (OpenProject #1141), the source for the graph's edit-volume node sizing."
       }
     }
   })

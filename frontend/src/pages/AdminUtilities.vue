@@ -57,7 +57,9 @@
                 flat
                 icon="la:arrow-circle-right"
                 color="primary"
-                disabled
+                :loading="state.isExporting"
+                :aria-label="t(`admin.utilities.export`)"
+                @click="exportContent"
                 :label="t(`common.actions.proceed`)" />
             </w-item-section>
           </w-item>
@@ -244,6 +246,7 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { confirm } from '@/composables/dialog'
 import { apiErrorMessage } from '@/helpers/apiError'
+import { fileSave } from 'browser-fs-access'
 
 import { useSiteStore } from '@/stores/site'
 
@@ -266,6 +269,7 @@ useMeta(() => ({
 const state = reactive({
   purgeHistoryTimeframe: '1y',
   isScanning: false,
+  isExporting: false,
   /** The last completed scan's report, or null before one has run. See `scanPageProblems`. */
   scanReport: null
 })
@@ -544,6 +548,61 @@ function purgeRevokedKeys() {
     }
     loading.hide()
   })
+}
+
+/** How long to wait between polls of a running export's download route. */
+const EXPORT_POLL_INTERVAL_MS = 1500
+
+/**
+ * Queue a content export for the current site, then poll the download route until the job is done
+ * and save the resulting tarball.
+ *
+ * There is no separate status route for an export job — `GET /export/:jobId/download` itself answers
+ * 409 while the job is still running, so polling it directly is also the same call that fetches the
+ * finished archive, with no extra round-trip once it succeeds.
+ */
+async function exportContent() {
+  state.isExporting = true
+  try {
+    const queued = await API_CLIENT.post('system/export', {
+      json: { siteId: siteStore.id }
+    }).json()
+    if (!queued?.ok || !queued?.id) {
+      throw new Error(queued?.message || 'An unexpected error occured.')
+    }
+
+    let blob
+    for (;;) {
+      try {
+        blob = await API_CLIENT.get(`system/export/${queued.id}/download`).blob()
+        break
+      } catch (err) {
+        if (err?.response?.status !== 409) {
+          throw err
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, EXPORT_POLL_INTERVAL_MS))
+    }
+
+    await fileSave(blob, {
+      fileName: `export-${queued.id}.tar.gz`,
+      extensions: ['.gz']
+    })
+    notify({
+      type: 'positive',
+      message: t('admin.utilities.exportSuccess')
+    })
+  } catch (err) {
+    // -> Dismissing the save picker is not a failure
+    if (err.name !== 'AbortError') {
+      notify({
+        type: 'negative',
+        message: t('admin.utilities.exportFailed'),
+        caption: apiErrorMessage(err)
+      })
+    }
+  }
+  state.isExporting = false
 }
 
 /**

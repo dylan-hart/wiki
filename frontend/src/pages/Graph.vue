@@ -10,6 +10,11 @@
       class="graph-view-tooltip"
       :style="{ left: `${tooltipPos.x + 12}px`, top: `${tooltipPos.y + 12}px` }">
       {{ hoveredNode.title ?? hoveredNode.path }}
+      <template v-if="sizeBy === 'edits' && !hoveredNode.synthetic">
+        · {{ contributorCountFor(hoveredNode) }} contributor{{
+          contributorCountFor(hoveredNode) === 1 ? '' : 's'
+        }}
+      </template>
     </div>
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
@@ -37,6 +42,25 @@
               { label: 'Classification', value: 'classification' }
             ]" />
         </div>
+        <div class="graph-view-control-group">
+          <span class="graph-view-control-caption">Size by</span>
+          <w-btn-toggle
+            v-model="sizeBy"
+            no-caps
+            aria-label="Size by"
+            :options="[
+              { label: 'Uniform', value: 'uniform' },
+              { label: 'Edit volume', value: 'edits' }
+            ]" />
+        </div>
+        <GraphClientTypeFilter
+          v-if="sizeBy === 'edits'"
+          v-model="contributorTypes"
+          label="Count edits by"
+          :options="[
+            { value: 'editor', label: 'Editor' },
+            { value: 'mcp', label: 'MCP' }
+          ]" />
       </div>
       <div class="graph-view-legend">
         <div v-for="entry in legendEntries" :key="entry.key" class="graph-view-legend-item">
@@ -93,6 +117,7 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom'
 import { localizedPagePath } from '@/helpers/pagePaths'
 import { useSiteStore } from '@/stores/site'
+import GraphClientTypeFilter from '@/components/GraphClientTypeFilter.vue'
 import {
   buildClassificationHubEdges,
   buildPathHierarchyEdges,
@@ -136,6 +161,17 @@ const groupBy = ref('folder')
  *  every page to a synthetic hub per tag it carries. The 872 endpoint's `relation`/`link` edges
  *  (`allEdges` below) are still fetched but not wired into either mode's rendering. */
 const edgeMode = ref('paths')
+
+/** Node-sizing dimension (OpenProject #1141): 'uniform' (default, every real node the same fixed
+ *  radius) or 'edits', which scales a node's radius by its unique-contributor count -- see
+ *  `radiusFor()`. */
+const sizeBy = ref('uniform')
+
+/** Which of `pageHistory.via`'s buckets count toward 'edits' sizing -- both checked by default,
+ *  which reads the backend's pre-unioned `contributors.all` rather than adding the two buckets
+ *  together (see `contributorCountFor()`). Irrelevant while `sizeBy` is 'uniform', but kept around
+ *  rather than reset, so re-enabling 'edits' remembers the last filter chosen. */
+const contributorTypes = ref(['editor', 'mcp'])
 
 /** Drill-down filter state (OpenProject #875): the AND of whichever of these are non-empty narrows
  *  the visible node/edge subset -- see `graphFilters.js#computeVisibleSubset` (Task 25). `'site'` is
@@ -261,6 +297,69 @@ const clusters = ref([])
   starting points for visual tuning, not verified-correct constants -- adjust them against a real
   graph in the browser once there's data on screen.
 */
+
+/** Sqrt scaling (OpenProject #1141), not linear: a node's drawn AREA should read as proportional to
+ *  its contributor count, the standard convention for encoding a magnitude in a circle's size --
+ *  linear radius scaling would make a 4x-more-contributed page look ~16x more prominent by area,
+ *  overwhelming the rest of the graph. `MIN`/`MAX` are starting points for visual tuning, same
+ *  caveat as the constants above -- `MIN` matches the 'uniform' mode's fixed radius so switching
+ *  into 'edits' mode doesn't shrink an untouched page's dot. */
+const MIN_CONTRIBUTOR_RADIUS = 5
+const MAX_CONTRIBUTOR_RADIUS = 22
+const CONTRIBUTOR_RADIUS_SCALE = 3
+
+/** How many unique contributors count toward a node's 'edits'-mode size, per the currently-checked
+ *  `contributorTypes`. Both checked (the default) reads the backend's pre-unioned
+ *  `contributors.all` rather than adding `editor + mcp` together -- a contributor who used both
+ *  channels would otherwise be counted twice. Neither checked sizes every real node at the floor,
+ *  same as 'uniform' mode. */
+function contributorCountFor(node) {
+  const counts = node.contributors
+  if (!counts) {
+    return 0
+  }
+  const countsEditor = contributorTypes.value.includes('editor')
+  const countsMcp = contributorTypes.value.includes('mcp')
+  if (countsEditor && countsMcp) {
+    return counts.all
+  }
+  if (countsEditor) {
+    return counts.editor
+  }
+  if (countsMcp) {
+    return counts.mcp
+  }
+  return 0
+}
+
+/** A node's drawn radius: synthetic nodes are always the fixed `3`, and a real node is the fixed
+ *  `5` unless `sizeBy` is 'edits', in which case it scales with `contributorCountFor()`. */
+function radiusFor(node) {
+  if (node.synthetic) {
+    return 3
+  }
+  if (sizeBy.value !== 'edits') {
+    return 5
+  }
+  const count = contributorCountFor(node)
+  return Math.min(
+    MAX_CONTRIBUTOR_RADIUS,
+    MIN_CONTRIBUTOR_RADIUS + Math.sqrt(count) * CONTRIBUTOR_RADIUS_SCALE
+  )
+}
+
+/** `forceCollide`'s own fixed `14`px starting point (see the comment on `startSimulation` below)
+ *  stays the collide radius in 'uniform' mode, unchanged from before #1141 -- only 'edits' mode
+ *  derives it from `radiusFor()`, so a node bigger than the old fixed dot still gets room not to
+ *  overlap its neighbors. `d3-force`'s `forceCollide` caches a function radius per node at
+ *  `initialize()` time (same one-time-evaluation shape as the `forceX`/`forceY` pair #1158 replaced),
+ *  so this is re-read only by re-attaching the force -- the `sizeBy`/`contributorTypes` watcher
+ *  below does that on toggle; it needs no per-tick recompute the way #1158's cluster centroids did,
+ *  since a node's own contributor count never changes mid-session. */
+function collideRadiusFor(node) {
+  return sizeBy.value === 'edits' ? radiusFor(node) + 2 : 14
+}
+
 function drawEdges() {
   ctx.strokeStyle = 'rgba(128, 128, 128, 0.35)'
   ctx.lineWidth = 1
@@ -304,7 +403,7 @@ function drawNodes() {
       continue
     }
     ctx.beginPath()
-    ctx.arc(node.x, node.y, node.synthetic ? 3 : 5, 0, Math.PI * 2)
+    ctx.arc(node.x, node.y, radiusFor(node), 0, Math.PI * 2)
     ctx.fillStyle = node.color ?? '#888'
     ctx.fill()
   }
@@ -398,8 +497,8 @@ function onCanvasMouseMove(event) {
 /*
   `d3.forceLink`'s distance (60) and `d3.forceManyBody`'s charge strength (-120) are starting
   points, not verified-correct constants -- exploratory visual tuning happens once there's a real
-  graph on screen (Task 13, #888), not here. `forceCollide(14)` is sized off a plausible node-dot
-  radius, same caveat.
+  graph on screen (Task 13, #888), not here. `forceCollide`'s radius (`collideRadiusFor`, OpenProject
+  #1141) is sized off a plausible node-dot radius, same caveat.
 
   The `cluster` force (`graphForces.js#clusterForce`, OpenProject #1158) pulls each node toward a
   running centroid of its own group, layered on top of the forces above -- those alone don't
@@ -422,7 +521,7 @@ function startSimulation() {
         .distance(60)
     )
     .force('charge', forceManyBody().strength(-120))
-    .force('collide', forceCollide(14))
+    .force('collide', forceCollide(collideRadiusFor))
     .force('center', forceCenter(width / 2, height / 2))
     .force('cluster', clusterForce(groupKeyFor, 0.05))
     .on('tick', redraw)
@@ -549,6 +648,17 @@ function applyFilters() {
 watch(groupBy, () => {
   recomputeClusters()
   simulation?.alpha(0.3).restart()
+})
+
+/** Re-attaching `collide` (rather than mutating it in place) is what makes `forceCollide` re-read
+ *  every node's radius through `collideRadiusFor()` -- see that function's own doc comment on why a
+ *  plain in-place change wouldn't be picked up. No `applyFilters()`/`syncSimulationToVisibleSet()`
+ *  call needed: neither the visible node set nor any edge changes here, only how big each dot
+ *  draws and how much room `collide` gives it. */
+watch([sizeBy, contributorTypes], () => {
+  simulation?.force('collide', forceCollide(collideRadiusFor))
+  simulation?.alpha(0.3).restart()
+  redraw()
 })
 
 /*
