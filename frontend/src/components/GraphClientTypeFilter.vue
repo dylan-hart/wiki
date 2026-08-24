@@ -56,10 +56,18 @@ defineEmits(['update:modelValue'])
   opacity: 0.7;
 }
 
+/*
+  `align-items: flex-start`, not `flex-end` like the caption above -- each `w-checkbox` is one flex
+  item bundling its checkbox square and label together, so right-aligning the whole item lets a
+  longer label ("Browser") push its checkbox glyph further left than a shorter one ("MCP")
+  (OpenProject #1290). Left-aligning instead anchors every row's checkbox square (a fixed size) at
+  the same x-offset, with the variable-width label trailing it -- the same effect a two-column grid
+  (fixed checkbox column, label column) would give, without reaching into `WCheckbox`'s own layout.
+*/
 .graph-client-type-filter-options {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 2px;
 }
 </style>
