@@ -104,6 +104,45 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
 }
 
 /**
+ * Logs a best-effort pageview for the page-read route below (OpenProject #1238) -- the REST half of
+ * the two write paths #1140's graph sizing needs; `mcp/tools/getPage.ts`'s `get_page` tool is the
+ * other. Never throws: `models/pageviews.ts#record()` swallows its own failures and no-ops entirely
+ * while the admin opt-out is off, so this can be called unconditionally without guarding the read it
+ * rides along with.
+ *
+ * `req.apiKey` set means a bearer key called this route directly (not through MCP, which never reaches
+ * here), so it counts as `api` rather than `browser` — hashing the key's own id, exactly the way
+ * `mcp/tools/getPage.ts` hashes `ctx.keyId` for the same reason: two different keys are two different
+ * visitors, the same key reused is one.
+ *
+ * A `browser` visitor is identified by its own session id, which only survives past this one request if
+ * something writes to the session (`saveUninitialized: false` in `index.ts`) — the same gap
+ * `POST .../unlock`'s own doc comment describes ("unlocking one is what first gives an anonymous reader
+ * a session"). Setting `pageViewed` is what closes it here: without it, an anonymous reader with no
+ * other reason to touch their session would look like a brand new visitor on every single view.
+ */
+function recordPageview(req: FastifyRequest, siteId: string, pageId: string): void {
+  if (req.apiKey) {
+    void WIKI.models.pageviews.record({
+      siteId,
+      pageId,
+      clientType: 'api',
+      visitorRawId: req.apiKey.id
+    })
+    return
+  }
+  if (req.session) {
+    req.session.pageViewed = true
+    void WIKI.models.pageviews.record({
+      siteId,
+      pageId,
+      clientType: 'browser',
+      visitorRawId: req.session.sessionId
+    })
+  }
+}
+
+/**
  * The page permissions that make a page's password irrelevant to the holder — asked of
  * `WIKI.models.groups.mayHoldPermissionSomewhere()` rather than any one page's rule.
  *
@@ -655,6 +694,8 @@ async function routes(app: FastifyInstance) {
       if (wantsContent && !mayOnPage(req, 'read:source', req.params.siteId, page)) {
         return reply.forbidden("You are not allowed to read this page's source.")
       }
+      // -> Best-effort, never awaited: see `recordPageview()`'s own doc comment.
+      recordPageview(req, req.params.siteId, page.id)
       /*
         The reader's own standing on this page, carried back with it.
 

@@ -31,6 +31,7 @@ import { pageProblems } from './pageProblems.ts'
 import { pages } from './pages.ts'
 import { pageWatchEvents } from './pageWatchEvents.ts'
 import { pageWatching } from './pageWatching.ts'
+import { pageviews } from './pageviews.ts'
 import { passkeys } from './passkeys.ts'
 import { pdfExport } from './pdfExport.ts'
 import { rateLimits } from './rateLimits.ts'
@@ -79,6 +80,7 @@ export default {
   pages,
   pageWatchEvents,
   pageWatching,
+  pageviews,
   passkeys,
   pdfExport,
   rateLimits,
