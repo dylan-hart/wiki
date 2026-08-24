@@ -137,7 +137,8 @@ class Sites {
               comments: false,
               profile: true,
               reasonForChange: 'optional',
-              search: true
+              search: true,
+              showOtherGroups: false
             },
             logoText: true,
             sitemap: true,
@@ -434,7 +435,8 @@ class Sites {
           comments: false,
           profile: true,
           reasonForChange: 'optional',
-          search: true
+          search: true,
+          showOtherGroups: false
         },
         logoText: true,
         sitemap: true,

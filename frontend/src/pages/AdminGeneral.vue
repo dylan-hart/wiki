@@ -215,6 +215,20 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
+          <w-item tag="label">
+            <blueprint-icon icon="team" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.general.showOtherGroups`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.general.showOtherGroupsHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.config.features.showOtherGroups"
+                :loading="state.loading > 0"
+                :aria-label="t(`admin.general.showOtherGroups`)" />
+            </w-item-section>
+          </w-item>
+          <w-separator class="my-2" inset />
           <w-item>
             <blueprint-icon icon="star-half-empty" />
             <w-item-section>
@@ -771,7 +785,8 @@ async function save() {
           ratingsMode: state.config.features?.ratingsMode ?? 'off',
           profile: state.config.features?.profile ?? false,
           reasonForChange: state.config.features?.reasonForChange ?? 'required',
-          search: state.config.features?.search ?? false
+          search: state.config.features?.search ?? false,
+          showOtherGroups: state.config.features?.showOtherGroups ?? false
         },
         discoverable: state.config.discoverable ?? false,
         defaults: {

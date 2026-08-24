@@ -86,7 +86,8 @@ const FIXTURE_SITE = {
     ratingsMode: 'stars',
     profile: true,
     reasonForChange: 'optional',
-    search: true
+    search: true,
+    showOtherGroups: true
   },
   defaults: { tocDepth: { min: 2, max: 4 } },
   assets: { logo: false, favicon: false }
@@ -297,7 +298,8 @@ describe('AdminGeneral save() field round-trip', () => {
         ratingsMode: 'stars',
         profile: true,
         reasonForChange: 'optional',
-        search: true
+        search: true,
+        showOtherGroups: true
       },
       discoverable: true,
       defaults: { tocDepth: { min: 2, max: 4 } }

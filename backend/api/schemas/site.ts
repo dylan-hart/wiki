@@ -118,6 +118,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           },
           search: {
             type: 'boolean'
+          },
+          showOtherGroups: {
+            type: 'boolean',
+            description:
+              'Whether the profile Groups tab shows a section listing groups the viewer is NOT a member of, in addition to the ones it belongs to.'
           }
         }
       },

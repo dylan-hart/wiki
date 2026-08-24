@@ -69,7 +69,8 @@ describe('sites.createSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       comments: false,
       profile: true,
       reasonForChange: 'optional',
-      search: true
+      search: true,
+      showOtherGroups: false
     })
   })
 })
