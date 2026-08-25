@@ -11,7 +11,7 @@
       :key="i"
       :ref="(el) => setContainer(el, i)"
       class="w-rating__icon-container flex h-[1em] items-center justify-center outline-0"
-      :class="[editable ? 'cursor-pointer' : '', i > 1 ? 'ml-0.5' : '']"
+      :class="[editable ? 'cursor-pointer' : '', i > 1 ? 'ms-0.5' : '']"
       role="radio"
       :tabindex="editable ? 0 : -1"
       :aria-checked="modelValue === i ? 'true' : 'false'"

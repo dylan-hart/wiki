@@ -8,7 +8,7 @@
           :key="n.id"
           role="alert"
           aria-live="polite"
-          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-3 rounded py-2 pr-2 pl-4 shadow-menu"
+          class="w-notification pointer-events-auto relative flex w-full flex-nowrap items-center gap-3 rounded py-2 pe-2 ps-4 shadow-menu"
           :class="n.classes">
           <w-icon :name="n.icon" size="sm" class="shrink-0" />
           <div class="min-w-0 flex-1 py-1">

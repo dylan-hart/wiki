@@ -1,6 +1,6 @@
 <template>
   <div class="w-table relative" :class="flat ? '' : 'rounded shadow-card'">
-    <table class="w-full border-collapse text-left">
+    <table class="w-full border-collapse text-start">
       <thead v-if="!hideHeader">
         <tr>
           <th
@@ -112,10 +112,12 @@ const props = defineProps({
 
 const sort = reactive({ name: null, descending: false })
 
+// -> Same reasoning as WTd's own ALIGN map: `col.align` keeps its `left`/`right` names for every
+//    existing column descriptor, resolved to the logical `text-start`/`text-end` utility.
 const ALIGN = {
-  left: 'text-left',
+  left: 'text-start',
   center: 'text-center',
-  right: 'text-right'
+  right: 'text-end'
 }
 
 function alignClass(col) {
