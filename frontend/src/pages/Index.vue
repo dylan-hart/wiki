@@ -647,7 +647,7 @@ const breadcrumbs = computed(() => [
 watch(
   () => pageStore.render,
   () => {
-    nextTick(() => enhanceRenderedContent(pageContents.value))
+    nextTick(() => enhanceRenderedContent(pageContents.value, t))
   },
   { immediate: true }
 )

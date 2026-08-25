@@ -44,11 +44,11 @@ function iconSvg(name) {
  * Copy, then have the control say so itself: a toast for something this small would be noise, and the
  * pointer is already on the thing that changed.
  */
-async function copyWithFeedback({ text, control, restingLabel, restingHtml, doneLabel }) {
+async function copyWithFeedback({ text, control, restingLabel, restingHtml, doneLabel, t }) {
   try {
     await copyToClipboard(text)
   } catch (err) {
-    notify({ type: 'negative', message: 'Could not copy to the clipboard.', caption: err.message })
+    notify({ type: 'negative', message: t('common.clipboard.failure'), caption: err.message })
     return
   }
 
@@ -92,7 +92,7 @@ function codeOf(pre) {
   return copy.textContent.replace(/\n$/, '')
 }
 
-function addCodeCopyButtons(root) {
+function addCodeCopyButtons(root, t) {
   for (const pre of root.querySelectorAll('pre.codeblock:not([data-code-copy])')) {
     // -> Marks the block as done, and is what the stylesheet keys the button's position off
     pre.dataset.codeCopy = ''
@@ -108,7 +108,8 @@ function addCodeCopyButtons(root) {
         control: button,
         restingLabel: 'Copy code',
         restingHtml: iconSvg(ICON_COPY),
-        doneLabel: 'Copied'
+        doneLabel: 'Copied',
+        t
       })
     )
 
@@ -133,7 +134,7 @@ function headingUrl(id) {
 /** The pilcrow, as a character: no icon set carries it, and every font does. */
 const PILCROW = '¶'
 
-function addHeadingAnchors(root) {
+function addHeadingAnchors(root, t) {
   const headings = 'h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]'
 
   for (const heading of root.querySelectorAll(headings)) {
@@ -155,7 +156,8 @@ function addHeadingAnchors(root) {
         control: button,
         restingLabel: 'Copy link to this section',
         restingHtml: PILCROW,
-        doneLabel: 'Link copied'
+        doneLabel: 'Link copied',
+        t
       })
     )
 
@@ -165,13 +167,14 @@ function addHeadingAnchors(root) {
 
 /**
  * @param {HTMLElement|null} root The element the render was written into.
+ * @param {Function} t vue-i18n translation method
  */
-export function enhanceRenderedContent(root) {
+export function enhanceRenderedContent(root, t) {
   if (!root) {
     return
   }
-  addCodeCopyButtons(root)
-  addHeadingAnchors(root)
+  addCodeCopyButtons(root, t)
+  addHeadingAnchors(root, t)
 }
 
 /**

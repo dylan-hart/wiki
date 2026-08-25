@@ -433,7 +433,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch mail config',
+      message: t('admin.mail.loadFailed'),
       caption: err.message
     })
   }

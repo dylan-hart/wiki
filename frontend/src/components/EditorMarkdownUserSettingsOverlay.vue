@@ -154,7 +154,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch Markdown editor settings.',
+      message: t('editor.settings.fetchFailed'),
       caption: err.message
     })
   }
@@ -190,7 +190,7 @@ async function save() {
     // -> ky throws above 400, with the reason in the body
     notify({
       type: 'negative',
-      message: 'Failed to save Markdown editor settings.',
+      message: t('editor.settings.saveFailed'),
       caption: apiErrorMessage(err)
     })
   }

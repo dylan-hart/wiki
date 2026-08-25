@@ -380,7 +380,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save login configuration.',
+      message: t('admin.login.saveFailed'),
       caption: err.message
     })
   }
