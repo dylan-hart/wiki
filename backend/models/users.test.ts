@@ -1125,13 +1125,17 @@ describe('users.loginTFA', () => {
 describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let usersModel: typeof import('./users.ts').users
+  let previousTemporal: any
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ users: usersModel } = await import('./users.ts'))
+    previousTemporal = (globalThis as any).Temporal
+    installFakeTemporal()
   })
 
   after(async () => {
+    uninstallFakeTemporal(previousTemporal)
     await teardownTestDb()
   })
 
