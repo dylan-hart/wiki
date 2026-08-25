@@ -19,8 +19,7 @@
               hide-bottom-space
               :label="t(`admin.glossary.term`)"
               :hint="t(`admin.glossary.termHint`)"
-              lazy-rules="ondemand"
-              autofocus />
+              lazy-rules="ondemand" />
           </w-item-section>
         </w-item>
         <w-item>

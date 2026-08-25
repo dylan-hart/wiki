@@ -262,4 +262,54 @@ describe('WSelect', () => {
 
     expect(wrapper.text()).toContain('*')
   })
+
+  describe('autofocus', () => {
+    it('focuses the real control (the button) on mount when set', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
+
+    it('focuses the filter input, not the button, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          ariaLabel: 'Pick one',
+          useInput: true,
+          autofocus: true
+        },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+  })
+
+  it('forwards a plain attribute like name onto the real control, not the wrapper', () => {
+    const wrapper = mount(WSelect, {
+      props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+      attrs: { name: 'group' }
+    })
+
+    expect(control(wrapper).attributes('name')).toBe('group')
+    expect(wrapper.attributes('name')).toBeUndefined()
+  })
+
+  describe('validation message live region', () => {
+    it('carries aria-live and aria-atomic whenever the message area is shown', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', hint: 'Helper text' }
+      })
+
+      const message = wrapper.find('.text-caption')
+      expect(message.attributes('aria-live')).toBe('polite')
+      expect(message.attributes('aria-atomic')).toBe('true')
+    })
+  })
 })

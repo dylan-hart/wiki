@@ -6,7 +6,7 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
-  <div class="w-input max-w-full min-w-0">
+  <div class="w-input max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only the non-outlined variant still labels from above; see `hasFloatingLabel` -->
     <label
       v-if="label && !hasFloatingLabel"
@@ -72,6 +72,7 @@
 
       <component
         :is="type === 'textarea' ? 'textarea' : 'input'"
+        v-bind="controlAttrs"
         :id="inputId"
         ref="inputEl"
         :type="type === 'textarea' ? undefined : effectiveType"
@@ -147,14 +148,20 @@
       v-if="showsBottom"
       :id="`${inputId}-desc`"
       class="min-h-5 px-1 pt-1 text-caption"
-      :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'">
+      :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'"
+      aria-live="polite"
+      aria-atomic="true">
       {{ errorMessage || hint }}
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
+
+defineOptions({
+  inheritAttrs: false
+})
 
 /**
  * Text input.
@@ -244,6 +251,19 @@ const props = defineProps({
     type: String,
     default: null
   },
+  /**
+   * Focuses the real control once mounted.
+   *
+   * A declared prop rather than a bare HTML attribute, because the component's root is a wrapping
+   * `<div>` -- the real `<input>`/`<textarea>` sits a level down, and a plain `autofocus` attribute
+   * lands on that wrapper by default, where it does nothing (a `<div>` isn't focusable). Declaring it
+   * here both keeps it out of `$attrs` (so it doesn't also sit inertly on the wrapper) and gives this
+   * component a moment -- `onMounted` -- to call the already-exposed `focus()` itself.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
   /** Rows for `type="textarea"`. */
   rows: {
     type: [String, Number],
@@ -308,6 +328,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'keyup:enter', 'focus', 'blur'])
 
 const slots = useSlots()
+const attrs = useAttrs()
 
 const inputEl = ref(null)
 const inputId = useId()
@@ -321,6 +342,18 @@ const isRevealed = ref(false)
 // COMPUTED
 
 const hasError = computed(() => Boolean(errorMessage.value))
+
+/**
+ * Everything the caller passed through as a plain HTML attribute -- `name`, `inputmode`,
+ * `maxlength`, `aria-label`, `data-*`, ... -- forwarded onto the real control rather than left
+ * stranded on the wrapper `<div>`. `class`/`style` are carved out because they're bound explicitly
+ * onto the wrapper above (see the template): a caller's `class="mb-2"` means spacing around the
+ * whole field, not a class on the input glyph itself.
+ */
+const controlAttrs = computed(() => {
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 /** A revealed password field renders as plain text; every other type is passed through unchanged. */
 const effectiveType = computed(() =>
@@ -455,6 +488,14 @@ const outlineStyle = computed(() => ({
   borderWidth: `${frameWidth.value}px`
 }))
 
+// -> A hidden field (e.g. one behind a `v-if` that hasn't mounted yet) leaves `inputEl` null; the
+//    same optional chaining the exposed `focus()` uses below is the guard.
+onMounted(() => {
+  if (props.autofocus) {
+    inputEl.value?.focus()
+  }
+})
+
 // METHODS
 
 /**
@@ -518,7 +559,7 @@ watch(
   design -- most inputs in the codebase stand alone rather than inside a form.
 */
 const registerWithForm = inject('wFormRegister', null)
-registerWithForm?.({ validate })
+registerWithForm?.({ validate, focus: () => inputEl.value?.focus() })
 
 defineExpose({
   validate,

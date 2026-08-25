@@ -36,12 +36,22 @@ provide('wFormRegister', (field) => {
  */
 function validate() {
   let ok = true
+  let firstInvalid = null
   for (const field of fields.value) {
     // -> Every field runs, so the user sees all errors at once rather than one per submit
     if (field.validate?.() === false) {
       ok = false
+      firstInvalid ??= field
     }
   }
+  /*
+    Without this, a failed submit just... does nothing visible near the field itself: focus stays on
+    the submit button, which is not where any of the now-red fields or their (aria-live) messages
+    are. Landing focus on the first one is also what puts a screen-reader user where the live-region
+    message they're about to hear actually lives, rather than leaving them to Tab back through the
+    form hunting for it.
+  */
+  firstInvalid?.focus?.()
   return ok
 }
 
