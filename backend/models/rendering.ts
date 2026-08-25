@@ -492,13 +492,34 @@ class Rendering {
     this.unwrapOrphanedChildBlocks($)
     this.liftIconChildren($)
     await this.inlineIcons($)
-    const toc = this.anchorHeadings($)
-    const links = this.extractInternalLinks($, pagePath)
+
+    /*
+      `inlineIcons()` just inserted markup the FIRST `sanitize()` call above never saw — an icon's SVG
+      `body`, fetched from the icons model's disk/db/upstream-Iconify tiers and screened only by
+      `models/icons.ts#isSafeIconBody`'s denylist regex, is written into the document verbatim by
+      `renderInlineSvg()`. A denylist can miss what an allowlist cannot: an entity-encoded scheme
+      (`<a href="&#106;avascript:…">`) slips past a literal `on\w+=`/`javascript:` string check and is
+      decoded back to a live `javascript:` href once this HTML is parsed at `v-html` time. Re-running
+      the exact same sanitizer (`sanitizeOptions()`, shared with the call above so the two cannot
+      drift) over the document as it now stands is what actually closes that gap — a compensating
+      control for an upstream icon body, not a fix to `isSafeIconBody` itself, which stays as an
+      early, cheap rejection (OpenProject #1360/#2124, 2026-08-24 security audit §7).
+
+      `toc`/`text`/`links` are extracted from THIS re-sanitized document, not the pre-icon one, so what
+      they describe matches what `render` below actually is.
+    */
+    const final = cheerio.load(
+      sanitizeHtml($.html(), this.sanitizeOptions(permissions, enabledBlocks)),
+      null,
+      false
+    )
+    const toc = this.anchorHeadings(final)
+    const links = this.extractInternalLinks(final, pagePath)
 
     return {
-      render: $.html(),
+      render: final.html(),
       toc,
-      text: this.extractText($),
+      text: this.extractText(final),
       links
     }
   }
@@ -593,11 +614,16 @@ class Rendering {
   /**
    * Strip everything the author is not allowed to embed.
    */
-  private sanitize(
-    html: string,
+  /**
+   * The `sanitize-html` options a permission/enabled-block combination resolves to — split out of
+   * `sanitize()` so `postProcess()`'s final pass (after `inlineIcons()`, below) can call
+   * `sanitizeHtml()` with the EXACT same options rather than a second, hand-maintained copy that
+   * could drift from this one (OpenProject #1360/#2124, 2026-08-24 security audit §7).
+   */
+  private sanitizeOptions(
     permissions: RenderPermissions,
     enabledBlocks: Set<string>
-  ): string {
+  ): Parameters<typeof sanitizeHtml>[1] {
     const blocks = this.blockAllowances(enabledBlocks)
     const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
     const allowedAttributes: Record<string, string[]> = {
@@ -629,7 +655,7 @@ class Rendering {
       ]
     }
 
-    return sanitizeHtml(html, {
+    return {
       allowedTags,
       allowedAttributes,
       // -> An author with `write:styles` may already embed a `<style>` tag and restyle the whole
@@ -657,7 +683,15 @@ class Rendering {
         //    matched and dropped.
         lowerCaseAttributeNames: false
       }
-    })
+    }
+  }
+
+  private sanitize(
+    html: string,
+    permissions: RenderPermissions,
+    enabledBlocks: Set<string>
+  ): string {
+    return sanitizeHtml(html, this.sanitizeOptions(permissions, enabledBlocks))
   }
 
   /**

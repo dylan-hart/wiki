@@ -465,3 +465,64 @@ describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
     assert.match(clean, /z-index/)
   })
 })
+
+/**
+ * OpenProject #1360/#2124 (2026-08-24 security audit §7): `postProcess()` ran `sanitize()` BEFORE
+ * `inlineIcons()`, so an icon's SVG `body` -- fetched from `models/icons.ts`'s disk/db/upstream-
+ * Iconify tiers, screened only by `isSafeIconBody`'s denylist regex -- was written into the stored
+ * page verbatim, never through the sanitizer at all. A denylist can miss what an allowlist cannot: an
+ * entity-encoded scheme (`&#106;avascript:…`) doesn't literally contain the substring `javascript:`,
+ * so a regex denylist checking for that string misses it, but a real HTML parser decodes the entity
+ * before `sanitize-html`'s scheme check ever runs. `WIKI.models.icons` is stubbed directly with a
+ * malicious body rather than exercising `isSafeIconBody` -- this proves the fix (a second sanitize
+ * pass after `inlineIcons()`) closes the gap even for whatever a future upstream response manages to
+ * get past that first, narrower gate.
+ */
+describe('rendering.postProcess -- re-sanitizes after inlineIcons (OpenProject #2124)', () => {
+  test('strips an entity-encoded javascript: href an icon body could carry', async () => {
+    ;(globalThis as any).WIKI.models.icons = {
+      parseRef: (ref: string) => {
+        const [prefix, name] = ref.split(':')
+        return prefix && name ? { prefix, name } : null
+      },
+      resolveIcons: async (_prefix: string, names: string[]) => ({
+        icons: Object.fromEntries(names.map((n) => [n, {}]))
+      }),
+      renderInlineSvg: () =>
+        '<svg xmlns="http://www.w3.org/2000/svg"><a href="&#106;avascript:alert(1)">x</a></svg>'
+    }
+
+    try {
+      const html = '<p><iconify-icon icon="mdi:home"></iconify-icon></p>'
+      const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+      assert.doesNotMatch(result.render, /javascript:/)
+    } finally {
+      delete (globalThis as any).WIKI.models.icons
+    }
+  })
+
+  test('still inlines a legitimate icon svg body, unaffected by the extra pass', async () => {
+    ;(globalThis as any).WIKI.models.icons = {
+      parseRef: (ref: string) => {
+        const [prefix, name] = ref.split(':')
+        return prefix && name ? { prefix, name } : null
+      },
+      resolveIcons: async (_prefix: string, names: string[]) => ({
+        icons: Object.fromEntries(names.map((n) => [n, {}]))
+      }),
+      renderInlineSvg: () =>
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2 2 12" /></svg>'
+    }
+
+    try {
+      const html = '<p><iconify-icon icon="mdi:home"></iconify-icon></p>'
+      const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+      assert.match(result.render, /<svg/)
+      assert.match(result.render, /<path d="M12 2 2 12">/)
+    } finally {
+      delete (globalThis as any).WIKI.models.icons
+    }
+  })
+})
