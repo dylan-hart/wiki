@@ -270,7 +270,7 @@ describe('ApiKeyCreateDialog classification grid — real layout', () => {
     expect(items).toHaveLength(3)
     const rows = new Set(items.map((item) => Math.round(item.y)))
     expect(rows.size).toBe(1)
-  })
+  }, 20000) // -> real chromium layout via realGridLayout.js; the default 5s timeout is tight under full-suite parallelism
 })
 
 /**
