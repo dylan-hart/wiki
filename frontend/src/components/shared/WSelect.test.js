@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import WSelect from './WSelect.vue'
 
@@ -261,5 +262,47 @@ describe('WSelect', () => {
     })
 
     expect(wrapper.text()).toContain('*')
+  })
+
+  describe('i18n', () => {
+    it('resolves the empty-state label from the dictionary when noOptionsLabel is not overridden', async () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
+      })
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: [], ariaLabel: 'Pick one' },
+        global: { plugins: [i18n] },
+        attachTo: document.body
+      })
+
+      await control(wrapper).trigger('click')
+
+      expect(document.body.textContent).toContain('Keine Optionen')
+    })
+
+    it('still prefers an explicit noOptionsLabel prop over the dictionary', async () => {
+      const i18n = createI18n({
+        legacy: false,
+        locale: 'en',
+        messages: { en: { 'common.select.noOptions': 'Keine Optionen' } }
+      })
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: [],
+          ariaLabel: 'Pick one',
+          noOptionsLabel: 'Nothing here'
+        },
+        global: { plugins: [i18n] },
+        attachTo: document.body
+      })
+
+      await control(wrapper).trigger('click')
+
+      expect(document.body.textContent).toContain('Nothing here')
+      expect(document.body.textContent).not.toContain('Keine Optionen')
+    })
   })
 })
