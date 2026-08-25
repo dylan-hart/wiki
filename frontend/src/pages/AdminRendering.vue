@@ -20,6 +20,7 @@
           icon="la:question-circle"
           flat
           color="grey"
+          :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/rendering`"
           target="_blank" />
         <w-btn

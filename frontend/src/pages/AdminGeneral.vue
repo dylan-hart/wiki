@@ -242,6 +242,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.allowRatings`)"
                 :options="ratingsModes" />
             </w-item-section>
           </w-item>
@@ -273,6 +274,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.general.reasonForChange`)"
                 :options="reasonForChangeModes" />
             </w-item-section>
           </w-item>
@@ -356,7 +358,7 @@
                   the length of that request. `state.config.id` changes in the exact same assignment as
                   the text, so the two can never disagree.
                 -->
-                <w-btn dense flat v-if="state.config.id">
+                <w-btn dense flat v-if="state.config.id" :aria-label="t(`admin.general.logoUpl`)">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
                     <img :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp" />
                   </w-avatar>

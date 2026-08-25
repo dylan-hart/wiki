@@ -183,6 +183,7 @@
                   glossy
                   no-caps
                   toggle-color="primary"
+                  :aria-label="t(`admin.theme.contentWidth`)"
                   :options="widthOptions" />
               </w-item-section>
             </w-item>
@@ -201,6 +202,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.sidebarPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>
@@ -218,6 +220,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`admin.theme.tocPosition`)"
                 :options="rightLeftOptions" />
             </w-item-section>
           </w-item>

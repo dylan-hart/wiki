@@ -63,6 +63,7 @@
               glossy
               no-caps
               toggle-color="primary"
+              :aria-label="t(`admin.general.defaultTimeFormat`)"
               :options="timeFormats" />
           </w-item-section>
         </w-item>

@@ -21,6 +21,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.scheduler.title`)"
           :options="[
             { label: t('admin.scheduler.schedule'), value: 'scheduled' },
             { label: t('admin.scheduler.upcoming'), value: 'upcoming' },

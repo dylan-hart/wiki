@@ -322,8 +322,18 @@
               color="secondary"
               size="sm" />
             <div class="flex items-center" v-else-if="siteStore.features.ratingsMode === `thumbs`">
-              <w-btn class="acrylic-btn" flat icon="la:thumbs-down" color="secondary" />
-              <w-btn class="acrylic-btn ml-2" flat icon="la:thumbs-up" color="secondary" />
+              <w-btn
+                class="acrylic-btn"
+                flat
+                icon="la:thumbs-down"
+                color="secondary"
+                :aria-label="t(`common.page.ratePage`)" />
+              <w-btn
+                class="acrylic-btn ml-2"
+                flat
+                icon="la:thumbs-up"
+                color="secondary"
+                :aria-label="t(`common.page.ratePage`)" />
             </div>
           </div>
         </template>

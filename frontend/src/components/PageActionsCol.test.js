@@ -34,11 +34,58 @@ const HOMEPAGE_GUARD_MESSAGES = {
 }
 
 /**
+ * WP #1598: every rail button's `aria-label` (and paired `w-tooltip`) now resolves through `t()`
+ * against real `backend/locales/en.json` keys instead of a hardcoded English literal -- see
+ * `PageActionsCol.vue`. Mirrored here so the mounted component renders the same accessible names a
+ * real instance would, and so the `[aria-label="..."]` selectors below assert against the actual
+ * resolved text rather than a raw i18n key path (what `t()` falls back to with no messages loaded).
+ */
+const RAIL_MESSAGES = {
+  en: {
+    common: {
+      actions: {
+        export: 'Export',
+        confirm: 'Confirm',
+        cancel: 'Cancel',
+        remove: 'Remove'
+      },
+      header: {
+        pageActions: 'Page Actions'
+      },
+      page: {
+        delete: 'Delete Page'
+      }
+    },
+    editor: {
+      assets: {
+        title: 'Assets',
+        renameAsset: 'Rename Asset'
+      },
+      props: {
+        pageProperties: 'Page Properties'
+      },
+      pageData: {
+        title: 'Page Data'
+      }
+    },
+    history: {
+      title: 'Page History'
+    },
+    pageDuplicateDialog: {
+      title: 'Duplicate and Save As...'
+    },
+    pageRenameDialog: {
+      title: 'Rename / Move to...'
+    }
+  }
+}
+
+/**
  * WP #1149: extra confirmation before deleting or moving a site's homepage (the hardcoded `home` /
  * `''` path convention -- `pageStore.isHome`). Its own mount helper because it needs
  * `delete:pages`/`manage:pages` (neither of the mount helpers above grant both) plus the real
- * `pages.homepageGuard.*` strings, which the other helpers' empty `messages: { en: {} }` never needed
- * to assert against.
+ * `pages.homepageGuard.*` strings on top of the rail's own `RAIL_MESSAGES`, which the other helpers
+ * load alone.
  */
 async function mountRailForGuard({
   path = 'home',
@@ -68,7 +115,11 @@ async function mountRailForGuard({
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: HOMEPAGE_GUARD_MESSAGES })
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: { en: { ...HOMEPAGE_GUARD_MESSAGES.en, ...RAIL_MESSAGES.en } }
+  })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -79,7 +130,7 @@ async function mountRailForGuard({
 }
 
 /**
- * Task 502: the standalone "Page Source" rail button is retired in favour of a single "Export Page"
+ * Task 502: the standalone "Page Source" rail button is retired in favour of a single "Export"
  * `w-menu` offering Markdown / HTML / PDF, matching the pattern the "..." Page Actions menu below it
  * already uses. `w-menu`'s panel is teleported to `document.body` (see `WMenu.vue`), so once the
  * trigger is clicked the panel has to be queried off `document`, not off `wrapper` -- `wrapper.find`
@@ -104,14 +155,14 @@ async function mountRail({ pdfExportAvailable = false } = {}) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: RAIL_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
     global: { plugins: [router, i18n] }
   })
 
-  const trigger = wrapper.get('[aria-label="Export Page"]')
+  const trigger = wrapper.get('[aria-label="Export"]')
   await trigger.trigger('click')
   await flushPromises()
 
@@ -163,7 +214,7 @@ async function mountRailWithHistory({ pageId = 'page-1', creating = false } = {}
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: RAIL_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -308,7 +359,7 @@ describe('PageActionsCol export menu', () => {
     clickMenuItem('PDF')
     await flushPromises()
 
-    const trigger = wrapper.get('[aria-label="Export Page"]')
+    const trigger = wrapper.get('[aria-label="Export"]')
     expect(trigger.attributes('aria-busy')).toBe('true')
     expect(trigger.attributes('disabled')).toBeDefined()
 
@@ -335,7 +386,7 @@ describe('PageActionsCol export menu', () => {
     await flushPromises()
 
     // -> No throw, and the trigger stays interactive: the earlier PDF test covers the failure path
-    expect(wrapper.get('[aria-label="Export Page"]').attributes('aria-busy')).toBeUndefined()
+    expect(wrapper.get('[aria-label="Export"]').attributes('aria-busy')).toBeUndefined()
   })
 })
 
@@ -372,7 +423,7 @@ async function mountRailWithPageActions({
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: RAIL_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
@@ -383,8 +434,8 @@ async function mountRailWithPageActions({
 }
 
 /**
- * OpenProject #878: renaming a pending (not-yet-uploaded) asset from the "Pending Asset Uploads"
- * pane. Its own mount setup -- `write:pages` (the whole pane is gated on it) plus an active,
+ * OpenProject #878: renaming a pending (not-yet-uploaded) asset from the "Assets" pane. Its own
+ * mount setup -- `write:pages` (the whole pane is gated on it) plus an active,
  * non-redirect editor, which none of the mount helpers above grant together.
  */
 async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
@@ -412,14 +463,14 @@ async function mountRailWithPendingAssets({ pendingAssets = [] } = {}) {
   router.push('/')
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: RAIL_MESSAGES })
 
   const wrapper = mount(PageActionsCol, {
     attachTo: document.body,
     global: { plugins: [router, i18n] }
   })
 
-  await wrapper.get('[aria-label="Pending Asset Uploads"]').trigger('click')
+  await wrapper.get('[aria-label="Assets"]').trigger('click')
   await flushPromises()
 
   return { wrapper, pageStore, siteStore, userStore, editorStore }
@@ -450,7 +501,7 @@ describe('PageActionsCol pending asset rename', () => {
     }))
 
     expect(document.body.textContent).toContain('a1b2c3.png')
-    expect(document.querySelector('[aria-label="Rename Pending Asset"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Rename Asset"]')).not.toBeNull()
     expect(document.querySelector('input')).toBeNull()
   })
 
@@ -459,7 +510,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
 
     const input = document.querySelector('input')
@@ -473,7 +524,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'Team Photo')
     document
@@ -492,10 +543,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'quarterly-report')
-    clickByLabel('Confirm Rename')
+    clickByLabel('Confirm')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('quarterly-report.png')
@@ -507,10 +558,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'should-not-stick')
-    clickByLabel('Cancel Rename')
+    clickByLabel('Cancel')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('a1b2c3.png')
@@ -523,7 +574,7 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'should-not-stick')
     document
@@ -540,10 +591,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'a1b2c3.png', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), '   ')
-    clickByLabel('Confirm Rename')
+    clickByLabel('Confirm')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('a1b2c3.png')
@@ -557,10 +608,10 @@ describe('PageActionsCol pending asset rename', () => {
       pendingAssets: [{ id: 'a1', fileName: 'screenshot', blobUrl: 'blob:a1' }]
     }))
 
-    clickByLabel('Rename Pending Asset')
+    clickByLabel('Rename Asset')
     await flushPromises()
     typeInto(document.querySelector('input'), 'renamed')
-    clickByLabel('Confirm Rename')
+    clickByLabel('Confirm')
     await flushPromises()
 
     expect(ctx.editorStore.pendingAssets[0].fileName).toBe('renamed')
@@ -656,7 +707,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="Rename / Move to..."]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -684,7 +735,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
   it('does not move when the homepage move guard is cancelled', async () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="Rename / Move to..."]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'about-us',
       title: 'Welcome',
@@ -702,7 +753,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = await mountRailForGuard({ path: 'home' }))
     API_CLIENT.patch.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="Rename / Move to..."]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'home',
       title: 'New Title',
@@ -720,7 +771,7 @@ describe('PageActionsCol homepage guard (WP #1149)', () => {
     ;({ wrapper } = ctx = await mountRailForGuard({ path: 'docs/getting-started' }))
     API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({}) })
 
-    await wrapper.get('[aria-label="Rename / Move Page"]').trigger('click')
+    await wrapper.get('[aria-label="Rename / Move to..."]').trigger('click')
     closeDialog(openDialogs[0].id, true, {
       path: 'docs/other',
       title: 'Getting Started',

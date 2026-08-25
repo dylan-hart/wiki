@@ -210,6 +210,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>
@@ -391,6 +392,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>
@@ -469,6 +471,7 @@
                 glossy
                 no-caps
                 toggle-color="primary"
+                :aria-label="t(`navEdit.visibility`)"
                 :options="visibilityOptions" />
             </w-item-section>
           </w-item>

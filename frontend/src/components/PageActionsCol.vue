@@ -24,9 +24,11 @@
         icon="la:pen-nib"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
         :disable="isRedirect"
-        aria-label="Page Properties"
+        :aria-label="t(`editor.props.pageProperties`)"
         @click="togglePageProperties">
-        <w-tooltip anchor="center left" self="center right">Page Properties</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`editor.props.pageProperties`)
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -34,10 +36,12 @@
         flat
         icon="la:project-diagram"
         :color="editorStore.isActive ? `white` : `deep-orange-9`"
-        aria-label="Page Data"
+        :aria-label="t(`editor.pageData.title`)"
         @click="togglePageData"
         disable>
-        <w-tooltip anchor="center left" self="center right">Page Data</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`editor.pageData.title`)
+        }}</w-tooltip>
       </w-btn>
       <!-- -> Nothing can be pasted or dropped onto a redirection: it is a form, not a document -->
       <w-btn
@@ -46,7 +50,7 @@
         flat
         color="white"
         :text-color="hasPendingAssets ? `white` : `deep-orange-3`"
-        aria-label="Pending Asset Uploads">
+        :aria-label="t(`editor.assets.title`)">
         <!-- Outside the icon for the same reason as the review badge above -->
         <w-icon name="mdi:image-sync-outline" />
         <w-badge
@@ -58,7 +62,9 @@
           floating>
           <strong>{{ editorStore.pendingAssets.length * 1 }}</strong>
         </w-badge>
-        <w-tooltip anchor="center left" self="center right">Pending Asset Uploads</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`editor.assets.title`)
+        }}</w-tooltip>
         <w-menu ref="menuPendingAssets" anchor="top left" self="top right" :offset="[10, 0]">
           <w-card style="width: 450px">
             <w-card-section class="card-header">
@@ -95,7 +101,7 @@
                         icon="la:check"
                         size="xs"
                         flat
-                        aria-label="Confirm Rename"
+                        :aria-label="t(`common.actions.confirm`)"
                         @mousedown.prevent
                         @click="commitRenamePendingAsset(item)" />
                       <w-btn
@@ -105,7 +111,7 @@
                         icon="la:times"
                         size="xs"
                         flat
-                        aria-label="Cancel Rename"
+                        :aria-label="t(`common.actions.cancel`)"
                         @mousedown.prevent
                         @click="cancelRenamePendingAsset" />
                     </template>
@@ -117,7 +123,7 @@
                         icon="la:edit"
                         size="xs"
                         flat
-                        aria-label="Rename Pending Asset"
+                        :aria-label="t(`editor.assets.renameAsset`)"
                         @click="startRenamePendingAsset(item)" />
                       <w-btn
                         class="acrylic-btn"
@@ -126,7 +132,7 @@
                         icon="la:times"
                         size="xs"
                         flat
-                        aria-label="Remove Pending Asset"
+                        :aria-label="t(`common.actions.remove`)"
                         @click="removePendingAsset(item)" />
                     </template>
                   </div>
@@ -161,9 +167,9 @@
         flat
         icon="la:history"
         :color="editorStore.isActive ? `white` : `grey`"
-        aria-label="Page History"
+        :aria-label="t(`history.title`)"
         @click="viewPageHistory">
-        <w-tooltip anchor="center left" self="center right">Page History</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{ t(`history.title`) }}</w-tooltip>
       </w-btn>
       <!--
         Markdown/HTML download instantly (fetch-then-`fileSave`, same as the old Page Source overlay
@@ -177,8 +183,10 @@
         icon="la:file-export"
         :loading="exportingPdf"
         :color="editorStore.isActive ? `white` : `grey`"
-        aria-label="Export Page">
-        <w-tooltip anchor="center left" self="center right">Export Page</w-tooltip>
+        :aria-label="t(`common.actions.export`)">
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`common.actions.export`)
+        }}</w-tooltip>
         <w-menu anchor="top left" self="top right" auto-close :offset="[10, 0]">
           <w-list padding style="min-width: 180px">
             <w-item clickable @click="exportPage(`markdown`)">
@@ -216,8 +224,10 @@
         flat
         icon="la:ellipsis-h"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Page Actions">
-        <w-tooltip anchor="center left" self="center right">Page Actions</w-tooltip>
+        :aria-label="t(`common.header.pageActions`)">
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`common.header.pageActions`)
+        }}</w-tooltip>
         <!--
           Literal colour classes, not WIcon's `color` prop: that builds `text-<name>` at runtime and
           Tailwind only emits a utility it can see spelled out, so these three icons had been drawing
@@ -270,9 +280,11 @@
         flat
         icon="la:copy"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Duplicate Page"
+        :aria-label="t(`pageDuplicateDialog.title`)"
         @click="duplicatePage">
-        <w-tooltip anchor="center left" self="center right">Duplicate Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`pageDuplicateDialog.title`)
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -280,9 +292,11 @@
         flat
         icon="la:share"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Rename / Move Page"
+        :aria-label="t(`pageRenameDialog.title`)"
         @click="renamePage">
-        <w-tooltip anchor="center left" self="center right">Rename / Move Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`pageRenameDialog.title`)
+        }}</w-tooltip>
       </w-btn>
       <w-btn
         class="h-12"
@@ -290,9 +304,11 @@
         flat
         icon="la:trash"
         :color="editorStore.isActive ? `deep-orange-2` : `grey`"
-        aria-label="Delete Page"
+        :aria-label="t(`common.page.delete`)"
         @click="deletePage">
-        <w-tooltip anchor="center left" self="center right">Delete Page</w-tooltip>
+        <w-tooltip anchor="center left" self="center right">{{
+          t(`common.page.delete`)
+        }}</w-tooltip>
       </w-btn>
     </template>
     <!-- What the rail says instead: which of the two write modes the editor is in. -->

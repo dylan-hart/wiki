@@ -30,6 +30,7 @@
         rounded
         color="white"
         icon="la:question-circle"
+        :aria-label="t(`common.actions.viewDocs`)"
         :href="siteStore.docsBase + `/guide/page-properties`"
         target="_blank"
         type="a" />
@@ -103,6 +104,7 @@
               glossy
               no-caps
               toggle-color="primary"
+              :aria-label="t(`editor.props.publishState`)"
               :options="[
                 { label: t('editor.props.draft'), value: 'draft' },
                 { label: t('editor.props.published'), value: 'published' },
@@ -144,10 +146,22 @@
               </w-chip>
             </w-item-section>
             <w-item-section side>
-              <w-btn icon="la:pen" dense flat padding="none" @click="editRelation(rel)" />
+              <w-btn
+                icon="la:pen"
+                dense
+                flat
+                padding="none"
+                :aria-label="t(`common.actions.edit`)"
+                @click="editRelation(rel)" />
             </w-item-section>
             <w-item-section side>
-              <w-btn icon="la:times" dense flat padding="none" @click="removeRelation(rel)" />
+              <w-btn
+                icon="la:times"
+                dense
+                flat
+                padding="none"
+                :aria-label="t(`common.actions.remove`)"
+                @click="removeRelation(rel)" />
             </w-item-section>
           </w-item>
         </w-list>
