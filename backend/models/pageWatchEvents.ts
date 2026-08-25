@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { pageWatchEvents as pageWatchEventsTable } from '../db/schema.ts'
+import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
 /** The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`. */
@@ -165,9 +165,19 @@ class PageWatchEvents {
    * site. Capped at `INBOX_LIST_LIMIT` rather than paginated — a genuinely unbounded backlog of unread
    * notifications is not a case this first cut needs to handle gracefully, and the badge this feeds
    * (`unreadCount`) is a separate, un-capped query anyway.
+   *
+   * OpenProject #2173: re-checks `read:pages` at READ time, not just when the event was recorded — a
+   * user can lose access to a page between a change happening (when `notifyWatchers`'s own
+   * `read:pages` check already ran) and opening their inbox days later. Checked against the LIVE page
+   * where one still exists (`pagesTable`, joined by `pageId`) — a page's rules can change in either
+   * direction after the event was recorded, and the live row is the more correct answer either way —
+   * falling back to the event's own stored `pagePath`/`pageLocale` snapshot with no tags/classification
+   * for a `deleted` event, whose page row is gone. A row that fails the check is dropped from the
+   * list, not surfaced as anything — the same "missing, not 403" shape `listForUser` uses elsewhere in
+   * this feature (`pageWatching.ts`).
    */
   async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
-    return WIKI.db
+    const rows = await WIKI.db
       .select({
         id: pageWatchEventsTable.id,
         pageId: pageWatchEventsTable.pageId,
@@ -188,7 +198,35 @@ class PageWatchEvents {
         )
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
-      .limit(INBOX_LIST_LIMIT) as Promise<InboxNotification[]>
+      .limit(INBOX_LIST_LIMIT)
+    if (rows.length < 1) {
+      return [] as InboxNotification[]
+    }
+
+    const pageIds = [...new Set(rows.map((row) => row.pageId))]
+    const liveRows = await WIKI.db
+      .select({
+        id: pagesTable.id,
+        path: pagesTable.path,
+        locale: pagesTable.locale,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(pagesTable)
+      .where(inArray(pagesTable.id, pageIds))
+    const livePages = new Map(liveRows.map((row) => [row.id, row]))
+
+    const actor = await WIKI.models.groups.actorForUserId(userId)
+    return rows.filter((row) => {
+      const live = livePages.get(row.pageId)
+      return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: live?.path ?? row.pagePath,
+        siteId,
+        locale: live?.locale ?? row.pageLocale,
+        tags: live?.tags ?? [],
+        classification: live?.classification ?? null
+      })
+    }) as InboxNotification[]
   }
 
   /**

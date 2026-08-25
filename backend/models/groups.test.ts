@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import type { FastifyRequest } from 'fastify'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { groups as groupsTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import { groups, type GroupRule } from './groups.ts'
 import { GUEST_SCENARIO_RULES, GUEST_SCENARIO_CASES } from '../test/permissionScenario.ts'
 
@@ -700,6 +704,65 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
         `expected read:pages on '${path}' to be ${expected} (${note})`
       )
     }
+  })
+})
+
+/**
+ * `groups.actorForUserId` (OpenProject #2173) — the `AccessActor` counterpart to `actorForRequest`
+ * for a code path that has only a stored `userId`, no live request: a page-watch notification is
+ * queued once at change time but sent, and read from the inbox, much later, so the actor it checks
+ * `read:pages` against has to be resolved fresh from CURRENT group membership rather than carried
+ * from whenever the watch was first set up.
+ */
+describe('groups.actorForUserId (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let groupsModel: typeof import('./groups.ts').groups
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ groups: groupsModel } = await import('./groups.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  async function makeUser(email: string): Promise<string> {
+    const [user] = await fixtures.db
+      .insert(usersTable)
+      .values({ email, name: email, isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    return user!.id
+  }
+
+  test('a user in no group at all resolves to the empty actor', async () => {
+    const userId = await makeUser('actor-for-user-no-group@example.com')
+    assert.deepEqual(await groupsModel.actorForUserId(userId), {
+      groupIds: [],
+      permissions: []
+    })
+  })
+
+  test("resolves the user's current groupIds and the union of those groups' global permissions", async () => {
+    const userId = await makeUser('actor-for-user-with-group@example.com')
+    await fixtures.db.insert(userGroupsTable).values({ userId, groupId: fixtures.groupId })
+    await fixtures.db
+      .update(groupsTable)
+      .set({ permissions: ['manage:navigation'] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+
+    const actor = await groupsModel.actorForUserId(userId)
+    assert.deepEqual(actor.groupIds, [fixtures.groupId])
+    assert.deepEqual(actor.permissions, ['manage:navigation'])
+  })
+
+  test('reflects a group membership change made after the caller last resolved this user', async () => {
+    const userId = await makeUser('actor-for-user-live@example.com')
+    assert.deepEqual((await groupsModel.actorForUserId(userId)).groupIds, [])
+
+    await fixtures.db.insert(userGroupsTable).values({ userId, groupId: fixtures.groupId })
+
+    assert.deepEqual((await groupsModel.actorForUserId(userId)).groupIds, [fixtures.groupId])
   })
 })
 

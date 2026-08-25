@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
@@ -296,6 +297,33 @@ class Groups {
    */
   guestActor(): AccessActor {
     return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+  }
+
+  /**
+   * The actor for one user, resolved fresh from their CURRENT group membership rather than from a
+   * session or a cached row — for a code path that has only a stored `userId` and nothing more, and
+   * needs today's answer rather than whatever it was when the caller last had a session (OpenProject
+   * #2173: a page-watch notification is queued once, at CHANGE time, but sent — and re-read from the
+   * inbox — much later; a watcher who has since lost their group membership, or `read:pages` on the
+   * path specifically, must not go on receiving or seeing it just because they were still a member
+   * when they first subscribed).
+   *
+   * A user in no group at all (never assigned one, or every membership since removed) gets the empty
+   * actor — no groups, no permissions — same as `checkAccess` would resolve for them directly.
+   */
+  async actorForUserId(userId: string): Promise<AccessActor> {
+    const groupIds = await WIKI.models.users.getUserGroupIds(userId)
+    if (groupIds.length < 1) {
+      return { groupIds: [], permissions: [] }
+    }
+    const rows = await WIKI.db
+      .select({ permissions: groupsTable.permissions })
+      .from(groupsTable)
+      .where(inArray(groupsTable.id, groupIds))
+    return {
+      groupIds,
+      permissions: uniq(rows.flatMap((row) => (row.permissions ?? []) as string[]))
+    }
   }
 
   /**

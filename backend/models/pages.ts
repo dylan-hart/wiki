@@ -1918,7 +1918,7 @@ class Pages {
     changedFields: string[] = []
   ): Promise<void> {
     try {
-      const watchers = await WIKI.models.pageWatching.listWatchers(pageId, actorId, action)
+      const watchers = await WIKI.models.pageWatching.listWatchers(siteId, pageId, actorId, action)
       if (watchers.length < 1) {
         return
       }
