@@ -69,6 +69,11 @@ function literalToValue(node, blockDir) {
   }
 }
 
+// -> Exported so `scripts/check-locale-keys.mjs` can read the same "static definition" literals
+//    this build does, via `rollup/parseAst` rather than a second Rollup build of its own -- see that
+//    script's header comment.
+export { literalToValue }
+
 const ASSET_MIME_TYPES = {
   '.gif': 'image/gif',
   '.jpeg': 'image/jpeg',
