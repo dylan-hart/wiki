@@ -171,12 +171,12 @@
 </template>
 
 <script setup>
-import { sample, sampleSize } from 'es-toolkit/array'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
+import { randomPassword } from '@/helpers/randomPassword'
 import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useAdminStore } from '@/stores/admin'
@@ -303,7 +303,7 @@ async function loadGroups() {
 function randomizePassword() {
   const pwdChars = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789' // omit easily confused chars like O,0 or I,1,l
   const withSymbols = `${pwdChars}_*=?#!()+-$%&.`
-  state.userPassword = `${sample(pwdChars)}${sampleSize(withSymbols, 15).join('')}`
+  state.userPassword = `${randomPassword(1, pwdChars)}${randomPassword(15, withSymbols)}`
 }
 
 async function create() {
