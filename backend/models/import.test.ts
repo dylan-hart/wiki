@@ -2,8 +2,10 @@ import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import os from 'node:os'
+import path from 'node:path'
 import type { ExtensionDefinition } from './extensions.ts'
-import { detectImportFormat } from './import.ts'
+import { buildPandocArgs, detectImportFormat, pandocCwd } from './import.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -171,6 +173,32 @@ describe('page import (pandoc)', () => {
       assert.match(result.markdown, /\*\*bold\*\*/)
     }
   )
+})
+
+/**
+ * WP #2191 / #1360 (2026-08-24 security audit): `rst` and `docbook` are file-inclusion-capable pandoc
+ * readers, so the argv actually spawned must carry `--sandbox`, and the child's cwd must not be the
+ * repo root a relative include could otherwise reach into.
+ */
+describe('runPandoc argv (OpenProject #2191)', () => {
+  test('includes --sandbox for every supported format, including rst and docbook', () => {
+    for (const format of ['rst', 'docbook', 'mediawiki', 'textile', 'docx', 'odt'] as const) {
+      assert.ok(
+        buildPandocArgs(format).includes('--sandbox'),
+        `expected --sandbox in argv for format ${format}`
+      )
+    }
+  })
+
+  test('does not omit the reader/writer flags --sandbox is added alongside', () => {
+    assert.deepEqual(buildPandocArgs('rst'), ['-f', 'rst', '-t', 'gfm', '--wrap=none', '--sandbox'])
+  })
+
+  test('runs pandoc outside the repo root', () => {
+    const cwd = pandocCwd()
+    assert.equal(cwd, os.tmpdir())
+    assert.notEqual(path.resolve(cwd), path.resolve(process.cwd()))
+  })
 })
 
 /**

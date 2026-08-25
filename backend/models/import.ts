@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import os from 'node:os'
 import { CustomError } from '../helpers/common.ts'
 import { parseFrontMatter } from '../helpers/pageSerialization.ts'
 
@@ -95,6 +96,33 @@ export const IMPORT_EXTENSION_FORMATS: Record<string, ImportFormat> = {
 export function detectImportFormat(fileName: string): ImportFormat | null {
   const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : null
   return ext ? (IMPORT_EXTENSION_FORMATS[ext] ?? null) : null
+}
+
+/**
+ * The argv `runPandoc` spawns pandoc with, for a given caller-selected reader format.
+ *
+ * Pure and exported so a test can assert `--sandbox` is present without shelling out to a real
+ * `pandoc` binary. `--sandbox` restricts pandoc's readers/writers to the files named on the command
+ * line — none here, since input arrives on stdin and output leaves on stdout — which is what stops
+ * a caller-chosen `rst`/`docbook` reader's file-inclusion directives (`.. include::`, `:file:`) from
+ * reading arbitrary files the server process can see. Every accepted format is fed on stdin, so the
+ * flag changes nothing about the output of a legitimate conversion.
+ */
+export function buildPandocArgs(format: PandocImportFormat): string[] {
+  return ['-f', format, '-t', 'gfm', '--wrap=none', '--sandbox']
+}
+
+/**
+ * The working directory `runPandoc`'s child process is given.
+ *
+ * Left unset, the child inherits the backend's own working directory — the repo root, since
+ * `index.ts` refuses to boot elsewhere. `--sandbox` alone should already stop a reader from
+ * resolving any file, relative or absolute, but this is defense in depth against a future pandoc
+ * regression: the OS temp directory has nothing in it worth reading even if that guarantee ever
+ * slipped.
+ */
+export function pandocCwd(): string {
+  return os.tmpdir()
 }
 
 /** What a converted file hands back — the Markdown body, plus whatever metadata the source carried. */
@@ -230,8 +258,13 @@ class Import {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'pandoc',
-        ['-f', format, '-t', 'gfm', '--wrap=none'],
-        { timeout: IMPORT_TIMEOUT, maxBuffer: MAX_IMPORT_SIZE, windowsHide: true },
+        buildPandocArgs(format),
+        {
+          timeout: IMPORT_TIMEOUT,
+          maxBuffer: MAX_IMPORT_SIZE,
+          windowsHide: true,
+          cwd: pandocCwd()
+        },
         (err, stdout, stderr) => {
           if (err) {
             if (err.killed || err.signal) {

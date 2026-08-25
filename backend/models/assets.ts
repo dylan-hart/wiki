@@ -44,6 +44,24 @@ const SWEEP_TARGET_RATIO = 0.8
  */
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
 
+/**
+ * Whether a served asset should be forced to download rather than opened in place.
+ *
+ * The one predicate both `controllers/files.ts`'s `/_files/*` route and `api/assets.ts`'s
+ * `/content` route call, replacing what used to be two independently-written — and, on this exact
+ * question, inverted — expressions (OpenProject #1360/#2152, 2026-08-24 security audit §3). An
+ * `INLINE_EXTS` member is never forced regardless of the setting, so a `forceAssetDownload: true`
+ * instance still shows images inline in page content — adopting the API route's old, stricter
+ * `forceAssetDownload || !INLINE_EXTS.has(ext)` everywhere would have broken exactly that. This is
+ * intentionally *not* the durable defence for the SVG/HTML case (an asset can still take the inline
+ * branch): that is `helpers/security.ts#isDangerousInlineType` and its per-response
+ * Content-Security-Policy, applied unconditionally regardless of what this function returns. This
+ * predicate is disposition-only, and its role here is defence in depth for every other extension.
+ */
+export function shouldForceDownload(fileExt: string, forceAssetDownload: boolean): boolean {
+  return !INLINE_EXTS.has(fileExt) && forceAssetDownload
+}
+
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
 export type AssetKind = 'document' | 'image' | 'other'
 

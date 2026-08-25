@@ -52,7 +52,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       forceAssetDownload: {
         type: 'boolean',
         description:
-          'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
+          'Enforced on both `GET /_files/*` and `GET /sites/:siteId/assets/:assetId/content`, which share one predicate: a non-image, non-SVG extension downloads when this is on, and an image or SVG never downloads regardless of the setting (SVG still gets a sandboxing Content-Security-Policy either way). Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
         type: 'boolean',
@@ -70,16 +70,6 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         minimum: 1,
         description:
           'Bytes. Enforced as the request body size limit on `POST /sites/:siteId/assets`.'
-      },
-      uploadMaxFiles: {
-        type: 'integer',
-        minimum: 1,
-        description:
-          'Stored, but not enforced: an upload request is always exactly one file, so there is no batch to cap yet.'
-      },
-      uploadScanSVG: {
-        type: 'boolean',
-        description: 'Stored, but not enforced yet: nothing scans or sanitizes an uploaded SVG.'
       },
       authRateLimitEnabled: {
         type: 'boolean',

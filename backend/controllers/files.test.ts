@@ -132,6 +132,51 @@ describe('response headers (byte-serving behavior)', () => {
     assert.equal(res.headers['content-disposition'], undefined)
     await app.close()
   })
+
+  /**
+   * OpenProject #1360/#2152 (2026-08-24 security audit §1, §3): an `.svg` asset can never take the
+   * attachment branch (it is always in `INLINE_EXTS`), so the durable fix is this response carrying
+   * the same sandboxing `Content-Security-Policy` the admin-uploaded site logo/favicon path
+   * (`controllers/site.ts`) already sends — regardless of `forceAssetDownload`, since an attachment
+   * hint is not honoured on every direct navigation.
+   */
+  test('attaches the sandboxing CSP to an SVG asset, with and without forceAssetDownload', async () => {
+    resolvedAsset = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
+    readContentResult = { body: Buffer.from('<svg><script>alert(1)</script></svg>'), size: 37 }
+    for (const forceAssetDownload of [true, false]) {
+      const app = await buildApp({ forceAssetDownload })
+      const res = await app.inject({ method: 'GET', url: '/docs/diagram.svg' })
+      assert.equal(res.statusCode, 200)
+      assert.equal(
+        res.headers['content-security-policy'],
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+      )
+      await app.close()
+    }
+    resolvedAsset = undefined
+  })
+
+  test('attaches the same CSP to an HTML-typed asset, closing the forceAssetDownload:false gap (§3)', async () => {
+    resolvedAsset = { ...asset, fileName: 'page.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>alert(1)</script>'), size: 26 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({ method: 'GET', url: '/docs/page.html' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      res.headers['content-security-policy'],
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    )
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('sets no Content-Security-Policy header on an ordinary, non-dangerous asset', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp()
+    const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
+    assert.equal(res.headers['content-security-policy'], undefined)
+    await app.close()
+  })
 })
 
 describe('isEnabled guard (task 699)', () => {

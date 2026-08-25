@@ -150,9 +150,7 @@ class Settings {
           forceAssetDownload: true,
           hstsDuration: 0,
           trustProxy: false,
-          uploadMaxFileSize: 10485760,
-          uploadMaxFiles: 20,
-          uploadScanSVG: true
+          uploadMaxFileSize: 10485760
         }
       },
       {

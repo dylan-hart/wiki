@@ -417,11 +417,6 @@
                   </w-card-section>
                   <w-card-section class="text-caption">
                     <div>{{ t('admin.security.uploadsInfo') }}</div>
-                    <!-- Uploading is real now (`POST /sites/:siteId/assets` in `api/assets.ts`), and
-                         the max file size below is enforced as the request's body limit -- but the
-                         batch count and the SVG scan toggle are still only stored, since a single
-                         request is always one file and nothing sanitizes SVGs yet -->
-                    <div class="mt-1">{{ t('admin.security.uploadsPartiallyEnforced') }}</div>
                   </w-card-section>
                 </w-card-section>
               </w-card>
@@ -439,36 +434,6 @@
                 v-model.number="state.humanUploadMaxFileSize"
                 dense
                 :aria-label="t(`admin.security.maxUploadSize`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="upload-to-ftp" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.maxUploadBatch`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.maxUploadBatchHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section style="flex: 0 0 200px">
-              <w-input
-                outlined
-                v-model.number="state.config.uploadMaxFiles"
-                dense
-                :suffix="t(`admin.security.maxUploadBatchSuffix`)"
-                :aria-label="t(`admin.security.maxUploadBatch`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
-          <w-item tag="label">
-            <blueprint-icon icon="scan-stock" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.scanSVG`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.scanSVGHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section avatar>
-              <w-toggle
-                v-model="state.config.uploadScanSVG"
-                :loading="state.loading > 0"
-                :aria-label="t(`admin.security.scanSVG`)" />
             </w-item-section>
           </w-item>
         </w-card>
@@ -628,9 +593,7 @@ const state = reactive({
     apiRateLimitMax: 300,
     apiRateLimitWindow: '5m',
     apiRateLimitBan: '15m',
-    uploadMaxFileSize: 0,
-    uploadMaxFiles: 0,
-    uploadScanSVG: false
+    uploadMaxFileSize: 0
   },
   humanUploadMaxFileSize: '0'
 })

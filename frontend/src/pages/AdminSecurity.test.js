@@ -281,9 +281,14 @@ describe('AdminSecurity uploads info banner (task 605)', () => {
 
     // -> `messages: { en: {} }` means every `t()` call resolves to its own key literal (see
     //    `mountPage()`'s comment above), so this is a wiring check: the template must reference the
-    //    new key, not the removed one that said "uploading is not implemented".
-    expect(wrapper.text()).toContain('admin.security.uploadsPartiallyEnforced')
+    //    surviving key, not either removed one — `uploadsNotEnforced` said "uploading is not
+    //    implemented" (task 605), and `uploadsPartiallyEnforced` (OpenProject #1360/#2152,
+    //    2026-08-24 security audit) named the two toggles this WP deleted (`uploadMaxFiles`,
+    //    `uploadScanSVG`) as the "not enforced yet" part; with both gone, everything this card shows
+    //    is enforced, so the caveat itself was deleted rather than reworded.
+    expect(wrapper.text()).toContain('admin.security.uploadsInfo')
     expect(wrapper.text()).not.toContain('admin.security.uploadsNotEnforced')
+    expect(wrapper.text()).not.toContain('admin.security.uploadsPartiallyEnforced')
 
     wrapper.unmount()
   })

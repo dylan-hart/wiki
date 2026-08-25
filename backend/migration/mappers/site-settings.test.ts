@@ -207,10 +207,11 @@ describe('mapSiteSettings', () => {
       }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
+    // -> `maxFiles`/`scanSVG` are 2.x-only: `uploadMaxFiles`/`uploadScanSVG` were dead 3.0 settings
+    //    nothing enforced (OpenProject #1360/#2152) and have been deleted, so there is nowhere for
+    //    either to land here.
     assert.deepEqual(instanceSettings.security, {
       uploadMaxFileSize: 5242880,
-      uploadMaxFiles: 10,
-      uploadScanSVG: false,
       forceAssetDownload: false
     })
   })
@@ -218,10 +219,10 @@ describe('mapSiteSettings', () => {
   test('security and uploads rows both present merge into one security patch', () => {
     const rows: SiteSettingsSourceRow[] = [
       { key: 'security', value: { securityTrustProxy: true } },
-      { key: 'uploads', value: { maxFiles: 3 } }
+      { key: 'uploads', value: { maxFileSize: 3 } }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
-    assert.deepEqual(instanceSettings.security, { trustProxy: true, uploadMaxFiles: 3 })
+    assert.deepEqual(instanceSettings.security, { trustProxy: true, uploadMaxFileSize: 3 })
   })
 
   test('neither security nor uploads present leaves instanceSettings.security unset', () => {

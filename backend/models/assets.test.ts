@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { assets } from './assets.ts'
+import { assets, shouldForceDownload } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -397,4 +397,24 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubStorage({ targets: [target] })
   stubDb(undefined)
   assert.equal(await assets.readContent(testAsset, 'site-1'), null)
+})
+
+/**
+ * OpenProject #1360/#2152 (2026-08-24 security audit §3): `controllers/files.ts`'s `/_files/*` route
+ * and `api/assets.ts`'s `/content` route used to compute this independently, with inverted
+ * predicates — this is the one function both now call, so the same asset/setting combination answers
+ * identically on both routes by construction rather than by two implementations staying in sync.
+ */
+test('shouldForceDownload: never forces an INLINE_EXTS member, regardless of the setting', () => {
+  assert.equal(shouldForceDownload('png', true), false)
+  assert.equal(shouldForceDownload('png', false), false)
+  assert.equal(shouldForceDownload('svg', true), false)
+  assert.equal(shouldForceDownload('svg', false), false)
+})
+
+test('shouldForceDownload: forces a non-INLINE_EXTS extension only when the setting is on', () => {
+  assert.equal(shouldForceDownload('zip', true), true)
+  assert.equal(shouldForceDownload('zip', false), false)
+  assert.equal(shouldForceDownload('html', true), true)
+  assert.equal(shouldForceDownload('html', false), false)
 })

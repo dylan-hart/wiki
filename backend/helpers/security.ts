@@ -3,6 +3,36 @@
  * HTTP plugins expect.
  */
 
+/**
+ * The Content-Security-Policy attached to any response whose body is SVG or HTML — a document type a
+ * browser will run as active content if it is ever opened directly (a top-level navigation, or an
+ * `<iframe>`/`<object>`/`<embed>`) rather than merely referenced from an `<img src>`, which never
+ * executes markup regardless of headers. `sandbox` with no allowances disables scripts, forms,
+ * top-level navigation and popups; `default-src 'none'` refuses every other kind of resource load;
+ * `style-src 'unsafe-inline'` is the one allowance, because inline `style="…"` is common and
+ * harmless once script execution is already off. Originally local to `controllers/site.ts` (the
+ * admin-uploaded logo/favicon path) and verified there against a `<script>`-carrying SVG in both
+ * Chrome and Firefox — opened directly in a new tab, `sandbox` neutralized it in both. Exported here
+ * so every response serving SVG/HTML-typed bytes shares the exact same string rather than each
+ * serving site defining (and risking drifting) its own.
+ */
+export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+/**
+ * MIME types a browser treats as an HTML-capable *document* rather than passive data — i.e. types
+ * that can carry a `<script>` or an event-handler attribute that actually runs when the response is
+ * opened directly. `svgMimeType` (`image/svg+xml`) is the one an ordinary asset upload can produce
+ * with no admin permission at all; `text/html` and `application/xhtml+xml` are reachable the same
+ * way once an `.html`/`.xhtml` upload is stored, since nothing on the upload path restricts the
+ * extension. Anything else `mime.getType()` resolves — images, PDFs, archives — is not a browser
+ * scripting context regardless of headers, so it does not need this CSP.
+ */
+export function isDangerousInlineType(mimeType: string): boolean {
+  return (
+    mimeType === 'image/svg+xml' || mimeType === 'text/html' || mimeType === 'application/xhtml+xml'
+  )
+}
+
 /** CORS modes offered by the admin area, in the order they appear there. */
 export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]

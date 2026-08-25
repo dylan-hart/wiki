@@ -1,5 +1,6 @@
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { SiteAssetKind } from '../models/sites.ts'
@@ -45,8 +46,10 @@ const SITE_ASSET_CACHE = 'public, no-cache'
  * else. (Verified manually against an uploaded SVG carrying a `<script>` payload in both Chrome and
  * Firefox: rendered via `<img src>` it never runs, matching the reasoning above regardless of this
  * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
+ *
+ * `SVG_CSP` itself now lives in `helpers/security.ts`, shared with `controllers/files.ts` and
+ * `api/assets.ts`'s `/content` route so all three cannot drift apart on the exact same question.
  */
-const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 /**
  * _site Routes

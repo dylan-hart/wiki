@@ -125,11 +125,12 @@ const SECURITY_INVERTED_RENAMES: Record<string, string> = {
 }
 
 /** 2.x `uploads.*` field name -> 3.0 `settings.security.*` field name — the field-mapping doc's
- * "biggest scope surprise": these move tables (2.x `uploads` -> 3.0 `security`), not just names. */
+ * "biggest scope surprise": these move tables (2.x `uploads` -> 3.0 `security`), not just names.
+ * 2.x's `maxFiles` and `scanSVG` have no 3.0 counterpart to map to — `uploadMaxFiles` and
+ * `uploadScanSVG` were both dead settings nothing enforced (OpenProject #1360/#2152, 2026-08-24
+ * security audit), deleted rather than kept as inert config a fresh 3.0 install has no use for. */
 const UPLOADS_TO_SECURITY_RENAMES: Record<string, string> = {
   maxFileSize: 'uploadMaxFileSize',
-  maxFiles: 'uploadMaxFiles',
-  scanSVG: 'uploadScanSVG',
   forceDownload: 'forceAssetDownload'
 }
 

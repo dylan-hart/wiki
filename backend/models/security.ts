@@ -21,9 +21,7 @@ export const SECURITY_FIELDS = [
   'forceAssetDownload',
   'hstsDuration',
   'trustProxy',
-  'uploadMaxFileSize',
-  'uploadMaxFiles',
-  'uploadScanSVG'
+  'uploadMaxFileSize'
 ] as const
 
 /** A duration as the admin area writes it: `30m`, `14d`, `1y`. */

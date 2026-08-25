@@ -1,5 +1,6 @@
-import { INLINE_EXTS } from '../models/assets.ts'
+import { shouldForceDownload } from '../models/assets.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import { SVG_CSP, isDangerousInlineType } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -82,7 +83,14 @@ async function routes(app: FastifyInstance) {
       return reply.redirect(content.redirectUrl, 302)
     }
 
-    if (!INLINE_EXTS.has(asset.fileExt) && WIKI.config.security?.forceAssetDownload) {
+    // -> SVG/HTML-typed bytes are active content the moment this URL is opened directly rather than
+    //    referenced from an <img>, so this response gets the same sandboxing CSP the admin-uploaded
+    //    site logo/favicon path does — regardless of the Content-Disposition decision below, since an
+    //    attachment header is only ever a hint a browser is free to ignore on direct navigation.
+    if (isDangerousInlineType(asset.mimeType)) {
+      reply.header('Content-Security-Policy', SVG_CSP)
+    }
+    if (shouldForceDownload(asset.fileExt, !!WIKI.config.security?.forceAssetDownload)) {
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(asset.fileName)}"`
