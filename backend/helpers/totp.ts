@@ -135,34 +135,40 @@ export function buildTotpUri({
  * Compared byte-wise in constant time. That matters less here than for a password — a wrong code is
  * one of a million and expires in seconds — but the comparison is free to get right.
  *
+ * Returns the matched *counter*, not just a boolean, so a caller can record it and refuse a code
+ * whose counter has already been accepted — the RFC 6238 §5.2 replay requirement. Which of the
+ * `allowedDrift` candidate counters matched is exactly the information that requires.
+ *
  * @param secret Base32 secret stored for the user
  * @param code The six digits the user typed
- * @returns False for anything that is not six digits, or for a secret that will not decode
+ * @returns The counter the code matched, or -1 for no match, anything that is not six digits, or a
+ *          secret that will not decode
  */
-export function verifyTotpCode(secret: string, code: string): boolean {
+export function verifyTotpCode(secret: string, code: string): number {
   if (!secret || !/^[0-9]{6}$/.test(code)) {
-    return false
+    return -1
   }
 
   let secretKey: Buffer
   try {
     secretKey = base32Decode(secret)
   } catch {
-    return false
+    return -1
   }
   if (secretKey.length < 1) {
-    return false
+    return -1
   }
 
   const expected = Buffer.from(code, 'utf8')
   const counter = Math.floor(Date.now() / 1000 / periodSeconds)
-  let matched = false
+  let matchedCounter = -1
   for (let drift = -allowedDrift; drift <= allowedDrift; drift++) {
     // -> Every candidate is compared, rather than returning on the first hit, so that the work done
     //    does not depend on which window the code came from
-    if (timingSafeEqual(Buffer.from(codeAt(secretKey, counter + drift), 'utf8'), expected)) {
-      matched = true
+    const candidateCounter = counter + drift
+    if (timingSafeEqual(Buffer.from(codeAt(secretKey, candidateCounter), 'utf8'), expected)) {
+      matchedCounter = candidateCounter
     }
   }
-  return matched
+  return matchedCounter
 }

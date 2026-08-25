@@ -59,47 +59,75 @@ describe('buildTotpUri', () => {
 })
 
 describe('verifyTotpCode', () => {
-  test('accepts the code for the current 30s window', () => {
+  // -> At Time=59_000ms, `counter = floor(59000 / 1000 / 30) = 1` -- codeAtCounter's keys are
+  //    literally that counter value, so the assertions below double as "which window matched".
+  test('accepts the code for the current 30s window, returning its counter', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[1]), true)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[1]), 1)
     })
   })
 
-  test('accepts the previous window (clock drift, -30s)', () => {
+  test('accepts the previous window (clock drift, -30s), returning its counter', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[0]), true)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[0]), 0)
     })
   })
 
-  test('accepts the next window (clock drift, +30s)', () => {
+  test('accepts the next window (clock drift, +30s), returning its counter', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[2]), true)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[2]), 2)
     })
   })
 
   test('rejects a code two windows away -- outside the allowed drift', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[3]), false)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[3]), -1)
     })
   })
 
   test('rejects a code that matches no nearby window', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, '000000'), false)
+      assert.equal(verifyTotpCode(rfcSecret, '000000'), -1)
     })
   })
 
   test('rejects malformed input without decoding the secret', () => {
-    assert.equal(verifyTotpCode(rfcSecret, '12345'), false) // too short
-    assert.equal(verifyTotpCode(rfcSecret, '1234567'), false) // too long
-    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), false) // not digits
+    assert.equal(verifyTotpCode(rfcSecret, '12345'), -1) // too short
+    assert.equal(verifyTotpCode(rfcSecret, '1234567'), -1) // too long
+    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), -1) // not digits
   })
 
   test('rejects an empty secret', () => {
-    assert.equal(verifyTotpCode('', '287082'), false)
+    assert.equal(verifyTotpCode('', '287082'), -1)
   })
 
   test('rejects a secret that is not valid base32 rather than throwing', () => {
-    assert.equal(verifyTotpCode('not-base32!!!', '287082'), false)
+    assert.equal(verifyTotpCode('not-base32!!!', '287082'), -1)
+  })
+
+  test('still compares every drift candidate even once a match is found, and identifies which one', () => {
+    // -> `Buffer` is a plain configurable global (unlike `node:crypto`'s named exports, which are
+    //    immutable ESM-namespace bindings a mock cannot redefine), so spying on `Buffer.from` is what
+    //    stands in for counting `timingSafeEqual` comparisons here: `codeAt` produces its candidate
+    //    string as a plain JS string, and each one is wrapped in `Buffer.from(..., 'utf8')`
+    //    immediately before the comparison it feeds -- one call per drift candidate, deterministically.
+    const bufferFromSpy = mock.method(Buffer, 'from')
+    try {
+      withFakeTime(59_000, () => {
+        // -> Matches only the +30s candidate (drift +1), which is generated and compared last -- if
+        //    the loop returned on first hit instead of comparing every candidate, this would exit
+        //    after the counter-0 and counter-1 misses rather than reaching the counter-2 match.
+        const beforeCallCount = bufferFromSpy.mock.callCount()
+        const result = verifyTotpCode(rfcSecret, codeAtCounter[2])
+        const candidateCallCount = bufferFromSpy.mock.callCount() - beforeCallCount
+
+        assert.equal(result, 2)
+        // -> One `Buffer.from` to decode the base32 secret, one for the caller's own submitted code
+        //    (`expected`), and one per drift candidate (-1, 0, +1) that reaches the comparison line.
+        assert.equal(candidateCallCount, 5)
+      })
+    } finally {
+      bufferFromSpy.mock.restore()
+    }
   })
 })
