@@ -1,15 +1,25 @@
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
+  apiKeys as apiKeysTable,
+  approvalRules as approvalRulesTable,
+  assets as assetsTable,
   blockCredentials as blockCredentialsTable,
   blocks as blocksTable,
+  commentProviders as commentProvidersTable,
   glossaryTerms as glossaryTermsTable,
+  glossaryVersions as glossaryVersionsTable,
+  migrationRecords as migrationRecordsTable,
   navigation as navigationTable,
+  pageHistory as pageHistoryTable,
+  pages as pagesTable,
+  pageWatchEvents as pageWatchEventsTable,
   siteAssets as siteAssetsTable,
   sites as sitesTable,
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
+import { CustomError } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
@@ -373,24 +383,69 @@ class Sites {
     await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: false } } })
   }
 
+  /**
+   * Delete a site and every row that belongs to it rather than to its content.
+   *
+   * Pages and assets are checked for up front, and the whole cleanup runs inside one transaction, so
+   * a refused delete (or one that hits an FK this method doesn't yet know about) destroys nothing —
+   * previously each of the statements below autocommitted on its own, so a delete that was ultimately
+   * refused by the final `sites` FK had already durably destroyed every site setting, block, storage
+   * target, glossary term and navigation menu it passed on the way there.
+   *
+   * Block, block-credential, storage, uploaded image, glossary term and navigation rows belong to the
+   * site rather than to its content, and their FK has no cascade, so they would otherwise block the
+   * delete — navigation includes one row per active locale's site-wide menu
+   * (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
+   * siteId`) plus any per-page override/hide row still standing. `commentProviders` (seeded per site
+   * at creation and re-seeded at every boot), `pageHistory` (a `deleted` row is written before every
+   * page delete, so removing every page guarantees rows remain), `pageWatchEvents`, `glossaryVersions`,
+   * `approvalRules` and `migrationRecords` are the same story: none is content, none cascades, and
+   * nothing else ever deletes their rows. `apiKeys.siteId` is deleted rather than nulled to
+   * instance-wide — nulling it would silently widen a site-scoped key to every site once its site is
+   * gone, which is a privilege escalation, not a cleanup.
+   *
+   * Pages, assets and the page tree deliberately still lack a cascade and are what the up-front check
+   * below refuses on — see the conflict handling in the route. `pageviews` and `tags` are derived data
+   * about the site rather than content, so they cascade at the schema level instead of being cleaned
+   * up here (`db/schema.ts`); a site that has only ever been viewed or tagged is not "still holding
+   * content".
+   *
+   * @throws {CustomError} named `siteHasContent`, statusCode 409, when the site still has pages or
+   *   assets — thrown before anything is deleted.
+   */
   async deleteSite(id: string): Promise<boolean> {
-    // -> Block, block-credential, storage, uploaded image and glossary term rows belong to the site
-    //    rather than to its content, and their FK has no cascade, so they would otherwise block the
-    //    delete. Every navigation row this site owns — one per active locale's site-wide menu
-    //    (`navigation.ensureSiteNav`'s row, addressed by its own `defaultRandom()` id, never `id ===
-    //    siteId`) plus any per-page override/hide row still standing — is the same story and is
-    //    cleaned up the same way, filtered by the `siteId` column the FK constraint actually checks.
-    //    Content tables (pages, assets, the page tree) deliberately still lack a cascade — see the
-    //    conflict handling in the route.
-    await WIKI.db.delete(blocksTable).where(eq(blocksTable.siteId, id))
-    await WIKI.db.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
-    await WIKI.db.delete(storageTable).where(eq(storageTable.siteId, id))
-    await WIKI.db.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
-    await WIKI.db.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
-    await WIKI.db.delete(navigationTable).where(eq(navigationTable.siteId, id))
+    const [pageCount, assetCount] = await Promise.all([
+      WIKI.db.$count(pagesTable, eq(pagesTable.siteId, id)),
+      WIKI.db.$count(assetsTable, eq(assetsTable.siteId, id))
+    ])
+    if (pageCount > 0 || assetCount > 0) {
+      throw new CustomError(
+        'siteHasContent',
+        'Cannot delete a site that still holds content. Delete its pages and assets first.',
+        409
+      )
+    }
 
-    const deletedResult = await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, id))
-    if ((deletedResult.rowCount ?? 0) < 1) {
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      await tx.delete(blocksTable).where(eq(blocksTable.siteId, id))
+      await tx.delete(blockCredentialsTable).where(eq(blockCredentialsTable.siteId, id))
+      await tx.delete(storageTable).where(eq(storageTable.siteId, id))
+      await tx.delete(siteAssetsTable).where(eq(siteAssetsTable.siteId, id))
+      await tx.delete(glossaryTermsTable).where(eq(glossaryTermsTable.siteId, id))
+      await tx.delete(navigationTable).where(eq(navigationTable.siteId, id))
+      await tx.delete(commentProvidersTable).where(eq(commentProvidersTable.siteId, id))
+      await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, id))
+      await tx.delete(pageWatchEventsTable).where(eq(pageWatchEventsTable.siteId, id))
+      await tx.delete(glossaryVersionsTable).where(eq(glossaryVersionsTable.siteId, id))
+      await tx.delete(approvalRulesTable).where(eq(approvalRulesTable.siteId, id))
+      await tx.delete(migrationRecordsTable).where(eq(migrationRecordsTable.siteId, id))
+      await tx.delete(apiKeysTable).where(eq(apiKeysTable.siteId, id))
+
+      const deletedResult = await tx.delete(sitesTable).where(eq(sitesTable.id, id))
+      return (deletedResult.rowCount ?? 0) >= 1
+    })
+
+    if (!deleted) {
       return false
     }
 
