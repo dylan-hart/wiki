@@ -1,3 +1,4 @@
+import proxyAddr from '@fastify/proxy-addr'
 import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
@@ -28,6 +29,30 @@ export const SECURITY_FIELDS = [
 
 /** A duration as the admin area writes it: `30m`, `14d`, `1y`. */
 const DURATION_PATTERN = /^\d+[smhdwy]$/
+
+/**
+ * Validate a trusted-proxy specification exactly the way it will actually be parsed at request time:
+ * `getTrustProxyFn` in the vendored `fastify/lib/request.js` splits a string `trustProxy` on commas,
+ * trims each entry, and hands the array to `@fastify/proxy-addr`'s own `compile()` -- the function
+ * that throws on anything it cannot resolve to an address, a CIDR range, or one of its three named
+ * ranges (`loopback`, `linklocal`, `uniquelocal`). Round-tripping through the same function here,
+ * rather than a hand-written address/CIDR regex, is what keeps "accepted by the admin form" and
+ * "trusted at request time" from ever drifting apart -- and it means a trailing comma or blank entry
+ * (`'10.0.0.0/8,'` splits to `['10.0.0.0/8', '']`) is rejected here exactly as it would silently
+ * become an untrusted-everything spec if it reached Fastify unvalidated.
+ *
+ * Exported so `security.test.ts` can assert against what will actually be accepted at runtime.
+ *
+ * @returns The reason it is invalid, or null when it is fine
+ */
+export function validateTrustProxySpec(spec: string): string | null {
+  try {
+    proxyAddr.compile(spec.split(',').map((entry) => entry.trim()))
+    return null
+  } catch (err: any) {
+    return `The trusted proxy list is invalid: ${err.message}`
+  }
+}
 
 /**
  * Security model
@@ -172,6 +197,19 @@ class Security {
           return `The ${label} must be a duration such as 30s, 15m, 2h or 1d.`
         }
       }
+    }
+
+    if (typeof merged.trustProxy === 'string' && merged.trustProxy.trim() !== '') {
+      const err = validateTrustProxySpec(merged.trustProxy)
+      if (err) {
+        return err
+      }
+    } else if (
+      typeof merged.trustProxy !== 'boolean' &&
+      merged.trustProxy !== undefined &&
+      merged.trustProxy !== ''
+    ) {
+      return '"trustProxy" must be a boolean, or a trusted-proxy address/CIDR list.'
     }
 
     return null

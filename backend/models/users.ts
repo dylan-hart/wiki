@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
+import { consumeAccountAuthAttempt } from '../helpers/rateLimit.ts'
 import {
   generateRecoveryCodes,
   isRecoveryCodeShape,
@@ -1600,6 +1601,24 @@ class Users {
         `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId}${username ? ` as "${username}"` : ''} from ${ip}`
       )
 
+      /*
+        Account-keyed bound, independent of `req.ip` (which `helpers/rateLimit.ts#limitAuthAttempts`
+        already bounds via the `onRequest` hook on this route, but which a misconfigured
+        `security.trustProxy` can leave client-spoofable per request) -- see
+        `consumeAccountAuthAttempt`'s own doc comment. Only form-based strategies have a credential to
+        guess here; a redirect-based provider (OAuth/SAML) never reaches this branch with a `username`.
+        Checked before `str.authenticate()` so a tripped limit also saves the bcrypt/LDAP round trip.
+      */
+      if (strInfo.useForm && username) {
+        const verdict = await consumeAccountAuthAttempt(username)
+        if (!verdict.allowed) {
+          WIKI.models.flags.authDebug(
+            `Rate limit: refused login for account "${username}", ${verdict.retryAfter}s left of its ban.`
+          )
+          throw new Error('ERR_RATE_LIMITED')
+        }
+      }
+
       // Authenticate
       let user
       try {
@@ -2188,6 +2207,19 @@ class Users {
     }
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    /*
+      Same account-keyed bound as `login()`, into the same `auth:user:` bucket -- TOTP-code and
+      recovery-code guessing against an account is bounded together with password guessing against it,
+      not as a separate budget. See `consumeAccountAuthAttempt`'s doc comment.
+    */
+    const verdict = await consumeAccountAuthAttempt(user.email)
+    if (!verdict.allowed) {
+      WIKI.models.flags.authDebug(
+        `Rate limit: refused 2FA attempt for user ${user.id} <${user.email}>, ${verdict.retryAfter}s left of its ban.`
+      )
+      throw new Error('ERR_RATE_LIMITED')
     }
 
     let verified: boolean

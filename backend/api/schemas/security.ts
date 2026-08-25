@@ -55,8 +55,14 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
-        type: 'boolean',
-        description: 'Whether to trust `X-Forwarded-*` headers.'
+        // -> Two real (non-null) types, so `oneOf` rather than `type: ['boolean', 'string']` -- AJV's
+        //    strict mode (`allowUnionTypes`) only special-cases a type array of exactly one real type
+        //    plus `'null'`, which `[X, 'null']` throughout this file's other properties relies on; two
+        //    non-null types warns unless declared this way. `api/schemas/storage.ts`'s `sync.schedule`
+        //    is the existing precedent for the identical shape (string-or-boolean).
+        oneOf: [{ type: 'boolean' }, { type: 'string' }],
+        description:
+          '`false` trusts nothing (the default); a comma-separated address/CIDR list (e.g. `10.0.0.0/8, 192.168.1.1`, or the named ranges `loopback`/`linklocal`/`uniquelocal`) trusts `X-Forwarded-*` headers only when the request arrived from one of those addresses -- this is the setting a reverse-proxy deployment should use. `true` also validates, but trusts every request unconditionally: it makes `req.ip`, and therefore the IP-keyed auth rate limiter, controllable by the client, and lets any request steer which site it resolves against via `X-Forwarded-Host`. Use the address/CIDR form instead.'
       },
       insecureCookieRiskAt: {
         type: 'string',

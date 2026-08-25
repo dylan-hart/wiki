@@ -903,6 +903,24 @@ describe('users.loginTFA', () => {
     return { id: 'user-1', email: 'ada@example.com', auth: { strat: {} }, ...overrides }
   }
 
+  // -> `loginTFA` now consumes the account-keyed rate limit (work package 2075(b)) before verifying
+  //    the submitted code — a real `WIKI.models.rateLimits.consume` stand-in that always allows,
+  //    exactly like `syncProviderGroups`'s own `before`/`after` above, since nothing in this suite is
+  //    testing the limiter itself (see `helpers/rateLimit.test.ts#consumeAccountAuthAttempt` for that).
+  before(() => {
+    ;(globalThis as any).WIKI = {
+      config: { security: {} },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) }
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
   test('rejects a code shaped like neither a TOTP code nor a recovery code, before validating the token', async (t) => {
     const validateToken = t.mock.method(users, 'validateToken', async () => {
       throw new Error('should not be called')
@@ -1355,6 +1373,7 @@ describe('users.login (form-based provider auto-provisioning)', () => {
 
   function installWiki(getStrategyById: () => Promise<any>) {
     ;(globalThis as any).WIKI = {
+      config: { security: {} },
       data: { authentication: [{ key: 'ldap', useForm: true }] },
       auth: {
         strategies: {
@@ -1368,7 +1387,11 @@ describe('users.login (form-based provider auto-provisioning)', () => {
       },
       models: {
         flags: { authDebug: () => {} },
-        authentication: { getStrategyById }
+        authentication: { getStrategyById },
+        // -> `login()` now consumes the account-keyed rate limit (work package 2075(b)) before
+        //    calling `str.authenticate()` -- a real stand-in that always allows, since nothing in
+        //    this suite is testing the limiter itself.
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) }
       }
     }
   }
