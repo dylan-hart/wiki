@@ -159,6 +159,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       cvd: {
         type: 'string',
         description: 'Color vision deficiency to adjust the palette for.'
+      },
+      locale: {
+        type: 'string',
+        description:
+          'Locale code to address this user in, or an empty string to use the site default.'
       }
     }
   })
@@ -210,6 +215,12 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       cvd: {
         type: 'string',
         enum: ['none', 'protanopia', 'deuteranopia', 'tritanopia']
+      },
+      locale: {
+        type: 'string',
+        description:
+          'Locale code to address this user in, e.g. `fr`. Must name an installed locale; an empty string clears the preference.',
+        maxLength: 255
       }
     }
   })

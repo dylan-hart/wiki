@@ -47,6 +47,7 @@ declare module 'fastify' {
       timeFormat?: string
       appearance?: string
       cvd?: string
+      locale?: string
     }
     /** Flattened, de-duplicated permissions of every group the user belongs to. */
     permissions?: string[]

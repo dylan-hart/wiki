@@ -128,6 +128,7 @@ export interface UserProfile {
   timeFormat: string
   appearance: string
   cvd: string
+  locale: string
 }
 
 /** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
@@ -141,11 +142,19 @@ export interface UserProfilePatch {
   timeFormat?: string
   appearance?: string
   cvd?: string
+  locale?: string
 }
 
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
-const profilePrefsKeys = ['timezone', 'dateFormat', 'timeFormat', 'appearance', 'cvd'] as const
+const profilePrefsKeys = [
+  'timezone',
+  'dateFormat',
+  'timeFormat',
+  'appearance',
+  'cvd',
+  'locale'
+] as const
 
 /**
  * The square, in pixels, an avatar is resized to. The profile page and the account menu both display
@@ -745,7 +754,11 @@ class Users {
       dateFormat: prefs.dateFormat ?? '',
       timeFormat: prefs.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
-      cvd: prefs.cvd ?? 'none'
+      cvd: prefs.cvd ?? 'none',
+      // -> An empty locale means "no stored preference" -- the same fallback-to-something-else
+      //    convention as timezone/dateFormat above, with the site/instance locale deciding instead
+      //    of the browser
+      locale: prefs.locale ?? ''
     }
   }
 
@@ -796,11 +809,23 @@ class Users {
    *
    * @param patch Fields to change; omitted ones are left as they are
    * @returns The updated profile, or null if no such user exists
+   * @throws `ERR_INVALID_LOCALE` for a non-empty `locale` that names no installed locale
    */
   async updateProfile(id: string, patch: UserProfilePatch): Promise<UserProfile | null> {
     const user = await this.getById(id)
     if (!user) {
       return null
+    }
+
+    // -> An empty string clears the preference (falls back to the site/instance locale), same as
+    //    timezone/dateFormat above; anything else must name an installed locale, since nothing
+    //    downstream (models/mail.ts's per-user mail locale) can address a user in a language the
+    //    instance has no strings for
+    if (patch.locale !== undefined && patch.locale !== '') {
+      const installedCodes = (await WIKI.models.locales.getLocales()).map((lc: any) => lc.code)
+      if (!installedCodes.includes(patch.locale)) {
+        throw new Error('ERR_INVALID_LOCALE')
+      }
     }
 
     const meta = { ...((user.meta ?? {}) as Record<string, any>) }
@@ -2517,7 +2542,8 @@ class Users {
       dateFormat: user.prefs?.dateFormat,
       timeFormat: user.prefs?.timeFormat,
       appearance: user.prefs?.appearance,
-      cvd: user.prefs?.cvd
+      cvd: user.prefs?.cvd,
+      locale: user.prefs?.locale
     }
     req.session.permissions = uniq(flatten(user.groups?.map((g: any) => g.permissions)))
     // -> Group ids as well as their permissions, since navigation items are limited per group

@@ -385,7 +385,8 @@ async function routes(app: FastifyInstance) {
         'dateFormat',
         'timeFormat',
         'appearance',
-        'cvd'
+        'cvd',
+        'locale'
       ] as const) {
         if (req.body[key] !== undefined) {
           patch[key] = req.body[key]
@@ -398,7 +399,12 @@ async function routes(app: FastifyInstance) {
         throw new CustomError('userProfileInvalidName', 'Invalid User Name')
       }
 
-      const profile = await WIKI.models.users.updateProfile(userId, patch)
+      let profile
+      try {
+        profile = await WIKI.models.users.updateProfile(userId, patch)
+      } catch (err: any) {
+        rethrowAsBadRequest(err)
+      }
       if (!profile) {
         return reply.unauthorized()
       }
@@ -412,7 +418,8 @@ async function routes(app: FastifyInstance) {
         dateFormat: profile.dateFormat,
         timeFormat: profile.timeFormat,
         appearance: profile.appearance,
-        cvd: profile.cvd
+        cvd: profile.cvd,
+        locale: profile.locale
       }
 
       return {
