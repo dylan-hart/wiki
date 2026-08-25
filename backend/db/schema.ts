@@ -594,15 +594,24 @@ export const jobHistory = pgTable(
 )
 
 // JOB SCHEDULE ------------------------
-export const jobSchedule = pgTable('jobSchedule', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  cron: varchar({ length: 255 }).notNull(),
-  type: varchar({ length: 255 }).notNull().default('system'),
-  payload: jsonb(),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const jobSchedule = pgTable(
+  'jobSchedule',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    cron: varchar({ length: 255 }).notNull(),
+    type: varchar({ length: 255 }).notNull().default('system'),
+    payload: jsonb(),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // Defence in depth behind the boot-time advisory lock (see
+    // `core/scheduler.ts`'s cron-seeding path): a duplicate `task` value must be rejected at the
+    // db, not merely absorbed silently if the lock is ever bypassed or a seed runs twice.
+    uniqueIndex('jobSchedule_task_idx').on(table.task)
+  ]
+)
 
 // JOB LOCK ----------------------------
 export const jobLock = pgTable('jobLock', {

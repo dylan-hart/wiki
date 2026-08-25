@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "jobSchedule_task_idx" ON "jobSchedule" ("task");
