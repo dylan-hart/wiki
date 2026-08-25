@@ -464,7 +464,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('an allowedClassifications-scoped actor is refused on a page outside its allow-set, even though a rule grants it (OpenProject #1205)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
-    const restricted = await levelsModel.create({ name: 'Test Restricted', sortOrder: 99 })
+    const restricted = await levelsModel.create({ name: 'Test Restricted' })
 
     const capped = {
       groupIds: [fixtures.groupId],
