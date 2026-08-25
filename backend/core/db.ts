@@ -29,11 +29,15 @@ const notifier = createNotifier(() => WIKI.dbManager.pubsubClient, 'event bus')
  * Postgres extensions the schema depends on, installed before the migrations run.
  *
  * `ltree` types the folder paths of the page tree and answers the ancestor queries the navigation is
- * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` used to be here for `gen_random_uuid()`,
- * which every primary key defaults to — that has been core since Postgres 13, and 16 is the minimum
- * this runs on, so nothing needs it any more.
+ * built from; `pg_trgm` backs fuzzy text matching. `pgcrypto` was dropped from this list once for
+ * `gen_random_uuid()` (core since Postgres 13, and 16 is the minimum this runs on) but is back for
+ * `digest()`: the `userAvatars`/`siteAssets` hash-column migration
+ * (`db/migrations/20260825203005_main`) backfills a sha1 hex digest of every existing row's blob, and
+ * any future one-time backfill needing a digest can reach for it the same way. Listed here rather
+ * than as a `CREATE EXTENSION` preamble hand-written into that migration's own SQL for the reason
+ * explained below: a migration file cannot express it durably.
  */
-const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm']
+const REQUIRED_EXTENSIONS = ['ltree', 'pg_trgm', 'pgcrypto']
 
 /**
  * Tables whose presence means the database belongs to a Wiki.js 2.x installation.

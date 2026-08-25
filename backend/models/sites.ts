@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { mergeWith, toMerged } from 'es-toolkit/object'
 import { keyBy } from 'es-toolkit/array'
 import {
@@ -352,12 +353,16 @@ class Sites {
     const normalized = detectSvg(data)
       ? data
       : ((await normalizeImage(data, SITE_ASSET_NORMALIZATION[kind])) ?? data)
+    // -> Kept in step with `data` on every write -- `hash` is NOT NULL with no default, and this is
+    //    the same sha1-hex digest `controllers/site.ts` computes from the blob for its ETag, so a
+    //    future hash-only reader agrees with what a full blob read would have produced.
+    const hash = crypto.createHash('sha1').update(normalized).digest('hex')
     await WIKI.db
       .insert(siteAssetsTable)
-      .values({ siteId, kind, data: normalized })
+      .values({ siteId, kind, data: normalized, hash })
       .onConflictDoUpdate({
         target: [siteAssetsTable.siteId, siteAssetsTable.kind],
-        set: { data: normalized }
+        set: { data: normalized, hash }
       })
     // -> Serving reads this flag off the cached site config before it looks for any bytes
     await WIKI.models.sites.updateSite(siteId, { config: { assets: { [kind]: true } } })
