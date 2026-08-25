@@ -12,11 +12,16 @@ export interface MailMessage {
   text: string
 }
 
-/** Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`). */
-const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
-  updated: 'edited',
-  moved: 'moved',
-  deleted: 'deleted'
+/**
+ * Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`),
+ * resolved from `mail.watchAction.*` for the recipient's locale (`en` fallback) via
+ * `WIKI.models.locales.resolveString`.
+ */
+async function watchActionLabel(
+  action: PageWatchNotifiableAction,
+  locale?: string | null
+): Promise<string> {
+  return WIKI.models.locales.resolveString(locale, `mail.watchAction.${action}`)
 }
 
 /**
@@ -279,19 +284,25 @@ class MailModel {
     const link = this.buildLink(`/login/reset-password/${token}`)
     const cfg = WIKI.config.mail ?? {}
     const params = { name, link }
-    const signatureText = cfg.senderName ? `\n\n— ${cfg.senderName}` : ''
-    const signatureHtml = cfg.senderName ? `<p>— ${cfg.senderName}</p>` : ''
+    const signatureText = cfg.senderName
+      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.text', {
+          name: cfg.senderName
+        })
+      : ''
+    const signatureHtml = cfg.senderName
+      ? await WIKI.models.locales.resolveString(locale, 'mail.signature.html', {
+          name: cfg.senderName
+        })
+      : ''
     await this.send({
       to,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.text', {
-        ...params,
-        signature: signatureText
-      }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.html', {
-        ...params,
-        signature: signatureHtml
-      })
+      text:
+        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.text', params)) +
+        signatureText,
+      html:
+        (await WIKI.models.locales.resolveString(locale, 'mail.forgotPassword.html', params)) +
+        signatureHtml
     })
   }
 
@@ -352,20 +363,9 @@ class MailModel {
     const params = { name, link }
     await this.send({
       to,
-      subject: await WIKI.models.locales.resolveString(
-        locale,
-        'mail.passwordResetConfirmed.subject'
-      ),
-      text: await WIKI.models.locales.resolveString(
-        locale,
-        'mail.passwordResetConfirmed.text',
-        params
-      ),
-      html: await WIKI.models.locales.resolveString(
-        locale,
-        'mail.passwordResetConfirmed.html',
-        params
-      )
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.subject'),
+      text: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.text', params),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.passwordChanged.html', params)
     })
   }
 
@@ -381,25 +381,21 @@ class MailModel {
    */
   async sendTestEmail({ to, locale }: { to: string; locale?: string | null }): Promise<void> {
     const baseURL = WIKI.config.mail?.defaultBaseURL
-    const baseURLLineText = baseURL
-      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLSetText', {
-          baseURL
+    const baseURLText = baseURL
+      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.text', {
+          url: baseURL
         })
       : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
-    const baseURLLineHtml = baseURL
-      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLSetHtml', {
-          baseURL
+    const baseURLHtml = baseURL
+      ? await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLConfigured.html', {
+          url: baseURL
         })
       : await WIKI.models.locales.resolveString(locale, 'mail.testEmail.baseURLMissing')
     await this.send({
       to,
       subject: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.subject'),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.text', {
-        baseURLLine: baseURLLineText
-      }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.html', {
-        baseURLLine: baseURLLineHtml
-      })
+      text: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.text', { baseURLText }),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.testEmail.html', { baseURLHtml })
     })
   }
 
@@ -427,23 +423,36 @@ class MailModel {
    * @param baseURL The link's host, resolved by the caller via {@link resolveMailBaseURL} for the
    *   same reason as `locales` — once per send, from the one `siteId` every item in a send shares.
    */
-  private renderWatchEventLine(
+  private async renderWatchEventLine(
     { page, action, changedFields, actorName }: WatchEventItem,
     locales: LocaleRoutingConfig | null | undefined,
-    baseURL: string
-  ): {
+    baseURL: string,
+    locale?: string | null
+  ): Promise<{
     text: string
     html: string
-  } {
-    const label = WATCH_ACTION_LABELS[action]
+  }> {
+    const label = await watchActionLabel(action, locale)
     const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
     const link = this.buildLink(localizedPagePath(page.path, page.locale, locales), baseURL)
     const safeTitle = escapeHtml(page.title)
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
     return {
-      text: `${actorName} ${label} "${page.title}" (${summary}) — ${link}`,
-      html: `${safeActor} ${label} <strong>${safeTitle}</strong> (${safeSummary}) — <a href="${link}">${link}</a>`
+      text: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.text', {
+        actor: actorName,
+        label,
+        title: page.title,
+        summary,
+        link
+      }),
+      html: await WIKI.models.locales.resolveString(locale, 'mail.watchEventLine.html', {
+        actor: safeActor,
+        label,
+        title: safeTitle,
+        summary: safeSummary,
+        link
+      })
     }
   }
 
@@ -474,24 +483,22 @@ class MailModel {
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
-    const label = WATCH_ACTION_LABELS[action]
-    const line = this.renderWatchEventLine(
+    const label = await watchActionLabel(action, locale)
+    const line = await this.renderWatchEventLine(
       { page, action, changedFields, actorName },
       locales,
-      baseURL
+      baseURL,
+      locale
     )
+    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.footer')
     await this.send({
       to,
-      subject: await WIKI.models.locales.resolveString(locale, 'mail.pageWatch.subject', {
+      subject: await WIKI.models.locales.resolveString(locale, 'mail.watchNotification.subject', {
         label,
         title: page.title
       }),
-      text: await WIKI.models.locales.resolveString(locale, 'mail.pageWatch.text', {
-        line: line.text
-      }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.pageWatch.html', {
-        line: line.html
-      })
+      text: `${line.text}\n\n${footer}`,
+      html: `<p>${line.html}</p><p>${footer}</p>`
     })
   }
 
@@ -525,24 +532,23 @@ class MailModel {
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
-    const lines = items.map((item) => this.renderWatchEventLine(item, locales, baseURL))
+    const lines = await Promise.all(
+      items.map((item) => this.renderWatchEventLine(item, locales, baseURL, locale))
+    )
     const count = items.length
     const subject = await WIKI.models.locales.resolvePluralString(
       locale,
       'mail.watchDigest.subject',
       count
     )
+    const footer = await WIKI.models.locales.resolveString(locale, 'mail.watchDigest.footer')
     const text = lines.map((line) => `- ${line.text}`).join('\n')
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
     await this.send({
       to,
       subject,
-      text: await WIKI.models.locales.resolveString(locale, 'mail.watchDigest.text', {
-        items: text
-      }),
-      html: await WIKI.models.locales.resolveString(locale, 'mail.watchDigest.html', {
-        items: html
-      })
+      text: `${text}\n\n${footer}`,
+      html: `${html}<p>${footer}</p>`
     })
   }
 }

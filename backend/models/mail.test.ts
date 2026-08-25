@@ -864,11 +864,33 @@ describe('mail templates resolve through the locale catalogue', () => {
 
     assert.equal(sendCalls[0].subject, enStrings['mail.verifyEmail.subject'])
     assert.equal(sendCalls[1].subject, enStrings['mail.forgotPassword.subject'])
-    assert.equal(sendCalls[2].subject, enStrings['mail.passwordResetConfirmed.subject'])
+    assert.equal(sendCalls[2].subject, enStrings['mail.passwordChanged.subject'])
     assert.equal(sendCalls[3].subject, enStrings['mail.welcomeEmail.subject'])
     assert.equal(sendCalls[4].subject, enStrings['mail.testEmail.subject'])
-    // -> WATCH_ACTION_LABELS maps the `updated` action to the verb "edited" for display
-    assert.equal(sendCalls[5].subject, 'Page edited: Getting Started')
+    // -> mail.watchAction.updated maps the `updated` action to the verb "edited" for display
+    const expectedWatchSubject = enStrings['mail.watchNotification.subject']
+      .replace('{label}', enStrings['mail.watchAction.updated'])
+      .replace('{title}', 'Getting Started')
+    assert.equal(sendCalls[5].subject, expectedWatchSubject)
+  })
+
+  test('sendPageWatchNotification body includes the mail.watchNotification.footer line', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    captureSends()
+    await mail.sendPageWatchNotification({
+      to: 'a@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'updated',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+    assert.match(sendCalls[0].text, /Manage your watched pages from your profile's Inbox/)
+    assert.match(sendCalls[0].html, /Manage your watched pages from your profile's Inbox/)
   })
 
   test('watch-digest subject uses a plural message for counts of 0, 1 and 2', async () => {
@@ -911,8 +933,9 @@ describe('mail templates resolve through the locale catalogue', () => {
       ]
     })
 
-    assert.equal(sendCalls[0].subject, "No updates on pages you're watching")
-    assert.equal(sendCalls[1].subject, "1 update on pages you're watching")
-    assert.equal(sendCalls[2].subject, "2 updates on pages you're watching")
+    const [zeroForm, oneForm, otherForm] = enStrings['mail.watchDigest.subject'].split(' | ')
+    assert.equal(sendCalls[0].subject, zeroForm)
+    assert.equal(sendCalls[1].subject, oneForm)
+    assert.equal(sendCalls[2].subject, otherForm.replace('{count}', '2'))
   })
 })
