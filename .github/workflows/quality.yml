@@ -98,6 +98,20 @@ jobs:
         working-directory: frontend
         run: npm run emoji:check
 
+      # OpenProject #1615, the last child of #1586 ("Localize the shared library's 14 English
+      # strings, the 41 hardcoded notify messages and the group permission catalog"): oxlint has no
+      # i18n rule, so this Vitest source-scan (`src/i18nSourceGate.test.js`) is the regression guard
+      # against a newly reintroduced untranslated English literal -- a capitalised sentence passed as
+      # `message:` to `notify()`, the same thrown from `new Error()`, a static `aria-label="…"` /
+      # `label="…"` literal under `src/components` or `src/pages`, or the misspelled
+      # `'An unexpected error occured.'`. It also runs as part of `npm run test` below (it is a
+      # `*.test.js` file under `src`), but gets its own step here -- the same way `icons:check` and
+      # `emoji:check` do above -- so a failure here reads as "untranslated literal reintroduced"
+      # rather than being lost in the much larger frontend suite's output.
+      - name: Frontend i18n Source Check
+        working-directory: frontend
+        run: npm run i18n:check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint --deny-warnings

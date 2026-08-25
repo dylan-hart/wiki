@@ -13,6 +13,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "icons:check": "node scripts/generate-icons.mjs --check",
     "test": "vitest run",
+    "i18n:check": "vitest run src/i18nSourceGate.test.js",
     "emoji": "node scripts/generate-emoji.mjs",
     "emoji:check": "node scripts/generate-emoji.mjs --check"
   },
