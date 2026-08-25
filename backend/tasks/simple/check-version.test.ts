@@ -52,6 +52,26 @@ describe('check-version.task', () => {
     assert.equal(saveToDb.mock.callCount(), 1)
   })
 
+  test('merges into WIKI.config.update rather than replacing it, preserving an existing locales opt-out', async () => {
+    // -> 2026-08-24 audit finding §5: `update` also holds `locales` (an operator's opt-out of the
+    //    daily `updateLocales` sync, `base.yml`'s `update.locales`) -- a bare assignment previously
+    //    discarded it on every run after the first.
+    WIKI.config.update = { locales: false }
+    globalThis.fetch = mock.fn(
+      async () =>
+        new Response(JSON.stringify({ tag_name: 'v3.1.0', published_at: '2026-08-01T00:00:00Z' }), {
+          status: 200
+        })
+    ) as unknown as typeof fetch
+
+    await checkVersion()
+
+    assert.equal(WIKI.config.update.locales, false)
+    assert.equal(WIKI.config.update.version, '3.1.0')
+    assert.equal(WIKI.config.update.versionDate, '2026-08-01T00:00:00Z')
+    assert.ok(WIKI.config.update.lastCheckedAt)
+  })
+
   test('does nothing when the instance is in offline mode (OpenProject #820)', async () => {
     WIKI.config = { offline: true }
     const fetchSpy = mock.fn()

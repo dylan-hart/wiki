@@ -63,9 +63,14 @@ export const JOB_SCHEDULE_SEED = [
     cron: '25 0 * * *',
     type: 'system'
   },
+  // -> Offset from `checkVersion` above, which also writes to `WIKI.config.update` -- both used to
+  //    land on the same minute and be claimed as one `processJob` batch, and `checkVersion`'s
+  //    (now-fixed) unconditional overwrite of the whole `update` object raced this task's synchronous
+  //    read of `update.locales` at the top of its own `task()`, discarding an operator's opt-out on
+  //    every co-scheduled run after the first.
   {
     task: 'updateLocales',
-    cron: '0 0 * * *',
+    cron: '30 0 * * *',
     type: 'system'
   },
   // -> Trims audit log entries older than the configured retention window (default

@@ -19,19 +19,47 @@ export interface ClassificationLevel {
 /**
  * Every level, ordered most-open (lowest `sortOrder`) first.
  *
- * Cached the same way `groups`' page rules are (`models/groups.ts`'s `rulesCache`): a page's
- * classification is resolved against this on every page create/move/update, so reading it from the
- * database on every request would put a query in front of everything the floor invariant (#1080)
- * touches. Reloaded whenever a level is created, edited, reordered or removed.
+ * Cached the same way `groups`' page rules are (`models/groups.ts`'s `rulesCache`), **and now also
+ * invalidated across the cluster the same way**: a page's classification is resolved against this on
+ * every page create/move/update, so reading it from the database on every request would put a query in
+ * front of everything the floor invariant (#1080) touches. Reloaded whenever a level is created,
+ * edited, reordered or removed -- on this instance via `broadcastReload()`, and on every other cluster
+ * instance via the `reloadClassificationLevels` event `subscribeToEvents()` listens for.
  */
 let levelsCache: ClassificationLevel[] = []
 
 class ClassificationLevels {
-  /** Reload every level into memory. Called at boot, same as `groups.reloadCache()`. */
+  /**
+   * Reload every level into memory. Called at boot, and by both halves of the cross-instance
+   * propagation below -- `broadcastReload()` (this instance's own change) and `subscribeToEvents()`'s
+   * handler (another instance's). Never call this directly from a mutator; go through
+   * `broadcastReload()` instead, or the change never reaches the rest of the cluster.
+   */
   async reloadCache(): Promise<void> {
     const rows = await WIKI.db.select().from(levelsTable).orderBy(asc(levelsTable.sortOrder))
     levelsCache = rows as ClassificationLevel[]
     WIKI.logger.info(`Loaded ${levelsCache.length} classification level(s) [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
+   *
+   * The write already happened in the database by the time a caller reaches this — what's left is
+   * making every instance's in-memory cache agree with it, this one included. Mirrors
+   * `models/groups.ts`'s `broadcastReload()`/`subscribeToEvents()` pair exactly, including its warning:
+   * never call `WIKI.events.outbound.emit('reloadClassificationLevels')` directly, and never call it
+   * from inside `reloadCache()` itself, or the event echoes back around the cluster forever.
+   */
+  private async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadClassificationLevels')
+  }
+
+  /** Subscribe to HA propagation events. */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadClassificationLevels', async () => {
+      await this.reloadCache()
+    })
   }
 
   /** Every level, most-open first. What the admin list and every level picker render. */
@@ -127,7 +155,7 @@ class ClassificationLevels {
     }
     const sortOrder = input.sortOrder ?? (levelsCache.at(-1)?.sortOrder ?? -1) + 1
     const inserted = await WIKI.db.insert(levelsTable).values({ name, sortOrder }).returning()
-    await this.reloadCache()
+    await this.broadcastReload()
     return inserted[0] as ClassificationLevel
   }
 
@@ -151,7 +179,7 @@ class ClassificationLevels {
       .set(values)
       .where(eq(levelsTable.id, id))
       .returning()
-    await this.reloadCache()
+    await this.broadcastReload()
     return (updated[0] as ClassificationLevel) ?? null
   }
 
@@ -168,7 +196,7 @@ class ClassificationLevels {
           .where(eq(levelsTable.id, id))
       }
     })
-    await this.reloadCache()
+    await this.broadcastReload()
   }
 
   /**
@@ -215,7 +243,7 @@ class ClassificationLevels {
       )
     }
     const result = await WIKI.db.delete(levelsTable).where(eq(levelsTable.id, id))
-    await this.reloadCache()
+    await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
   }
 

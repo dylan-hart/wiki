@@ -13,7 +13,12 @@ export async function task(): Promise<void> {
     const strictVersion =
       resp.tag_name.indexOf('v') === 0 ? resp.tag_name.substring(1) : resp.tag_name
     WIKI.logger.info(`Latest version is ${resp.tag_name}.`)
+    // -> Spread over the existing object, not replaced: `update` also holds `locales` (an operator's
+    //    opt-out of the daily `updateLocales` sync, `base.yml`'s `update.locales`), which a bare
+    //    assignment here silently discarded on every run after the first, re-enabling locale syncing
+    //    for an egress-restricted deployment regardless of what the admin area shows.
     WIKI.config.update = {
+      ...WIKI.config.update,
       lastCheckedAt: new Date().toISOString(),
       version: strictVersion,
       versionDate: resp.published_at

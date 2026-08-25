@@ -31,18 +31,58 @@ import type { Pool } from 'pg'
  * unrelated targets occasionally serializing against each other rather than running concurrently,
  * never a correctness problem, so it is not worth a second int32 (`pg_advisory_lock(int, int)`) to
  * avoid.
+ *
+ * Acquisition is bounded by a session-level `lock_timeout` on this same connection: `pg_advisory_lock`
+ * itself blocks forever with nothing else in this codebase setting a `lock_timeout`, so a wedged
+ * holder (a dead peer, a hung `fn` from an earlier, still-in-flight call) would otherwise strand this
+ * caller — and the worker slot or scheduler tick it runs on — indefinitely. A timed-out acquisition
+ * throws like any other Postgres error and releases the connection normally, since the lock was never
+ * taken. Deliberately `SET`, not `SET LOCAL`: this client issues each statement as its own separate
+ * query with no enclosing `BEGIN`, and Postgres runs an unwrapped statement in its own implicit
+ * transaction that ends the instant it finishes — so a `SET LOCAL` here would revert before the very
+ * next statement (the lock acquisition itself) ever saw it, silently leaving the wait unbounded again.
+ * The session-level `SET` takes effect immediately and stays in effect for the rest of this
+ * connection's life, which is exactly why it is reset back to `DEFAULT` before a clean release below:
+ * left set, a 30s `lock_timeout` would leak onto whatever unrelated query the pool next hands this
+ * connection to.
  */
+const LOCK_ACQUIRE_TIMEOUT_MS = 30_000
+
 export async function withAdvisoryLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const pool = WIKI.db.$client as Pool
   const client = await pool.connect()
+  let releaseCleanly = true
   try {
+    await client.query(`SET lock_timeout = ${LOCK_ACQUIRE_TIMEOUT_MS}`)
     await client.query('SELECT pg_advisory_lock(hashtext($1))', [key])
     try {
       return await fn()
     } finally {
-      await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+      // -> The unlock is awaited in its own try/catch, never a bare `finally`: an abrupt completion
+      //    from a `finally` replaces the error `fn` is already propagating, so if the connection died
+      //    mid-`fn` — the situation `fn` most likely just threw for — the caller would see the
+      //    unlock's error instead of the real one. Swallow it here (logged, not silent) and let
+      //    `releaseCleanly` tell the outer `finally` whether the lock's state on this connection is
+      //    still trustworthy.
+      try {
+        await client.query('SELECT pg_advisory_unlock(hashtext($1))', [key])
+        // -> Reset the session GUC before this connection can go back to the pool for reuse by
+        //    unrelated code -- see this function's own doc comment for why `lock_timeout` is set at
+        //    session scope in the first place.
+        await client.query('SET lock_timeout = DEFAULT')
+      } catch (err: any) {
+        releaseCleanly = false
+        WIKI.logger.warn(
+          `Failed to release advisory lock ${key}, discarding the connection: ${err.message}`
+        )
+      }
     }
   } finally {
-    client.release()
+    // -> `client.release(true)` when the unlock (or the GUC reset following it) could not be
+    //    confirmed: `pg_advisory_lock` is re-entrant per session, so recycling a connection whose lock
+    //    state is uncertain would let a later borrower acquire the key trivially while every other
+    //    session blocks on it forever -- and one whose `lock_timeout` reset is uncertain is safer
+    //    discarded too, rather than silently carrying a stale timeout into unrelated future queries.
+    client.release(!releaseCleanly)
   }
 }

@@ -639,13 +639,34 @@ class Glossary {
   }
 
   /**
-   * Drops the raw term→page cache for a site. Public because a canonical page's path (or existence)
-   * can change from outside this model — `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned`
-   * call this too, since `getRawCachedTerms` caches which page a term points at and nothing else would
-   * otherwise tell it a linked page moved or was deleted (OpenProject #870).
+   * Drops the raw term→page cache for a site, on this instance and, since a term or page change on one
+   * instance leaves every other instance's copy of this same mapping stale otherwise, every other one
+   * too. Public because a canonical page's path (or existence) can change from outside this model —
+   * `models/pages.ts`'s `movePage`/`deletePage`/`deleteOrphaned` call this too, since
+   * `getRawCachedTerms` caches which page a term points at and nothing else would otherwise tell it a
+   * linked page moved or was deleted (OpenProject #870). The broadcast is per-site rather than "reload
+   * everything" (there is nothing to eagerly reload — `getRawCachedTerms` is a lazy, on-demand cache,
+   * so the peer's next read simply refetches): `clearCache` is the shared local-only step, called
+   * directly by `subscribeToEvents()`'s inbound handler so an event received from another instance
+   * clears without re-emitting and echoing back around the cluster forever, the same rule
+   * `models/groups.ts`'s `broadcastReload()` documents for its own shape.
    */
   invalidateCache(siteId: string): void {
+    this.clearCache(siteId)
+    WIKI.events.outbound.emit('reloadGlossary', { siteId })
+  }
+
+  /** The actual cache delete, with no broadcast — see `invalidateCache()`'s doc comment for why. */
+  private clearCache(siteId: string): void {
     WIKI.cache.delete(cacheKey(siteId))
+  }
+
+  /** Subscribe to HA propagation events. */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadGlossary', (event: any) => {
+      const { siteId } = (event.data ?? {}) as { siteId: string }
+      this.clearCache(siteId)
+    })
   }
 
   /** Confirms a canonical page reference exists and belongs to the same site, or rejects it. */

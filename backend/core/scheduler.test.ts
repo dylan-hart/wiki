@@ -87,23 +87,26 @@ describe('addScheduled (fake WIKI)', () => {
               set: () => ({
                 where: async () => ({ rowCount: 1 })
               })
+            }),
+            // -> `addScheduled()` now reads both selects through `trx` rather than the ambient
+            //    `WIKI.db` pool handle (finding §15) -- same fake data, same table-dispatch shape as
+            //    `WIKI.db.select()` below.
+            select: () => ({
+              from: (table: any) => {
+                if (table === jobScheduleTable) {
+                  return scheduleJobsMock
+                }
+                if (table === jobsTable) {
+                  return { where: async () => existingJobsMock }
+                }
+                throw new Error(`Unexpected table in test fake: ${String(table)}`)
+              }
             })
           }),
-        select: () => ({
-          from: (table: any) => {
-            if (table === jobScheduleTable) {
-              return scheduleJobsMock
-            }
-            if (table === jobsTable) {
-              return { where: async () => existingJobsMock }
-            }
-            throw new Error(`Unexpected table in test fake: ${String(table)}`)
-          }
-        }),
         insert: (_table: any) => ({
           values: async (v: any) => {
             insertedJobs.push(v)
-            return {}
+            return { id: v.id ?? 'fake-id' }
           }
         })
       }
@@ -395,6 +398,55 @@ describe('executeOnWorker (real worker pool)', () => {
     // -> The worker is gone before the abort signal has anything left to abort, so only the backup
     //    `setTimeout` at taskTimeout + TASK_TIMEOUT_GRACE (1s + 5s = 6s) rejects this.
     assert.ok(elapsed >= 5500, `expected the backup timer (~6s) to fire, took ${elapsed}ms`)
+  })
+})
+
+/**
+ * 2026-08-24 audit finding §2: `executeInProcess` gives an in-process task the same `taskTimeout`
+ * ceiling `executeOnWorker` already has for a worker-thread one. A pure-unit test, unlike
+ * `executeOnWorker`'s real-worker-pool suite above: there is no thread to crash here, only the
+ * scheduler's own bookkeeping to keep finite, so a task whose promise simply never resolves is
+ * enough to exercise it.
+ */
+describe('executeInProcess (fake WIKI)', () => {
+  let previousWiki: any
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = {
+      INSTANCE_ID: 'test-instance',
+      // -> Short enough to keep the suite fast.
+      config: { scheduler: { taskTimeout: 0.05 } },
+      logger: { info: () => {}, warn: () => {}, debug: () => {} }
+    }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('a task whose promise never settles is abandoned at the taskTimeout ceiling', async () => {
+    scheduler.tasks = {
+      // -> Never resolves or rejects, modeling `withAdvisoryLock` blocking forever on an
+      //    unavailable lock -- the documented real-world case (audit finding §2).
+      neverSettles: () => new Promise(() => {})
+    }
+    const start = Date.now()
+    await assert.rejects(
+      scheduler.executeInProcess({ task: 'neverSettles', payload: {}, id: 'job-1' }),
+      /did not complete within/
+    )
+    const elapsed = Date.now() - start
+    assert.ok(elapsed < 2000, `expected the taskTimeout ceiling (~50ms) to fire, took ${elapsed}ms`)
+  })
+
+  test('a task that resolves before the ceiling is not treated as timed out', async () => {
+    scheduler.tasks = {
+      quick: async () => {}
+    }
+    await assert.doesNotReject(
+      scheduler.executeInProcess({ task: 'quick', payload: {}, id: 'job-2' })
+    )
   })
 })
 
