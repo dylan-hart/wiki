@@ -55,13 +55,22 @@ function toUserZone(date, timezone) {
 /**
  * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
  * where they mean 00:00.
+ *
+ * @param seconds Adds `second: '2-digit'` -- for the rare screen where the precision IS the point
+ *   (a job's scheduled run, a webhook delivery attempt), not the default minute precision everywhere
+ *   else. See `helpers/datetime.js`'s `humanizeDateWithSeconds`.
  */
-function formatTimePart(zoned, timeFormat) {
+function formatTimePart(zoned, timeFormat, seconds = false) {
   return zoned.toLocaleString(
     undefined,
     timeFormat === '24h'
-      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
-      : { hour: 'numeric', minute: '2-digit', hour12: true }
+      ? {
+          hour: '2-digit',
+          minute: '2-digit',
+          ...(seconds && { second: '2-digit' }),
+          hourCycle: 'h23'
+        }
+      : { hour: 'numeric', minute: '2-digit', ...(seconds && { second: '2-digit' }), hour12: true }
   )
 }
 
@@ -278,15 +287,16 @@ export const useUserStore = defineStore('user', {
      * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
      *             returns. Nullable columns like `lastLoginAt` are common, so nothing at all formats as
      *             an empty string rather than blowing up mid-render.
+     * @param seconds Include seconds in the time part. Off by default; see `formatTimePart`.
      */
-    formatDateTime(t, date) {
+    formatDateTime(t, date, { seconds = false } = {}) {
       if (!date) {
         return ''
       }
       const zoned = toUserZone(date, this.timezone)
       return t('common.datetime', {
         date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat)
+        time: formatTimePart(zoned, this.timeFormat, seconds)
       })
     },
     /**
