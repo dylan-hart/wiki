@@ -2132,6 +2132,7 @@
   "editor.props.pageProperties": "Page Properties",
   "editor.props.password": "Password",
   "editor.props.passwordHint": "The page must be published and the user must have read access rights.",
+  "editor.props.passwordKeepHint": "This page already has a password. Leave blank to keep it, or enter a new one to replace it.",
   "editor.props.publishState": "Publishing State",
   "editor.props.published": "Published",
   "editor.props.publishedHint": "Visible to all users with read access.",

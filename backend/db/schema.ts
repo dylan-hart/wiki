@@ -772,6 +772,9 @@ export const pages = pgTable(
     isSearchableComputed: boolean('isSearchableComputed').generatedAlwaysAs(
       (): SQL => sql`${pages.publishState} != 'draft' AND ${pages.isSearchable}`
     ),
+    // -> A `bcrypt` verifier, never the cleartext (OpenProject #2232) -- `models/pages.ts` hashes it
+    //    on write and checks a guess against it with `bcrypt.compare` on read; nothing reads this
+    //    column back as a value to hand to a caller.
     password: varchar({ length: 255 }),
     ratingScore: integer().notNull().default(0),
     ratingCount: timestamp().notNull().defaultNow(),
