@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import ProfileApi from './ProfileApi.vue'
@@ -11,6 +12,8 @@ import ProfileApi from './ProfileApi.vue'
  * switch (neither makes sense for a token that always carries the caller's own current permissions).
  */
 function mountPage() {
+  setActivePinia(createPinia())
+
   const i18n = createI18n({
     legacy: false,
     locale: 'en',

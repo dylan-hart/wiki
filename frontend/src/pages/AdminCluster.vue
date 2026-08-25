@@ -104,12 +104,14 @@ import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import { relativeDate } from '@/helpers/datetime'
 
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -177,22 +179,11 @@ const nodesHeaders = [
 
 // METHODS
 
-/*
-  The fields luxon's `fff` expanded to, so the cell reads exactly as before -- long month, no seconds.
-  The scheduler spells out seconds in its own copy of this, because there a job's timing is the point.
-*/
 function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 async function load() {

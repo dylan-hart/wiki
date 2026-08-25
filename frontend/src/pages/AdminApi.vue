@@ -206,6 +206,7 @@ import { dialog } from '@/composables/dialog'
 
 import { useAdminStore } from '@/stores/admin'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 import ApiKeyCreateDialog from '../components/ApiKeyCreateDialog.vue'
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
@@ -219,6 +220,7 @@ const dark = useDark()
 
 const adminStore = useAdminStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -251,14 +253,7 @@ function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 /** A key past its expiration still authenticates nothing, even though it was never revoked. */

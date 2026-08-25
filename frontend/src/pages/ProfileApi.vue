@@ -129,9 +129,15 @@ import ProfileApiKeyCreateDialog from '../components/ProfileApiKeyCreateDialog.v
 import ApiKeyRevokeDialog from '../components/ApiKeyRevokeDialog.vue'
 import { apiErrorMessage } from '@/helpers/apiError'
 
+import { useUserStore } from '@/stores/user'
+
 // COMPOSABLES
 
 const dark = useDark()
+
+// STORES
+
+const userStore = useUserStore()
 
 // I18N
 
@@ -160,14 +166,7 @@ function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 /** A token past its expiration still authenticates nothing, even though it was never revoked. */

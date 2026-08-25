@@ -55,13 +55,26 @@ function toUserZone(date, timezone) {
 /**
  * Render the time part. `hourCycle` rather than `hour12: false`, which some locales render as 24:00
  * where they mean 00:00.
+ *
+ * @param seconds Append `:ss` — for a screen where sub-minute precision is the point (a webhook
+ *   delivery log, a scan report, a scheduler run), not the default for a reader's everyday timestamp.
  */
-function formatTimePart(zoned, timeFormat) {
+function formatTimePart(zoned, timeFormat, { seconds = false } = {}) {
   return zoned.toLocaleString(
     undefined,
     timeFormat === '24h'
-      ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }
-      : { hour: 'numeric', minute: '2-digit', hour12: true }
+      ? {
+          hour: '2-digit',
+          minute: '2-digit',
+          ...(seconds ? { second: '2-digit' } : {}),
+          hourCycle: 'h23'
+        }
+      : {
+          hour: 'numeric',
+          minute: '2-digit',
+          ...(seconds ? { second: '2-digit' } : {}),
+          hour12: true
+        }
   )
 }
 
@@ -278,15 +291,18 @@ export const useUserStore = defineStore('user', {
      * @param date A `Temporal.Instant`, a `Date`, or a string one can be parsed from — what the API
      *             returns. Nullable columns like `lastLoginAt` are common, so nothing at all formats as
      *             an empty string rather than blowing up mid-render.
+     * @param seconds Include seconds in the time part — for a log-style timestamp (webhook delivery,
+     *             scheduler run, security scan) where sub-minute precision is the point, rather than an
+     *             everyday "last modified" line.
      */
-    formatDateTime(t, date) {
+    formatDateTime(t, date, { seconds = false } = {}) {
       if (!date) {
         return ''
       }
       const zoned = toUserZone(date, this.timezone)
       return t('common.datetime', {
         date: formatDatePart(zoned, this.dateFormat),
-        time: formatTimePart(zoned, this.timeFormat)
+        time: formatTimePart(zoned, this.timeFormat, { seconds })
       })
     },
     /**
