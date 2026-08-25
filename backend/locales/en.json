@@ -1713,6 +1713,7 @@
   "common.actions.saveAndClose": "Save and Close",
   "common.actions.saveChanges": "Save Changes",
   "common.actions.select": "Select",
+  "common.actions.skipToContent": "Skip to main content",
   "common.actions.submitEdits": "Submit Edits",
   "common.actions.suggestEdits": "Suggest Edits",
   "common.actions.suggestedEdit": "Suggested Edit",

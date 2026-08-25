@@ -1,5 +1,16 @@
 <template>
   <w-layout>
+    <!--
+      The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
+      Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
+      reachable by a screen reader regardless of the CSS below (nothing here uses `display: none` /
+      `visibility: hidden`, which would pull it out of the accessibility tree along with the visual
+      hiding); the transform only keeps it off a sighted keyboard user's screen until THEY tab to it
+      too. `#w-page-main` is the `<main>` `WPage` renders, given a `tabindex="-1"` there for exactly
+      this -- see its own comment for why a fragment link alone would only move the SCROLL position,
+      not focus.
+    -->
+    <a href="#w-page-main" class="skip-link">{{ t('common.actions.skipToContent') }}</a>
     <w-header class="site-header-wrap">
       <header-nav />
     </w-header>
@@ -400,6 +411,38 @@ function openSidebar() {
 </script>
 
 <style lang="scss">
+/*
+  `position: fixed` at all times, not only once focused: `.w-layout` (the parent) is a CSS grid
+  with every one of its ordinary children placed by a named `grid-area` (header/drawer/main/footer)
+  -- an item with none of its own falls to the grid's auto-placement algorithm instead, which is
+  not where a skip link belongs. `position: fixed` takes it out of grid placement entirely in both
+  states, so there is nothing here for the grid to fit it into to get wrong.
+
+  Off-screen via `transform` rather than `sr-only`-style clipping, so this owns its own visibility
+  outright: a class-based visually-hidden utility paired with a `:focus` variant is two rules
+  fighting over `position` on the same element (the utility's `:focus` form necessarily wins that
+  fight on specificity alone), which would undo the fixed positioning above the moment this is
+  focused -- right when it needs to hold its position on screen the most.
+*/
+.skip-link {
+  position: fixed;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 100;
+  padding: 8px 16px;
+  border-radius: 4px;
+  background-color: $primary;
+  color: #fff;
+  font-weight: 500;
+  text-decoration: none;
+  transform: translateY(-150%);
+  transition: transform 0.15s var(--ease-standard, ease);
+
+  &:focus {
+    transform: translateY(0);
+  }
+}
+
 .sidebar-actions {
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0.05) 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.2);

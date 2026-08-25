@@ -45,7 +45,7 @@
       than everything else in the row, so there is nothing to centre and this changes nothing.
     -->
     <div class="min-w-0 flex-1 flex flex-col justify-center p-2 sm:p-4">
-      <div class="text-h4 page-header-title">
+      <h1 class="text-h4 page-header-title">
         <span
           v-if="isEditing"
           ref="titleEl"
@@ -60,7 +60,7 @@
           @blur="onEditableBlur(`title`, $event)"
           @keydown.enter.prevent="$event.target.blur()" />
         <span v-else>{{ pageStore.title }}</span>
-      </div>
+      </h1>
       <div class="text-subtitle2 page-header-subtitle">
         <span
           v-if="isEditing"

@@ -2,7 +2,7 @@
   <w-page class="py-4 profile-api">
     <div class="flex items-center p-4">
       <div class="min-w-0 flex-1">
-        <div class="w-section-header">{{ t('profile.api.title') }}</div>
+        <h1 class="w-section-header">{{ t('profile.api.title') }}</h1>
         <div class="text-body2 text-grey">{{ t('profile.api.subtitle') }}</div>
       </div>
       <div class="flex-none">

@@ -499,6 +499,43 @@ async function mountSidebar(sidebarPosition) {
   })
 }
 
+/**
+ * OpenProject #1630 (task 1640): the primary navigation had no `<nav>` element and no accessible
+ * name at all, so it was unreachable through the landmarks rotor and indistinguishable from
+ * `PageToc`'s own `<nav>` even if it had been one. `common.sidebar.browse` ("Browse") is the label
+ * the fix's own spec names, already used elsewhere in this sidebar for the tree-browser button.
+ */
+describe('NavSidebar landmark', () => {
+  it('wraps the nav list in a named <nav> landmark', async () => {
+    setActivePinia(createPinia())
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    // -> A real message this time (`mountSidebar`'s own harness intentionally leaves `en` empty,
+    //    since none of ITS assertions read a translated string) -- vue-i18n returns the bare key
+    //    for a missing one, and this test needs the resolved label.
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: { en: { 'common.sidebar.browse': 'Browse' } }
+    })
+
+    const wrapper = mount(NavSidebar, { global: { plugins: [router, i18n] } })
+    await wrapper.vm.$nextTick()
+
+    const nav = wrapper.find('nav')
+    expect(nav.exists()).toBe(true)
+    expect(nav.attributes('aria-label')).toBe('Browse')
+    // -> The list itself lives INSIDE the landmark, not merely beside it
+    expect(nav.find('.sidebar-nav-list').exists()).toBe(true)
+  })
+})
+
 describe('NavSidebar', () => {
   it('applies sidebar-nav--flipped only when sidebarPosition is "right"', async () => {
     const defaultSidebar = await mountSidebar('left')

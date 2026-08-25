@@ -1,5 +1,5 @@
 <template>
-  <div class="w-card-header w-section-header">
+  <component :is="level" class="w-card-header w-section-header">
     <div class="w-card-header__row">
       <div class="min-w-0 flex-1">
         <slot />
@@ -15,11 +15,11 @@
         <slot name="action" />
       </div>
     </div>
-  </div>
+  </component>
 </template>
 
 <script setup>
- /**
+/**
  * Heading band at the top of a `WCard`.
  *
  * Replaces the plain `WCardSection` + `text-subtitle1` pairing the admin cards used, so the whole
@@ -31,7 +31,18 @@
  *     <template #hint>Shown in the browser tab</template>
  *     <template #action><w-btn ... /></template>
  *   </w-card-header>
+ *
+ * `level` picks which real heading element this renders as (defaulting to `h2`, since a card or
+ * dialog section sits one level under the page's own `h1`) -- purely semantic, since the visual
+ * comes entirely from the two classes above rather than from the tag.
  */
+defineProps({
+  level: {
+    type: String,
+    default: 'h2',
+    validator: (val) => ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(val)
+  }
+})
 </script>
 
 <style scoped>
