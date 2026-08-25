@@ -146,7 +146,8 @@ test('actorFor: resolves to the identity own groups, carrying the key permission
     groupIds: ['group-a'],
     permissions: ['manage:system'],
     scope: null,
-    allowedClassifications: undefined
+    allowedClassifications: undefined,
+    siteId: null
   })
 })
 
@@ -156,7 +157,8 @@ test('actorFor: an admin-issued key with no configured groups grants no page rul
     groupIds: [],
     permissions: ['read:pages'],
     scope: null,
-    allowedClassifications: undefined
+    allowedClassifications: undefined,
+    siteId: null
   })
 })
 
@@ -173,8 +175,20 @@ test('actorFor: threads scope and allowedClassifications through, for checkAcces
     groupIds: ['group-a'],
     permissions: ['read:pages'],
     scope: ['read:pages'],
-    allowedClassifications: ['level-internal']
+    allowedClassifications: ['level-internal'],
+    siteId: null
   })
+})
+
+/**
+ * OpenProject #2189/#2199: `actorFor()` threads the key's own site pin through onto the actor too,
+ * so `checkAccess()`/`checkSiteAccess()` can refuse a foreign-site ref even from an MCP call.
+ */
+test('actorFor: threads siteId through, for checkAccess/checkSiteAccess to refuse a foreign site', () => {
+  const actor = actorFor(
+    ctx({ permissions: ['read:pages'], groupIds: ['group-a'], siteId: 'site-1' })
+  )
+  assert.equal(actor.siteId, 'site-1')
 })
 
 test('maySeeEverything: true when the actor holds write:pages or manage:pages anywhere', () => {
@@ -214,6 +228,7 @@ test('pageActorFor: a personal access token is attributed to its owner, tagged v
     groupIds: ['group-a'],
     scope: null,
     allowedClassifications: undefined,
+    siteId: null,
     via: 'mcp'
   })
 })

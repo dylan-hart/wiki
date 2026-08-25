@@ -13,6 +13,7 @@ import {
 } from '../db/schema.ts'
 import maintenance from '../core/maintenance.ts'
 import { purgeTimeframes } from '../models/pageHistory.ts'
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
 import { JOB_STATES } from '../models/jobs.ts'
 import type { FastifyInstance } from 'fastify'
@@ -1352,6 +1353,13 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> OpenProject #2201: siteId comes from the body, not `req.params`, so the global
+      //    preHandler in `index.ts` (which only reads `req.params.siteId`) never sees it -- this
+      //    route has to enforce the pin itself, the same way `enforceApiKeySite()`'s other direct
+      //    call sites do.
+      if (!enforceApiKeySite(req, reply, req.body.siteId)) {
+        return
+      }
       const added = await WIKI.scheduler.addJob({
         task: 'exportContent',
         payload: { siteId: req.body.siteId }
@@ -1496,6 +1504,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> OpenProject #2201: targetSiteId comes from the querystring, not `req.params`, so the
+      //    global preHandler in `index.ts` never sees it -- checked before anything else, since
+      //    this route replaces the target site's entire content.
+      if (!enforceApiKeySite(req, reply, req.query.targetSiteId)) {
+        return
+      }
       const data = req.body
       if (!Buffer.isBuffer(data) || data.length < 1) {
         return reply.badRequest('No archive was sent.')

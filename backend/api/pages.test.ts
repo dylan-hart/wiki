@@ -15,6 +15,7 @@ import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
 import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
+import { apiKeySitePinPreHandler } from '../helpers/apiKeySite.ts'
 import type { GroupRule } from '../models/groups.ts'
 
 /**
@@ -201,6 +202,11 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
         ;(req as any).session = JSON.parse(rawSession)
       }
     })
+    // -> OpenProject #2189/#2194: the site pin used to be enforced by a per-route
+    //    `enforceApiKeySite()` call this file's routes made directly; it is now a single global
+    //    `preHandler` registered in `index.ts`, which this test's own standalone app has to mirror
+    //    to keep exercising the same real behavior.
+    app.addHook('preHandler', apiKeySitePinPreHandler)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)

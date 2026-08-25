@@ -124,7 +124,11 @@ export function actorFor(ctx: McpAuthContext): AccessActor {
     groupIds: ctx.groupIds,
     permissions: ctx.permissions,
     scope: ctx.scope,
-    allowedClassifications: ctx.allowedClassifications
+    allowedClassifications: ctx.allowedClassifications,
+    // -> Belt and braces alongside `assertSiteInScope()` (OpenProject #2189/#2199): the tool
+    //    routing layer already refuses a call against a site the key isn't pinned to, but carrying
+    //    the pin onto the actor closes `checkAccess()`/`checkSiteAccess()` themselves too.
+    siteId: ctx.siteId
   }
 }
 
@@ -150,6 +154,7 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
     groupIds: ctx.groupIds,
     scope: ctx.scope,
     allowedClassifications: ctx.allowedClassifications,
+    siteId: ctx.siteId,
     via: 'mcp'
   }
 }

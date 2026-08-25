@@ -33,6 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
+import { apiKeySitePinPreHandler } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
@@ -641,6 +642,22 @@ async function initHTTPServer() {
     }
     return limitApiRequests(req, reply)
   })
+
+  // ----------------------------------------
+  // API Key Site Pin
+  // ----------------------------------------
+
+  /*
+    OpenProject #2189/#2194: `apiKeys.siteId` pins a key to one site, but only 2 of the 117
+    `/sites/:siteId/...` routes ever checked it before this -- the other 115 evaluated the key's
+    group rules against whatever `:siteId` the URL named, with nothing stopping a key deliberately
+    narrowed to site A from reading, writing or deleting content on site B. One global preHandler
+    covers the whole surface at once, rather than each route remembering its own call -- see
+    `helpers/apiKeySite.ts`'s doc comments for the full reasoning and for the couple of routes that
+    resolve their site from somewhere other than `req.params.siteId` and still have to call
+    `enforceApiKeySite()` directly.
+  */
+  app.addHook('preHandler', apiKeySitePinPreHandler)
 
   // ----------------------------------------
   // Permissions

@@ -114,6 +114,7 @@ test('handleCreatePage: creates a page and attributes it to the token owner', as
     groupIds: [GROUP_ID],
     scope: null,
     allowedClassifications: undefined,
+    siteId: null,
     via: 'mcp'
   })
   const page = textOf(result)

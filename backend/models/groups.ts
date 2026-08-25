@@ -143,12 +143,23 @@ const groupSelection = {
  * say. Checked by `checkAccess()` only: it is page-blind everywhere else
  * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
  * compare the allow-set against.
+ *
+ * `siteId`, when present, is the same key's own site pin (`ApiKeyIdentity.siteId`,
+ * `models/apiKeys.ts`) — `null`/absent means instance-wide (a session, or an unpinned key).
+ * OpenProject #2189/#2199: this is the engine-level half of the site-pin fix, closing
+ * `checkAccess()`/`checkSiteAccess()` themselves rather than relying only on the routing-layer
+ * `preHandler` (`helpers/apiKeySite.ts#apiKeySitePinPreHandler`) to have already refused a
+ * mismatched `:siteId`. Checked the same way `allowedClassifications` is: a ref whose own `siteId`
+ * disagrees with the pin is refused before `manage:system` is even consulted, for the identical
+ * reason -- a site pin is the administrator's own choice at mint time, not a page rule
+ * `manage:system` is entitled to override.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  siteId?: string | null
 }
 
 /**
@@ -270,7 +281,9 @@ class Groups {
       // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
-      allowedClassifications: req.apiKey?.allowedClassifications ?? null
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null,
+      // -> Same treatment: a session has no site pin, only an API key can carry one
+      siteId: req.apiKey?.siteId ?? null
     }
   }
 
@@ -326,6 +339,19 @@ class Groups {
       page.classification != null &&
       !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
     ) {
+      return false
+    }
+    /*
+      OpenProject #2189/#2199: the engine-level half of the API key site-pin fix -- a key pinned to
+      one site may never be granted a page permission on a page belonging to another, regardless of
+      what its groups' rules say and regardless of `manage:system`, for the identical reason the
+      classification check above already runs ahead of that bypass. The routing-layer `preHandler`
+      (`helpers/apiKeySite.ts`) already refuses a mismatched `:siteId` on every `/sites/:siteId/...`
+      route, but this closes the engine itself for any call path that reaches `checkAccess()`
+      without going through that hook. Skipped when the page's own `siteId` is unknown (`null`) for
+      the same reason the classification check is: there is nothing to compare the pin against.
+    */
+    if (actor.siteId != null && page.siteId != null && actor.siteId !== page.siteId) {
       return false
     }
     // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
@@ -417,6 +443,11 @@ class Groups {
    * @param siteId The site being administered
    */
   checkSiteAccess(actor: AccessActor, permission: string, siteId: string): boolean {
+    // -> Same site-pin guard as checkAccess(), ahead of manage:system for the same reason -- see
+    //    that method's own comment (OpenProject #2189/#2199)
+    if (actor.siteId != null && actor.siteId !== siteId) {
+      return false
+    }
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true

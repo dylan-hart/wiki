@@ -55,10 +55,11 @@ export const apiKeys = pgTable(
     //    list.
     scope: jsonb().$type<string[] | null>().default(null),
     // -> Deliberately nullable, unlike every other siteId column in this schema: null means the key
-    //    is instance-wide (every site), which is today's only behavior and stays the default. A
-    //    non-null value pins the key to one site. Enforcing that pin against the site a request is
-    //    actually addressed to is a follow-up (Epic 11, Multi-Site Platform) — this column and the
-    //    claim it is signed into only carry the data.
+    //    is instance-wide (every site), the default. A non-null value pins the key to one site,
+    //    enforced (OpenProject #2189/#2194) by a global `preHandler` in `index.ts` covering every
+    //    `/sites/:siteId/...` route, plus `AccessActor.siteId` closing the permission engine itself
+    //    (`groups.checkAccess()`/`checkSiteAccess()`) so a mismatched ref is refused there too, not
+    //    only at the routing layer.
     siteId: uuid().references(() => sites.id),
     // -> A per-level allow-set (OpenProject #1205, replacing the earlier #1055 single-value
     //    "ceiling"): null means unrestricted (today's only behavior, and the default, and stays
