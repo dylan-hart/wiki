@@ -40,11 +40,19 @@ class Security {
    * request showed the classic reverse-proxy cookie misconfiguration (upstream discussion #6866,
    * task 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`),
    * but this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself.
-   * `request.protocol` can only ever reflect the raw, plaintext connection in that case, so the
-   * `secure: 'auto'` session cookie (see the `Sessions` section of `index.ts`) resolves to
-   * `false` even though every browser in front of the proxy is really talking HTTPS. Reset only by
-   * a restart -- it describes how the process was started, not something that self-heals while it
-   * keeps running the same way.
+   * `request.protocol` can only ever reflect the raw, plaintext connection in that case.
+   *
+   * Task 2109 / WP 2105 §2 made the session cookie's own `Secure`/`SameSite` attributes
+   * unconditional (`index.ts`'s `fastifySession` registration no longer uses `secure: 'auto'` --
+   * see the comment there for why the `__Host-` cookie-name prefix requires that), so this
+   * misconfiguration no longer risks the session cookie specifically: it is marked `Secure`
+   * either way, and every browser in front of the proxy is really talking HTTPS regardless of
+   * whether this instance believes it. What the misconfiguration still gets wrong is every OTHER
+   * place `request.protocol` (or `trustProxy`) feeds scheme-sensitive decisions elsewhere in the
+   * app -- absolute URL / redirect generation, HSTS enforcement -- which is why this diagnostic is
+   * still worth surfacing rather than deleted along with the risk it originally described. Reset
+   * only by a restart -- it describes how the process was started, not something that self-heals
+   * while it keeps running the same way.
    */
   private insecureCookieRiskAt: string | null = null
 
