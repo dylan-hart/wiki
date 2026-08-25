@@ -65,3 +65,28 @@ test('base.yml editors.markdown.config has no latexEngine key', async () => {
     'latexEngine is dead (superseded by per-block isEnabled on block-katex/block-mathjax) and must not reappear in base.yml'
   )
 })
+
+/**
+ * Regression coverage for task 2240: `base.yml` used to default `auth.secret` to a publicly-known,
+ * committed value (`'abcdef1234567890abcdef1234567890abcdef'`), defended only by `preBoot()`'s
+ * `loadFromDb()` overlaying the real per-install secret before anything reads it. `models/settings.ts`
+ * always seeds a real random secret on first run, so the merge doesn't need this key's shape at all --
+ * deleting it means a boot-ordering regression that skips `loadFromDb()` hits
+ * `helpers/authSecret.ts`'s `assertValidAuthSecret()` boot guard (see `authSecret.test.ts`) instead of
+ * silently signing sessions with a known value.
+ */
+test('base.yml does not define a default auth.secret', async () => {
+  const raw = await fs.readFile(baseYmlPath, 'utf8')
+  const data = load(raw) as Record<string, any>
+
+  assert.equal(
+    Object.hasOwn(data.auth ?? {}, 'secret'),
+    false,
+    'auth.secret must not have a default in base.yml -- models/settings.ts#init() always seeds the real one'
+  )
+  assert.doesNotMatch(
+    raw,
+    /abcdef1234567890/,
+    'the old committed default auth.secret must not reappear'
+  )
+})

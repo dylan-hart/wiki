@@ -78,7 +78,6 @@ defaults:
       enforce2FA: false
       hideLocal: false
       loginBgUrl: ''
-      secret: 'abcdef1234567890abcdef1234567890abcdef'
     security:
       corsMode: 'OFF'
       corsConfig: ''
