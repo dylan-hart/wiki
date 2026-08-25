@@ -1,0 +1,1 @@
+CREATE INDEX "jobs_waitUntil_createdAt_idx" ON "jobs" ("waitUntil","createdAt");

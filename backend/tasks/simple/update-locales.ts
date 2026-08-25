@@ -29,6 +29,7 @@ export async function task(): Promise<void> {
     const metadata = await fetch(
       'https://github.com/requarks/wiki-locales/raw/main/locales/metadata.json'
     ).then((r) => r.json() as Promise<LocaleMetadata>)
+    let anyUpdated = false
     for (const lang of metadata.languages) {
       // -> Build filename
       const langFilenameParts = [lang.language]
@@ -64,6 +65,7 @@ export async function task(): Promise<void> {
             target: localesTable.code,
             set: { strings, updatedAt: sql`now()` }
           })
+        anyUpdated = true
         WIKI.logger.debug(`Updated strings for language ${langFilename}.`)
       } else {
         WIKI.logger.warn(
@@ -72,6 +74,16 @@ export async function task(): Promise<void> {
       }
 
       await setTimeout(100)
+    }
+
+    // -> Without this, `postBoot()`'s `locales.reloadCache()` call had already populated the
+    //    `'locales'`/`locale:<code>` cache entries by the time this nightly sync ran, and nothing here
+    //    ever refreshed them: a newly-synced language stayed invisible to `GET /_api/locales`, and
+    //    `api/sites.ts`'s installed-codes validation rejected activating it as "not installed", until
+    //    the next restart -- on every instance, including this one. Broadcasts too, so a peer instance
+    //    picks it up without waiting for its own restart.
+    if (anyUpdated) {
+      await WIKI.models.locales.broadcastReload()
     }
 
     WIKI.logger.info('Fetched latest localization data: [ COMPLETED ]')

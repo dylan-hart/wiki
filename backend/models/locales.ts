@@ -195,7 +195,7 @@ class Locales {
     }
 
     if (loaded.length > 0) {
-      await WIKI.models.locales.reloadCache()
+      await WIKI.models.locales.broadcastReload()
     }
     if (skipped.length > 0) {
       WIKI.logger.warn(
@@ -343,10 +343,37 @@ class Locales {
     return results.length === 1 ? results[0].strings : []
   }
 
+  /**
+   * Reload the `locales`/`locale:<code>` cache entries. Called at boot, by both halves of the
+   * cross-instance propagation below, and by `tasks/simple/update-locales.ts` once its own upsert
+   * loop has actually changed something -- previously nothing called this after that task ran at all,
+   * so a newly-synced language stayed invisible to `GET /_api/locales` (and rejected by
+   * `api/sites.ts`'s installed-codes validation as "not installed") until the next restart, on every
+   * instance including the one that ran the sync.
+   */
   async reloadCache(): Promise<void> {
     WIKI.logger.info('Reloading locales cache...')
     const locales = await WIKI.models.locales.getLocales({ cache: false })
     WIKI.logger.info(`Loaded ${locales.length} locales into cache [ OK ]`)
+  }
+
+  /**
+   * Reload this instance's own cache, then tell every other instance in the cluster to do the same.
+   *
+   * Mirrors `models/groups.ts`'s `broadcastReload()`/`subscribeToEvents()` pair: never call
+   * `WIKI.events.outbound.emit('reloadLocales')` directly, and never call it from inside
+   * `reloadCache()` itself, or the event echoes back around the cluster forever.
+   */
+  async broadcastReload(): Promise<void> {
+    await this.reloadCache()
+    WIKI.events.outbound.emit('reloadLocales')
+  }
+
+  /** Subscribe to HA propagation events. */
+  subscribeToEvents(): void {
+    WIKI.events.inbound.on('reloadLocales', async () => {
+      await this.reloadCache()
+    })
   }
 }
 

@@ -641,8 +641,10 @@ export const jobs = pgTable(
     updatedAt: timestamp().notNull().defaultNow()
   },
   (table) => [
-    // -> Supports the claim subquery's `"waitUntil" ASC NULLS FIRST, "createdAt" ASC` ordering under
-    //    `FOR UPDATE SKIP LOCKED`, which otherwise sorts a sequential scan on every poll.
+    // -> Supports `core/scheduler.ts#processJob`'s claim subquery, which orders by
+    //    `waitUntil ASC NULLS FIRST, createdAt ASC` under `FOR UPDATE SKIP LOCKED` (matching
+    //    `models/jobs.ts#getUpcoming()`) rather than by `id` -- this table previously carried no
+    //    index beyond the primary key, which otherwise sorts a sequential scan on every poll.
     index('jobs_waitUntil_createdAt_idx').on(table.waitUntil, table.createdAt)
   ]
 )

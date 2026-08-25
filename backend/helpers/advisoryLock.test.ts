@@ -104,3 +104,78 @@ test(
     assert.equal(acquired, 'acquired')
   }
 )
+
+/**
+ * Pure unit tests of the unlock/`finally` control flow, against a fake `Pool`/`PoolClient` rather
+ * than a real database — no `DATABASE_URL` needed, and these assert exactly the shape a real
+ * Postgres round trip cannot easily force: an unlock query that itself rejects.
+ */
+function fakeClient(queryImpl: (sql: string) => Promise<any>) {
+  const calls: { sql: string }[] = []
+  const releaseCalls: (boolean | undefined)[] = []
+  return {
+    client: {
+      query: async (sql: string) => {
+        calls.push({ sql })
+        return queryImpl(sql)
+      },
+      release: (destroy?: boolean) => {
+        releaseCalls.push(destroy)
+      }
+    },
+    calls,
+    releaseCalls
+  }
+}
+
+test('an fn error survives even when the unlock query also rejects, and the client is discarded', async () => {
+  const { client, releaseCalls } = fakeClient(async (sql) => {
+    if (sql.includes('pg_advisory_unlock')) {
+      throw new Error('connection reset while unlocking')
+    }
+    return undefined
+  })
+  ;(globalThis as any).WIKI = {
+    db: { $client: { connect: async () => client } },
+    logger: { warn: () => {} }
+  }
+
+  await assert.rejects(
+    withAdvisoryLock('fake-key', async () => {
+      throw new Error('the real failure')
+    }),
+    /the real failure/
+  )
+  // -> `client.release(true)` — a discard, not a plain return-to-pool — since the unlock's own
+  //    failure leaves the lock's state on this connection uncertain.
+  assert.deepEqual(releaseCalls, [true])
+})
+
+test('a rejecting unlock after a successful fn still surfaces the unlock failure, and discards the client', async () => {
+  const { client, releaseCalls } = fakeClient(async (sql) => {
+    if (sql.includes('pg_advisory_unlock')) {
+      throw new Error('connection reset while unlocking')
+    }
+    return undefined
+  })
+  ;(globalThis as any).WIKI = {
+    db: { $client: { connect: async () => client } },
+    logger: { warn: () => {} }
+  }
+
+  const result = await withAdvisoryLock('fake-key', async () => 'ok')
+  assert.equal(result, 'ok')
+  assert.deepEqual(releaseCalls, [true])
+})
+
+test('a clean unlock releases the client normally, without discarding it', async () => {
+  const { client, releaseCalls } = fakeClient(async () => undefined)
+  ;(globalThis as any).WIKI = {
+    db: { $client: { connect: async () => client } },
+    logger: { warn: () => {} }
+  }
+
+  const result = await withAdvisoryLock('fake-key', async () => 'ok')
+  assert.equal(result, 'ok')
+  assert.deepEqual(releaseCalls, [false])
+})

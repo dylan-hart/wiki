@@ -140,6 +140,12 @@ describe('connectListener', () => {
     // -> setClient(null) happens synchronously inside the error handler
     assert.equal(stored, null)
     assert.ok(warnings.some((w) => w.includes('connection reset')))
+    // -> Regression for the leaked-pool-slot finding: the failed client must be released
+    //    (destroy-on-release, since its connection is presumed dead) rather than simply dropped, or
+    //    it stays checked out of the pool forever and counts against `_isFull()` on every future
+    //    reconnect.
+    assert.equal(firstClient.released, true)
+    assert.equal(firstClient.releasedWithErr, true)
 
     // -> Reconnecting is async (a fresh `pool.connect()` + queries); wait for it to land
     await new Promise((resolve) => setTimeout(resolve, 10))

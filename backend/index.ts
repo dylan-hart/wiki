@@ -43,6 +43,7 @@ import {
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
 import { corsOptions, parseCspDirectives } from './helpers/security.ts'
+import { withAdvisoryLock } from './helpers/advisoryLock.ts'
 
 // -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
 //    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
@@ -156,6 +157,23 @@ if (WIKI.IS_DEBUG) {
   })
 }
 
+// -> No handler existed anywhere in `backend/` before this: an unhandled rejection is Node's default
+//    "print a warning and keep running" outside of `--unhandled-rejections=strict`, which for this
+//    process means silently continuing in a state some in-flight operation already gave up on rather
+//    than the app crashing cleanly. `@gquittet/graceful-server`'s own `uncaughtException` handler
+//    already treats a *synchronous* throw as fatal (`stop({ value: 2 })`); this closes the same gap on
+//    the async side rather than leaving it to whichever rejection happens to be the one that finally
+//    corrupts something visibly.
+process.on('unhandledRejection', (reason) => {
+  if (WIKI.logger) {
+    WIKI.logger.error('Unhandled promise rejection:')
+    WIKI.logger.error(reason as any)
+  } else {
+    console.error('Unhandled promise rejection:', reason)
+  }
+  process.exit(1)
+})
+
 await WIKI.configSvc.init()
 
 // ----------------------------------------
@@ -184,16 +202,29 @@ async function preBoot() {
   WIKI.models = (await import('./models/index.ts')).default
 
   try {
-    if (await WIKI.configSvc.loadFromDb()) {
-      WIKI.logger.info('Settings merged with DB successfully [ OK ]')
-    } else {
-      WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
-      await WIKI.configSvc.initDbValues()
+    // -> The is-empty check and the first-run seed it can trigger are held under the same advisory
+    //    lock `dbManager.syncSchemas()` already takes around the migration itself ('wiki:migrate'),
+    //    as one atomic decision. Without this, two instances booting together against a fresh
+    //    database can interleave: `settings.init()` (the first thing `initDbValues()` does) is a
+    //    single-row PRIMARY KEY insert, so a genuinely concurrent seed collides there and the loser
+    //    exits below like today -- but a *second* instance's own `loadFromDb()` can land in the
+    //    window after the first has committed `settings.init()` but before it has finished
+    //    `sites`/`groups`/`users`/`jobs`/`icons` init, sees a settings row, and proceeds straight to
+    //    `postBoot()` reloading caches from a half-seeded database (zero sites, no groups) with no
+    //    error at all. Serializing the whole decision closes that: a second instance's check now
+    //    waits for the first's seed to fully finish (or fail) before running its own.
+    await withAdvisoryLock('wiki:migrate', async () => {
+      if (await WIKI.configSvc.loadFromDb()) {
+        WIKI.logger.info('Settings merged with DB successfully [ OK ]')
+      } else {
+        WIKI.logger.warn('No settings found in DB. Initializing with defaults...')
+        await WIKI.configSvc.initDbValues()
 
-      if (!(await WIKI.configSvc.loadFromDb())) {
-        throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+        if (!(await WIKI.configSvc.loadFromDb())) {
+          throw new Error('Settings table is empty! Could not initialize [ ERROR ]')
+        }
       }
-    }
+    })
   } catch (err: any) {
     WIKI.logger.error('Database Initialization Error: ' + err.message)
     if (WIKI.IS_DEBUG) {
@@ -328,7 +359,29 @@ async function initHTTPServer() {
   WIKI.server = gracefulServer(app.server, {
     livenessEndpoint: '/_live',
     readinessEndpoint: '/_ready',
-    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST)
+    kubernetes: Boolean(process.env.KUBERNETES_SERVICE_HOST),
+    // -> The real shutdown routines, awaited (`Promise.allSettled`) before the server closes and the
+    //    process exits -- replacing the previous `SHUTTING_DOWN` handler below, which called two of
+    //    these directly and awaited neither, so the library's own 1000ms default `timeout` (below)
+    //    elapsed and forced the exit regardless of whether they had actually finished.
+    //    `scheduler.stop()` first clears `pollingRef`/`scheduledRef` so no new job is claimed once
+    //    shutdown begins, then drains and closes its own LISTEN client; `collab.shutdown()` closes
+    //    every editing socket with a going-away code so editors reconnect to whichever instance takes
+    //    over rather than sitting on a dead connection; `dbManager.unsubscribeFromNotifications()`
+    //    drains and closes the event bus's LISTEN client; the pool itself closes last, once nothing
+    //    above is still checking a connection out of it.
+    closePromises: [
+      () => WIKI.scheduler.stop(),
+      () => WIKI.collab.shutdown(),
+      () => WIKI.dbManager.unsubscribeFromNotifications(),
+      () => WIKI.dbManager.pool?.end() ?? Promise.resolve()
+    ],
+    // -> Above the library's 1000ms default, which gave an in-flight job, render, export or webhook
+    //    delivery essentially no drain window before being killed mid-work on every ordinary deploy,
+    //    restart or pod eviction (the cost `core/scheduler.ts#processJob`'s own doc comment describes
+    //    `reapStaleJobs` existing to clean up after). Comfortably inside a typical orchestrator's own
+    //    termination grace period (Kubernetes defaults to 30s) while still bounded.
+    timeout: 10000
   })
 
   app.register(fastifySensible)
@@ -350,10 +403,8 @@ async function initHTTPServer() {
 
   WIKI.server.on(gracefulServer.SHUTTING_DOWN, () => {
     WIKI.logger.info('Shutting down HTTP Server... [ STOPPING ]')
-    WIKI.dbManager.unsubscribeFromNotifications()
-    // -> Closes every editing socket with a going-away code, so the editors reconnect to whichever
-    //    instance takes over rather than sitting on a dead connection
-    WIKI.collab.shutdown()
+    // -> The actual shutdown work happens in `closePromises` above, which the library awaits before
+    //    closing the server -- this handler is log-only now.
   })
 
   WIKI.server.on(gracefulServer.SHUTDOWN, (err: Error) => {
@@ -917,7 +968,10 @@ async function initHTTPServer() {
     WIKI.logger.info(`Starting HTTP Server on port ${WIKI.config.port} [ STARTING ]`)
     await app.listen({ port: WIKI.config.port, host: WIKI.config.bindIP })
     WIKI.logger.info('HTTP Server: [ RUNNING ]')
-    WIKI.server.setReady()
+    // -> `setReady()` deliberately does NOT happen here any more -- see the call after `postBoot()`
+    //    at the bottom of this file for why. The listener being up before ready is still what makes
+    //    `/_live` meaningful during a slow boot: graceful-server already destroys sockets for
+    //    non-ready requests in between.
   } catch (err: any) {
     WIKI.logger.error(err)
     process.exit(1)
@@ -943,4 +997,31 @@ async function initHTTPServer() {
 
 await preBoot()
 await initHTTPServer()
-await postBoot()
+
+try {
+  await postBoot()
+} catch (err: any) {
+  // -> `preBoot()` already fails deliberately on its own errors (see its own try/catch above);
+  //    `postBoot()` previously had no equivalent, so a rejection here -- a storage module whose
+  //    remote is unreachable during `syncAllSites()`, a search engine failing `init()` -- would have
+  //    propagated as an unhandled rejection into the top-level `unhandledRejection` handler
+  //    registered near the top of this file, which is a correct but much less specific stop than
+  //    naming the actual phase that failed.
+  WIKI.logger.error('Post-Boot Initialization Error: ' + err.message)
+  if (WIKI.IS_DEBUG) {
+    WIKI.logger.error(err)
+  }
+  process.exit(1)
+}
+
+// -> Moved out of `initHTTPServer()` and here instead, after `postBoot()` has fully resolved: nearly
+//    everything that makes this instance able to actually answer a page request --
+//    `sites.reloadCache()` (and therefore `WIKI.sitesMappings`), `groups`/`locales`/`approvals`/
+//    `classificationLevels` caches, storage/blocks/comment-provider sync, search engine
+//    provisioning, the event bus subscription, collab, and the scheduler itself -- happens in
+//    `postBoot()`, not `initHTTPServer()`. `setReady()` used to fire the moment the HTTP listener was
+//    up, at the *start* of that window: a load balancer gating rollout traffic on `/_ready` would
+//    have been sent real requests during it, every one of which 302s to the "unknown site" error page
+//    (`WIKI.sitesMappings` is still the empty object literal it starts as) -- a wrong response, not a
+//    degraded one.
+WIKI.server.setReady()
