@@ -191,6 +191,38 @@ test('a menu nested three levels deep reaches the response intact', async () => 
 })
 
 /**
+ * OpenProject #2155: `getNav()` now requires an `actor` so `generateFromTree()` can run every
+ * generated entry through `read:pages` — this pins that the route actually builds and passes one
+ * (via `WIKI.models.groups.actorForRequest(req)`), the same actor every other page-scoped check in
+ * this codebase is built from, rather than leaving the parameter to default away silently.
+ */
+test('GET .../navigation/:navId passes the request-resolved actor through to getNav', async () => {
+  const originalGetNav = (globalThis as any).WIKI.models.navigation.getNav
+  const calls: any[] = []
+  ;(globalThis as any).WIKI.models.navigation.getNav = async (
+    siteId: string,
+    navId: string,
+    opts: any
+  ) => {
+    calls.push(opts)
+    return DEEP_NAV_TREE
+  }
+  try {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/navigation/${PAGE_ID}`,
+      headers: { 'x-test-permissions': 'read:pages' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(calls.length, 1)
+    assert.ok(calls[0].actor, 'expected an actor to be passed to getNav()')
+    assert.deepEqual(calls[0].actor.permissions, ['read:pages'])
+  } finally {
+    ;(globalThis as any).WIKI.models.navigation.getNav = originalGetNav
+  }
+})
+
+/**
  * OpenProject #933: six navigation endpoints still declared route-level `permissions:
  * ['manage:navigation']` after task #683 introduced `site:navigation` delegation — the global
  * `preHandler` hook resolves that from `session.permissions` only, so `checkSiteAccess()` could
