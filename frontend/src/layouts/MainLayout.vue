@@ -1,5 +1,14 @@
 <template>
   <w-layout>
+    <!--
+      WCAG 2.4.1 Bypass Blocks: the first focusable element in the app, ahead of every sidebar and
+      header control a keyboard user would otherwise have to tab through on every navigation.
+      `position: fixed` (see `.skip-link` below) takes it out of `WLayout`'s CSS grid entirely, so
+      being the first child here -- which is what makes it first in TAB order -- has no effect on
+      where anything else lands visually. It targets `WPage`'s `<main id="main-content">`, the
+      route-level content container every reading page renders into inside this layout.
+    -->
+    <a href="#main-content" class="skip-link">{{ t('common.a11y.skipToContent') }}</a>
     <w-header class="site-header-wrap">
       <header-nav />
     </w-header>
@@ -400,6 +409,32 @@ function openSidebar() {
 </script>
 
 <style lang="scss">
+/*
+  Off-screen (not merely transparent -- `top` moved past the viewport edge, so there is no
+  invisible-but-hoverable strip sitting over the header) until it receives keyboard focus, at which
+  point it slides into view over everything else. `position: fixed` rather than `absolute`: `WLayout`
+  is a CSS grid (`grid-template-areas`), and a `fixed` element takes no part in a parent's layout at
+  all, so this being the first child in the template -- required for it to be first in TAB order --
+  cannot shift any grid area around it.
+*/
+.skip-link {
+  position: fixed;
+  top: -3rem;
+  left: 0.5rem;
+  z-index: 1000;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0 0 4px 4px;
+  background-color: $primary;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.15s ease-in-out;
+
+  &:focus {
+    top: 0;
+  }
+}
+
 .sidebar-actions {
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0%, rgba(0, 0, 0, 0.05) 100%);
   border-bottom: 1px solid rgba(0, 0, 0, 0.2);

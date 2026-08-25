@@ -1,5 +1,11 @@
 <template>
-  <main class="w-page" :class="padding ? 'p-4' : ''">
+  <!--
+    `id` is the skip link's target (`MainLayout.vue`'s first focusable element) and `tabindex="-1"`
+    is what makes a plain `<main>` programmatically focusable at all -- activating an `href="#..."`
+    link only moves focus into an element that can actually take it, and a landmark element takes no
+    part in the tab order on its own.
+  -->
+  <main id="main-content" class="w-page" tabindex="-1" :class="padding ? 'p-4' : ''">
     <slot />
   </main>
 </template>
