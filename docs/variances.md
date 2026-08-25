@@ -10,7 +10,7 @@ outright, not left behind as changelog prose — see CLAUDE.md's "variances.md D
 
 **Date:** 2026-08-22
 **Scope:** `backend/` and `frontend/src/` (`.test.ts`/`.test.js`/`.test.mjs`/`.generated.js` files
-excluded — a test file talking *about* a marker in its own prose isn't a marker to triage, and a
+excluded — a test file talking _about_ a marker in its own prose isn't a marker to triage, and a
 generated bundle is machine output no one hand-edits).
 
 A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
@@ -36,7 +36,7 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
   Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
   resolve by closing #375 and wiring this call, not by deleting the comment.
 - **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
-  `apiKeys.ts`: notes that a rotated secret invalidates a *new* session immediately, unlike the
+  `apiKeys.ts`: notes that a rotated secret invalidates a _new_ session immediately, unlike the
   still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
@@ -45,13 +45,13 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
   doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
   for it because no feature currently depends on it.
 - **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
-  coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
+coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
   Monaco's own upstream type-definition source this file adapts. Not this project's own deferred
   work; left as-is rather than deleted so this file stays traceable against the upstream it mirrors.
 
 **Resolved when:** a file above no longer carries its marker (fixed for real, or the deferred work
 ships), remove its bullet; a newly-marker-carrying file the drift test flags gets a bullet added here
-after a human has actually looked at *why* the marker is there — never a placeholder entry added just
+after a human has actually looked at _why_ the marker is there — never a placeholder entry added just
 to make the drift test pass.
 
 ## Glossary: existing pages pick up a new term on their next render, not instantly site-wide
@@ -92,7 +92,7 @@ registry `api/comments.ts`'s routes already call) as the one live implementation
 
 Feature 396 branched before #394 existed, so it built its own module-discovery/definition-loading
 class from scratch — under the name `models/comments.ts`, colliding at the git level with the
-*actual* `comments.ts` (comment content CRUD: post/edit/delete/list, from #395/#397) rather than with
+_actual_ `comments.ts` (comment content CRUD: post/edit/delete/list, from #395/#397) rather than with
 the provider registry it was really duplicating. Both classes independently implemented
 `refreshFromDisk()`/`getDefinition()` reading `modules/comments/<key>/definition.yml`; #394's version
 was already wired to the `commentProviders` db table, `syncSite()`, `setActiveProvider()` and the live
@@ -502,7 +502,7 @@ read-only comparison.
 2.5.x's renderer explicitly loaded only nine extra packages (`bbox`, `boldsymbol`, `braket`, `color`,
 `extpfeil`, `mhchem`, `newcommand`, `unicode`, `verb`) on top of MathJax's default `input/tex`
 bundle. But it also configured `loader: { require, paths: { mathjax: 'mathjax/es5' } }` and never
-excluded `autoload` — and `input/tex`'s default package set *includes* `autoload`. Running
+excluded `autoload` — and `input/tex`'s default package set _includes_ `autoload`. Running
 server-side in Node with the real `mathjax` package on disk, 2.5.x could therefore load, on first
 use, every package `AutoloadConfiguration.ts`'s `autoload` map covers: `action`, `amscd`, `bbox`,
 `boldsymbol`, `braket`, `bussproofs`, `cancel`, `color`, `enclose`, `extpfeil`, `html`, `mhchem`,
@@ -521,7 +521,7 @@ confirm, not less, and needed no change.
 ### A real, unrelated gap this audit surfaced: MathJax dynamic glyph loading is unwired
 
 While generating the parity evidence above (via a scratch script mirroring `component.js`'s exact
-MathJax setup, deleted before commit), several *reachable* macros still failed to render:
+MathJax setup, deleted before commit), several _reachable_ macros still failed to render:
 `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil), `\verb`, and any accented or
 non-Latin Unicode character typed directly into math mode (e.g. `é`). All three draw glyphs that
 `@mathjax/mathjax-newcm-font` ships as separate "dynamic" chunks (`svg/dynamic/arrows.js`,
@@ -569,27 +569,27 @@ by rendering each construct through both engines exactly as `block-katex/compone
 `block-mathjax/component.js` configure them (scratch script, deleted before commit; the two rows
 marked † are now pinned as running tests in `component.test.js` for their respective blocks):
 
-| Construct | `::block-katex` | `::block-mathjax` |
-| --- | --- | --- |
-| `\bussproofs`' `prooftree` environment | Errors — no such environment | Typesets |
-| `\cancelto{0}{x}` | Errors — `\cancel`/`\bcancel`/`\xcancel` work, `\cancelto` doesn't | Typesets |
-| `\centernot` | Errors — undefined | Typesets |
-| `colortbl`'s `\columncolor` (in `array`) | Errors — undefined | Typesets |
-| `empheq` environment | Errors — no such environment | Typesets |
-| `\enclose{shape}{…}` (arbitrary enclosure shapes; `\fbox`/`\cancel` family still work) | Errors — undefined | Typesets |
-| `mathtools`' `\Aboxed` (`\coloneqq` and friends work) | Errors — undefined | Typesets |
-| `physics`' `\dv`, `\pdv`, `\abs`, `\qty` (`\ket`/`\bra` work, via `braket`) | Errors — undefined | Typesets |
-| `textcomp`'s `\textdegree` (`gensymb`'s `\degree` works) | Errors — undefined | Typesets |
-| `upgreek`'s `\upalpha` | Errors — undefined | Typesets |
-| `\bbox[…]{…}` † | Errors — undefined | Typesets |
-| `\label{…}` | Errors — undefined | Typesets (no visible output either way — the gap only matters if content also uses `\ref`, which neither block resolves across formulas) |
-| `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil) † | Typesets | **Errors — see the dynamic-glyph gap above; `extpfeil` is declared in `PACKAGES` but currently unusable in this block** |
-| `\verb\|…\|` | Typesets | **Errors — same dynamic-glyph gap** |
-| Accented/non-Latin Unicode typed directly in math mode (é, ü, …) | Typesets | **Errors — same dynamic-glyph gap** |
-| `\href{…}{…}`, `\includegraphics{…}` | Renders the raw command as inert red text (KaTeX's default `trust: false` behavior — no thrown error, no working link/image) | Errors — `html` package deliberately excluded (see `component.js:10-23`) |
-| `\ce{…}`, `\pu{…}` (mhchem) | Typesets | Typesets |
-| `\cancel`, `\bcancel`, `\xcancel` | Typesets | Typesets |
-| AMS environments (`align`, `gather`, `cases`, matrices), `\tag`, `\operatorname` | Typesets | Typesets |
+| Construct                                                                              | `::block-katex`                                                                                                              | `::block-mathjax`                                                                                                                        |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `\bussproofs`' `prooftree` environment                                                 | Errors — no such environment                                                                                                 | Typesets                                                                                                                                 |
+| `\cancelto{0}{x}`                                                                      | Errors — `\cancel`/`\bcancel`/`\xcancel` work, `\cancelto` doesn't                                                           | Typesets                                                                                                                                 |
+| `\centernot`                                                                           | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `colortbl`'s `\columncolor` (in `array`)                                               | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `empheq` environment                                                                   | Errors — no such environment                                                                                                 | Typesets                                                                                                                                 |
+| `\enclose{shape}{…}` (arbitrary enclosure shapes; `\fbox`/`\cancel` family still work) | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `mathtools`' `\Aboxed` (`\coloneqq` and friends work)                                  | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `physics`' `\dv`, `\pdv`, `\abs`, `\qty` (`\ket`/`\bra` work, via `braket`)            | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `textcomp`'s `\textdegree` (`gensymb`'s `\degree` works)                               | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `upgreek`'s `\upalpha`                                                                 | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `\bbox[…]{…}` †                                                                        | Errors — undefined                                                                                                           | Typesets                                                                                                                                 |
+| `\label{…}`                                                                            | Errors — undefined                                                                                                           | Typesets (no visible output either way — the gap only matters if content also uses `\ref`, which neither block resolves across formulas) |
+| `\xtwoheadrightarrow`/`\xtwoheadleftarrow`/`\xmapsto` (extpfeil) †                     | Typesets                                                                                                                     | **Errors — see the dynamic-glyph gap above; `extpfeil` is declared in `PACKAGES` but currently unusable in this block**                  |
+| `\verb\|…\|`                                                                           | Typesets                                                                                                                     | **Errors — same dynamic-glyph gap**                                                                                                      |
+| Accented/non-Latin Unicode typed directly in math mode (é, ü, …)                       | Typesets                                                                                                                     | **Errors — same dynamic-glyph gap**                                                                                                      |
+| `\href{…}{…}`, `\includegraphics{…}`                                                   | Renders the raw command as inert red text (KaTeX's default `trust: false` behavior — no thrown error, no working link/image) | Errors — `html` package deliberately excluded (see `component.js:10-23`)                                                                 |
+| `\ce{…}`, `\pu{…}` (mhchem)                                                            | Typesets                                                                                                                     | Typesets                                                                                                                                 |
+| `\cancel`, `\bcancel`, `\xcancel`                                                      | Typesets                                                                                                                     | Typesets                                                                                                                                 |
+| AMS environments (`align`, `gather`, `cases`, matrices), `\tag`, `\operatorname`       | Typesets                                                                                                                     | Typesets                                                                                                                                 |
 
 The `\href`/`\includegraphics` row is worth calling out on its own: `block-katex/component.js`'s own
 comment says leaving KaTeX's `trust` option at its default "gates" those commands "the same reason
@@ -674,7 +674,7 @@ existed again.
 /_api/diagrams/render`.
 
 **The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
-making the headless `/_render` shell run Lit block components as part of rendering a whole *page* —
+making the headless `/_render` shell run Lit block components as part of rendering a whole _page_ —
 a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
 `page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
 problem: it renders one diagram from raw source, independent of any page, so there is no page-render
@@ -922,7 +922,7 @@ LTR. Reasoning:
   `composables/direction.js`) and one `commonStore.locale` — there is no separate "admin UI language"
   concept to hang a different direction off of.
 - `AdminLayout.vue`'s own header carries a locale switcher (`commonStore.setLocale(lang.code)`) that
-  lets an operator pick *any* installed locale, RTL ones included, directly from within the admin
+  lets an operator pick _any_ installed locale, RTL ones included, directly from within the admin
   area — the admin UI is evidently meant to render in whatever locale is active, not assumed
   English/LTR-only.
 - Forcing LTR chrome around genuinely RTL-translated `admin.*` label text (which does render in
@@ -1062,7 +1062,6 @@ for one of the 5 remaining listed providers. At that point `mapAuthenticationRow
 that key through the normal `resolver.getModule()` path with no code change required — only this
 entry (and the corresponding line in the field-mapping doc's no-destination list) needs deleting, one
 provider at a time, as each lands.
-
 
 ## 2026-08-17 — 3.0 will not carry forward 2.5.x's anonymized Telemetry toggle
 
@@ -1210,11 +1209,11 @@ six do not apply, each for a different, specific reason tied to how this fork's 
   report describes.
 - **Item 7 (upstream #2381) — git-sync writes racing a live editor session.** Cross-checked against
   the closed concurrent-edit-safety work: the `expectedUpdatedAt`/409 optimistic-concurrency check
-  (`api/pages.ts`) already covers a *human* editor racing a sync-driven `updatePage()` correctly (the
+  (`api/pages.ts`) already covers a _human_ editor racing a sync-driven `updatePage()` correctly (the
   sync's write bumps `updatedAt`, the editor's stale save 409s, the existing conflict UI handles it).
   What was genuinely unguarded is a different race the same upstream report describes: the scheduler
   claims and runs several jobs concurrently (`processJob`'s `Promise.allSettled`), and a wiki normally
-  runs more than one instance, so two `dispatchStorage` jobs for the *same* storage target — a
+  runs more than one instance, so two `dispatchStorage` jobs for the _same_ storage target — a
   write-path push and a scheduled `sync`'s pull/push, say — could run their `git` commands against the
   one on-disk working copy concurrently, with no in-process mutex able to serialize across either
   interleaved `await`s or separate instances. Fixed with a Postgres advisory lock keyed by `targetId`,
@@ -1311,11 +1310,14 @@ new URL('../../data', import.meta.url) doesn't exist at build time, it will rema
 resolved at runtime. If this is intended, you can use the /* @vite-ignore */ comment to suppress
 this warning.
 ```
+
 plus four more:
+
 ```
 [plugin rolldown:vite-resolve] Module "node:fs/promises" has been externalized for browser
 compatibility, imported by ".../@asciidoctor/core/build/browser/index.js". ...
 ```
+
 (and the same for `node:fs`, `node:path`, `node:async_hooks`).
 
 The `new URL(...)` line comes from the same file, a few lines above the dynamic `node:*` imports:
@@ -1387,8 +1389,7 @@ local-strategy failure site already uses (`{ id: null, name: <best available ide
 `dev/helm/` (Chart.yaml, values.yaml, templates/) and `dev/packer/` (digitalocean.json, scripts/),
 plus their `.github/workflows/helm.yml` and `packer.yml` triggers, were deleted rather than
 refreshed in place. All three currency problems the work package identified were real: the Helm
-chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in
-2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
+chart's Bitnami `postgresql` subchart dependency (`charts.bitnami.com`, deprecated by Broadcom in 2025) was 8 majors behind with a vendored `.tgz` that didn't even match its own `Chart.lock`; the
 Packer image pinned `ubuntu-20-04-x64` (standard support ended April 2025) and Compose v1 (EOL July
 2023); both workflows still used `actions/checkout@v2` against current v7.
 
