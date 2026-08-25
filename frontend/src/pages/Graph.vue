@@ -606,6 +606,14 @@ function onCanvasMouseMove(event) {
 }
 
 /*
+  `forceLink().id()` resolves against each node's composite `${locale}:${path}` id (OpenProject
+  #1621/#1629), not the bare `path` -- translations share a path by design
+  (`docs/decisions/locale-translation-linking.md`), so an `id`-of-`path` accessor would make
+  d3-force's `nodeById` map collapse an `en`/`fr` pair sharing a path down to whichever one it
+  processed last, with no error. `node.path` stays around on every node (real and synthetic alike)
+  as the display/navigation field -- `onCanvasClick`, the hover tooltip and `drawLabels()` all still
+  read it.
+
   `d3.forceLink`'s distance (60) and `d3.forceManyBody`'s charge strength (-120) are starting
   points, not verified-correct constants -- exploratory visual tuning happens once there's a real
   graph on screen (Task 13, #888), not here. `forceCollide`'s radius (`collideRadiusFor`, OpenProject
@@ -628,7 +636,7 @@ function startSimulation() {
     .force(
       'link',
       forceLink(edges.value)
-        .id((d) => d.path)
+        .id((d) => d.id)
         .distance(60)
     )
     .force('charge', forceManyBody().strength(-120))

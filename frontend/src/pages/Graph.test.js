@@ -29,6 +29,7 @@ const ZERO_PAGEVIEWS = {
 const FIXTURE_GRAPH = {
   nodes: [
     {
+      id: 'en:a',
       path: 'a',
       locale: 'en',
       title: 'A',
@@ -64,6 +65,7 @@ const FIXTURE_GRAPH = {
       }
     },
     {
+      id: 'en:b',
       path: 'b',
       locale: 'en',
       title: 'B',
@@ -74,7 +76,9 @@ const FIXTURE_GRAPH = {
       pageviews: ZERO_PAGEVIEWS
     }
   ],
-  edges: [{ source: 'a', target: 'b', type: 'link' }]
+  // -> Composite `${locale}:${path}` ids (OpenProject #1621), matching the real
+  //    `backend/api/graph.ts#assembleGraph` response shape -- see that module's own doc comment.
+  edges: [{ source: 'en:a', target: 'en:b', type: 'link' }]
 }
 
 /** Options for `API_CLIENT.get('system/pageviews')` -- defaults to tracking enabled so the
@@ -113,6 +117,61 @@ describe('Graph.vue (OpenProject #891)', () => {
 
     expect(wrapper.find('canvas').exists()).toBe(true)
     expect(API_CLIENT.get).toHaveBeenCalledWith('sites/site-1/graph')
+  })
+
+  // -> OpenProject #1621/#1629: `forceLink().id()` used to resolve on the bare `path`, so an
+  //    `en`/`fr` pair sharing a path collapsed to a single d3-force node with no error.
+  it('same-path translations render as two distinct, separately-keyed nodes', async () => {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: { template: '<div />' } }]
+    })
+    router.push('/')
+    await router.isReady()
+
+    const sharedPathGraph = {
+      nodes: [
+        {
+          id: 'en:docs/intro',
+          path: 'docs/intro',
+          locale: 'en',
+          title: 'Intro',
+          icon: null,
+          tags: [],
+          folder: 'docs',
+          contributors: { editor: 0, mcp: 0, all: 0, total: { editor: 0, mcp: 0, all: 0 } },
+          pageviews: ZERO_PAGEVIEWS
+        },
+        {
+          id: 'fr:docs/intro',
+          path: 'docs/intro',
+          locale: 'fr',
+          title: 'Introduction',
+          icon: null,
+          tags: [],
+          folder: 'docs',
+          contributors: { editor: 0, mcp: 0, all: 0, total: { editor: 0, mcp: 0, all: 0 } },
+          pageviews: ZERO_PAGEVIEWS
+        }
+      ],
+      edges: []
+    }
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(sharedPathGraph) })
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve({ isEnabled: true }) })
+
+    const wrapper = mount(Graph, { global: { plugins: [router, createTestI18n()] } })
+    await flushPromises()
+
+    const realNodes = wrapper.vm.nodes.filter((node) => !node.synthetic)
+    expect(realNodes).toHaveLength(2)
+    expect(realNodes.map((node) => node.id).sort()).toEqual(['en:docs/intro', 'fr:docs/intro'])
+    // -> Both nodes share the same `path` (by design -- translations are same-path), but remain two
+    //    separate objects in the simulation's node list rather than one collapsing onto the other.
+    expect(realNodes.every((node) => node.path === 'docs/intro')).toBe(true)
+    expect(realNodes[0]).not.toBe(realNodes[1])
   })
 
   it('paths mode (the default edgeMode) adds synthetic folder/root nodes to the visible set', async () => {
