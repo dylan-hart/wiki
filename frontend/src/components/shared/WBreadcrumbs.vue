@@ -1,5 +1,5 @@
 <template>
-  <nav class="w-breadcrumbs" :aria-label="ariaLabel">
+  <nav class="w-breadcrumbs" :aria-label="resolvedAriaLabel">
     <ol class="flex flex-wrap items-center gap-2">
       <template v-for="(item, idx) of items" :key="item.key ?? idx">
         <li class="flex items-center" :style="idx < items.length - 1 ? activeStyle : null">
@@ -36,6 +36,7 @@
 import { computed } from 'vue'
 import WTooltip from './WTooltip.vue'
 import WIcon from './WIcon.vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Breadcrumb trail.
@@ -75,12 +76,17 @@ const props = defineProps({
     type: String,
     default: '/'
   },
-  /** Accessible name for the landmark. */
+  /** Accessible name for the landmark. Falls back to the `common.breadcrumbs.ariaLabel` dictionary entry. */
   ariaLabel: {
     type: String,
-    default: 'Breadcrumb'
+    default: null
   }
 })
+
+const dictText = useDictText()
+const resolvedAriaLabel = computed(
+  () => props.ariaLabel ?? dictText('common.breadcrumbs.ariaLabel', 'Breadcrumb')
+)
 
 /*
   Built as inline styles rather than `text-<colour>` classes: the colour names arrive at runtime, so

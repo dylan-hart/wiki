@@ -195,7 +195,7 @@
           <div
             v-if="!filteredOptions.length"
             class="px-4 py-2 text-body2 text-black/54 dark:text-white/60">
-            {{ noOptionsLabel }}
+            {{ resolvedNoOptionsLabel }}
           </div>
         </div>
       </w-menu>
@@ -226,6 +226,7 @@ import { computed, inject, nextTick, ref, useId, useSlots, watch } from 'vue'
 import WChip from './WChip.vue'
 import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Dropdown select.
@@ -356,9 +357,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  /** Falls back to the `common.select.noOptions` dictionary entry when not given. */
   noOptionsLabel: {
     type: String,
-    default: 'No options'
+    default: null
   },
   /**
    * Type to narrow the list.
@@ -414,6 +416,11 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:modelValue', 'create'])
+
+const dictText = useDictText()
+const resolvedNoOptionsLabel = computed(
+  () => props.noOptionsLabel ?? dictText('common.select.noOptions', 'No options')
+)
 
 const isOpen = ref(false)
 /** Pointer-over, for the ring: the ring is an inline style, so CSS `:hover` cannot reach it. */

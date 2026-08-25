@@ -112,7 +112,7 @@
         v-if="revealable && type === 'password'"
         type="button"
         class="w-unstyled mr-1 shrink-0 cursor-pointer opacity-60 hover:opacity-100"
-        :aria-label="isRevealed ? hideLabel : revealLabel"
+        :aria-label="isRevealed ? resolvedHideLabel : resolvedRevealLabel"
         :aria-pressed="String(isRevealed)"
         @click="isRevealed = !isRevealed">
         <!-- -> A size of its own rather than the control's 1em: at the field's 14px the eye came out
@@ -124,7 +124,7 @@
         v-if="clearable && String(modelValue ?? '').length > 0"
         type="button"
         class="w-unstyled shrink-0 cursor-pointer opacity-60 hover:opacity-100"
-        :aria-label="clearLabel"
+        :aria-label="resolvedClearLabel"
         @click="clear">
         <w-icon name="mdi:close" />
       </button>
@@ -155,6 +155,7 @@
 
 <script setup>
 import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Text input.
@@ -262,25 +263,28 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  /** Accessible name for the reveal toggle. */
+  /** Accessible name for the reveal toggle. Falls back to `common.input.showPassword`. */
   revealLabel: {
     type: String,
-    default: 'Show password'
+    default: null
   },
-  /** Accessible name for the reveal toggle once the value is visible. */
+  /**
+   * Accessible name for the reveal toggle once the value is visible. Falls back to
+   * `common.input.hidePassword`.
+   */
   hideLabel: {
     type: String,
-    default: 'Hide password'
+    default: null
   },
   /** Shows a clear button while the field has a value. */
   clearable: {
     type: Boolean,
     default: false
   },
-  /** Accessible name for the clear button. */
+  /** Accessible name for the clear button. Falls back to `common.input.clear`. */
   clearLabel: {
     type: String,
-    default: 'Clear'
+    default: null
   },
   /** Drops the reserved line beneath the control. */
   hideBottomSpace: {
@@ -319,6 +323,17 @@ const isHovered = ref(false)
 const isRevealed = ref(false)
 
 // COMPUTED
+
+const dictText = useDictText()
+const resolvedRevealLabel = computed(
+  () => props.revealLabel ?? dictText('common.input.showPassword', 'Show password')
+)
+const resolvedHideLabel = computed(
+  () => props.hideLabel ?? dictText('common.input.hidePassword', 'Hide password')
+)
+const resolvedClearLabel = computed(
+  () => props.clearLabel ?? dictText('common.input.clear', 'Clear')
+)
 
 const hasError = computed(() => Boolean(errorMessage.value))
 

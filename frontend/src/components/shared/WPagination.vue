@@ -2,13 +2,13 @@
   <nav
     v-if="max > 1"
     class="w-pagination flex flex-nowrap items-center gap-1"
-    :aria-label="ariaLabel">
+    :aria-label="resolvedAriaLabel">
     <button
       v-if="directionLinks"
       type="button"
       class="w-unstyled w-pagination-btn"
       :disabled="modelValue <= 1"
-      :aria-label="prevLabel"
+      :aria-label="resolvedPrevLabel"
       @click="go(modelValue - 1)">
       <w-icon name="mdi:chevron-left" />
     </button>
@@ -23,7 +23,7 @@
         class="w-unstyled w-pagination-btn"
         :class="page === modelValue ? 'w-pagination-btn--active' : ''"
         :aria-current="page === modelValue ? 'page' : undefined"
-        :aria-label="`${pageLabel} ${page}`"
+        :aria-label="`${resolvedPageLabel} ${page}`"
         @click="go(page)">
         {{ page }}
       </button>
@@ -34,7 +34,7 @@
       type="button"
       class="w-unstyled w-pagination-btn"
       :disabled="modelValue >= max"
-      :aria-label="nextLabel"
+      :aria-label="resolvedNextLabel"
       @click="go(modelValue + 1)">
       <w-icon name="mdi:chevron-right" />
     </button>
@@ -43,6 +43,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Page selector.
@@ -76,25 +77,43 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /** Falls back to the `common.pagination.ariaLabel` dictionary entry when not given. */
   ariaLabel: {
     type: String,
-    default: 'Pagination'
+    default: null
   },
+  /** Falls back to `common.pagination.page`. */
   pageLabel: {
     type: String,
-    default: 'Page'
+    default: null
   },
+  /** Falls back to `common.pagination.previousPage`. */
   prevLabel: {
     type: String,
-    default: 'Previous page'
+    default: null
   },
+  /** Falls back to `common.pagination.nextPage`. */
   nextLabel: {
     type: String,
-    default: 'Next page'
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const dictText = useDictText()
+const resolvedAriaLabel = computed(
+  () => props.ariaLabel ?? dictText('common.pagination.ariaLabel', 'Pagination')
+)
+const resolvedPageLabel = computed(
+  () => props.pageLabel ?? dictText('common.pagination.page', 'Page')
+)
+const resolvedPrevLabel = computed(
+  () => props.prevLabel ?? dictText('common.pagination.previousPage', 'Previous page')
+)
+const resolvedNextLabel = computed(
+  () => props.nextLabel ?? dictText('common.pagination.nextPage', 'Next page')
+)
 
 /** Sentinel for an elided run; not a page number, so it cannot collide with one. */
 const GAP = Symbol('gap')
