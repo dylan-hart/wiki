@@ -2017,3 +2017,55 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
   })
 })
+
+/**
+ * The FK added for #1699: `tree.navigationId` references `navigation.id` with `onDelete: 'set
+ * null'`. Exercised directly against the schema constraint rather than through any model method,
+ * since the behaviour under test is the migration's `ON DELETE SET NULL` clause itself — deleting a
+ * menu a tree row points at must null that pointer out rather than erroring (as the FK's default
+ * RESTRICT would) or leaving a dangling id behind (as no constraint at all did before this change).
+ */
+describe('tree.navigationId FK onDelete set null (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('deleting the referenced navigation row nulls the pointing tree row instead of erroring', async () => {
+    const [nav] = await fixtures.db
+      .insert(navigationTable)
+      .values({ siteId: fixtures.siteId, items: [] })
+      .returning({ id: navigationTable.id })
+    const entry = await seedTreeEntry(fixtures.db, {
+      siteId: fixtures.siteId,
+      path: `fk-test-${randomUUID()}`,
+      navigationMode: 'override',
+      navigationId: nav!.id
+    })
+
+    // -> Must not throw: a RESTRICT (the FK's default with no onDelete clause) or a missing
+    //    constraint entirely would either reject this delete or leave `entry` pointing at a dead id.
+    await fixtures.db.delete(navigationTable).where(eq(navigationTable.id, nav!.id))
+
+    const [after] = await fixtures.db
+      .select({ navigationId: treeTable.navigationId })
+      .from(treeTable)
+      .where(eq(treeTable.id, entry.id))
+    assert.equal(after?.navigationId, null)
+  })
+
+  test('inserting a tree row pointed at a navigationId with no matching navigation row is rejected', async () => {
+    await assert.rejects(
+      seedTreeEntry(fixtures.db, {
+        siteId: fixtures.siteId,
+        path: `fk-test-dangling-${randomUUID()}`,
+        navigationId: randomUUID()
+      })
+    )
+  })
+})
