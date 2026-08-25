@@ -86,6 +86,19 @@ describe('comments table', () => {
   })
 })
 
+describe('tree table', () => {
+  const config = getTableConfig(schema.tree)
+
+  it('nulls navigationId on delete of the referenced navigation row (#1699)', () => {
+    const fk = config.foreignKeys.find((f) =>
+      f.reference().columns.some((c) => c.name === 'navigationId')
+    )
+    assert.ok(fk, 'expected a foreign key on navigationId')
+    assert.equal(getTableName(fk!.reference().foreignTable), 'navigation')
+    assert.equal(fk!.onDelete, 'set null')
+  })
+})
+
 /**
  * Guards `docs/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
  * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A

@@ -1,0 +1,2 @@
+UPDATE "tree" SET "navigationId" = NULL WHERE "navigationId" IS NOT NULL AND "navigationId" NOT IN (SELECT "id" FROM "navigation");--> statement-breakpoint
+ALTER TABLE "tree" ADD CONSTRAINT "tree_navigationId_navigation_id_fkey" FOREIGN KEY ("navigationId") REFERENCES "navigation"("id") ON DELETE SET NULL;

@@ -1504,7 +1504,9 @@ export const tree = pgTable(
     locale: varchar({ length: 255 }).notNull(),
     title: varchar({ length: 255 }).notNull(),
     navigationMode: treeNavigationModeEnum('navigationMode').notNull().default('inherit'),
-    navigationId: uuid(),
+    // -> `set null` on delete: a tree row whose menu was deleted falls back to the site menu at
+    //    render (see `models/navigation.ts`), so there is no reason to block or cascade the delete.
+    navigationId: uuid().references(() => navigation.id, { onDelete: 'set null' }),
     tags: text()
       .array()
       .notNull()
