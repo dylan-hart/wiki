@@ -90,7 +90,6 @@
 </template>
 
 <script setup>
-import { sampleSize } from 'es-toolkit/array'
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
@@ -98,6 +97,7 @@ import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { localizeError } from '@/helpers/localization'
+import { randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -190,7 +190,7 @@ const verifyPasswordValidation = [
 
 function randomizePassword() {
   const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.newPassword = sampleSize([...pwdChars], 16).join('')
+  state.newPassword = randomPassword(16, pwdChars)
   // -> A password the user never typed has to be readable, or there is no way to record it anywhere
   newPasswordIpt.value.reveal()
 }

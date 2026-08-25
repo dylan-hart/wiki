@@ -72,14 +72,13 @@
 </template>
 
 <script setup>
-import { sampleSize } from 'es-toolkit/array'
-
 import { useI18n } from 'vue-i18n'
 
 import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 import { notify } from '@/composables/notify'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { passwordStrengthScore } from '@/helpers/passwordStrength'
+import { randomPassword } from '@/helpers/randomPassword'
 import { computed, reactive, ref } from 'vue'
 
 // PROPS
@@ -165,7 +164,7 @@ const userPasswordValidation = [
 
 function randomizePassword() {
   const pwdChars = 'abcdefghkmnpqrstuvwxyzABCDEFHJKLMNPQRSTUVWXYZ23456789_*=?#!()+'
-  state.userPassword = sampleSize(pwdChars, 16).join('')
+  state.userPassword = randomPassword(16, pwdChars)
 }
 
 async function save() {
