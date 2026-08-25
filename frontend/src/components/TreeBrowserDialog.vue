@@ -1,5 +1,5 @@
 <template>
-  <w-dialog v-model="dialogVisible" @hide="onDialogHide">
+  <w-dialog v-model="dialogVisible" :aria-label="dialogTitle" @hide="onDialogHide">
     <w-card class="page-save-dialog" style="width: 860px; max-width: 90vw">
       <w-card-section v-if="props.mode === `savePage`" class="card-header">
         <w-icon name="img:/_assets/icons/fluent-save-as.svg" size="sm" class="mr-2" />
@@ -270,6 +270,18 @@ const treeComp = ref(null)
 const pathRules = [(value) => !value?.includes('/') || t('pageSaveDialog.pathNoSlashes')]
 
 // COMPUTED
+
+/** Mirrors the header's own per-mode title (below), as the dialog's accessible name. */
+const dialogTitle = computed(() => {
+  switch (props.mode) {
+    case 'duplicatePage':
+      return t('pageDuplicateDialog.title')
+    case 'renamePage':
+      return t('pageRenameDialog.title')
+    default:
+      return t('pageSaveDialog.title')
+  }
+})
 
 const currentFolderPath = computed(() => {
   const folderNode = state.currentFolderId ? state.treeNodes[state.currentFolderId] : null

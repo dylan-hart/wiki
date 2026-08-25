@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
+import { defineComponent, h, nextTick, ref } from 'vue'
 
 import WDialog from './WDialog.vue'
+import { dialogComponentEmits, useDialogComponent } from '@/composables/dialog'
 
 /*
   `<w-dialog>` renders its panel through `<teleport to="body">` (see `WDialog.vue`), which is exactly
@@ -176,5 +178,175 @@ describe('WDialog accessible name', () => {
     const panel = new DOMWrapper(document.body).find('[role="dialog"]')
     expect(panel.attributes('aria-labelledby')).toBeUndefined()
     expect(panel.attributes('aria-label')).toBeUndefined()
+  })
+})
+
+function dispatchTab({ shiftKey = false } = {}) {
+  document.dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+  )
+}
+
+/**
+ * OpenProject #1608: `WDialog` traps and places focus itself -- capturing the trigger on open,
+ * moving focus into the panel (or onto the panel, `tabindex="-1"`, when it has nothing tabbable),
+ * cycling Tab/Shift+Tab at the panel's ends, restoring the trigger on close/unmount, and letting only
+ * the topmost of several stacked dialogs trap. Real (unstubbed) `teleport` throughout, so assertions
+ * read `document.activeElement` the way a browser actually would.
+ */
+/**
+ * Opens a `WDialog` the way every real caller does -- mounted closed, then flipped open by a
+ * reactive prop change (a `v-model` toggle, or `useDialogComponent()`'s own post-mount tick) -- never
+ * mounted with `modelValue: true` from the very first render. This isn't just fidelity to real usage:
+ * `flush: 'post'`'s *immediate* invocation runs before Vue's own template-ref assignment (both are
+ * queued post-render, but the watcher's is registered earlier, at `<script setup>` evaluation, than
+ * the ref's, which is only registered once the panel's `v-if` actually patches in) but its *reactive*
+ * invocations -- triggered by a real prop change after mount -- run through the ordinary effect
+ * ordering where the ref is already live, exactly like every real dialog open.
+ */
+async function openDialog(props = {}, slots = {}) {
+  const wrapper = mount(WDialog, { props: { modelValue: false, ...props }, slots })
+  await flushPromises()
+  await wrapper.setProps({ modelValue: true })
+  await flushPromises()
+  return wrapper
+}
+
+describe('WDialog focus management', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+    delete document.body.dataset.wDialogDepth
+    document.body.style.overflow = ''
+  })
+
+  it('moves focus to the first tabbable descendant when the dialog opens', async () => {
+    await openDialog(
+      {},
+      { default: '<button id="first">First</button><button id="second">Second</button>' }
+    )
+
+    expect(document.activeElement?.id).toBe('first')
+  })
+
+  it('focuses the panel itself (tabindex="-1") when it has no tabbable descendants', async () => {
+    await openDialog({}, { default: '<p>Nothing focusable here</p>' })
+
+    const panel = new DOMWrapper(document.body).find('[role="dialog"]')
+    expect(document.activeElement).toBe(panel.element)
+    expect(panel.attributes('tabindex')).toBe('-1')
+  })
+
+  it('cycles Tab from the last tabbable descendant back to the first', async () => {
+    await openDialog(
+      {},
+      { default: '<button id="first">First</button><button id="second">Second</button>' }
+    )
+
+    document.getElementById('second').focus()
+    dispatchTab()
+
+    expect(document.activeElement?.id).toBe('first')
+  })
+
+  it('cycles Shift+Tab from the first tabbable descendant to the last', async () => {
+    await openDialog(
+      {},
+      { default: '<button id="first">First</button><button id="second">Second</button>' }
+    )
+
+    document.getElementById('first').focus()
+    dispatchTab({ shiftKey: true })
+
+    expect(document.activeElement?.id).toBe('second')
+  })
+
+  it('restores focus to the previously focused element on close', async () => {
+    const trigger = document.createElement('button')
+    trigger.id = 'trigger'
+    document.body.appendChild(trigger)
+    trigger.focus()
+
+    const wrapper = await openDialog({}, { default: '<button id="first">First</button>' })
+    expect(document.activeElement?.id).toBe('first')
+
+    await wrapper.setProps({ modelValue: false })
+    await flushPromises()
+
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('restores focus to the trigger on unmount while still open', async () => {
+    const trigger = document.createElement('button')
+    trigger.id = 'trigger'
+    document.body.appendChild(trigger)
+    trigger.focus()
+
+    const wrapper = await openDialog({}, { default: '<button id="first">First</button>' })
+
+    // -> Unmounted while still open, e.g. a route change or host teardown
+    wrapper.unmount()
+
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('only the topmost of two stacked dialogs traps Tab', async () => {
+    const outer = await openDialog(
+      {},
+      {
+        default:
+          '<button id="outer-first">Outer first</button><button id="outer-last">Outer last</button>'
+      }
+    )
+
+    const inner = await openDialog(
+      {},
+      {
+        default:
+          '<button id="inner-first">Inner first</button><button id="inner-last">Inner last</button>'
+      }
+    )
+
+    // -> The dialog opened on top starts with initial focus
+    expect(document.activeElement?.id).toBe('inner-first')
+
+    document.getElementById('inner-last').focus()
+    dispatchTab()
+    // -> The topmost (inner) dialog traps: wraps back to its own first control
+    expect(document.activeElement?.id).toBe('inner-first')
+
+    // -> The outer panel is not `inert` (only `#app` is, and the teleported panel sits outside it),
+    //    so it can still take real focus -- but Tab pressed there is handled by the topmost (inner)
+    //    dialog's own listener, which finds focus outside its panel and pulls it back in rather than
+    //    leaving it free to wrap within the (non-topmost) outer dialog
+    document.getElementById('outer-last').focus()
+    dispatchTab()
+    expect(document.activeElement?.id).toBe('inner-first')
+
+    inner.unmount()
+    outer.unmount()
+  })
+
+  it("lets composables/dialog.js's autofocus override the default initial-focus target", async () => {
+    const AutofocusHost = defineComponent({
+      emits: [...dialogComponentEmits],
+      setup() {
+        const second = ref(null)
+        const { dialogVisible } = useDialogComponent({ autofocus: () => second.value })
+        return () =>
+          h(WDialog, { modelValue: dialogVisible.value }, () => [
+            h('button', { id: 'af-first' }, 'First'),
+            h('button', { id: 'af-second', ref: second }, 'Second')
+          ])
+      }
+    })
+
+    mount(AutofocusHost)
+    // -> Mirrors `useDialogComponent()`'s own timing: mount -> tick (dialogVisible = true) -> tick
+    //    (autofocus target focused)
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+
+    expect(document.activeElement?.id).toBe('af-second')
   })
 })
