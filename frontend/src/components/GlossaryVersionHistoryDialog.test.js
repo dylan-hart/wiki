@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 
 import GlossaryVersionHistoryDialog from './GlossaryVersionHistoryDialog.vue'
@@ -17,8 +18,12 @@ vi.mock('browser-fs-access', () => ({
 
 // -> Declared at module scope (`vi.mock` factories can't close over per-test locals), so it needs its
 //    own call-history clear -- see `AdminGlossary.test.js`'s identical note on `fileSave`/`fileOpen`.
+// -> Also (re)installs an active Pinia: the version list renders through `relativeDate()`
+//    (`helpers/datetime.js`), which now reads `commonStore.locale` on every call and throws without
+//    one.
 beforeEach(() => {
   fileSave.mockClear()
+  setActivePinia(createPinia())
 })
 
 let currentWrapper = null

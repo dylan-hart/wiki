@@ -316,11 +316,12 @@ describe('user store: formatDate()', () => {
 })
 
 /*
-  OpenProject #1595: 16 admin/inbox/profile screens hand-rolled their own `toLocaleString(undefined,
-  ...)` timestamp formatter, which ignored both the stored timezone (the OS zone won instead) and
-  locale (the browser's won instead). All of them are now a drop-in call to formatDateTime() -- three
-  of them (a webhook delivery log, a scheduler run, a security scan report) additionally need
-  seconds, since there the timing itself is the thing being read.
+  OpenProject #1595: 16 admin/inbox/profile screens hand-rolled their own `toLocaleString()`
+  timestamp formatter (called with an explicit `undefined` locale), which ignored both the stored
+  timezone (the OS zone won instead) and locale (the browser's won instead). All of them are now a
+  drop-in call to formatDateTime() -- three of them (a webhook delivery log, a scheduler run, a
+  security scan report) additionally need seconds, since there the timing itself is the thing being
+  read.
 */
 describe('user store: formatDateTime()', () => {
   const t = (key, params) => `${params.date} at ${params.time}`
