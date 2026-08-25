@@ -1418,7 +1418,10 @@ export const siteAssets = pgTable(
       .notNull()
       .references(() => sites.id),
     kind: varchar({ length: 255 }).notNull(),
-    data: bytea().notNull()
+    data: bytea().notNull(),
+    // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
+    //    (ETag) be answered without reading the blob back out of the database.
+    hash: varchar({ length: 255 }).notNull()
   },
   (table) => [primaryKey({ columns: [table.siteId, table.kind] })]
 )
@@ -1541,7 +1544,10 @@ export const tree = pgTable(
 // USER AVATARS ------------------------
 export const userAvatars = pgTable('userAvatars', {
   id: uuid().primaryKey(),
-  data: bytea().notNull()
+  data: bytea().notNull(),
+  // -> sha1 hex digest of `data`, kept in sync by every write path -- lets a conditional request
+  //    (ETag) be answered without reading the blob back out of the database.
+  hash: varchar({ length: 255 }).notNull()
 })
 
 // USER KEYS ---------------------------
