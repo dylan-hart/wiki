@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
@@ -439,5 +439,93 @@ describe('AuthLoginPanel reset password', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.text()).not.toContain('Choose a new password for your account:')
+  })
+})
+
+/**
+ * OpenProject #1360/#2208 (2026-08-24 security audit §2): `resp.redirect` on a successful login is a
+ * group's `redirectOnLogin` (validated server-side, but checked again here as defence in depth
+ * against a row written before that validation existed). `javascript:…` parses as a valid `URL` with
+ * no error, so this cannot be a bare try/catch around `new URL()` — it has to look at what scheme
+ * came back.
+ */
+describe('AuthLoginPanel redirect handling (OpenProject #2208)', () => {
+  async function mountAndLogin(redirect) {
+    setActivePinia(createPinia())
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+
+    API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve([LOCAL_STRATEGY]) })
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+    const wrapper = mount(AuthLoginPanel, { global: { plugins: [i18n] } })
+    await flushPromises()
+
+    const inputs = wrapper.findAll('input')
+    await inputs[0].setValue('reader@example.com')
+    await inputs[1].setValue('correct horse battery staple')
+
+    API_CLIENT.put.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ ok: true, nextAction: 'redirect', continuationToken: '', redirect })
+    })
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    return wrapper
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('refuses a javascript: redirect and falls back to /', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('javascript:alert(1)')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
+  })
+
+  it('refuses a scheme-relative //host redirect the same way', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('//attacker.example')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
+  })
+
+  it('follows a genuine rooted-path redirect', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('/dashboard')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it('follows a genuine https:// redirect', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin('https://idp.example.com/welcome')
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('https://idp.example.com/welcome')
+  })
+
+  it('falls back to / when the response carries no redirect at all', async () => {
+    const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+    await mountAndLogin(undefined)
+
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(replace).toHaveBeenCalledWith('/')
   })
 })

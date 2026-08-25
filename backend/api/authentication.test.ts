@@ -74,11 +74,13 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
           }
         }
       },
+      sitesMappings: {},
       auth: {
         strategies: {
           [STRATEGY_ID]: {
             module: 'saml',
-            profile: async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' })
+            profile: async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' }),
+            authorizationUrl: async () => 'https://idp.example.com/authorize?x=1'
           },
           [CAS_STRATEGY_ID]: {
             module: 'cas',
@@ -211,6 +213,73 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(res.statusCode, 302)
     assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_EXPIRED/)
     assert.equal(loginCalls.length, 0)
+  })
+
+  /**
+   * OpenProject #1360/#2208 (2026-08-24 security audit §6): `GET /auth/:strategyId/authorize`'s
+   * `redirect` query parameter used to be checked with `startsWith('/')` alone, which
+   * `//evil.example` also satisfies — a browser resolves that as an absolute, off-origin URL, not a
+   * path. The stored flow's `redirect` (what `finishProviderLogin` falls back to on success) is what
+   * this proves stayed same-origin.
+   */
+  test('falls back to / for a scheme-relative //host redirect query param', async () => {
+    session = {}
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('//evil.example')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('falls back to / for a javascript: redirect query param', async () => {
+    session = {}
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('javascript:alert(1)')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('keeps a legitimate rooted-path redirect query param', async () => {
+    session = {}
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/admin/dashboard')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/admin/dashboard')
+  })
+
+  /**
+   * Defense in depth for `finishProviderLogin`'s `result.redirect || redirect` (OpenProject
+   * #1360/#2208 §2): a group's `redirectOnLogin` is validated at write time (`api/groups.ts`), but a
+   * row written before that validation existed must not still reach `reply.redirect()` unvalidated.
+   */
+  test('falls back to the flow redirect when loginWithProvider answers an unfollowable redirect', async () => {
+    session = { authFlow: freshFlow({ redirect: '/safe-fallback' }) }
+    const originalLogin = (globalThis as any).WIKI.models.users.loginWithProvider
+    ;(globalThis as any).WIKI.models.users.loginWithProvider = async (args: any) => {
+      loginCalls.push(args)
+      return { authenticated: true, nextAction: 'redirect', redirect: 'javascript:alert(1)' }
+    }
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/auth/${STRATEGY_ID}/callback`,
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        payload: new URLSearchParams({
+          SAMLResponse: 'encoded-response',
+          RelayState: 'abc123'
+        }).toString()
+      })
+      assert.equal(res.statusCode, 302)
+      assert.equal(res.headers.location, '/safe-fallback')
+    } finally {
+      ;(globalThis as any).WIKI.models.users.loginWithProvider = originalLogin
+    }
   })
 })
 

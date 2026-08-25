@@ -97,3 +97,30 @@ export function isFollowable({ kind, target } = {}) {
     ? /^https?:\/\/\S/i.test(value)
     : value.startsWith('/') && !value.startsWith('//')
 }
+
+/**
+ * `isFollowable`'s kind-agnostic twin, for a single string that could be EITHER shape — a login/
+ * logout redirect target, rather than a redirection page's own stored `{ kind, target }`. Accepts a
+ * rooted path that does not begin `//` or `/\` (both resolve to a scheme-relative, i.e. off-origin,
+ * URL), or a complete `http://`/`https://` URL to anywhere.
+ *
+ * The frontend twin of `backend/helpers/redirect.ts#isFollowableRedirect` (OpenProject #1360/#2208,
+ * 2026-08-24 security audit §2, §9): a redirect target the backend already validated on the way in
+ * (a group's `redirectOnLogin`, the login response's own `redirect`) still has to be checked again
+ * here before `window.location.replace()` — the backend guarantee only covers rows written or fields
+ * set AFTER that validation existed, and this is the sink a stale row (or, for `AuthLoginPanel.vue`'s
+ * now-deleted `loginRedirect` COOKIE read, a value this app never even wrote) would otherwise reach
+ * unchecked. `new URL(value, base)` is deliberately not used to decide this on its own: it parses
+ * `javascript:…` without throwing (`.protocol` just comes back `'javascript:'`), so a caller that
+ * only checks "did it parse" rather than "what scheme did it resolve to" would let it through.
+ */
+export function isFollowableRedirectTarget(value) {
+  const target = (value ?? '').trim()
+  if (target.length < 1) {
+    return false
+  }
+  if (/^https?:\/\/\S/i.test(target)) {
+    return true
+  }
+  return target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\')
+}

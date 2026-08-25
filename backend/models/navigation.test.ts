@@ -217,6 +217,71 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
       /does not exist/
     )
   })
+
+  /**
+   * OpenProject #1360/#2208 (2026-08-24 security audit §3): a nav item's `target` renders as an
+   * unsanitized `<a :href>` (`WItem.vue`) for every reader of every page on the site, so it must be a
+   * same-origin path or an `http(s)`/`mailto`/`tel` target — never `javascript:` or a scheme-relative
+   * `//host` a browser would resolve as absolute and off-origin.
+   */
+  test('rejects a javascript: target, top-level or nested, and writes nothing', async () => {
+    // -> A locale of its own, distinct from every other test in this describe block: `ensureSiteNav`
+    //    is idempotent per `(siteId, locale)`, and reusing a locale another test already wrote to
+    //    would make the "wrote nothing" assertion below see that test's leftover items instead.
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'nl')
+
+    await assert.rejects(
+      () =>
+        navigationModel.setNavItems(fixtures.siteId, siteNavId, [
+          { id: 'a', type: 'link' as const, label: 'Evil', target: 'javascript:alert(1)' }
+        ]),
+      /not a valid destination/
+    )
+
+    await assert.rejects(
+      () =>
+        navigationModel.setNavItems(fixtures.siteId, siteNavId, [
+          {
+            id: 'a',
+            type: 'link' as const,
+            label: 'Parent',
+            target: '/fine',
+            children: [
+              { id: 'b', type: 'link' as const, label: 'Evil Child', target: 'javascript:alert(1)' }
+            ]
+          }
+        ]),
+      /not a valid destination/
+    )
+
+    // -> Neither attempt wrote anything -- the row is still whatever ensureSiteNav seeded it with
+    const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
+    assert.deepEqual(stored, [])
+  })
+
+  test('rejects a scheme-relative //host target the same way', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'sv')
+    await assert.rejects(
+      () =>
+        navigationModel.setNavItems(fixtures.siteId, siteNavId, [
+          { id: 'a', type: 'link' as const, label: 'Phish', target: '//attacker.example' }
+        ]),
+      /not a valid destination/
+    )
+  })
+
+  test('accepts a rooted path, a complete https:// URL, a mailto: and a tel: target', async () => {
+    const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'da')
+    const items = [
+      { id: 'a', type: 'link' as const, label: 'Home', target: '/' },
+      { id: 'b', type: 'link' as const, label: 'Ext', target: 'https://example.com' },
+      { id: 'c', type: 'link' as const, label: 'Mail', target: 'mailto:hello@example.com' },
+      { id: 'd', type: 'link' as const, label: 'Call', target: 'tel:+15551234567' }
+    ]
+    await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
+    const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
+    assert.deepEqual(stored, items)
+  })
 })
 
 /**
@@ -340,6 +405,49 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
           mode: 'replace'
         }),
       /target menu does not exist/
+    )
+  })
+
+  /**
+   * OpenProject #1360/#2208 (2026-08-24 security audit §3): "copy from locale"/cross-site copy is a
+   * second write path onto a menu, so a poisoned source (written before `setNavItems`'s own
+   * validation existed — inserted directly here to simulate exactly that, since `setNavItems` itself
+   * would now refuse to write it) must not be reintroducible onto a clean target through a copy.
+   */
+  test('refuses to copy a poisoned source menu, and leaves the target untouched', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ja')
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ko')
+
+    await fixtures.db
+      .update(navigationTable)
+      .set({
+        items: [
+          { id: 'poisoned', type: 'link' as const, label: 'Evil', target: 'javascript:alert(1)' }
+        ]
+      })
+      .where(eq(navigationTable.id, sourceId))
+    await navigationModel.setNavItems(fixtures.siteId, targetId, [
+      { id: 'clean', type: 'header' as const, label: 'Untouched' }
+    ])
+
+    await assert.rejects(
+      () =>
+        navigationModel.copyNav({
+          sourceSiteId: fixtures.siteId,
+          sourceId,
+          targetSiteId: fixtures.siteId,
+          targetId,
+          mode: 'replace'
+        }),
+      /not a valid destination/
+    )
+
+    const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      unfiltered: true
+    })
+    assert.deepEqual(
+      targetItems.map((i) => i.id),
+      ['clean']
     )
   })
 })

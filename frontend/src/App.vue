@@ -18,6 +18,7 @@ import { applyFonts } from '@/helpers/fonts'
 import { applyInjectCss } from '@/helpers/injectCss'
 import { applyInjectBody, applyInjectHead } from '@/helpers/injectHtml'
 import { resolveRouteLocale, stripPageExtension } from '@/helpers/pagePaths'
+import { isFollowableRedirectTarget } from '@/helpers/pageRedirect'
 import { useDark } from '@/composables/dark'
 import { confirm } from '@/composables/dialog'
 import { useDirection } from '@/composables/direction'
@@ -492,10 +493,19 @@ window.addEventListener('beforeunload', (e) => {
 // GLOBAL EVENTS HANDLERS
 
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
-  const target = redirect || '/'
+  /*
+    OpenProject #1360/#2208 (2026-08-24 security audit §2): `redirect` is a group's `redirectOnLogout`
+    (validated server-side on the way in, but checked again here as defence in depth against a row
+    written before that validation existed). This used to accept ANY `scheme://` prefix
+    (`/^[a-z][a-z0-9+.-]*:\/\//i`), which `javascript://%0aalert(1)` also satisfies — the `//` reads
+    as a JS line comment once the browser decodes the newline, so `window.location.assign()` on it
+    executed the payload. `isFollowableRedirectTarget` looks at what scheme actually resolved, not
+    just "does this look like `scheme://…`".
+  */
+  const target = redirect && isFollowableRedirectTarget(redirect) ? redirect : '/'
   // -> A group or the site can send logged out users to another site entirely, which the router cannot
   //    navigate to — and leaving the wiki means there is no point notifying anyone either
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
+  if (/^https?:\/\//i.test(target)) {
     window.location.assign(target)
     return
   }

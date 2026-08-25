@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { isFollowableRedirect } from '../helpers/redirect.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -141,7 +142,16 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
-    return reply.redirect(result.redirect || redirect)
+    /*
+      `result.redirect` is a group's `redirectOnLogin` (OpenProject #1360/#2208, 2026-08-24 security
+      audit) -- validated at write time by `api/groups.ts`'s update route, but checked again here as
+      defence in depth against a row written before that validation existed (a direct DB write, or a
+      2.5.x import). `redirect` (the flow's own return path, already validated at #1035 below) is the
+      fallback either way.
+    */
+    const target =
+      result.redirect && isFollowableRedirect(result.redirect) ? result.redirect : redirect
+    return reply.redirect(target)
   } catch (err: any) {
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
@@ -1031,8 +1041,17 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        /*
+          Only a same-origin path on this wiki: an open redirect is how a login page is turned into a
+          lure. `startsWith('/')` alone (the previous check) let `//evil.example` through --
+          `'//evil.example'.startsWith('/')` is `true`, and a browser normalizes a leading `/\` to `//`
+          the same way, resolving either as an absolute, off-origin URL rather than a path
+          (OpenProject #1360/#2208, 2026-08-24 security audit). `allowExternal: false` because this is
+          purely a return-to-where-you-were path within the wiki, never a legitimate off-site target.
+        */
+        redirect: isFollowableRedirect(req.query.redirect, { allowExternal: false })
+          ? req.query.redirect!
+          : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow

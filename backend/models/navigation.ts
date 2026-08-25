@@ -6,6 +6,7 @@ import {
   tree as treeTable
 } from '../db/schema.ts'
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
+import { isFollowableRedirect } from '../helpers/redirect.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
@@ -126,6 +127,42 @@ function cloneItemsWithFreshIds(items: NavigationItem[]): NavigationItem[] {
     id: crypto.randomUUID(),
     children: item.children?.length ? cloneItemsWithFreshIds(item.children) : item.children
   }))
+}
+
+/**
+ * Whether a navigation item's `target` is safe to bind onto `<a :href>` (`WItem.vue`) or a router
+ * link. Same rule `isFollowableRedirect` enforces for a redirect target, plus `mailto:`/`tel:`,
+ * which `frontend/src/composables/navSidebarDestination.js`'s own doc comment calls out as a
+ * deliberately-supported case for a nav item specifically (a redirect target never has a reason to
+ * open a mail client or a phone dialer, which is why the shared helper itself does not carry them).
+ */
+function isValidNavTarget(target: string): boolean {
+  return isFollowableRedirect(target) || /^(mailto|tel):/i.test(target)
+}
+
+/**
+ * Refuse a menu whose `target` (top-level, or on any nested `children`) is not
+ * `isValidNavTarget` — a `javascript:` or scheme-relative `//host` link nobody chose to write, most
+ * likely payload for someone with `site:navigation` on one site or `manage:navigation` everywhere but
+ * not `manage:system`. OpenProject #1360/#2208, 2026-08-24 security audit
+ * (`security/08-frontend-client.md` §3): every reader of every page on the site renders this, so a
+ * poisoned target is a same-origin script execution reachable by one click from a non-administrator
+ * grant. Called from every write path — `setNavItems` (the two `PUT` routes) and `copyNav` — so a
+ * poisoned source menu cannot be reintroduced onto a clean target through a copy either.
+ */
+function validateNavItems(items: NavigationItem[]): void {
+  for (const item of items) {
+    if (item.target && !isValidNavTarget(item.target)) {
+      throw new CustomError(
+        'navItemTargetInvalid',
+        `Navigation item target is not a valid destination: ${item.target}`,
+        400
+      )
+    }
+    if (item.children?.length) {
+      validateNavItems(item.children)
+    }
+  }
 }
 
 /**
@@ -518,6 +555,8 @@ class Navigation {
    *              this site
    */
   async setNavItems(siteId: string, navId: string, items: NavigationItem[]): Promise<void> {
+    validateNavItems(items)
+
     const existing = await WIKI.db
       .select({ id: navigationTable.id })
       .from(navigationTable)
@@ -549,9 +588,12 @@ class Navigation {
    * "copy from locale" merge behavior).
    *
    * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
-   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten
-   * too: validating or repointing them against the destination locale/site is a known best-effort
-   * limitation, same as 2.5.x.
+   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten:
+   * REPOINTING them against the destination locale/site (a relative path meant for one locale landing
+   * unchanged on another) is a known best-effort limitation, same as 2.5.x. They are, however,
+   * VALIDATED — `validateNavItems` below refuses the whole copy if any survives as something other
+   * than a same-origin path or `http(s)`/`mailto`/`tel` target (OpenProject #1360/#2208), so a source
+   * menu poisoned before that validation existed cannot be reintroduced onto a clean target this way.
    *
    * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
    *                      "copy from locale", different for a cross-site copy
@@ -593,6 +635,10 @@ class Navigation {
     }
 
     const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    // -> Refuses the whole copy rather than silently stripping the offending item(s): the source menu
+    //    is what needs fixing, and a copy that quietly dropped an item would be a harder bug to
+    //    notice than a copy that failed outright.
+    validateNavItems(clonedItems)
     const items =
       mode === 'append'
         ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]

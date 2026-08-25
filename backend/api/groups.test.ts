@@ -46,6 +46,20 @@ describe(
         }
       })
       await app.register(fastifySensible)
+      // -> Mirrors `index.ts`'s real `setErrorHandler`: a thrown `CustomError` (or a
+      //    `@fastify/sensible` error) carries `.statusCode`, but nothing shapes it into the
+      //    `{ ok, error, statusCode, message }` `ApiError#` schema expects without this -- the
+      //    default handler tries to serialize the raw `Error` object against that schema and fails,
+      //    since an `Error` has no `ok`/`error` property of its own.
+      app.setErrorHandler((error: any, req, reply) => {
+        reply.code(error.statusCode ?? 500).send({
+          ok: false,
+          error: error.name,
+          statusCode: error.statusCode ?? 500,
+          message: error.message
+        })
+      })
+      await registerErrorSchema(app)
       await registerUserSchema(app)
       await registerGroupSchema(app)
       await app.register(groupsRoutes)
@@ -126,6 +140,56 @@ describe(
       assert.equal(warn.mock.calls.length, 0)
 
       warn.mock.restore()
+    })
+
+    /**
+     * OpenProject #1360/#2208 (2026-08-24 security audit §2, §6): `redirectOnLogin` was a bare
+     * `{ type: 'string' }` with no scheme check, and `AuthLoginPanel.vue`'s
+     * `window.location.replace()` on the login path executes a `javascript:` value in the NEXT
+     * signed-in user's session — including an administrator's, since the guard `clampGuestPatch`
+     * above enforces protects only `manage:system` itself, not these fields.
+     */
+    test('rejects a javascript: redirectOnLogin with 400, and does not save it', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnLogin: 'javascript:alert(1)' }
+      })
+      assert.equal(res.statusCode, 400)
+
+      const saved = await groupsModel.getGroupById(fixtures.groupId)
+      assert.notEqual(saved?.redirectOnLogin, 'javascript:alert(1)')
+    })
+
+    test('rejects a scheme-relative //host redirectOnFirstLogin with 400', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnFirstLogin: '//attacker.example' }
+      })
+      assert.equal(res.statusCode, 400)
+    })
+
+    test('accepts a rooted path and a complete https:// URL for redirectOnLogout', async () => {
+      for (const target of ['/dashboard', 'https://example.com/goodbye']) {
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/${fixtures.groupId}`,
+          payload: { redirectOnLogout: target }
+        })
+        assert.equal(res.statusCode, 200)
+        const saved = await groupsModel.getGroupById(fixtures.groupId)
+        assert.equal(saved?.redirectOnLogout, target)
+      }
+    })
+
+    test('accepts an empty string — the seeded default meaning "no redirect configured"', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: { redirectOnLogin: '' }
+      })
+      assert.equal(res.statusCode, 200)
     })
   }
 )
