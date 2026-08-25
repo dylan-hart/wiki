@@ -53,8 +53,11 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
   async function getRule() {
     return existingRule
   }
+  // -> Mutable per-test, task #1616: default empty (every group id resolves), one test below
+  //    overrides it to prove `rejectUnknownGroups` now sends a coded `ERR_UNKNOWN_GROUP` message.
+  let unknownGroupIds: string[] = []
   async function getUnknownGroupIds() {
-    return []
+    return unknownGroupIds
   }
   async function createRule(siteId: string, body: any) {
     createRuleCalls.push({ siteId, body })
@@ -138,6 +141,7 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     createRuleCalls = []
     updateRuleCalls = []
     deleteRuleCalls = []
+    unknownGroupIds = []
   })
 
   test('manage:sites may list approval rules', async () => {
@@ -192,6 +196,25 @@ describe('/sites/:siteId/approvals/rules — site:approvals permission (task 683
     })
     assert.equal(res.statusCode, 200)
     assert.equal(createRuleCalls.length, 1)
+  })
+
+  test('a rule naming an unknown group is refused with a coded error, task #1616', async () => {
+    unknownGroupIds = [SUBMITTER_GROUP]
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/approvals/rules`,
+      headers: { 'x-test-site-permissions': `site:approvals@${SITE_ID}` },
+      payload: {
+        name: 'New rule',
+        match: 'START',
+        path: '',
+        submitterGroups: [SUBMITTER_GROUP],
+        reviewerGroups: [REVIEWER_GROUP]
+      }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_UNKNOWN_GROUP')
+    assert.equal(createRuleCalls.length, 0)
   })
 
   test('an unrelated permission alone may not create a rule', async () => {

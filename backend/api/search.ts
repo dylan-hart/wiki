@@ -177,12 +177,10 @@ async function routes(app: FastifyInstance) {
       const available = await WIKI.models.search.getAvailableDictionaries()
       for (const [locale, dictionary] of Object.entries(req.body.dictOverrides)) {
         if (!/^[a-z]{2,3}(?:[-_][A-Za-z]{2,4})?$/.test(locale)) {
-          return reply.badRequest(`"${locale}" is not a valid locale code.`)
+          return reply.badRequest('ERR_INVALID_LOCALE_CODE')
         }
         if (!available.includes(dictionary)) {
-          return reply.badRequest(
-            `"${dictionary}" is not a text search dictionary in this database.`
-          )
+          return reply.badRequest('ERR_INVALID_SEARCH_DICTIONARY')
         }
       }
 
