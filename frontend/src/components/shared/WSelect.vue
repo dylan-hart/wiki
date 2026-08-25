@@ -7,7 +7,7 @@
     pushed the field past the section and out of the card. The cap does the shrinking, and stretch
     still handles the growing.
   -->
-  <div class="w-select max-w-full min-w-0">
+  <div class="w-select max-w-full min-w-0" :class="attrs.class" :style="attrs.style">
     <!-- -> Only variants without an outline to rise into still label from above; see WInput -->
     <label
       v-if="label && !hasFloatingLabel"
@@ -25,6 +25,8 @@
     -->
     <component
       :is="useInput ? 'div' : 'button'"
+      v-bind="controlAttrs"
+      ref="control"
       :id="useInput ? undefined : selectId"
       :type="useInput ? undefined : 'button'"
       :role="useInput ? undefined : 'combobox'"
@@ -215,17 +217,23 @@
     <div
       v-if="showsBottom"
       class="min-h-5 px-1 pt-1 text-caption"
-      :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'">
+      :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'"
+      aria-live="polite"
+      aria-atomic="true">
       {{ errorMessage || hint }}
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, inject, nextTick, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, useAttrs, useId, useSlots, watch } from 'vue'
 import WChip from './WChip.vue'
 import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
+
+defineOptions({
+  inheritAttrs: false
+})
 
 /**
  * Dropdown select.
@@ -238,6 +246,7 @@ import WSpinner from './WSpinner.vue'
  * short list.
  */
 const slots = useSlots()
+const attrs = useAttrs()
 
 const props = defineProps({
   modelValue: {
@@ -393,6 +402,15 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  /**
+   * Focuses the real control once mounted. Same reasoning as `WInput`'s prop of the same name: the
+   * component's root is a wrapping `<div>`, so a plain `autofocus` attribute lands there and does
+   * nothing -- this is a declared prop instead, handled from `onMounted`.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
+  },
   /** Replaces the computed display text outright -- for a summary like "3 locales". */
   displayValue: {
     type: String,
@@ -433,6 +451,8 @@ const errorMessage = ref(null)
 /** What has been typed into the filter, when `useInput`. */
 const query = ref('')
 const input = ref(null)
+/** The plain-variant `<button>` (or the `useInput` variant's non-focusable `<div>`); see `focus()`. */
+const control = ref(null)
 
 // -> A stale filter would otherwise still be narrowing the list the next time the popup opens
 watch(isOpen, (open) => {
@@ -444,6 +464,17 @@ watch(isOpen, (open) => {
 // COMPUTED
 
 const isDisabled = computed(() => props.disable || props.disabled)
+
+/**
+ * Everything the caller passed through as a plain HTML attribute -- `name`, `data-*`, ... --
+ * forwarded onto the real control (the `<button>`, or the combobox `<div>`) rather than left
+ * stranded on the wrapper. `class`/`style` are carved out because they're bound explicitly onto the
+ * wrapper above; see the matching note in `WInput`.
+ */
+const controlAttrs = computed(() => {
+  const { class: _class, style: _style, ...rest } = attrs
+  return rest
+})
 
 /** Options flattened to `{ value, label, raw }`, whatever shape they came in as. */
 const normalizedOptions = computed(() =>
@@ -547,14 +578,35 @@ function validate(value = props.modelValue) {
   return true
 }
 
+/**
+ * Focuses the real interactive element: the filtering variant's `<input>`, or the plain variant's
+ * `<button>` -- whichever one the combobox role actually lives on. Same shape as `WInput`'s
+ * `focus()`, and the guard against a hidden field.
+ */
+function focus() {
+  if (props.useInput) {
+    input.value?.focus()
+  } else {
+    control.value?.focus()
+  }
+}
+
 /*
   Join the enclosing WForm, if there is one, so submitting validates this control too. Optional by
   design -- plenty of selects in the codebase stand alone.
 */
 const registerWithForm = inject('wFormRegister', null)
-registerWithForm?.({ validate })
+registerWithForm?.({ validate, focus })
 
-defineExpose({ validate })
+defineExpose({ validate, focus })
+
+// -> A hidden field (e.g. one behind a `v-if` that hasn't mounted yet) leaves both refs null; the
+//    same optional chaining `focus()` uses above is the guard.
+onMounted(() => {
+  if (props.autofocus) {
+    focus()
+  }
+})
 
 /** Display text for a bound value, resolved back through the options where possible. */
 function labelFor(value) {
