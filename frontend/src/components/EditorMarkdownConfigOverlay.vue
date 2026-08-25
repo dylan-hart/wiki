@@ -273,7 +273,7 @@ async function load() {
   try {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     if (!resp?.editors?.markdown?.config) {
-      throw new Error('Failed to fetch markdown editor configuration.')
+      throw new Error(t('admin.editors.markdown.fetchFailed'))
     }
     state.config = toMerged(defaultConfig(), resp.editors.markdown.config)
   } catch (err) {
@@ -299,7 +299,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.editors.markdown.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.editors.markdown.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({

@@ -197,13 +197,13 @@ describe('Graph.vue (OpenProject #891)', () => {
     //    through the same `GraphClientTypeFilter` component/class, so the filter itself never
     //    disappears any more; only which one is showing changes.
     expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Count edits by')
+    expect(wrapper.text()).toContain('graph.controls.countEditsBy')
 
     wrapper.vm.sizeBy = 'visits'
     await flushPromises()
 
     expect(wrapper.find('.graph-client-type-filter').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Count visits by')
+    expect(wrapper.text()).toContain('graph.controls.countVisitsBy')
   })
 
   it('visits sizing scales a node bigger with more pageviews than one with fewer', async () => {

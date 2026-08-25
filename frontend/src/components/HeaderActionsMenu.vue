@@ -5,7 +5,7 @@
     round
     dense
     icon="la:ellipsis-v"
-    aria-label="More Actions">
+    :aria-label="t('common.header.moreActions')">
     <w-menu ref="menu" class="translucent-menu" anchor="bottom right" self="top right">
       <!--
         Every row's icon takes its colour as a literal `text-*` class rather than through `WIcon`'s

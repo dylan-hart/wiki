@@ -1046,7 +1046,7 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
     notify({
       type: 'negative',
       message: t('fileman.folderTreeLoadFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   if (parentId === state.currentFolderId) {
@@ -1214,7 +1214,7 @@ function duplicatePage(item) {
       notify({
         type: 'negative',
         message: t('fileman.duplicateFailed'),
-        caption: apiErrorMessage(err, 'An unexpected error occured.')
+        caption: apiErrorMessage(err, t('common.error.unexpected'))
       })
     }
   })
@@ -1283,7 +1283,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
     notify({
       type: 'negative',
       message: t('fileman.renameMoveFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -1406,7 +1406,7 @@ async function uploadFiles(filesToUpload) {
           }).json()
           // -> The API client does not throw on 400, so a refused file comes back as a parsed error
           if (resp?.ok === false) {
-            throw new Error(resp.message || 'An unexpected error occured.')
+            throw new Error(resp.message || t('common.error.unexpected'))
           }
         }
         state.uploadPercentage = 100
@@ -1421,7 +1421,7 @@ async function uploadFiles(filesToUpload) {
         notify({
           type: 'negative',
           message: t('fileman.uploadFailed'),
-          caption: apiErrorMessage(err, 'An unexpected error occured.')
+          caption: apiErrorMessage(err, t('common.error.unexpected'))
         })
       }
       state.loading--
@@ -1589,7 +1589,7 @@ async function copyItemURL(item) {
         break
       }
       default: {
-        throw new Error('Invalid Item Type')
+        throw new Error('ERR_INVALID_ITEM_TYPE')
       }
     }
     notify({
@@ -1630,7 +1630,7 @@ async function downloadItem(item) {
     notify({
       type: 'negative',
       message: t('fileman.downloadFailed'),
-      caption: apiErrorMessage(err, 'An unexpected error occured.')
+      caption: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }

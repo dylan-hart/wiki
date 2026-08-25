@@ -209,7 +209,7 @@
           <div class="searchpanel-header">
             <span>Popular Tags</span>
             <w-space />
-            <w-btn class="acrylic-btn" flat label="View All" rounded size="xs" />
+            <w-btn class="acrylic-btn" flat :label="t('common.header.viewAll')" rounded size="xs" />
           </div>
           <div class="mb-4 flex flex-wrap gap-1">
             <w-chip

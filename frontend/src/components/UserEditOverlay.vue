@@ -569,7 +569,11 @@
                       <w-icon class="mr-1" name="la:exclamation-triangle" size="20px" />
                       <span>{{ t('admin.users.invalidJSON') }}</span>
                     </w-badge>
-                    <w-badge class="py-1" v-else label="JSON" color="positive" />
+                    <w-badge
+                      class="py-1"
+                      v-else
+                      :label="t('admin.users.jsonBadgeLabel')"
+                      color="positive" />
                   </template>
                 </w-card-header>
                 <w-item>
@@ -578,7 +582,7 @@
                       v-model="metadata"
                       language="json"
                       :min-height="500"
-                      aria-label="Metadata (JSON)" />
+                      :aria-label="t('admin.users.metadataAriaLabel')" />
                   </w-item-section>
                 </w-item>
               </w-card>
@@ -824,7 +828,7 @@ async function fetchUser() {
     ])
     state.groups = (groups ?? []).filter((g) => g.id !== '10000000-0000-4000-8000-000000000001')
     if (!user?.id) {
-      throw new Error('An unexpected error occured while fetching user details.')
+      throw new Error(t('common.error.unexpected'))
     }
     state.user = user
     if (canManage.value) {
@@ -847,7 +851,7 @@ async function fetchPasskeys() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured while fetching passkeys.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
 }
@@ -931,7 +935,7 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.users.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.users.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (!silent) {
@@ -947,7 +951,7 @@ async function save(patch, { silent, keepOpen } = { silent: false, keepOpen: fal
     // -> ky throws above 400 with the reason in the body, which is where the server explains itself
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   loading.hide()

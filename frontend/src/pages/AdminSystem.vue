@@ -35,7 +35,7 @@
           class="acrylic-btn"
           flat
           icon="mdi:clipboard-text-outline"
-          label="Copy System Info"
+          :label="t('admin.system.copyInfo')"
           color="primary"
           :disabled="state.loading > 0"
           @click="copySysInfo" />

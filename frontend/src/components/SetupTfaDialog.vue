@@ -174,7 +174,7 @@ async function load() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || 'An unexpected error occured.')
+      throw new Error(localizeError(resp?.message, t) || t('common.error.unexpected'))
     }
     state.continuationToken = resp.continuationToken
     state.tfaQRImage = resp.tfaQRImage

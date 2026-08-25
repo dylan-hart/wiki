@@ -86,7 +86,7 @@ async function confirm() {
   try {
     const resp = await API_CLIENT.delete(`sites/${props.site.id}`)
     if (!resp?.ok) {
-      throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+      throw new Error((await resp.json())?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

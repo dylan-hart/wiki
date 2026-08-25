@@ -464,7 +464,7 @@ function approveSubmission() {
         { json: { content, render: renderReviewed(content) } }
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       // -> `finalized` is false the moment a rule asks for more than one sign-off and this reviewer
       //    is not the last one in: the page was not written, so leaving with the ordinary "applied"
@@ -541,7 +541,7 @@ function rejectSubmission() {
         `sites/${siteStore.id}/approvals/submissions/${state.selected.id}/reject`
       ).json()
       if (!resp?.ok) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

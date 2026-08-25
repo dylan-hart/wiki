@@ -48,8 +48,8 @@
             flat
             icon="la:plus-circle"
             color="blue-4"
-            aria-label="Create New Page">
-            <w-tooltip>Create New Page</w-tooltip>
+            :aria-label="t('common.header.createNewPage')">
+            <w-tooltip>{{ t('common.header.createNewPage') }}</w-tooltip>
             <new-menu />
           </w-btn>
           <!--
@@ -65,9 +65,9 @@
             flat
             icon="la:folder-open"
             color="positive"
-            aria-label="File Manager"
+            :aria-label="t('fileman.title')"
             @click="openFileManager">
-            <w-tooltip>File Manager</w-tooltip>
+            <w-tooltip>{{ t('fileman.title') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="siteStore.features.browse"

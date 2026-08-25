@@ -210,7 +210,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(localizeError(resp?.message, t) || 'An unexpected error occured.')
+      throw new Error(localizeError(resp?.message, t) || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',

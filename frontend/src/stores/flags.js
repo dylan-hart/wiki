@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 
+import { i18n } from '@/boot/i18n'
+
 export const useFlagsStore = defineStore('flags', {
   state: () => ({
     loaded: false,
@@ -15,7 +17,7 @@ export const useFlagsStore = defineStore('flags', {
       try {
         const systemFlags = await API_CLIENT.get('system/flags').json()
         if (!systemFlags) {
-          throw new Error('Could not fetch system flags.')
+          throw new Error(i18n.global.t('admin.flags.loadFailed'))
         }
         this.apply(systemFlags)
       } catch (err) {

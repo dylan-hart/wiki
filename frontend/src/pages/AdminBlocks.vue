@@ -472,7 +472,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.blocks.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.blocks.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     notify({
@@ -513,7 +513,7 @@ function deleteBlock(id) {
     try {
       const resp = await API_CLIENT.delete(`sites/${adminStore.currentSiteId}/blocks/${id}`)
       if (!resp?.ok) {
-        throw new Error((await resp.json())?.message || 'An unexpected error occured.')
+        throw new Error((await resp.json())?.message || t('common.error.unexpected'))
       }
       notify({
         type: 'positive',

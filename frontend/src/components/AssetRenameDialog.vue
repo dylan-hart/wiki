@@ -101,7 +101,7 @@ async function rename() {
     }).json()
     // -> The API client does not throw on 400, so a refused name comes back as a parsed error
     if (resp?.ok === false) {
-      throw new Error(resp.message || 'An unexpected error occured.')
+      throw new Error(resp.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -125,7 +125,7 @@ onMounted(async () => {
   try {
     const asset = await API_CLIENT.get(`sites/${siteStore.id}/assets/${props.assetId}`).json()
     if (asset?.id !== props.assetId) {
-      throw new Error('Failed to fetch asset data.')
+      throw new Error(t('fileman.fetchAssetDataFailed'))
     }
     state.path = asset.fileName
   } catch (err) {

@@ -426,7 +426,7 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('mail/config').json()
     if (!resp) {
-      throw new Error('Failed to fetch mail config.')
+      throw new Error(t('admin.mail.loadFailed'))
     }
     state.config = toMerged(defaultConfig(), resp)
     adminStore.info.isMailConfigured = state.config?.host?.length > 2
@@ -466,9 +466,7 @@ async function save() {
       }
     }).json()
     if (!resp?.ok) {
-      throw new Error(
-        t(`admin.mail.${resp?.error}`, resp?.message || 'An unexpected error occured.')
-      )
+      throw new Error(t(`admin.mail.${resp?.error}`, resp?.message || t('common.error.unexpected')))
     }
     notify({
       type: 'positive',
@@ -502,7 +500,7 @@ async function sendTest() {
       json: { recipientEmail: state.testEmail || '' }
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     notify({
       type: 'positive',
@@ -511,7 +509,7 @@ async function sendTest() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: apiErrorMessage(err, 'An unexpected error occured.')
+      message: apiErrorMessage(err, t('common.error.unexpected'))
     })
   }
   state.testLoading = false

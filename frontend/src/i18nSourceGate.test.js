@@ -40,6 +40,13 @@ const SRC_ROOT = dirname(fileURLToPath(import.meta.url))
 // product decision, not a locale key, so the notify() matcher allow-lists this one literal.
 const ALLOWED_NOTIFY_MESSAGES = new Set(['Not implemented'])
 
+// DevQuickMenu.vue's own header comment: it is mounted only by a dev server (guarded out of the
+// production bundle entirely in App.vue) and deliberately stays hardcoded English -- a dev-only
+// locale key would still ship to translators on the next Localazy sync for a screen no reader, in
+// any locale, will ever see. Same shape of exception as `ALLOWED_NOTIFY_MESSAGES` above, for the
+// static aria-label/label matcher instead.
+const ALLOWED_ARIA_LABELS = new Set(['Developer tools'])
+
 const MISSPELLED_UNEXPECTED_ERROR = 'An unexpected error occured'
 
 function listFiles(dir, out = []) {
@@ -87,7 +94,9 @@ function findStaticAriaOrLabel(source) {
   const re = /(?<![:\w-])(?:aria-label|label)="([A-Z][^"]*)"/g
   const hits = []
   let m
-  while ((m = re.exec(source))) hits.push(m[1])
+  while ((m = re.exec(source))) {
+    if (!ALLOWED_ARIA_LABELS.has(m[1])) hits.push(m[1])
+  }
   return hits
 }
 
@@ -143,6 +152,11 @@ describe('detectors', () => {
 
     it('does not flag a bound attribute -- it resolves through t() or a prop elsewhere', () => {
       const source = `<w-btn :aria-label="t('common.page.properties')" />`
+      expect(findStaticAriaOrLabel(source)).toEqual([])
+    })
+
+    it("allow-lists DevQuickMenu.vue's deliberately hardcoded dev-only tab", () => {
+      const source = `<button aria-label="Developer tools">dev</button>`
       expect(findStaticAriaOrLabel(source)).toEqual([])
     })
   })

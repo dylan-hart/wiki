@@ -208,7 +208,7 @@ export class Range {
     }
 
     if (!start || !end) {
-      throw new Error('Invalid arguments')
+      throw new Error('ERR_INVALID_ARGUMENTS')
     }
 
     if (start.isBefore(end)) {
@@ -338,7 +338,7 @@ export class Selection extends Range {
     }
 
     if (!anchor || !active) {
-      throw new Error('Invalid arguments')
+      throw new Error('ERR_INVALID_ARGUMENTS')
     }
 
     super(anchor, active)

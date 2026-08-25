@@ -178,7 +178,7 @@ async function save() {
       json: payload
     }).json()
     if (!resp?.ok) {
-      throw new Error(resp?.message || 'An unexpected error occured.')
+      throw new Error(resp?.message || t('common.error.unexpected'))
     }
     editorStore.$patch({ userSettings: { ...editorStore.userSettings, markdown: payload } })
     notify({

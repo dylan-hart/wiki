@@ -783,7 +783,7 @@ async function load() {
   try {
     const resp = await API_CLIENT.get(`sites/${adminStore.currentSiteId}?strict=true`).json()
     if (!resp?.theme) {
-      throw new Error('Failed to fetch theme config.')
+      throw new Error(t('admin.theme.loadFailed'))
     }
     state.config = toMerged(defaultConfig(), resp.theme)
   } catch (err) {
@@ -824,7 +824,7 @@ async function save() {
     }).json()
     if (!resp?.ok) {
       throw new Error(
-        t(`admin.theme.${resp?.error}`, resp?.message || 'An unexpected error occured.')
+        t(`admin.theme.${resp?.error}`, resp?.message || t('common.error.unexpected'))
       )
     }
     if (adminStore.currentSiteId === siteStore.id) {

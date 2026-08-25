@@ -164,7 +164,7 @@
                   glossy
                   dense
                   no-caps
-                  label="A"
+                  :label="t(`history.versionLabelA`)"
                   padding="0.285em sm"
                   :color="version.id === state.aId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickA`)"
@@ -174,7 +174,7 @@
                   glossy
                   dense
                   no-caps
-                  label="B"
+                  :label="t(`history.versionLabelB`)"
                   padding="0.285em sm"
                   :color="version.id === state.bId ? `pink-6` : `dark-3`"
                   :aria-label="t(`history.pickB`)"
@@ -625,7 +625,7 @@ function restoreVersion(version) {
         }
       }).json()
       if (!resp?.page?.id) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('history.restoreSuccess') })
       // -> The page behind this overlay is now out of date, and so is the timeline: the restore is
@@ -691,7 +691,7 @@ function branchFrom(version) {
       }).json()
       const page = resp?.page
       if (!page?.id) {
-        throw new Error(resp?.message || 'An unexpected error occured.')
+        throw new Error(resp?.message || t('common.error.unexpected'))
       }
       notify({ type: 'positive', message: t('history.branchSuccess') })
       close()
