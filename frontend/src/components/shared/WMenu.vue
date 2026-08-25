@@ -20,6 +20,7 @@
         v-if="shown"
         ref="floatEl"
         role="menu"
+        tabindex="-1"
         v-bind="$attrs"
         class="w-menu fixed overflow-auto rounded shadow-menu"
         :class="[surfaceClass, contentClass]"
@@ -157,6 +158,36 @@ let triggerEl = null
 /** Set for a context menu, where the anchor is the pointer rather than the trigger element. */
 let pointerRect = null
 
+/*
+  Focus management for the teleported panel: it renders at the end of `<body>`, nowhere near its
+  trigger in DOM order, so a keyboard user tabbing forward from the trigger would otherwise land on
+  whatever unrelated control happens to follow it in the document instead of the menu. `focusReturnEl`
+  is whichever element held focus when the menu opened (usually, but not necessarily, `triggerEl` --
+  a context menu opens from a right-click that need not have moved focus at all).
+*/
+let focusReturnEl = null
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+function focusPanel() {
+  const panel = floatEl.value
+  if (!panel) {
+    return
+  }
+  const firstRow = panel.querySelector(FOCUSABLE_SELECTOR)
+  ;(firstRow ?? panel).focus()
+}
+
+function restoreFocus() {
+  const el = focusReturnEl
+  focusReturnEl = null
+  // -> Guards a stale reference: unmounted since open, or never focusable to begin with
+  if (el && document.contains(el) && typeof el.focus === 'function') {
+    el.focus()
+  }
+}
+
 // -> `modelValue` is opt-in: null means uncontrolled, so only mirror it when actually provided
 const isControlled = () => props.modelValue !== null
 
@@ -185,12 +216,14 @@ async function reposition() {
 }
 
 async function show() {
+  focusReturnEl = document.activeElement
   shown.value = true
   if (isControlled()) {
     emit('update:modelValue', true)
   }
   emit('show')
   await reposition()
+  focusPanel()
 }
 
 function hide() {
@@ -203,6 +236,7 @@ function hide() {
     emit('update:modelValue', false)
   }
   emit('hide')
+  restoreFocus()
 }
 
 function toggle() {
