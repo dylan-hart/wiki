@@ -34,6 +34,7 @@ import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
+import { assertValidAuthSecret } from './helpers/authSecret.ts'
 import {
   localePrefixRedirectTarget,
   localePrefixStripTarget,
@@ -428,6 +429,10 @@ async function initHTTPServer() {
   // ----------------------------------------
   // Sessions
   // ----------------------------------------
+
+  // Fail closed rather than silently register the session/cookie plugins with a missing or
+  // too-short secret -- see `helpers/authSecret.ts` for why this exists.
+  assertValidAuthSecret(WIKI.config.auth.secret)
 
   // FIXME: `WIKI.config.auth.secret` is read once, here, at plugin registration — not re-read per
   // request the way `WIKI.config.auth.certs` is in `models/apiKeys.ts#verify`. That means
