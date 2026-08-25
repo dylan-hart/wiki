@@ -448,3 +448,125 @@ test('getOutOfDateAssets tracks the same out-of-date logic for assets', { skip }
   const afterSync = await contentSync.getOutOfDateAssets(pageTargetId, { siteId })
   assert.ok(!afterSync.some((a) => a.id === assetId))
 })
+
+// ---------------------------------------------------------------------------------------------
+// Non-UTC process TZ regression coverage (OpenProject #1639/#1650) -- `lastSyncedAt` is now a
+// `timestamptz` column, decoded by node-postgres from the wire-format offset it always carries
+// rather than reinterpreted through the Node process's local zone the way a naive `timestamp`
+// column was. These prove that invariance directly, and that `errorIsStale` -- now a plain
+// `Date` vs. `Date` comparison with no `parsePgNaiveTimestamp` step -- agrees with itself
+// regardless of `process.env.TZ`.
+// ---------------------------------------------------------------------------------------------
+
+test(
+  'lastSyncedAt round-trips a known instant to the millisecond under a non-UTC process TZ',
+  { skip },
+  async () => {
+    const originalTz = process.env.TZ
+    process.env.TZ = 'America/New_York'
+    try {
+      const targets = await WIKI.db
+        .insert(storageTable)
+        .values({ siteId, module: 'test-tz-roundtrip' })
+        .returning({ id: storageTable.id })
+      const targetId = targets[0].id
+      const pageId = await makePage('tz-roundtrip')
+      const instant = Temporal.Instant.from('2026-08-24T12:00:00.000Z')
+
+      await contentSync.recordSuccess({
+        contentType: 'page',
+        contentId: pageId,
+        targetId,
+        direction: 'push',
+        syncedAt: instant
+      })
+
+      const state = await contentSync.getState('page', pageId, targetId)
+      assert.equal(state!.lastSyncedAt!.getTime(), instant.epochMilliseconds)
+    } finally {
+      process.env.TZ = originalTz
+    }
+  }
+)
+
+/**
+ * Runs the "one failed item, one later success on the same target" shape under a given process
+ * TZ, either with the success after the failure (stale -- gets suppressed) or before it (fresh --
+ * stays surfaced), and returns the summary `errorIsStale` produced.
+ */
+async function runStaleCheck(
+  tz: string,
+  { successAfterFailure }: { successAfterFailure: boolean }
+): Promise<{ lastError: string | null; lastAttemptAt: string | null }> {
+  const originalTz = process.env.TZ
+  process.env.TZ = tz
+  try {
+    const targets = await WIKI.db
+      .insert(storageTable)
+      .values({ siteId, module: `test-tz-stale-${tz}-${successAfterFailure}-${Date.now()}` })
+      .returning({ id: storageTable.id })
+    const targetId = targets[0].id
+    const failedPageId = await makePage(`tz-stale-${tz}-${successAfterFailure}-failed`)
+
+    if (successAfterFailure) {
+      await contentSync.recordFailure({
+        contentType: 'page',
+        contentId: failedPageId,
+        targetId,
+        error: 'connection refused'
+      })
+      const succeededPageId = await makePage(`tz-stale-${tz}-${successAfterFailure}-succeeded`)
+      await contentSync.recordSuccess({
+        contentType: 'page',
+        contentId: succeededPageId,
+        targetId,
+        direction: 'push',
+        syncedAt: Temporal.Now.instant().add({ seconds: 2 })
+      })
+    } else {
+      const succeededPageId = await makePage(`tz-stale-${tz}-${successAfterFailure}-succeeded`)
+      await contentSync.recordSuccess({
+        contentType: 'page',
+        contentId: succeededPageId,
+        targetId,
+        direction: 'push',
+        syncedAt: Temporal.Now.instant().subtract({ seconds: 5 })
+      })
+      await contentSync.recordFailure({
+        contentType: 'page',
+        contentId: failedPageId,
+        targetId,
+        error: 'connection refused'
+      })
+    }
+
+    const summary = await contentSync.getTargetSummary(targetId, { siteId })
+    return { lastError: summary.lastError, lastAttemptAt: summary.lastAttemptAt }
+  } finally {
+    process.env.TZ = originalTz
+  }
+}
+
+test(
+  'errorIsStale suppresses a stale error identically under UTC and a non-UTC process TZ',
+  { skip },
+  async () => {
+    const utc = await runStaleCheck('UTC', { successAfterFailure: true })
+    const nonUtc = await runStaleCheck('America/New_York', { successAfterFailure: true })
+    assert.equal(utc.lastError, null)
+    assert.deepEqual(nonUtc, utc)
+  }
+)
+
+test(
+  'errorIsStale keeps surfacing a fresh error identically under UTC and a non-UTC process TZ',
+  { skip },
+  async () => {
+    const utc = await runStaleCheck('UTC', { successAfterFailure: false })
+    const nonUtc = await runStaleCheck('America/New_York', { successAfterFailure: false })
+    assert.equal(utc.lastError, 'connection refused')
+    assert.equal(nonUtc.lastError, utc.lastError)
+    assert.ok(nonUtc.lastAttemptAt)
+    assert.ok(utc.lastAttemptAt)
+  }
+)
