@@ -41,6 +41,12 @@ function makeUser(overrides: Partial<any> = {}): any {
   }
 }
 
+/**
+ * Stand-in for `@fastify/session`'s `Session#regenerate()` (`lib/session.js`): records that it was
+ * called, then swaps `req.session` for a fresh object carrying only a new `id` — same shape the real
+ * store does by replacing `this[requestKey].session` with a brand-new `Session` instance whose id
+ * differs from the one it started with.
+ */
 function makeReq(): any {
   const req: any = { session: { id: 'pre-login-session-id' } }
   req.session.regenerate = mock.fn(async () => {
