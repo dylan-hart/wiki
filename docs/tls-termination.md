@@ -45,20 +45,20 @@ Put nginx, Traefik, Caddy, or equivalent in front of the Wiki.js process:
    `3000`), setting the standard `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`
    headers — **overwriting**, not appending to, any `X-Forwarded-For` the request already carried.
    This is not automatic: nginx's commonly-copied `proxy_set_header X-Forwarded-For
-   $proxy_add_x_forwarded_for;` idiom **appends** the proxy's own view of the connection onto whatever
+$proxy_add_x_forwarded_for;` idiom **appends** the proxy's own view of the connection onto whatever
    the client already sent, rather than replacing it — so a client's own forged
-   `X-Forwarded-For: 1.2.3.4` survives as the *first*
+   `X-Forwarded-For: 1.2.3.4` survives as the _first_
    entry in the header nginx forwards. That matters because the auth rate limiter's whole identity
-   depends on it: Fastify's `req.ip` (`@fastify/forwarded`) is read as the *first*, left-most entry of
+   depends on it: Fastify's `req.ip` (`@fastify/forwarded`) is read as the _first_, left-most entry of
    the header once it is trusted — the one closest to the original client, which is exactly the one a
    direct client controls when the header is merely appended to. Use `proxy_set_header X-Forwarded-For
-   $remote_addr;` instead (the nginx example below does this): that overwrites the header with only
+$remote_addr;` instead (the nginx example below does this): that overwrites the header with only
    what nginx itself observed as the connecting address, discarding anything the client sent.
 3. Set `security.trustProxy` to the reverse proxy's own address or CIDR range in Wiki.js's config (or
    via the admin Security page) — e.g. `10.0.0.5` for a proxy on a fixed internal address, or
    `10.0.0.0/8` for a range, comma-separated for more than one. This is what makes Wiki.js trust the
    `X-Forwarded-*` headers **only when they arrive from that address** — not `security.trustProxy:
-   true`, which trusts them unconditionally from anywhere, including a client connecting directly.
+true`, which trusts them unconditionally from anywhere, including a client connecting directly.
    With `true`, `X-Forwarded-For` becomes a header any client can set on its own request, so `req.ip`
    (and therefore the login/2FA/password-reset rate limiter, which counts attempts per `req.ip`) is
    client-chosen — an unlimited-attempts bypass, one spoofed header at a time. Left unset (`false`,
