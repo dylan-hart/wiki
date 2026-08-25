@@ -246,7 +246,7 @@
           :href="siteStore.docsBase + `/guide/editors/${editorStore.editor}`"
           target="_blank"
           type="a">
-          <w-tooltip>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
+          <w-tooltip labels>{{ t(`common.actions.viewDocs`) }}</w-tooltip>
         </w-btn>
       </template>
       <!--

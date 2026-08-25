@@ -104,15 +104,19 @@ test.describe('RTL locale activation and dir="rtl" end-to-end', () => {
     ).toBeVisible()
 
     // -> Markdown editor: dir survives navigating into it, and its toolbar (mirrored by task 721)
-    //    mounts under it. The toolbar's own buttons carry neither visible text nor an `aria-label`
-    //    -- `t('editor.markup.bold')` only ever renders into a `<w-tooltip>`, hover-only -- so the
-    //    translated string is checked by hovering, not `getByRole`/`getByText`.
+    //    mounts under it. The toolbar's own buttons carry no visible text or static `aria-label` --
+    //    `t('editor.markup.bold')` renders only into a `<w-tooltip labels>`, which associates via
+    //    `aria-labelledby` while shown (`WTooltip.vue`'s `labels` prop, WP #1588) -- so a hover is
+    //    still what puts the name on the button, but the check itself is now by accessible name
+    //    (`getByRole`), not a raw text scrape.
     await page.goto(`/_create/markdown?path=e2e-rtl-md-${uniqueSlug()}`)
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl')
     await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
     const boldButton = page.locator('.editor-markdown-toolbar button').first()
     await boldButton.hover()
-    await expect(page.getByText(RTL_TEST_LOCALE.strings['editor.markup.bold'])).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: RTL_TEST_LOCALE.strings['editor.markup.bold'] })
+    ).toBeVisible()
 
     // -> WYSIWYG editor: NOT checked beyond `dir` surviving the navigation. `pages/Index.vue`'s own
     //    `editorComponents` map has the `wysiwyg` entry commented out (only `markdown` and

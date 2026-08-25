@@ -199,7 +199,7 @@
             color="indigo"
             icon="la:file-export"
             @click="exportRules">
-            <w-tooltip>{{ t('admin.groups.exportRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.exportRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             class="acrylic-btn mr-2"
@@ -208,7 +208,7 @@
             icon="la:file-import"
             v-if="canManage"
             @click="importRules">
-            <w-tooltip>{{ t('admin.groups.importRules') }}</w-tooltip>
+            <w-tooltip labels>{{ t('admin.groups.importRules') }}</w-tooltip>
           </w-btn>
           <w-btn
             v-if="canManage"

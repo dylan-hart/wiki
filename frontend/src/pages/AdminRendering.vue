@@ -29,7 +29,7 @@
           color="secondary"
           :loading="state.loading > 0"
           @click="load">
-          <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
+          <w-tooltip labels>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
           unelevated
