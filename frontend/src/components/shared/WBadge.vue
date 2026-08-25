@@ -53,6 +53,12 @@ const props = defineProps({
 const classes = computed(() => [
   props.rounded ? 'rounded-full' : 'rounded-sm',
   props.outline ? 'border border-current bg-transparent' : '',
+  // -> `right-0` (not `end-0`) is deliberate, reviewed under OpenProject #1590's
+  //    physical-positioning triage: the straddle is `translate-x-1/2`, a physical transform that
+  //    never mirrors under RTL, so swapping only the `right` half to `end` would pull the badge
+  //    the wrong way off its corner under RTL rather than the right way -- correcting the pair
+  //    together (an `end-0` position plus a direction-aware straddle) is future work, not a
+  //    mechanical swap. See `frontend/src/physicalPositioning.test.js`.
   props.floating ? 'absolute top-0 right-0 translate-x-1/2 -translate-y-1/3' : ''
 ])
 

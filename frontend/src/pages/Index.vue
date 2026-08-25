@@ -349,6 +349,11 @@
 
       Not gated on having scrolled, as scroll-to-top is: the contents are how a reader decides where to go
       in a long page, and that is most useful before they have gone anywhere.
+
+      `right-0` (not `end-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this is
+      the corner `scroll-to-top` stands down from, a pairing with ANOTHER fixed corner rather than with
+      the reading direction, so it must not move when the locale does. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="toc-open-btn">
       <div v-if="showTocPanelBtn" class="fixed bottom-0 right-0 z-30">
@@ -1284,6 +1289,11 @@ $toc-overlay-max: 749.98px;
 
     Right regardless of `tocPosition`: the opener is in the bottom-RIGHT corner, and a panel arriving from
     the far side of the screen from the button that summoned it reads as something else appearing.
+
+    `right`/`translateX(100%)`/the shadow's negative x-offset below all stay physical rather than
+    logical on purpose (OpenProject #1590's physical-positioning triage): this panel is paired with a
+    fixed screen corner (the opener, below), not with the reading direction, so none of it should move
+    when the locale does.
   */
   @media (max-width: $toc-overlay-max) {
     position: fixed;

@@ -151,6 +151,10 @@ const emit = defineEmits(['update:modelValue', 'show', 'hide'])
 const shown = ref(false)
 const floatEl = ref(null)
 const placeholderEl = ref(null)
+// -> `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math
+//    (below), not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage
+//    and left physical: making the `anchor`/`self` corner keywords ("top left", "bottom right", …)
+//    direction-aware is a redesign of that whole API, not a mechanical swap.
 const floatStyle = ref({ left: '0px', top: '0px' })
 
 let triggerEl = null
