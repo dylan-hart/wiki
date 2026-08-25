@@ -53,6 +53,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import WBtn from './WBtn.vue'
+import { useCommonStore } from '@/stores/common'
 
 /**
  * Calendar for picking a single date, or a date range with `range`.
@@ -91,7 +92,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue'])
 
-const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const commonStore = useCommonStore()
 
 /** `YYYY-MM-DD` for a year/month/day triple, zero-padded. */
 function iso(year, month, day) {
@@ -124,10 +125,21 @@ const daysInMonth = computed(() => monthStart.value.daysInMonth)
 const leadingBlanks = computed(() => monthStart.value.dayOfWeek - 1)
 
 const monthLabel = computed(() =>
-  monthStart.value.toLocaleString(undefined, { month: 'long', year: 'numeric' })
+  monthStart.value.toLocaleString(commonStore.locale, { month: 'long', year: 'numeric' })
 )
 
-const weekdayLabels = WEEKDAYS
+/**
+ * Weekday header row, derived from the app locale rather than a hardcoded English array.
+ * `2024-01-01` is a fixed reference Monday -- this row doesn't depend on the month on screen, only
+ * on which day names the locale uses and what order it puts them in, so walking Monday..Sunday off
+ * an arbitrary known Monday is enough.
+ */
+const weekdayLabels = computed(() => {
+  const monday = Temporal.PlainDate.from('2024-01-01')
+  return Array.from({ length: 7 }, (_, n) =>
+    monday.add({ days: n }).toLocaleString(commonStore.locale, { weekday: 'short' })
+  )
+})
 
 function shiftMonth(delta) {
   const next = monthStart.value.add({ months: delta })
@@ -139,7 +151,7 @@ function dateOf(day) {
 }
 
 function labelFor(day) {
-  return monthStart.value.with({ day }).toLocaleString(undefined, { dateStyle: 'long' })
+  return monthStart.value.with({ day }).toLocaleString(commonStore.locale, { dateStyle: 'long' })
 }
 
 function isSelected(day) {
