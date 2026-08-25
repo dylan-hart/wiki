@@ -184,6 +184,7 @@ class PageWatchEvents {
         pageTitle: pageWatchEventsTable.pageTitle,
         pagePath: pageWatchEventsTable.pagePath,
         pageLocale: pageWatchEventsTable.pageLocale,
+        siteId: pageWatchEventsTable.siteId,
         action: pageWatchEventsTable.action,
         changedFields: pageWatchEventsTable.changedFields,
         actorId: pageWatchEventsTable.actorId,
@@ -199,11 +200,32 @@ class PageWatchEvents {
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
       .limit(INBOX_LIST_LIMIT)
-    if (rows.length < 1) {
-      return [] as InboxNotification[]
-    }
+    return (await this.filterReadable(userId, rows)) as InboxNotification[]
+  }
 
-    const pageIds = [...new Set(rows.map((row) => row.pageId))]
+  /**
+   * Filters a batch of one user's events down to the ones they may still read `read:pages` on, RIGHT
+   * NOW — the re-check `listForUser` above (read time) and `tasks/simple/send-watch-digests.ts` (send
+   * time) share, OpenProject #2173.
+   *
+   * Checked against the LIVE page where one still exists (`pagesTable`, batched by `pageId` rather
+   * than once per event) — a page's rules can change in either direction after an event was recorded,
+   * and the live row is the more correct answer either way — falling back to each event's own stored
+   * `pagePath`/`pageLocale` snapshot, with no tags/classification to narrow against, for an event
+   * about a page that has since been deleted (most commonly the `deleted` event itself).
+   *
+   * Exported (not private) so `tasks/simple/send-watch-digests.ts` can apply the identical check
+   * before actually sending a batched digest — the daily-scheduled send-time counterpart to this
+   * read-time gate, and the one place a `PendingDigestEvent` can sit unread for the longest between
+   * being recorded and being acted on.
+   */
+  async filterReadable<
+    T extends { pageId: string; pagePath: string; pageLocale: string; siteId: string }
+  >(userId: string, events: T[]): Promise<T[]> {
+    if (events.length < 1) {
+      return []
+    }
+    const pageIds = [...new Set(events.map((event) => event.pageId))]
     const liveRows = await WIKI.db
       .select({
         id: pagesTable.id,
@@ -217,16 +239,16 @@ class PageWatchEvents {
     const livePages = new Map(liveRows.map((row) => [row.id, row]))
 
     const actor = await WIKI.models.groups.actorForUserId(userId)
-    return rows.filter((row) => {
-      const live = livePages.get(row.pageId)
+    return events.filter((event) => {
+      const live = livePages.get(event.pageId)
       return WIKI.models.groups.checkAccess(actor, 'read:pages', {
-        path: live?.path ?? row.pagePath,
-        siteId,
-        locale: live?.locale ?? row.pageLocale,
+        path: live?.path ?? event.pagePath,
+        siteId: event.siteId,
+        locale: live?.locale ?? event.pageLocale,
         tags: live?.tags ?? [],
         classification: live?.classification ?? null
       })
-    }) as InboxNotification[]
+    })
   }
 
   /**
