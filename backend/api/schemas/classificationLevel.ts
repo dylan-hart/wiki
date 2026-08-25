@@ -23,8 +23,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'ClassificationLevelInput',
     type: 'object',
     properties: {
-      name: { type: 'string', minLength: 1, maxLength: 255 },
-      sortOrder: { type: 'integer' }
+      // -> No `sortOrder` (OpenProject #1651): `create()` always appends after the current max, and
+      //    `update()` has no way to set it at all -- `reorder()` is the only route that reassigns
+      //    `sortOrder`, so there is no per-level input a caller could collide another level with.
+      name: { type: 'string', minLength: 1, maxLength: 255 }
     }
   })
 }

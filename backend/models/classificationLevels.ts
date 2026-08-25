@@ -120,21 +120,35 @@ class ClassificationLevels {
     return allowedIds.includes(candidateId)
   }
 
-  async create(input: { name: string; sortOrder?: number }): Promise<ClassificationLevel> {
+  /**
+   * Create a level, always appended after the current highest `sortOrder`.
+   *
+   * `sortOrder` is never taken from the caller (OpenProject #1651) -- a caller-supplied value could
+   * collide with a survivor left behind by an uncompacted `delete()`, or with another level entirely.
+   * The insert position is computed from a fresh `MAX(sortOrder)` read rather than the in-memory
+   * cache, so a create racing a delete's renumbering still lands one past whatever is actually in the
+   * database.
+   */
+  async create(input: { name: string }): Promise<ClassificationLevel> {
     const name = input.name.trim()
     if (name.length < 1) {
       throw new CustomError('classificationNameMissing', 'A classification level needs a name.')
     }
-    const sortOrder = input.sortOrder ?? (levelsCache.at(-1)?.sortOrder ?? -1) + 1
+    const [row] = await WIKI.db
+      .select({ max: sql<number>`coalesce(max(${levelsTable.sortOrder}), -1)` })
+      .from(levelsTable)
+    const sortOrder = (row?.max ?? -1) + 1
     const inserted = await WIKI.db.insert(levelsTable).values({ name, sortOrder }).returning()
     await this.reloadCache()
     return inserted[0] as ClassificationLevel
   }
 
-  async update(
-    id: string,
-    patch: { name?: string; sortOrder?: number }
-  ): Promise<ClassificationLevel | null> {
+  /**
+   * Rename a level. `sortOrder` is not settable here (OpenProject #1651) -- `reorder()` is the only
+   * way to change ordering, so there is no single-level write path that could be handed a value
+   * colliding with another level's.
+   */
+  async update(id: string, patch: { name?: string }): Promise<ClassificationLevel | null> {
     const values: Record<string, any> = { updatedAt: sql`now()` }
     if (patch.name !== undefined) {
       const name = patch.name.trim()
@@ -142,9 +156,6 @@ class ClassificationLevels {
         throw new CustomError('classificationNameMissing', 'A classification level needs a name.')
       }
       values.name = name
-    }
-    if (patch.sortOrder !== undefined) {
-      values.sortOrder = patch.sortOrder
     }
     const updated = await WIKI.db
       .update(levelsTable)
@@ -182,6 +193,11 @@ class ClassificationLevels {
    * `jsonb` with no FK to enforce the key half at all, so this jsonb containment check is the ONLY
    * thing stopping a level's deletion from silently dropping it out of a key's allow-set out from
    * under it.
+   *
+   * The survivors are renumbered to a gapless `0..n-1` in the same transaction as the delete
+   * (OpenProject #1651) -- otherwise a delete out of the middle of the list (Public(0)/Internal(1)/
+   * Restricted(2), delete Internal) leaves a gap ({0, 2}) that `create()`'s next append lands on,
+   * colliding with the survivor already there.
    */
   async delete(id: string): Promise<boolean> {
     if (levelsCache.length <= 1) {
@@ -214,9 +230,25 @@ class ClassificationLevels {
         409
       )
     }
-    const result = await WIKI.db.delete(levelsTable).where(eq(levelsTable.id, id))
+    const deleted = await WIKI.db.transaction(async (tx) => {
+      const result = await tx.delete(levelsTable).where(eq(levelsTable.id, id))
+      if ((result.rowCount ?? 0) === 0) {
+        return false
+      }
+      const survivors = await tx
+        .select({ id: levelsTable.id })
+        .from(levelsTable)
+        .orderBy(asc(levelsTable.sortOrder))
+      for (const [index, level] of survivors.entries()) {
+        await tx
+          .update(levelsTable)
+          .set({ sortOrder: index, updatedAt: sql`now()` })
+          .where(eq(levelsTable.id, level.id))
+      }
+      return true
+    })
     await this.reloadCache()
-    return (result.rowCount ?? 0) > 0
+    return deleted
   }
 
   /**

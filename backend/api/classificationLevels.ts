@@ -42,7 +42,7 @@ async function routes(app: FastifyInstance) {
   /**
    * CREATE LEVEL
    */
-  app.post<{ Body: { name: string; sortOrder?: number } }>(
+  app.post<{ Body: { name: string } }>(
     '/',
     {
       config: {
@@ -70,7 +70,7 @@ async function routes(app: FastifyInstance) {
   /**
    * UPDATE LEVEL
    */
-  app.patch<{ Params: { id: string }; Body: { name?: string; sortOrder?: number } }>(
+  app.patch<{ Params: { id: string }; Body: { name?: string } }>(
     '/:id',
     {
       config: {

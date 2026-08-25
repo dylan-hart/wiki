@@ -232,7 +232,7 @@ function openReport(row) {
 async function createLevel() {
   try {
     await API_CLIENT.post('classification-levels', {
-      json: { name: t('admin.classification.newDefaultName'), sortOrder: state.levels.length }
+      json: { name: t('admin.classification.newDefaultName') }
     }).json()
     await load()
   } catch (err) {

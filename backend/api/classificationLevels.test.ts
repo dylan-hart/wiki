@@ -78,20 +78,23 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
     assert.equal(res.statusCode, 403)
   })
 
-  test('POST / creates a level once authorized', async () => {
+  test('POST / creates a level once authorized, ignoring any sortOrder the caller sends', async () => {
+    const beforeCreate = (await app.inject({ method: 'GET', url: '/' })).json()
     const res = await app.inject({
       method: 'POST',
       url: '/',
       headers: asAdmin,
-      payload: { name: 'Confidential', sortOrder: 5 }
+      // -> `sortOrder` is accepted by the JSON schema (extra properties aren't rejected) but has no
+      //    effect (OpenProject #1651) -- the model always appends after the current max instead.
+      payload: { name: 'Confidential', sortOrder: 999 }
     })
     assert.equal(res.statusCode, 200)
     const created = res.json()
     assert.equal(created.name, 'Confidential')
-    assert.equal(created.sortOrder, 5)
+    assert.equal(created.sortOrder, beforeCreate.length)
 
     const list = (await app.inject({ method: 'GET', url: '/' })).json()
-    assert.equal(list.length, 4)
+    assert.equal(list.length, beforeCreate.length + 1)
   })
 
   test('PATCH /:id renames a level', async () => {
@@ -100,7 +103,7 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
         method: 'POST',
         url: '/',
         headers: asAdmin,
-        payload: { name: 'Rename Me', sortOrder: 10 }
+        payload: { name: 'Rename Me' }
       })
     ).json()
 
@@ -133,7 +136,7 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
         method: 'POST',
         url: '/',
         headers: asAdmin,
-        payload: { name: 'To Delete', sortOrder: 20 }
+        payload: { name: 'To Delete' }
       })
     ).json()
 
