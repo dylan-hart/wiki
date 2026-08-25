@@ -158,9 +158,23 @@ class ClassificationLevels {
   /**
    * Reorder every level at once -- assigns `sortOrder` = position in `orderedIds`, the shape a
    * drag-to-reorder admin list naturally produces without a numeric field per row.
+   *
+   * Two-phase to survive the `sortOrder` unique index (OpenProject #1654): a plain positional
+   * reassignment can collide mid-transaction with a row not yet touched -- its still-current
+   * `sortOrder` may equal another row's target position. First move every row to a disjoint
+   * "staging" range strictly below any current `sortOrder`, so nothing can collide, then assign the
+   * real `0..N-1` positions once every row is out of that range.
    */
   async reorder(orderedIds: string[]): Promise<void> {
     await WIKI.db.transaction(async (tx) => {
+      const currentMin = Math.min(0, ...levelsCache.map((level) => level.sortOrder))
+      const stagingBase = currentMin - orderedIds.length - 1
+      for (const [index, id] of orderedIds.entries()) {
+        await tx
+          .update(levelsTable)
+          .set({ sortOrder: stagingBase - index, updatedAt: sql`now()` })
+          .where(eq(levelsTable.id, id))
+      }
       for (const [index, id] of orderedIds.entries()) {
         await tx
           .update(levelsTable)

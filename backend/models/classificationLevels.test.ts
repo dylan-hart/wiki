@@ -112,11 +112,17 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   })
 
   test('reorder assigns sortOrder = position in the given array', async () => {
+    // -> The unique index on sortOrder (OpenProject #1654) means a partial reorder call would
+    //    collide its target 0..N-1 positions against whatever baseline levels still hold them --
+    //    the same "every existing level must be named" contract `api/classificationLevels.ts`'s
+    //    `/reorder` route documents, so name every level currently in play, not just the three new
+    //    ones under test.
+    const baselineIds = levelsModel.list().map((level) => level.id)
     const a = await levelsModel.create({ name: 'Reorder A', sortOrder: 100 })
     const b = await levelsModel.create({ name: 'Reorder B', sortOrder: 101 })
     const c = await levelsModel.create({ name: 'Reorder C', sortOrder: 102 })
 
-    await levelsModel.reorder([c.id, a.id, b.id])
+    await levelsModel.reorder([c.id, a.id, b.id, ...baselineIds])
 
     const byId = new Map(levelsModel.list().map((l) => [l.id, l]))
     assert.equal(byId.get(c.id)!.sortOrder, 0)
@@ -211,7 +217,11 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
       fixtures.db.execute(
         `INSERT INTO "classificationLevels" (name, "sortOrder") VALUES ('Duplicate Sort Order', ${dupeSortOrder})`
       ),
-      /duplicate key value violates unique constraint/i
+      // -> Drizzle wraps the raw pg error as a `DrizzleQueryError` whose own `.message` is just
+      //    "Failed query: ..." -- the actual constraint-violation text pg reports is nested on
+      //    `.cause`, which `assert.rejects`' RegExp form only ever matches against the top-level
+      //    message, so this validates the cause directly instead.
+      (err: any) => /duplicate key value violates unique constraint/i.test(err?.cause?.message)
     )
   })
 })
