@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
+import { createPinia, setActivePinia } from 'pinia'
 
 import GlossaryVersionHistoryDialog from './GlossaryVersionHistoryDialog.vue'
 import { confirm } from '@/composables/dialog'
@@ -44,6 +45,10 @@ const VERSIONS = [
 ]
 
 function mountDialog(currentTerms = CURRENT_TERMS) {
+  // -> `relativeDate()` (rendered for each version's timestamp) reads `commonStore.locale`
+  //    (`helpers/datetime.js`, OpenProject #1600), so mounting needs an active Pinia now too.
+  setActivePinia(createPinia())
+
   API_CLIENT.get.mockReturnValueOnce({ json: () => Promise.resolve(VERSIONS) })
 
   const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
