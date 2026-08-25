@@ -123,12 +123,23 @@ async function routes(app: FastifyInstance) {
         },
         response: {
           200: { type: 'array', items: { $ref: 'ClassificationLevel#' } },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' }
         }
       }
     },
-    async (req) => {
+    async (req, reply) => {
+      const current = WIKI.models.classificationLevels.list()
+      const currentIds = new Set(current.map((level) => level.id))
+      const submittedIds = new Set(req.body.ids)
+      if (
+        req.body.ids.length !== current.length ||
+        submittedIds.size !== req.body.ids.length ||
+        !req.body.ids.every((id) => currentIds.has(id))
+      ) {
+        return reply.badRequest('ids must name every existing classification level exactly once.')
+      }
       await WIKI.models.classificationLevels.reorder(req.body.ids)
       return WIKI.models.classificationLevels.list()
     }
