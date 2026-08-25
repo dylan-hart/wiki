@@ -119,6 +119,21 @@ async function isShowOtherGroupsEnabled(req: FastifyRequest): Promise<boolean> {
 }
 
 /**
+ * Whether any of the given IDs does not name a real group on this instance.
+ *
+ * `setUserGroups` (`models/users.ts`) resolves its input with `inArray` and silently assigns only
+ * the rows that came back -- deliberately lenient there, since its third caller is IdP enrolment
+ * mapping provider groups that may not exist locally. A route handler has no such excuse: a stale
+ * client naming a deleted group should be told, not have the ID quietly dropped -- especially on
+ * `PUT`, which replaces membership wholesale, so a dropped ID also silently removes the user from
+ * groups they were actually in. Mirrors the check in `api/apiKeys.ts`'s key creation route.
+ */
+async function hasUnknownGroups(groupIds: string[]): Promise<boolean> {
+  const known = await WIKI.models.groups.getAllGroups()
+  return groupIds.some((id) => !known.some((g) => g.id === id))
+}
+
+/**
  * Users API Routes
  */
 async function routes(app: FastifyInstance) {
@@ -1847,6 +1862,9 @@ async function routes(app: FastifyInstance) {
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
+      if (await hasUnknownGroups(req.body.groups ?? [])) {
+        return reply.badRequest('One of the groups does not exist.')
+      }
 
       try {
         const id = await WIKI.models.users.createUser({
@@ -2035,6 +2053,10 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
+        if (await hasUnknownGroups(req.body.groups)) {
+          return reply.badRequest('One of the groups does not exist.')
+        }
+
         // -> The guest account must stay in the guests group and nowhere else. Resending the
         //    membership unchanged is allowed, so that saving another field is not blocked.
         if (user.isSystem) {
