@@ -207,9 +207,9 @@
 
         <template v-if="siteStore.tagsLoaded && siteStore.tags.length > 0">
           <div class="searchpanel-header">
-            <span>Popular Tags</span>
+            <span>{{ t('common.header.popularTags') }}</span>
             <w-space />
-            <w-btn class="acrylic-btn" flat label="View All" rounded size="xs" />
+            <w-btn class="acrylic-btn" flat :label="t('common.header.viewAll')" rounded size="xs" />
           </div>
           <div class="mb-4 flex flex-wrap gap-1">
             <w-chip
@@ -226,7 +226,7 @@
             </w-chip>
           </div>
         </template>
-        <div class="searchpanel-header">Search Operators</div>
+        <div class="searchpanel-header">{{ t('common.header.searchOperators') }}</div>
         <div class="searchpanel-tip">
           <code>!foo</code> or <code>-bar</code> to exclude "foo" and "bar".
         </div>

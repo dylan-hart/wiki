@@ -102,12 +102,10 @@
               <w-item>
                 <blueprint-icon class="self-start" icon="matches" :hue-rotate="140" />
                 <w-item-section>
-                  <w-item-label>Uninstall</w-item-label>
-                  <w-item-label caption
-                    >Delete the active configuration and start over the setup process.</w-item-label
-                  >
+                  <w-item-label>{{ t('admin.storage.uninstall') }}</w-item-label>
+                  <w-item-label caption>{{ t('admin.storage.destroyHint') }}</w-item-label>
                   <w-item-label class="text-red" caption>
-                    <strong>This action cannot be undone!</strong>
+                    <strong>{{ t('admin.storage.destroyWarn') }}</strong>
                   </w-item-label>
                 </w-item-section>
                 <w-item-section side>
@@ -531,7 +529,9 @@
                   <w-item-label class="text-grey">{{
                     t(`admin.storage.currentState`)
                   }}</w-item-label>
-                  <w-item-label class="text-positive">No issues detected.</w-item-label>
+                  <w-item-label class="text-positive">{{
+                    t('admin.storage.noIssues')
+                  }}</w-item-label>
                 </w-item-section>
               </w-item>
             </w-card>

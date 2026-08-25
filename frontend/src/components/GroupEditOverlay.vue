@@ -215,7 +215,7 @@
             unelevated
             color="primary"
             icon="la:plus"
-            label="New Rule"
+            :label="t('admin.groups.newRule')"
             @click="newRule" />
         </w-toolbar>
         <w-separator />

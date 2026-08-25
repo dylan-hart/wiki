@@ -30,7 +30,23 @@ const i18n = createI18n({
         dropToUpload: 'Drop files to upload',
         dropFoldersRejected: "Folders can't be uploaded by drag-and-drop.",
         dropFoldersRejectedCount: '{count} folders were skipped',
-        uploadSuccess: 'File(s) uploaded successfully.'
+        uploadSuccess: 'File(s) uploaded successfully.',
+        // -> WP #1610: these render through t() now rather than as literal template text, so the
+        //    "Duplicate..." assertion below needs its resolved string present here to keep matching.
+        browseUsing: 'Browse using...',
+        browseUsingPaths: 'Browse Using Paths',
+        browseUsingTitles: 'Browse Using Titles',
+        compactList: 'Compact List',
+        showFolders: 'Show Folders',
+        fetchingFolderContents: 'Fetching folder contents...',
+        duplicateItem: 'Duplicate...',
+        renameItem: 'Rename...',
+        renameMovePage: 'Rename / Move Page...'
+      },
+      common: {
+        pageSelector: {
+          folderEmptyWarning: 'This folder is empty.'
+        }
       },
       pages: {
         homepageGuard: {

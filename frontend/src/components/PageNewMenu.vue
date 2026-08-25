@@ -6,15 +6,15 @@
         @click="create(`wysiwyg`)"
         v-if="siteStore.editors.wysiwyg && flagsStore.experimental">
         <blueprint-icon icon="google-presentation" />
-        <w-item-section class="pr-2">New Page</w-item-section>
+        <w-item-section class="pr-2">{{ t('common.actions.newPage') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`markdown`)" v-if="siteStore.editors.markdown">
         <blueprint-icon icon="markdown" />
-        <w-item-section class="pr-2">New Markdown Page</w-item-section>
+        <w-item-section class="pr-2">{{ t('common.newPageMenu.markdown') }}</w-item-section>
       </w-item>
       <w-item clickable @click="create(`code`)" v-if="siteStore.editors.code">
         <blueprint-icon icon="html" />
-        <w-item-section class="pr-2">New Code Page</w-item-section>
+        <w-item-section class="pr-2">{{ t('common.newPageMenu.code') }}</w-item-section>
       </w-item>
       <!--
         Not behind the experimental flag, matching `AdminEditors.vue`'s own row for this editor
@@ -22,7 +22,7 @@
       -->
       <w-item clickable @click="create(`asciidoc`)" v-if="siteStore.editors.asciidoc">
         <blueprint-icon icon="asciidoc" />
-        <w-item-section class="pr-2">New AsciiDoc Page</w-item-section>
+        <w-item-section class="pr-2">{{ t('common.newPageMenu.asciidoc') }}</w-item-section>
       </w-item>
       <!--
         `channel`/`blog`/`api` used to be offered here too, unconditionally, once behind the
@@ -35,7 +35,7 @@
               with a target instead of a body -->
       <w-item clickable @click="create(`redirect`)">
         <blueprint-icon icon="advance" />
-        <w-item-section class="pr-2">New Redirection</w-item-section>
+        <w-item-section class="pr-2">{{ t('common.newPageMenu.redirect') }}</w-item-section>
       </w-item>
       <!-- -> Always offered, not gated on an editor toggle or the Pandoc extension
               (OpenProject #1092): a `format: 'markdown'` import needs neither -- it is a
@@ -54,14 +54,14 @@
         <w-separator class="my-2" inset />
         <w-item clickable @click="openFileManager">
           <blueprint-icon icon="add-image" />
-          <w-item-section class="pr-2">Upload Media Asset</w-item-section>
+          <w-item-section class="pr-2">{{ t('common.newPageMenu.uploadAsset') }}</w-item-section>
         </w-item>
       </template>
       <template v-if="props.showNewFolder">
         <w-separator class="my-2" inset />
         <w-item clickable @click="newFolder">
           <blueprint-icon icon="add-folder" />
-          <w-item-section class="pr-2">New Folder</w-item-section>
+          <w-item-section class="pr-2">{{ t('common.actions.newFolder') }}</w-item-section>
         </w-item>
       </template>
     </w-list>

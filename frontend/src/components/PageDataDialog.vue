@@ -32,8 +32,8 @@
       </div>
     </w-card-section>
     <w-tabs class="alt-card" v-model="state.mode" inline-label no-caps>
-      <w-tab name="visual" label="Visual" />
-      <w-tab name="code" label="YAML" />
+      <w-tab name="visual" :label="t('editor.pageData.visualTab')" />
+      <w-tab name="code" :label="t('editor.pageData.yamlTab')" />
     </w-tabs>
     <w-scroll-area
       :thumb-style="siteStore.thumbStyle"
@@ -41,14 +41,18 @@
       style="height: calc(100% - 50px - 75px - 48px)">
       <w-card-section v-if="state.mode === `visual`">
         <div class="gap-2">
-          <w-input label="Attribute Text" dense outlined>
+          <w-input :label="t('editor.pageData.sampleAttributeText')" dense outlined>
             <template v-slot:before><w-icon name="la:font" color="primary" /></template>
           </w-input>
-          <w-input label="Attribute Number" dense outlined type="number">
+          <w-input :label="t('editor.pageData.sampleAttributeNumber')" dense outlined type="number">
             <template v-slot:before><w-icon name="la:infinity" color="primary" /></template>
           </w-input>
           <div class="py-1">
-            <w-checkbox label="Attribute Boolean" color="primary" dense size="lg" />
+            <w-checkbox
+              :label="t('editor.pageData.sampleAttributeBoolean')"
+              color="primary"
+              dense
+              size="lg" />
           </div>
         </div>
       </w-card-section>
@@ -65,7 +69,7 @@
         v-model="state.content"
         language="yaml"
         :min-height="400"
-        aria-label="Page data (YAML)" />
+        :aria-label="t('editor.pageData.yamlAriaLabel')" />
     </w-scroll-area>
     <w-dialog v-model="state.showDataTemplateDialog">
       <page-data-template-dialog @close="state.showDataTemplateDialog = false" />

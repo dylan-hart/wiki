@@ -5,7 +5,7 @@
     round
     dense
     icon="la:ellipsis-v"
-    aria-label="More Actions">
+    :aria-label="t('common.header.moreActions')">
     <w-menu ref="menu" class="translucent-menu" anchor="bottom right" self="top right">
       <!--
         Every row's icon takes its colour as a literal `text-*` class rather than through `WIcon`'s
@@ -48,7 +48,7 @@
           <w-item-section avatar>
             <w-icon name="la:plus-circle" class="text-blue-4" />
           </w-item-section>
-          <w-item-section>Create New Page</w-item-section>
+          <w-item-section>{{ t('common.header.createNewPage') }}</w-item-section>
           <w-item-section side>
             <w-icon name="la:angle-right" />
           </w-item-section>
@@ -64,7 +64,7 @@
           <w-item-section avatar>
             <w-icon name="la:folder-open" class="text-positive" />
           </w-item-section>
-          <w-item-section>File Manager</w-item-section>
+          <w-item-section>{{ t('fileman.title') }}</w-item-section>
         </w-item>
         <w-item v-if="userStore.authenticated" clickable to="/_inbox" @click="close">
           <w-item-section avatar>
