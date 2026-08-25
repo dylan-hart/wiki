@@ -1,3 +1,5 @@
+import { useCommonStore } from '@/stores/common'
+
 /**
  * Date and duration rendering for the admin tables, in the reader's own locale.
  *
@@ -10,7 +12,37 @@
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
  * here for.
+ *
+ * Every `Intl.*Format` instance below is built lazily, on first use for the app's *current* locale
+ * (`commonStore.locale`) rather than at module scope with the locale simply omitted -- a module-scope
+ * singleton is built once, at import time, and can never see a later `setLocale()` call, and omitting
+ * the locale argument hands the choice to the browser instead of the app's own setting. `getFormatter`
+ * memoizes per `(key, locale)` pair so a screen re-rendering in the same locale reuses the same
+ * instance, while a locale switch (`commonStore.setLocale()`) transparently builds -- and from then on
+ * reuses -- a fresh one instead of ever reformatting through a stale-locale formatter.
  */
+
+const formatterCache = new Map()
+
+/**
+ * @param {new (locale: string, options: object) => object} FormatterCtor One of the `Intl.*Format`
+ *   constructors.
+ * @param {string} key Identifies this formatter's fixed option set (e.g. `'relative'`, or
+ *   `'number-unit-narrow:hour'` for a per-unit variant), distinct from the locale it's cached
+ *   alongside.
+ * @param {object} options Passed straight through to `FormatterCtor`.
+ */
+function getFormatter(FormatterCtor, key, options) {
+  const commonStore = useCommonStore()
+  const locale = commonStore.locale
+  const cacheKey = `${key}:${locale}`
+  let instance = formatterCache.get(cacheKey)
+  if (!instance) {
+    instance = new FormatterCtor(locale, options)
+    formatterCache.set(cacheKey, instance)
+  }
+  return instance
+}
 
 /*
   Largest first, so the first unit the difference clears is the one it reads best in. `week` is
@@ -25,8 +57,6 @@ const RELATIVE_UNITS = [
   ['second', 1]
 ]
 
-const relativeTimeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-
 /**
  * How long ago a moment was, or how far off it still is.
  *
@@ -40,6 +70,7 @@ export function relativeDate(value) {
     return '---'
   }
   const seconds = Temporal.Instant.from(value).until(Temporal.Now.instant()).total('seconds')
+  const relativeTimeFormat = getFormatter(Intl.RelativeTimeFormat, 'relative', { numeric: 'auto' })
   for (const [unit, secondsPerUnit] of RELATIVE_UNITS) {
     if (Math.abs(seconds) >= secondsPerUnit || unit === 'second') {
       return relativeTimeFormat.format(-Math.round(seconds / secondsPerUnit), unit)
@@ -49,7 +80,6 @@ export function relativeDate(value) {
 
 /** Narrow, largest-first and skipping empty units — "1h 4m 32s", or "820ms" for a quick job. */
 const DURATION_UNITS = ['hour', 'minute', 'second', 'millisecond']
-const durationListFormat = new Intl.ListFormat(undefined, { style: 'narrow', type: 'unit' })
 
 /**
  * How long something took.
@@ -67,13 +97,17 @@ export function humanizeDuration(start, end) {
     smallestUnit: 'millisecond'
   })
   const parts = DURATION_UNITS.filter((unit) => dur[`${unit}s`] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
+    getFormatter(Intl.NumberFormat, `number-unit-narrow:${unit}`, {
       style: 'unit',
       unit,
       unitDisplay: 'narrow'
     }).format(dur[`${unit}s`])
   )
   // -> Something that took under a millisecond still has to render as something
+  const durationListFormat = getFormatter(Intl.ListFormat, 'duration-list', {
+    style: 'narrow',
+    type: 'unit'
+  })
   return parts.length > 0 ? durationListFormat.format(parts) : '0ms'
 }
 
@@ -83,7 +117,6 @@ export function humanizeDuration(start, end) {
  * a job timing where density matters more than words.
  */
 const ISO_DURATION_UNITS = ['years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds']
-const isoDurationListFormat = new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' })
 
 /**
  * How long an ISO-8601 duration is, in words.
@@ -98,11 +131,15 @@ export function humanizeIsoDuration(value) {
   }
   const dur = Temporal.Duration.from(value)
   const parts = ISO_DURATION_UNITS.filter((unit) => dur[unit] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
+    getFormatter(Intl.NumberFormat, `number-unit-long:${unit}`, {
       style: 'unit',
       unit: unit.slice(0, -1),
       unitDisplay: 'long'
     }).format(dur[unit])
   )
+  const isoDurationListFormat = getFormatter(Intl.ListFormat, 'iso-duration-list', {
+    style: 'long',
+    type: 'conjunction'
+  })
   return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
 }
