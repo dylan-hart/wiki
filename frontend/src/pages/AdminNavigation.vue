@@ -106,16 +106,16 @@
                 {{ props.value }}
               </w-td>
             </template>
+            <template #no-data>
+              <div class="p-4 text-center text-grey">
+                {{
+                  state.overrides.length < 1
+                    ? t('admin.navigation.emptyText')
+                    : t('admin.navigation.noMatchesText')
+                }}
+              </div>
+            </template>
           </w-table>
-          <div
-            class="p-4 text-center text-grey"
-            v-if="state.loading < 1 && filteredOverrides.length < 1">
-            {{
-              state.overrides.length < 1
-                ? t('admin.navigation.emptyText')
-                : t('admin.navigation.noMatchesText')
-            }}
-          </div>
         </w-card>
       </div>
     </div>

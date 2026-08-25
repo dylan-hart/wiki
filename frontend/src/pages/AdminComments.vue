@@ -244,6 +244,11 @@
             row-key="id"
             flat
             :loading="state.loading > 0">
+            <template #no-data>
+              <div class="text-center text-grey mt-6">
+                {{ t('admin.comments.searchNoResults') }}
+              </div>
+            </template>
             <template #body-cell-author="props">
               <w-td :props="props"
                 ><em>{{ props.value }}</em></w-td
@@ -270,11 +275,6 @@
             </template>
           </w-table>
         </w-card>
-        <div
-          class="text-center text-grey mt-6"
-          v-if="state.comments.length < 1 && state.loading === 0">
-          {{ t('admin.comments.searchNoResults') }}
-        </div>
         <div class="flex items-center justify-center mt-6" v-if="state.totalPages > 1">
           <w-pagination
             v-model="state.currentPage"

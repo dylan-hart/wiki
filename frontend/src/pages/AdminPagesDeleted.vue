@@ -27,18 +27,7 @@
     </div>
     <w-separator inset />
     <div class="p-4">
-      <!--
-        An empty list is the normal starting state -- either nothing has ever been deleted, or every
-        deletion has already been recovered or written over by an unrelated new page at the same
-        path, which is what quietly drops a row off this list on its own.
-      -->
-      <w-banner
-        v-if="state.rows.length < 1 && state.loading < 1"
-        rounded
-        :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
-        {{ t('history.recovery.none') }}
-      </w-banner>
-      <w-card v-else>
+      <w-card>
         <w-table
           :rows="state.rows"
           :columns="headers"
@@ -46,6 +35,18 @@
           flat
           hide-header
           :loading="state.loading > 0">
+          <template #no-data>
+            <!--
+              An empty list is the normal starting state -- either nothing has ever been deleted, or
+              every deletion has already been recovered or written over by an unrelated new page at the
+              same path, which is what quietly drops a row off this list on its own.
+            -->
+            <w-banner
+              rounded
+              :class="dark.isActive ? `bg-dark-3 text-grey-4` : `bg-grey-2 text-grey-8`">
+              {{ t('history.recovery.none') }}
+            </w-banner>
+          </template>
           <template #body-cell-title="props">
             <w-td :props="props">
               <strong>{{ props.value }}</strong>
