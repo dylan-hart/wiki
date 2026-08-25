@@ -196,4 +196,22 @@ describe('classificationLevels (DB-backed)', { skip: !hasTestDatabase() }, () =>
   test('create refuses an empty name', async () => {
     await assert.rejects(levelsModel.create({ name: '  ' }), /needs a name/i)
   })
+
+  /**
+   * OpenProject #1654: the unique index on `classificationLevels.sortOrder`
+   * (`db/schema.ts`) is what `meetsFloor`/`isLowerThan` depend on staying collision-free at the
+   * database level, independent of whatever the write paths above already guard against. A direct
+   * insert (raw SQL, bypassing `create()` entirely) proves the constraint itself is what refuses the
+   * collision, not merely application-level validation.
+   */
+  test('sortOrder has a unique constraint at the database level', async () => {
+    const dupeSortOrder = levelsModel.byId(fixtures.classificationId)!.sortOrder
+
+    await assert.rejects(
+      fixtures.db.execute(
+        `INSERT INTO "classificationLevels" (name, "sortOrder") VALUES ('Duplicate Sort Order', ${dupeSortOrder})`
+      ),
+      /duplicate key value violates unique constraint/i
+    )
+  })
 })

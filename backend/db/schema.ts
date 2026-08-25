@@ -384,15 +384,19 @@ export const blockCredentials = pgTable(
  *
  * Instance-wide, not per-site, mirroring `groups` itself.
  */
-export const classificationLevels = pgTable('classificationLevels', {
-  id: uuid().primaryKey().defaultRandom(),
-  name: varchar({ length: 255 }).notNull(),
-  // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
-  //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
-  sortOrder: integer().notNull().default(0),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const classificationLevels = pgTable(
+  'classificationLevels',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: varchar({ length: 255 }).notNull(),
+    // -> Lower is more open. This is the floor-invariant ordering (#1080) and the display order --
+    //    independent of insertion order or id, both of which an admin cannot rearrange by renaming.
+    sortOrder: integer().notNull().default(0),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [uniqueIndex('classificationLevels_sortOrder_idx').on(table.sortOrder)]
+)
 
 // GROUPS ------------------------------
 export const groups = pgTable('groups', {
