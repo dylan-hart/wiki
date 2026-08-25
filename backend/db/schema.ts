@@ -1288,9 +1288,12 @@ export const pageviews = pgTable(
   'pageviews',
   {
     id: uuid().primaryKey().defaultRandom(),
+    // -> Cascades, unlike most `siteId` columns in this schema: a pageview is a log entry about a
+    //    visit, not content the site-delete route means to guard -- see `models/sites.ts#deleteSite`'s
+    //    up-front content check, which counts pages and assets but deliberately not this table.
     siteId: uuid()
       .notNull()
-      .references(() => sites.id),
+      .references(() => sites.id, { onDelete: 'cascade' }),
     pageId: uuid()
       .notNull()
       .references(() => pages.id, { onDelete: 'cascade' }),
@@ -1468,9 +1471,12 @@ export const tags = pgTable(
     usageCount: integer().notNull().default(0),
     createdAt: timestamp().notNull().defaultNow(),
     updatedAt: timestamp().notNull().defaultNow(),
+    // -> Cascades, unlike most `siteId` columns in this schema: a tag row is derived data about which
+    //    tags have ever been used, not content the site-delete route means to guard -- see
+    //    `models/sites.ts#deleteSite`'s up-front content check, which deliberately excludes this table.
     siteId: uuid()
       .notNull()
-      .references(() => sites.id)
+      .references(() => sites.id, { onDelete: 'cascade' })
   },
   (table) => [
     index('tags_siteId_idx').on(table.siteId),

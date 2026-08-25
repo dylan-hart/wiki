@@ -1,0 +1,2 @@
+ALTER TABLE "pageviews" DROP CONSTRAINT "pageviews_siteId_sites_id_fkey", ADD CONSTRAINT "pageviews_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE CASCADE;--> statement-breakpoint
+ALTER TABLE "tags" DROP CONSTRAINT "tags_siteId_sites_id_fkey", ADD CONSTRAINT "tags_siteId_sites_id_fkey" FOREIGN KEY ("siteId") REFERENCES "sites"("id") ON DELETE CASCADE;

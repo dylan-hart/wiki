@@ -983,9 +983,15 @@ async function routes(app: FastifyInstance) {
           reply.badRequest('Site does not exist.')
         }
       } catch (err: any) {
-        // -> Pages, assets, navigation, tags and the page tree all reference the site without a
-        //    cascade, so a site still holding content cannot be removed. That is a conflict to
-        //    report, not a server fault.
+        // -> The normal path: `deleteSite()` counts pages and assets up front and throws a
+        //    `CustomError` (statusCode 409) before deleting anything, so `reply.send(err)` below
+        //    already answers with the right conflict and message — no special-casing needed here.
+        //
+        //    The `23503` branch is a backstop, not the primary path: pages, assets and the page tree
+        //    all reference the site without a cascade, and if some other, not-yet-cleaned-up table
+        //    were ever added with the same shape, its FK would raise this at the final `sites` delete
+        //    inside `deleteSite()`'s transaction — which rolls the whole thing back, so nothing is
+        //    destroyed either way.
         if (err.cause?.code === '23503' || err.code === '23503') {
           return reply.conflict(
             'Cannot delete a site that still holds content. Delete its pages and assets first.'
