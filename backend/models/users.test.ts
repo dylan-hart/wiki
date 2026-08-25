@@ -1236,6 +1236,59 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
   })
 
+  test('verifyTfaCode refuses a code on a second presentation, while the next window is still accepted', async () => {
+    const strategyId = freshStrategyId()
+    // -> RFC 6238 Appendix B's SHA-1 test vector (same secret `helpers/totp.test.ts` uses): at
+    //    Time=59s (counter 1) the code is 287082; the next 30s window (counter 2) is 359152.
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const owner = (await usersModel.getById(fixtures.userId)) as any
+    owner.auth[strategyId] = { tfaSecret: secret, tfaIsActive: true }
+    await fixtures.db
+      .update(usersTable)
+      .set({ auth: owner.auth })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    mock.timers.enable({ apis: ['Date'], now: 59_000 })
+    try {
+      const firstAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(firstAttempt, strategyId, '287082'), true)
+
+      // -> Same code, presented again inside the same ±30s drift window: refused, since its counter
+      //    was already recorded as `tfaLastCounter` by the accepted attempt above.
+      const replayAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(replayAttempt, strategyId, '287082'), false)
+
+      // -> A different code from the next window is not a replay of the same counter, so it is still
+      //    accepted -- single-use blocks the matched counter, not the whole secret.
+      const nextWindowAttempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(nextWindowAttempt, strategyId, '359152'), true)
+    } finally {
+      mock.timers.reset()
+    }
+  })
+
+  test('verifyTfaCode persists the matched counter so it survives a reload, not just in-process', async () => {
+    const strategyId = freshStrategyId()
+    const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const owner = (await usersModel.getById(fixtures.userId)) as any
+    owner.auth[strategyId] = { tfaSecret: secret, tfaIsActive: true }
+    await fixtures.db
+      .update(usersTable)
+      .set({ auth: owner.auth })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    mock.timers.enable({ apis: ['Date'], now: 59_000 })
+    try {
+      const attempt = await usersModel.getById(fixtures.userId)
+      assert.equal(await usersModel.verifyTfaCode(attempt, strategyId, '287082'), true)
+
+      const reloaded = (await usersModel.getById(fixtures.userId)) as any
+      assert.equal(reloaded.auth[strategyId].tfaLastCounter, 1)
+    } finally {
+      mock.timers.reset()
+    }
+  })
+
   test('getRecoveryCodesStatus reports total/remaining and drops by one per consumed code', async () => {
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)

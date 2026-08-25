@@ -1363,10 +1363,37 @@ class Users {
 
   /**
    * Whether a security code matches the 2FA secret stored for a user under one strategy.
+   *
+   * A TOTP code is single-use: `verifyTotpCode` returns which counter (30s window) it matched, and a
+   * match is only accepted if that counter is newer than the last one this strategy entry recorded
+   * (`tfaLastCounter`). On acceptance the counter is persisted before returning, which is what makes
+   * the same code refused on a second presentation for the rest of its ~90s drift-allowed span — RFC
+   * 6238 §5.2's replay requirement. A recovery-code-shaped input never reaches here; see
+   * `verifyAndConsumeRecoveryCode` for that path's own single-use handling.
+   *
+   * @param user The user row, whose `auth` blob is updated in place as well as saved on acceptance
    */
-  verifyTfaCode(user: any, strategyId: string, securityCode: string): boolean {
-    const secret = ((user.auth ?? {}) as Record<string, any>)[strategyId]?.tfaSecret
-    return Boolean(secret) && verifyTotpCode(secret, securityCode)
+  async verifyTfaCode(user: any, strategyId: string, securityCode: string): Promise<boolean> {
+    const auth = (user.auth ?? {}) as Record<string, any>
+    const secret = auth[strategyId]?.tfaSecret
+    if (!secret) {
+      return false
+    }
+    const matchedCounter = verifyTotpCode(secret, securityCode)
+    if (matchedCounter < 0) {
+      return false
+    }
+    const lastCounter = auth[strategyId]?.tfaLastCounter ?? -1
+    if (matchedCounter <= lastCounter) {
+      return false
+    }
+
+    user.auth[strategyId] = { ...auth[strategyId], tfaLastCounter: matchedCounter }
+    await WIKI.db
+      .update(usersTable)
+      .set({ auth: user.auth, updatedAt: sql`now()` })
+      .where(eq(usersTable.id, user.id))
+    return true
   }
 
   /**
@@ -2226,7 +2253,7 @@ class Users {
 
     let verified: boolean
     if (isTotpShape) {
-      verified = this.verifyTfaCode(user, strategyId, securityCode)
+      verified = await this.verifyTfaCode(user, strategyId, securityCode)
     } else {
       const auth = (user.auth ?? {}) as Record<string, any>
       const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
@@ -2338,7 +2365,7 @@ class Users {
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
-    if (!this.verifyTfaCode(user, strategyId, securityCode)) {
+    if (!(await this.verifyTfaCode(user, strategyId, securityCode))) {
       await countTfaFailure(continuationToken)
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
