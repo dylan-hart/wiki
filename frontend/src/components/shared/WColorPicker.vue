@@ -34,7 +34,7 @@
         :value="hex"
         maxlength="7"
         spellcheck="false"
-        aria-label="Hex color"
+        :aria-label="resolvedHexLabel"
         @change="onHexInput"
         @blur="onHexInput" />
     </div>
@@ -43,6 +43,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useDictText } from '@/composables/i18nText'
 
 /**
  * Hex colour picker: saturation/brightness field, hue rail, and the hex value as text.
@@ -60,10 +61,20 @@ const props = defineProps({
   modelValue: {
     type: String,
     default: '#000000'
+  },
+  /** Accessible name for the hex text field. Falls back to the `common.colorPicker.hexColor` dictionary entry. */
+  hexLabel: {
+    type: String,
+    default: null
   }
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+const dictText = useDictText()
+const resolvedHexLabel = computed(
+  () => props.hexLabel ?? dictText('common.colorPicker.hexColor', 'Hex color')
+)
 
 const fieldEl = ref(null)
 const hueEl = ref(null)
