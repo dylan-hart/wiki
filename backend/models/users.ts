@@ -12,6 +12,7 @@ import {
   userKeys
 } from '../db/schema.ts'
 import { and, count, desc, eq, ilike, inArray, isNotNull, notExists, or, sql } from 'drizzle-orm'
+import type { WikiDbOrTx } from '../core/db.ts'
 import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
@@ -338,8 +339,8 @@ class Users {
     return res?.[0] ?? null
   }
 
-  async getById(id: string) {
-    const res = await WIKI.db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
+  async getById(id: string, db: WikiDbOrTx = WIKI.db) {
+    const res = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
     return res?.[0] ?? null
   }
 
@@ -517,44 +518,53 @@ class Users {
     isVerified?: boolean
   }): Promise<string> {
     const localStrategyId = WIKI.data.systemIds.localAuthId
-    const result = await WIKI.db
-      .insert(usersTable)
-      .values({
-        email: email.toLowerCase(),
-        name,
-        auth: {
-          [localStrategyId]: {
-            password: await bcrypt.hash(password, 12),
-            mustChangePwd: mustChangePassword,
-            restrictLogin: false,
-            tfaIsActive: false,
-            tfaRequired: false,
-            tfaSecret: ''
-          }
-        },
-        isSystem: false,
-        isActive: true,
-        isVerified,
-        meta: {
-          location: '',
-          jobTitle: '',
-          pronouns: ''
-        },
-        prefs: {
-          // -> Seeded from the instance-wide user defaults, which an administrator can change
-          timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-          dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-          timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
-          appearance: 'site',
-          cvd: 'none'
-        }
-      })
-      .returning({ id: usersTable.id })
+    const hashedPassword = await bcrypt.hash(password, 12)
 
-    const userId = result[0].id
-    if (groups.length > 0) {
-      await this.setUserGroups(userId, groups)
-    }
+    // -> Insert and group assignment share one transaction: without it, a group-assignment failure
+    //    (an unknown/invalid group id, a dropped connection, ...) would leave the user row committed
+    //    with no memberships, and a retry would then hit `userCreateDuplicateEmail` instead of
+    //    anything informative. See work package 1607.
+    const userId = await WIKI.db.transaction(async (tx) => {
+      const result = await tx
+        .insert(usersTable)
+        .values({
+          email: email.toLowerCase(),
+          name,
+          auth: {
+            [localStrategyId]: {
+              password: hashedPassword,
+              mustChangePwd: mustChangePassword,
+              restrictLogin: false,
+              tfaIsActive: false,
+              tfaRequired: false,
+              tfaSecret: ''
+            }
+          },
+          isSystem: false,
+          isActive: true,
+          isVerified,
+          meta: {
+            location: '',
+            jobTitle: '',
+            pronouns: ''
+          },
+          prefs: {
+            // -> Seeded from the instance-wide user defaults, which an administrator can change
+            timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
+            dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+            timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
+            appearance: 'site',
+            cvd: 'none'
+          }
+        })
+        .returning({ id: usersTable.id })
+
+      const insertedId = result[0].id
+      if (groups.length > 0) {
+        await this.setUserGroups(insertedId, groups, tx)
+      }
+      return insertedId
+    })
 
     WIKI.models.flags.authDebug(
       `Created user ${userId} <${email.toLowerCase()}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}, verified: ${isVerified}`
@@ -932,9 +942,12 @@ class Users {
    * reached from creating a user, editing one, and enrolling one that an identity provider has just
    * sent. Dropping what may not be granted keeps all three honest without any of them having to know
    * about the guests group.
+   *
+   * @param db The ambient `WIKI.db`, or a transaction handle to join — e.g. `createUser()` passes its
+   * own open transaction so the membership rows commit (or roll back) atomically with the user row.
    */
-  async setUserGroups(userId: string, groupIds: string[]): Promise<void> {
-    const user = await this.getById(userId)
+  async setUserGroups(userId: string, groupIds: string[], db: WikiDbOrTx = WIKI.db): Promise<void> {
+    const user = await this.getById(userId, db)
     const allowed = groupIds.filter(
       (groupId) => !WIKI.models.groups.guestMembershipViolation(groupId, user)
     )
@@ -954,18 +967,16 @@ class Users {
 
     const wanted =
       allowed.length > 0
-        ? await WIKI.db
+        ? await db
             .select({ id: groupsTable.id })
             .from(groupsTable)
             .where(inArray(groupsTable.id, allowed))
         : []
     const wantedIds = wanted.map((g: any) => g.id)
 
-    await WIKI.db.delete(userGroups).where(eq(userGroups.userId, userId))
+    await db.delete(userGroups).where(eq(userGroups.userId, userId))
     if (wantedIds.length > 0) {
-      await WIKI.db
-        .insert(userGroups)
-        .values(wantedIds.map((groupId: string) => ({ userId, groupId })))
+      await db.insert(userGroups).values(wantedIds.map((groupId: string) => ({ userId, groupId })))
     }
   }
 

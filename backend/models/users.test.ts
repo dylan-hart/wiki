@@ -8,6 +8,7 @@ import {
   assets as assetsTable,
   authentication as authenticationTable,
   pages as pagesTable,
+  userGroups,
   userKeys,
   users as usersTable
 } from '../db/schema.ts'
@@ -1644,5 +1645,72 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
     const result = await usersModel.reassignContent(freshUser!.id, targetUserId)
 
     assert.deepEqual(result, { pagesReassigned: 0, assetsReassigned: 0 })
+  })
+})
+
+/**
+ * `createUser()` wraps the user insert and its `setUserGroups()` call in one `WIKI.db.transaction()`
+ * (work package 1607) so the two either both land or both roll back — before this, a group-assignment
+ * failure left an orphaned user row committed, and a retry hit `userCreateDuplicateEmail` instead of
+ * anything informative.
+ */
+describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  const localAuthId = 'create-user-atomic-local-auth-id'
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = {
+      localAuthId,
+      // -> Any id that is not a real group's — `setUserGroups()`/`guestMembershipViolation()` only
+      //    need this to exist and not collide with `fixtures.groupId`.
+      guestsGroupId: '00000000-0000-0000-0000-000000000000'
+    } as any
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('rolls back the user insert when group assignment fails, leaving no orphaned row', async (t) => {
+    const email = 'atomic-rollback@example.com'
+    t.mock.method(users, 'setUserGroups', async () => {
+      throw new Error('simulated group-assignment failure')
+    })
+
+    await assert.rejects(
+      users.createUser({
+        name: 'Atomic Rollback',
+        email,
+        password: 'somepassword1',
+        groups: [fixtures.groupId]
+      }),
+      /simulated group-assignment failure/
+    )
+
+    const rows = await fixtures.db.select().from(usersTable).where(eq(usersTable.email, email))
+    assert.deepEqual(rows, [])
+  })
+
+  test('lands both the user row and its group memberships on the ordinary path', async () => {
+    const email = 'atomic-ok@example.com'
+
+    const userId = await users.createUser({
+      name: 'Atomic Ok',
+      email,
+      password: 'somepassword1',
+      groups: [fixtures.groupId]
+    })
+
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+    assert.ok(row)
+    assert.equal(row!.email, email)
+
+    const memberships = await fixtures.db
+      .select()
+      .from(userGroups)
+      .where(eq(userGroups.userId, userId))
+    assert.equal(memberships.length, 1)
+    assert.equal(memberships[0]!.groupId, fixtures.groupId)
   })
 })
