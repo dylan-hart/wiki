@@ -172,4 +172,54 @@ describe('classification-levels API (DB-backed)', { skip: !hasTestDatabase() }, 
       reversedIds.map((_: any, i: number) => i)
     )
   })
+
+  test('POST /reorder is refused with a partial ids array, writing nothing', async () => {
+    const before = (await app.inject({ method: 'GET', url: '/' })).json()
+    const partialIds = before.slice(0, -1).map((l: any) => l.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reorder',
+      headers: asAdmin,
+      payload: { ids: partialIds }
+    })
+    assert.equal(res.statusCode, 400)
+
+    const after = (await app.inject({ method: 'GET', url: '/' })).json()
+    assert.deepEqual(after, before)
+  })
+
+  test('POST /reorder is refused with a duplicated id, writing nothing', async () => {
+    const before = (await app.inject({ method: 'GET', url: '/' })).json()
+    const ids = before.map((l: any) => l.id)
+    const duplicatedIds = [ids[0], ...ids.slice(0, -1)]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reorder',
+      headers: asAdmin,
+      payload: { ids: duplicatedIds }
+    })
+    assert.equal(res.statusCode, 400)
+
+    const after = (await app.inject({ method: 'GET', url: '/' })).json()
+    assert.deepEqual(after, before)
+  })
+
+  test('POST /reorder is refused with an unknown id, writing nothing', async () => {
+    const before = (await app.inject({ method: 'GET', url: '/' })).json()
+    const ids = before.map((l: any) => l.id)
+    const unknownIds = [...ids.slice(0, -1), '00000000-0000-4000-8000-000000000000']
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/reorder',
+      headers: asAdmin,
+      payload: { ids: unknownIds }
+    })
+    assert.equal(res.statusCode, 400)
+
+    const after = (await app.inject({ method: 'GET', url: '/' })).json()
+    assert.deepEqual(after, before)
+  })
 })
