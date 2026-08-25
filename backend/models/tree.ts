@@ -266,6 +266,8 @@ class Tree {
    * @param locale Required — every listing is scoped to exactly one locale. A caller with no locale
    *               opinion of its own (an HTTP request that left the query param off) resolves one
    *               before calling in, rather than this method merging every locale together.
+   * @param publicOnly Restrict page rows to what a reader with no session may see. See
+   *                   `pageIsVisible`. Folders and assets are unaffected.
    */
   async getTree({
     siteId,
@@ -280,7 +282,8 @@ class Tree {
     orderByDirection = 'asc',
     depth = 0,
     includeAncestors = false,
-    includeRootFolders = false
+    includeRootFolders = false,
+    publicOnly = true
   }: {
     siteId: string
     parentId?: string | null
@@ -295,6 +298,8 @@ class Tree {
     depth?: number
     includeAncestors?: boolean
     includeRootFolders?: boolean
+    /** Restrict page rows to what a reader with no session may see. See `pageIsVisible`. */
+    publicOnly?: boolean
   }): Promise<TreeItem[]> {
     if (offset < 0) {
       throw new CustomError('treeInvalidOffset', 'The offset cannot be negative.')
@@ -341,7 +346,13 @@ class Tree {
     const conditions: (SQL | undefined)[] = [
       eq(treeTable.siteId, siteId),
       or(...locations),
-      eq(treeTable.locale, locale)
+      eq(treeTable.locale, locale),
+      // -> Folders and assets carry no publication state of their own; only a page row is subject to
+      //    `pageIsVisible`, the same rule `browse()`/`listPages()` apply.
+      or(
+        ne(treeTable.type, 'page'),
+        and(eq(treeTable.type, 'page'), ...pageIsVisible(pagesTable, publicOnly))
+      )
     ]
     if (types && types.length > 0) {
       conditions.push(inArray(treeTable.type, types))

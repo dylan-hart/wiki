@@ -56,6 +56,11 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  app.decorateRequest('session', null as any)
+  app.addHook('onRequest', async (req) => {
+    const raw = req.headers['x-test-session']
+    ;(req as any).session = typeof raw === 'string' ? JSON.parse(raw) : {}
+  })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
   await app.register(treeRoutes)
@@ -153,6 +158,42 @@ test('GET TREE route: getTree receives the same resolved locale visibleTreeItems
   })
   assert.equal(res.statusCode, 200)
   assert.equal(getTreeLocale, 'en', "getTree must receive the site's resolved default locale")
+})
+
+/**
+ * OpenProject #1599: BROWSE THE TREE (`GET /sites/:siteId/tree`) called `getTree()` without a
+ * `publicOnly` argument, so `getTree()` never applied `pageIsVisible()` and an anonymous request
+ * could be told a draft, a not-yet-scheduled page, or an `isBrowsable: false` page exists. The
+ * handler now resolves `publicOnly` from the session the same way `tree.browse()`'s route already
+ * does, and passes it through.
+ */
+test('GET TREE route: passes publicOnly: true to getTree for an unauthenticated request', async () => {
+  let receivedPublicOnly: boolean | undefined
+  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+    receivedPublicOnly = args.publicOnly
+    return []
+  }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${ENABLED_SITE_ID}/tree`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(receivedPublicOnly, true)
+})
+
+test('GET TREE route: passes publicOnly: false to getTree for an authenticated request', async () => {
+  let receivedPublicOnly: boolean | undefined
+  ;(globalThis as any).WIKI.models.tree.getTree = async (args: any) => {
+    receivedPublicOnly = args.publicOnly
+    return []
+  }
+  const res = await app.inject({
+    method: 'GET',
+    url: `/sites/${ENABLED_SITE_ID}/tree`,
+    headers: { 'x-test-session': JSON.stringify({ authenticated: true }) }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(receivedPublicOnly, false)
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {
