@@ -24,6 +24,7 @@ import {
 import { ProvisionableLoginError } from './authentication.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
+import type { WikiDbOrTx } from '../core/db.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
 export interface UserCore {
@@ -338,8 +339,8 @@ class Users {
     return res?.[0] ?? null
   }
 
-  async getById(id: string) {
-    const res = await WIKI.db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
+  async getById(id: string, db: WikiDbOrTx = WIKI.db) {
+    const res = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1)
     return res?.[0] ?? null
   }
 
@@ -517,44 +518,55 @@ class Users {
     isVerified?: boolean
   }): Promise<string> {
     const localStrategyId = WIKI.data.systemIds.localAuthId
-    const result = await WIKI.db
-      .insert(usersTable)
-      .values({
-        email: email.toLowerCase(),
-        name,
-        auth: {
-          [localStrategyId]: {
-            password: await bcrypt.hash(password, 12),
-            mustChangePwd: mustChangePassword,
-            restrictLogin: false,
-            tfaIsActive: false,
-            tfaRequired: false,
-            tfaSecret: ''
-          }
-        },
-        isSystem: false,
-        isActive: true,
-        isVerified,
-        meta: {
-          location: '',
-          jobTitle: '',
-          pronouns: ''
-        },
-        prefs: {
-          // -> Seeded from the instance-wide user defaults, which an administrator can change
-          timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
-          dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
-          timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
-          appearance: 'site',
-          cvd: 'none'
-        }
-      })
-      .returning({ id: usersTable.id })
+    // -> Hashed before the transaction opens rather than inside it: bcrypt is CPU-bound, not a query,
+    //    and there is no reason to hold the checked-out connection idle while it runs.
+    const passwordHash = await bcrypt.hash(password, 12)
 
-    const userId = result[0].id
-    if (groups.length > 0) {
-      await this.setUserGroups(userId, groups)
-    }
+    // -> The insert and its group assignment must land together or not at all (OpenProject #1607): a
+    //    `setUserGroups` failure after the insert had already committed used to leave a user row with
+    //    no memberships behind a 500, and the administrator's retry hit the email-uniqueness conflict
+    //    instead of anything informative.
+    const userId = await WIKI.db.transaction(async (tx) => {
+      const result = await tx
+        .insert(usersTable)
+        .values({
+          email: email.toLowerCase(),
+          name,
+          auth: {
+            [localStrategyId]: {
+              password: passwordHash,
+              mustChangePwd: mustChangePassword,
+              restrictLogin: false,
+              tfaIsActive: false,
+              tfaRequired: false,
+              tfaSecret: ''
+            }
+          },
+          isSystem: false,
+          isActive: true,
+          isVerified,
+          meta: {
+            location: '',
+            jobTitle: '',
+            pronouns: ''
+          },
+          prefs: {
+            // -> Seeded from the instance-wide user defaults, which an administrator can change
+            timezone: WIKI.config.userDefaults?.timezone ?? 'America/New_York',
+            dateFormat: WIKI.config.userDefaults?.dateFormat ?? 'YYYY-MM-DD',
+            timeFormat: WIKI.config.userDefaults?.timeFormat ?? '12h',
+            appearance: 'site',
+            cvd: 'none'
+          }
+        })
+        .returning({ id: usersTable.id })
+
+      const newUserId = result[0].id
+      if (groups.length > 0) {
+        await this.setUserGroups(newUserId, groups, tx)
+      }
+      return newUserId
+    })
 
     WIKI.models.flags.authDebug(
       `Created user ${userId} <${email.toLowerCase()}> in ${groups.length} group(s), mustChangePwd: ${mustChangePassword}, verified: ${isVerified}`
@@ -707,12 +719,12 @@ class Users {
    * @param patch Fields to change — must not be empty
    * @returns Whether a user was updated
    */
-  async updateUser(id: string, patch: UserPatch): Promise<boolean> {
+  async updateUser(id: string, patch: UserPatch, db: WikiDbOrTx = WIKI.db): Promise<boolean> {
     const values: Record<string, any> = { ...patch, updatedAt: sql`now()` }
     if (typeof values.email === 'string') {
       values.email = values.email.toLowerCase()
     }
-    const result = await WIKI.db.update(usersTable).set(values).where(eq(usersTable.id, id))
+    const result = await db.update(usersTable).set(values).where(eq(usersTable.id, id))
     return (result.rowCount ?? 0) > 0
   }
 
@@ -933,8 +945,8 @@ class Users {
    * sent. Dropping what may not be granted keeps all three honest without any of them having to know
    * about the guests group.
    */
-  async setUserGroups(userId: string, groupIds: string[]): Promise<void> {
-    const user = await this.getById(userId)
+  async setUserGroups(userId: string, groupIds: string[], db: WikiDbOrTx = WIKI.db): Promise<void> {
+    const user = await this.getById(userId, db)
     const allowed = groupIds.filter(
       (groupId) => !WIKI.models.groups.guestMembershipViolation(groupId, user)
     )
@@ -954,18 +966,16 @@ class Users {
 
     const wanted =
       allowed.length > 0
-        ? await WIKI.db
+        ? await db
             .select({ id: groupsTable.id })
             .from(groupsTable)
             .where(inArray(groupsTable.id, allowed))
         : []
     const wantedIds = wanted.map((g: any) => g.id)
 
-    await WIKI.db.delete(userGroups).where(eq(userGroups.userId, userId))
+    await db.delete(userGroups).where(eq(userGroups.userId, userId))
     if (wantedIds.length > 0) {
-      await WIKI.db
-        .insert(userGroups)
-        .values(wantedIds.map((groupId: string) => ({ userId, groupId })))
+      await db.insert(userGroups).values(wantedIds.map((groupId: string) => ({ userId, groupId })))
     }
   }
 
@@ -976,8 +986,12 @@ class Users {
    * @param flags Any of `mustChangePwd`, `restrictLogin`, `tfaRequired`
    * @returns False if the user does not exist
    */
-  async setUserAuthFlags(id: string, flags: Record<string, any>): Promise<boolean> {
-    const user = await this.getById(id)
+  async setUserAuthFlags(
+    id: string,
+    flags: Record<string, any>,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<boolean> {
+    const user = await this.getById(id, db)
     if (!user) {
       return false
     }
@@ -997,11 +1011,58 @@ class Users {
     }
     auth[localStrategyId] = current
 
-    await WIKI.db
+    await db
       .update(usersTable)
       .set({ auth, updatedAt: sql`now()` })
       .where(eq(usersTable.id, id))
     return true
+  }
+
+  /**
+   * Apply a profile patch, group membership, and/or local auth-flag changes to a user in one
+   * transaction, clearing that user's sessions when required — the atomic replacement for
+   * `PUT /users/:userId`'s previously separate calls to `updateUser`, `setUserGroups`,
+   * `setUserAuthFlags` and `sessions.clearSessionsFromUser` (OpenProject #1609). A failure partway
+   * through no longer leaves an earlier write in this sequence committed behind a 500.
+   *
+   * The route keeps its pre-flight guards (duplicate email, system-user protection, `manage:system`
+   * escalation, last-root-admin) outside this method, and still calls `auditLog.record()` itself
+   * afterwards — that call cannot throw (`models/auditLog.ts`) and carries `patch`/`groups`/`auth` as
+   * it was asked for, not as this method interpreted it, so it has no reason to join the transaction.
+   *
+   * @param id The user being updated
+   * @param patch Profile fields to change; omitted or empty skips the profile write entirely
+   * @param groups The new group membership; `undefined` leaves membership unchanged
+   * @param authFlags Local-strategy flags to set; `undefined` leaves them unchanged
+   */
+  async applyUserUpdate(
+    id: string,
+    {
+      patch,
+      groups,
+      authFlags
+    }: {
+      patch?: UserPatch
+      groups?: string[]
+      authFlags?: Record<string, any>
+    }
+  ): Promise<void> {
+    await WIKI.db.transaction(async (tx) => {
+      if (patch && Object.keys(patch).length > 0) {
+        await this.updateUser(id, patch, tx)
+      }
+      if (groups !== undefined) {
+        await this.setUserGroups(id, groups, tx)
+      }
+      if (authFlags !== undefined) {
+        await this.setUserAuthFlags(id, authFlags, tx)
+      }
+      // -> Mirrors the route's original condition: a deactivation or a membership change must end any
+      //    open session now, the same way `models/sessions.ts#clearSessionsFromUser` documents.
+      if (patch?.isActive === false || groups !== undefined) {
+        await WIKI.models.sessions.clearSessionsFromUser(id, tx)
+      }
+    })
   }
 
   /**

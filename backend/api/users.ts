@@ -1840,6 +1840,18 @@ async function routes(app: FastifyInstance) {
           'Sending a welcome email requires a configured mail transport (Admin > Mail Configuration).'
         )
       }
+      // -> `setUserGroups` silently drops an id naming no group (a documented model-layer policy
+      //    written for IdP enrolment, see its own doc comment) -- an administrator instead needs the
+      //    account to land in exactly the groups asked for, or not be created at all. Mirrors
+      //    `api/apiKeys.ts`'s own `getAllGroups()` check.
+      if (req.body.groups && req.body.groups.length > 0) {
+        const knownGroups = await WIKI.models.groups.getAllGroups()
+        for (const groupId of req.body.groups) {
+          if (!knownGroups.some((g) => g.id === groupId)) {
+            return reply.badRequest('One of the groups does not exist.')
+          }
+        }
+      }
 
       try {
         const id = await WIKI.models.users.createUser({
@@ -2028,6 +2040,19 @@ async function routes(app: FastifyInstance) {
       // -> Group membership is replaced wholesale here, which would otherwise be a way around the
       //    guards on the groups endpoint.
       if (req.body.groups !== undefined) {
+        // -> `setUserGroups` silently drops an id naming no group (a documented model-layer policy
+        //    written for IdP enrolment) -- because this replaces membership wholesale, a partially
+        //    recognised list would otherwise silently remove the user from groups they were in.
+        //    Mirrors `api/apiKeys.ts`'s own `getAllGroups()` check.
+        if (req.body.groups.length > 0) {
+          const knownGroups = await WIKI.models.groups.getAllGroups()
+          for (const groupId of req.body.groups) {
+            if (!knownGroups.some((g) => g.id === groupId)) {
+              return reply.badRequest('One of the groups does not exist.')
+            }
+          }
+        }
+
         // -> The guest account must stay in the guests group and nowhere else. Resending the
         //    membership unchanged is allowed, so that saving another field is not blocked.
         if (user.isSystem) {
@@ -2071,22 +2096,17 @@ async function routes(app: FastifyInstance) {
       }
 
       try {
-        if (Object.keys(patch).length > 0) {
-          await WIKI.models.users.updateUser(req.params.userId, patch)
-        }
-        if (req.body.groups !== undefined) {
-          await WIKI.models.users.setUserGroups(req.params.userId, req.body.groups)
-        }
-        if (req.body.auth !== undefined) {
-          await WIKI.models.users.setUserAuthFlags(req.params.userId, req.body.auth)
-        }
-        // -> OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login,
-        //    otherwise live for up to the 30-day cookie age -- deactivating an account or changing
-        //    its group membership must end its open sessions now, the same way a personal API token
-        //    already revalidates `isActive` live on every request (`models/apiKeys.ts`).
-        if (patch.isActive === false || req.body.groups !== undefined) {
-          await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
-        }
+        // -> One transaction for the whole write sequence (OpenProject #1609): a failure partway
+        //    through used to leave an earlier write here already committed behind a bare 500. Session
+        //    clearing on deactivation/group-change (OpenProject #936) is folded into the same method,
+        //    since `session.groups`/`session.permissions` are snapshots taken at login and otherwise
+        //    live for up to the 30-day cookie age -- the same reasoning a personal API token's live
+        //    `isActive` revalidation on every request (`models/apiKeys.ts`) already follows.
+        await WIKI.models.users.applyUserUpdate(req.params.userId, {
+          patch,
+          groups: req.body.groups,
+          authFlags: req.body.auth
+        })
         await WIKI.models.auditLog.record({
           event: 'user.updated',
           actor: actorFromRequest(req),
