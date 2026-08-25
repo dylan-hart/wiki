@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+
+import BlockPropsForm from './BlockPropsForm.vue'
+import WInput from '@/components/shared/WInput.vue'
+import WToggle from '@/components/shared/WToggle.vue'
+
+/**
+ * Part of OpenProject #1624/#1631: a field's label/aria-label/hint resolve through the
+ * `blocks.<tag>.props.<name>.*` key `backend/scripts/blockLocaleKeys.ts` mints, falling back to the
+ * raw `field.label`/`field.hint` off the definition -- never to the dotted key path itself -- when
+ * the key does not resolve. See `composables/blockLocale.js`.
+ */
+function mountForm({ block, fields, messages = {} }) {
+  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: messages } })
+  return mount(BlockPropsForm, {
+    props: { block, fields, values: {} },
+    global: { plugins: [i18n] }
+  })
+}
+
+describe('BlockPropsForm i18n', () => {
+  it('resolves a blocks.<tag>.props.<name>.label/.hint key for a text field', () => {
+    const wrapper = mountForm({
+      block: 'openapi',
+      fields: [{ name: 'url', type: 'string', label: 'Spec URL', hint: 'Raw hint.' }],
+      messages: {
+        'blocks.openapi.props.url.label': 'Translated Spec URL',
+        'blocks.openapi.props.url.hint': 'Translated hint.'
+      }
+    })
+
+    const input = wrapper.findComponent(WInput)
+    expect(input.props('label')).toBe('Translated Spec URL')
+    expect(input.attributes('aria-label')).toBe('Translated Spec URL')
+    expect(input.props('hint')).toBe('Translated hint.')
+  })
+
+  it("falls back to the field's own raw label/hint, not the dotted key path, when unresolved", () => {
+    const wrapper = mountForm({
+      block: 'openapi',
+      fields: [{ name: 'url', type: 'string', label: 'Spec URL', hint: 'Raw hint.' }]
+    })
+
+    const input = wrapper.findComponent(WInput)
+    expect(input.props('label')).toBe('Spec URL')
+    expect(input.props('label')).not.toContain('blocks.')
+    expect(input.props('hint')).toBe('Raw hint.')
+  })
+
+  it('falls back to the raw label for a boolean (toggle) field the same way', () => {
+    const wrapper = mountForm({
+      block: 'openapi',
+      fields: [{ name: 'tryItOut', type: 'boolean', label: 'Enable "Try it out"' }]
+    })
+
+    const toggle = wrapper.findComponent(WToggle)
+    expect(toggle.props('label')).toBe('Enable "Try it out"')
+  })
+
+  it('resolves nothing when no block tag is given, leaving every field on its raw label', () => {
+    const wrapper = mountForm({
+      block: '',
+      fields: [{ name: 'url', type: 'string', label: 'Spec URL' }],
+      messages: { 'blocks.openapi.props.url.label': 'Should never be reached' }
+    })
+
+    expect(wrapper.findComponent(WInput).props('label')).toBe('Spec URL')
+  })
+})

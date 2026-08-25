@@ -77,6 +77,15 @@ jobs:
         working-directory: backend
         run: npm run test
 
+      # Same shape as the Frontend Icons/Emoji Check steps below: a block's `label`/`hint`/
+      # `description` strings are read straight off blocks/block-*/component.js (no fetch/network),
+      # and diffed against the blocks.<tag>.* keys committed in locales/en.json -- a new string with
+      # no key, a changed string with a stale key, or an orphaned key from a removed block/prop all
+      # fail this step. See backend/scripts/blockLocaleKeys.ts.
+      - name: Backend Block Locale Keys Check
+        working-directory: backend
+        run: npm run block-locale-keys:check
+
       - name: Install Frontend Dependencies
         working-directory: frontend
         run: npm ci
