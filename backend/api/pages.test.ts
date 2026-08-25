@@ -853,6 +853,26 @@ describe('pages API — response schema completeness (task 602)', () => {
     assert.deepEqual(body.toc[0], { key: 'h-intro', label: 'Intro', level: 1, children: [] })
   })
 
+  /**
+   * OpenProject #2232: `pages.password` now stores a one-way `bcrypt` verifier, and the point of
+   * that is defeated if the API still hands the value back to whoever may edit the page. The `Page`
+   * response schema has no `password` property any more — only `hasPassword` — so even a model that
+   * (bug, or a future regression re-adding the field) put a raw `password` on the object would be
+   * stripped by response serialization before it ever reached a client. This proves the whole path.
+   */
+  test('GET single page never returns a password field, even if the model handed one back', async () => {
+    mayOnPageResult = true
+    getPageResult = { ...samplePage, password: 'should-never-be-sent', hasPassword: true }
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sites/33333333-3333-3333-3333-333333333333/pages/abc123'
+    })
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.password, undefined)
+    assert.equal(body.hasPassword, true)
+  })
+
   test('GET single page: 404 when the page does not exist, matching ApiError', async () => {
     getPageResult = null
     const res = await app.inject({

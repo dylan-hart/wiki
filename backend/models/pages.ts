@@ -1,11 +1,11 @@
+import bcrypt from 'bcryptjs'
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { pages as pagesTable, tree as treeTable, users as usersTable } from '../db/schema.ts'
 import {
   CustomError,
   defaultLocale,
   generatePathHash,
-  normalizePagePath,
-  timingSafeCompare
+  normalizePagePath
 } from '../helpers/common.ts'
 import { rulesAllow } from '../helpers/pageRules.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
@@ -14,6 +14,14 @@ import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
+
+/**
+ * Cost factor `bcrypt` hashes a page's password at — the same one `models/users.ts` hashes account
+ * passwords and recovery codes with (OpenProject #2232). `pages.password` stores this hash, never the
+ * cleartext: `unlockPage()` checks a guess against it with `bcrypt.compare`, the same shape a login
+ * check uses.
+ */
+const pagePasswordBcryptRounds = 12
 
 /** What each editor produces, which is what the content column holds. */
 const EDITOR_CONTENT_TYPES: Record<string, string> = {
@@ -94,11 +102,15 @@ export interface Page {
   isBrowsable: boolean
   isSearchable: boolean
   /**
-   * The page's password, if it has one. Present only for a requester who may edit the page — see
-   * `getPage`'s `withPassword`. Absent, rather than null, for everyone else: a reader cannot tell a
-   * page with no password from one whose password was withheld, and does not need to.
+   * Whether the page has a password set. Present only for a requester who may edit the page — see
+   * `getPage`'s `withPassword`. Absent, rather than false, for everyone else: a reader cannot tell a
+   * page with no password from one whose password status was withheld, and does not need to.
+   *
+   * Never the password itself, nor its stored verifier: `pages.password` holds a one-way `bcrypt`
+   * hash (OpenProject #2232), and this is deliberately the only thing derived from it that ever
+   * leaves this model — even the page's own editor cannot read a password back, only replace it.
    */
-  password?: string | null
+  hasPassword?: boolean
   /** Whether the body was withheld because the page is password protected. See `getPage`. */
   isLocked: boolean
   relations: any[]
@@ -147,6 +159,12 @@ export interface PageInput {
   publishEndDate?: string | null
   isBrowsable?: boolean
   isSearchable?: boolean
+  /**
+   * A new plaintext password to protect the page with, write-only (OpenProject #2232): `createPage`/
+   * `updatePage` hash it with `bcrypt` before it touches the database, and nothing ever hands the
+   * stored value back — see `Page.hasPassword`. `undefined` leaves the page's password untouched, an
+   * empty string removes it, and a non-empty string replaces it, hash and all.
+   */
   password?: string
   relations?: any[]
   tags?: string[]
@@ -352,8 +370,9 @@ class Pages {
    * @param locked Withhold the body — the source, the rendered HTML, the table of contents drawn from
    *               it, and the relation links written onto the page. The metadata stays: a reader
    *               looking at the lock screen is told what page they are being asked for a password to.
-   * @param withPassword Include the page's own password. Only for a requester who may edit the page,
-   *                     which is the one that has to be able to read it back and save it again.
+   * @param withPassword Include whether the page has a password set. Only for a requester who may
+   *                     edit the page — the value itself never comes back to anyone, this model
+   *                     included; see `Page.hasPassword`.
    * @param withContent Include the source. A redirection's comes back either way: its content is not
    *                    a body somebody wrote, it is where the page sends its reader — which every
    *                    reader is about to be shown by being taken there. Withholding it would leave
@@ -386,7 +405,7 @@ class Pages {
       publishEndDate: row.publishEndDate,
       isBrowsable: row.isBrowsable,
       isSearchable: row.isSearchable,
-      ...(withPassword ? { password: row.password } : {}),
+      ...(withPassword ? { hasPassword: Boolean(row.password) } : {}),
       isLocked: locked,
       relations: locked ? [] : (row.relations ?? []),
       tags: row.tags ?? [],
@@ -437,10 +456,10 @@ class Pages {
    *                 locale and tags once it is in hand — not just the id — because `unlockedFor` needs
    *                 them to ask `mayOnPage()` whether a page RULE bypasses the password, and the row is
    *                 the only place that has them when the caller only knew a path hash going in.
-   * @param withPassword Whether to include the password value, for whoever may edit the page — not for
-   *                     a reader who just entered it, who needs it no more after that. Also a function
-   *                     for the same reason as `unlocked`: which page it is, and therefore whether this
-   *                     requester may edit it, is only known once the row is in hand.
+   * @param withPassword Whether to include `hasPassword`, for whoever may edit the page — not for a
+   *                     reader who just entered it, who needs to know it no more after that. Also a
+   *                     function for the same reason as `unlocked`: which page it is, and therefore
+   *                     whether this requester may edit it, is only known once the row is in hand.
    */
   async getPage({
     siteId,
@@ -613,7 +632,7 @@ class Pages {
       .where(eq(pagesTable.id, page.id))
       .limit(1)
     const expected = stored[0]?.password
-    if (!expected || !timingSafeCompare(password, expected)) {
+    if (!expected || !(await bcrypt.compare(password, expected))) {
       return null
     }
     // -> Unlocked, but still without the password itself: entering it is not the same as being able
@@ -855,7 +874,9 @@ class Pages {
           //    doorway to the page the reader actually wanted, which is the one search should offer
           isSearchable: isRedirect ? false : (input.isSearchable ?? true),
           locale,
-          password: input.password || null,
+          password: input.password
+            ? await bcrypt.hash(input.password, pagePasswordBcryptRounds)
+            : null,
           path,
           publishState: input.publishState ?? 'published',
           publishStartDate: input.publishStartDate ? new Date(input.publishStartDate) : null,
@@ -1007,7 +1028,9 @@ class Pages {
       values.isSearchable = isRedirect ? false : patch.isSearchable
     }
     if (patch.password !== undefined) {
-      values.password = patch.password || null
+      values.password = patch.password
+        ? await bcrypt.hash(patch.password, pagePasswordBcryptRounds)
+        : null
     }
     if (patch.relations !== undefined) {
       values.relations = patch.relations
