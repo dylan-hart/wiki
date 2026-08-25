@@ -2164,7 +2164,12 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        mayOnPage(req, 'read:history', req.params.siteId, {
+          path: row.path,
+          locale: row.locale,
+          tags: row.tags,
+          classification: row.classification
+        })
       )
     }
   )
@@ -2235,6 +2240,23 @@ async function routes(app: FastifyInstance) {
       )
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
+      }
+      // -> OpenProject #2168: a source-side check, ahead of the destination one below. Holding
+      //    `write:pages` on where the page is going back to says nothing about being allowed to read
+      //    what it actually contained -- without this, a caller who was denied `read:pages`/
+      //    `read:source` at the path it was deleted from could still recover it into anywhere they
+      //    hold `write:pages`, reading and republishing source they were never allowed to read.
+      const source = {
+        path: version.path,
+        locale: version.locale,
+        tags: version.tags,
+        classification: version.classification
+      }
+      if (
+        !mayOnPage(req, 'read:pages', req.params.siteId, source) ||
+        !mayOnPage(req, 'read:source', req.params.siteId, source)
+      ) {
+        return reply.forbidden('You are not allowed to read the page being recovered.')
       }
       const overrides = req.body ?? {}
       const target = {

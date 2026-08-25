@@ -81,6 +81,46 @@ describe(
       assert.equal(entry!.locale, 'en')
     })
 
+    test('listRecoverable carries tags/classification and no author email (OpenProject #2168)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/recoverable-tagged', tags: ['gamma'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/recoverable-tagged')
+      assert.ok(entry)
+      // -> Lets the route narrow its `read:history` check with TAG/TAGALL/CLASSIFICATION rules, not
+      //    just a bare path/locale match.
+      assert.deepEqual(entry!.tags, ['gamma'])
+      assert.equal(typeof entry!.classification, 'string')
+      // -> No `email` anywhere on the row: this listing is reachable by a caller who does NOT hold
+      //    `read:pages` at the deleted path, so it must not hand back the deleting/creating author's
+      //    email address.
+      assert.equal((entry!.author as any).email, undefined)
+      assert.equal('email' in entry!.author, false)
+    })
+
+    test('getDeletedVersion carries tags/classification pulled out of meta (OpenProject #2168)', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({ path: 'docs/deleted-version-tags', tags: ['delta'] }),
+        actor
+      )
+      await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+
+      const recoverable = await pageHistoryModel.listRecoverable(fixtures.siteId)
+      const entry = recoverable.find((row) => row.path === 'docs/deleted-version-tags')
+      assert.ok(entry)
+
+      const version = await pageHistoryModel.getDeletedVersion(fixtures.siteId, entry!.id)
+      assert.ok(version)
+      assert.deepEqual(version!.tags, ['delta'])
+      assert.equal(typeof version!.classification, 'string')
+    })
+
     test('listRecoverable omits a path that was deleted and then reused', async () => {
       const page = await pagesModel.createPage(
         fixtures.siteId,
