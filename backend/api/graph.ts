@@ -4,7 +4,6 @@ import type { PageHistoryContributorCounts } from '../models/pageHistory.ts'
 import type { PageviewCountsForGraph } from '../models/pageviews.ts'
 import { zeroPageviewCountsForGraph } from '../models/pageviews.ts'
 import { mayOnPage } from './pages.ts'
-import { guardSiteEnabled } from '../helpers/common.ts'
 
 // -> Re-exported so `graph.test.ts` (OpenProject #884) can import the fixture row shape from the
 //    same module it imports `assembleGraph`/`folderOf` from, without a second import line pointing
@@ -156,12 +155,10 @@ async function routes(app: FastifyInstance) {
         }
       }
     },
-    async (req, reply) => {
-      if (guardSiteEnabled(WIKI.sites[req.params.siteId], reply)) {
-        return
-      }
+    async (req) => {
+      const publicOnly = !req.session?.authenticated
       const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
+        WIKI.models.pages.listAllForGraph(req.params.siteId, publicOnly),
         WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
         WIKI.models.pageviews.countsForGraph(req.params.siteId)
       ])

@@ -25,8 +25,9 @@ export function defaultLocale(site: McpSite): string {
 
 /**
  * Resolve a site by id, refusing one that does not exist or is disabled — the same guard
- * `helpers/common.ts`'s `guardSiteEnabled()` applies to every `/_api/sites/:siteId/...` route, adapted
- * to throw since there is no `FastifyReply` here to write to.
+ * `api/index.ts`'s `:siteId` preHandler applies (via `helpers/common.ts`'s `guardSiteEnabled()`) to
+ * every `/_api/sites/:siteId/...` route, adapted to throw since there is no `FastifyReply` here to
+ * write to.
  */
 export function resolveSite(siteId: string): McpSite {
   const site = WIKI.sites[siteId] as McpSite | undefined

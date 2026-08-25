@@ -1,9 +1,14 @@
 import type { FastifyInstance } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 
 /**
  * API Routes
  */
 async function routes(app: FastifyInstance) {
+  // -> Enforces the disabled-site guard on every `:siteId`-scoped route in the tree registered below
+  //    (task 699 / OpenProject #1587/#1593) -- see `siteEnabledPreHandler`'s own doc comment.
+  app.addHook('preHandler', siteEnabledPreHandler)
+
   // Register schemas
   await import('./schemas/analytics.ts').then((m) => m.registerSchemas(app))
   await import('./schemas/apiKey.ts').then((m) => m.registerSchemas(app))

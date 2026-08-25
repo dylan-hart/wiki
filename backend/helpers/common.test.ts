@@ -1,4 +1,4 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   defaultLocale,
@@ -10,6 +10,7 @@ import {
   requestOrigin,
   resolveRequestSite,
   shouldPrefixLocale,
+  siteEnabledPreHandler,
   SITE_DISABLED_MESSAGE,
   stripLocalePrefix,
   type LocaleRoutingConfig
@@ -387,5 +388,67 @@ describe('guardSiteEnabled', () => {
     const handled = guardSiteEnabled(null, reply)
     assert.equal(handled, false)
     assert.deepEqual(calls.forbidden, [])
+  })
+})
+
+/**
+ * OpenProject #1587/#1593: `siteEnabledPreHandler` is the single Fastify `preHandler` `api/index.ts`
+ * registers for the whole `/_api` tree, replacing nine hand-applied `guardSiteEnabled()` call sites
+ * and — for the first time — covering the dozen-plus `:siteId` routes across `pages.ts`, `tree.ts`,
+ * `assets.ts`, `comments.ts`, `navigation.ts`, `liveData.ts` and `glossary.ts` that never had a guard
+ * at all. Tested as the plain function it is, against a synthetic `req`/`reply`/`done` rather than a
+ * booted Fastify app — see `api/index.test.ts` for the companion structural test that calls this same
+ * function against every `:siteId` route the API actually declares.
+ */
+describe('siteEnabledPreHandler', () => {
+  let previousWiki: any
+
+  function fakeDone() {
+    const calls: unknown[] = []
+    const done = (err?: Error) => {
+      calls.push(err)
+    }
+    return { done, calls }
+  }
+
+  before(() => {
+    previousWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { sites }
+  })
+
+  after(() => {
+    ;(globalThis as any).WIKI = previousWiki
+  })
+
+  test('forbids and never calls done() for a route whose siteId resolves to a disabled site', () => {
+    const { reply, calls: forbiddenCalls } = fakeReply()
+    const { done, calls: doneCalls } = fakeDone()
+    siteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, done)
+    assert.deepEqual(forbiddenCalls.forbidden, [SITE_DISABLED_MESSAGE])
+    assert.equal(doneCalls.length, 0)
+  })
+
+  test('calls done() with no error for a route whose siteId resolves to an enabled site', () => {
+    const { reply, calls: forbiddenCalls } = fakeReply()
+    const { done, calls: doneCalls } = fakeDone()
+    siteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, done)
+    assert.deepEqual(forbiddenCalls.forbidden, [])
+    assert.deepEqual(doneCalls, [undefined])
+  })
+
+  test('calls done() for a route with no siteId param at all — nothing here to guard', () => {
+    const { reply, calls: forbiddenCalls } = fakeReply()
+    const { done, calls: doneCalls } = fakeDone()
+    siteEnabledPreHandler({ params: {} } as any, reply, done)
+    assert.deepEqual(forbiddenCalls.forbidden, [])
+    assert.deepEqual(doneCalls, [undefined])
+  })
+
+  test('calls done() for a siteId that does not resolve to any known site — the route’s own lookup answers that', () => {
+    const { reply, calls: forbiddenCalls } = fakeReply()
+    const { done, calls: doneCalls } = fakeDone()
+    siteEnabledPreHandler({ params: { siteId: 'no-such-site' } } as any, reply, done)
+    assert.deepEqual(forbiddenCalls.forbidden, [])
+    assert.deepEqual(doneCalls, [undefined])
   })
 })

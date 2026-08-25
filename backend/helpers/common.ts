@@ -3,7 +3,7 @@ import { startCase } from 'es-toolkit/string'
 import crypto from 'node:crypto'
 import mime from 'mime'
 import fs from 'node:fs'
-import type { FastifyReply } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 
 export interface Deferred<T = void> {
   resolve: (value: T) => void
@@ -239,6 +239,42 @@ export function guardSiteEnabled(
     return true
   }
   return false
+}
+
+/**
+ * Fastify `preHandler`, registered once for the whole `/_api` tree in `api/index.ts`, that applies
+ * `guardSiteEnabled()` to every route whose path names `siteId` (OpenProject #1587/#1593).
+ *
+ * Before this existed, the guard was nine hand-applied call sites (`bootstrap.ts`, three in
+ * `pages.ts`, two in `assets.ts`, one in `graph.ts`, plus the three `controllers/` sites outside
+ * `/_api`), which is how a dozen-plus other `:siteId` routes across `pages.ts` (GET PAGE, UNLOCK,
+ * page history, the export routes), every read route in `tree.ts`, `assets.ts`'s upload/rename/
+ * delete, and everything in `comments.ts`/`navigation.ts`/`liveData.ts`/`glossary.ts` went on
+ * answering a disabled site's content indefinitely to a caller that already held its id. A single
+ * plugin-level hook closes all of them at once, and a route file added later needs no call of its
+ * own to be covered — it inherits this the moment it registers a route under `api/index.ts`.
+ *
+ * A plain, exported function rather than an inline `addHook` callback specifically so it can be
+ * exercised directly, with a synthetic `req`/`reply`, against every `:siteId` route this instance
+ * actually declares (`api/index.test.ts`) without booting a real HTTP server per route or hand-filling
+ * each one's querystring/body schema just to get a request past validation and into the hook chain.
+ *
+ * `req.params.siteId` reads as `undefined` on a route with no such param, which `guardSiteEnabled` is
+ * not even asked about — exactly "nothing to guard here", not a second 404. `bootstrap.ts`'s own
+ * `guardSiteEnabled` call is the one deliberate exception this preHandler does not subsume: that route
+ * resolves its site by hostname (`getSiteByHostname`), not a `:siteId` param, so nothing keyed off
+ * `req.params.siteId` would ever reach it — its call stays in place.
+ */
+export function siteEnabledPreHandler(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: (err?: Error) => void
+): void {
+  const siteId = (req.params as { siteId?: string } | undefined)?.siteId
+  if (siteId && guardSiteEnabled(WIKI.sites[siteId], reply)) {
+    return
+  }
+  done()
 }
 
 /**
