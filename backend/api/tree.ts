@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath, defaultLocale } from '../helpers/common.ts'
+import {
+  TREE_ORDER_BY,
+  type DescendantEntry,
+  type TreeItemType,
+  type TreeOrderBy
+} from '../models/tree.ts'
+import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
 import { actorFrom } from './pages.ts'
 
 interface TreeQuery {
@@ -132,6 +137,70 @@ export function mayOnFolder(
     // -> A folder is not a page and carries no classification of its own -- same treatment as
     //    `mayOnAsset` in `api/assets.ts`.
     classification: null
+  })
+}
+
+/**
+ * Whether the caller holds `permission` on EVERY one of a folder's descendants (OpenProject
+ * #2093) — what the folder DELETE and PATCH (rename) handlers require before letting either
+ * cascade, rather than authorizing only the folder's own path and then acting on every descendant
+ * unchecked. Each entry's own real path, locale, tags and classification are checked, unlike
+ * `mayOnFolder()`, which hardcodes `classification: null` for the one folder path it addresses.
+ *
+ * Short-circuits on the first refusal rather than checking every entry regardless — the caller
+ * only needs to know whether the whole cascade may proceed, and a large folder should not pay for
+ * checking every descendant once the answer is already "no".
+ */
+export function mayOnEveryDescendant(
+  req: FastifyRequest,
+  permission: string,
+  siteId: string,
+  entries: DescendantEntry[]
+): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return entries.every((entry) =>
+    WIKI.models.groups.checkAccess(actor, permission, {
+      path: entry.path,
+      siteId,
+      locale: entry.locale,
+      tags: entry.tags,
+      classification: entry.classification
+    })
+  )
+}
+
+/**
+ * Whether every descendant page may be relocated (OpenProject #2093/#2102): `manage:pages` at its
+ * CURRENT path (its own rule may be narrower than the folder root's) and `write:pages` at where it
+ * would land after the rename -- both checked against the entry's real tags/classification, not the
+ * folder's. Relocating changes which page rule governs a page (rules are path-addressed and
+ * resolved most-specific-first), so this is what stops a broad `manage:pages` grant on an ancestor
+ * from being used to move a nested, narrower-DENIED page into a namespace that no longer denies it.
+ *
+ * @param oldPrefix The folder's own current full path (`folderPathOf(existing)`), a strict prefix
+ *                  of every descendant's own `path`.
+ * @param newPrefix The folder's own full path after the rename, substituted for `oldPrefix`.
+ */
+export function mayRenameEveryDescendant(
+  req: FastifyRequest,
+  siteId: string,
+  entries: DescendantEntry[],
+  oldPrefix: string,
+  newPrefix: string
+): boolean {
+  const actor = WIKI.models.groups.actorForRequest(req)
+  return entries.every((entry) => {
+    const newPath = newPrefix + entry.path.slice(oldPrefix.length)
+    const ref = {
+      siteId,
+      locale: entry.locale,
+      tags: entry.tags,
+      classification: entry.classification
+    }
+    return (
+      WIKI.models.groups.checkAccess(actor, 'manage:pages', { ...ref, path: entry.path }) &&
+      WIKI.models.groups.checkAccess(actor, 'write:pages', { ...ref, path: newPath })
+    )
   })
 }
 
@@ -649,6 +718,39 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to rename this folder.')
       }
+      /*
+        OpenProject #2093/#2102: a path-name change relocates every descendant page, and page rules
+        are resolved most-specific-first against the CURRENT path -- so this has to authorize the
+        destination and every descendant BEFORE the cascade runs, not just the folder's own current
+        path above. A title-only edit (`normalizedName === existing.fileName`) moves nothing, so it
+        skips this entirely, matching `renameFolder()`'s own short-circuit.
+      */
+      const normalizedName = normalizePagePath(req.body.pathName)
+      if (normalizedName !== existing.fileName) {
+        const oldFullPath = folderPathOf(existing)
+        const parentPrefix = decodeTreePath(existing.folderPath ?? '') ?? ''
+        const newFullPath = parentPrefix ? `${parentPrefix}/${normalizedName}` : normalizedName
+        if (!mayOnFolder(req, 'write:pages', req.params.siteId, newFullPath, existing.locale)) {
+          return reply.forbidden('You are not allowed to move a folder to that destination.')
+        }
+        const descendants = await WIKI.models.tree.listDescendants(
+          req.params.folderId,
+          req.params.siteId
+        )
+        if (
+          !mayRenameEveryDescendant(
+            req,
+            req.params.siteId,
+            descendants.pages,
+            oldFullPath,
+            newFullPath
+          )
+        ) {
+          return reply.forbidden(
+            'You are not allowed to relocate every page under this folder to its new destination.'
+          )
+        }
+      }
       const folder = await WIKI.models.tree.renameFolder({
         folderId: req.params.folderId,
         siteId: req.params.siteId,
@@ -714,6 +816,23 @@ async function routes(app: FastifyInstance) {
         )
       ) {
         return reply.forbidden('You are not allowed to delete this folder.')
+      }
+      // -> OpenProject #2093/#2100: authorizing the folder's own path is not enough -- every
+      //    descendant page and asset is checked before the cascade is allowed to run at all, so a
+      //    caller cannot use a broad `manage:pages` grant on a branch to destroy a nested page/
+      //    asset they hold no delete permission on (including one under its own narrower DENY).
+      //    All-or-nothing: nothing is deleted if any single descendant fails.
+      const descendants = await WIKI.models.tree.listDescendants(
+        req.params.folderId,
+        req.params.siteId
+      )
+      if (
+        !mayOnEveryDescendant(req, 'delete:pages', req.params.siteId, descendants.pages) ||
+        !mayOnEveryDescendant(req, 'manage:assets', req.params.siteId, descendants.assets)
+      ) {
+        return reply.forbidden(
+          'You are not allowed to delete every page and asset under this folder.'
+        )
       }
       const removed = await WIKI.models.tree.deleteFolder(req.params.folderId, req.params.siteId)
       // -> The tree entries are gone; these are the rows behind them, which is where a page and an

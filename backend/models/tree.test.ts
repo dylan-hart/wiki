@@ -1,6 +1,5 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -389,6 +388,107 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2093/#2098: `listDescendants()` is the non-mutating read `api/tree.ts`'s folder
+   * DELETE and PATCH (rename) handlers depend on to authorize every descendant page and asset
+   * before letting either cascade -- these lock down its own contract: every page/asset at or
+   * below the folder comes back with real path/locale/tags/classification, the folder's OWN row is
+   * excluded, and an empty folder answers with empty arrays rather than throwing.
+   */
+  describe('listDescendants (OpenProject #2098)', () => {
+    test('returns every page and asset at or below the folder, with real metadata, excluding the folder itself', async () => {
+      const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+      const restricted = await levelsModel.create({
+        name: 'Test Descendants Restricted',
+        sortOrder: 99
+      })
+
+      const reports = await treeModel.createFolder({
+        pathName: 'reports-desc',
+        title: 'Reports',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await treeModel.createFolder({
+        parentId: reports.id,
+        pathName: '2026',
+        title: '2026',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'reports-desc/2026/summary',
+          title: 'Summary',
+          locale: 'en',
+          tags: ['finance'],
+          classification: restricted.id
+        }),
+        actor
+      )
+
+      await treeModel.addAsset({
+        parentId: reports.id,
+        fileName: 'logo.png',
+        title: 'logo.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const descendants = await treeModel.listDescendants(reports.id, fixtures.siteId)
+
+      assert.equal(descendants.pages.length, 1)
+      assert.equal(descendants.pages[0]!.path, 'reports-desc/2026/summary')
+      assert.deepEqual(descendants.pages[0]!.tags, ['finance'])
+      assert.equal(descendants.pages[0]!.classification, restricted.id)
+
+      assert.equal(descendants.assets.length, 1)
+      assert.equal(descendants.assets[0]!.path, 'reports-desc/logo.png')
+      assert.deepEqual(descendants.assets[0]!.tags, [])
+      assert.equal(descendants.assets[0]!.classification, null)
+
+      // -> The folder itself, and its nested subfolder, are never returned -- descendants only
+      const ids = [...descendants.pages, ...descendants.assets].map((e) => e.id)
+      assert.equal(ids.includes(reports.id), false)
+
+      // -> No cleanup of `restricted` here: the page created above still references it (deleting it
+      //    would 409 on the "in use" guard), and this test's whole schema is dropped by
+      //    teardownTestDb() regardless.
+    })
+
+    test('an empty folder answers with empty arrays rather than throwing', async () => {
+      const empty = await treeModel.createFolder({
+        pathName: 'empty-desc',
+        title: 'Empty',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const descendants = await treeModel.listDescendants(empty.id, fixtures.siteId)
+      assert.deepEqual(descendants, { pages: [], assets: [] })
+    })
+
+    test('throws for a folder id belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `listdescendants-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+      const otherFolder = await treeModel.createFolder({
+        pathName: 'other-site-desc',
+        title: 'Other',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+      await assert.rejects(
+        treeModel.listDescendants(otherFolder.id, fixtures.siteId),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+      // -> No site cleanup here: `otherFolder`'s tree row still references it (a bare site delete
+      //    would 23503 on the FK), and this test's whole schema is dropped by teardownTestDb()
+      //    regardless.
+    })
+  })
+
+  /**
    * OpenProject #2127: `getFolderById()` used to select on `id` alone, so a caller holding a
    * folder id from ANOTHER site (a real UUID, not a guess) got that folder's path/locale back —
    * `POST /sites/:siteId/tree/folders` fed a `parentId` straight through it with no site check at
@@ -417,7 +517,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       const foreign = await treeModel.getFolderById(folder.id, fixtures.siteId)
       assert.equal(foreign, null)
 
-      await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, otherSite!.id))
+      // -> No site cleanup here: `folder`'s tree row still references it (a bare site delete would
+      //    23503 on the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
     })
   })
 })

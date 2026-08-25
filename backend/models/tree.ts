@@ -117,6 +117,22 @@ export interface DeletedEntry {
   locale: string
 }
 
+/**
+ * One page or asset found underneath a folder by `Tree#listDescendants()` (OpenProject #2098) —
+ * enough of each descendant's own metadata to run a real per-descendant permission check against,
+ * rather than only the folder's own path.
+ */
+export interface DescendantEntry {
+  id: string
+  /** Full slash-separated path (folder path + file name), without a leading slash. */
+  path: string
+  locale: string
+  /** Pages only — empty for an asset. */
+  tags: string[]
+  /** Pages only — null for an asset, or for a page whose classification is genuinely unknown. */
+  classification: string | null
+}
+
 /** A raw `tree` row, as the model passes it around internally. */
 export interface TreeRow {
   id: string
@@ -1130,6 +1146,76 @@ class Tree {
       WIKI.logger.debug(
         `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
       )
+    }
+  }
+
+  /** One page or asset found underneath a folder by {@link listDescendants}. */
+  /**
+   * Every page and asset AT OR BELOW a folder, with enough of each one's own metadata (path, locale,
+   * tags, classification) to run a real per-descendant permission check against — the listing
+   * `api/tree.ts`'s folder DELETE and PATCH (rename) handlers need before letting either cascade
+   * (OpenProject #2093/#2098): both used to authorize only the folder's own path and then act on
+   * every descendant unchecked, which meant a caller holding `manage:pages` on a branch could destroy
+   * or relocate pages nested under it that they held no `delete:pages`/`write:pages` on, including
+   * ones a narrower DENY (path- or classification-based) was written to keep them away from.
+   *
+   * Read-only — this changes nothing, so it is safe to call before deciding whether a mutation may
+   * proceed at all. Joins `pages` for `tags`/`classification` the same way `getTree()` does: only a
+   * `page`-type row's id ever matches `pagesTable.id`, so an asset row's `classification` comes back
+   * `null` and `tags` empty, exactly what `ruleMatchesPage`'s fail-closed treatment expects for
+   * something that carries neither.
+   *
+   * @param siteId Required, and paired with `folderId` the same way `getFolderById()` is: the folder
+   *               has to belong to the caller's own site before its descendants are ever listed.
+   * @returns Empty arrays (not a thrown error) for a folder that exists but holds nothing — an empty
+   *          folder is not a caller mistake, it is a real, delete-able state.
+   */
+  async listDescendants(
+    folderId: string,
+    siteId: string
+  ): Promise<{ pages: DescendantEntry[]; assets: DescendantEntry[] }> {
+    const folder = await this.getFolderById(folderId, siteId)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await WIKI.db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale,
+        // -> Only a page-type row's id ever matches pagesTable.id -- see the method doc comment
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          // -> "at or below", same as deleteFolder()/refreshDescendantPaths() -- the folder itself is
+          //    not under its own child path, so this is descendants only, never the folder row.
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    const asEntry = (row: (typeof rows)[number]): DescendantEntry => {
+      const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      return {
+        id: row.id,
+        path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
+        locale: row.locale,
+        tags: row.tags ?? [],
+        classification: row.classification ?? null
+      }
+    }
+    return {
+      pages: rows.filter((r) => r.type === 'page').map(asEntry),
+      assets: rows.filter((r) => r.type === 'asset').map(asEntry)
     }
   }
 

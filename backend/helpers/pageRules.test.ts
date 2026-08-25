@@ -565,4 +565,59 @@ describe('resolvePageRule / rulesAllow', () => {
       assert.equal(winner?.id, 'c-deny')
     })
   })
+
+  /**
+   * OpenProject #2093: pins the exact relocation escalation the audit describes -- a group holding
+   * a root ALLOW plus a narrower DENY on `docs/hr` still passes a gate checked at `docs` itself
+   * (the DENY is more specific and wins there), but if the folder `docs/hr` sits under were simply
+   * renamed with no per-descendant check, the DENY's path no longer matches its new location and
+   * the broader ALLOW decides instead. This asserts both halves of that: the DENY wins BEFORE the
+   * move, and would silently stop applying AFTER it (the whole reason `mayRenameEveryDescendant()`
+   * in `api/tree.ts` re-checks every descendant against its POST-rename path rather than trusting
+   * the folder-root check alone).
+   */
+  describe('relocation escalation (OpenProject #2093)', () => {
+    const rootAllow = makeRule({
+      id: 'root-allow',
+      match: 'START',
+      mode: 'ALLOW',
+      path: '',
+      roles: ['manage:pages']
+    })
+    const hrDeny = makeRule({
+      id: 'hr-deny',
+      match: 'START',
+      mode: 'DENY',
+      path: 'docs/hr',
+      roles: ['manage:pages']
+    })
+
+    test('before the move: the narrower docs/hr DENY wins over the root ALLOW', () => {
+      const winner = resolvePageRule(
+        [rootAllow, hrDeny],
+        'manage:pages',
+        page({ path: 'docs/hr/salaries' })
+      )
+      assert.equal(winner?.id, 'hr-deny')
+      assert.equal(
+        rulesAllow([rootAllow, hrDeny], 'manage:pages', page({ path: 'docs/hr/salaries' })),
+        false
+      )
+    })
+
+    test('after a naive rename (docs -> docs2, DENY path left unchanged): the DENY no longer matches, and the root ALLOW decides instead', () => {
+      // -> This is exactly the escalation: the same two rules, unchanged, now resolve differently
+      //    purely because the page's address moved out from under a path-addressed DENY
+      const winner = resolvePageRule(
+        [rootAllow, hrDeny],
+        'manage:pages',
+        page({ path: 'docs2/hr/salaries' })
+      )
+      assert.equal(winner?.id, 'root-allow')
+      assert.equal(
+        rulesAllow([rootAllow, hrDeny], 'manage:pages', page({ path: 'docs2/hr/salaries' })),
+        true
+      )
+    })
+  })
 })

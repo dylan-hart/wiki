@@ -728,7 +728,8 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
     // -> Asked for with THIS test's own siteId instead -- must not see the other site's row
     assert.equal(await navigationModel.getMode(fixtures.siteId, otherNavId), 'static')
 
-    await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, otherSite!.id))
+    // -> No site cleanup here: its nav row still references it (a bare site delete would 23503 on
+    //    the FK), and this test's whole schema is dropped by teardownTestDb() regardless.
   })
 })
 
