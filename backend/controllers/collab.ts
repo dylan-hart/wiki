@@ -61,7 +61,10 @@ async function routes(app: FastifyInstance) {
         return socket.close(4403, 'You are not allowed to edit this page')
       }
 
-      await WIKI.collab.join(socket, { id: pageId, siteId }, session)
+      await WIKI.collab.join(socket, { id: pageId, siteId }, session, {
+        userId: req.session.user!.id,
+        address: req.ip
+      })
     }
   )
 }
