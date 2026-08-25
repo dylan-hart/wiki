@@ -57,8 +57,8 @@ const props = defineProps({
     default: 250
   },
   /**
-   * Sets `aria-labelledby` on the trigger instead of `aria-describedby` -- for the icon-only case
-   * where the tooltip text is the control's only name, not supplementary description of it.
+   * The trigger has no accessible name of its own and the tooltip text IS that name (the
+   * icon-only button case) -- associate via `aria-labelledby` instead of `aria-describedby`.
    */
   labels: {
     type: Boolean,
@@ -67,7 +67,6 @@ const props = defineProps({
 })
 
 const tooltipId = useId()
-const ariaAttr = props.labels ? 'aria-labelledby' : 'aria-describedby'
 
 const shown = ref(false)
 const floatEl = ref(null)
@@ -76,7 +75,32 @@ const floatStyle = ref({ left: '0px', top: '0px' })
 
 let triggerEl = null
 let timer = null
-let priorAriaValue = null
+// The aria-* attribute currently applied to triggerEl (null when not associated), and whatever
+// value it held before -- so hiding restores a pre-existing attribute instead of clobbering it.
+let associatedAttr = null
+let previousAttrValue = null
+
+function associateTrigger() {
+  if (!triggerEl || associatedAttr) {
+    return
+  }
+  associatedAttr = props.labels ? 'aria-labelledby' : 'aria-describedby'
+  previousAttrValue = triggerEl.getAttribute(associatedAttr)
+  triggerEl.setAttribute(associatedAttr, tooltipId)
+}
+
+function disassociateTrigger() {
+  if (!triggerEl || !associatedAttr) {
+    return
+  }
+  if (previousAttrValue === null) {
+    triggerEl.removeAttribute(associatedAttr)
+  } else {
+    triggerEl.setAttribute(associatedAttr, previousAttrValue)
+  }
+  associatedAttr = null
+  previousAttrValue = null
+}
 
 async function reposition() {
   await nextTick()
@@ -95,10 +119,7 @@ function show() {
   clearTimeout(timer)
   timer = setTimeout(async () => {
     shown.value = true
-    if (triggerEl) {
-      priorAriaValue = triggerEl.getAttribute(ariaAttr)
-      triggerEl.setAttribute(ariaAttr, tooltipId)
-    }
+    associateTrigger()
     await reposition()
   }, props.delay)
 }
@@ -106,14 +127,7 @@ function show() {
 function hide() {
   clearTimeout(timer)
   shown.value = false
-  if (triggerEl) {
-    if (priorAriaValue === null) {
-      triggerEl.removeAttribute(ariaAttr)
-    } else {
-      triggerEl.setAttribute(ariaAttr, priorAriaValue)
-    }
-    priorAriaValue = null
-  }
+  disassociateTrigger()
 }
 
 function onKeydown(ev) {
@@ -151,14 +165,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearTimeout(timer)
+  disassociateTrigger()
   if (triggerEl) {
-    if (shown.value) {
-      if (priorAriaValue === null) {
-        triggerEl.removeAttribute(ariaAttr)
-      } else {
-        triggerEl.setAttribute(ariaAttr, priorAriaValue)
-      }
-    }
     triggerEl.removeEventListener('mouseenter', show)
     triggerEl.removeEventListener('mouseleave', hide)
     triggerEl.removeEventListener('focusin', show)
