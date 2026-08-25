@@ -33,7 +33,7 @@ describe('BlockPropsForm i18n', () => {
 
     const input = wrapper.findComponent(WInput)
     expect(input.props('label')).toBe('Translated Spec URL')
-    expect(input.attributes('aria-label')).toBe('Translated Spec URL')
+    expect(wrapper.find('[aria-label="Translated Spec URL"]').exists()).toBe(true)
     expect(input.props('hint')).toBe('Translated hint.')
   })
 
