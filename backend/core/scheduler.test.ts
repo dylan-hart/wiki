@@ -678,3 +678,112 @@ describe(
     })
   }
 )
+
+/**
+ * OpenProject #1653: `reapStaleJobs()`'s cutoff comparison (`lt(jobHistoryTable.startedAt, cutoff)`)
+ * runs entirely server-side -- both the `startedAt` values written above and the `cutoff` computed
+ * from `Temporal.Now.instant()` are sent to postgres as parameters and compared there, never
+ * round-tripped back through the `pg` driver's own `Date` reconstruction -- so it should select the
+ * same rows regardless of the Node process's local `TZ`. See
+ * `docs/audit-2026-08-24/correctness-data-schema.md` §2 for the read-side counterpart of this defect
+ * (`models/jobs.ts#isHealthy`/`#cleanHistory`, `models/users.ts#validateToken`) that this suite does
+ * NOT exercise here, precisely because `reapStaleJobs()`'s own cutoff never reads a `timestamp` column
+ * back into JS before comparing it. This is regression coverage that the stale-job cutoff keeps
+ * selecting the right rows even off UTC, gated the same way the DB-backed suite above is.
+ */
+describe(
+  'reapStaleJobs stale-cutoff correctness under a non-UTC TZ (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let historyIds: string[]
+    let jobIds: string[]
+    let previousTz: string | undefined
+
+    before(async () => {
+      previousTz = process.env.TZ
+      process.env.TZ = 'America/New_York'
+      fixtures = await setupTestDb()
+      scheduler.tasks = {}
+      scheduler.maxWorkers = 1
+      scheduler.activeWorkers = 0
+      WIKI.config = { scheduler: { retryBackoff: 0, staleJobTimeout: 1, maxRetries: 2 } }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+      if (previousTz === undefined) {
+        delete process.env.TZ
+      } else {
+        process.env.TZ = previousTz
+      }
+    })
+
+    beforeEach(() => {
+      historyIds = []
+      jobIds = []
+    })
+
+    afterEach(async () => {
+      if (historyIds.length > 0) {
+        await fixtures.db.delete(jobHistoryTable).where(inArray(jobHistoryTable.id, historyIds))
+      }
+      if (jobIds.length > 0) {
+        await fixtures.db.delete(jobsTable).where(inArray(jobsTable.id, jobIds))
+      }
+    })
+
+    function pastDate(secondsAgo: number): Date {
+      return new Date(Date.now() - secondsAgo * 1000)
+    }
+
+    async function insertActiveHistory(overrides: Partial<any> = {}) {
+      const [row] = await fixtures.db
+        .insert(jobHistoryTable)
+        .values({
+          task: 'stuckTaskTz',
+          state: 'active',
+          useWorker: false,
+          wasScheduled: false,
+          payload: {},
+          attempt: 1,
+          maxRetries: 2,
+          executedBy: 'dead-instance',
+          createdAt: pastDate(120),
+          startedAt: pastDate(120),
+          ...overrides
+        })
+        .returning()
+      return row!
+    }
+
+    test('leaves a still-fresh active row alone, identically under TZ=America/New_York', async () => {
+      const row = await insertActiveHistory({ startedAt: new Date() })
+      historyIds.push(row.id)
+
+      const requeued = await scheduler.reapStaleJobs()
+
+      assert.equal(requeued, 0)
+      const [after1] = await fixtures.db
+        .select()
+        .from(jobHistoryTable)
+        .where(eq(jobHistoryTable.id, row.id))
+      assert.equal(after1.state, 'active')
+    })
+
+    test('flips a stuck active row to interrupted once staleJobTimeout has elapsed, identically under TZ=America/New_York', async () => {
+      const row = await insertActiveHistory()
+      historyIds.push(row.id)
+
+      const requeued = await scheduler.reapStaleJobs()
+      jobIds.push(row.id)
+
+      assert.equal(requeued, 1)
+      const [after1] = await fixtures.db
+        .select()
+        .from(jobHistoryTable)
+        .where(eq(jobHistoryTable.id, row.id))
+      assert.equal(after1.state, 'interrupted')
+    })
+  }
+)

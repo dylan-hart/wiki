@@ -731,6 +731,54 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
 })
 
 /**
+ * OpenProject #1653: `validateToken()` reads `validUntil` back from a `timestamp` (no time zone)
+ * column, so its correctness depends on how the `pg` driver reconstructs the resulting `Date` under
+ * the Node process's local `TZ` -- see `docs/audit-2026-08-24/correctness-data-schema.md` §2, and the
+ * epic this work package is part of (converting every such column to `timestamptz`). The defect is
+ * invisible on a UTC host, which is exactly why it needs coverage that runs off UTC: this suite runs
+ * under `TZ=America/New_York` for its duration.
+ */
+describe(
+  'users.generateToken / validateToken under a non-UTC TZ (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let previousTemporal: any
+    let previousTz: string | undefined
+
+    before(async () => {
+      previousTz = process.env.TZ
+      process.env.TZ = 'America/New_York'
+      previousTemporal = (globalThis as any).Temporal
+      installFakeTemporal()
+      fixtures = await setupTestDb()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+      uninstallFakeTemporal(previousTemporal)
+      if (previousTz === undefined) {
+        delete process.env.TZ
+      } else {
+        process.env.TZ = previousTz
+      }
+    })
+
+    test('a token issued moments ago validates as not-yet-expired, even off UTC', async () => {
+      const token = await users.generateToken({ kind: 'verify', userId: fixtures.userId })
+
+      const result = await users.validateToken({ kind: 'verify', token, skipDelete: true })
+
+      assert.ok(
+        result,
+        'expected the fresh token to validate, not throw ERR_EXPIRED_VALIDATION_TOKEN'
+      )
+      assert.equal(result.user.id, fixtures.userId)
+    })
+  }
+)
+
+/**
  * `matchRecoveryCode` is the constant-time-discipline core of recovery-code verification, split out
  * of `verifyAndConsumeRecoveryCode` precisely so it can be tested without `WIKI` or a database: given
  * a set of stored entries and a normalized code, which one (if any) matches. Hashed with a low
