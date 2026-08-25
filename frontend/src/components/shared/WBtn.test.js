@@ -44,4 +44,16 @@ describe('WBtn', () => {
 
     expect(wrapper.emitted('click')).toBeUndefined()
   })
+
+  it('renders no nameless button for an icon-only instance with an explicit aria-label', () => {
+    // WBtn itself derives no accessible name from `icon` -- an icon-only caller must supply one,
+    // either an `aria-label` (as here) or a `<w-tooltip labels>` naming it from the slot.
+    const wrapper = mount(WBtn, {
+      props: { icon: 'mdi:cog' },
+      attrs: { 'aria-label': 'Settings' }
+    })
+
+    expect(wrapper.text()).toBe('')
+    expect(wrapper.attributes('aria-label')).toBe('Settings')
+  })
 })

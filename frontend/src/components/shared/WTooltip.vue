@@ -9,6 +9,7 @@
     <transition name="w-tooltip">
       <div
         v-if="shown"
+        :id="tooltipId"
         ref="floatEl"
         role="tooltip"
         class="w-tooltip pointer-events-none fixed z-[7000] max-w-xs rounded bg-black/85 px-2 py-1 text-xs text-white shadow-menu"
@@ -20,7 +21,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { anchoredPosition } from '@/composables/anchoredPosition'
 
 /**
@@ -29,6 +30,10 @@ import { anchoredPosition } from '@/composables/anchoredPosition'
  *   <w-btn icon="mdi:cog">
  *     <w-tooltip>Settings</w-tooltip>
  *   </w-btn>
+ *
+ * The trigger gains `aria-describedby` (or, with `labels`, `aria-labelledby`) pointing at the
+ * teleported panel while it is shown, so assistive tech associates the two despite the teleport
+ * putting them nowhere near each other in the DOM.
  */
 const props = defineProps({
   /** Anchor point on the trigger, e.g. `bottom middle`. */
@@ -50,8 +55,19 @@ const props = defineProps({
   delay: {
     type: Number,
     default: 250
+  },
+  /**
+   * Sets `aria-labelledby` on the trigger instead of `aria-describedby` -- for the icon-only case
+   * where the tooltip text is the control's only name, not supplementary description of it.
+   */
+  labels: {
+    type: Boolean,
+    default: false
   }
 })
+
+const tooltipId = useId()
+const ariaAttr = props.labels ? 'aria-labelledby' : 'aria-describedby'
 
 const shown = ref(false)
 const floatEl = ref(null)
@@ -60,6 +76,7 @@ const floatStyle = ref({ left: '0px', top: '0px' })
 
 let triggerEl = null
 let timer = null
+let priorAriaValue = null
 
 async function reposition() {
   await nextTick()
@@ -78,6 +95,10 @@ function show() {
   clearTimeout(timer)
   timer = setTimeout(async () => {
     shown.value = true
+    if (triggerEl) {
+      priorAriaValue = triggerEl.getAttribute(ariaAttr)
+      triggerEl.setAttribute(ariaAttr, tooltipId)
+    }
     await reposition()
   }, props.delay)
 }
@@ -85,6 +106,14 @@ function show() {
 function hide() {
   clearTimeout(timer)
   shown.value = false
+  if (triggerEl) {
+    if (priorAriaValue === null) {
+      triggerEl.removeAttribute(ariaAttr)
+    } else {
+      triggerEl.setAttribute(ariaAttr, priorAriaValue)
+    }
+    priorAriaValue = null
+  }
 }
 
 function onKeydown(ev) {
@@ -123,6 +152,13 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearTimeout(timer)
   if (triggerEl) {
+    if (shown.value) {
+      if (priorAriaValue === null) {
+        triggerEl.removeAttribute(ariaAttr)
+      } else {
+        triggerEl.setAttribute(ariaAttr, priorAriaValue)
+      }
+    }
     triggerEl.removeEventListener('mouseenter', show)
     triggerEl.removeEventListener('mouseleave', hide)
     triggerEl.removeEventListener('focusin', show)

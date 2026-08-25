@@ -104,7 +104,9 @@
       </w-list>
       <w-card-actions class="card-actions px-4">
         <w-btn class="acrylic-btn" icon="la:ellipsis-h" color="blue-grey" padding="xs sm" flat>
-          <w-tooltip anchor="center right" self="center left">Display Options</w-tooltip>
+          <w-tooltip labels anchor="center right" self="center left">{{
+            t(`pageSaveDialog.displayOptions`)
+          }}</w-tooltip>
           <w-menu auto-close anchor="top left" self="bottom left">
             <w-card class="p-2">
               <w-list dense>

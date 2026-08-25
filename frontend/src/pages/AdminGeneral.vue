@@ -356,13 +356,17 @@
                   the length of that request. `state.config.id` changes in the exact same assignment as
                   the text, so the two can never disagree.
                 -->
-                <w-btn dense flat v-if="state.config.id">
+                <!-- Preview only, not a real link -- inert rather than given a fake accessible name -->
+                <w-btn dense flat tabindex="-1" aria-hidden="true" v-if="state.config.id">
                   <w-avatar v-if="state.config.logoText" size="34px" square>
-                    <img :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp" />
+                    <img
+                      :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                      alt="" />
                   </w-avatar>
                   <img
                     v-else
                     :src="`/_site/` + state.config.id + `/logo?` + state.assetTimestamp"
+                    alt=""
                     style="height: 34px" />
                 </w-btn>
                 <w-toolbar-title class="text-h6" v-if="state.config.logoText">{{

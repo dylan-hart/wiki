@@ -6,7 +6,7 @@
         <!-- SIDE TOOLBAR -->
         <!-- ------------------------------------------------------- -->
         <w-btn icon="mdi:link-variant-plus" padding="sm sm" flat @click="insertLink">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertLink')
           }}</w-tooltip>
         </w-btn>
@@ -14,7 +14,7 @@
                 URL, which was never implemented, and the clipboard — see `getAssetFromClipboard`, which
                 now has no caller. -->
         <w-btn icon="mdi:image-plus-outline" padding="sm sm" flat @click="insertAssets">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertAssets')
           }}</w-tooltip>
         </w-btn>
@@ -23,27 +23,27 @@
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
             @select="insertCodeBlock" />
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertCodeBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:table-large-plus" padding="sm sm" flat @click="insertTable">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTable')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:tab-plus" padding="sm sm" flat @click="insertTabset">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertTabset')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:toy-brick-plus" padding="sm sm" flat @click="insertBlock">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertBlock')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:book-plus" padding="sm sm" flat @click="insertFootnote">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertFootnote')
           }}</w-tooltip>
         </w-btn>
@@ -52,7 +52,7 @@
             :anchor="sideToolbarMenuAnchor"
             :self="sideToolbarMenuSelf"
             @select="insertEmoji" />
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertEmoji')
           }}</w-tooltip>
         </w-btn>
@@ -65,12 +65,12 @@
             content-class="shadow-7">
             <icon-picker-dialog no-image @update:model-value="insertIcon" />
           </w-menu>
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertIcon')
           }}</w-tooltip>
         </w-btn>
         <w-btn icon="mdi:line-scan" padding="sm sm" flat @click="insertHorizontalBar">
-          <w-tooltip :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
+          <w-tooltip labels :anchor="sideToolbarTooltipAnchor" :self="sideToolbarTooltipSelf">{{
             t('editor.markup.insertHorizontalBar')
           }}</w-tooltip>
         </w-btn>
@@ -83,7 +83,7 @@
         <!-- ------------------------------------------------------- -->
         <div class="editor-markdown-toolbar">
           <w-btn icon="mdi:format-bold" padding="xs sm" flat @click="toggleMarkup({ start: `**` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.bold')
             }}</w-tooltip>
           </w-btn>
@@ -92,7 +92,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `*` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.italic')
             }}</w-tooltip>
           </w-btn>
@@ -101,12 +101,12 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `~~` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.strikethrough')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-header-pound" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.header')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -127,7 +127,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `~` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.subscript')
             }}</w-tooltip>
           </w-btn>
@@ -136,12 +136,12 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `^` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.superscript')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-quote-close" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.blockquoteAdmonitions')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -208,7 +208,7 @@
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `- ` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.unorderedList')
             }}</w-tooltip>
           </w-btn>
@@ -217,12 +217,12 @@
             padding="xs sm"
             flat
             @click="insertBeforeEachLine({ content: `1. ` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.orderedList')
             }}</w-tooltip>
           </w-btn>
           <w-btn icon="mdi:format-list-checks" padding="xs sm" flat>
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.taskList')
             }}</w-tooltip>
             <w-menu auto-close>
@@ -239,7 +239,7 @@
             </w-menu>
           </w-btn>
           <w-btn icon="mdi:code-tags" padding="xs sm" flat @click="toggleMarkup({ start: '`' })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.inlineCode')
             }}</w-tooltip>
           </w-btn>
@@ -248,7 +248,7 @@
             padding="xs sm"
             flat
             @click="toggleMarkup({ start: `<kbd>`, end: `</kbd>` })">
-            <w-tooltip anchor="top middle" self="bottom middle">{{
+            <w-tooltip labels anchor="top middle" self="bottom middle">{{
               t('editor.markup.keyboardKey')
             }}</w-tooltip>
           </w-btn>
@@ -260,7 +260,7 @@
               padding="xs sm"
               flat
               @click="state.previewShown = true">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
             </w-btn>
@@ -305,7 +305,7 @@
               flat
               @click="state.previewScrollSync = !state.previewScrollSync"
               :color="state.previewScrollSync ? `primary` : null">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.toggleScrollSync')
               }}</w-tooltip>
             </w-btn>
@@ -314,7 +314,7 @@
               padding="xs sm"
               flat
               @click="state.previewShown = false">
-              <w-tooltip anchor="top middle" self="bottom middle">{{
+              <w-tooltip labels anchor="top middle" self="bottom middle">{{
                 t('editor.togglePreviewPane')
               }}</w-tooltip>
             </w-btn>
