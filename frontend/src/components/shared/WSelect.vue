@@ -214,6 +214,8 @@
     -->
     <div
       v-if="showsBottom"
+      aria-live="polite"
+      aria-atomic="true"
       class="min-h-5 px-1 pt-1 text-caption"
       :class="errorMessage ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}

@@ -93,6 +93,29 @@ describe('WInput', () => {
       expect(wrapper.find('input').attributes('aria-invalid')).toBe('true')
     })
 
+    it('announces the message from a live region, and the error text replaces the hint in that same node', async () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', hint: 'Pick a name', rules: [isNonEmpty] }
+      })
+
+      const describedById = wrapper.find('input').attributes('aria-describedby')
+      const messageEl = wrapper.find(`#${describedById}`)
+      expect(messageEl.attributes('aria-live')).toBe('polite')
+      expect(messageEl.attributes('aria-atomic')).toBe('true')
+      expect(messageEl.text()).toBe('Pick a name')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      // -> Same node, not a second one -- the live region only announces on a node it was already
+      //    watching, so the error has to land in the node that carries aria-live, not a new one.
+      const messageElAfter = wrapper.find(`#${describedById}`)
+      expect(messageElAfter.exists()).toBe(true)
+      expect(wrapper.findAll(`#${describedById}`)).toHaveLength(1)
+      expect(messageElAfter.attributes('aria-live')).toBe('polite')
+      expect(messageElAfter.text()).toBe('Required')
+    })
+
     it('returns true and clears any prior error once the value satisfies every rule', async () => {
       const wrapper = mount(WInput, { props: { modelValue: '', rules: [isNonEmpty] } })
       wrapper.vm.validate()

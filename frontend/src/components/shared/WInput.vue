@@ -146,6 +146,8 @@
     <div
       v-if="showsBottom"
       :id="`${inputId}-desc`"
+      aria-live="polite"
+      aria-atomic="true"
       class="min-h-5 px-1 pt-1 text-caption"
       :class="hasError ? 'text-negative' : 'text-black/54 dark:text-white/60'">
       {{ errorMessage || hint }}
