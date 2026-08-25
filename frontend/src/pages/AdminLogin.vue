@@ -206,7 +206,7 @@
                   <w-item-section side>
                     <w-toggle
                       v-model="element.isVisible"
-                      label="Visible"
+                      :label="t('admin.login.visible')"
                       :aria-label="element.activeStrategy.displayName" />
                   </w-item-section>
                 </w-item>

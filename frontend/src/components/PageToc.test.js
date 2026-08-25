@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
 
 import PageToc from './PageToc.vue'
 
@@ -12,6 +13,15 @@ import PageToc from './PageToc.vue'
  * is what makes it a good end-to-end check that the harness's SCSS wiring genuinely works, not just
  * that it is present in the config file.
  */
+
+// -> WP #1610: the nav's aria-label now resolves through t() (`common.page.toc`), the first useI18n()
+//   use in this component -- every mount needs the plugin present or setup() throws.
+const i18n = createI18n({
+  legacy: false,
+  locale: 'en',
+  messages: { en: { common: { page: { toc: 'Table of Contents' } } } }
+})
+
 describe('PageToc', () => {
   const nodes = [
     { key: '#intro', label: 'Introduction', level: 1, children: [] },
@@ -24,7 +34,10 @@ describe('PageToc', () => {
   ]
 
   it('flattens the tree into one list, and marks the selected heading active', () => {
-    const wrapper = mount(PageToc, { props: { nodes, selected: '#usage-basic' } })
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: '#usage-basic' },
+      global: { plugins: [i18n] }
+    })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Introduction', 'Usage', 'Basic'])
@@ -35,7 +48,10 @@ describe('PageToc', () => {
   })
 
   it('respects minDepth/maxDepth, hiding headings outside the range', () => {
-    const wrapper = mount(PageToc, { props: { nodes, minDepth: 2, maxDepth: 2 } })
+    const wrapper = mount(PageToc, {
+      props: { nodes, minDepth: 2, maxDepth: 2 },
+      global: { plugins: [i18n] }
+    })
 
     const links = wrapper.findAll('.page-toc-link')
     expect(links.map((link) => link.text())).toEqual(['Basic'])
@@ -46,7 +62,11 @@ describe('PageToc', () => {
     heading.id = 'usage'
     document.body.appendChild(heading)
 
-    const wrapper = mount(PageToc, { props: { nodes, selected: null }, attachTo: document.body })
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: null },
+      attachTo: document.body,
+      global: { plugins: [i18n] }
+    })
     try {
       const link = wrapper.findAll('.page-toc-link').at(1)
       await link.trigger('click')

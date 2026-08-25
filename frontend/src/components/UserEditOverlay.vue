@@ -569,7 +569,11 @@
                       <w-icon class="mr-1" name="la:exclamation-triangle" size="20px" />
                       <span>{{ t('admin.users.invalidJSON') }}</span>
                     </w-badge>
-                    <w-badge class="py-1" v-else label="JSON" color="positive" />
+                    <w-badge
+                      class="py-1"
+                      v-else
+                      :label="t('admin.users.metadataValidBadge')"
+                      color="positive" />
                   </template>
                 </w-card-header>
                 <w-item>
@@ -578,7 +582,7 @@
                       v-model="metadata"
                       language="json"
                       :min-height="500"
-                      aria-label="Metadata (JSON)" />
+                      :aria-label="t('admin.users.metadataAriaLabel')" />
                   </w-item-section>
                 </w-item>
               </w-card>

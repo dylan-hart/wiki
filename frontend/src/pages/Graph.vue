@@ -24,11 +24,11 @@
     <div class="graph-view-right-rail">
       <div class="graph-view-controls">
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Group by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.groupBy') }}</span>
           <w-btn-toggle
             v-model="groupBy"
             no-caps
-            aria-label="Group by"
+            :aria-label="t('graph.controls.groupBy')"
             :options="[
               { label: 'Folder', value: 'folder' },
               { label: 'Tag', value: 'tag' },
@@ -36,11 +36,11 @@
             ]" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Connect by</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.connectBy') }}</span>
           <w-btn-toggle
             v-model="edgeMode"
             no-caps
-            aria-label="Connect by"
+            :aria-label="t('graph.controls.connectBy')"
             :options="[
               { label: 'Paths', value: 'paths' },
               { label: 'Tags', value: 'tags' },
@@ -48,15 +48,19 @@
             ]" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Size by</span>
-          <w-btn-toggle v-model="sizeBy" no-caps aria-label="Size by" :options="sizeByOptions" />
+          <span class="graph-view-control-caption">{{ t('graph.controls.sizeBy') }}</span>
+          <w-btn-toggle
+            v-model="sizeBy"
+            no-caps
+            :aria-label="t('graph.controls.sizeBy')"
+            :options="sizeByOptions" />
         </div>
         <div class="graph-view-control-group">
-          <span class="graph-view-control-caption">Count</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.count') }}</span>
           <w-btn-toggle
             v-model="sizeCountMode"
             no-caps
-            aria-label="Unique or total"
+            :aria-label="t('graph.controls.uniqueOrTotal')"
             :options="[
               { label: 'Unique', value: 'unique' },
               { label: 'Total', value: 'total' }
@@ -65,17 +69,17 @@
         <GraphClientTypeFilter
           v-if="sizeBy === 'edits'"
           v-model="contributorTypes"
-          label="Count edits by"
+          :label="t('graph.controls.countEditsBy')"
           :options="[
             { value: 'editor', label: 'Editor' },
             { value: 'mcp', label: 'MCP' }
           ]" />
         <div v-if="sizeBy === 'visits'" class="graph-view-control-group">
-          <span class="graph-view-control-caption">Over</span>
+          <span class="graph-view-control-caption">{{ t('graph.controls.over') }}</span>
           <w-btn-toggle
             v-model="pageviewsWindow"
             no-caps
-            aria-label="Time window"
+            :aria-label="t('graph.controls.timeWindow')"
             :options="[
               { label: '30 days', value: 'last30d' },
               { label: '6 months', value: 'last6mo' },
@@ -85,7 +89,7 @@
         <GraphClientTypeFilter
           v-if="sizeBy === 'visits'"
           v-model="pageviewClientTypes"
-          label="Count visits by"
+          :label="t('graph.controls.countVisitsBy')"
           :options="[
             { value: 'browser', label: 'Browser' },
             { value: 'api', label: 'API' },

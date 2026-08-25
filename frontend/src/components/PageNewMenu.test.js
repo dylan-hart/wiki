@@ -26,7 +26,26 @@ function mountMenu({ editors = {}, experimental = false } = {}) {
   const pageStore = usePageStore()
   pageStore.pageCreate = vi.fn()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> WP #1610: these menu items render through t() now, not literal template text, so tests
+  //    asserting on their labels need the resolved English strings present here.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        common: {
+          actions: { newPage: 'New Page', newFolder: 'New Folder' },
+          newPageMenu: {
+            markdown: 'New Markdown Page',
+            code: 'New Code Page',
+            asciidoc: 'New AsciiDoc Page',
+            redirect: 'New Redirection',
+            uploadAsset: 'Upload Media Asset'
+          }
+        }
+      }
+    }
+  })
 
   const wrapper = mount(PageNewMenu, {
     global: {
