@@ -3,6 +3,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js'
 import type Mail from 'nodemailer/lib/mailer/index.js'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import { localizedPagePath, type LocaleRoutingConfig } from '../helpers/common.ts'
+import enStrings from '../locales/en.json' with { type: 'json' }
 
 /** A rendered email, ready to hand to the transporter. */
 export interface MailMessage {
@@ -12,11 +13,53 @@ export interface MailMessage {
   text: string
 }
 
-/** Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`). */
-const WATCH_ACTION_LABELS: Record<PageWatchNotifiableAction, string> = {
-  updated: 'edited',
-  moved: 'moved',
-  deleted: 'deleted'
+/**
+ * Substitutes every `{placeholder}` in `template` with the matching key of `vars` (stringified),
+ * leaving an unmatched placeholder untouched. No HTML escaping happens here — callers pass
+ * already-escaped values for the html variant of a template, exactly as the inline literals this
+ * replaced did.
+ */
+function interpolate(template: string, vars: Record<string, string> = {}): string {
+  return template.replace(/\{(\w+)\}/g, (match, key) => (key in vars ? vars[key] : match))
+}
+
+/**
+ * Resolves one `mail.*` key out of `backend/locales/en.json` and interpolates `{placeholder}`
+ * variables into it. Stands in for the real per-recipient-locale resolver OpenProject #1623 threads
+ * through this file (`WIKI.models.locales.getStrings(locale)` with `en` as the fallback) — until
+ * that lands, `en.json` is the only source this reads. Throws on a missing key so a typo in a call
+ * site surfaces immediately rather than mailing out a literal `{mail.some.key}` string.
+ */
+function mailString(key: string, vars?: Record<string, string>): string {
+  const template = (enStrings as Record<string, string>)[key]
+  if (typeof template !== 'string') {
+    throw new Error(`Missing mail locale string: ${key}`)
+  }
+  return interpolate(template, vars)
+}
+
+/**
+ * Resolves a pluralized `mail.*` key stored in the `zero form | one form | other form` shape
+ * `frontend`'s en.json strings already use for a count (e.g. `admin.groups.usersCount`), picks the
+ * English-rule branch for `count` (0 -> first form, 1 -> second form, anything else -> third), and
+ * interpolates `{count}` (plus any other `vars`) into it.
+ */
+function mailPluralString(key: string, count: number, vars?: Record<string, string>): string {
+  const template = (enStrings as Record<string, string>)[key]
+  if (typeof template !== 'string') {
+    throw new Error(`Missing mail locale string: ${key}`)
+  }
+  const forms = template.split(' | ')
+  const form = forms[count === 0 ? 0 : count === 1 ? 1 : Math.min(2, forms.length - 1)]
+  return interpolate(form, { count: String(count), ...vars })
+}
+
+/**
+ * Verb form of each notifiable action, for the summary phrasing (e.g. `edited: title, content`),
+ * resolved from `mail.watchAction.*`.
+ */
+function watchActionLabel(action: PageWatchNotifiableAction): string {
+  return mailString(`mail.watchAction.${action}`)
 }
 
 /**
@@ -237,9 +280,9 @@ class MailModel {
     const link = this.buildLink(`/auth/verify/${token}`)
     await this.send({
       to,
-      subject: 'Verify your email address',
-      text: `Hi ${name},\n\nPlease verify your email address to activate your account:\n${link}\n\nIf you did not request this, you can safely ignore this email.`,
-      html: `<p>Hi ${name},</p><p>Please verify your email address to activate your account:</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email.</p>`
+      subject: mailString('mail.verifyEmail.subject'),
+      text: mailString('mail.verifyEmail.text', { name, link }),
+      html: mailString('mail.verifyEmail.html', { name, link })
     })
   }
 
@@ -264,13 +307,17 @@ class MailModel {
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
     const cfg = WIKI.config.mail ?? {}
-    const signatureText = cfg.senderName ? `\n\n— ${cfg.senderName}` : ''
-    const signatureHtml = cfg.senderName ? `<p>— ${cfg.senderName}</p>` : ''
+    const signatureText = cfg.senderName
+      ? mailString('mail.signature.text', { name: cfg.senderName })
+      : ''
+    const signatureHtml = cfg.senderName
+      ? mailString('mail.signature.html', { name: cfg.senderName })
+      : ''
     await this.send({
       to,
-      subject: 'Reset your password',
-      text: `Hi ${name},\n\nA password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.\n${link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.${signatureText}`,
-      html: `<p>Hi ${name},</p><p>A password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>${signatureHtml}`
+      subject: mailString('mail.forgotPassword.subject'),
+      text: mailString('mail.forgotPassword.text', { name, link }) + signatureText,
+      html: mailString('mail.forgotPassword.html', { name, link }) + signatureHtml
     })
   }
 
@@ -300,9 +347,9 @@ class MailModel {
     const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
     await this.send({
       to,
-      subject: 'Welcome — set up your account',
-      text: `Hi ${name},\n\nAn account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.\n${link}\n\nIf you were not expecting this, contact your wiki administrator.`,
-      html: `<p>Hi ${name},</p><p>An account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you were not expecting this, contact your wiki administrator.</p>`
+      subject: mailString('mail.welcomeEmail.subject'),
+      text: mailString('mail.welcomeEmail.text', { name, link }),
+      html: mailString('mail.welcomeEmail.html', { name, link })
     })
   }
 
@@ -314,9 +361,9 @@ class MailModel {
     const link = this.buildLink('/login')
     await this.send({
       to,
-      subject: 'Your password has been changed',
-      text: `Hi ${name},\n\nThis is a confirmation that the password for your account was just changed.\n\nIf you did not make this change, contact your wiki administrator immediately.\n\n${link}`,
-      html: `<p>Hi ${name},</p><p>This is a confirmation that the password for your account was just changed.</p><p>If you did not make this change, contact your wiki administrator immediately.</p><p><a href="${link}">${link}</a></p>`
+      subject: mailString('mail.passwordChanged.subject'),
+      text: mailString('mail.passwordChanged.text', { name, link }),
+      html: mailString('mail.passwordChanged.html', { name, link })
     })
   }
 
@@ -329,16 +376,16 @@ class MailModel {
   async sendTestEmail({ to }: { to: string }): Promise<void> {
     const baseURL = WIKI.config.mail?.defaultBaseURL
     const baseURLText = baseURL
-      ? `It is currently configured with the base URL: ${baseURL}`
-      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+      ? mailString('mail.testEmail.baseURLConfigured.text', { url: baseURL })
+      : mailString('mail.testEmail.baseURLMissing')
     const baseURLHtml = baseURL
-      ? `It is currently configured with the base URL: <a href="${baseURL}">${baseURL}</a>`
-      : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+      ? mailString('mail.testEmail.baseURLConfigured.html', { url: baseURL })
+      : mailString('mail.testEmail.baseURLMissing')
     await this.send({
       to,
-      subject: 'Wiki.js Test Email',
-      text: `This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.\n\n${baseURLText}`,
-      html: `<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p><p>${baseURLHtml}</p>`
+      subject: mailString('mail.testEmail.subject'),
+      text: mailString('mail.testEmail.text', { baseURLText }),
+      html: mailString('mail.testEmail.html', { baseURLHtml })
     })
   }
 
@@ -374,15 +421,27 @@ class MailModel {
     text: string
     html: string
   } {
-    const label = WATCH_ACTION_LABELS[action]
+    const label = watchActionLabel(action)
     const summary = changedFields.length > 0 ? `${label}: ${changedFields.join(', ')}` : label
     const link = this.buildLink(localizedPagePath(page.path, page.locale, locales), baseURL)
     const safeTitle = escapeHtml(page.title)
     const safeActor = escapeHtml(actorName)
     const safeSummary = escapeHtml(summary)
     return {
-      text: `${actorName} ${label} "${page.title}" (${summary}) — ${link}`,
-      html: `${safeActor} ${label} <strong>${safeTitle}</strong> (${safeSummary}) — <a href="${link}">${link}</a>`
+      text: mailString('mail.watchEventLine.text', {
+        actor: actorName,
+        label,
+        title: page.title,
+        summary,
+        link
+      }),
+      html: mailString('mail.watchEventLine.html', {
+        actor: safeActor,
+        label,
+        title: safeTitle,
+        summary: safeSummary,
+        link
+      })
     }
   }
 
@@ -409,17 +468,18 @@ class MailModel {
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
-    const label = WATCH_ACTION_LABELS[action]
+    const label = watchActionLabel(action)
     const line = this.renderWatchEventLine(
       { page, action, changedFields, actorName },
       locales,
       baseURL
     )
+    const footer = mailString('mail.watchNotification.footer')
     await this.send({
       to,
-      subject: `Page ${label}: ${page.title}`,
-      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
-      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+      subject: mailString('mail.watchNotification.subject', { label, title: page.title }),
+      text: `${line.text}\n\n${footer}`,
+      html: `<p>${line.html}</p><p>${footer}</p>`
     })
   }
 
@@ -449,14 +509,15 @@ class MailModel {
     const baseURL = this.resolveMailBaseURL(siteId)
     const lines = items.map((item) => this.renderWatchEventLine(item, locales, baseURL))
     const count = items.length
-    const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
+    const subject = mailPluralString('mail.watchDigest.subject', count)
+    const footer = mailString('mail.watchDigest.footer')
     const text = lines.map((line) => `- ${line.text}`).join('\n')
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
     await this.send({
       to,
       subject,
-      text: `${text}\n\nYou are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.`,
-      html: `${html}<p>You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.</p>`
+      text: `${text}\n\n${footer}`,
+      html: `${html}<p>${footer}</p>`
     })
   }
 }

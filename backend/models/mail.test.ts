@@ -1,6 +1,7 @@
 import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { mail, classifyMailError } from './mail.ts'
+import enStrings from '../locales/en.json' with { type: 'json' }
 
 /**
  * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
@@ -735,5 +736,114 @@ describe('mail template senders', () => {
       assert.match(msg.html, /&lt;script&gt;/)
       assert.match(msg.text, /<script>alert\(1\)<\/script>/)
     })
+  })
+})
+
+/**
+ * Confirms each of the six templates actually resolves its subject from `backend/locales/en.json`'s
+ * `mail.*` keys rather than a literal baked into `mail.ts` — asserted by comparing the sent subject
+ * against the same `en.json` entry the test itself imports, not a hardcoded copy of the English
+ * text. `sendPageWatchDigest`'s pluralization is asserted separately below, against all three
+ * branches of its `zero | one | other` string.
+ */
+describe('mail.* locale strings', () => {
+  let sendCalls: any[]
+
+  beforeEach(() => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    sendCalls = []
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+  })
+
+  test('sendVerifyEmail resolves its subject from mail.verifyEmail.subject', async () => {
+    await mail.sendVerifyEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.verifyEmail.subject'])
+  })
+
+  test('sendForgotPassword resolves its subject from mail.forgotPassword.subject', async () => {
+    await mail.sendForgotPassword({ to: 'ada@example.com', name: 'Ada', token: 'tok' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.forgotPassword.subject'])
+  })
+
+  test('sendWelcomeEmail resolves its subject from mail.welcomeEmail.subject', async () => {
+    await mail.sendWelcomeEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.welcomeEmail.subject'])
+  })
+
+  test('sendPasswordResetConfirmed resolves its subject from mail.passwordChanged.subject', async () => {
+    await mail.sendPasswordResetConfirmed({ to: 'ada@example.com', name: 'Ada' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.passwordChanged.subject'])
+  })
+
+  test('sendTestEmail resolves its subject from mail.testEmail.subject', async () => {
+    await mail.sendTestEmail({ to: 'ada@example.com' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.testEmail.subject'])
+  })
+
+  test('sendPageWatchNotification resolves its subject from mail.watchNotification.subject', async () => {
+    await mail.sendPageWatchNotification({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'updated',
+      changedFields: ['title'],
+      actorName: 'Bob'
+    })
+    const expected = enStrings['mail.watchNotification.subject']
+      .replace('{label}', enStrings['mail.watchAction.updated'])
+      .replace('{title}', 'Getting Started')
+    assert.equal(sendCalls[0].subject, expected)
+  })
+
+  test('sendPageWatchDigest subject uses the plural form of mail.watchDigest.subject for a count of 0', async () => {
+    await mail.sendPageWatchDigest({ to: 'ada@example.com', siteId: DEFAULT_SITE_ID, items: [] })
+    const [zeroForm] = enStrings['mail.watchDigest.subject'].split(' | ')
+    assert.equal(sendCalls[0].subject, zeroForm)
+  })
+
+  test('sendPageWatchDigest subject uses the plural form of mail.watchDigest.subject for a count of 1', async () => {
+    await mail.sendPageWatchDigest({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      items: [
+        {
+          page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+          action: 'updated',
+          changedFields: ['title'],
+          actorName: 'Bob'
+        }
+      ]
+    })
+    const [, oneForm] = enStrings['mail.watchDigest.subject'].split(' | ')
+    assert.equal(sendCalls[0].subject, oneForm)
+  })
+
+  test('sendPageWatchDigest subject uses the plural form of mail.watchDigest.subject for a count of 2', async () => {
+    await mail.sendPageWatchDigest({
+      to: 'ada@example.com',
+      siteId: DEFAULT_SITE_ID,
+      items: [
+        {
+          page: { title: 'Page One', path: 'page-one', locale: 'en' },
+          action: 'updated',
+          changedFields: ['title'],
+          actorName: 'Bob'
+        },
+        {
+          page: { title: 'Page Two', path: 'page-two', locale: 'en' },
+          action: 'updated',
+          changedFields: ['title'],
+          actorName: 'Bob'
+        }
+      ]
+    })
+    const [, , otherForm] = enStrings['mail.watchDigest.subject'].split(' | ')
+    assert.equal(sendCalls[0].subject, otherForm.replace('{count}', '2'))
   })
 })
