@@ -220,6 +220,47 @@ describe('ruleMatchesPage', () => {
       )
     })
   })
+
+  /**
+   * OpenProject #2182: page paths are always stored lowercased, but a rule's own `path` is free
+   * text -- an author who typed any uppercase character used to write a rule that silently never
+   * matched anything. Worst for DENY: a mixed-case DENY failed OPEN (whatever broader ALLOW
+   * existed kept deciding), while a mixed-case ALLOW failed visibly. `normalizePath` now folds
+   * case the same way locale/tag comparisons already do.
+   */
+  describe('case-insensitive path matching (OpenProject #2182)', () => {
+    test('a DENY rule written in mixed case still matches the lowercase-stored page path (START)', () => {
+      const rule = makeRule({ match: 'START', mode: 'DENY', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries/2026' })), true)
+    })
+
+    test('EXACT matches case-insensitively', () => {
+      const rule = makeRule({ match: 'EXACT', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
+    })
+
+    test('END matches case-insensitively', () => {
+      const rule = makeRule({ match: 'END', path: 'Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
+    })
+
+    test('REGEX is unaffected by the case fold -- an author-written character class stays literal', () => {
+      // -> Would behave differently if the pattern itself were lowercased or forced case-insensitive:
+      //    [A-Z] would then match a lowercase page path, which it deliberately must not
+      const rule = makeRule({ match: 'REGEX', path: '^[A-Z]' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
+    })
+
+    test('REGEX stays case-sensitive for a pattern with no explicit case class -- unlike every other match kind', () => {
+      // -> Page paths are always stored lowercase, so a pattern written in uppercase simply never
+      //    matches an ordinary page path -- the same behavior as before the #2182 fix, deliberately
+      //    left unchanged for this branch
+      const rule = makeRule({ match: 'REGEX', path: '^HR/' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), false)
+      const lowercaseRule = makeRule({ match: 'REGEX', path: '^hr/' })
+      assert.equal(ruleMatchesPage(lowercaseRule, page({ path: 'hr/salaries' })), true)
+    })
+  })
 })
 
 describe('resolvePageRule / rulesAllow', () => {

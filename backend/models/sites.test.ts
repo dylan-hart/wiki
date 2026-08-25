@@ -455,7 +455,60 @@ describe('sites.getSiteByHostname (in-memory cache, no DB)', () => {
     const site = await sites.getSiteByHostname({ hostname: 'wiki.example.com', strict: true })
     assert.equal(site?.id, EXACT_SITE_ID)
   })
+
+  /**
+   * OpenProject #2127: `sitesMappings` is keyed lowercase, but the hostname a lookup was given
+   * used to be indexed as-is -- so `Host: Wiki.Example.Com` matched nothing here, even though a
+   * DNS name is case-insensitive and the site really is stored as `wiki.example.com`.
+   */
+  test('a mixed-case hostname resolves to the same site as its lowercase form', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'Wiki.Example.Com' })
+    assert.equal(site?.id, EXACT_SITE_ID)
+  })
+
+  test('strict: true also folds case', async () => {
+    const site = await sites.getSiteByHostname({ hostname: 'WIKI.EXAMPLE.COM', strict: true })
+    assert.equal(site?.id, EXACT_SITE_ID)
+  })
 })
+
+/**
+ * OpenProject #2127, write-side belt and braces: the site create/update schemas already constrain
+ * a stored `hostname` to lowercase, so this cannot happen through the normal API -- but
+ * `reloadCache()` lowercases the key regardless of what is actually in the row, so even a
+ * mixed-case hostname that somehow reached the table (a direct DB edit, a future write path that
+ * forgets the schema constraint) still resolves through `getSiteByHostname`.
+ */
+describe(
+  'sites.reloadCache hostname case-folding (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+
+    before(async () => {
+      fixtures = await setupTestDb()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test('a mixed-case hostname row is still resolvable by its lowercase form after reloadCache', async () => {
+      const mixedCaseHostname = `Mixed-Case-${randomBytes(6).toString('hex')}.Example.Com`
+      const [site] = await fixtures.db
+        .insert(sitesTable)
+        .values({ hostname: mixedCaseHostname, isEnabled: true, config: {} })
+        .returning({ id: sitesTable.id })
+
+      await sites.reloadCache()
+
+      const resolved = await sites.getSiteByHostname({ hostname: mixedCaseHostname.toLowerCase() })
+      assert.equal(resolved?.id, site!.id)
+
+      await fixtures.db.delete(sitesTable).where(eq(sitesTable.id, site!.id))
+    })
+  }
+)
 
 /**
  * Regression test for task 686: `createSite` unconditionally gives every site its own root

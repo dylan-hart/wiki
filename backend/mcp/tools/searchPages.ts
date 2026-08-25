@@ -48,7 +48,7 @@ export async function handleSearchPages(
 ): Promise<CallToolResult> {
   const site = resolveRequestedSite(ctx, args.siteId)
   const actor = actorFor(ctx)
-  const seesEverything = maySeeEverything(actor)
+  const seesEverything = maySeeEverything(actor, site.id)
 
   const result = await WIKI.models.search.query({
     siteId: site.id,

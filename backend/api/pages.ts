@@ -514,7 +514,8 @@ async function routes(app: FastifyInstance) {
       //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
       const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
         accessActor,
-        PAGE_PASSWORD_BYPASS_ROLES
+        PAGE_PASSWORD_BYPASS_ROLES,
+        req.params.siteId
       )
       return WIKI.models.search.query({
         siteId: req.params.siteId,

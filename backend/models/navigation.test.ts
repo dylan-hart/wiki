@@ -691,20 +691,44 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('getMode reads the same column back, and defaults to static for a menu with no row yet', async () => {
-    assert.equal(await navigationModel.getMode(crypto.randomUUID()), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, crypto.randomUUID()), 'static')
 
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'mixed' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'mixed')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'mixed')
 
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'static' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'static')
+  })
+
+  /**
+   * OpenProject #2127: `getMode()` used to select on `navigationTable.id` alone, so a
+   * `site:navigation` delegate scoped to one site could pass an id belonging to a DIFFERENT site
+   * and learn its mode. Every neighbouring method here (`getNav()`, `setNavItems()`, `copyNav()`)
+   * already pairs `id` with `siteId`; this locks `getMode()` down the same way.
+   */
+  test('getMode does not return a row belonging to a different site', async () => {
+    const [otherSite] = await WIKI.db
+      .insert(sitesTable)
+      .values({ hostname: `getmode-other-${crypto.randomUUID()}.example.com`, config: {} })
+      .returning({ id: sitesTable.id })
+    const otherNavId = await navigationModel.ensureSiteNav(otherSite!.id, 'en')
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'auto' })
+      .where(eq(navigationTable.id, otherNavId))
+
+    assert.equal(await navigationModel.getMode(otherSite!.id, otherNavId), 'auto')
+    // -> Asked for with THIS test's own siteId instead -- must not see the other site's row
+    assert.equal(await navigationModel.getMode(fixtures.siteId, otherNavId), 'static')
+
+    await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, otherSite!.id))
   })
 })
 

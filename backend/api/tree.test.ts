@@ -42,6 +42,14 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
+        createFolder: async (input: any) => ({
+          id: 'new-folder-id',
+          siteId: input.siteId,
+          fileName: input.pathName,
+          folderPath: input.parentPath ?? '',
+          locale: input.locale,
+          meta: {}
+        }),
         getTree: async () => []
       },
       groups: {
@@ -56,6 +64,17 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
+  //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
+  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
   await app.register(treeRoutes)
@@ -153,6 +172,75 @@ test('GET TREE route: getTree receives the same resolved locale visibleTreeItems
   })
   assert.equal(res.statusCode, 200)
   assert.equal(getTreeLocale, 'en', "getTree must receive the site's resolved default locale")
+})
+
+/**
+ * OpenProject #2131: a `parentId` belonging to another site used to resolve unscoped, leaking
+ * that other site's folder path/locale into the created folder's response. `getFolderById` is now
+ * siteId-scoped, so a foreign id resolves to nothing and the handler refuses outright rather than
+ * silently falling back to the site root.
+ */
+test('CREATE FOLDER route: a parentId that does not resolve in this site is refused, not silently created at root', async () => {
+  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+  const originalCreateFolder = (globalThis as any).WIKI.models.tree.createFolder
+  const getFolderByIdCalls: any[] = []
+  let createFolderCalled = false
+  ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string, siteId: string) => {
+    getFolderByIdCalls.push({ id, siteId })
+    return null
+  }
+  ;(globalThis as any).WIKI.models.tree.createFolder = async () => {
+    createFolderCalled = true
+    return {}
+  }
+  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
+      payload: {
+        parentId: '99999999-9999-4999-8999-999999999999',
+        pathName: 'sub',
+        title: 'Sub'
+      }
+    })
+    assert.equal(res.statusCode, 404)
+    assert.deepEqual(getFolderByIdCalls, [
+      { id: '99999999-9999-4999-8999-999999999999', siteId: ENABLED_SITE_ID }
+    ])
+    assert.equal(createFolderCalled, false)
+  } finally {
+    ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+    ;(globalThis as any).WIKI.models.tree.createFolder = originalCreateFolder
+  }
+})
+
+test('CREATE FOLDER route: a parentId that resolves in this site creates as normal', async () => {
+  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+  ;(globalThis as any).WIKI.models.tree.getFolderById = async (id: string) => ({
+    id,
+    siteId: ENABLED_SITE_ID,
+    fileName: 'parent',
+    folderPath: '',
+    locale: 'en',
+    meta: {}
+  })
+  try {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
+      payload: {
+        parentId: FOLDER_ID,
+        pathName: 'sub',
+        title: 'Sub'
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
+  } finally {
+    ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+  }
 })
 
 test('RENAME FOLDER route: passes the route siteId through to checkAccess', async () => {

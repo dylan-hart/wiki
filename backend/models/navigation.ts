@@ -232,13 +232,18 @@ class Navigation {
    * preselect the option that is actually stored rather than always defaulting to `static`. `static`
    * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
    *
+   * @param siteId Required (OpenProject #2127), scoping the lookup the same way every neighbouring
+   *               method here (`getNav()`, `setNavItems()`, `copyNav()`) already does -- without it,
+   *               a `site:navigation` delegate on one site could learn whether an arbitrary
+   *               navigation row on ANOTHER site is `static`/`auto`/`mixed`, since the route's own
+   *               authorization is checked against the site in the URL while this read was not.
    * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
    */
-  async getMode(id: string): Promise<NavigationSourceMode> {
+  async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
     const rows = await WIKI.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
-      .where(eq(navigationTable.id, id))
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
       .limit(1)
     return rows[0]?.mode ?? 'static'
   }

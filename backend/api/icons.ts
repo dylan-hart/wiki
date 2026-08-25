@@ -32,7 +32,9 @@ function mayUseIconPicker(req: FastifyRequest): boolean {
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES)
+  // -> siteId: null -- the picker is genuinely instance-wide, not scoped to any one site (see the
+  //    doc comment above); mayHoldPermissionSomewhere() treats null as "apply no site filter"
+  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
 }
 
 /**

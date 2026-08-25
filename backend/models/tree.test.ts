@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import {
   hasTestDatabase,
   seedLocale,
@@ -8,6 +9,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -70,7 +72,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    await treeModel.renameFolder({ folderId: en.id, pathName: 'guides', title: 'Guides' })
+    await treeModel.renameFolder({
+      folderId: en.id,
+      siteId: fixtures.siteId,
+      pathName: 'guides',
+      title: 'Guides'
+    })
 
     const frPage = await pagesModel.getPage({
       siteId: fixtures.siteId,
@@ -116,17 +123,17 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const removed = await treeModel.deleteFolder(en.id)
+    const removed = await treeModel.deleteFolder(en.id, fixtures.siteId)
     await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
 
     const frPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: frPage.id })
     assert.ok(frPageAfter, 'the fr page must still exist')
-    const frFolderAfter = await treeModel.getFolderById(fr.id)
+    const frFolderAfter = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.ok(frFolderAfter, 'the fr folder row must still exist')
 
     const enPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: enPage.id })
     assert.equal(enPageAfter, null, 'the en page must be gone')
-    const enFolderAfter = await treeModel.getFolderById(en.id)
+    const enFolderAfter = await treeModel.getFolderById(en.id, fixtures.siteId)
     assert.equal(enFolderAfter, null, 'the en folder row must be gone')
   })
 
@@ -150,8 +157,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const enFolder = await treeModel.getFolderById(en.id)
-    const frFolder = await treeModel.getFolderById(fr.id)
+    const enFolder = await treeModel.getFolderById(en.id, fixtures.siteId)
+    const frFolder = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
@@ -286,7 +293,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId
     })
     await assert.rejects(
-      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      treeModel.renameFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        pathName: 'en',
+        title: 'Renameable'
+      }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
   })
@@ -373,6 +385,39 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(pages.length, 1)
       assert.equal(pages[0]!.classification, fixtures.classificationId)
+    })
+  })
+
+  /**
+   * OpenProject #2127: `getFolderById()` used to select on `id` alone, so a caller holding a
+   * folder id from ANOTHER site (a real UUID, not a guess) got that folder's path/locale back —
+   * `POST /sites/:siteId/tree/folders` fed a `parentId` straight through it with no site check at
+   * all. `siteId` is now a required argument, filtered into the query, so a foreign id resolves to
+   * null exactly like an unknown one.
+   */
+  describe('getFolderById siteId scoping (OpenProject #2127)', () => {
+    test('does not resolve a folder belonging to a different site', async () => {
+      const [otherSite] = await WIKI.db
+        .insert(sitesTable)
+        .values({ hostname: `getfolderbyid-other-${Date.now()}.example.com`, config: {} })
+        .returning({ id: sitesTable.id })
+
+      const folder = await treeModel.createFolder({
+        pathName: 'other-site-folder',
+        title: 'Other Site Folder',
+        locale: 'en',
+        siteId: otherSite!.id
+      })
+
+      // -> Resolves fine when asked for with its OWN site
+      const resolved = await treeModel.getFolderById(folder.id, otherSite!.id)
+      assert.ok(resolved, 'expected the folder to resolve for its own site')
+
+      // -> Must not resolve when asked for with a DIFFERENT site, even though the id is real
+      const foreign = await treeModel.getFolderById(folder.id, fixtures.siteId)
+      assert.equal(foreign, null)
+
+      await WIKI.db.delete(sitesTable).where(eq(sitesTable.id, otherSite!.id))
     })
   })
 })

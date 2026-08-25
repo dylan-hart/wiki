@@ -131,9 +131,15 @@ function ruleTags(rule: GroupRule): string[] {
     .filter(Boolean)
 }
 
-/** Compared without leading slashes on either side, since neither is stored with one. */
+/**
+ * Compared without leading slashes on either side, since neither is stored with one, and
+ * lowercased — page paths are always stored lowercased (`helpers/common.ts#normalizePagePath`,
+ * and `sanitizeFileName` likewise for assets), so a rule authored with any uppercase character
+ * would otherwise never match what it was written to address. Locale and tag comparisons already
+ * fold case the same way; this brings path comparison in line with them.
+ */
 function normalizePath(value: string): string {
-  return value.replace(/^\/+/, '')
+  return value.replace(/^\/+/, '').toLowerCase()
 }
 
 /**
@@ -188,7 +194,14 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
       return pagePath.endsWith(rulePath)
     case 'REGEX':
       try {
-        return new RegExp(rulePath).test(pagePath)
+        // -> Deliberately NOT `rulePath`, and deliberately left OUT of the case-insensitive fold
+        //    applied to every other match kind (OpenProject #2182): lowercasing the pattern, or
+        //    forcing it case-insensitive with the `i` flag, could silently change a character
+        //    class an author wrote on purpose (`[A-Z]`). Only the leading slash is stripped, same
+        //    as before; the pattern's own case sensitivity is left entirely to its author. Page
+        //    paths are always stored lowercase, so a pattern meant to match ordinary path segments
+        //    already needs to be written in lowercase regardless.
+        return new RegExp(rule.path.replace(/^\/+/, '')).test(pagePath)
       } catch {
         // -> A rule that cannot compile addresses nothing, rather than everything
         return false

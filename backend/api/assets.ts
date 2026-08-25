@@ -171,8 +171,11 @@ async function routes(app: FastifyInstance) {
         at — a page rule written (as every page path is) in normalized form could then be bypassed
         just by sending `parentPath` with different casing or stray slashes.
       */
+      // -> Scoped by siteId (OpenProject #2127): a caller-supplied folderId belonging to another
+      //    site must resolve to nothing here, the same as an unknown id, rather than leaking that
+      //    other site's folder path/locale into the permission check below.
       const folder = req.query.folderId
-        ? await WIKI.models.tree.getFolderById(req.query.folderId)
+        ? await WIKI.models.tree.getFolderById(req.query.folderId, req.params.siteId)
         : null
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
       const parentPath = req.query.parentPath ? normalizePagePath(req.query.parentPath) : ''
@@ -191,8 +194,12 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to upload a file here.')
       }
 
+      // -> `folder`, not the raw `req.query.folderId`: a caller-supplied id that resolved to
+      //    nothing (unknown, or scoped away by the site check above) must not reach `upload()` as
+      //    a parent, which would otherwise attach the new asset's tree row to a folder belonging
+      //    to a different site than the asset's own `siteId`.
       const folderId = req.query.folderId
-        ? req.query.folderId
+        ? folder?.id
         : parentPath
           ? (
               await WIKI.models.tree.getFolder({

@@ -309,7 +309,7 @@ class Tree {
     // -> Resolve what to list into the ltree path its children carry
     let path = ''
     if (parentId) {
-      const parent = await this.getFolderById(parentId)
+      const parent = await this.getFolderById(parentId, siteId)
       if (parent) {
         path = childPathOf(parent)
       }
@@ -611,13 +611,22 @@ class Tree {
   }
 
   /**
-   * A single folder by ID, or null if the ID is not a folder
+   * A single folder by ID, or null if the ID is not a folder OR belongs to a different site
+   * (OpenProject #2127) — `siteId` is required, with no optional-argument fallback, so a caller
+   * can no longer look a folder up by id alone and forget to check whose site it belongs to. The
+   * folder-create handler in `api/tree.ts` used to do exactly that with a caller-supplied
+   * `parentId`, leaking another site's folder path and locale to whoever already held
+   * `manage:pages` on their OWN site.
    */
-  async getFolderById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  async getFolderById(
+    id: string,
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<TreeRow | null> {
     const results = await db
       .select()
       .from(treeTable)
-      .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder')))
+      .where(and(eq(treeTable.id, id), eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
       .limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -690,7 +699,9 @@ class Tree {
     id?: string | null
     path?: string | null
     locale?: string
-    siteId?: string
+    // -> Required (OpenProject #2127), not just for the path branch below: the id branch now
+    //    scopes `getFolderById()` by it too, both callers already pass it.
+    siteId: string
     createIfMissing?: boolean
     /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
      *  transaction here so a folder it has to create is rolled back along with everything else in
@@ -698,7 +709,7 @@ class Tree {
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id, db)
+      const folder = await this.getFolderById(id, siteId, db)
       if (!folder) {
         throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
       }
@@ -711,7 +722,7 @@ class Tree {
       .from(treeTable)
       .where(
         and(
-          eq(treeTable.siteId, siteId!),
+          eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale!),
           eq(treeTable.folderPath, folderPath),
           eq(treeTable.fileName, fileName),
@@ -730,7 +741,7 @@ class Tree {
       pathName: fileName,
       title: fileName,
       locale: locale!,
-      siteId: siteId!,
+      siteId,
       db
     })
   }
@@ -777,7 +788,7 @@ class Tree {
     let path = encodeTreePath(parentPath)
     let effectiveLocale = locale
     if (parentId) {
-      const parent = await this.getFolderById(parentId, db)
+      const parent = await this.getFolderById(parentId, siteId, db)
       if (!parent) {
         throw new CustomError('treeInvalidParent', 'The parent folder does not exist.', 404)
       }
@@ -928,19 +939,23 @@ class Tree {
   /**
    * Rename a folder, moving everything under it along with it.
    *
+   * @param siteId Required (OpenProject #2127) so this model method is itself closed to a foreign
+   *               `folderId`, rather than relying solely on the API handler's own separate check.
    * @param pathName The new path segment, normalized as on the way in. Unchanged from the current
    *                 one when only the title differs, which leaves every descendant's path untouched.
    */
   async renameFolder({
     folderId,
+    siteId,
     pathName,
     title
   }: {
     folderId: string
+    siteId: string
     pathName: string
     title: string
   }): Promise<TreeRow> {
-    const folder = await this.getFolderById(folderId)
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
@@ -1121,12 +1136,17 @@ class Tree {
   /**
    * Delete a folder and everything under it.
    *
+   * @param siteId Required (OpenProject #2127) so this model method is itself closed to a foreign
+   *               `folderId`, rather than relying solely on the API handler's own separate check.
    * @returns The deleted pages and assets, for the caller to clean up after. Where each one sat comes
    *          back with it: the tree row is the only record of that, and it is gone by then — but what
    *          was deleted is exactly what a webhook subscriber is owed.
    */
-  async deleteFolder(folderId: string): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
-    const folder = await this.getFolderById(folderId)
+  async deleteFolder(
+    folderId: string,
+    siteId: string
+  ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }

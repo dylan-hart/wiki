@@ -682,16 +682,43 @@ class Assets {
   }
 
   /**
-   * An asset's thumbnail, or null when it has none — which is the normal state for anything that is
-   * not an image, and for images uploaded while Sharp was unavailable.
+   * An asset's thumbnail plus the metadata `controllers/thumb.ts` needs to authorize serving it
+   * (OpenProject #2178) — site, path and locale, joined from `tree` the same way `getAssetByPath()`
+   * above does, since the `assets` table itself carries neither path nor locale. Null when the asset
+   * has no thumbnail (the normal state for anything that is not an image, and for images uploaded
+   * while Sharp was unavailable) or does not exist at all — the caller cannot and must not tell the
+   * two apart, so both answer 404 the same way.
    */
-  async getThumbnail(id: string): Promise<Buffer | null> {
+  async getThumbnailForServing(id: string): Promise<{
+    preview: Buffer
+    siteId: string
+    folderPath: string
+    fileName: string
+    locale: string
+  } | null> {
     const results = await WIKI.db
-      .select({ preview: assetsTable.preview })
+      .select({
+        preview: assetsTable.preview,
+        siteId: assetsTable.siteId,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale
+      })
       .from(assetsTable)
+      .innerJoin(treeTable, eq(treeTable.id, assetsTable.id))
       .where(eq(assetsTable.id, id))
       .limit(1)
-    return results[0]?.preview ?? null
+    const row = results[0]
+    if (!row?.preview) {
+      return null
+    }
+    return {
+      preview: row.preview,
+      siteId: row.siteId,
+      folderPath: decodeTreePath(row.folderPath ?? '') ?? '',
+      fileName: row.fileName ?? '',
+      locale: row.locale ?? ''
+    }
   }
 
   // == SERVING CACHE ==================

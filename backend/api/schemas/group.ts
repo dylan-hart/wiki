@@ -27,8 +27,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       match: {
         type: 'string',
-        description: 'How `path` is compared against the page path.',
-        enum: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
+        description:
+          'How `path` is compared against the page path. CLASSIFICATION addresses page metadata instead of path -- see `classifications`.',
+        enum: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT', 'CLASSIFICATION']
       },
       mode: {
         type: 'string',
@@ -50,6 +51,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       sites: {
         type: 'array',
         description: 'Site IDs this rule is limited to. Empty means all sites.',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        }
+      },
+      classifications: {
+        type: 'array',
+        description:
+          'Classification level IDs this rule addresses. Read only when match is CLASSIFICATION.',
         items: {
           type: 'string',
           format: 'uuid'

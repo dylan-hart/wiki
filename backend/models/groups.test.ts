@@ -327,7 +327,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       true
     )
   })
@@ -337,7 +337,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       false
     )
   })
@@ -346,7 +346,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([])
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
   })
 
   test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
@@ -356,7 +356,45 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  /**
+   * OpenProject #2162: `mayHoldPermissionSomewhere()` used to pool every rule regardless of the
+   * rule's own `sites` scoping, so a delegation deliberately narrowed to one site read as "holds it
+   * somewhere" for every other site too. A concrete `siteId` now applies the same `rule.sites`
+   * match filter `ruleMatchesPage()` applies for a real page; `null` applies none, for the rare
+   * caller (the icon picker) that is genuinely asking an instance-wide question.
+   */
+  test('mayHoldPermissionSomewhere applies the rule.sites filter for a concrete siteId', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'some-other-site-id'),
+      false
+    )
+  })
+
+  test('mayHoldPermissionSomewhere with a null siteId applies no site filter at all', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  test('mayHoldPermissionSomewhere still matches an unscoped rule (empty sites) for any concrete siteId', async () => {
+    await setGroupRules([rule({ roles: ['write:pages'], sites: [] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'any-site-id'),
+      true
+    )
   })
 
   /**
@@ -449,9 +487,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'] })])
 
     const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages'], null), false)
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages']),
+      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages'], null),
       true
     )
   })
@@ -489,6 +527,41 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> An uncapped actor is unaffected -- the same rule grants it on both pages
     const uncapped = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(groupsModel.checkAccess(uncapped, 'read:pages', restrictedPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  /**
+   * OpenProject #2119: `allowedClassifications` now compares BEFORE the `manage:system` bypass, not
+   * after -- a credential narrowing is the administrator's own choice at mint time, not a page rule
+   * `manage:system` is entitled to override. Locks down the reordering in `checkAccess()`.
+   */
+  test('allowedClassifications refuses even a manage:system-holding actor on a page outside its allow-set (OpenProject #2119)', async () => {
+    await setGroupRules([])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted 2119', sortOrder: 99 })
+
+    const cappedAdmin = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    const restrictedPage = {
+      path: 'restricted-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+    const publicPage = {
+      path: 'public-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', restrictedPage), false)
+    // -> manage:system still bypasses the (absent) rules for a page within the allow-set
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', publicPage), true)
 
     await levelsModel.delete(restricted.id)
   })
