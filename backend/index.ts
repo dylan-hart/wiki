@@ -33,6 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
+import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
@@ -763,6 +764,17 @@ async function initHTTPServer() {
     }
     done()
   })
+
+  // ----------------------------------------
+  // API key site pin
+  // ----------------------------------------
+
+  // -> OpenProject #2189/#2194: a key/token pinned to one site (`apiKeys.siteId`) must not reach
+  //    another site's resources through the REST API. One global hook covering every
+  //    `/sites/:siteId/...` route rather than a call added to each of the 117+ of them individually —
+  //    see `helpers/apiKeySite.ts`'s own doc comment for the full reasoning and what this deliberately
+  //    does not cover (a hostname- or body-resolved site, which calls `enforceApiKeySite()` directly).
+  app.addHook('preHandler', apiKeySitePinHook)
 
   // ----------------------------------------
   // SEO

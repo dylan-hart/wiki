@@ -131,12 +131,16 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
 })
 
 /**
- * Route-wiring proof for `enforceApiKeySite` (`helpers/apiKeySite.ts`), on the two routes it was
- * wired into as this task's representative surface: `GET /sites/:siteId/pages/:pageIdOrHash` and
- * `POST /sites/:siteId/pages`. The helper's own behavior (null vs. matching vs. mismatched siteId) is
- * unit-tested in `helpers/apiKeySite.test.ts`; this file only proves it is actually reached first in
- * real route handlers, ahead of any model call — real route registration, real schemas, real
- * `@fastify/sensible` `reply.forbidden()`.
+ * Route-wiring proof for `apiKeySitePinHook` (`helpers/apiKeySite.ts`), on two representative routes:
+ * `GET /_api/sites/:siteId/pages/:pageIdOrHash` and `POST /_api/sites/:siteId/pages`. OpenProject
+ * #2194 moved enforcement off these two routes' own per-route `enforceApiKeySite()` calls (deleted)
+ * onto the global hook `index.ts` registers alongside the permissions hook — this file registers that
+ * same hook directly (not `index.ts` itself, which boots a real database connection) under the same
+ * `/_api` prefix it checks, so the routes are exercised exactly as they are wired in production. The
+ * hook's own behavior (null vs. matching vs. mismatched siteId, and the URL-prefix scoping) is
+ * unit-tested in isolation in `helpers/apiKeySite.test.ts`; this file only proves it is actually
+ * reached first for these two real route handlers, ahead of any model call — real route registration,
+ * real schemas, real `@fastify/sensible` `reply.forbidden()`.
  *
  * `req.apiKey` is attached by a fixture `onRequest` hook that reads it off an `x-test-api-key` test
  * header, the same shape `models/apiKeys.ts#verify()` produces at runtime — nothing about the routes
@@ -146,7 +150,7 @@ describe('GET /sites/:siteId/pages/:pageIdOrHash — commentsCount', () => {
  * falls through to the ordinary "page does not exist" 404 — which needs no `Page#` response payload —
  * rather than requiring a full page object satisfying that schema just to prove the gate was passed.
  */
-describe('pages API — enforceApiKeySite site-scoping', () => {
+describe('pages API — apiKeySitePinHook site-scoping', () => {
   const SITE_A = '11111111-1111-4111-8111-111111111111'
   const SITE_B = '22222222-2222-4222-8222-222222222222'
   const PAGE_HASH = 'ab'.repeat(16)
@@ -178,6 +182,8 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
       sites: {}
     }
 
+    const { apiKeySitePinHook } = await import('../helpers/apiKeySite.ts')
+
     app = Fastify()
     await app.register(fastifySensible)
     // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
@@ -201,11 +207,16 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
         ;(req as any).session = JSON.parse(rawSession)
       }
     })
+    // -> Same stage the real hook runs at in `index.ts` (`preHandler`, beside the permissions hook).
+    app.addHook('preHandler', apiKeySitePinHook)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
     await registerPageImportSchema(app)
-    await app.register(pagesRoutes)
+    // -> `/_api` prefix, matching `api/index.ts`'s real registration -- the hook only checks
+    //    `/_api/sites/...` (see its own doc comment), so mounting bare would silently exercise
+    //    nothing.
+    await app.register(pagesRoutes, { prefix: '/_api' })
     await app.ready()
   })
 
@@ -226,7 +237,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(SITE_B)
     })
     assert.equal(res.statusCode, 403)
@@ -236,7 +247,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: reaches the model when the key is scoped to the matching site', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(SITE_A)
     })
     assert.equal(res.statusCode, 404) // -> past the gate, into the ordinary "page not found" path
@@ -246,7 +257,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('GET page: reaches the model when the key is unscoped (siteId: null)', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/sites/${SITE_A}/pages/${PAGE_HASH}`,
+      url: `/_api/sites/${SITE_A}/pages/${PAGE_HASH}`,
       headers: apiKeyHeader(null)
     })
     assert.equal(res.statusCode, 404)
@@ -256,7 +267,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: refuses with 403 before touching the model when the key is scoped to a different site', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: apiKeyHeader(SITE_B),
       payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
     })
@@ -267,7 +278,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: passes the gate and reaches the model when the key is scoped to the matching site', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: {
         ...apiKeyHeader(SITE_A),
         'x-test-session': JSON.stringify({
@@ -285,7 +296,7 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
   test('CREATE page: refused by the ordinary unauthenticated check, not the site gate, when the key is unscoped and there is no session', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${SITE_A}/pages`,
+      url: `/_api/sites/${SITE_A}/pages`,
       headers: apiKeyHeader(null),
       payload: { path: 'test-page', title: 'Test', editor: 'markdown', content: 'hello' }
     })

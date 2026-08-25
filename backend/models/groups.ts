@@ -143,12 +143,24 @@ const groupSelection = {
  * say. Checked by `checkAccess()` only: it is page-blind everywhere else
  * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
  * compare the allow-set against.
+ *
+ * `siteId`, when present, is the same key's site pin (`apiKeys.siteId`, OpenProject #2189) — an
+ * actor built from a key pinned to one site may never be granted a permission on a *different*
+ * site's page or a different site's site-admin surface, regardless of what the groups' rules say.
+ * Checked by `checkAccess()` (against `RulePageRef.siteId`) and `checkSiteAccess()` (against its own
+ * `siteId` parameter). Like `allowedClassifications`, `mayHoldPermissionSomewhere()` is unaffected —
+ * it is deliberately path- and site-blind (see its own doc comment), so a pinned actor still reads as
+ * "generally holds this permission somewhere" there; only a check against one specific page or site
+ * can compare against the pin. This closes the permission engine itself;
+ * `helpers/apiKeySite.ts`'s global `preHandler` closes the same gap one layer up, at the routing
+ * level, for the `/sites/:siteId/...` REST surface specifically.
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  siteId?: string | null
 }
 
 /**
@@ -270,7 +282,10 @@ class Groups {
       // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
-      allowedClassifications: req.apiKey?.allowedClassifications ?? null
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null,
+      // -> A session has no site pin at all (null = unrestricted); an API key's own pin, if any --
+      //    see the `AccessActor.siteId` doc comment for what this gates.
+      siteId: req.apiKey?.siteId ?? null
     }
   }
 
@@ -298,6 +313,19 @@ class Groups {
   }
 
   /**
+   * Whether `siteId` survives this actor's site pin, if it has one.
+   *
+   * `null`/absent `actor.siteId` is unrestricted (a session, or a key issued with no pin). A pin that
+   * IS set refuses every OTHER site outright — see the `AccessActor.siteId` doc comment. `siteId` is
+   * `null` for a page ref with no site context at all (a caller that generically has none — see
+   * `RulePageRef`'s own doc comment on failing closed); a pinned actor fails closed there too, the
+   * same as a site-scoped rule would against the same `null`.
+   */
+  private withinSitePin(actor: AccessActor, siteId: string | null): boolean {
+    return !actor.siteId || actor.siteId === siteId
+  }
+
+  /**
    * Whether this caller may do this to this page.
    *
    * The one place page permissions are decided. Everything page-scoped asks this rather than reading
@@ -313,6 +341,12 @@ class Groups {
       return true
     }
     if (!this.withinScope(actor, permission)) {
+      return false
+    }
+    // -> OpenProject #2189/#2199: a site-pinned key may never be granted a page permission on a
+    //    different site's page, regardless of what its groups' rules say -- checked the same way
+    //    `scope` is, before any rule is resolved.
+    if (!this.withinSitePin(actor, page.siteId)) {
       return false
     }
     /*
@@ -386,6 +420,11 @@ class Groups {
       return true
     }
     if (!this.withinScope(actor, permission)) {
+      return false
+    }
+    // -> OpenProject #2189/#2199: a site-pinned key may never be granted a site-admin permission on
+    //    a different site, regardless of what its groups' rules say.
+    if (!this.withinSitePin(actor, siteId)) {
       return false
     }
     const rule = resolveSiteRule(this.rulesForGroups(actor.groupIds), permission, siteId)
