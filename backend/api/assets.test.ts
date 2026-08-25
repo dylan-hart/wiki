@@ -8,6 +8,7 @@ import ajvFormats from 'ajv-formats'
 import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
+import { guardSiteEnabledPreHandler } from './index.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -135,13 +136,23 @@ describe('download route: byte-serving behavior', () => {
   })
 })
 
-describe('disabled-site guard (task 699)', () => {
+describe('disabled-site guard (OpenProject task 1593)', () => {
   /**
-   * Regression test for task 699: the siteId-scoped asset READ routes (`GET .../assets/:assetId` and
-   * `GET .../assets/:assetId/content`) trust a `siteId` the client already has cached, the same
-   * concern `pages.test.ts` covers for pages. Only the two GET (read) routes are gated —
-   * upload/rename/delete stay reachable so an administrator can keep cleaning up a disabled site's
-   * content, per the task.
+   * Originally (task 699) only the two GET (read) routes were gated — upload/rename/delete stayed
+   * reachable on purpose, so an administrator could keep cleaning up a disabled site's content. Task
+   * 1593 replaced that hand-applied pair with `guardSiteEnabledPreHandler`, the single `preHandler`
+   * `api/index.ts` registers on its guarded content-route subtree, before any content route file —
+   * see that module's own doc comment (`assets.ts` is one of the guarded files; `sites.ts`, site
+   * administration rather than content, deliberately is not). It fires on every route naming a
+   * `:siteId` param with no per-route opt-in, which
+   * means the old carve-out for upload/rename/delete is gone too: the audit this task closes
+   * (`docs/audit-2026-08-24/correctness-api-routes.md` §1) named that as part of the same gap
+   * (`api/assets.ts` guards only its two read routes, so a disabled site still accepts asset uploads,
+   * renames and deletes), not a deliberate exception to preserve.
+   *
+   * Registering the real preHandler here (not a re-implementation — see the import), before `routes`,
+   * exactly as `index.ts` orders it, is what makes this describe block a meaningful test of
+   * `assets.ts`'s routes rather than of the preHandler itself (`index.test.ts` covers that directly).
    */
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
@@ -191,6 +202,9 @@ describe('disabled-site guard (task 699)', () => {
         message: error.message
       })
     })
+    // -> The real preHandler production wires in, registered before the route file exactly as
+    //    `index.ts` orders it — see this describe block's own doc comment.
+    app.addHook('preHandler', guardSiteEnabledPreHandler)
     await registerSchemas(app)
     await registerErrorSchema(app)
     await app.register(routes)
@@ -242,6 +256,36 @@ describe('disabled-site guard (task 699)', () => {
     })
     assert.equal(res.statusCode, 404)
     assert.equal(getAssetCalls, 1)
+  })
+
+  test('UPLOAD: answers 403 for a disabled site, before the body is even parsed as an upload', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${DISABLED_SITE_ID}/assets?fileName=test.txt`,
+      headers: { 'content-type': 'text/plain' },
+      payload: 'hello'
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+  })
+
+  test('RENAME: answers 403 for a disabled site', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`,
+      payload: { fileName: 'renamed.txt' }
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
+  })
+
+  test('DELETE: answers 403 for a disabled site', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`
+    })
+    assert.equal(res.statusCode, 403)
+    assert.match(res.json().message, /disabled/i)
   })
 
   /**
