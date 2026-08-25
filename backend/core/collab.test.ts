@@ -5,6 +5,8 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import * as Y from 'yjs'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import collab, {
+  MAX_CONNECTIONS_PER_ADDRESS,
+  MAX_CONNECTIONS_PER_USER,
   PEER_STATE_TIMEOUT,
   RELAY_CHUNK_SIZE,
   RELAY_REASSEMBLY_TIMEOUT,
@@ -131,6 +133,12 @@ function makeInstance(id: string): any {
     rooms: new Map(),
     partials: new Map(),
     awaitingState: new Map(),
+    // -> Fresh per instance, not shared with the real `collab` singleton: `{ ...collab }` above only
+    //    shallow-copies these, and a Map is a reference - without overriding them here every instance
+    //    made by this helper would count connections into the same two Maps as each other and as
+    //    whatever else in this process still holds the real `collab` export.
+    connectionsByUser: new Map(),
+    connectionsByAddress: new Map(),
     listenClient: {},
     relaySeq: 0,
     peerPresence: { known: false, checkedAt: 0 }
@@ -434,6 +442,157 @@ describe('(d) pageSaved() to an instance with no open room for that page', () =>
     inst.receiveRelay({ i: 'X', r: 'page-8', t: 'saved', p: JSON.stringify(info) })
 
     assert.deepEqual(doc.getMap('meta').get('lastSave'), info)
+  })
+})
+
+/**
+ * A stand-in `ws` `WebSocket` good enough for `capture()`/`join()`/`onClose()` (task 2200): it tracks
+ * `readyState` and dispatches `close` to whatever `capture()` wired up, exactly the surface a real
+ * socket exercises here, with none of it going over an actual network.
+ */
+class MockSocket {
+  readyState = 1
+  OPEN = 1
+  listeners = new Map<string, ((...args: any[]) => void)[]>()
+  on(event: string, handler: (...args: any[]) => void): this {
+    const list = this.listeners.get(event) ?? []
+    list.push(handler)
+    this.listeners.set(event, list)
+    return this
+  }
+  send(): void {}
+  close(code?: number, reason?: string): void {
+    if (this.readyState === 3) {
+      return
+    }
+    this.readyState = 3
+    for (const handler of this.listeners.get('close') ?? []) {
+      handler(code, reason)
+    }
+  }
+}
+
+/** Joins a fresh mock socket to a page the same way `controllers/collab.ts` does: capture, then join. */
+async function joinPage(
+  inst: any,
+  pageId: string,
+  identity: { userId: string; address: string }
+): Promise<MockSocket> {
+  const conn = new MockSocket()
+  const session = inst.capture(conn as any)
+  await inst.join(conn as any, { id: pageId, siteId: 'site-1' }, session, identity)
+  return conn
+}
+
+describe('(e) connection cap: per-user/per-address ceiling (task 2200)', () => {
+  /*
+    Every room these tests open holds exactly one connection, so closing that connection always empties
+    and self-destroys the room via `closeRoomIfEmpty()` - which already calls `awareness.destroy()` /
+    `doc.destroy()`. Closing every accepted connection at the end of each test is therefore full
+    teardown on its own; nothing here needs the shared `createdRooms`/`afterEach` fixture (a)-(d) above
+    use, and reusing it would risk destroying the same room's awareness/doc twice.
+  */
+  test('a connection past the per-user ceiling is refused and leaves no room allocated', async () => {
+    const inst = makeInstance('CAP')
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
+    // -> No peer to ask for state: skips hasPeers()'s DB round trip (there is no WIKI.db in this
+    //    test's global stub) and falls straight to the mocked getPage(), same as tests (a)-(c) above.
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    const identity = { userId: 'user-at-ceiling', address: 'addr-shared' }
+
+    const accepted: MockSocket[] = []
+    for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
+      const pageId = `page-cap-user-${i}`
+      const conn = await joinPage(inst, pageId, identity)
+      accepted.push(conn)
+      assert.equal(conn.readyState, conn.OPEN, `connection ${i} under the ceiling must be accepted`)
+      assert.ok(inst.rooms.has(pageId), `connection ${i} under the ceiling must get a room`)
+    }
+    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
+
+    const refusedPageId = 'page-cap-user-refused'
+    const refused = await joinPage(inst, refusedPageId, identity)
+
+    assert.equal(refused.readyState, 3, 'the connection past the ceiling must be closed')
+    assert.equal(
+      inst.rooms.has(refusedPageId),
+      false,
+      'a refused connection must never allocate a room for the page it asked for'
+    )
+    assert.equal(
+      inst.connectionsByUser.get(identity.userId),
+      MAX_CONNECTIONS_PER_USER,
+      'a refusal must not itself count against the ceiling'
+    )
+
+    for (const conn of accepted) {
+      conn.close()
+    }
+  })
+
+  test('a connection past the per-address ceiling is refused, independent of user id', async () => {
+    const inst = makeInstance('CAP')
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    const address = 'addr-at-ceiling'
+
+    const accepted: MockSocket[] = []
+    for (let i = 0; i < MAX_CONNECTIONS_PER_ADDRESS; i++) {
+      const pageId = `page-cap-addr-${i}`
+      // -> A different user id each time, so only the address ceiling - not the per-user one - is
+      //    what this test is exercising.
+      const conn = await joinPage(inst, pageId, { userId: `user-${i}`, address })
+      accepted.push(conn)
+      assert.equal(conn.readyState, conn.OPEN)
+    }
+
+    const refused = await joinPage(inst, 'page-cap-addr-refused', {
+      userId: 'user-one-more',
+      address
+    })
+    assert.equal(refused.readyState, 3)
+    assert.equal(inst.rooms.has('page-cap-addr-refused'), false)
+
+    for (const conn of accepted) {
+      conn.close()
+    }
+  })
+
+  test('closing a socket releases its slot, letting a further connection through', async () => {
+    const inst = makeInstance('CAP')
+    ;(globalThis as any).WIKI.INSTANCE_ID = 'CAP'
+    inst.peerPresence = { known: false, checkedAt: Date.now() }
+    const identity = { userId: 'user-releases', address: 'addr-releases' }
+
+    const conns: MockSocket[] = []
+    for (let i = 0; i < MAX_CONNECTIONS_PER_USER; i++) {
+      conns.push(await joinPage(inst, `page-cap-release-${i}`, identity))
+    }
+    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
+
+    // -> One tab closes normally - a real `close()` and a real `terminate()` both reach `onClose()`
+    //    the same way (see the file's "Connection cap" doc comment), so exercising the ordinary close
+    //    here covers both.
+    conns[0].close()
+    assert.equal(
+      inst.connectionsByUser.get(identity.userId),
+      MAX_CONNECTIONS_PER_USER - 1,
+      'closing a socket must release exactly the one slot it held'
+    )
+
+    const reconnected = await joinPage(inst, 'page-cap-release-reconnect', identity)
+
+    assert.equal(
+      reconnected.readyState,
+      reconnected.OPEN,
+      'a legitimate reconnect must not find the ceiling still exhausted'
+    )
+    assert.equal(inst.connectionsByUser.get(identity.userId), MAX_CONNECTIONS_PER_USER)
+
+    reconnected.close()
+    for (const conn of conns.slice(1)) {
+      conn.close()
+    }
   })
 })
 

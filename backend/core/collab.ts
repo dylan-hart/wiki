@@ -52,6 +52,18 @@ import type { WebSocket } from 'ws'
  * {@link PEER_STATE_TIMEOUT} straight into an already-fallen-back room rather than discard it: the
  * seed portion of the peer's state is byte-identical to this instance's own, so `Y.applyUpdate` treats
  * it as already known and only the peer's genuinely new edits land.
+ *
+ * ## Connection cap
+ *
+ * `room.conns` only tracks a room's own lifetime, so on its own it cannot stop one account (or one
+ * address, behind a proxy or NAT) from opening enough rooms to pin arbitrarily much memory — and
+ * `/_collab` sits outside `/_api/`, so none of `index.ts`'s general rate limiters ever run for it
+ * either. {@link join} closes that gap directly: {@link reserveConnection} charges the caller-supplied
+ * {@link ConnectionIdentity} against {@link MAX_CONNECTIONS_PER_USER} and
+ * {@link MAX_CONNECTIONS_PER_ADDRESS} *before* a room is ever touched, so a refusal never creates one,
+ * and {@link releaseConnection} — from {@link onClose}, which `ws` runs for `terminate()` exactly as
+ * for a graceful close — hands the slot back the moment the socket is gone, so an ordinary reconnect
+ * loop never runs the account or address out of headroom.
  */
 
 /** y-websocket message types. The values are that protocol's, not ours. */
@@ -115,16 +127,47 @@ const PEER_PRESENCE_TTL = 15 * 1000
 const PING_INTERVAL = 30 * 1000
 
 /**
+ * How many concurrent collaboration websockets one authenticated account may hold at once, across
+ * every room on this instance.
+ *
+ * Nothing else bounds this — see the top-of-file comment: a room's own `conns` map only tracks
+ * lifetime (cleared by {@link closeRoomIfEmpty} once the last connection leaves), and `/_collab` sits
+ * outside `/_api/`, so neither general `onRequest` rate limiter in `index.ts` ever runs for it. One
+ * authenticated account holding `write:pages` could otherwise pin arbitrarily many `Y.Doc` rooms in
+ * memory just by opening enough editors. A legitimate author reasonably has a handful of pages open
+ * across a couple of tabs at once; this is well above that and still small enough that reaching it
+ * costs one account nothing close to arbitrary.
+ */
+export const MAX_CONNECTIONS_PER_USER = 8
+
+/**
+ * How many concurrent collaboration websockets one source address may hold at once, across every
+ * account. Looser than {@link MAX_CONNECTIONS_PER_USER}: a shared address (an office, a NAT, a proxy)
+ * legitimately carries several different accounts editing at once, so this ceiling exists to catch an
+ * address running far more sessions than any real deployment behind one address does, not to further
+ * bound one already-capped account.
+ */
+export const MAX_CONNECTIONS_PER_ADDRESS = 32
+
+/**
  * Marks a document or awareness change as having arrived over the relay, so that applying it here does
  * not send it straight back out to the instance it came from.
  */
 const RELAYED = Symbol('collabRelayed')
+
+/** Who a socket belongs to, for the per-user/per-address connection cap. */
+export interface ConnectionIdentity {
+  userId: string
+  address: string
+}
 
 interface CollabConn {
   /** Awareness client ids this socket is responsible for, so a disconnect can retract exactly those. */
   clients: Set<number>
   /** Answered the last keepalive ping. */
   alive: boolean
+  /** Whose connection-cap slot this socket is holding, released once it leaves. */
+  identity: ConnectionIdentity
 }
 
 interface CollabSession {
@@ -234,6 +277,10 @@ export default {
   partials: new Map<string, PartialRelay>(),
   /** Rooms this instance is waiting on a peer's state for, by page id. */
   awaitingState: new Map<string, (update: Uint8Array) => void>(),
+  /** Live connection counts for {@link MAX_CONNECTIONS_PER_USER}, keyed by user id. */
+  connectionsByUser: new Map<string, number>(),
+  /** Live connection counts for {@link MAX_CONNECTIONS_PER_ADDRESS}, keyed by source address. */
+  connectionsByAddress: new Map<string, number>(),
   relaySeq: 0,
   peerPresence: { known: false, checkedAt: 0 },
   pingTimer: null as NodeJS.Timeout | null,
@@ -306,6 +353,8 @@ export default {
       room.doc.destroy()
     }
     this.rooms.clear()
+    this.connectionsByUser.clear()
+    this.connectionsByAddress.clear()
     if (this.listenerHandle) {
       // -> Whatever is still on its way out goes out first: releasing the client from under a
       //    notification in flight would fail that one for no reason
@@ -404,16 +453,70 @@ export default {
   },
 
   /**
+   * Reserve one connection slot for a user/address pair, refusing once either ceiling in
+   * {@link MAX_CONNECTIONS_PER_USER} / {@link MAX_CONNECTIONS_PER_ADDRESS} is already reached.
+   *
+   * Checked — and, on success, counted — before {@link join} ever calls `ensureRoom()`, so a refusal
+   * never creates or touches a room: the ceiling exists so that one account or address cannot pin
+   * arbitrarily many `Y.Doc` rooms in memory, and letting a room get created first would be exactly
+   * that.
+   */
+  reserveConnection(identity: ConnectionIdentity): boolean {
+    const byUser = this.connectionsByUser.get(identity.userId) ?? 0
+    const byAddress = this.connectionsByAddress.get(identity.address) ?? 0
+    if (byUser >= MAX_CONNECTIONS_PER_USER || byAddress >= MAX_CONNECTIONS_PER_ADDRESS) {
+      return false
+    }
+    this.connectionsByUser.set(identity.userId, byUser + 1)
+    this.connectionsByAddress.set(identity.address, byAddress + 1)
+    return true
+  },
+
+  /**
+   * Release a slot reserved by {@link reserveConnection} — on an ordinary close, on `terminate()`
+   * (which `ws` delivers as a `close` event same as a graceful one, so {@link onClose} covers both),
+   * and on a socket that went away while its room was still being set up. A reconnect loop therefore
+   * never exhausts the ceiling: every socket that successfully reserved a slot releases exactly one,
+   * exactly once.
+   */
+  releaseConnection(identity: ConnectionIdentity): void {
+    const byUser = this.connectionsByUser.get(identity.userId)
+    if (byUser !== undefined) {
+      if (byUser <= 1) {
+        this.connectionsByUser.delete(identity.userId)
+      } else {
+        this.connectionsByUser.set(identity.userId, byUser - 1)
+      }
+    }
+    const byAddress = this.connectionsByAddress.get(identity.address)
+    if (byAddress !== undefined) {
+      if (byAddress <= 1) {
+        this.connectionsByAddress.delete(identity.address)
+      } else {
+        this.connectionsByAddress.set(identity.address, byAddress - 1)
+      }
+    }
+  },
+
+  /**
    * Put a socket into a page's room, syncing it against whatever state that room holds.
    *
    * The caller is responsible for having decided that this user may edit this page — see
-   * `controllers/collab.ts`. Nothing below re-checks it.
+   * `controllers/collab.ts`. Nothing below re-checks it. `identity` is who to charge against
+   * {@link MAX_CONNECTIONS_PER_USER} / {@link MAX_CONNECTIONS_PER_ADDRESS}, also the caller's job to
+   * resolve (the authenticated session's user id and `req.ip`).
    */
   async join(
     conn: WebSocket,
     page: { id: string; siteId: string },
-    session: CollabSession
+    session: CollabSession,
+    identity: ConnectionIdentity
   ): Promise<void> {
+    if (!this.reserveConnection(identity)) {
+      conn.close(4429, 'Too many concurrent collaboration connections')
+      return
+    }
+
     /*
       Asked for repeatedly, because a room can be dropped while this socket was waiting for it: another
       socket that gave up during the same setup takes the still-empty room down with it. Joining that
@@ -426,11 +529,12 @@ export default {
 
     // -> The socket may well have gone away while the room was being set up
     if (conn.readyState !== conn.OPEN) {
+      this.releaseConnection(identity)
       this.closeRoomIfEmpty(room)
       return
     }
 
-    const state: CollabConn = { clients: new Set(), alive: true }
+    const state: CollabConn = { clients: new Set(), alive: true, identity }
     room.conns.set(conn, state)
     conn.on('pong', () => {
       state.alive = true
@@ -623,10 +727,13 @@ export default {
   onClose(room: CollabRoom, conn: WebSocket): void {
     const state = room.conns.get(conn)
     room.conns.delete(conn)
-    if (state && state.clients.size > 0) {
-      // -> Announced as an awareness change, which is what takes the avatar out of the header and the
-      //    cursor out of the text for everyone else, here and on every other instance
-      awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
+    if (state) {
+      this.releaseConnection(state.identity)
+      if (state.clients.size > 0) {
+        // -> Announced as an awareness change, which is what takes the avatar out of the header and
+        //    the cursor out of the text for everyone else, here and on every other instance
+        awarenessProtocol.removeAwarenessStates(room.awareness, [...state.clients], null)
+      }
     }
     this.closeRoomIfEmpty(room)
   },
