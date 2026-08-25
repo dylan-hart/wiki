@@ -146,12 +146,23 @@ function onKeydown(ev) {
   }
 }
 
+/**
+ * The panel is teleported to `<body>`, so the element `aria-modal="true"` promises is inert has to be
+ * the app root itself (`#app` in `index.html`) -- not some ancestor that, post-teleport, no longer
+ * contains the dialog at all.
+ */
+function getAppRoot() {
+  return document.getElementById('app')
+}
+
 // WATCHERS
 
 /**
- * Escape handling and scroll-locking are bound only while open, so stacked dialogs do not each keep
- * a listener alive. The lock is reference-counted on a data attribute because a dialog can open on
- * top of another -- releasing on the first close would unlock the page while a dialog is still up.
+ * Escape handling, scroll-locking and backgrounding are bound only while open, so stacked dialogs do
+ * not each keep a listener alive. Both the scroll lock and `inert` are reference-counted on the same
+ * data attribute because a dialog can open on top of another -- releasing on the first close would
+ * unlock/un-inert the page while a dialog is still up. Only the outermost dialog (depth 0 -> 1 opening,
+ * 1 -> 0 closing) actually toggles `inert`; a stacked dialog just rides the existing count.
  */
 watch(
   () => props.modelValue,
@@ -161,12 +172,16 @@ watch(
       const depth = Number(document.body.dataset.wDialogDepth ?? 0) + 1
       document.body.dataset.wDialogDepth = String(depth)
       document.body.style.overflow = 'hidden'
+      if (depth === 1) {
+        getAppRoot()?.setAttribute('inert', '')
+      }
     } else {
       document.removeEventListener('keydown', onKeydown, true)
       const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
       document.body.dataset.wDialogDepth = String(depth)
       if (depth === 0) {
         document.body.style.overflow = ''
+        getAppRoot()?.removeAttribute('inert')
       }
     }
   },
@@ -174,13 +189,14 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  // -> An unmount while open (route change, host teardown) would otherwise leak both
+  // -> An unmount while open (route change, host teardown) would otherwise leak all three
   if (props.modelValue) {
     document.removeEventListener('keydown', onKeydown, true)
     const depth = Math.max(0, Number(document.body.dataset.wDialogDepth ?? 0) - 1)
     document.body.dataset.wDialogDepth = String(depth)
     if (depth === 0) {
       document.body.style.overflow = ''
+      getAppRoot()?.removeAttribute('inert')
     }
   }
 })
