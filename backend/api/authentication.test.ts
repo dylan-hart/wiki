@@ -595,3 +595,55 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(res.json().message, 'ERR_RESET_PASSWORD_FAILED')
   })
 })
+
+/**
+ * #1616: `POST /authentication/strategies` used to answer an unknown `module` with a hardcoded
+ * English sentence, which surfaced verbatim in the UI instead of translating like the rest of a
+ * `t(key, fallback)` screen. Assert the coded `ERR_*` shape rather than any particular wording.
+ */
+describe('POST /authentication/strategies (unknown module)', () => {
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        authentication: {
+          getModule: () => null
+        }
+      }
+    }
+
+    app = fastify()
+    await app.register(fastifySensible)
+    // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.badRequest()` is a thrown
+    //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes
+    //    it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+    app.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('POST /authentication/strategies rejects an unknown module with a coded error', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/authentication/strategies',
+      payload: { module: 'not-a-real-module' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(res.json().message, 'ERR_UNKNOWN_AUTH_MODULE')
+  })
+})

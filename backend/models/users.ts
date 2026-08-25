@@ -128,6 +128,7 @@ export interface UserProfile {
   timeFormat: string
   appearance: string
   cvd: string
+  locale: string
 }
 
 /** The fields a user may change on its own profile. Notably not the email, nor any admin flag. */
@@ -141,11 +142,19 @@ export interface UserProfilePatch {
   timeFormat?: string
   appearance?: string
   cvd?: string
+  locale?: string
 }
 
 /** The `meta` keys the profile owns, and the `prefs` keys it owns. */
 const profileMetaKeys = ['location', 'jobTitle', 'pronouns'] as const
-const profilePrefsKeys = ['timezone', 'dateFormat', 'timeFormat', 'appearance', 'cvd'] as const
+const profilePrefsKeys = [
+  'timezone',
+  'dateFormat',
+  'timeFormat',
+  'appearance',
+  'cvd',
+  'locale'
+] as const
 
 /**
  * The square, in pixels, an avatar is resized to. The profile page and the account menu both display
@@ -745,7 +754,11 @@ class Users {
       dateFormat: prefs.dateFormat ?? '',
       timeFormat: prefs.timeFormat ?? '12h',
       appearance: prefs.appearance ?? 'site',
-      cvd: prefs.cvd ?? 'none'
+      cvd: prefs.cvd ?? 'none',
+      // -> An empty locale means "no preference recorded" — mail resolves such a user's messages in
+      //    `en`, the same fallback `models/locales.ts#resolveString`'s server-side string resolver
+      //    uses for an unset or unknown locale.
+      locale: prefs.locale ?? ''
     }
   }
 
@@ -801,6 +814,18 @@ class Users {
     const user = await this.getById(id)
     if (!user) {
       return null
+    }
+
+    // -> Validated against the installed catalogue rather than a static enum, same reasoning as the
+    //    timezone check in `api/users.ts` — the valid set is only known at runtime. An empty string
+    //    clears the preference (falls back to `en` when mail resolves it), so it skips the check.
+    if (patch.locale !== undefined && patch.locale !== '') {
+      const known = (await WIKI.models.locales.getLocales()).some(
+        (lc: any) => lc.code === patch.locale
+      )
+      if (!known) {
+        throw new Error('ERR_INVALID_LOCALE')
+      }
     }
 
     const meta = { ...((user.meta ?? {}) as Record<string, any>) }
@@ -1919,7 +1944,12 @@ class Users {
         `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
       )
       const token = await this.generateToken({ kind: 'verify', userId: existing.id })
-      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      await WIKI.models.mail.sendVerifyEmail({
+        to: existing.email,
+        name: existing.name,
+        token,
+        locale: (existing.prefs as Record<string, any> | undefined)?.locale
+      })
       return { nextAction: 'verify' }
     }
 
@@ -2437,7 +2467,12 @@ class Users {
       userId: user.id,
       meta: { strategyId }
     })
-    await WIKI.models.mail.sendForgotPassword({ to: user.email, name: user.name, token })
+    await WIKI.models.mail.sendForgotPassword({
+      to: user.email,
+      name: user.name,
+      token,
+      locale: (user.prefs as Record<string, any> | undefined)?.locale
+    })
     WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
 
@@ -2494,7 +2529,11 @@ class Users {
     await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
 
     try {
-      await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })
+      await WIKI.models.mail.sendPasswordResetConfirmed({
+        to: user.email,
+        name: user.name,
+        locale: user.prefs?.locale
+      })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
       //    failed reset
@@ -2517,7 +2556,8 @@ class Users {
       dateFormat: user.prefs?.dateFormat,
       timeFormat: user.prefs?.timeFormat,
       appearance: user.prefs?.appearance,
-      cvd: user.prefs?.cvd
+      cvd: user.prefs?.cvd,
+      locale: user.prefs?.locale
     }
     req.session.permissions = uniq(flatten(user.groups?.map((g: any) => g.permissions)))
     // -> Group ids as well as their permissions, since navigation items are limited per group

@@ -61,6 +61,19 @@ export interface SideloadLocalePack {
 }
 
 /**
+ * Substitute `{name}`-style placeholders in a server-rendered string — the same interpolation
+ * syntax `en.json` already uses throughout for vue-i18n on the frontend, reused here so a
+ * `mail.*` template reads the same way whichever side resolves it. A placeholder with no matching
+ * `params` entry is left as-is rather than replaced with an empty string, so a typo'd or
+ * not-yet-supplied key is visibly wrong instead of silently vanishing.
+ */
+export function interpolate(template: string, params: Record<string, string> = {}): string {
+  return template.replaceAll(/\{(\w+)\}/g, (match, key) =>
+    Object.hasOwn(params, key) ? params[key] : match
+  )
+}
+
+/**
  * Validates one parsed JSON file from `<dataPath>/locales/` (OpenProject #820's sideload
  * mechanism — see `sideloadFromDataPath`) into a `SideloadLocalePack`, or an error string naming
  * what is missing. A sideload file is self-contained (unlike the vendored files under
@@ -341,6 +354,68 @@ class Locales {
       .where(eq(localesTable.code, locale))
       .limit(1)
     return results.length === 1 ? results[0].strings : []
+  }
+
+  /**
+   * Look up one raw string by key — `en` for a missing/unknown `locale`, and `en` again for a key
+   * present in `locale` but blank, matching {@link computeCompleteness}'s own "present but blank
+   * does not count" rule. Returns the key itself if even `en` has nothing for it, so a caller sees
+   * an obviously-wrong string rather than `undefined` reaching a template.
+   */
+  private async lookupString(locale: string | null | undefined, key: string): Promise<string> {
+    if (locale && locale !== 'en') {
+      const strings = await this.getStrings(locale)
+      if (!Array.isArray(strings)) {
+        const value = (strings as Record<string, unknown>)[key]
+        if (typeof value === 'string' && value.length > 0) {
+          return value
+        }
+      }
+    }
+    const enStrings = await this.getStrings('en')
+    const enValue = Array.isArray(enStrings)
+      ? undefined
+      : (enStrings as Record<string, unknown>)[key]
+    return typeof enValue === 'string' && enValue.length > 0 ? enValue : key
+  }
+
+  /**
+   * Resolve one server-rendered string — `models/mail.ts`'s templates are the only caller today.
+   * Client-rendered output goes through the frontend's own i18n instead; this exists because
+   * `models/locales.ts` otherwise only *serves* the catalogue, with nothing on the server side to
+   * resolve a string out of it (OpenProject #1611). Falls back to `en` for an unset/unknown
+   * `locale` and for a key that locale doesn't have, then substitutes `params` via
+   * {@link interpolate}.
+   */
+  async resolveString(
+    locale: string | null | undefined,
+    key: string,
+    params: Record<string, string> = {}
+  ): Promise<string> {
+    const template = await this.lookupString(locale, key)
+    return interpolate(template, params)
+  }
+
+  /**
+   * Same as {@link resolveString}, but for a message stored as three pipe-delimited plural forms —
+   * `<count=0 form> | <count=1 form> | <other form>` — selected by `count`. This is a plain
+   * cardinal split rather than full CLDR plural-category matching (`zero`/`one`/`two`/`few`/`many`/
+   * `other`): `en.json` only carries `en` strings today, and English needs no more than these three
+   * forms; a locale whose grammar needs more categories gains them when it's actually translated,
+   * without changing this method's contract. `{count}` is always available to interpolate
+   * alongside `params`.
+   */
+  async resolvePluralString(
+    locale: string | null | undefined,
+    key: string,
+    count: number,
+    params: Record<string, string> = {}
+  ): Promise<string> {
+    const raw = await this.lookupString(locale, key)
+    const forms = raw.split('|').map((form) => form.trim())
+    const form =
+      count === 0 ? (forms[0] ?? raw) : count === 1 ? (forms[1] ?? forms.at(-1)!) : forms.at(-1)!
+    return interpolate(form, { ...params, count: String(count) })
   }
 
   async reloadCache(): Promise<void> {

@@ -220,11 +220,13 @@ import { notify } from '@/composables/notify'
 import { loading } from '@/composables/loading'
 import { computed, onMounted, reactive } from 'vue'
 
+import { useCommonStore } from '@/stores/common'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
 // STORES
 
+const commonStore = useCommonStore()
 const siteStore = useSiteStore()
 const userStore = useUserStore()
 
@@ -335,7 +337,10 @@ async function save() {
         dateFormat: state.config.dateFormat,
         timeFormat: state.config.timeFormat,
         appearance: state.config.appearance,
-        cvd: state.config.cvd
+        cvd: state.config.cvd,
+        // -> No dedicated form control: `LocaleSelectorMenu` already owns picking the UI language,
+        //    so saving the profile records whatever that's currently set to as the mail preference.
+        locale: commonStore.locale
       }
     }).json()
     if (!resp?.ok) {

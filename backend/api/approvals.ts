@@ -199,7 +199,7 @@ async function rejectUnknownGroups(
     groupIds.flatMap((ids) => ids ?? [])
   )
   if (unknown.length > 0) {
-    reply.badRequest(`No such group: ${unknown.join(', ')}`)
+    reply.badRequest('ERR_UNKNOWN_GROUPS')
     return true
   }
   return false

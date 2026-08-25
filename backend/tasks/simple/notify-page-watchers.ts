@@ -110,7 +110,8 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
         page: { title: pageTitle, path: pagePath, locale: pageLocale },
         action,
         changedFields,
-        actorName
+        actorName,
+        locale: (recipient.prefs as Record<string, any> | undefined)?.locale
       })
       await WIKI.models.pageWatchEvents.markDelivered(eventId)
     } catch (err: any) {

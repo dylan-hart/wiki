@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { mail, classifyMailError } from './mail.ts'
+import { interpolate } from './locales.ts'
 
 /**
  * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
@@ -11,6 +13,51 @@ import { mail, classifyMailError } from './mail.ts'
 let previousWiki: any
 const originalGetTransporter = mail.getTransporter.bind(mail)
 const originalSend = mail.send.bind(mail)
+
+/**
+ * `mail.ts`'s templates resolve every subject/body through `WIKI.models.locales.resolveString` /
+ * `resolvePluralString` (#1611/#1623). The real implementation reads the `locales` DB table, which
+ * this file deliberately does not stand up (see the file header comment) — instead this stub
+ * re-implements the same lookup/fallback/plural-form contract `models/locales.ts` documents,
+ * against the real `en.json` on disk plus whatever `catalogues` a test supplies for another
+ * "locale", so a template test exercises the actual production `mail.*` string keys rather than a
+ * hand-rolled duplicate of them.
+ */
+const enStrings = JSON.parse(
+  readFileSync(new URL('../locales/en.json', import.meta.url), 'utf8')
+) as Record<string, string>
+
+function makeLocalesStub(catalogues: Record<string, Record<string, string>> = {}) {
+  function lookup(locale: string | null | undefined, key: string): string {
+    if (locale && locale !== 'en') {
+      const value = catalogues[locale]?.[key]
+      if (typeof value === 'string' && value.length > 0) {
+        return value
+      }
+    }
+    const enValue = (catalogues.en ?? enStrings)[key]
+    return typeof enValue === 'string' && enValue.length > 0 ? enValue : key
+  }
+  return {
+    resolveString: async (
+      locale: string | null | undefined,
+      key: string,
+      params: Record<string, string> = {}
+    ) => interpolate(lookup(locale, key), params),
+    resolvePluralString: async (
+      locale: string | null | undefined,
+      key: string,
+      count: number,
+      params: Record<string, string> = {}
+    ) => {
+      const raw = lookup(locale, key)
+      const forms = raw.split('|').map((form) => form.trim())
+      const form =
+        count === 0 ? (forms[0] ?? raw) : count === 1 ? (forms[1] ?? forms.at(-1)!) : forms.at(-1)!
+      return interpolate(form, { ...params, count: String(count) })
+    }
+  }
+}
 
 /** The default site a `siteId` in these tests resolves to — one non-primary locale (`fr`) active
  *  alongside the primary (`en`), so `sendPageWatchNotification`/`sendPageWatchDigest` have a real
@@ -25,10 +72,15 @@ const DEFAULT_SITES = {
   }
 }
 
-function setMailConfig(cfg: Record<string, any> = {}, sites: Record<string, any> = DEFAULT_SITES) {
+function setMailConfig(
+  cfg: Record<string, any> = {},
+  sites: Record<string, any> = DEFAULT_SITES,
+  localeCatalogues: Record<string, Record<string, string>> = {}
+) {
   ;(globalThis as any).WIKI = {
     config: { mail: cfg },
     sites,
+    models: { locales: makeLocalesStub(localeCatalogues) },
     logger: {
       warn: mock.fn(),
       error: mock.fn(),
@@ -735,5 +787,132 @@ describe('mail template senders', () => {
       assert.match(msg.html, /&lt;script&gt;/)
       assert.match(msg.text, /<script>alert\(1\)<\/script>/)
     })
+  })
+})
+
+/**
+ * #1611/#1623/#1627: every template subject/body now resolves through
+ * `WIKI.models.locales.resolveString`/`resolvePluralString` (`mail.*` keys in `en.json`) instead of
+ * a hardcoded English template literal. These tests exercise that resolver contract directly —
+ * `mail template senders` above already proves the six templates still render usable
+ * subjects/bodies against the real production keys.
+ */
+describe('mail templates resolve through the locale catalogue', () => {
+  let sendCalls: any[]
+
+  beforeEach(() => {
+    sendCalls = []
+  })
+
+  function captureSends() {
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+  }
+
+  test('sendVerifyEmail subject resolves from a recipient locale that has the key', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' }, DEFAULT_SITES, {
+      fr: { 'mail.verifyEmail.subject': 'Vérifiez votre adresse e-mail' }
+    })
+    captureSends()
+    await mail.sendVerifyEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok', locale: 'fr' })
+    assert.equal(sendCalls[0].subject, 'Vérifiez votre adresse e-mail')
+  })
+
+  test('falls back to en for a locale that is not installed', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' })
+    captureSends()
+    await mail.sendVerifyEmail({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok',
+      locale: 'xx-not-installed'
+    })
+    assert.equal(sendCalls[0].subject, enStrings['mail.verifyEmail.subject'])
+  })
+
+  test('falls back to en for a key missing (blank) from an otherwise-installed locale', async () => {
+    setMailConfig({ host: 'smtp.example.com', senderEmail: 'wiki@example.com' }, DEFAULT_SITES, {
+      fr: { 'mail.verifyEmail.subject': '' }
+    })
+    captureSends()
+    await mail.sendVerifyEmail({ to: 'ada@example.com', name: 'Ada', token: 'tok', locale: 'fr' })
+    assert.equal(sendCalls[0].subject, enStrings['mail.verifyEmail.subject'])
+  })
+
+  test('every one of the six templates resolves its subject from the real en.json mail.* keys', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    captureSends()
+
+    await mail.sendVerifyEmail({ to: 'a@example.com', name: 'Ada', token: 't' })
+    await mail.sendForgotPassword({ to: 'a@example.com', name: 'Ada', token: 't' })
+    await mail.sendPasswordResetConfirmed({ to: 'a@example.com', name: 'Ada' })
+    await mail.sendWelcomeEmail({ to: 'a@example.com', name: 'Ada', token: 't' })
+    await mail.sendTestEmail({ to: 'a@example.com' })
+    await mail.sendPageWatchNotification({
+      to: 'a@example.com',
+      siteId: DEFAULT_SITE_ID,
+      page: { title: 'Getting Started', path: 'docs/getting-started', locale: 'en' },
+      action: 'updated',
+      changedFields: [],
+      actorName: 'Bob'
+    })
+
+    assert.equal(sendCalls[0].subject, enStrings['mail.verifyEmail.subject'])
+    assert.equal(sendCalls[1].subject, enStrings['mail.forgotPassword.subject'])
+    assert.equal(sendCalls[2].subject, enStrings['mail.passwordResetConfirmed.subject'])
+    assert.equal(sendCalls[3].subject, enStrings['mail.welcomeEmail.subject'])
+    assert.equal(sendCalls[4].subject, enStrings['mail.testEmail.subject'])
+    // -> WATCH_ACTION_LABELS maps the `updated` action to the verb "edited" for display
+    assert.equal(sendCalls[5].subject, 'Page edited: Getting Started')
+  })
+
+  test('watch-digest subject uses a plural message for counts of 0, 1 and 2', async () => {
+    setMailConfig({
+      host: 'smtp.example.com',
+      senderEmail: 'wiki@example.com',
+      defaultBaseURL: 'https://wiki.example.com'
+    })
+    captureSends()
+
+    await mail.sendPageWatchDigest({ to: 'a@example.com', siteId: DEFAULT_SITE_ID, items: [] })
+    await mail.sendPageWatchDigest({
+      to: 'a@example.com',
+      siteId: DEFAULT_SITE_ID,
+      items: [
+        {
+          page: { title: 'Solo', path: 'solo', locale: 'en' },
+          action: 'updated',
+          changedFields: [],
+          actorName: 'Bob'
+        }
+      ]
+    })
+    await mail.sendPageWatchDigest({
+      to: 'a@example.com',
+      siteId: DEFAULT_SITE_ID,
+      items: [
+        {
+          page: { title: 'A', path: 'a', locale: 'en' },
+          action: 'updated',
+          changedFields: [],
+          actorName: 'Bob'
+        },
+        {
+          page: { title: 'B', path: 'b', locale: 'en' },
+          action: 'updated',
+          changedFields: [],
+          actorName: 'Bob'
+        }
+      ]
+    })
+
+    assert.equal(sendCalls[0].subject, "No updates on pages you're watching")
+    assert.equal(sendCalls[1].subject, "1 update on pages you're watching")
+    assert.equal(sendCalls[2].subject, "2 updates on pages you're watching")
   })
 })

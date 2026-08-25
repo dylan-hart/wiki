@@ -194,7 +194,10 @@ async function routes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        await WIKI.models.mail.sendTestEmail({ to: req.body.recipientEmail })
+        await WIKI.models.mail.sendTestEmail({
+          to: req.body.recipientEmail,
+          locale: req.session?.user?.locale
+        })
       } catch (err: any) {
         if (err.message === 'ERR_MAIL_NOT_CONFIGURED') {
           return reply.badRequest(
