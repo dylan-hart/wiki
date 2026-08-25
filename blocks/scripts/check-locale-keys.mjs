@@ -86,16 +86,23 @@ function expectedKeys(definitions) {
 }
 
 /**
- * Every `en.json` key under the `blocks.` namespace, to its string value.
+ * Every `en.json` key under the `blocks.` namespace shaped like a static-definition key --
+ * `blocks.<tag>.description` or `blocks.<tag>.props.<propName>.(label|hint)` -- to its string value.
  *
  * `en.json` is a flat dictionary -- every key is a literal string carrying its own dots (e.g.
  * `"admin.analytics.enabled"`), not a nested object tree, matching how `frontend/src/boot/i18n.js`'s
- * vue-i18n instance is fed it. `blocks.<tag>.*` keys follow that same flat convention.
+ * vue-i18n instance is fed it. `blocks.<tag>.*` keys follow that same flat convention, but not every
+ * key under that prefix is this script's business: `blocks.<tag>.errors.*` (Feature #1624) is a
+ * separate, runtime-translated namespace read via `this._i18n.t()` inside a block's own render/event
+ * logic, not derived from the `static definition` this script cross-checks -- shaped, and scoped,
+ * differently on purpose, so it's excluded here rather than flagged as an orphan.
  */
+const STATIC_DEFINITION_KEY = /^blocks\.[^.]+\.(?:description|props\.[^.]+\.(?:label|hint))$/
+
 function flattenBlocksNamespace(enJson) {
   const flat = new Map()
   for (const [key, value] of Object.entries(enJson)) {
-    if (key.startsWith('blocks.') && typeof value === 'string') {
+    if (STATIC_DEFINITION_KEY.test(key) && typeof value === 'string') {
       flat.set(key, value)
     }
   }
