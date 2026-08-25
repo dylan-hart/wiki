@@ -297,7 +297,11 @@ async function move(idx, dir) {
 function deleteLevel(level) {
   confirm({
     title: t('admin.classification.deleteTitle'),
-    message: t('admin.classification.deleteConfirm', { name: level.name })
+    message: t('admin.classification.deleteConfirm', { name: level.name }),
+    persistent: true,
+    cancel: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     try {
       await API_CLIENT.delete(`classification-levels/${level.id}`).json()

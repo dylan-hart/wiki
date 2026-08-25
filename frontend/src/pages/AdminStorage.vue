@@ -1120,7 +1120,9 @@ async function setupDestroy() {
     title: t('admin.storage.destroyConfirm'),
     message: t('admin.storage.destroyConfirmInfo'),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     loading.show({
       message: t('admin.storage.destroyingSetup')

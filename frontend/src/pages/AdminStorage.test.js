@@ -58,3 +58,24 @@ describe('AdminStorage.vue - GitHub App setup flow removal', () => {
     expect(missing).toEqual([])
   })
 })
+
+/**
+ * OpenProject #2039: `setupDestroy()`'s confirm() call passed `cancel: true, persistent: true` but
+ * never `color`/`okLabel`, leaving a primary-blue OK on an irreversible storage-setup delete. Now
+ * matches the reference treatment (`AdminIcons.vue`'s `confirmDeleteSet()`). Asserted against the
+ * source text, not a mount -- see the file header comment above for why a full mount of this page is
+ * a disproportionate lift here.
+ */
+describe('AdminStorage.vue - setupDestroy confirmation', () => {
+  it('passes the negative-coloured, delete-labelled treatment to its confirm() call', () => {
+    const fnStart = pageSource.indexOf('async function setupDestroy()')
+    expect(fnStart).toBeGreaterThan(-1)
+
+    const confirmStart = pageSource.indexOf('confirm({', fnStart)
+    const confirmEnd = pageSource.indexOf('}).onOk(', confirmStart)
+    const confirmCall = pageSource.slice(confirmStart, confirmEnd)
+
+    expect(confirmCall).toContain("color: 'negative'")
+    expect(confirmCall).toContain("okLabel: t('common.actions.delete')")
+  })
+})

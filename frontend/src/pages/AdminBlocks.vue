@@ -428,7 +428,9 @@ function deleteCredential(credential) {
     title: t('admin.blocks.credentialDelete'),
     message: t('admin.blocks.credentialDeleteConfirm', { name: credential.name }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     try {
       await API_CLIENT.delete(
@@ -507,7 +509,9 @@ function deleteBlock(id) {
     title: t('admin.blocks.delete'),
     message: t('admin.blocks.deleteConfirm', { blockName: block?.name ?? '' }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     state.loading++
     try {

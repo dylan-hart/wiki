@@ -1400,7 +1400,9 @@ async function unassignUser(user) {
     title: t('admin.groups.unassignUser'),
     message: t('admin.groups.unassignUserConfirm', { userName: user.name }),
     cancel: true,
-    persistent: true
+    persistent: true,
+    color: 'negative',
+    okLabel: t('common.actions.delete')
   }).onOk(async () => {
     state.isLoadingUsers = true
     try {
