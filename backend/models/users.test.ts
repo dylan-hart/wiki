@@ -17,8 +17,11 @@ import { ProvisionableLoginError } from './authentication.ts'
 /**
  * `updateSession` is the one place a login turns a user row into session state — permissions
  * flattened across every group the user belongs to, and the group ids kept alongside them since
- * navigation is filtered per group. It touches neither `WIKI` nor the database, so this is a pure
- * unit test: no fixture from `test/db.ts` needed.
+ * navigation is filtered per group. It also regenerates the session id before writing any of that,
+ * so a pre-login session (fixated by an attacker, or merely holding `authFlow`/`passkeyLogin` from
+ * one of the two public pre-login endpoints that force a store write) can never carry into an
+ * authenticated one. It touches neither `WIKI` nor the database, so this is a pure unit test: no
+ * fixture from `test/db.ts` needed.
  */
 
 function makeUser(overrides: Partial<any> = {}): any {
@@ -33,12 +36,37 @@ function makeUser(overrides: Partial<any> = {}): any {
   }
 }
 
+/**
+ * Stand-in for `@fastify/session`'s `Session#regenerate()` (`lib/session.js`): records that it was
+ * called, then swaps `req.session` for a fresh object carrying only a new `id` — same shape the real
+ * store does by replacing `this[requestKey].session` with a brand-new `Session` instance whose id
+ * differs from the one it started with.
+ */
 function makeReq(): any {
-  return { session: {} }
+  const req: any = {
+    session: { id: 'pre-login-session-id' }
+  }
+  req.session.regenerate = mock.fn(async () => {
+    req.session = { id: 'post-login-session-id', regenerate: req.session.regenerate }
+  })
+  return req
 }
 
 describe('users.updateSession', () => {
-  test('marks the session authenticated and copies the core user fields', () => {
+  test('regenerates the session id before writing any authenticated state', async () => {
+    const user = makeUser()
+    const req = makeReq()
+    const preLoginSession = req.session
+    const regenerate = req.session.regenerate
+
+    await users.updateSession(user, req)
+
+    assert.equal(regenerate.mock.calls.length, 1)
+    assert.notEqual(req.session, preLoginSession)
+    assert.notEqual(req.session.id, preLoginSession.id)
+  })
+
+  test('marks the session authenticated and copies the core user fields', async () => {
     const user = makeUser({
       hasAvatar: true,
       prefs: {
@@ -50,7 +78,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.equal(req.session.authenticated, true)
     assert.deepEqual(req.session.user, {
@@ -66,7 +94,7 @@ describe('users.updateSession', () => {
     })
   })
 
-  test('flattens permissions across every group the user belongs to', () => {
+  test('flattens permissions across every group the user belongs to', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages', 'write:comments'] },
@@ -75,7 +103,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(
       new Set(req.session.permissions),
@@ -84,7 +112,7 @@ describe('users.updateSession', () => {
     assert.equal(req.session.permissions.length, 3)
   })
 
-  test('deduplicates a permission granted by more than one group', () => {
+  test('deduplicates a permission granted by more than one group', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages', 'manage:users'] },
@@ -93,7 +121,7 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(
       new Set(req.session.permissions),
@@ -102,7 +130,7 @@ describe('users.updateSession', () => {
     assert.equal(req.session.permissions.length, 3)
   })
 
-  test('carries group ids alongside their permissions, in membership order', () => {
+  test('carries group ids alongside their permissions, in membership order', async () => {
     const user = makeUser({
       groups: [
         { id: 'group-a', permissions: ['read:pages'] },
@@ -111,16 +139,16 @@ describe('users.updateSession', () => {
     })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.deepEqual(req.session.groups, ['group-a', 'group-b'])
   })
 
-  test('a user in no groups gets an authenticated session with nothing granted', () => {
+  test('a user in no groups gets an authenticated session with nothing granted', async () => {
     const user = makeUser({ groups: [] })
     const req = makeReq()
 
-    users.updateSession(user, req)
+    await users.updateSession(user, req)
 
     assert.equal(req.session.authenticated, true)
     assert.deepEqual(req.session.permissions, [])
@@ -186,7 +214,11 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   const MODULE_KEY = 'local-test'
 
   function req(): any {
-    return { session: {} }
+    const r: any = { session: {} }
+    r.session.regenerate = async () => {
+      r.session = {}
+    }
+    return r
   }
 
   async function createStrategy({
@@ -479,7 +511,11 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
   const MODULE_KEY = 'local-reset-test'
 
   function req(): any {
-    return { session: {} }
+    const r: any = { session: {} }
+    r.session.regenerate = async () => {
+      r.session = {}
+    }
+    return r
   }
 
   async function createStrategy({

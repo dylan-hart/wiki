@@ -2091,7 +2091,7 @@ class Users {
     }
 
     // Set Session Data
-    this.updateSession(user, req)
+    await this.updateSession(user, req)
 
     WIKI.models.flags.authDebug(
       `User ${user.id} <${user.email}> logged in with ${user.groups.length} group(s) and ${req?.session?.permissions?.length ?? 0} permission(s), redirecting to ${redirect}`
@@ -2506,7 +2506,16 @@ class Users {
     return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
-  updateSession(user: any, req: any): void {
+  async updateSession(user: any, req: any): Promise<void> {
+    // -> Regenerate the session id before writing any authenticated state onto it. Two public,
+    //    pre-login endpoints already force a store `set`/`Set-Cookie` for an anonymous visitor
+    //    (`POST .../auth/passkey/challenge`'s `req.session.passkeyLogin`, `GET
+    //    /auth/:strategyId/authorize`'s `req.session.authFlow`), so fixing session id continuity on
+    //    login can't rely on `saveUninitialized: false` -- without this, an attacker who fixates a
+    //    session id pre-login inherits it post-login too. Nothing from the pre-login session needs
+    //    carrying across: `authFlow`/`passkeyLogin` are already cleared by their own callers once
+    //    consumed, and `regenerate()` with no `keys` argument starts a fresh session with neither.
+    await req.session.regenerate()
     req.session.authenticated = true
     req.session.user = {
       id: user.id,
