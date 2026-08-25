@@ -278,11 +278,13 @@ async function create() {
       message: t('profile.api.createSuccess')
     })
     // -> The token exists only in this response, so hand it straight to the copy dialog -- same
-    //    generic dialog the admin form reuses, it only needs the token value.
+    //    generic dialog the admin form reuses, only with the `profile.api.*` vocabulary so it calls
+    //    this an "Access Token" rather than the admin flow's "API Key".
     dialog({
       component: ApiKeyCopyDialog,
       componentProps: {
-        keyValue: resp.key
+        keyValue: resp.key,
+        labelPrefix: 'profile.api'
       }
     }).onDismiss(() => {
       onDialogOK()
