@@ -516,6 +516,113 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
 })
 
 /**
+ * OpenProject #1735 (part of #1730): `approveSubmission` used to insert the vote, count approvals and
+ * -- if the threshold was met -- write the page and delete the submission, all as separate statements
+ * on the default connection with no lock. Two requests both reading a threshold-satisfying count could
+ * both enter the finalize branch: `onConflictDoNothing` only suppresses a duplicate vote *row* from the
+ * same reviewer, not the count both still went on to read, so a single reviewer's double-submit at
+ * `minApprovals: 1` produced two `updated` history versions for one approval. `approveSubmission` now
+ * takes a `for('update')` row lock inside a transaction spanning the vote-insert through the
+ * finalize-or-not decision, so the second call blocks until the first commits, then finds the
+ * submission already gone and returns not-found.
+ */
+describe('approvals concurrent finalisation (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let pagesModel: typeof import('./pages.ts').pages
+  let approvalsModel: typeof import('./approvals.ts').approvals
+  let pageHistoryModel: typeof import('./pageHistory.ts').pageHistory
+  let actor: PageActor
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+    ;({ pageHistory: pageHistoryModel } = await import('./pageHistory.ts'))
+    actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('two concurrent approvals at minApprovals 1 finalize exactly once; the loser gets not-found', async () => {
+    // -> No rule created: `requiredApprovalsForPage` defaults to 1 when nothing matches, the same
+    //    `minApprovals: 1` case the audit finding calls out.
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'approvals/concurrent/single-reviewer',
+        title: 'Concurrent Single Reviewer',
+        editor: 'markdown',
+        content: 'Original content'
+      },
+      actor
+    )
+    const submission = await approvalsModel.saveSubmission({
+      siteId: fixtures.siteId,
+      page: {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      },
+      baseContent: 'Original content',
+      content: 'Suggested content',
+      authorId: fixtures.userId
+    })
+
+    // -> The same reviewer's double-submit: a double click or a retried request, both racing to
+    //    finalize the same submission at once.
+    const [first, second] = await Promise.all([
+      approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor
+      }),
+      approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor
+      })
+    ])
+
+    const results = [first, second]
+    const finalized = results.filter((r) => r.ok && r.finalized)
+    const notFound = results.filter((r) => !r.ok && r.reason === 'not-found')
+    assert.equal(finalized.length, 1, 'exactly one call finalized the submission')
+    assert.equal(notFound.length, 1, 'the loser sees the submission already gone')
+
+    const finalPage = await pagesModel.getPage({
+      siteId: fixtures.siteId,
+      id: page.id,
+      withContent: true
+    })
+    assert.equal(finalPage!.content, 'Suggested content')
+
+    const entries = await pageHistoryModel.list(fixtures.siteId, page.id)
+    const updated = entries.filter((e) => e.action === 'updated')
+    assert.equal(updated.length, 1, 'exactly one updated history version, not two')
+
+    // -> Closed out: gone from the queue, not left behind for either racer to find again
+    const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+      groupIds: [],
+      reviewsAll: true,
+      pageId: page.id
+    })
+    assert.equal(
+      pending.some((s) => s.id === submission.id),
+      false
+    )
+  })
+})
+
+/**
  * `saveSubmission`'s reviewer-notification trigger: who gets told, and when.
  *
  * Reviewer resolution is exercised through `resolveReviewers` directly (SQL orchestration across

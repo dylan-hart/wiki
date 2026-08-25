@@ -974,10 +974,22 @@ class Users {
         : []
     const wantedIds = wanted.map((g: any) => g.id)
 
-    await db.delete(userGroups).where(eq(userGroups.userId, userId))
-    if (wantedIds.length > 0) {
-      await db.insert(userGroups).values(wantedIds.map((groupId: string) => ({ userId, groupId })))
-    }
+    // -> One transaction: `userGroups` has no soft-replace path, so a plain delete-then-insert left a
+    //    window where a concurrent single-membership grant landing in between could make the insert's
+    //    conflict on the composite primary key fail outright, or a dropped connection could leave the
+    //    user in no groups at all -- no admin access, no page rules -- with the caller's error saying
+    //    nothing about membership having been wiped. `reassignContent` above draws this same boundary.
+    //    Transacting on `db` (not the ambient `WIKI.db`) is what lets `createUser()`'s own open
+    //    transaction be joined rather than raced by a second, independent one -- drizzle nests it as a
+    //    savepoint when `db` is already a transaction handle.
+    await db.transaction(async (tx) => {
+      await tx.delete(userGroups).where(eq(userGroups.userId, userId))
+      if (wantedIds.length > 0) {
+        await tx
+          .insert(userGroups)
+          .values(wantedIds.map((groupId: string) => ({ userId, groupId })))
+      }
+    })
   }
 
   /**

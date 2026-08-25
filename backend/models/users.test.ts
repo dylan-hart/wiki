@@ -7,8 +7,10 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import {
   assets as assetsTable,
   authentication as authenticationTable,
+  groups as groupsTable,
   pages as pagesTable,
   userGroups,
+  userGroups as userGroupsTable,
   userKeys,
   users as usersTable
 } from '../db/schema.ts'
@@ -1712,5 +1714,82 @@ describe('users.createUser atomicity (DB-backed)', { skip: !hasTestDatabase() },
       .where(eq(userGroups.userId, userId))
     assert.equal(memberships.length, 1)
     assert.equal(memberships[0]!.groupId, fixtures.groupId)
+  })
+})
+
+/**
+ * OpenProject #1742 (part of #1730): `setUserGroups` used to run its delete-then-insert as two
+ * separate statements on the default connection with no transaction. `userGroups`' primary key is
+ * `(userId, groupId)`, so a group deleted in the window between reading which ids are still valid and
+ * the insert actually running would fail the whole multi-row insert on an FK violation -- and because
+ * the delete had already committed on its own, the user was left in *no* groups at all: no admin
+ * access, no page rules, with the caller's error saying nothing about membership having been wiped.
+ * `setUserGroups` now wraps both statements in one transaction, so a failed insert rolls the delete
+ * back with it.
+ */
+describe('users.setUserGroups (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+    // -> `setUserGroups` -> `groups.guestMembershipViolation` reads `WIKI.data.systemIds.guestsGroupId`
+    //    -- a full-boot value the minimal test `WIKI` does not carry. Neither group id used below is
+    //    this one, so it never actually matches; it only has to be present for the read not to throw.
+    WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('an FK violation on the insert half rolls back the delete, leaving prior membership intact', async () => {
+    const [raceUser] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'group-race@example.com',
+        name: 'Group Race User',
+        isActive: true,
+        isVerified: true
+      })
+      .returning({ id: usersTable.id })
+    const [raceGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'FK Race Group', permissions: [], rules: [] })
+      .returning({ id: groupsTable.id })
+
+    // -> Real prior membership -- this is what a botched transaction would leave the user stripped of
+    await usersModel.setUserGroups(raceUser!.id, [fixtures.groupId])
+
+    /*
+      Sabotages the transaction from the outside, at exactly the point `setUserGroups` opens it --
+      deleting the target group out from under the still-to-run insert reproduces the real race: a
+      group deleted in the window between `setUserGroups` reading it as valid and the insert actually
+      running. `WIKI.db.transaction` itself, and everything `setUserGroups` does inside it, run for
+      real and unmocked; only the timing of the group's deletion is engineered.
+    */
+    const originalTransaction = WIKI.db.transaction.bind(WIKI.db)
+    const transactionSpy = mock.method(WIKI.db, 'transaction', (fn: any) =>
+      originalTransaction(async (tx: any) => {
+        await fixtures.db.delete(groupsTable).where(eq(groupsTable.id, raceGroup!.id))
+        return fn(tx)
+      })
+    )
+    try {
+      await assert.rejects(() => usersModel.setUserGroups(raceUser!.id, [raceGroup!.id]))
+    } finally {
+      transactionSpy.mock.restore()
+    }
+
+    const membership = await fixtures.db
+      .select({ groupId: userGroupsTable.groupId })
+      .from(userGroupsTable)
+      .where(eq(userGroupsTable.userId, raceUser!.id))
+    assert.deepEqual(
+      membership.map((m) => m.groupId),
+      [fixtures.groupId],
+      'the prior membership survived the failed insert instead of being left empty'
+    )
   })
 })

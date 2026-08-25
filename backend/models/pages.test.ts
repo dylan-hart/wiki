@@ -792,6 +792,66 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(target, null)
   })
 
+  /**
+   * OpenProject #1739 (part of #1730): `deletePage` used to delete the `pages` row and then call
+   * `tree.deleteEntry` as two separate statements on the default connection -- there is no FK from
+   * `tree.id` to `pages.id`, so nothing at the database level removed the tree row if the second
+   * statement failed. That left a tree entry pointing at a page that no longer existed, permanently
+   * blocking a future page at the same path via `tree_composite_page_idx`. `deletePage` now wraps both
+   * in one transaction, so a failure partway through rolls back everything -- including the `pages`
+   * delete that already ran -- rather than leaving an orphan.
+   */
+  test('a failure inside tree.deleteEntry rolls back the whole deletePage, leaving the path recreatable', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/atomic-delete/leaf' }),
+      actor
+    )
+    const parentFolder = await WIKI.models.tree.getFolder({
+      path: 'docs/atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    const childrenBefore = (parentFolder as any).meta?.children ?? 0
+
+    const deleteEntry = mock.method(WIKI.models.tree, 'deleteEntry', async () => {
+      throw new Error('simulated tree.deleteEntry failure')
+    })
+    try {
+      await assert.rejects(() => pagesModel.deletePage(fixtures.siteId, page.id, actor))
+    } finally {
+      deleteEntry.mock.restore()
+    }
+
+    // -> Rolled back atomically: the `pages` delete that ran first inside the same transaction did not
+    //    survive the later failure, so nothing is orphaned on either side.
+    const stillThere = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+    assert.ok(stillThere, 'the page row was not left deleted by the failed transaction')
+
+    const parentFolderAfterFailure = await WIKI.models.tree.getFolder({
+      path: 'docs/atomic-delete',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+    assert.equal(
+      (parentFolderAfterFailure as any).meta?.children ?? 0,
+      childrenBefore,
+      "the folder's child count is unchanged by the failed attempt"
+    )
+
+    // -> A real (unmocked) delete now succeeds, and the path it freed can be reused -- proof the
+    //    earlier failure left nothing behind that `tree_composite_page_idx` would have blocked on.
+    const deleted = await pagesModel.deletePage(fixtures.siteId, page.id, actor)
+    assert.equal(deleted, true)
+
+    const recreated = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/atomic-delete/leaf', title: 'Recreated After Rollback' }),
+      actor
+    )
+    assert.equal(recreated.path, 'docs/atomic-delete/leaf')
+  })
+
   test('deletePage returns false for a page that does not exist', async () => {
     const deleted = await pagesModel.deletePage(
       fixtures.siteId,

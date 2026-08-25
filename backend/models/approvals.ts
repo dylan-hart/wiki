@@ -1053,30 +1053,68 @@ class Approvals {
       return { ok: false, reason: 'stale' }
     }
 
-    await WIKI.db
-      .insert(submissionApprovalsTable)
-      .values({ submissionId, reviewerId: actor.id })
-      // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
-      //    count as a second, different sign-off
-      .onConflictDoNothing({
-        target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+    /*
+      Everything from the row lock through the finalisation decision runs on one transaction, so two
+      concurrent calls for the same submission cannot both read a threshold-satisfying count and both
+      enter the finalize branch. `for('update')` blocks a second transaction on this row until the
+      first commits; the second then re-reads and finds the row already gone if the first finalized,
+      returning not-found instead of also racing to write the page. `onConflictDoNothing` alone was
+      not enough -- it only suppresses a repeat vote *row* from the same reviewer, not the count both
+      requests go on to read.
+
+      `updatePage` stays out of this transaction on purpose: it does its own history/watcher/search/
+      hook/storage I/O and must not run while holding a row lock, per `deletePage`'s and
+      `setUserGroups`' transactions below applying the identical rule.
+    */
+    const decision = await WIKI.db.transaction(async (tx) => {
+      const lockedRows = await tx
+        .select({ id: submissionsTable.id })
+        .from(submissionsTable)
+        .where(eq(submissionsTable.id, submissionId))
+        .for('update')
+      if (!lockedRows[0]) {
+        // -> Already finalized (and deleted) by a concurrent call that reached this transaction first
+        return { ok: false as const, reason: 'not-found' as const }
+      }
+
+      await tx
+        .insert(submissionApprovalsTable)
+        .values({ submissionId, reviewerId: actor.id })
+        // -> Idempotent: this reviewer approving again (a double click, a retried request) must not
+        //    count as a second, different sign-off
+        .onConflictDoNothing({
+          target: [submissionApprovalsTable.submissionId, submissionApprovalsTable.reviewerId]
+        })
+
+      const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
+        path: page.path,
+        tags: page.tags ?? []
       })
-
-    const approvalsRequired = await this.requiredApprovalsForPage(siteId, {
-      path: page.path,
-      tags: page.tags ?? []
-    })
-    const approvalsCount = await WIKI.db.$count(
-      submissionApprovalsTable,
-      eq(submissionApprovalsTable.submissionId, submissionId)
-    )
-
-    if (approvalsCount < approvalsRequired) {
-      WIKI.logger.debug(
-        `Recorded approval ${approvalsCount}/${approvalsRequired} for edit suggestion ${submissionId} ` +
-          `on page ${page.id}; waiting on more reviewers`
+      const approvalsCount = await tx.$count(
+        submissionApprovalsTable,
+        eq(submissionApprovalsTable.submissionId, submissionId)
       )
-      return { ok: true, finalized: false, approvalsCount, approvalsRequired }
+
+      if (approvalsCount < approvalsRequired) {
+        return { ok: true as const, finalized: false as const, approvalsCount, approvalsRequired }
+      }
+
+      // -> Commits the finalisation intent while the row lock is still held: deleting the submission
+      //    here (cascading its approvals) is what a concurrent caller blocked on `for('update')` above
+      //    sees as gone the instant this transaction commits, rather than also entering this branch.
+      await tx.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
+      return { ok: true as const, finalized: true as const, approvalsCount, approvalsRequired }
+    })
+
+    if (!decision.ok) {
+      return decision
+    }
+    if (!decision.finalized) {
+      WIKI.logger.debug(
+        `Recorded approval ${decision.approvalsCount}/${decision.approvalsRequired} for edit ` +
+          `suggestion ${submissionId} on page ${page.id}; waiting on more reviewers`
+      )
+      return decision
     }
 
     /*
@@ -1103,12 +1141,8 @@ class Approvals {
       //    while it is busy waits its turn instead of starting a second one
       await WIKI.models.pages.queueRerender(siteId, page.id, actor)
     }
-
-    // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
-    //    with it rather than left to be swept separately
-    await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
-    return { ok: true, finalized: true, approvalsCount, approvalsRequired }
+    return decision
   }
 
   /**

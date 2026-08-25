@@ -1501,8 +1501,16 @@ class Pages {
       locale: page.locale
     })
 
-    await WIKI.db.delete(pagesTable).where(eq(pagesTable.id, id))
-    await WIKI.models.tree.deleteEntry(id)
+    // -> One transaction: there is no FK from `tree.id` to `pages.id` (only `siteId` is a foreign
+    //    key), so nothing at the database level removes the tree row when the page row goes. A
+    //    failure between two separate statements here would leave a tree entry pointing at a page
+    //    that no longer exists -- still rendering in the file manager, 404ing when opened, and
+    //    permanently blocking a future page at the same path via `tree_composite_page_idx`. Passing
+    //    `tx` into `deleteEntry` is why its `db` parameter defaults to `WIKI.db` but accepts a `tx`.
+    await WIKI.db.transaction(async (tx) => {
+      await tx.delete(pagesTable).where(eq(pagesTable.id, id))
+      await WIKI.models.tree.deleteEntry(id, tx)
+    })
     // -> A page that overrode the sidebar owns a menu keyed by its own id, which nothing could reach
     //    once the page is gone
     await WIKI.models.navigation.deleteNavForEntries([id])
