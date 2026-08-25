@@ -747,7 +747,7 @@ async function handleLoginResponse(resp) {
       loading.hide()
       notify({
         type: 'negative',
-        message: 'Unexpected Authentication Response'
+        message: t('auth.errors.unexpectedResponse')
       })
     }
   }

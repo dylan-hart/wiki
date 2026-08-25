@@ -70,7 +70,27 @@ async function mountRulesSection(groupId) {
   router.push(`/rules`)
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> Real title strings, keyed the way `admin.groups.permissions.<permission>.title` resolves
+  //    them (WP #1602): the catalog itself now carries only permission identifiers, so a title
+  //    rendered on screen has to come from this dictionary, not a literal baked into the array.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: {
+        admin: {
+          groups: {
+            permissions: Object.fromEntries(
+              Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
+                permission,
+                { title }
+              ])
+            )
+          }
+        }
+      }
+    }
+  })
 
   const wrapper = mount(GroupEditOverlay, {
     global: {
@@ -167,6 +187,70 @@ describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
     for (const title of Object.values(SITE_PERMISSION_TITLES)) {
       expect(text).toContain(title)
     }
+  })
+})
+
+/**
+ * WP #1602: the global permissions page (`permissions` section) used to bake each permission's
+ * `hint` as a literal string into the module-scope catalog array. It now resolves through
+ * `t('admin.groups.permissions.<permission>.hint')` in a computed, so a locale that supplies a
+ * non-English value for that key must be what actually renders -- not the English literal this
+ * screen used to ship unconditionally regardless of locale.
+ */
+describe('GroupEditOverlay permissions page: hint resolves from the dictionary', () => {
+  it('renders a permission hint from a non-English locale bundle, not a hardcoded literal', async () => {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-fr' }
+    adminStore.sites = []
+    adminStore.locales = []
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-fr',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: []
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/permissions')
+    await router.isReady()
+
+    const NON_ENGLISH_HINT = "Peut accéder à la zone d'administration."
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'fr',
+      messages: {
+        fr: {
+          admin: {
+            groups: {
+              permissions: {
+                'access:admin': { hint: NON_ENGLISH_HINT }
+              }
+            }
+          }
+        }
+      }
+    })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain(NON_ENGLISH_HINT)
+    expect(text).not.toContain('Can access the administration area.')
   })
 })
 

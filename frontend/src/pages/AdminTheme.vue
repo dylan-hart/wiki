@@ -789,7 +789,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch site theme config'
+      message: t('admin.theme.loadFailed')
     })
   }
   loading.hide()
@@ -840,7 +840,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site theme config',
+      message: t('admin.theme.saveFailed'),
       caption: err.message
     })
   }

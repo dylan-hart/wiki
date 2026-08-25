@@ -129,7 +129,7 @@ async function applyLocale(locale) {
     } catch (err) {
       notify({
         type: 'negative',
-        message: `Failed to load ${locale} locale strings.`,
+        message: i18n.t('common.locale.loadFailed', { locale }),
         caption: err.message
       })
     }

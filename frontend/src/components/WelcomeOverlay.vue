@@ -156,7 +156,7 @@ async function createHomePage(editor) {
     siteStore.overlay = 'Welcome'
     notify({
       type: 'negative',
-      message: 'Failed to open the editor.',
+      message: t('welcome.editorOpenFailed'),
       caption: err.message
     })
   }

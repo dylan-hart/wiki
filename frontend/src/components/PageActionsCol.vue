@@ -474,7 +474,11 @@ async function exportPageText(format) {
   } catch (err) {
     // -> Dismissing the file picker is not a failure
     if (err.name !== 'AbortError') {
-      notify({ type: 'negative', message: 'Failed to export page.', caption: apiErrorMessage(err) })
+      notify({
+        type: 'negative',
+        message: t('pages.export.textFailed'),
+        caption: apiErrorMessage(err)
+      })
     }
   }
 }
@@ -585,7 +589,7 @@ async function applyRenameOrMove(renamedPageOpts, isMove) {
       await pageStore.pageRename({ id: pageStore.id, title: renamedPageOpts.title })
       notify({
         type: 'positive',
-        message: 'Page renamed successfully.'
+        message: t('common.page.renameSuccess')
       })
     } else {
       await pageStore.pageMove({
@@ -596,7 +600,7 @@ async function applyRenameOrMove(renamedPageOpts, isMove) {
       })
       notify({
         type: 'positive',
-        message: 'Page moved successfully.'
+        message: t('common.page.moveSuccess')
       })
     }
   } catch (err) {

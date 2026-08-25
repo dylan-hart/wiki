@@ -279,7 +279,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to fetch markdown editor configuration.'
+      message: t('admin.editors.markdown.loadFailed')
     })
   }
   loading.hide()
@@ -311,7 +311,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save Markdown editor config',
+      message: t('admin.editors.markdown.saveFailed'),
       caption: err.message
     })
   }

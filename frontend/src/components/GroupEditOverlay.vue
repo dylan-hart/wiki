@@ -761,78 +761,86 @@ const usersHeaders = [
   }
 ]
 
-const permissions = [
+/**
+ * Identifiers and display metadata only -- no user-visible English text lives here. `title` /
+ * `hint` are resolved from `admin.groups.permissions.<permission>.title` / `.hint` in the
+ * `permissions` computed below, so a locale switch re-resolves them like everything else in this
+ * component rather than freezing them at whatever they were when this array was first evaluated.
+ */
+const permissionsCatalog = [
   {
     permission: 'access:admin',
-    hint: 'Can access the administration area.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'read:users',
-    hint: 'Can view users, but not create or modify them.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:users',
-    hint: 'Can create / manage users (but not users with manage:system permissions)',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'read:groups',
-    hint: 'Can view groups and their permissions, but not create or modify them.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:groups',
-    hint: 'Can create / manage groups and assign permissions (but not manage:system) / page rules',
     warning: true,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:navigation',
-    hint: 'Can manage site navigation',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:theme',
-    hint: 'Can modify site theme settings',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:sites',
-    hint: 'Can create / manage sites',
     warning: true,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:glossary',
-    hint: 'Can create / manage the glossary (terms, aliases, versions)',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:system',
-    hint: 'Can manage and access everything. Root administrator.',
     warning: true,
     restrictedForSystem: true,
     disabled: true
   }
 ]
+
+/**
+ * `permissionsCatalog`, with `hint` resolved through the dictionary. A computed rather than a
+ * plain `.map()` alongside the catalog above so a locale switch re-renders it, the same as every
+ * other `t()` call in this component.
+ */
+const permissions = computed(() =>
+  permissionsCatalog.map((perm) => ({
+    ...perm,
+    hint: t(`admin.groups.permissions.${perm.permission}.hint`)
+  }))
+)
 
 /**
  * The subset of `rules` below that the guests group may be granted. Mirrors `GUEST_ROLES` in
@@ -847,123 +855,98 @@ const GUEST_ROLES = [
   'write:comments'
 ]
 
-const rules = [
+/**
+ * Identifiers and display metadata only -- see the same note on `permissionsCatalog` above.
+ * `title` / `hint` come from the `rules` computed below, resolved from
+ * `admin.groups.permissions.<permission>.title` / `.hint`.
+ */
+const rulesCatalog = [
   {
     permission: 'read:pages',
-    title: 'Read Pages',
-    hint: 'Can view and search pages.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'write:pages',
-    title: 'Write Pages',
-    hint: 'Can create and edit pages.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'review:pages',
-    title: 'Review Pages',
-    hint: 'Can review and approve edits submitted by users.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:pages',
-    title: 'Manage Pages',
-    hint: 'Can move existing pages to other locations the user has write access to.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'delete:pages',
-    title: 'Delete Pages',
-    hint: 'Can delete existing pages.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'write:styles',
-    title: 'Use CSS',
-    hint: 'Can insert CSS styles in pages.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'write:scripts',
-    title: 'Use JavaScript',
-    hint: 'Can insert JavaScript in pages.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'read:source',
-    title: 'View Page Source',
-    hint: 'Can view pages source.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'read:history',
-    title: 'View Page History',
-    hint: 'Can view previous versions of pages.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'read:assets',
-    title: 'View Assets',
-    hint: 'Can view / use assets (such as images and files) in pages.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'write:assets',
-    title: 'Upload Assets',
-    hint: 'Can upload new assets (such as images and files).',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'manage:assets',
-    title: 'Manage Assets',
-    hint: 'Can edit and delete existing assets (such as images and files).',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'read:comments',
-    title: 'Read Comments',
-    hint: 'Can view page comments.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'write:comments',
-    title: 'Write Comments',
-    hint: 'Can post new comments on pages.',
     warning: false,
     restrictedForSystem: false,
     disabled: false
   },
   {
     permission: 'manage:comments',
-    title: 'Manage Comments',
-    hint: 'Can edit and delete existing page comments.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
@@ -986,69 +969,65 @@ const rules = [
   */
   {
     permission: 'site:general',
-    title: 'Site: General Settings',
-    hint: 'Can manage general site settings (title, description, features, robots, sitemap, uploads, etc.), and the site logo / favicon.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:theme',
-    title: 'Site: Theme',
-    hint: "Can manage the site's theme and appearance.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:navigation',
-    title: 'Site: Navigation',
-    hint: "Can manage the site's navigation menus.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:blocks',
-    title: 'Site: Blocks',
-    hint: "Can enable, disable or delete the site's blocks.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:approvals',
-    title: 'Site: Approval Rules',
-    hint: "Can view and manage the site's approval rules for suggested edits.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:login',
-    title: 'Site: Login & Authentication',
-    hint: "Can manage the site's authentication strategies and login background image.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:locale',
-    title: 'Site: Locale',
-    hint: "Can manage the site's active locales.",
     warning: false,
     restrictedForSystem: true,
     disabled: false
   },
   {
     permission: 'site:editors',
-    title: 'Site: Editors',
-    hint: 'Can manage which content editors are enabled for the site.',
     warning: false,
     restrictedForSystem: true,
     disabled: false
   }
 ]
+
+/**
+ * `rulesCatalog`, with `title` / `hint` resolved through the dictionary -- see the note on
+ * `permissions` above.
+ */
+const rules = computed(() =>
+  rulesCatalog.map((rule) => ({
+    ...rule,
+    title: t(`admin.groups.permissions.${rule.permission}.title`),
+    hint: t(`admin.groups.permissions.${rule.permission}.hint`)
+  }))
+)
 
 // VALIDATION RULES
 
@@ -1095,7 +1074,9 @@ const isGuestGroup = computed(() => {
  * group edited through the API as well; this keeps the screen from offering what would be dropped.
  */
 const ruleOptions = computed(() =>
-  isGuestGroup.value ? rules.filter((rule) => GUEST_ROLES.includes(rule.permission)) : rules
+  isGuestGroup.value
+    ? rules.value.filter((rule) => GUEST_ROLES.includes(rule.permission))
+    : rules.value
 )
 
 // WATCHERS

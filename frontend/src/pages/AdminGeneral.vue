@@ -725,7 +725,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load site configuration.',
+      message: t('admin.general.loadFailed'),
       caption: err.message
     })
   }
@@ -837,7 +837,7 @@ async function save() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save site configuration.',
+      message: t('admin.general.saveFailed'),
       caption: err.message
     })
   }
