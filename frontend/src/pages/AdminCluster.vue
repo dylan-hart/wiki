@@ -202,7 +202,7 @@ async function load() {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load list of cluster nodes.',
+      message: t('admin.cluster.loadFailed'),
       caption: err.message
     })
   }

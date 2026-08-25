@@ -648,7 +648,7 @@ async function discardChanges() {
     editorStore.$patch({ isActive: false, editor: '', mode: 'edit' })
     notify({
       type: 'negative',
-      message: 'Failed to reload page state.'
+      message: t('common.page.reloadFailed')
     })
   }
   loading.hide()
@@ -681,7 +681,7 @@ async function saveChangesCommit(closeAfter = false) {
     const result = await pageStore.pageSave()
     notify({
       type: 'positive',
-      message: 'Page saved successfully.'
+      message: t('common.page.saveSuccess')
     })
     /*
       OpenProject #1080: raising this page's own classification does not cascade to its
@@ -722,7 +722,7 @@ async function saveChangesCommit(closeAfter = false) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to save page changes.',
+      message: t('common.page.saveFailed'),
       caption: err.message
     })
   }
@@ -740,7 +740,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Homepage created successfully.'
+        message: t('common.page.homepageCreateSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -749,7 +749,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create homepage.',
+        message: t('common.page.homepageCreateFailed'),
         caption: err.message
       })
     }
@@ -781,7 +781,7 @@ async function createPage() {
       await pageStore.pageSave()
       notify({
         type: 'positive',
-        message: 'Page created successfully.'
+        message: t('common.page.createSuccess')
       })
       editorStore.$patch({
         isActive: false
@@ -789,7 +789,7 @@ async function createPage() {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to create page.',
+        message: t('common.page.createFailed'),
         caption: err.message
       })
     }

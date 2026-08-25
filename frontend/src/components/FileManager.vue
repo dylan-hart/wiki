@@ -1045,7 +1045,7 @@ async function loadTree({ parentId = null, parentPath = null, types, initLoad = 
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to load folder tree.',
+      message: t('fileman.folderTreeLoadFailed'),
       caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
@@ -1213,7 +1213,7 @@ function duplicatePage(item) {
     } catch (err) {
       notify({
         type: 'negative',
-        message: 'Failed to duplicate page.',
+        message: t('fileman.duplicateFailed'),
         caption: apiErrorMessage(err, 'An unexpected error occured.')
       })
     }
@@ -1263,7 +1263,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       await pageStore.pageRename({ id: item.id, title: opts.title })
       notify({
         type: 'positive',
-        message: 'Page renamed successfully.'
+        message: t('pages.renameSuccess')
       })
     } else {
       await pageStore.pageMove({
@@ -1274,7 +1274,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
       })
       notify({
         type: 'positive',
-        message: 'Page moved successfully.'
+        message: t('pages.moveSuccess')
       })
     }
     // -> Reload current view
@@ -1282,7 +1282,7 @@ async function applyRenameOrMovePage(item, opts, isMove) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to rename or move page.',
+      message: t('fileman.renameMoveFailed'),
       caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
@@ -1420,7 +1420,7 @@ async function uploadFiles(filesToUpload) {
       } catch (err) {
         notify({
           type: 'negative',
-          message: 'Failed to upload file.',
+          message: t('fileman.uploadFailed'),
           caption: apiErrorMessage(err, 'An unexpected error occured.')
         })
       }
@@ -1599,7 +1599,7 @@ async function copyItemURL(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to copy URL to clipboard.',
+      message: t('fileman.copyURLFailed'),
       caption: err.message
     })
   }
@@ -1629,7 +1629,7 @@ async function downloadItem(item) {
   } catch (err) {
     notify({
       type: 'negative',
-      message: 'Failed to download file.',
+      message: t('fileman.downloadFailed'),
       caption: apiErrorMessage(err, 'An unexpected error occured.')
     })
   }
