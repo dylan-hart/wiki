@@ -1,6 +1,6 @@
 import { durationToSeconds } from './common.ts'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import type { RateLimitPolicy } from '../models/rateLimits.ts'
+import type { RateLimitPolicy, RateLimitVerdict } from '../models/rateLimits.ts'
 
 /**
  * Defaults for the limit on the authentication endpoints, used until an administrator saves their own
@@ -97,6 +97,39 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
   return reply.tooManyRequests(
     `Too many attempts. Try again in ${Math.ceil(verdict.retryAfter / 60)} minute(s).`
   )
+}
+
+/**
+ * Bound credential guessing against one account, independently of the network identity the request
+ * arrives with.
+ *
+ * {@link limitAuthAttempts} above keys its counter on `req.ip` — exactly the value `security.trustProxy`
+ * governs (see `models/security.ts`). Behind a proxy that is misconfigured to trust `X-Forwarded-For`
+ * unconditionally, that header is client-written, so a guesser gets a fresh bucket on every attempt just
+ * by sending a different value; with `trustProxy` correctly off, every user behind the same address
+ * shares one bucket instead. This is a second, independent counter keyed on the account being guessed,
+ * so neither misconfiguration leaves credential guessing unbounded. It is a rate limit, not a lockout:
+ * locking the account out on a threshold keyed on something the *attacker* supplies (the identifier they
+ * typed) would hand them a denial-of-service against a real account for the price of a login attempt.
+ *
+ * Shares {@link authPolicy}'s configured max/window/ban with the IP-keyed limiter — one admin-facing
+ * "how many attempts" knob, not two to keep in sync — but counts into its own `auth:user:` key
+ * namespace, so neither counter can exhaust the other's budget.
+ *
+ * Consumed directly from `models/users.ts#login` and `#loginTFA`, not wired as a route hook the way
+ * {@link limitAuthAttempts} is: only those call sites know which account an attempt names, from the
+ * submitted username in `login()` or the continuation token's already-resolved user in `loginTFA()`.
+ *
+ * @param identifier The account being attempted against — an email address or username as submitted.
+ *   Normalized (trimmed, lower-cased) before keying, so `Admin@Example.com` and `admin@example.com`
+ *   share one bucket.
+ */
+export async function consumeAccountAuthAttempt(identifier: string): Promise<RateLimitVerdict> {
+  if (WIKI.config.security?.authRateLimitEnabled === false) {
+    return { allowed: true, hits: 0, retryAfter: 0 }
+  }
+  const key = `auth:user:${identifier.trim().toLowerCase()}`
+  return WIKI.models.rateLimits.consume(key, authPolicy())
 }
 
 /**

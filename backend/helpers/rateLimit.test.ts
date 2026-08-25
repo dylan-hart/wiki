@@ -3,7 +3,7 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import fastify from 'fastify'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { limitApiKey, limitApiRequests } from './rateLimit.ts'
+import { consumeAccountAuthAttempt, limitApiKey, limitApiRequests } from './rateLimit.ts'
 
 /**
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
@@ -361,5 +361,111 @@ describe('limitApiRequests', () => {
     const key = consume.mock.calls[0].arguments[0]
     assert.notEqual(key, `auth:203.0.113.9`)
     assert.equal(key, 'api:ip:203.0.113.9')
+  })
+})
+
+/**
+ * Unit tests for `consumeAccountAuthAttempt` (work package 2075(b)): the account-keyed brute-force
+ * counter `models/users.ts#login` and `#loginTFA` consume alongside `limitAuthAttempts`'s existing
+ * `req.ip`-keyed one. Its entire point is that it takes no `req.ip` at all — the bucket is keyed
+ * purely on the account identifier — so the "bounds guessing across differing req.ip values" part of
+ * the work package's done-when criteria is inherent to the function's signature, not something a test
+ * has to construct differing IPs to observe.
+ */
+describe('consumeAccountAuthAttempt', () => {
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    consume = mock.fn(async () => ({ allowed: true, hits: 1, retryAfter: 0 }))
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          authRateLimitEnabled: true,
+          authRateLimitMax: 10,
+          authRateLimitWindow: '5m',
+          authRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume }
+      }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('keys by the account identifier, namespaced apart from the IP-keyed auth: bucket', async () => {
+    await consumeAccountAuthAttempt('person@example.com')
+    assert.equal(consume.mock.calls.length, 1)
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:user:person@example.com')
+  })
+
+  test('normalizes the identifier (trims and lower-cases) so casing/whitespace do not split the bucket', async () => {
+    await consumeAccountAuthAttempt('  Person@Example.com  ')
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:user:person@example.com')
+  })
+
+  test('reads the configured policy from security.authRateLimit* settings', async () => {
+    ;(globalThis as any).WIKI.config.security = {
+      authRateLimitEnabled: true,
+      authRateLimitMax: 5,
+      authRateLimitWindow: '2m',
+      authRateLimitBan: '10m'
+    }
+    await consumeAccountAuthAttempt('person@example.com')
+    const policy = consume.mock.calls[0].arguments[1] as any
+    assert.equal(policy.max, 5)
+    assert.equal(policy.windowSeconds, 120)
+    assert.equal(policy.banSeconds, 600)
+  })
+
+  test('does nothing (always allowed, no consume call) while authRateLimitEnabled is false', async () => {
+    ;(globalThis as any).WIKI.config.security.authRateLimitEnabled = false
+    const verdict = await consumeAccountAuthAttempt('person@example.com')
+    assert.equal(verdict.allowed, true)
+    assert.equal(consume.mock.calls.length, 0)
+  })
+
+  test('repeated attempts against one account are refused once the policy limit is reached, regardless of what req.ip each attempt would have carried', async () => {
+    // -> A stateful stand-in for `WIKI.models.rateLimits.consume`, the same pattern
+    //    `limitApiRequests`'s "two different API keys get independent counters" test uses: a real
+    //    per-key counter rather than a fixed verdict, so this exercises the actual bound rather than
+    //    just asserting the key string.
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 3
+
+    // Three attempts against "victim@example.com" succeed (are allowed through); a fourth — even
+    // though nothing here ever passed an ip for any of them — is refused.
+    for (let i = 0; i < 3; i++) {
+      const verdict = await consumeAccountAuthAttempt('victim@example.com')
+      assert.equal(verdict.allowed, true)
+    }
+    const fourth = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(fourth.allowed, false)
+  })
+
+  test("a second account's attempts are unaffected by the first account being exhausted", async () => {
+    const hits = new Map<string, number>()
+    consume.mock.mockImplementation(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI.config.security.authRateLimitMax = 1
+
+    const first = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(first.allowed, true)
+    const second = await consumeAccountAuthAttempt('victim@example.com')
+    assert.equal(second.allowed, false)
+
+    const otherAccount = await consumeAccountAuthAttempt('someone-else@example.com')
+    assert.equal(otherAccount.allowed, true)
   })
 })

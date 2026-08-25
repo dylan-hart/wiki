@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { beforeEach, describe, test } from 'node:test'
+import { validateTrustProxySpec } from './security.ts'
 
 // `observeRequest` calls `Temporal.Now.instant()` unconditionally. Node ships `Temporal` as a
 // global from v26 -- but not every environment running this test has that landed yet, and
@@ -82,5 +83,91 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     security.observeRequest({}, 'http')
 
     assert.equal(security.getInsecureCookieRiskAt(), firstSeenAt)
+  })
+})
+
+/**
+ * Work package 2075(a): `trustProxy` widened from a plain boolean to a trusted-proxy address/CIDR
+ * specification. `validateTrustProxySpec` is the round-trip through `@fastify/proxy-addr`'s own
+ * `compile()` that `Security#validate` calls for the string form -- see its doc comment for why it is
+ * a round-trip rather than a hand-written pattern.
+ */
+describe('validateTrustProxySpec', () => {
+  test('accepts a single CIDR range', () => {
+    assert.equal(validateTrustProxySpec('10.0.0.0/8'), null)
+  })
+
+  test('accepts a single bare address', () => {
+    assert.equal(validateTrustProxySpec('192.168.1.1'), null)
+  })
+
+  test('accepts a comma-separated list of addresses and CIDR ranges, tolerating surrounding whitespace', () => {
+    assert.equal(validateTrustProxySpec('10.0.0.0/8, 192.168.1.1 ,172.16.0.0/12'), null)
+  })
+
+  test('accepts each of the three predefined named ranges', () => {
+    assert.equal(validateTrustProxySpec('loopback'), null)
+    assert.equal(validateTrustProxySpec('linklocal'), null)
+    assert.equal(validateTrustProxySpec('uniquelocal'), null)
+  })
+
+  test('accepts an IPv6 address and CIDR range', () => {
+    assert.equal(validateTrustProxySpec('::1'), null)
+    assert.equal(validateTrustProxySpec('fe80::/10'), null)
+  })
+
+  test('rejects a string that is not an address, CIDR range, or named range', () => {
+    assert.match(validateTrustProxySpec('not-an-address')!, /invalid/i)
+  })
+
+  test('rejects a trailing comma — an empty entry once split', () => {
+    assert.match(validateTrustProxySpec('10.0.0.0/8,')!, /invalid/i)
+  })
+
+  test('rejects an out-of-range CIDR prefix length', () => {
+    assert.match(validateTrustProxySpec('10.0.0.0/33')!, /invalid/i)
+  })
+})
+
+describe("Security#validate — the widened 'trustProxy' field", () => {
+  let security: typeof import('./security.ts').security
+
+  beforeEach(async () => {
+    // -> `validate()` merges the patch under test with `getConfig()`'s read of the *whole*
+    //    `security` blob, and checks every field it owns -- `corsMode` a valid enum member being
+    //    the first. A base config with nothing else wrong is what isolates each test below to
+    //    `trustProxy` alone.
+    ;(globalThis as any).WIKI = { config: { security: { corsMode: 'OFF' } } }
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('accepts false, the default', () => {
+    assert.equal(security.validate({ trustProxy: false }), null)
+  })
+
+  test('still accepts the bare boolean true — validate() does not enforce the address/CIDR form is used, only that a string given is a valid one', () => {
+    assert.equal(security.validate({ trustProxy: true }), null)
+  })
+
+  test('accepts a valid address/CIDR list', () => {
+    assert.equal(security.validate({ trustProxy: '10.0.0.0/8, 192.168.1.1' }), null)
+  })
+
+  test('rejects an invalid address/CIDR list, with a message naming the field', () => {
+    const err = security.validate({ trustProxy: 'not-an-address' })
+    assert.match(err!, /trusted proxy list is invalid/i)
+  })
+
+  test('rejects a value that is neither a boolean nor a string', () => {
+    const err = security.validate({ trustProxy: 42 })
+    assert.match(err!, /must be a boolean/i)
+  })
+
+  test('leaves other fields validated independently — an invalid trustProxy does not mask an invalid CORS mode, and vice versa', () => {
+    assert.match(
+      security.validate({ corsMode: 'NOT_A_MODE', trustProxy: '10.0.0.0/8' })!,
+      /CORS mode/
+    )
+    assert.match(security.validate({ corsMode: 'OFF', trustProxy: 'garbage' })!, /trusted proxy/i)
   })
 })

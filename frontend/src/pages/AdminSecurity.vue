@@ -132,11 +132,31 @@
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                v-model="state.config.trustProxy"
+                v-model="trustProxyEnabled"
                 :loading="state.loading > 0"
                 :aria-label="t(`admin.security.trustProxy`)" />
             </w-item-section>
           </w-item>
+          <template v-if="trustProxyEnabled">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="address" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.trustProxyAddresses`) }}</w-item-label>
+                <w-item-label caption>{{
+                  t(`admin.security.trustProxyAddressesHint`)
+                }}</w-item-label>
+              </w-item-section>
+              <w-item-section style="flex: 0 0 260px">
+                <w-input
+                  outlined
+                  v-model="trustProxyAddresses"
+                  dense
+                  placeholder="10.0.0.0/8, 192.168.1.1"
+                  :aria-label="t(`admin.security.trustProxyAddresses`)" />
+              </w-item-section>
+            </w-item>
+          </template>
           <!--
             Only shown once the backend has actually seen the misconfiguration on a live request
             (`GET /system/security`'s `insecureCookieRiskAt`) -- unlike the rate-limit warnings
@@ -577,7 +597,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -650,6 +670,37 @@ const corsModes = [
   { value: 'HOSTNAMES', text: 'Hostnames Whitelist' },
   { value: 'REGEX', text: 'Regex Pattern Match' }
 ]
+
+/*
+  `state.config.trustProxy` is boolean-or-string now (see `backend/models/security.ts`'s widened
+  `validate()`): `false` off, or a comma-separated trusted-proxy address/CIDR list on. The toggle
+  below still needs a plain boolean to bind to, and the new text field below it needs a plain string
+  -- these two computed properties are that split, rather than a second field in `state.config` that
+  would need to be kept in sync with it by hand.
+*/
+const trustProxyEnabled = computed({
+  get: () => Boolean(state.config.trustProxy),
+  set: (val) => {
+    // -> Flipping on lands on `true` (not `''`), not just as a UI nicety: `!state.config.trustProxy`
+    //    is what the insecure-cookie-risk warning below keys off of to hide itself the instant the
+    //    toggle flips, and an empty string is just as falsy as `false` there. `true` still validates
+    //    on the backend (see `models/security.test.ts`'s "still accepts the bare boolean true"), so
+    //    this is a real, save-able value on its own -- filling in the address field below (which
+    //    overwrites it with the real string) is what the admin should still do before saving, not
+    //    something this toggle can silently paper over by picking a falsy placeholder instead.
+    state.config.trustProxy = val
+      ? typeof state.config.trustProxy === 'string'
+        ? state.config.trustProxy
+        : true
+      : false
+  }
+})
+const trustProxyAddresses = computed({
+  get: () => (typeof state.config.trustProxy === 'string' ? state.config.trustProxy : ''),
+  set: (val) => {
+    state.config.trustProxy = val
+  }
+})
 
 // METHODS
 

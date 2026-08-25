@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fastify from 'fastify'
 import {
   defaultLocale,
   guardSiteEnabled,
@@ -387,5 +388,98 @@ describe('guardSiteEnabled', () => {
     const handled = guardSiteEnabled(null, reply)
     assert.equal(handled, false)
     assert.deepEqual(calls.forbidden, [])
+  })
+})
+
+/**
+ * Work package 2075(c): a forwarded host that resolves to a different site than `Host` must not be
+ * honored unless the request arrived from a proxy trusted under `security.trustProxy`'s new
+ * address/CIDR specification.
+ *
+ * `resolveRequestSite` itself takes an already-resolved `hostname` string -- it has no header of its
+ * own to distrust. What actually decides whether `X-Forwarded-Host` gets to be that string is
+ * Fastify's own `request.hostname` getter (`fastify/lib/request.js`), gated on the same `trustProxy`
+ * option `backend/index.ts` passes straight through from `WIKI.config.security.trustProxy`. So this
+ * spins up a real (unlistened) Fastify instance wired exactly the way `index.ts`'s site-resolution
+ * hook is -- `trustProxy` from config, an `onRequest`-time `resolveRequestSite({ hostname: req.hostname,
+ * ... })` -- and proves the mechanism end to end via `inject()`, rather than re-describing Fastify's
+ * own trust logic as a second implementation here.
+ */
+describe('trustProxy gates X-Forwarded-Host trust for site resolution', () => {
+  async function buildApp(trustProxy: string) {
+    const app = fastify({ trustProxy })
+    app.get('/some-page', async (req) => {
+      return resolveRequestSite({
+        firstSegment: 'some-page',
+        hostname: req.hostname,
+        sitesMappings,
+        sites,
+        exemptSegments: NO_EXEMPT_SEGMENTS
+      })
+    })
+    await app.ready()
+    return app
+  }
+
+  test('a request from an untrusted source cannot steer site resolution via X-Forwarded-Host', async () => {
+    const app = await buildApp('10.0.0.1')
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/some-page',
+        remoteAddress: '203.0.113.9',
+        headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+      })
+      // -> Ignored in favour of `Host`: resolves to the enabled site the socket's own Host names,
+      //    not the disabled one an untrusted client tried to name via X-Forwarded-Host.
+      assert.deepEqual(res.json(), { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('the same header from the trusted proxy address is honored', async () => {
+    const app = await buildApp('10.0.0.1')
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/some-page',
+        remoteAddress: '10.0.0.1',
+        headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+      })
+      assert.deepEqual(res.json(), { outcome: 'disabled', site: sites[DISABLED_SITE_ID] })
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('a request from outside the trusted CIDR range cannot steer site resolution', async () => {
+    const app = await buildApp('10.0.0.0/24')
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/some-page',
+        remoteAddress: '10.0.1.5',
+        headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+      })
+      assert.deepEqual(res.json(), { outcome: 'ok', site: sites[ENABLED_SITE_ID] })
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('a request from inside the trusted CIDR range is honored', async () => {
+    const app = await buildApp('10.0.0.0/24')
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/some-page',
+        remoteAddress: '10.0.0.5',
+        headers: { host: 'wiki.example.com', 'x-forwarded-host': 'off.example.com' }
+      })
+      assert.deepEqual(res.json(), { outcome: 'disabled', site: sites[DISABLED_SITE_ID] })
+    } finally {
+      await app.close()
+    }
   })
 })

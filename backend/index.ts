@@ -319,7 +319,13 @@ async function initHTTPServer() {
       level: 'error'
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
-    //    matched and the option was permanently off no matter what the admin area showed
+    //    matched and the option was permanently off no matter what the admin area showed.
+    //    `trustProxy` is boolean-or-string -- see `models/security.ts#validateTrustProxySpec` and
+    //    `api/schemas/security.ts` -- and Fastify's own `getTrustProxyFn` (`fastify/lib/request.js`)
+    //    is what turns a string into a compiled `proxy-addr` trust function, so it is passed through
+    //    verbatim rather than coerced. A trusted-proxy address/CIDR list (not the bare `true` this
+    //    admin toggle used to send) is what keeps `req.ip`/`req.hostname` from trusting
+    //    `X-Forwarded-For`/`X-Forwarded-Host` sent by an untrusted client -- see `docs/tls-termination.md`.
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true
