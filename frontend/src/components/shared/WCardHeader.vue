@@ -2,7 +2,9 @@
   <div class="w-card-header w-section-header">
     <div class="w-card-header__row">
       <div class="min-w-0 flex-1">
-        <slot />
+        <div :id="headingId" class="w-card-header__title">
+          <slot />
+        </div>
         <div v-if="$slots.hint" class="w-card-header__hint text-caption">
           <slot name="hint" />
         </div>
@@ -19,7 +21,7 @@
 </template>
 
 <script setup>
- /**
+/**
  * Heading band at the top of a `WCard`.
  *
  * Replaces the plain `WCardSection` + `text-subtitle1` pairing the admin cards used, so the whole
@@ -31,7 +33,21 @@
  *     <template #hint>Shown in the browser tab</template>
  *     <template #action><w-btn ... /></template>
  *   </w-card-header>
+ *
+ * `headingId` is exposed so a `WDialog` wrapping this card can name itself off the heading it
+ * already displays, rather than duplicating the title as a separate `aria-label`:
+ *
+ *   const header = useTemplateRef('header')
+ *   <w-dialog :labelled-by="header?.headingId">
+ *     <w-card-header ref="header">Site info</w-card-header>
+ *   </w-dialog>
  */
+import { useId } from 'vue'
+
+/** Stable for the component instance's lifetime -- `useId()` never regenerates on re-render. */
+const headingId = useId()
+
+defineExpose({ headingId })
 </script>
 
 <style scoped>
