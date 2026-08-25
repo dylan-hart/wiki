@@ -937,12 +937,22 @@ class Pages {
 
   /**
    * Update a page. Only the fields present in the patch are touched.
+   *
+   * @param renderPermissionsOverride What `patch.render`'s `postProcess()` pass treats as
+   *   `write:scripts`/`write:styles`, in place of computing it from `actor` — for the one caller
+   *   where `actor` is not who authored the markup: `models/approvals.ts#approveSubmission` writes
+   *   the *reviewer's* approval, but the HTML being written was the *submitter's*, so sanitizing it
+   *   against the reviewer's permissions would let a reviewer's `write:scripts`/`write:styles` grant
+   *   launder a lower-privileged (or, for a guest submission, unauthenticated) submitter's markup
+   *   through unfiltered (OpenProject #1360/#2180, 2026-08-24 security audit §4). Every other caller
+   *   leaves this unset and gets the pre-existing actor-derived behavior.
    */
   async updatePage(
     siteId: string,
     id: string,
     patch: Partial<PageInput>,
-    actor: PageActor
+    actor: PageActor,
+    renderPermissionsOverride?: RenderPermissions
   ): Promise<Page | null> {
     const results = await WIKI.db
       .select()
@@ -1052,7 +1062,7 @@ class Pages {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
         patch.render,
-        {
+        renderPermissionsOverride ?? {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
         },
@@ -1612,11 +1622,20 @@ class Pages {
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
    *
+   * @param renderPermissionsOverride Same override `updatePage` accepts, and for the same reason —
+   *   see its doc comment. `approveSubmission`'s no-render fallback path reaches this too, and must
+   *   pass the identical submitter-derived permissions the direct `postProcess()` branch used, or
+   *   the queued re-render would launder the content back through the reviewer's permissions anyway.
    * @returns False when there is no such page
    * @throws `renderUnsupportedEditor` for a page the server cannot render, or
    *         `renderPuppeteerMissing` when nothing here could drain the queue
    */
-  async queueRerender(siteId: string, id: string, actor: PageActor): Promise<boolean> {
+  async queueRerender(
+    siteId: string,
+    id: string,
+    actor: PageActor,
+    renderPermissionsOverride?: RenderPermissions
+  ): Promise<boolean> {
     const page = await this.getPage({ siteId, id })
     if (!page) {
       return false
@@ -1626,7 +1645,7 @@ class Pages {
     await WIKI.models.rendering.queuePage({
       siteId,
       pageId: page.id,
-      permissions: {
+      permissions: renderPermissionsOverride ?? {
         scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
         styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },

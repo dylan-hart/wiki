@@ -356,3 +356,112 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
 })
+
+/**
+ * OpenProject #1360/#2180 (2026-08-24 security audit §3): `style` was in `BASE_ALLOWED_ATTRIBUTES`
+ * unconditionally, with no declaration-level filtering — `sanitizeHtml`'s `allowedStyles` was simply
+ * never passed, so any CSS survived verbatim on any element regardless of `write:styles`. An author
+ * without the permission could write `style="position:fixed;inset:0;z-index:999"` and cover the
+ * whole viewport from inside ordinary page content, since nothing about a scroll container's own
+ * ancestor chain clips a `position: fixed` box. `permissions: {}` throughout (no `styles: true`) is
+ * the author-without-`write:styles` case these tests are about.
+ */
+describe('rendering.sanitize -- allowedStyles (OpenProject #2180)', () => {
+  test('drops position:fixed, inset and z-index for an author without write:styles', () => {
+    const html = '<div style="position:fixed;inset:0;z-index:999;color:red;">x</div>'
+    const clean = (rendering as any).sanitize(html, {}, new Set())
+
+    assert.doesNotMatch(clean, /position:\s*fixed/)
+    assert.doesNotMatch(clean, /inset/)
+    assert.doesNotMatch(clean, /z-index/)
+    // -> Not a blanket style strip: an unrelated, harmless declaration on the very same attribute
+    //    survives, proving this is allowlist filtering rather than a `style`-attribute-wide gate.
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('drops position:absolute and position:sticky the same way as fixed', () => {
+    for (const value of ['absolute', 'sticky']) {
+      const clean = (rendering as any).sanitize(
+        `<div style="position:${value};">x</div>`,
+        {},
+        new Set()
+      )
+      assert.doesNotMatch(clean, new RegExp(`position:\\s*${value}`))
+    }
+  })
+
+  test('keeps position:relative, real KaTeX output (verified against katex.renderToString)', () => {
+    const clean = (rendering as any).sanitize(
+      '<span style="position:relative;">x</span>',
+      {},
+      new Set()
+    )
+    assert.match(clean, /position:\s*relative/)
+  })
+
+  test('drops transform, opacity, pointer-events and content', () => {
+    const html =
+      '<div style="transform:scale(2);opacity:0.5;pointer-events:none;content:\'x\';top:1em;">x</div>'
+    const clean = (rendering as any).sanitize(html, {}, new Set())
+
+    assert.doesNotMatch(clean, /transform/)
+    assert.doesNotMatch(clean, /opacity/)
+    assert.doesNotMatch(clean, /pointer-events/)
+    assert.doesNotMatch(clean, /content/)
+    // -> `top` alone (no `position: fixed`) is inert layout-wise and is real KaTeX output, so it
+    //    survives.
+    assert.match(clean, /top:\s*1em/)
+  })
+
+  test('keeps every declaration a real katex.renderToString({ output: "html" }) run emits', () => {
+    /*
+      Captured from a real KaTeX 0.16 `renderToString('\\frac{a}{b} + x^2 - \\sqrt{y}', { output:
+      'html' })` run (frontend/blocks dependency; not importable from backend, so the exact
+      declarations are reproduced here as a fixture) -- the same style the audit asked this task to
+      validate against, covering fractions, roots, exponents, and the negative-em offsets KaTeX
+      relies on throughout.
+    */
+    const declarations = [
+      'height:1.0404em;vertical-align:-0.345em;',
+      'height:0.6954em;',
+      'top:-2.655em;',
+      'height:3em;',
+      'border-bottom-width:0.04em;',
+      'top:-3.23em;',
+      'top:-3.394em;',
+      'height:0.345em;',
+      'margin-right:0.2222em;',
+      'height:0.8974em;vertical-align:-0.0833em;',
+      'height:0.8141em;',
+      'top:-3.063em;margin-right:0.05em;',
+      'height:2.7em;',
+      'height:1.04em;vertical-align:-0.3369em;',
+      'height:0.7031em;',
+      'top:-3em;',
+      'padding-left:0.833em;',
+      'margin-right:0.0359em;',
+      'top:-2.6631em;',
+      'min-width:0.853em;height:1.08em;'
+    ]
+    for (const style of declarations) {
+      const clean = (rendering as any).sanitize(`<span style="${style}">x</span>`, {}, new Set())
+      for (const decl of style.split(';').filter(Boolean)) {
+        const [prop, value] = decl.split(':')
+        assert.match(
+          clean,
+          new RegExp(`${prop}:\\s*${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+          `expected "${decl}" to survive sanitize() unchanged`
+        )
+      }
+    }
+  })
+
+  test('an author with write:styles is not filtered at all -- style="…" survives verbatim', () => {
+    const html = '<div style="position:fixed;inset:0;z-index:999;">x</div>'
+    const clean = (rendering as any).sanitize(html, { styles: true }, new Set())
+
+    assert.match(clean, /position:\s*fixed/)
+    assert.match(clean, /inset/)
+    assert.match(clean, /z-index/)
+  })
+})

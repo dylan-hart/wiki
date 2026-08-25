@@ -346,6 +346,84 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   use: SVG_ATTRIBUTES
 }
 
+/** A CSS length: an optionally-negative number with a unit KaTeX actually emits, or unitless `0`. */
+const CSS_LENGTH = /^(-?\d+(\.\d+)?(em|px|ex|%)|0)$/
+
+/**
+ * `vertical-align` accepts a length (what KaTeX always emits) or one of the CSS keyword values, for
+ * any future non-KaTeX author of the attribute.
+ */
+const VERTICAL_ALIGN =
+  /^(-?\d+(\.\d+)?(em|px|ex|%)|0|baseline|top|middle|bottom|sub|super|text-top|text-bottom)$/
+
+/**
+ * A CSS color: `#hex`, `rgb()`/`rgba()`/`hsl()`/`hsla()`, or a bare CSS keyword (`red`,
+ * `transparent`, `currentColor`, …). None of these three shapes can carry `url()`, an expression, or
+ * anything else that reads as more than a color.
+ */
+const CSS_COLOR = /^(#[0-9a-fA-F]{3,8}|(rgb|rgba|hsl|hsla)\([\d\s.,%]+\)|[a-zA-Z]+)$/
+
+/**
+ * `position`'s value restricted to the two keywords that only ever affect an element relative to its
+ * own normal flow position — `fixed`/`absolute`/`sticky` are deliberately excluded, since those are
+ * exactly what lets a `position` + `inset`/`top`/`left` + `z-index` combination cover the viewport
+ * from inside ordinary page content (security/04-injection-xss.md §3). `relative` is real KaTeX
+ * output (verified against `katex.renderToString`, e.g. `\overbrace`/`\underset` constructions), so
+ * dropping the `position` property outright — the audit's own first-cut suggestion — would have
+ * mangled those formulas for an author without `write:styles`; restricting the *value* instead of
+ * the property keeps both properties true.
+ */
+const SAFE_POSITION = /^(relative|static)$/
+
+/**
+ * Inline `style` declarations `sanitizeHtml` keeps for an author *without* `write:styles` — sized to
+ * what KaTeX's `output: 'html'` mode actually emits (verified against a real `katex.renderToString`
+ * run covering fractions, roots, matrices, super/subscripts, `\color`/`\textcolor`/`\colorbox`,
+ * `\overbrace`/`\underset`: `height`, `width`, `min-width`, `top`, `left`, `margin-left`,
+ * `margin-right`, `vertical-align`, `border-bottom-width`, `color`, `background-color`, `position`),
+ * plus the small set of declaratively-obvious siblings (`margin-top`/`-bottom`, `padding-*`,
+ * `border-*`, `font-size`, `text-align`) an author could reasonably expect `style="…"` to cover.
+ * Everything actually dangerous is either not a key here at all (`transform`, `opacity`,
+ * `pointer-events`, `content`, `z-index`, `inset`) or is present with its value locked down
+ * (`position`) — see security/04-injection-xss.md §3, the `position: fixed; inset: 0` full-viewport
+ * overlay this closes. An author *with* `write:styles` skips this map entirely (see `sanitize()`
+ * below): the permission already means "may restyle the page", which the `<style>` tag lets them do
+ * regardless of what this map allows on the `style` attribute specifically.
+ */
+const ALLOWED_STYLES: Record<string, Record<string, RegExp[]>> = {
+  '*': {
+    height: [CSS_LENGTH],
+    width: [CSS_LENGTH],
+    'min-width': [CSS_LENGTH],
+    'min-height': [CSS_LENGTH],
+    margin: [CSS_LENGTH],
+    'margin-top': [CSS_LENGTH],
+    'margin-right': [CSS_LENGTH],
+    'margin-bottom': [CSS_LENGTH],
+    'margin-left': [CSS_LENGTH],
+    padding: [CSS_LENGTH],
+    'padding-top': [CSS_LENGTH],
+    'padding-right': [CSS_LENGTH],
+    'padding-bottom': [CSS_LENGTH],
+    'padding-left': [CSS_LENGTH],
+    top: [CSS_LENGTH],
+    left: [CSS_LENGTH],
+    'vertical-align': [VERTICAL_ALIGN],
+    'font-size': [CSS_LENGTH],
+    'border-width': [CSS_LENGTH],
+    'border-style': [/^(none|solid|dashed|dotted|double)$/],
+    'border-color': [CSS_COLOR],
+    'border-top-width': [CSS_LENGTH],
+    'border-right-width': [CSS_LENGTH],
+    'border-bottom-width': [CSS_LENGTH],
+    'border-left-width': [CSS_LENGTH],
+    color: [CSS_COLOR],
+    'background-color': [CSS_COLOR],
+    'text-align': [/^(left|right|center|justify)$/],
+    position: [SAFE_POSITION]
+  }
+}
+
 /**
  * Which URL schemes may appear in a link or an embed.
  *
@@ -554,6 +632,12 @@ class Rendering {
     return sanitizeHtml(html, {
       allowedTags,
       allowedAttributes,
+      // -> An author with `write:styles` may already embed a `<style>` tag and restyle the whole
+      //    page, so restricting the `style` *attribute* for them specifically would gate the same
+      //    capability differently depending on which of two equivalent syntaxes they used. Omitting
+      //    `allowedStyles` entirely (rather than passing an unrestricted one) is `sanitize-html`'s own
+      //    documented way to say "keep every declaration, unfiltered" for this call.
+      allowedStyles: permissions.styles ? undefined : ALLOWED_STYLES,
       // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
       //    the library warns about them on every call, and the warning is the thing to silence, not
       //    the permission
