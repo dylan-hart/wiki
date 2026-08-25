@@ -14,7 +14,7 @@
       :for="selectId"
       class="mb-1 block text-caption text-black/60 dark:text-white/70">
       {{ label }}
-      <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+      <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
 
     <!--
@@ -54,7 +54,7 @@
         <legend :class="isFloating ? 'w-input-outline-notch--open' : ''">
           <span
             >{{ label
-            }}<span v-if="required" class="text-negative pr-1" aria-hidden="true"
+            }}<span v-if="required" class="text-negative pe-1" aria-hidden="true"
               >&nbsp;*</span
             ></span
           >
@@ -73,7 +73,7 @@
         class="w-input-float"
         :class="[isFloating ? 'w-input-float--up' : '', floatColorClass]">
         {{ label }}
-        <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+        <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
       </span>
 
       <slot name="prepend" />
