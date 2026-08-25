@@ -127,6 +127,17 @@ jobs:
         working-directory: blocks
         run: npm ci
 
+      # AST-parses every block-*/component.js's "static definition" (via rollup/parseAst, the same
+      # parser rollup.config.mjs's own blocksManifest() plugin uses) and cross-checks its
+      # description:/label:/hint: strings 1:1 against the blocks.<tag>.* keys in
+      # backend/locales/en.json -- no orphan key left behind, no string minted without one. See
+      # blocks/scripts/check-locale-keys.mjs's header comment for the key convention (OpenProject
+      # #1628). Reads only files already on disk from checkout, no network, so it's as safe on a cold
+      # CI runner as the Icons/Emoji Check steps above.
+      - name: Blocks Locale Keys Check
+        working-directory: blocks
+        run: npm run locale-keys:check
+
       - name: Blocks Lint
         working-directory: blocks
         run: npx oxlint --deny-warnings
