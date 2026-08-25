@@ -761,78 +761,31 @@ const usersHeaders = [
   }
 ]
 
-const permissions = [
-  {
-    permission: 'access:admin',
-    hint: 'Can access the administration area.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:users',
-    hint: 'Can view users, but not create or modify them.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:users',
-    hint: 'Can create / manage users (but not users with manage:system permissions)',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:groups',
-    hint: 'Can view groups and their permissions, but not create or modify them.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:groups',
-    hint: 'Can create / manage groups and assign permissions (but not manage:system) / page rules',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:navigation',
-    hint: 'Can manage site navigation',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:theme',
-    hint: 'Can modify site theme settings',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:sites',
-    hint: 'Can create / manage sites',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:glossary',
-    hint: 'Can create / manage the glossary (terms, aliases, versions)',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:system',
-    hint: 'Can manage and access everything. Root administrator.',
-    warning: true,
-    restrictedForSystem: true,
-    disabled: true
-  }
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `permissions` computed below, where
+  `t()` is available; a plain module-scope array can only ever hold a literal, not a reactive
+  translation, so it stays purely structural here.
+*/
+const PERMISSIONS_DATA = [
+  { permission: 'access:admin', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:users', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:groups', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:groups', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:sites', warning: true, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:glossary', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:system', warning: true, restrictedForSystem: true, disabled: true }
 ]
+
+const permissions = computed(() =>
+  PERMISSIONS_DATA.map((perm) => ({
+    ...perm,
+    hint: t(`admin.groups.permissions.${perm.permission}.hint`)
+  }))
+)
 
 /**
  * The subset of `rules` below that the guests group may be granted. Mirrors `GUEST_ROLES` in
@@ -847,208 +800,60 @@ const GUEST_ROLES = [
   'write:comments'
 ]
 
-const rules = [
-  {
-    permission: 'read:pages',
-    title: 'Read Pages',
-    hint: 'Can view and search pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:pages',
-    title: 'Write Pages',
-    hint: 'Can create and edit pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'review:pages',
-    title: 'Review Pages',
-    hint: 'Can review and approve edits submitted by users.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:pages',
-    title: 'Manage Pages',
-    hint: 'Can move existing pages to other locations the user has write access to.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'delete:pages',
-    title: 'Delete Pages',
-    hint: 'Can delete existing pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:styles',
-    title: 'Use CSS',
-    hint: 'Can insert CSS styles in pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'write:scripts',
-    title: 'Use JavaScript',
-    hint: 'Can insert JavaScript in pages.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:source',
-    title: 'View Page Source',
-    hint: 'Can view pages source.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:history',
-    title: 'View Page History',
-    hint: 'Can view previous versions of pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'read:assets',
-    title: 'View Assets',
-    hint: 'Can view / use assets (such as images and files) in pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:assets',
-    title: 'Upload Assets',
-    hint: 'Can upload new assets (such as images and files).',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'manage:assets',
-    title: 'Manage Assets',
-    hint: 'Can edit and delete existing assets (such as images and files).',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'read:comments',
-    title: 'Read Comments',
-    hint: 'Can view page comments.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'write:comments',
-    title: 'Write Comments',
-    hint: 'Can post new comments on pages.',
-    warning: false,
-    restrictedForSystem: false,
-    disabled: false
-  },
-  {
-    permission: 'manage:comments',
-    title: 'Manage Comments',
-    hint: 'Can edit and delete existing page comments.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  /*
-    Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
-    `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
-    one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
-    `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
+/*
+  Structural data only -- no English text. `title:`/`hint:` are resolved from
+  `admin.groups.permissions.<permission>.title` / `.hint` in the `rules` computed below, where `t()`
+  is available; a plain module-scope array can only ever hold a literal, not a reactive translation,
+  so it stays purely structural here.
 
-    Deliberately in the SAME catalog as the page permissions above, not a second list or a second
-    UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
-    exactly what it already means for a page permission -- empty is every site, populated is only
-    those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
-    `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+  Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
+  `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
+  one without the other). Each governs one settings surface behind `/_admin/:siteid/...` -- see
+  `docs/decisions/delegated-per-site-administration.md` §3 for the one-per-surface reasoning.
 
-    None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
-    group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
-    screen offers.
-  */
-  {
-    permission: 'site:general',
-    title: 'Site: General Settings',
-    hint: 'Can manage general site settings (title, description, features, robots, sitemap, uploads, etc.), and the site logo / favicon.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:theme',
-    title: 'Site: Theme',
-    hint: "Can manage the site's theme and appearance.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:navigation',
-    title: 'Site: Navigation',
-    hint: "Can manage the site's navigation menus.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:blocks',
-    title: 'Site: Blocks',
-    hint: "Can enable, disable or delete the site's blocks.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:approvals',
-    title: 'Site: Approval Rules',
-    hint: "Can view and manage the site's approval rules for suggested edits.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:login',
-    title: 'Site: Login & Authentication',
-    hint: "Can manage the site's authentication strategies and login background image.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:locale',
-    title: 'Site: Locale',
-    hint: "Can manage the site's active locales.",
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  },
-  {
-    permission: 'site:editors',
-    title: 'Site: Editors',
-    hint: 'Can manage which content editors are enabled for the site.',
-    warning: false,
-    restrictedForSystem: true,
-    disabled: false
-  }
+  Deliberately in the SAME catalog as the page permissions above, not a second list or a second
+  UI: a rule already has a sites picker ("Applies to..." below), which for one of these means
+  exactly what it already means for a page permission -- empty is every site, populated is only
+  those. The `path` / `match` / `locales` fields alongside it are simply not read for these (see
+  `helpers/siteRules.ts`'s own doc comment) and can be left at whatever a new rule defaults to.
+
+  None of these are in `GUEST_ROLES` above, so `ruleOptions` already keeps them off the guests
+  group's picker -- and `models/groups.ts` enforces that server-side regardless of what this
+  screen offers.
+*/
+const RULES_DATA = [
+  { permission: 'read:pages', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'review:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'delete:pages', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:styles', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'write:scripts', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:source', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:history', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'read:assets', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'manage:assets', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'read:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'write:comments', warning: false, restrictedForSystem: false, disabled: false },
+  { permission: 'manage:comments', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:general', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:theme', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:navigation', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:blocks', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:approvals', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:login', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:locale', warning: false, restrictedForSystem: true, disabled: false },
+  { permission: 'site:editors', warning: false, restrictedForSystem: true, disabled: false }
 ]
+
+const rules = computed(() =>
+  RULES_DATA.map((rule) => ({
+    ...rule,
+    title: t(`admin.groups.permissions.${rule.permission}.title`),
+    hint: t(`admin.groups.permissions.${rule.permission}.hint`)
+  }))
+)
 
 // VALIDATION RULES
 
@@ -1095,7 +900,9 @@ const isGuestGroup = computed(() => {
  * group edited through the API as well; this keeps the screen from offering what would be dropped.
  */
 const ruleOptions = computed(() =>
-  isGuestGroup.value ? rules.filter((rule) => GUEST_ROLES.includes(rule.permission)) : rules
+  isGuestGroup.value
+    ? rules.value.filter((rule) => GUEST_ROLES.includes(rule.permission))
+    : rules.value
 )
 
 // WATCHERS

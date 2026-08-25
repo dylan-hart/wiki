@@ -70,7 +70,22 @@ async function mountRulesSection(groupId) {
   router.push(`/rules`)
   await router.isReady()
 
-  const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+  // -> Task #1602: the catalog's `title:`/`hint:` now resolve through `t()` from
+  //    `admin.groups.permissions.<permission>.title`, not a hardcoded literal in the module-scope
+  //    array -- so this bundle must actually carry those keys for the rendered chip to show the
+  //    expected text instead of the raw untranslated key.
+  const i18n = createI18n({
+    legacy: false,
+    locale: 'en',
+    messages: {
+      en: Object.fromEntries(
+        Object.entries(SITE_PERMISSION_TITLES).map(([permission, title]) => [
+          `admin.groups.permissions.${permission}.title`,
+          title
+        ])
+      )
+    }
+  })
 
   const wrapper = mount(GroupEditOverlay, {
     global: {
@@ -167,6 +182,62 @@ describe('GroupEditOverlay rule editor: site: permission vocabulary', () => {
     for (const title of Object.values(SITE_PERMISSION_TITLES)) {
       expect(text).toContain(title)
     }
+  })
+})
+
+/**
+ * OpenProject #1602: `permissions`' (the global-permission catalog) `hint:` used to be a raw English
+ * literal baked into the module-scope array. It now resolves through `t()` from
+ * `admin.groups.permissions.<permission>.hint` in the `permissions` computed. Supplying a dictionary
+ * value here that does not match the original English literal, and asserting the rendered row shows
+ * exactly that value, is what proves the hint is actually read from the i18n dictionary at render
+ * time rather than still being a literal the catalog carries -- a hardcoded literal could never
+ * produce this text.
+ */
+describe('GroupEditOverlay global permissions: hint resolves from the i18n dictionary', () => {
+  it("renders a permission row's hint from a mounted translation, not a literal", async () => {
+    setActivePinia(createPinia())
+    const adminStore = useAdminStore()
+    adminStore.overlayOpts = { id: 'group-perms' }
+
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({
+          id: 'group-perms',
+          name: 'Test Group',
+          userCount: 0,
+          permissions: [],
+          rules: []
+        })
+    })
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:section', component: { template: '<div />' } }]
+    })
+    router.push('/permissions')
+    await router.isReady()
+
+    const dictionaryHint = 'DICTIONARY-SOURCED HINT TEXT, NOT A COMPONENT LITERAL'
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: {
+        en: {
+          'admin.groups.permissions.access:admin.hint': dictionaryHint
+        }
+      }
+    })
+
+    const wrapper = mount(GroupEditOverlay, {
+      global: {
+        plugins: [router, i18n]
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(dictionaryHint)
   })
 })
 
