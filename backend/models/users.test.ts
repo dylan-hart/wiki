@@ -3,7 +3,13 @@ import assert from 'node:assert/strict'
 import bcrypt from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import { matchRecoveryCode, users } from './users.ts'
-import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import {
+  hasTestDatabase,
+  seedLocale,
+  setupTestDb,
+  teardownTestDb,
+  type TestFixtures
+} from '../test/db.ts'
 import {
   assets as assetsTable,
   authentication as authenticationTable,
@@ -45,7 +51,8 @@ describe('users.updateSession', () => {
         timezone: 'America/New_York',
         dateFormat: 'YYYY-MM-DD',
         appearance: 'dark',
-        cvd: 'none'
+        cvd: 'none',
+        locale: 'fr'
       }
     })
     const req = makeReq()
@@ -62,7 +69,8 @@ describe('users.updateSession', () => {
       dateFormat: 'YYYY-MM-DD',
       timeFormat: undefined,
       appearance: 'dark',
-      cvd: 'none'
+      cvd: 'none',
+      locale: 'fr'
     })
   })
 
@@ -1644,5 +1652,65 @@ describe('users.reassignContent (DB-backed)', { skip: !hasTestDatabase() }, () =
     const result = await usersModel.reassignContent(freshUser!.id, targetUserId)
 
     assert.deepEqual(result, { pagesReassigned: 0, assetsReassigned: 0 })
+  })
+})
+
+/**
+ * `updateProfile` is the write path for the profile screen's preferences, `users.prefs.locale`
+ * (OpenProject #1619) included -- exercised DB-backed since it round-trips through `getById()` /
+ * `updateUser()`, and `locale` validation reads the installed locale list through
+ * `WIKI.models.locales.getLocales()`.
+ */
+describe('users.updateProfile (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+    await seedLocale(fixtures.db, { code: 'fr' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('persists a locale naming an installed locale, and reads it back on reload', async () => {
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+    assert.equal(updated?.locale, 'fr')
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.locale, 'fr')
+  })
+
+  test('clears the preference on an empty string, without requiring it be installed', async () => {
+    await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    const cleared = await usersModel.updateProfile(fixtures.userId, { locale: '' })
+    assert.equal(cleared?.locale, '')
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.locale, '')
+  })
+
+  test('rejects a locale code that names no installed locale, leaving the stored preference untouched', async () => {
+    await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    await assert.rejects(
+      () => usersModel.updateProfile(fixtures.userId, { locale: 'xx-nonexistent' }),
+      /ERR_INVALID_LOCALE/
+    )
+
+    const reloaded = await usersModel.getProfile(fixtures.userId)
+    assert.equal(reloaded?.locale, 'fr')
+  })
+
+  test('leaves other prefs/meta fields untouched when only the locale changes', async () => {
+    await usersModel.updateProfile(fixtures.userId, { timezone: 'America/New_York', cvd: 'none' })
+
+    const updated = await usersModel.updateProfile(fixtures.userId, { locale: 'fr' })
+
+    assert.equal(updated?.locale, 'fr')
+    assert.equal(updated?.timezone, 'America/New_York')
   })
 })
