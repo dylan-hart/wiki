@@ -637,9 +637,7 @@ async function discardChanges() {
       notify({
         type: 'positive',
         // -> Nothing was reverted in the suggest case: the page never changed, the draft did
-        message: wasSuggesting
-          ? t('common.page.suggestDiscarded')
-          : 'Page has been reverted to the last saved state.'
+        message: wasSuggesting ? t('common.page.suggestDiscarded') : t('common.page.revertSuccess')
       })
     }
   } catch (err) {
