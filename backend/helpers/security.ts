@@ -58,6 +58,61 @@ export function parseCspDirectives(value: string): Record<string, string[]> {
 }
 
 /**
+ * Every directive name a browser actually recognises in a `Content-Security-Policy` header — fetch
+ * directives, document/navigation directives, and the two reporting directives. Kept as the allowlist
+ * `models/security.ts#validate` checks a saved `cspDirectives` string against, so a typo (`scirpt-src`,
+ * or a directive from an unrelated header like `x-frame-options`) is caught at save time rather than
+ * stored and silently doing nothing once an operator turns `enforceCsp` on. Source: the W3C CSP3
+ * directive registry plus the still-widely-supported CSP2 `plugin-types`/`block-all-mixed-content`.
+ */
+export const KNOWN_CSP_DIRECTIVES = new Set([
+  'base-uri',
+  'block-all-mixed-content',
+  'child-src',
+  'connect-src',
+  'default-src',
+  'fenced-frame-src',
+  'font-src',
+  'form-action',
+  'frame-ancestors',
+  'frame-src',
+  'img-src',
+  'manifest-src',
+  'media-src',
+  'object-src',
+  'plugin-types',
+  'prefetch-src',
+  'report-to',
+  'report-uri',
+  'require-trusted-types-for',
+  'sandbox',
+  'script-src',
+  'script-src-attr',
+  'script-src-elem',
+  'style-src',
+  'style-src-attr',
+  'style-src-elem',
+  'trusted-types',
+  'upgrade-insecure-requests',
+  'worker-src'
+])
+
+/**
+ * The first directive name in a `cspDirectives` string this browser does not actually recognise, or
+ * `null` when every directive parsed out of it is a real one. Used by `models/security.ts#validate`
+ * to refuse a save with a typo rather than storing a policy that quietly leaves that one aspect
+ * unprotected.
+ */
+export function findUnknownCspDirective(value: string): string | null {
+  for (const name of Object.keys(parseCspDirectives(value))) {
+    if (!KNOWN_CSP_DIRECTIVES.has(name)) {
+      return name
+    }
+  }
+  return null
+}
+
+/**
  * The `origin` option for `@fastify/cors`, from the configured mode.
  *
  * `false` means no CORS headers at all, i.e. same-origin only, which is both the `OFF` mode and what

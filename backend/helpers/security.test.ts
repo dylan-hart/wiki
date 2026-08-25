@@ -2,7 +2,7 @@ import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { corsOrigin, corsOptions, findUnknownCspDirective } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
@@ -107,4 +107,41 @@ describe('corsOptions preflight (integration)', () => {
       }
     })
   }
+})
+
+/**
+ * OpenProject #1360/#2154 (2026-08-24 security audit §10): `models/security.ts#validate` used to
+ * accept any directive name at all, so a typo saved while `enforceCsp` was off would sit silently
+ * wrong until an operator turned the toggle on.
+ */
+describe('findUnknownCspDirective', () => {
+  test('returns null when every directive is one a browser recognises', () => {
+    assert.equal(
+      findUnknownCspDirective("default-src 'self'; object-src 'none'; base-uri 'self'"),
+      null
+    )
+  })
+
+  test('returns null for a directive with no value, such as upgrade-insecure-requests', () => {
+    assert.equal(findUnknownCspDirective('upgrade-insecure-requests'), null)
+  })
+
+  test('is case-insensitive, matching parseCspDirectives', () => {
+    assert.equal(findUnknownCspDirective("DEFAULT-SRC 'self'"), null)
+  })
+
+  test("flags a typo'd directive name", () => {
+    assert.equal(findUnknownCspDirective("scirpt-src 'self'"), 'scirpt-src')
+  })
+
+  test('flags a header name that is not a CSP directive at all', () => {
+    assert.equal(findUnknownCspDirective('x-frame-options DENY'), 'x-frame-options')
+  })
+
+  test('returns the first unknown directive when more than one directive is present', () => {
+    assert.equal(
+      findUnknownCspDirective("default-src 'self'; not-a-directive 'x'"),
+      'not-a-directive'
+    )
+  })
 })

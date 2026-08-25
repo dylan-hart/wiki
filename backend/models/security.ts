@@ -1,4 +1,4 @@
-import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
+import { CORS_MODES, findUnknownCspDirective, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
 export const SECURITY_FIELDS = [
@@ -137,6 +137,18 @@ class Security {
     if (merged.enforceCsp) {
       if (Object.keys(parseCspDirectives(merged.cspDirectives ?? '')).length < 1) {
         return 'Enforcing a Content-Security-Policy needs at least one directive.'
+      }
+    }
+    /*
+      Checked whenever ANY directive string is stored, not only while `enforceCsp` is on: a typo
+      saved while CSP is off would otherwise sit silently wrong until the moment an operator flips
+      the toggle, which is exactly the wrong time to discover it (OpenProject #1360/#2154, 2026-08-24
+      security audit §10).
+    */
+    if (merged.cspDirectives) {
+      const unknown = findUnknownCspDirective(merged.cspDirectives)
+      if (unknown) {
+        return `"${unknown}" is not a Content-Security-Policy directive a browser recognises.`
       }
     }
 
