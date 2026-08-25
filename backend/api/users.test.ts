@@ -32,16 +32,57 @@ let siteFeatures: Record<string, any> | null = null
 let userGroupsFixture: Array<{ id: string; name: string }> = []
 let nonMemberGroupsFixture: Array<{ id: string; name: string }> = []
 
+/**
+ * Fixtures for the OpenProject #1603 group-validation tests: `knownGroupsFixture` is what
+ * `WIKI.models.groups.getAllGroups()` answers, and the two call-log arrays let a test assert that an
+ * unknown group id short-circuits before either write path (`createUser` / `setUserGroups`) runs.
+ */
+const KNOWN_GROUP_ID = '55555555-5555-5555-5555-555555555555'
+const UNKNOWN_GROUP_ID = '66666666-6666-6666-6666-666666666666'
+const EXISTING_USER_ID = '77777777-7777-7777-7777-777777777777'
+let knownGroupsFixture: Array<{ id: string }> = [{ id: KNOWN_GROUP_ID }]
+let createUserCalls: Array<Record<string, any>> = []
+let setUserGroupsCalls: string[][] = []
+
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: {
+      auth: { rootAdminGroupId: '88888888-8888-8888-8888-888888888888' }
+    },
     models: {
       users: {
         getUserGroups: async () => userGroupsFixture,
-        getNonMemberGroups: async () => nonMemberGroupsFixture
+        getNonMemberGroups: async () => nonMemberGroupsFixture,
+        getByEmail: async () => null,
+        createUser: async (input: Record<string, any>) => {
+          createUserCalls.push(input)
+          return 'new-user-id'
+        },
+        getById: async (id: string) => ({ id, email: 'existing@example.com', isSystem: false }),
+        getUserGroupIds: async () => [],
+        updateUser: async () => {},
+        setUserGroups: async (_userId: string, groupIds: string[]) => {
+          setUserGroupsCalls.push(groupIds)
+        },
+        setUserAuthFlags: async () => {}
+      },
+      groups: {
+        getAllGroups: async () => knownGroupsFixture,
+        holdsSystemPermission: () => true,
+        userHoldsSystemPermission: async () => false,
+        systemGroupIds: async () => [],
+        isUserInGroup: async () => false,
+        countUsersInGroup: async () => 0
       },
       sites: {
         getSiteByHostname: async () =>
           siteFeatures ? { config: { features: siteFeatures } } : null
+      },
+      auditLog: {
+        record: async () => {}
+      },
+      sessions: {
+        clearSessionsFromUser: async () => {}
       }
     }
   }
@@ -57,6 +98,17 @@ before(async () => {
   app.addHook('onRequest', async (req) => {
     const raw = req.headers['x-test-session']
     ;(req as any).session = raw ? JSON.parse(raw as string) : undefined
+  })
+  // -> Mirrors `index.ts`'s real `setErrorHandler` so a `reply.badRequest()` (or any thrown
+  //    `CustomError`) serializes against the `ApiError#` response schema the same way it does in the
+  //    real app -- this harness registers no other error handler of its own.
+  app.setErrorHandler((error: any, _req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name ?? 'Internal Server Error',
+      statusCode: error.statusCode ?? 500,
+      message: error.message ?? 'Internal Server error'
+    })
   })
 
   await registerErrorSchema(app)
@@ -213,4 +265,65 @@ test('GET /profile/groups: setting on, member of every group -> empty non-member
     userGroupsFixture = []
     nonMemberGroupsFixture = []
   }
+})
+
+/**
+ * OpenProject #1603: `POST /users` and `PUT /users/:userId` must reject a group id that names no
+ * real group, rather than handing it to `setUserGroups` (`models/users.ts`) and having it silently
+ * dropped -- see that model method's own leniency comment for why the model layer stays lenient
+ * while these two route handlers do not.
+ */
+
+test('POST /: rejects an unknown group id, without creating the user', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID, UNKNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createUserCalls.length, 0)
+})
+
+test('POST /: a fully-known group list is accepted', async () => {
+  createUserCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      password: 'a-long-password',
+      groups: [KNOWN_GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createUserCalls.length, 1)
+})
+
+test('PUT /:userId: rejects an unknown group id, without changing membership', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [UNKNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(setUserGroupsCalls.length, 0)
+})
+
+test('PUT /:userId: a fully-known group list is accepted', async () => {
+  setUserGroupsCalls = []
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${EXISTING_USER_ID}`,
+    payload: { groups: [KNOWN_GROUP_ID] }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(setUserGroupsCalls, [[KNOWN_GROUP_ID]])
 })
