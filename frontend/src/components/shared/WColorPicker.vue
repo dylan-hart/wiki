@@ -1,6 +1,14 @@
 <template>
   <div class="w-color-picker w-[240px] select-none">
-    <!-- Saturation / brightness field -->
+    <!--
+      Saturation / brightness field
+
+      This field's and the hue rail's `left:` below are colour-space coordinates (saturation 0-100%,
+      hue 0-360°), not a leading/trailing gutter -- reviewed under OpenProject #1590's
+      physical-positioning triage and left physical, the same reasoning `WRange`'s numeric scale
+      gets: a colour gradient reads left-to-right by its own convention, independent of the reading
+      direction.
+    -->
     <div
       ref="fieldEl"
       class="relative h-[140px] w-full cursor-crosshair"

@@ -452,6 +452,10 @@
       `relative` from its own class list, and Tailwind emits `relative` after `fixed`, so a `fixed`
       alongside it loses. `.corner-btn` is in `css/_base.scss`, since this layout never loads MainLayout's
       stylesheet.
+
+      `left-0` (not `start-0`) is deliberate, matching `MainLayout`'s own corner button -- OpenProject
+      #1590's physical-positioning triage: a fixed screen corner, not a reading-direction gutter. See
+      `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">

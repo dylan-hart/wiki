@@ -56,6 +56,9 @@ const props = defineProps({
 const shown = ref(false)
 const floatEl = ref(null)
 const placeholderEl = ref(null)
+// -> `left`/`top` here are raw viewport pixels from `anchoredPosition()`'s own bounding-rect math
+//    (below), not a CSS gutter -- reviewed under OpenProject #1590's physical-positioning triage
+//    and left physical, same reasoning as `WMenu`'s identical pattern.
 const floatStyle = ref({ left: '0px', top: '0px' })
 
 let triggerEl = null

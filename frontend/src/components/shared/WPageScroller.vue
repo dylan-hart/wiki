@@ -22,6 +22,11 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
  * with its right edge at `anchorX` — which is how it tucks into the bottom of the nav sidebar's
  * column. Scrolling uses the platform's own smooth behaviour rather than the hand-rolled easing the
  * previous component shipped, and honours `prefers-reduced-motion` for free.
+ *
+ * The default corner is `right-0`, not `end-0` (OpenProject #1590's physical-positioning triage):
+ * this is the corner `MainLayout`/`AdminLayout`'s own sidebar-opener button leaves free for it (see
+ * their `left-0`), a pairing with ANOTHER fixed corner rather than with the reading direction, so it
+ * must not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
  */
 const props = defineProps({
   /** Show once the window has scrolled this many pixels. */

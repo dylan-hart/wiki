@@ -112,6 +112,10 @@
       Hard into the corner, with the corner facing the page rounded and the other three square -- see
       `.corner-btn`. No margin, so the button is not a disc hovering near the edge of a small screen but
       a piece of the screen's own corner, and every pixel of it is inside the viewport.
+
+      `left-0` (not `start-0`) is deliberate -- OpenProject #1590's physical-positioning triage: this
+      corner is chosen relative to `WPageScroller`'s corner, not to the reading direction, so it must
+      not move when the locale does. See `frontend/src/physicalPositioning.test.js`.
     -->
     <transition name="corner-btn">
       <div v-if="showSidebarBtn" class="fixed bottom-0 left-0 z-30">

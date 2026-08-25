@@ -8,8 +8,16 @@
     :aria-valuemin="indeterminate ? undefined : 0"
     :aria-valuemax="indeterminate ? undefined : 100">
     <div class="absolute inset-0 opacity-25" :style="{ backgroundColor: trackColor }" />
+    <!--
+      -> `start-0` (OpenProject #1590), not `left-0`: the fill's WIDTH grows from 0 to `value`
+         while this edge stays put, so whichever edge it is anchored to is the edge progress reads
+         as advancing FROM. Pinning that to the physical left always had it filling toward the
+         trailing edge under RTL rather than the reading-end one -- an ordinary leading/trailing
+         gutter question, not a screen-position one, so it belongs logical like every other side of
+         this component rather than on the physical-positioning allowlist.
+    -->
     <div
-      class="absolute inset-y-0 left-0"
+      class="absolute inset-y-0 start-0"
       :class="indeterminate ? 'w-linear-progress-indeterminate' : ''"
       :style="barStyle" />
   </div>
