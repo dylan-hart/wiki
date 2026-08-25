@@ -1,4 +1,31 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { guardSiteEnabled } from '../helpers/common.ts'
+
+/**
+ * Applies `guardSiteEnabled` to every request whose route names a `:siteId` param, before that
+ * route's own handler runs — the single choke point OpenProject task 1593 replaced nine hand-applied
+ * `guardSiteEnabled(WIKI.sites[req.params.siteId], reply)` calls with. A route file under `api/` no
+ * longer guards itself: this fires for every one of them registered inside the `contentApp`
+ * encapsulation below.
+ *
+ * Deliberately NOT registered directly on the outer `app` — `sites.ts` is registered outside that
+ * encapsulation on purpose, see the comment down there for why a `:siteId` route can need to keep
+ * working on a disabled site.
+ *
+ * Exported (rather than an inline closure) so `index.test.ts` can exercise the exact function
+ * production runs, both directly against fake req/reply and wired into a real Fastify instance.
+ */
+export function guardSiteEnabledPreHandler(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: () => void
+): void {
+  const siteId = (req.params as { siteId?: unknown } | undefined)?.siteId
+  if (typeof siteId === 'string' && guardSiteEnabled(WIKI.sites[siteId], reply)) {
+    return
+  }
+  done()
+}
 
 /**
  * API Routes
@@ -40,39 +67,60 @@ async function routes(app: FastifyInstance) {
   await import('./schemas/user.ts').then((m) => m.registerSchemas(app))
 
   // Register routes
-  app.register(import('./analytics.ts'))
-  app.register(import('./apiKeys.ts'), { prefix: '/api-keys' })
-  app.register(import('./approvals.ts'))
-  app.register(import('./assets.ts'))
-  app.register(import('./auditLog.ts'), { prefix: '/audit-log' })
-  app.register(import('./authentication.ts'))
-  app.register(import('./blockCredentials.ts'))
-  app.register(import('./blocks.ts'))
-  app.register(import('./bootstrap.ts'), { prefix: '/bootstrap' })
-  app.register(import('./checklists.ts'))
-  app.register(import('./classificationLevels.ts'), { prefix: '/classification-levels' })
-  app.register(import('./comments.ts'))
-  app.register(import('./diagrams.ts'), { prefix: '/diagrams' })
-  app.register(import('./glossary.ts'))
-  app.register(import('./graph.ts'))
-  app.register(import('./groups.ts'), { prefix: '/groups' })
-  app.register(import('./hooks.ts'), { prefix: '/hooks' })
-  app.register(import('./icons.ts'), { prefix: '/icons' })
-  app.register(import('./liveData.ts'))
-  app.register(import('./locales.ts'), { prefix: '/locales' })
-  app.register(import('./mail.ts'), { prefix: '/mail' })
-  app.register(import('./navigation.ts'))
-  app.register(import('./notifications.ts'))
-  app.register(import('./pages.ts'))
-  app.register(import('./scheduler.ts'), { prefix: '/scheduler' })
-  app.register(import('./search.ts'))
+
+  // -> `sites.ts` administers the site RECORD itself — including `PUT /sites/:siteId`, which is how
+  //    `isEnabled` is flipped in either direction, and `DELETE /sites/:siteId`. Registered directly on
+  //    `app`, outside the guarded `contentApp` encapsulation below, so both keep working on an already
+  //    -disabled site: a `guardSiteEnabledPreHandler` that also covered this route would make a
+  //    disabled site permanently un-re-enableable through the API, since the very route that flips
+  //    `isEnabled` back to `true` would itself already be refused with `isEnabled === false`. None of
+  //    `sites.ts`'s own routes were ever among the nine hand-applied `guardSiteEnabled` call sites
+  //    either — this preserves that, rather than changing it as a side effect of centralizing the rest.
   app.register(import('./sites.ts'), { prefix: '/sites' })
-  app.register(import('./storage.ts'))
-  app.register(import('./system.ts'), { prefix: '/system' })
-  app.register(import('./tags.ts'))
-  app.register(import('./tree.ts'))
-  app.register(import('./users.ts'), { prefix: '/users' })
-  app.register(import('./watching.ts'))
+
+  // -> Every other `:siteId`-scoped route is genuinely site CONTENT or a site-scoped FEATURE (pages,
+  //    the tree, assets, comments, navigation, search, storage targets, auth, blocks, approvals, ...),
+  //    not administration of the site record — guarding these is exactly what OpenProject task 1593
+  //    closes the hole on. A nested `register()` is a real Fastify encapsulation boundary: a hook
+  //    added inside it (`contentApp.addHook`) applies only to routes registered within this same
+  //    child scope and its own descendants, not to `sites.ts` above, which was registered directly on
+  //    the outer `app`.
+  app.register(async (contentApp) => {
+    contentApp.addHook('preHandler', guardSiteEnabledPreHandler)
+
+    contentApp.register(import('./analytics.ts'))
+    contentApp.register(import('./apiKeys.ts'), { prefix: '/api-keys' })
+    contentApp.register(import('./approvals.ts'))
+    contentApp.register(import('./assets.ts'))
+    contentApp.register(import('./auditLog.ts'), { prefix: '/audit-log' })
+    contentApp.register(import('./authentication.ts'))
+    contentApp.register(import('./blockCredentials.ts'))
+    contentApp.register(import('./blocks.ts'))
+    contentApp.register(import('./bootstrap.ts'), { prefix: '/bootstrap' })
+    contentApp.register(import('./checklists.ts'))
+    contentApp.register(import('./classificationLevels.ts'), { prefix: '/classification-levels' })
+    contentApp.register(import('./comments.ts'))
+    contentApp.register(import('./diagrams.ts'), { prefix: '/diagrams' })
+    contentApp.register(import('./glossary.ts'))
+    contentApp.register(import('./graph.ts'))
+    contentApp.register(import('./groups.ts'), { prefix: '/groups' })
+    contentApp.register(import('./hooks.ts'), { prefix: '/hooks' })
+    contentApp.register(import('./icons.ts'), { prefix: '/icons' })
+    contentApp.register(import('./liveData.ts'))
+    contentApp.register(import('./locales.ts'), { prefix: '/locales' })
+    contentApp.register(import('./mail.ts'), { prefix: '/mail' })
+    contentApp.register(import('./navigation.ts'))
+    contentApp.register(import('./notifications.ts'))
+    contentApp.register(import('./pages.ts'))
+    contentApp.register(import('./scheduler.ts'), { prefix: '/scheduler' })
+    contentApp.register(import('./search.ts'))
+    contentApp.register(import('./storage.ts'))
+    contentApp.register(import('./system.ts'), { prefix: '/system' })
+    contentApp.register(import('./tags.ts'))
+    contentApp.register(import('./tree.ts'))
+    contentApp.register(import('./users.ts'), { prefix: '/users' })
+    contentApp.register(import('./watching.ts'))
+  })
 }
 
 export default routes

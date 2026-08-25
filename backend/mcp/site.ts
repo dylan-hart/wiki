@@ -24,9 +24,12 @@ export function defaultLocale(site: McpSite): string {
 }
 
 /**
- * Resolve a site by id, refusing one that does not exist or is disabled — the same guard
- * `helpers/common.ts`'s `guardSiteEnabled()` applies to every `/_api/sites/:siteId/...` route, adapted
- * to throw since there is no `FastifyReply` here to write to.
+ * Resolve a site by id, refusing one that does not exist or is disabled — the same
+ * `helpers/common.ts`'s `guardSiteEnabled()` check `api/index.ts`'s shared `preHandler` applies to
+ * every content/feature `:siteId`-scoped `/_api` route (OpenProject task 1593; `api/sites.ts`'s own
+ * site-ADMINISTRATION routes are deliberately excluded there, see its comment), adapted to throw since
+ * there is no `FastifyReply` here to write to, and to answer "does not exist" rather than leaving an
+ * unknown id as "not my problem" the way that preHandler does.
  */
 export function resolveSite(siteId: string): McpSite {
   const site = WIKI.sites[siteId] as McpSite | undefined
