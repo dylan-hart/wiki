@@ -42,7 +42,13 @@ import {
 } from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
-import { corsOptions, parseCspDirectives } from './helpers/security.ts'
+import {
+  corsOptions,
+  parseCspDirectives,
+  SESSION_COOKIE_NAME,
+  shouldBlockCrossOriginApiRequest,
+  websocketVerifyClient
+} from './helpers/security.ts'
 
 // -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
 //    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
@@ -341,8 +347,21 @@ async function initHTTPServer() {
 
     `maxPayload` bounds a single frame: these carry keystrokes and cursor positions, and the largest
     legitimate one is a client handing over a document it edited while offline.
+
+    `verifyClient` (task 2120 / WP 2105 §5, `helpers/security.ts#websocketVerifyClient`) gates the
+    handshake itself -- see that function's own doc comment for why. Passed here, on the single
+    registration, so both current routes (`controllers/terminal.ts`, `controllers/collab.ts`) and
+    any future websocket route inherit it rather than each needing its own check. @fastify/websocket
+    hands `options` straight to `ws`'s own `WebSocket.Server`, which runs `verifyClient` before
+    Fastify's own request object (and therefore its hooks) ever exists for this connection, so the
+    rejection genuinely happens before either controller's session check runs.
   */
-  app.register(fastifyWebsocket, { options: { maxPayload: 5242880 } })
+  app.register(fastifyWebsocket, {
+    options: {
+      maxPayload: 5242880,
+      verifyClient: websocketVerifyClient
+    }
+  })
 
   // ----------------------------------------
   // Handle graceful server shutdown
@@ -446,11 +465,34 @@ async function initHTTPServer() {
   })
   app.register(fastifySession, {
     secret: WIKI.config.auth.secret,
-    cookieName: 'wikiSession',
+    cookieName: SESSION_COOKIE_NAME,
     cookie: {
       httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      secure: 'auto'
+      /*
+        Unconditionally true, not 'auto' (task 2109 / WP 2105 §2): the `__Host-` name above is only
+        honoured by a browser when the `Set-Cookie` response itself carries `Secure` -- @fastify/
+        session's 'auto' resolves that to `false` on any request THIS instance sees as plain http
+        (`node_modules/@fastify/session/lib/cookie.js`), which includes both the dev server
+        (`npm run dev` serves :3000 over http, matching config.sample.yml's default) and a
+        genuinely-HTTPS deployment sitting behind a reverse proxy that isn't declared via
+        `trustProxy` -- see `models/security.ts#observeRequest`, which exists to catch exactly that
+        misconfiguration. In the trustProxy-off-but-really-HTTPS case, 'auto' would silently drop the
+        whole `__Host-` cookie rather than merely downgrade it, since a missing `Secure` fails the
+        prefix outright; forcing it `true` fixes that case unconditionally instead (the browser
+        judges Secure-cookie eligibility by what scheme IT used, not this instance's belief about
+        its own scheme), and still works in dev because Chromium/Firefox both treat `localhost` /
+        `127.0.0.1` as a trustworthy origin for the Secure attribute even over plain http. The one
+        real cost is a deployment with no TLS anywhere in the chain (not even a proxy) now fails
+        closed -- no session cookie at all, rather than an insecure one -- which is the point.
+      */
+      secure: true,
+      // -> Explicit, not left to 'auto' forcing it only on the non-https branch (task 2109 / WP
+      //    2105 §2): a correctly-deployed HTTPS instance was emitting `Secure` with NO `SameSite`
+      //    at all, which is exactly backwards for CSRF exposure. 'lax', never 'strict' -- the
+      //    OAuth/SAML provider callback is a cross-site top-level navigation back to this origin,
+      //    which 'strict' would refuse to attach the cookie to.
+      sameSite: 'lax'
     },
     saveUninitialized: false,
     store: {
@@ -625,6 +667,35 @@ async function initHTTPServer() {
     //    not only the ones that remembered to attach a limiter. See helpers/rateLimit.ts for why
     //    this one specifically has no manage:system exemption.
     return limitApiKey(req, reply)
+  })
+
+  // ----------------------------------------
+  // Same-Origin Check (task 2118 / WP 2105 §3)
+  // ----------------------------------------
+
+  /*
+    `SameSite=Lax` (above) does not cover a same-site-but-different-origin attacker -- a page on
+    sibling.wiki.example is "same-site" to wiki.example for cookie purposes, but not the wiki's own
+    origin, and Lax still attaches the cookie to a top-level form navigation either way. Nothing else
+    in this file inspects request provenance (see WP 2105's own grep for `csrf`/`sec-fetch`/
+    `x-requested-with` across the repo), so a state-changing `/_api/` request riding on the session
+    cookie alone -- no verified bearer token -- has to positively confirm it originated here. The
+    actual decision is `shouldBlockCrossOriginApiRequest()` in `helpers/security.ts` -- kept as a
+    plain function of the request rather than written inline here so it can be exercised directly in
+    a test with no Fastify instance, database, or route registration needed at all; this hook is
+    just the wiring.
+
+    After the API-key hook above, so `req.apiKey` is populated for the bearer exemption; before the
+    rate limiter, though the ordering between the two doesn't matter functionally.
+  */
+  app.addHook('onRequest', (req, reply, done) => {
+    if (shouldBlockCrossOriginApiRequest(req)) {
+      // -> Fails closed: a missing/foreign `Origin` (and no `Sec-Fetch-Site: same-origin`) is not
+      //    what a real browser sends on a state-changing cross-document request, so there is
+      //    nothing here to positively trust.
+      return reply.forbidden('Cross-origin request blocked')
+    }
+    done()
   })
 
   // ----------------------------------------

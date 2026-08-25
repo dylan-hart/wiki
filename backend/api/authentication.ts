@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -1288,8 +1289,11 @@ async function routes(app: FastifyInstance) {
         await req.session.destroy()
       }
       // -> And clear that cookie too: `destroy()` detaches the session, which leaves the plugin's own
-      //    save hook with nothing to do. Name and options match the registration in `index.ts`.
-      reply.clearCookie('wikiSession')
+      //    save hook with nothing to do. Name and options match the registration in `index.ts`: the
+      //    `__Host-` prefix requires a clearing `Set-Cookie` to still carry `Secure; Path=/` (task
+      //    2109 / WP 2105 §2) or the browser rejects the clear the same way it would a real one,
+      //    leaving the stale (now-orphaned) cookie sitting in the browser.
+      reply.clearCookie(SESSION_COOKIE_NAME, { path: '/', secure: true })
 
       if (user) {
         WIKI.models.flags.authDebug(

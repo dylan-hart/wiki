@@ -2091,7 +2091,7 @@ class Users {
     }
 
     // Set Session Data
-    this.updateSession(user, req)
+    await this.updateSession(user, req)
 
     WIKI.models.flags.authDebug(
       `User ${user.id} <${user.email}> logged in with ${user.groups.length} group(s) and ${req?.session?.permissions?.length ?? 0} permission(s), redirecting to ${redirect}`
@@ -2506,7 +2506,24 @@ class Users {
     return this.afterLoginChecks(user, strategyId, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
-  updateSession(user: any, req: any): void {
+  /**
+   * Mark a session authenticated for `user` — the one place every login path (local, provider,
+   * passkey, and the 2FA / password-change continuations) ends up, via `afterLoginChecks`.
+   *
+   * Regenerates the session id first (task 2115 / WP 2105 §4, session fixation): without this, an
+   * attacker who can plant a session id on a victim before they log in — `saveUninitialized: false`
+   * does not prevent it, since two public pre-login endpoints already force a store write and a
+   * `Set-Cookie` (`POST /sites/:siteId/auth/passkey/challenge` and `GET /auth/:strategyId/authorize`
+   * in `api/authentication.ts`) — ends up sharing the victim's now-authenticated session once they
+   * do. `@fastify/session#regenerate()` mints a fresh session id and store row and reassigns it onto
+   * `req.session` in place, so every read of `req.session` after this line — in this method, and
+   * back up the call chain in `afterLoginChecks` — already sees the regenerated one. Nothing needs
+   * carrying across: the only things a pre-login session ever holds (`authFlow`, `passkeyLogin`) are
+   * already cleared by their own callers once the ceremony they were for finishes.
+   */
+  async updateSession(user: any, req: any): Promise<void> {
+    await req.session.regenerate()
+
     req.session.authenticated = true
     req.session.user = {
       id: user.id,

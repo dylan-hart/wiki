@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, beforeEach, describe, mock, test } from 'node:test'
 import type { ExtensionDefinition } from './extensions.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 
 const PUPPETEER_DEFINITION: ExtensionDefinition = {
   key: 'puppeteer',
@@ -222,10 +223,11 @@ describe('PdfExport.exportPdf', () => {
 
       assert.equal(pdf.toString(), '%PDF-fake')
       assert.deepEqual(calls.setCookie[0][0], {
-        name: 'wikiSession',
+        name: SESSION_COOKIE_NAME,
         value: 'abc123.signature',
         url: 'http://127.0.0.1:3000',
-        httpOnly: true
+        httpOnly: true,
+        secure: true
       })
       assert.deepEqual(calls.setExtraHTTPHeaders[0][0], { Host: 'wiki.example.com' })
       assert.equal(calls.goto[0][0], 'http://127.0.0.1:3000/getting-started')

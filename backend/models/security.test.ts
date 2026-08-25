@@ -16,8 +16,9 @@ if (typeof Temporal === 'undefined') {
  * `insecureCookieRiskAt` on `GET /system/security`, the diagnostic that warns when this instance
  * sits behind a reverse proxy terminating TLS while `trustProxy` is off -- see the doc comment on
  * `models/security.ts` for the full mechanism (`request.protocol` never reflects
- * `X-Forwarded-Proto` in that configuration, so `secure: 'auto'` on the session cookie in
- * `index.ts` resolves to `false`).
+ * `X-Forwarded-Proto` in that configuration). Since task 2109 / WP 2105 §2 made the session
+ * cookie's `Secure` attribute unconditional, this no longer risks that cookie specifically -- see
+ * the updated doc comment on `insecureCookieRiskAt` for what it still catches.
  *
  * Exercises the model directly against a minimal `WIKI.config.security` stand-in rather than a
  * real Fastify request, since `observeRequest` only ever reads two things: the raw header bag and
