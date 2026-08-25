@@ -2,7 +2,8 @@ import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import fastifySensible from '@fastify/sensible'
+import { corsOrigin, corsOptions, isSameOriginRequest } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
@@ -107,4 +108,233 @@ describe('corsOptions preflight (integration)', () => {
       }
     })
   }
+})
+
+describe('isSameOriginRequest', () => {
+  test('a matching Origin header is allowed', () => {
+    assert.equal(isSameOriginRequest({ origin: 'https://wiki.example' }, 'wiki.example'), true)
+  })
+
+  test('a cross-origin Origin header is rejected', () => {
+    assert.equal(isSameOriginRequest({ origin: 'https://attacker.example' }, 'wiki.example'), false)
+  })
+
+  test('Origin comparison includes the port', () => {
+    assert.equal(
+      isSameOriginRequest({ origin: 'https://wiki.example:8443' }, 'wiki.example'),
+      false
+    )
+    assert.equal(
+      isSameOriginRequest({ origin: 'https://wiki.example:8443' }, 'wiki.example:8443'),
+      true
+    )
+  })
+
+  test('an unparsable Origin header is rejected', () => {
+    assert.equal(isSameOriginRequest({ origin: 'not-a-url' }, 'wiki.example'), false)
+  })
+
+  test('a missing Origin falls back to Sec-Fetch-Site: same-origin', () => {
+    assert.equal(isSameOriginRequest({ 'sec-fetch-site': 'same-origin' }, 'wiki.example'), true)
+  })
+
+  test('a missing Origin with a cross-site Sec-Fetch-Site is rejected', () => {
+    assert.equal(isSameOriginRequest({ 'sec-fetch-site': 'cross-site' }, 'wiki.example'), false)
+    assert.equal(isSameOriginRequest({ 'sec-fetch-site': 'none' }, 'wiki.example'), false)
+  })
+
+  test('neither header present fails closed', () => {
+    assert.equal(isSameOriginRequest({}, 'wiki.example'), false)
+  })
+
+  test('Origin takes priority over Sec-Fetch-Site when both are present', () => {
+    assert.equal(
+      isSameOriginRequest(
+        { origin: 'https://wiki.example', 'sec-fetch-site': 'cross-site' },
+        'wiki.example'
+      ),
+      true
+    )
+  })
+})
+
+describe('origin check hook (integration, task 2118)', () => {
+  /*
+    Mirrors index.ts's actual hook chain for this concern, in order: the API Key Authentication hook
+    sets `req.apiKey` from a Bearer token; a stand-in for @fastify/session (a test-only header, since
+    booting the real session store here would just be re-describing it) simulates what would already
+    be parsed off the cookie by this point; then the origin-check hook itself — the exact conditional
+    shape at index.ts's "Origin Check (task 2118)" section, built on the `isSameOriginRequest` helper
+    already covered in isolation above. `POST /_api/system/sessions/invalidate` and `POST
+    /_api/users` are the two endpoints task 2118's Done-when criteria names by path.
+  */
+  async function buildApp() {
+    const app = fastify()
+    await app.register(fastifySensible)
+    app.decorateRequest('apiKey', null)
+
+    app.addHook('onRequest', async (req) => {
+      const header = req.headers.authorization
+      if (header?.startsWith('Bearer ')) {
+        req.apiKey = { id: 'test-key' } as any
+      }
+    })
+
+    app.addHook('onRequest', async (req) => {
+      if (req.headers['x-test-session'] === 'authenticated') {
+        req.session = { authenticated: true } as any
+      }
+    })
+
+    app.addHook('onRequest', (req, reply, done) => {
+      if (!req.url.startsWith('/_api/') || req.method === 'GET' || req.method === 'HEAD') {
+        return done()
+      }
+      if (req.apiKey) {
+        return done()
+      }
+      if (!(req.session as any)?.authenticated) {
+        return done()
+      }
+      if (!isSameOriginRequest(req.headers, req.host)) {
+        return reply.forbidden()
+      }
+      done()
+    })
+
+    app.post('/_api/system/sessions/invalidate', async () => ({ ok: true }))
+    app.post('/_api/users', async () => ({ ok: true }))
+
+    await app.ready()
+    return app
+  }
+
+  for (const url of ['/_api/system/sessions/invalidate', '/_api/users']) {
+    test(`${url}: a foreign Origin with a valid session cookie is refused`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: 'wiki.example',
+            origin: 'https://attacker.example',
+            'x-test-session': 'authenticated'
+          }
+        })
+        assert.equal(res.statusCode, 403)
+      } finally {
+        await app.close()
+      }
+    })
+
+    test(`${url}: a same-origin request with a valid session cookie is allowed through`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: 'wiki.example',
+            origin: 'https://wiki.example',
+            'x-test-session': 'authenticated'
+          }
+        })
+        assert.equal(res.statusCode, 200)
+      } finally {
+        await app.close()
+      }
+    })
+
+    test(`${url}: a session cookie with no Origin/Sec-Fetch-Site is refused (fails closed)`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: 'wiki.example',
+            'x-test-session': 'authenticated'
+          }
+        })
+        assert.equal(res.statusCode, 403)
+      } finally {
+        await app.close()
+      }
+    })
+
+    test(`${url}: a Bearer-authenticated request is exempt regardless of Origin`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: 'wiki.example',
+            origin: 'https://attacker.example',
+            authorization: 'Bearer test-token'
+          }
+        })
+        assert.equal(res.statusCode, 200)
+      } finally {
+        await app.close()
+      }
+    })
+
+    test(`${url}: an unauthenticated request (no session cookie) is not blocked by this check`, async () => {
+      const app = await buildApp()
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: {
+            host: 'wiki.example',
+            origin: 'https://attacker.example'
+          }
+        })
+        assert.equal(res.statusCode, 200)
+      } finally {
+        await app.close()
+      }
+    })
+  }
+
+  test('GET requests are not subject to the origin check even with a foreign Origin', async () => {
+    const app = fastify()
+    await app.register(fastifySensible)
+    app.decorateRequest('apiKey', null)
+    app.addHook('onRequest', async (req) => {
+      if (req.headers['x-test-session'] === 'authenticated') {
+        req.session = { authenticated: true } as any
+      }
+    })
+    app.addHook('onRequest', (req, reply, done) => {
+      if (!req.url.startsWith('/_api/') || req.method === 'GET' || req.method === 'HEAD') {
+        return done()
+      }
+      if (!(req.session as any)?.authenticated) {
+        return done()
+      }
+      if (!isSameOriginRequest(req.headers, req.host)) {
+        return reply.forbidden()
+      }
+      done()
+    })
+    app.get('/_api/users', async () => ({ ok: true }))
+    await app.ready()
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/_api/users',
+        headers: {
+          host: 'wiki.example',
+          origin: 'https://attacker.example',
+          'x-test-session': 'authenticated'
+        }
+      })
+      assert.equal(res.statusCode, 200)
+    } finally {
+      await app.close()
+    }
+  })
 })

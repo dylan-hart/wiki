@@ -42,7 +42,7 @@ import {
 } from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
-import { corsOptions, parseCspDirectives } from './helpers/security.ts'
+import { corsOptions, isSameOriginRequest, parseCspDirectives } from './helpers/security.ts'
 
 // -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
 //    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
@@ -639,6 +639,32 @@ async function initHTTPServer() {
       return
     }
     return limitApiRequests(req, reply)
+  })
+
+  // ----------------------------------------
+  // Origin Check (task 2118)
+  // ----------------------------------------
+
+  app.addHook('onRequest', (req, reply, done) => {
+    // -> Only state-changing `/_api` requests are in scope: a GET/HEAD can't itself mutate
+    //    anything, so it isn't the CSRF shape this guards against.
+    if (!req.url.startsWith('/_api/') || req.method === 'GET' || req.method === 'HEAD') {
+      return done()
+    }
+    // -> After the API-key hook above, so `req.apiKey` is populated. Bearer-authenticated requests
+    //    are exempt: they carry no ambient credential a foreign origin could ride along on.
+    if (req.apiKey) {
+      return done()
+    }
+    // -> Only cookie-authenticated requests carry the ambient credential this check protects; an
+    //    anonymous request has no session for a forged cross-origin request to act with.
+    if (!req.session?.authenticated) {
+      return done()
+    }
+    if (!isSameOriginRequest(req.headers, req.host)) {
+      return reply.forbidden()
+    }
+    done()
   })
 
   // ----------------------------------------

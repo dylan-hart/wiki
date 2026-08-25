@@ -92,3 +92,46 @@ export function corsOptions(security: { corsMode?: string; corsConfig?: string }
     allowedHeaders: ['Authorization', 'Content-Type']
   }
 }
+
+/**
+ * Whether a cookie-authenticated, state-changing `/_api` request's declared provenance agrees with
+ * the host it was addressed to (task 2118).
+ *
+ * `SameSite=Lax` (see `models/sessions.ts`'s cookie options) still lets a top-level cross-site
+ * navigation — a plain link or form submit from an attacker's own origin — carry the session cookie
+ * along, which is enough for a CSRF `POST`/`PUT`/`PATCH`/`DELETE`. Neither header this checks is
+ * something an attacker's page can suppress or forge: `Origin` is a forbidden header name a page's
+ * own JS cannot set on a request, and `Sec-Fetch-Site` is appended by the browser itself. `Origin` is
+ * preferred when present since it is the more universally-supported of the two; `Sec-Fetch-Site` is
+ * the fallback for a request that omits `Origin` (a plain GET-turned-into-something-else is not the
+ * concern here, but some non-CORS same-origin requests — and older browsers — send no `Origin` on
+ * `POST`). A request with neither is refused rather than assumed safe: `models/passkeys.ts`'s
+ * `resolveOrigin` assumes a missing `Origin` is a legitimate non-browser API client for that reason,
+ * but this check runs on *cookie*-authenticated traffic, where a non-browser client has no cookie jar
+ * to have picked up a session cookie from in the first place — so there's no legitimate case being
+ * turned away, and the fail-closed default is free.
+ *
+ * `host` is `req.host` (the raw `Host`/`:authority` header, port included), not `req.hostname`
+ * (which fastify strips the port from) — full origin equality needs the port too, unlike the RP-ID
+ * comparison `resolveOrigin` makes for WebAuthn.
+ */
+export function isSameOriginRequest(
+  headers: { origin?: string; 'sec-fetch-site'?: string },
+  host: string
+): boolean {
+  const origin = headers.origin
+  if (origin !== undefined) {
+    let parsed: URL
+    try {
+      parsed = new URL(origin)
+    } catch {
+      return false
+    }
+    return parsed.host === host
+  }
+  const secFetchSite = headers['sec-fetch-site']
+  if (secFetchSite !== undefined) {
+    return secFetchSite === 'same-origin'
+  }
+  return false
+}
