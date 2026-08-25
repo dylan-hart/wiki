@@ -429,7 +429,13 @@ describe('AlgoliaSearchModule', () => {
     await assert.doesNotReject(mod.created(fakePage()))
   })
 
-  test('query() sends the free-text query plus the translated filters', async () => {
+  /**
+   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as Algolia's own
+   * `offset`/`length` -- page-rule filtering happens after the query, so the module now always
+   * scans a bounded window from the start and applies the caller's own pagination in JS, over the
+   * filtered set. See `query()`'s own comment for the full reasoning.
+   */
+  test('query() always scans from the start with a bounded length, regardless of the caller’s own offset/limit', async () => {
     const { mod, calls } = moduleWithFakeClient()
     await mod.query({ siteId, query: 'kangaroo', tags: ['guide'], offset: 10, limit: 5 })
 
@@ -437,10 +443,31 @@ describe('AlgoliaSearchModule', () => {
     const [{ indexName, searchParams }] = calls.searchSingleIndex!
     assert.equal(indexName, 'wiki-test')
     assert.equal(searchParams.query, 'kangaroo')
-    assert.equal(searchParams.offset, 10)
-    assert.equal(searchParams.length, 5)
+    assert.equal(searchParams.offset, 0)
+    assert.ok(
+      searchParams.length > 5,
+      'expected a bounded scan window larger than the requested page size'
+    )
     assert.match(searchParams.filters, /isSearchable:true/)
     assert.match(searchParams.filters, /tags:"guide"/)
+  })
+
+  test('query() applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
+    const { mod, calls, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      hits: [
+        { objectID: 'p1', path: 'a', locale: 'en', title: 'A', tags: [], updatedAt: 'x' },
+        { objectID: 'p2', path: 'b', locale: 'en', title: 'B', tags: [], updatedAt: 'x' },
+        { objectID: 'p3', path: 'c', locale: 'en', title: 'C', tags: [], updatedAt: 'x' }
+      ],
+      nbHits: 3
+    })
+
+    const result = await mod.query({ siteId, query: 'x', offset: 1, limit: 1 })
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0]!.path, 'b')
+    assert.equal(result.totalHits, 3)
+    assert.equal(calls.searchSingleIndex!.length, 1)
   })
 
   test('query() applies actor-based checkAccess filtering to the hits Algolia returned', async () => {
@@ -458,19 +485,23 @@ describe('AlgoliaSearchModule', () => {
     ;(globalThis as any).WIKI.models.groups.checkAccess = denyForSecret
 
     try {
-      const result = await mod.query({
-        siteId,
-        query: '',
-        actor: { groupIds: [], permissions: [] }
-      })
-      assert.equal(result.results.length, 1)
-      assert.equal(result.results[0]!.path, 'open')
-      // -> totalHits is nbHits adjusted by what checkAccess removed from this page, not the raw count
-      assert.equal(result.totalHits, 1)
+      // -> OpenProject #2151/#2156: totalHits is derived from `visible` alone now, never Algolia's
+      //    own `nbHits` -- asserted at limit=1 too, the audit's own repro shape.
+      for (const limit of [undefined, 1]) {
+        const result = await mod.query({
+          siteId,
+          query: '',
+          actor: { groupIds: [], permissions: [] },
+          ...(limit ? { limit } : {})
+        })
+        assert.equal(result.results.length, 1)
+        assert.equal(result.results[0]!.path, 'open')
+        assert.equal(result.totalHits, 1, `expected totalHits=1 at limit=${limit ?? 'default'}`)
+      }
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
     }
-    assert.equal(calls.searchSingleIndex!.length, 1)
+    assert.equal(calls.searchSingleIndex!.length, 2)
   })
 
   test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {

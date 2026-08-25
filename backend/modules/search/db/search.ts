@@ -68,6 +68,15 @@ const MODULE_KEY = 'db'
 const HL_START = '\u0002'
 const HL_STOP = '\u0003'
 
+/**
+ * Ceiling on how many of the SQL query's own matches `query()` scans before deriving `totalHits`
+ * and the requested page from what survives `checkAccess()` (OpenProject #2151). Page-rule
+ * filtering cannot be expressed in the `WHERE` clause — a rule can be a regular expression or a set
+ * of tags — so scanning is bounded rather than unbounded to keep one search request's cost
+ * predictable regardless of how many rows match. See `query()`'s own comment for what this changes.
+ */
+const SCAN_CAP = 500
+
 /** Escape the LIKE wildcards, so that a path filter is a prefix rather than a pattern. */
 function escapeLikePrefix(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
@@ -305,6 +314,22 @@ class DbSearchModule implements SearchModule {
           ? sql`CASE WHEN p.password IS NULL THEN ${headline} ELSE NULL END`
           : headline
 
+    /*
+      OpenProject #2151: `totalHits` used to be derived from a `COUNT(*) OVER()` window over every
+      SQL-matching row, corrected only for the rows actually dropped from THIS page -- so a match on
+      a later page the reader may never see still inflated the reported count. `?query=<phrase>&
+      limit=1` against a corpus with at least two matches, one of them permission-denied, confirmed
+      the phrase existed in a page the caller could not open: a count oracle, reachable
+      unauthenticated wherever guest search is exposed.
+      Fixed by scanning up to `SCAN_CAP` matches (bounded, not the caller's own `offset`/`limit`,
+      since page-rule filtering happens after the query and needs a wider window to fill a page
+      from), filtering ALL of them through `checkAccess()`, and deriving both `totalHits` and the
+      requested page from that filtered set alone -- neither can ever count or return a row the
+      caller was not actually granted `read:pages` on. `totalHits` is exact whenever the true match
+      count is within `SCAN_CAP`; beyond that it is a floor (verified-visible matches within the cap
+      only), never an overcount -- the asymmetry that closes the oracle, since a floor cannot
+      confirm anything about a page beyond what was already checked.
+    */
     const rows = await WIKI.db.execute(sql`
       SELECT
         p.id,
@@ -317,12 +342,11 @@ class DbSearchModule implements SearchModule {
         p.classification,
         to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
         ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
-        ${highlight} AS highlight,
-        COUNT(*) OVER() AS "totalHits"
+        ${highlight} AS highlight
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${SCAN_CAP}
     `)
 
     /*
@@ -342,7 +366,7 @@ class DbSearchModule implements SearchModule {
         )
       : ((rows.rows ?? rows) as any[])
 
-    const result = visible.map((row) => ({
+    const result = visible.slice(offset, offset + limit).map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -360,18 +384,7 @@ class DbSearchModule implements SearchModule {
         : null
     }))
 
-    const totalHits = Math.max(
-      0,
-      /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
-      */
-      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-        ((rows.rows ?? rows) as any[]).length +
-        visible.length
-    )
+    const totalHits = visible.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has
     //    nothing to be corrected, and no query means there was nothing to have mistyped.

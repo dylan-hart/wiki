@@ -156,11 +156,21 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
       ].sort()
     )
+  })
+
+  /** OpenProject #2108/#2113: filter-only, same treatment as hasPassword/id. */
+  test('siteId is a literal field with search, facet and return all disabled', () => {
+    const siteId = fields.find((f) => f.name === 'siteId')!
+    assert.equal(siteId.type, 'literal')
+    assert.equal(siteId.options.searchEnabled, false)
+    assert.equal(siteId.options.facetEnabled, false)
+    assert.equal(siteId.options.returnEnabled, false)
   })
 
   test('id is a literal field with search and facet disabled', () => {
@@ -261,6 +271,7 @@ describe('aws-cloudsearch module: init()', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
@@ -416,6 +427,8 @@ describe('aws-cloudsearch module: toIndexDocument', () => {
     assert.equal(doc.fields.icon, 'mdi:file')
     assert.equal(doc.fields.classification, 'classification-1')
     assert.equal(doc.fields.updatedAt, '2026-01-15T12:30:00.123Z')
+    // -> OpenProject #2108/#2113
+    assert.equal(doc.fields.siteId, 'site-1')
   })
 
   test('hasPassword is the literal string "false" when there is no password', () => {
@@ -501,78 +514,94 @@ describe('aws-cloudsearch module: buildStructuredQuery', () => {
 })
 
 describe('aws-cloudsearch module: buildFilterQuery', () => {
-  test('undefined when nothing is set beyond the default draft exclusion is itself the only clause', () => {
-    // -> `includeDrafts: false` (the default) always contributes a clause, so this asserts the shape
-    //    of that one clause rather than an empty filter.
-    assert.equal(buildFilterQuery({}), `(not (term field=publishState 'draft'))`)
-  })
+  const SITE_ID = 'site-1'
 
-  test('undefined when every filter is off, including draft exclusion', () => {
-    assert.equal(buildFilterQuery({ includeDrafts: true }), undefined)
-  })
-
-  test('path becomes a prefix clause', () => {
+  test('siteId plus the default draft exclusion is the whole filter when nothing else is set', () => {
+    // -> `includeDrafts: false` (the default) always contributes a clause, so together with the
+    //    unconditional siteId clause (OpenProject #2108/#2113) this is the floor, never empty.
     assert.equal(
-      buildFilterQuery({ path: 'en/guides', includeDrafts: true }),
-      `(prefix field=path 'en/guides')`
+      buildFilterQuery({ siteId: SITE_ID }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')))`
+    )
+  })
+
+  test('siteId alone when every OTHER filter is off, including draft exclusion', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: SITE_ID, includeDrafts: true }),
+      `(term field=siteId 'site-1')`
+    )
+  })
+
+  test('path becomes a prefix clause, and-joined with siteId', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: SITE_ID, path: 'en/guides', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en/guides'))`
     )
   })
 
   test('multiple locales become an or of term clauses', () => {
     assert.equal(
-      buildFilterQuery({ locales: ['en', 'fr'], includeDrafts: true }),
-      `(or (term field=locale 'en') (term field=locale 'fr'))`
+      buildFilterQuery({ siteId: SITE_ID, locales: ['en', 'fr'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=locale 'en') (term field=locale 'fr')))`
     )
   })
 
   test('multiple tags become an or of term clauses, any-of not all-of', () => {
     assert.equal(
-      buildFilterQuery({ tags: ['a', 'b'], includeDrafts: true }),
-      `(or (term field=tags 'a') (term field=tags 'b'))`
+      buildFilterQuery({ siteId: SITE_ID, tags: ['a', 'b'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=tags 'a') (term field=tags 'b')))`
     )
   })
 
   test('editor becomes a term clause', () => {
     assert.equal(
-      buildFilterQuery({ editor: 'markdown', includeDrafts: true }),
-      `(term field=editor 'markdown')`
+      buildFilterQuery({ siteId: SITE_ID, editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=editor 'markdown'))`
     )
   })
 
   test('publicOnly restricts to published, overriding includeDrafts', () => {
     assert.equal(
-      buildFilterQuery({ publicOnly: true, includeDrafts: true }),
-      `(term field=publishState 'published')`
+      buildFilterQuery({ siteId: SITE_ID, publicOnly: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=publishState 'published'))`
     )
   })
 
   test('an explicit publishState adds its own clause alongside the draft exclusion', () => {
     assert.equal(
-      buildFilterQuery({ publishState: 'published' }),
-      `(and (not (term field=publishState 'draft')) (term field=publishState 'published'))`
+      buildFilterQuery({ siteId: SITE_ID, publishState: 'published' }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')) (term field=publishState 'published'))`
     )
   })
 
   test('hasPassword becomes a literal true/false term clause', () => {
     assert.equal(
-      buildFilterQuery({ hasPassword: false, includeDrafts: true }),
-      `(term field=hasPassword 'false')`
+      buildFilterQuery({ siteId: SITE_ID, hasPassword: false, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'false'))`
     )
     assert.equal(
-      buildFilterQuery({ hasPassword: true, includeDrafts: true }),
-      `(term field=hasPassword 'true')`
+      buildFilterQuery({ siteId: SITE_ID, hasPassword: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'true'))`
     )
   })
 
-  test('several filters and-join into one clause', () => {
+  test('several filters and-join into one clause, siteId always first', () => {
     assert.equal(
-      buildFilterQuery({ path: 'en', editor: 'markdown', includeDrafts: true }),
-      `(and (prefix field=path 'en') (term field=editor 'markdown'))`
+      buildFilterQuery({ siteId: SITE_ID, path: 'en', editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en') (term field=editor 'markdown'))`
     )
   })
 
-  test('never mentions siteId — a site only ever talks to its own domain', () => {
+  /**
+   * OpenProject #2108/#2113: this module used to carry NO siteId clause at all, on the (unenforced)
+   * assumption that a CloudSearch domain is always single-site — the opposite of every sibling
+   * engine, which all filter by siteId unconditionally. A domain shared by two sites would return
+   * the other site's rows, authorized against the wrong site's page rules by `query()`'s
+   * `checkAccess` call downstream.
+   */
+  test('always mentions siteId, unlike the pre-#2108 behavior', () => {
     const clause = buildFilterQuery({
+      siteId: SITE_ID,
       path: 'en',
       locales: ['en'],
       tags: ['a'],
@@ -580,7 +609,14 @@ describe('aws-cloudsearch module: buildFilterQuery', () => {
       publishState: 'published',
       hasPassword: true
     })
-    assert.ok(!clause!.includes('siteId'))
+    assert.match(clause, /term field=siteId 'site-1'/)
+  })
+
+  test('escapes a single quote embedded in siteId itself', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: `it's-a-site`, includeDrafts: true }),
+      `(term field=siteId 'it\\'s-a-site')`
+    )
   })
 })
 
@@ -753,6 +789,119 @@ describe('aws-cloudsearch module: query()', () => {
     assert.equal(result.results.length, 1)
     assert.equal(result.results[0].id, 'page-1')
     assert.equal(result.totalHits, 1)
+  })
+
+  /**
+   * OpenProject #2156: `offset`/`limit` are no longer sent straight through as CloudSearch's own
+   * `start`/`size` -- page-rule filtering happens after the query, so the module now always scans a
+   * bounded window from the start and applies the caller's own pagination in JS, over the filtered
+   * set.
+   */
+  test('always scans from the start with a bounded size, regardless of the caller’s own offset/limit', async () => {
+    const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'page-1' })] }])
+    const module = new AwsCloudSearchModule(undefined, () => client)
+    await module.query({ siteId: 'site-1', hideProtectedContent: false, offset: 10, limit: 5 })
+
+    assert.equal(client.searches.length, 1)
+    assert.equal(client.searches[0].start, 0)
+    assert.ok(
+      client.searches[0].size > 5,
+      'expected a bounded scan window larger than the requested page size'
+    )
+  })
+
+  test('applies the caller’s offset/limit in JS, over the filtered (visible) set', async () => {
+    const client = fakeQueryClient([
+      {
+        found: 3,
+        hit: [
+          hit({ id: 'a', fields: { path: ['en/a'] } }),
+          hit({ id: 'b', fields: { path: ['en/b'] } }),
+          hit({ id: 'c', fields: { path: ['en/c'] } })
+        ]
+      }
+    ])
+    const module = new AwsCloudSearchModule(undefined, () => client)
+    const result = await module.query({
+      siteId: 'site-1',
+      hideProtectedContent: false,
+      offset: 1,
+      limit: 1
+    })
+
+    assert.equal(result.results.length, 1)
+    assert.equal(result.results[0].id, 'b')
+    assert.equal(result.totalHits, 3)
+  })
+
+  /**
+   * OpenProject #2151/#2156: totalHits used to be the count CloudSearch reported adjusted only by
+   * what was dropped from the SINGLE fetched page, so a denied match elsewhere in the result set
+   * still inflated it -- the audit's own repro shape. Covered for both the plain path and the
+   * hideProtectedContent split path, since each used to compute the same leaky arithmetic
+   * separately.
+   */
+  test('totalHits never exceeds the number of readable matches, at limit=1, on the plain path', async () => {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _perm: string,
+      page: { path: string }
+    ) => page.path !== 'en/secret'
+    try {
+      const client = fakeQueryClient([
+        {
+          found: 2,
+          hit: [
+            hit({ id: 'visible', fields: { path: ['en/visible'] } }),
+            hit({ id: 'hidden', fields: { path: ['en/secret'] } })
+          ]
+        }
+      ])
+      const module = new AwsCloudSearchModule(undefined, () => client)
+      const result = await module.query({
+        siteId: 'site-1',
+        hideProtectedContent: false,
+        actor: {} as any,
+        limit: 1
+      })
+      assert.equal(result.totalHits, 1)
+      assert.equal(result.results.length, 1)
+      assert.equal(result.results[0].id, 'visible')
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    }
+  })
+
+  test('totalHits never exceeds the number of readable matches, at limit=1, on the split (hideProtectedContent) path', async () => {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _perm: string,
+      page: { path: string }
+    ) => page.path !== 'en/secret'
+    try {
+      const client = fakeQueryClient([
+        {
+          found: 2,
+          hit: [
+            hit({ id: 'open', fields: { path: ['en/open'] } }),
+            hit({ id: 'secret', fields: { path: ['en/secret'] } })
+          ]
+        },
+        { found: 0, hit: [] }
+      ])
+      const module = new AwsCloudSearchModule(undefined, () => client)
+      const result = await module.query({
+        siteId: 'site-1',
+        query: 'hello',
+        actor: {} as any,
+        limit: 1
+      })
+      assert.equal(result.totalHits, 1)
+      assert.equal(result.results.length, 1)
+      assert.equal(result.results[0].id, 'open')
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    }
   })
 
   test('a text query with hideProtectedContent off runs a single query with highlight', async () => {
@@ -986,7 +1135,13 @@ describe('aws-cloudsearch module: rebuild()', () => {
       assert.deepEqual(deleteEntries, [])
     })
 
-    test('the domain-id lookup uses a matchall query, not siteId -- this module talks to one domain per site', async () => {
+    /**
+     * OpenProject #2108/#2117: `fetchAllIds()` now scopes the domain-id lookup by `siteId`, so a
+     * `rebuild()` on a domain shared by two sites can no longer treat the OTHER site's documents as
+     * this site's ghosts and delete them. `matchall` is still the free-text part -- only the
+     * `filterQuery` changed.
+     */
+    test('the domain-id lookup is a matchall query scoped by this site’s own siteId', async () => {
       const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'ghost' })] }])
       const source = fakePageSource({ en: [] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
@@ -994,7 +1149,23 @@ describe('aws-cloudsearch module: rebuild()', () => {
       await module.rebuild('site-1')
 
       assert.equal(client.searches[0]!.query, 'matchall')
-      assert.equal(client.searches[0]!.filterQuery, undefined)
+      assert.match(client.searches[0]!.filterQuery!, /term field=siteId 'site-1'/)
+    })
+
+    test('does not delete another site’s document, even one sharing the same domain', async () => {
+      // -> The fake client has no real siteId-scoping of its own -- it just returns whatever this
+      //    test scripts -- so this pins the CONTRACT `rebuild()` relies on: fetchAllIds() must ask
+      //    for only this site's ids (asserted via the filterQuery above), which is what keeps a
+      //    shared-domain rebuild from ever seeing (and therefore ghost-deleting) another site's rows
+      //    in the first place.
+      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'site-1-page' })] }])
+      const source = fakePageSource({ en: [basePage({ id: 'site-1-page' })] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
+      assert.deepEqual(deleteEntries, [])
     })
   })
 })

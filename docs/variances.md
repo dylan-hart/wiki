@@ -890,6 +890,14 @@ site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filt
 document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
 explicitly.
 
+**OpenProject #2108 (2026-08-24 security audit, tenancy-isolation lens):** the same reasoning applies
+verbatim to `modules/search/aws-cloudsearch/search.ts`, which — alone among the five search modules —
+carried no `siteId` field, no filter clause and no scoping on `rebuild()`'s purge, on the (unenforced)
+assumption that a CloudSearch domain is always single-site. Fixed the same way: `buildIndexFields()`
+now provisions a filter-only `siteId` field, `toIndexDocument()` emits it, `buildFilterQuery()` applies
+it unconditionally, and `fetchAllIds()` takes a `siteId` so `rebuild()`'s purge can no longer delete
+another site's documents sharing the same domain.
+
 ## Feature 413 ("RTL support end-to-end")
 
 ### No real Arabic/Hebrew locale data (task 727)
