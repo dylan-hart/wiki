@@ -24,6 +24,8 @@
           <div
             role="dialog"
             aria-modal="true"
+            :aria-labelledby="labelledBy"
+            :aria-label="ariaLabel"
             class="w-dialog-panel pointer-events-auto flex flex-col overflow-auto shadow-dialog"
             :class="panelClasses"
             :style="panelStyle"
@@ -82,6 +84,21 @@ const props = defineProps({
   },
   /** Any CSS length, e.g. `550px`. Ignored when `fullWidth` is set. */
   maxWidth: {
+    type: String,
+    default: null
+  },
+  /**
+   * Id of an element (typically a `WCardHeader`'s exposed `headingId`) that names this dialog for
+   * assistive tech. Explicit props, not fallthrough attributes: `inheritAttrs: false` above sends a
+   * bare `aria-labelledby`/`aria-label` attribute to the teleport root's `$attrs` binding instead of
+   * the `role="dialog"` panel, naming the wrong element.
+   */
+  labelledBy: {
+    type: String,
+    default: null
+  },
+  /** A literal accessible name, for a dialog whose heading isn't in the DOM (or doesn't exist). */
+  ariaLabel: {
     type: String,
     default: null
   }
