@@ -32,7 +32,7 @@
         </w-card-actions>
       </w-card>
     </w-menu>
-    <w-tooltip>{{ t('common.header.account') }}</w-tooltip>
+    <w-tooltip labels>{{ t('common.header.account') }}</w-tooltip>
   </w-btn>
 </template>
 

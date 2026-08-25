@@ -125,6 +125,7 @@
                   color="red"
                   icon="la:trash"
                   flat
+                  :aria-label="t(`common.actions.delete`)"
                   @click="deleteHook(hook)" />
               </w-item-section>
             </w-item>

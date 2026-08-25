@@ -10,7 +10,7 @@
           flat
           round
           @click="goBack">
-          <w-tooltip anchor="center left" self="center right">{{
+          <w-tooltip labels anchor="center left" self="center right">{{
             t('common.actions.goback')
           }}</w-tooltip>
         </w-btn>

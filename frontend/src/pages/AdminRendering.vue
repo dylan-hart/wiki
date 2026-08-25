@@ -20,6 +20,7 @@
           icon="la:question-circle"
           flat
           color="grey"
+          :aria-label="t(`common.actions.viewDocs`)"
           :href="siteStore.docsBase + `/admin/rendering`"
           target="_blank" />
         <w-btn
@@ -29,7 +30,7 @@
           color="secondary"
           :loading="state.loading > 0"
           @click="load">
-          <w-tooltip>{{ t(`common.actions.refresh`) }}</w-tooltip>
+          <w-tooltip labels>{{ t(`common.actions.refresh`) }}</w-tooltip>
         </w-btn>
         <w-btn
           unelevated

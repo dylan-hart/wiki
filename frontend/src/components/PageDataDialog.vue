@@ -3,7 +3,12 @@
     <w-toolbar class="bg-primary text-white flex">
       <div class="text-subtitle2">{{ t('editor.pageData.title') }}</div>
       <w-space />
-      <w-btn icon="la:times" dense flat @click="siteStore.sideDialogShown = false" />
+      <w-btn
+        icon="la:times"
+        dense
+        flat
+        :aria-label="t(`common.actions.close`)"
+        @click="siteStore.sideDialogShown = false" />
     </w-toolbar>
     <w-card-section class="page-data-dialog-selector">
       <!-- .text-overline.text-white {{t('editor.pageData.template')}} -->

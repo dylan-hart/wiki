@@ -980,10 +980,6 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   still-unchanged response landing after the click. Worked around in `e2e/tests/rtl.spec.js` (an
   explicit "Refresh" + wait for its own `aria-busy` to clear, before touching the toggle); not fixed in
   app code since it is a pre-existing timing issue unrelated to RTL.
-- **The Markdown editor's toolbar buttons carry no `aria-label`.** `t('editor.markup.bold')` and its
-  siblings only ever render into a `<w-tooltip>` (hover-only) — there is no accessible name on the
-  buttons themselves for a screen reader, RTL or not. `e2e/tests/rtl.spec.js` checks the translated
-  string by hovering instead of by role/name for this reason.
 - **`LocaleSelectorMenu.vue` and several `w-menu` anchors in `MainLayout.vue`'s sidebar are not yet
   audited for RTL mirroring.** `LocaleSelectorMenu.vue`'s own default `anchor`/`self` props, and the
   `nav-browse-menu`/`nav-edit-menu` anchors `MainLayout.vue` passes explicitly, are all still
