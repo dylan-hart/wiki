@@ -10,6 +10,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -120,6 +121,12 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
  *
+ * `'forbidden'` (OpenProject #2160/#2165) is the reviewer-queue gate and page-rule permissions
+ * disagreeing: an approval rule made this reviewer one of the page's reviewers, but their own
+ * `write:pages` grant does not cover it (or covers it more narrowly than the rule's `reviewerGroups`
+ * implied) -- accepting a suggestion writes the page, and should never take less permission than a
+ * direct save does.
+ *
  * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
  * approve only records their sign-off towards the threshold. `finalized` says which happened --
  * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
@@ -128,7 +135,7 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
-  | { ok: false; reason: 'not-found' | 'stale' }
+  | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -549,7 +556,10 @@ class Approvals {
       hasOpenSuggestion,
       canReview,
       pendingSubmissions: canReview
-        ? await this.getReviewableSubmissions(siteId, { ...reviewerScope, pageId: page.id })
+        ? await this.getReviewableSubmissions(siteId, WIKI.models.groups.actorForRequest(req), {
+            ...reviewerScope,
+            pageId: page.id
+          })
         : []
     }
   }
@@ -847,9 +857,17 @@ class Approvals {
    * `manage:system` sees the site's whole queue, as they do everywhere else.
    *
    * Ordered oldest first because a queue is worked through in the order things arrived.
+   *
+   * OpenProject #2160: the approval-rule reviewer queue is a DIFFERENT permission axis from the
+   * ordinary page-rule engine -- being named in a rule's `reviewerGroups` says who reviews a page,
+   * not who may READ it. A reviewer whose group loses `read:pages` on a path (or is kept out of a
+   * classification tier) must not keep seeing that page's title, tags or content through the
+   * queue just because an approval rule still names them, so every row is additionally required to
+   * pass `checkAccess(actor, 'read:pages', ...)`.
    */
   async getReviewableSubmissions(
     siteId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId, pageId }: ReviewerScope & { pageId?: string }
   ): Promise<ReviewableSubmission[]> {
     if (!reviewsAll && groupIds.length < 1) {
@@ -877,6 +895,7 @@ class Approvals {
         pageLocale: pagesTable.locale,
         pageTags: pagesTable.tags,
         pageContent: pagesTable.content,
+        pageClassification: pagesTable.classification,
         authorId: usersTable.id,
         authorName: usersTable.name,
         authorEmail: usersTable.email
@@ -905,17 +924,31 @@ class Approvals {
       )
     )
 
+    // -> OpenProject #2160: intersect with the ordinary page-rule engine. Approval rules and page
+    //    rules are independent axes -- a reviewer named by the approval rule can still be denied
+    //    `read:pages` on the path, or excluded by a CLASSIFICATION rule, and either must remove the
+    //    row from the queue the same as it would from any other read of the page.
+    const readableRows = matchedRows.filter((row: any) =>
+      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: row.pagePath,
+        siteId,
+        locale: row.pageLocale,
+        tags: row.pageTags ?? [],
+        classification: row.pageClassification ?? null
+      })
+    )
+
     // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
     //    submission has to clear is the strictest rule covering the page, whoever it names as
     //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
     //    `getRules` read across every row instead of awaiting it per row.
     const allRules = await this.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
-      matchedRows.map((row: any) => row.id),
+      readableRows.map((row: any) => row.id),
       viewerId
     )
 
-    return matchedRows.map((row: any) => {
+    return readableRows.map((row: any) => {
       const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
       let approvalsRequired = 1
       for (const rule of allRules) {
@@ -935,15 +968,22 @@ class Approvals {
   /**
    * One submission, if it is this reviewer's to look at, with both sides of the diff.
    *
+   * OpenProject #2160: `pageContent` -- the page's raw current source -- is additionally gated on
+   * `read:source`, the permission a direct "view source" already requires. Being this submission's
+   * reviewer (which `getReviewableSubmissions` above already requires, `read:pages` included) is not
+   * the same grant; without it the diff's "current" side comes back empty rather than leaking body
+   * text `read:source` was written to withhold.
+   *
    * @returns The submission, or null when it does not exist or is not theirs to review
    */
   async getSubmissionForReview(
     siteId: string,
     submissionId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId }: ReviewerScope
   ): Promise<ReviewableSubmissionDetail | null> {
     // -> Reuses the queue rather than re-deriving who may see what: one definition of reviewable
-    const reviewable = await this.getReviewableSubmissions(siteId, {
+    const reviewable = await this.getReviewableSubmissions(siteId, actor, {
       groupIds,
       reviewsAll,
       viewerId
@@ -956,7 +996,11 @@ class Approvals {
       .select({
         content: submissionsTable.content,
         patch: submissionsTable.patch,
-        pageContent: pagesTable.content
+        pageContent: pagesTable.content,
+        pagePath: pagesTable.path,
+        pageLocale: pagesTable.locale,
+        pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification
       })
       .from(submissionsTable)
       .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
@@ -967,10 +1011,18 @@ class Approvals {
       return null
     }
 
+    const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+      path: detail.pagePath,
+      siteId,
+      locale: detail.pageLocale,
+      tags: detail.pageTags ?? [],
+      classification: detail.pageClassification ?? null
+    })
+
     return {
       ...reviewable.find((s) => s.id === submissionId)!,
       content: detail.content,
-      pageContent: detail.pageContent ?? '',
+      pageContent: maySeeSource ? (detail.pageContent ?? '') : '',
       patch: detail.patch
     }
   }
@@ -1044,6 +1096,22 @@ class Approvals {
     })
     if (!page) {
       return { ok: false, reason: 'not-found' }
+    }
+
+    // -> OpenProject #2160/#2165: the approval-rule reviewer queue is a DIFFERENT permission axis
+    //    from the ordinary page-rule engine -- being named in a rule's `reviewerGroups` is not the
+    //    same thing as holding `write:pages` on the page a suggestion targets, and accepting one
+    //    writes the page exactly like a direct save does.
+    if (
+      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+        path: page.path,
+        siteId,
+        locale: page.locale,
+        tags: page.tags ?? [],
+        classification: page.classification ?? null
+      })
+    ) {
+      return { ok: false, reason: 'forbidden' }
     }
 
     const currentHash = createHash('sha256')
