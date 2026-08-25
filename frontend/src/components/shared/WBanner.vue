@@ -11,7 +11,7 @@
     <div
       v-if="$slots.action"
       class="flex shrink-0 flex-nowrap items-center gap-2"
-      :class="inlineActions ? '' : 'ml-auto'">
+      :class="inlineActions ? '' : 'ms-auto'">
       <slot name="action" />
     </div>
   </div>

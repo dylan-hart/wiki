@@ -38,7 +38,7 @@
         !useInput && isOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined
       "
       :disabled="useInput ? undefined : isDisabled"
-      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-left"
+      class="w-unstyled w-input-control flex w-full flex-nowrap items-center gap-2 rounded text-start"
       :class="controlClasses"
       :style="controlStyle"
       @click="onControlClick"
@@ -160,7 +160,7 @@
             role="option"
             :aria-selected="String(isSelected(opt.value))"
             :aria-disabled="opt.disable || undefined"
-            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-left"
+            class="w-select-option flex w-full flex-nowrap items-center gap-2 px-4 text-start"
             :class="[
               optionsDense ? 'min-h-8 py-1 text-body2' : 'min-h-10 py-2',
               isSelected(opt.value) ? 'text-primary' : '',
