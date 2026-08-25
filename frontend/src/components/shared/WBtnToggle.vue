@@ -34,7 +34,7 @@
       ]"
       :style="segmentStyle(opt)"
       @click="$emit('update:modelValue', opt.value)">
-      <w-icon v-if="opt.icon" :name="opt.icon" class="mr-1 align-middle" />
+      <w-icon v-if="opt.icon" :name="opt.icon" class="me-1 align-middle" />
       <span v-if="opt.label !== undefined">{{ opt.label }}</span>
     </button>
   </div>

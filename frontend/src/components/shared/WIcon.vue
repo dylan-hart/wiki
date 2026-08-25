@@ -143,8 +143,8 @@ const bundled = computed(() => {
 */
 const colorClass = computed(() => [
   props.color ? `text-${props.color}` : '',
-  props.left ? 'mr-2' : '',
-  props.right ? 'ml-2' : ''
+  props.left ? 'me-2' : '',
+  props.right ? 'ms-2' : ''
 ])
 
 /**

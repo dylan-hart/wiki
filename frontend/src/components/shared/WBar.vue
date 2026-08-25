@@ -52,6 +52,6 @@ defineProps({
 }
 
 .w-bar :deep(> * + *) {
-  margin-left: 2px;
+  margin-inline-start: 2px;
 }
 </style>

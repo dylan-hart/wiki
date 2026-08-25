@@ -13,7 +13,7 @@
       :for="inputId"
       class="mb-1 block text-caption text-black/60 dark:text-white/70">
       {{ label }}
-      <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+      <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
     </label>
 
     <div
@@ -40,7 +40,7 @@
         <legend :class="isFloating ? 'w-input-outline-notch--open' : ''">
           <span
             >{{ label
-            }}<span v-if="required" class="text-negative pr-1" aria-hidden="true"
+            }}<span v-if="required" class="text-negative pe-1" aria-hidden="true"
               >&nbsp;*</span
             ></span
           >
@@ -53,7 +53,7 @@
         class="w-input-float"
         :class="[isFloating ? 'w-input-float--up' : '', floatColorClass]">
         {{ label }}
-        <span v-if="required" class="text-negative pr-1" aria-hidden="true">&nbsp;*</span>
+        <span v-if="required" class="text-negative pe-1" aria-hidden="true">&nbsp;*</span>
       </label>
 
       <slot name="prepend" />
@@ -104,14 +104,14 @@
       </span>
 
       <!--
-        `mr-1` on the button rather than more padding on the control: the padding is what every
+        `me-1` on the button rather than more padding on the control: the padding is what every
         trailing control shares -- the clear cross, an `append` slot -- and this is about the eye,
         which reads cramped against the field's edge at the row's own 8px.
       -->
       <button
         v-if="revealable && type === 'password'"
         type="button"
-        class="w-unstyled mr-1 shrink-0 cursor-pointer opacity-60 hover:opacity-100"
+        class="w-unstyled me-1 shrink-0 cursor-pointer opacity-60 hover:opacity-100"
         :aria-label="isRevealed ? hideLabel : revealLabel"
         :aria-pressed="String(isRevealed)"
         @click="isRevealed = !isRevealed">

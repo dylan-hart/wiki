@@ -985,6 +985,19 @@ complete-or-not locale, direction aside) and each needs its own design pass:
   chrome was missed by that pass entirely — a real gap worth a dedicated small follow-up (the same
   mechanical fix as the two `AdminLayout.vue` instances above), not something to fold into this task's
   "seed and validate" brief.
+- **Physical spacing utilities/declarations reach well beyond the components task 721 audited, and
+  the sweep is incremental.** The 2026-08-24 audit (`docs/audit-2026-08-24/accessibility-i18n.md`
+  §15) counted 422 physical `ml-`/`mr-`/`pl-`/`pr-` Tailwind classes and 223 physical
+  `margin`/`padding`/`border-left|right`, bare `left:`/`right:`, and `text-align: left|right`
+  declarations across `frontend/src/**/*.vue` — task 721's pass covered only the named components
+  above. OpenProject epic #1582 tracks the sweep in tranches, shared library first (each fix there
+  multiplies across every consumer): #1585, done here, converts every physical Tailwind
+  margin/padding utility and CSS margin/padding declaration under `frontend/src/components/shared`
+  to its logical form and adds `components/shared/logicalSpacing.test.js` to hold the line, with an
+  allowlist for the rare case (`WTreeNode.vue`'s connector-line geometry) that needs a coordinated
+  redesign rather than a mechanical swap. `pages/`, the non-shared `components/`, and the remaining
+  CSS/SCSS `border`/`text-align`/bare `left`/`right` declarations are NOT yet converted — that is
+  #1590 (allowlist triage), #1594, #1596 and #1601, still open.
 
 ## 2.5.x → 3.0 settings/authentication/storage migration (Feature 420)
 

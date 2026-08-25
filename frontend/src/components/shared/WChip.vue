@@ -125,7 +125,7 @@ const styles = computed(() => ({
   width: 1.25em;
   height: 1.25em;
   font-size: inherit;
-  margin-right: 0.45em;
+  margin-inline-end: 0.45em;
 }
 
 /* -> Which leaves the glyph to scale separately, at a little over two thirds of the circle */
