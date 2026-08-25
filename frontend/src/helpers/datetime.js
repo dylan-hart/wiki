@@ -10,7 +10,16 @@
  * `Intl` rather than a formatting library: the browser already knows how the reader's locale words
  * "3 minutes ago" and "1h 4m 32s", which is what luxon's `toRelative()` and `Duration.toHuman()` were
  * here for.
+ *
+ * Every `Intl.*Format` instance below is keyed off `commonStore.locale` (the app's UI language, not
+ * the browser's) and built lazily, memoized per locale, rather than once at module scope — a module-
+ * scope instance is constructed the moment this file is first imported and never rebuilt, so it would
+ * keep wording output in whatever locale was active at that instant even after the reader switched the
+ * app to a different one. Read fresh on every call instead: cheap (a cache hit is a `Map.get`), and it
+ * is what makes a live locale switch take effect with no reload.
  */
+
+import { useCommonStore } from '@/stores/common'
 
 /*
   Largest first, so the first unit the difference clears is the one it reads best in. `week` is
@@ -25,7 +34,15 @@ const RELATIVE_UNITS = [
   ['second', 1]
 ]
 
-const relativeTimeFormat = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const relativeTimeFormatCache = new Map()
+function getRelativeTimeFormat(locale) {
+  let fmt = relativeTimeFormatCache.get(locale)
+  if (!fmt) {
+    fmt = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })
+    relativeTimeFormatCache.set(locale, fmt)
+  }
+  return fmt
+}
 
 /**
  * How long ago a moment was, or how far off it still is.
@@ -39,17 +56,41 @@ export function relativeDate(value) {
   if (!value) {
     return '---'
   }
+  const commonStore = useCommonStore()
   const seconds = Temporal.Instant.from(value).until(Temporal.Now.instant()).total('seconds')
   for (const [unit, secondsPerUnit] of RELATIVE_UNITS) {
     if (Math.abs(seconds) >= secondsPerUnit || unit === 'second') {
-      return relativeTimeFormat.format(-Math.round(seconds / secondsPerUnit), unit)
+      return getRelativeTimeFormat(commonStore.locale).format(
+        -Math.round(seconds / secondsPerUnit),
+        unit
+      )
     }
   }
 }
 
 /** Narrow, largest-first and skipping empty units — "1h 4m 32s", or "820ms" for a quick job. */
 const DURATION_UNITS = ['hour', 'minute', 'second', 'millisecond']
-const durationListFormat = new Intl.ListFormat(undefined, { style: 'narrow', type: 'unit' })
+
+const numberFormatCache = new Map()
+function getNumberFormat(locale, unit, unitDisplay) {
+  const key = `${locale}:${unit}:${unitDisplay}`
+  let fmt = numberFormatCache.get(key)
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay })
+    numberFormatCache.set(key, fmt)
+  }
+  return fmt
+}
+
+const durationListFormatCache = new Map()
+function getDurationListFormat(locale) {
+  let fmt = durationListFormatCache.get(locale)
+  if (!fmt) {
+    fmt = new Intl.ListFormat(locale, { style: 'narrow', type: 'unit' })
+    durationListFormatCache.set(locale, fmt)
+  }
+  return fmt
+}
 
 /**
  * How long something took.
@@ -62,19 +103,16 @@ export function humanizeDuration(start, end) {
   if (!start || !end) {
     return '---'
   }
+  const commonStore = useCommonStore()
   const dur = Temporal.Instant.from(start).until(Temporal.Instant.from(end)).round({
     largestUnit: 'hour',
     smallestUnit: 'millisecond'
   })
   const parts = DURATION_UNITS.filter((unit) => dur[`${unit}s`] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
-      style: 'unit',
-      unit,
-      unitDisplay: 'narrow'
-    }).format(dur[`${unit}s`])
+    getNumberFormat(commonStore.locale, unit, 'narrow').format(dur[`${unit}s`])
   )
   // -> Something that took under a millisecond still has to render as something
-  return parts.length > 0 ? durationListFormat.format(parts) : '0ms'
+  return parts.length > 0 ? getDurationListFormat(commonStore.locale).format(parts) : '0ms'
 }
 
 /**
@@ -83,7 +121,16 @@ export function humanizeDuration(start, end) {
  * a job timing where density matters more than words.
  */
 const ISO_DURATION_UNITS = ['years', 'months', 'weeks', 'days', 'hours', 'minutes', 'seconds']
-const isoDurationListFormat = new Intl.ListFormat(undefined, { style: 'long', type: 'conjunction' })
+
+const isoDurationListFormatCache = new Map()
+function getIsoDurationListFormat(locale) {
+  let fmt = isoDurationListFormatCache.get(locale)
+  if (!fmt) {
+    fmt = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' })
+    isoDurationListFormatCache.set(locale, fmt)
+  }
+  return fmt
+}
 
 /**
  * How long an ISO-8601 duration is, in words.
@@ -96,13 +143,10 @@ export function humanizeIsoDuration(value) {
   if (!value) {
     return '---'
   }
+  const commonStore = useCommonStore()
   const dur = Temporal.Duration.from(value)
   const parts = ISO_DURATION_UNITS.filter((unit) => dur[unit] > 0).map((unit) =>
-    new Intl.NumberFormat(undefined, {
-      style: 'unit',
-      unit: unit.slice(0, -1),
-      unitDisplay: 'long'
-    }).format(dur[unit])
+    getNumberFormat(commonStore.locale, unit.slice(0, -1), 'long').format(dur[unit])
   )
-  return parts.length > 0 ? isoDurationListFormat.format(parts) : '0 seconds'
+  return parts.length > 0 ? getIsoDurationListFormat(commonStore.locale).format(parts) : '0 seconds'
 }
