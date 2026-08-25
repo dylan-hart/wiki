@@ -8,7 +8,7 @@ import ajvFormats from 'ajv-formats'
 import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
-import { guardSiteEnabledPreHandler } from './index.ts'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -136,23 +136,18 @@ describe('download route: byte-serving behavior', () => {
   })
 })
 
-describe('disabled-site guard (OpenProject task 1593)', () => {
+describe('disabled-site guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
-   * Originally (task 699) only the two GET (read) routes were gated — upload/rename/delete stayed
-   * reachable on purpose, so an administrator could keep cleaning up a disabled site's content. Task
-   * 1593 replaced that hand-applied pair with `guardSiteEnabledPreHandler`, the single `preHandler`
-   * `api/index.ts` registers on its guarded content-route subtree, before any content route file —
-   * see that module's own doc comment (`assets.ts` is one of the guarded files; `sites.ts`, site
-   * administration rather than content, deliberately is not). It fires on every route naming a
-   * `:siteId` param with no per-route opt-in, which
-   * means the old carve-out for upload/rename/delete is gone too: the audit this task closes
-   * (`docs/audit-2026-08-24/correctness-api-routes.md` §1) named that as part of the same gap
-   * (`api/assets.ts` guards only its two read routes, so a disabled site still accepts asset uploads,
-   * renames and deletes), not a deliberate exception to preserve.
-   *
-   * Registering the real preHandler here (not a re-implementation — see the import), before `routes`,
-   * exactly as `index.ts` orders it, is what makes this describe block a meaningful test of
-   * `assets.ts`'s routes rather than of the preHandler itself (`index.test.ts` covers that directly).
+   * Regression test for task 699, widened by OpenProject #1587/#1593: originally only the two
+   * siteId-scoped asset READ routes (`GET .../assets/:assetId` and `GET .../assets/:assetId/content`)
+   * were gated, via a `guardSiteEnabled()` call hand-applied in each — upload/rename/delete were
+   * DELIBERATELY left reachable so an administrator could keep cleaning up a disabled site's content.
+   * The 2026-08-24 audit found that gap worth closing instead: `api/assets.ts:68/328/400` (upload,
+   * rename, delete) are named in OpenProject #1587 as part of the surface its shared preHandler
+   * (`siteEnabledPreHandler`, `helpers/common.ts`) now covers, same as every other `:siteId` route.
+   * `assets.ts` itself no longer calls `guardSiteEnabled` anywhere, so this suite wires the same
+   * preHandler onto its own standalone app below (mirroring how `api/index.ts` wires it in
+   * production).
    */
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
@@ -164,6 +159,9 @@ describe('disabled-site guard (OpenProject task 1593)', () => {
   }
 
   let getAssetCalls = 0
+  let uploadCalls = 0
+  let renameAssetCalls = 0
+  let deleteAssetCalls = 0
 
   let app: FastifyInstance
 
@@ -176,6 +174,18 @@ describe('disabled-site guard (OpenProject task 1593)', () => {
           getAsset: async () => {
             getAssetCalls++
             return null
+          },
+          upload: async () => {
+            uploadCalls++
+            return {}
+          },
+          renameAsset: async () => {
+            renameAssetCalls++
+            return {}
+          },
+          deleteAsset: async () => {
+            deleteAssetCalls++
+            return true
           }
         },
         groups: {
@@ -191,6 +201,10 @@ describe('disabled-site guard (OpenProject task 1593)', () => {
       }
     })
     await app.register(fastifySensible)
+    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+    //    before the route file it covers is registered — `assets.ts` no longer calls
+    //    `guardSiteEnabled` itself (OpenProject #1593).
+    app.addHook('preHandler', siteEnabledPreHandler)
     // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
     //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
     //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
@@ -202,9 +216,6 @@ describe('disabled-site guard (OpenProject task 1593)', () => {
         message: error.message
       })
     })
-    // -> The real preHandler production wires in, registered before the route file exactly as
-    //    `index.ts` orders it — see this describe block's own doc comment.
-    app.addHook('preHandler', guardSiteEnabledPreHandler)
     await registerSchemas(app)
     await registerErrorSchema(app)
     await app.register(routes)
@@ -258,34 +269,47 @@ describe('disabled-site guard (OpenProject task 1593)', () => {
     assert.equal(getAssetCalls, 1)
   })
 
-  test('UPLOAD: answers 403 for a disabled site, before the body is even parsed as an upload', async () => {
+  /*
+    UPLOAD/RENAME/DELETE carried no guard at all before OpenProject #1587/#1593 -- a disabled site's
+    file manager stayed fully writable to anyone still holding its siteId. All three now answer 403
+    through the shared preHandler wired above, before the handler ever touches `WIKI.models.assets`.
+  */
+
+  test('UPLOAD asset: answers 403 for a disabled site, without ever calling upload', async () => {
+    uploadCalls = 0
     const res = await app.inject({
       method: 'POST',
-      url: `/sites/${DISABLED_SITE_ID}/assets?fileName=test.txt`,
-      headers: { 'content-type': 'text/plain' },
-      payload: 'hello'
+      url: `/sites/${DISABLED_SITE_ID}/assets?fileName=photo.png`,
+      payload: Buffer.from('bytes'),
+      headers: { 'content-type': 'application/octet-stream' }
     })
     assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
+    assert.equal(uploadCalls, 0)
   })
 
-  test('RENAME: answers 403 for a disabled site', async () => {
+  test('RENAME asset: answers 403 for a disabled site, without ever calling getAsset/renameAsset', async () => {
+    getAssetCalls = 0
+    renameAssetCalls = 0
     const res = await app.inject({
       method: 'PATCH',
       url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`,
-      payload: { fileName: 'renamed.txt' }
+      payload: { fileName: 'renamed.png' }
     })
     assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
+    assert.equal(getAssetCalls, 0)
+    assert.equal(renameAssetCalls, 0)
   })
 
-  test('DELETE: answers 403 for a disabled site', async () => {
+  test('DELETE asset: answers 403 for a disabled site, without ever calling getAsset/deleteAsset', async () => {
+    getAssetCalls = 0
+    deleteAssetCalls = 0
     const res = await app.inject({
       method: 'DELETE',
       url: `/sites/${DISABLED_SITE_ID}/assets/${ASSET_ID}`
     })
     assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
+    assert.equal(getAssetCalls, 0)
+    assert.equal(deleteAssetCalls, 0)
   })
 
   /**

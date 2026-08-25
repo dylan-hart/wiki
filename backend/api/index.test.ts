@@ -5,12 +5,12 @@ import Fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import ajvFormats from 'ajv-formats'
-import apiRoutes, { guardSiteEnabledPreHandler } from './index.ts'
-import { SITE_DISABLED_MESSAGE } from '../helpers/common.ts'
+import apiRoutes from './index.ts'
+import { siteEnabledPreHandler, SITE_DISABLED_MESSAGE } from '../helpers/common.ts'
 
 /**
  * OpenProject task 1593: `guardSiteEnabled` moved from nine hand-applied call sites (one per route
- * handler) to `guardSiteEnabledPreHandler`, one `preHandler` registered on the guarded `contentApp`
+ * handler) to `siteEnabledPreHandler`, one `preHandler` registered on the guarded `contentApp`
  * encapsulation `index.ts` builds before any content route file is registered into it. Four things
  * are worth locking down, since none of them can regress silently the way a hand-applied call site's
  * *absence* used to:
@@ -53,7 +53,7 @@ function fakeDone() {
   return { done: () => (called = true), wasCalled: () => called }
 }
 
-describe('guardSiteEnabledPreHandler', () => {
+describe('siteEnabledPreHandler', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
   const UNKNOWN_SITE_ID = '99999999-9999-4999-8999-999999999999'
@@ -74,7 +74,7 @@ describe('guardSiteEnabledPreHandler', () => {
   test('a route with no siteId param passes through untouched', () => {
     const { reply, calls } = fakeReply()
     const { done, wasCalled } = fakeDone()
-    guardSiteEnabledPreHandler({ params: {} } as any, reply, done)
+    siteEnabledPreHandler({ params: {} } as any, reply, done)
     assert.equal(wasCalled(), true)
     assert.deepEqual(calls.forbidden, [])
   })
@@ -82,7 +82,7 @@ describe('guardSiteEnabledPreHandler', () => {
   test('an enabled site passes through', () => {
     const { reply, calls } = fakeReply()
     const { done, wasCalled } = fakeDone()
-    guardSiteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, done)
+    siteEnabledPreHandler({ params: { siteId: ENABLED_SITE_ID } } as any, reply, done)
     assert.equal(wasCalled(), true)
     assert.deepEqual(calls.forbidden, [])
   })
@@ -90,7 +90,7 @@ describe('guardSiteEnabledPreHandler', () => {
   test('a disabled site is refused 403 and never reaches done()', () => {
     const { reply, calls } = fakeReply()
     const { done, wasCalled } = fakeDone()
-    guardSiteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, done)
+    siteEnabledPreHandler({ params: { siteId: DISABLED_SITE_ID } } as any, reply, done)
     assert.equal(wasCalled(), false)
     assert.deepEqual(calls.forbidden, [SITE_DISABLED_MESSAGE])
   })
@@ -98,13 +98,13 @@ describe('guardSiteEnabledPreHandler', () => {
   test("an unknown siteId is not this preHandler's problem — passes through, same as guardSiteEnabled always has", () => {
     const { reply, calls } = fakeReply()
     const { done, wasCalled } = fakeDone()
-    guardSiteEnabledPreHandler({ params: { siteId: UNKNOWN_SITE_ID } } as any, reply, done)
+    siteEnabledPreHandler({ params: { siteId: UNKNOWN_SITE_ID } } as any, reply, done)
     assert.equal(wasCalled(), true)
     assert.deepEqual(calls.forbidden, [])
   })
 })
 
-describe('guardSiteEnabledPreHandler — wired into a real request lifecycle', () => {
+describe('siteEnabledPreHandler — wired into a real request lifecycle', () => {
   const ENABLED_SITE_ID = '11111111-1111-4111-8111-111111111111'
   const DISABLED_SITE_ID = '22222222-2222-4222-8222-222222222222'
 
@@ -131,7 +131,7 @@ describe('guardSiteEnabledPreHandler — wired into a real request lifecycle', (
     })
     // -> Registered before the route, mirroring exactly how `index.ts` registers it on `app` before
     //    any `app.register(...)` call for a route file.
-    app.addHook('preHandler', guardSiteEnabledPreHandler)
+    app.addHook('preHandler', siteEnabledPreHandler)
     app.get('/sites/:siteId/probe', async () => {
       handlerCalls++
       return { ok: true }
@@ -166,7 +166,7 @@ describe('guardSiteEnabledPreHandler — wired into a real request lifecycle', (
  * (everything `index.ts` registers inside its guarded `contentApp` encapsulation — see that file's own
  * comment) and replays its registration against a recording stub (not a real Fastify instance — see
  * `routeTags.test.ts`'s own header comment for why), collecting every route whose registered path
- * contains `:siteId`. Since `guardSiteEnabledPreHandler` is registered once on `contentApp` before any
+ * contains `:siteId`. Since `siteEnabledPreHandler` is registered once on `contentApp` before any
  * of these files is registered into it, EVERY route recorded here is covered by it structurally —
  * there is no per-route opt-in left to individually verify. What this guards against is the surface
  * shrinking silently: if a route that should carry a `:siteId` ever stops doing so (or a route this

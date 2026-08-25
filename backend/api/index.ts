@@ -1,31 +1,5 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import { guardSiteEnabled } from '../helpers/common.ts'
-
-/**
- * Applies `guardSiteEnabled` to every request whose route names a `:siteId` param, before that
- * route's own handler runs — the single choke point OpenProject task 1593 replaced nine hand-applied
- * `guardSiteEnabled(WIKI.sites[req.params.siteId], reply)` calls with. A route file under `api/` no
- * longer guards itself: this fires for every one of them registered inside the `contentApp`
- * encapsulation below.
- *
- * Deliberately NOT registered directly on the outer `app` — `sites.ts` is registered outside that
- * encapsulation on purpose, see the comment down there for why a `:siteId` route can need to keep
- * working on a disabled site.
- *
- * Exported (rather than an inline closure) so `index.test.ts` can exercise the exact function
- * production runs, both directly against fake req/reply and wired into a real Fastify instance.
- */
-export function guardSiteEnabledPreHandler(
-  req: FastifyRequest,
-  reply: FastifyReply,
-  done: () => void
-): void {
-  const siteId = (req.params as { siteId?: unknown } | undefined)?.siteId
-  if (typeof siteId === 'string' && guardSiteEnabled(WIKI.sites[siteId], reply)) {
-    return
-  }
-  done()
-}
+import type { FastifyInstance } from 'fastify'
+import { siteEnabledPreHandler } from '../helpers/common.ts'
 
 /**
  * API Routes
@@ -71,7 +45,7 @@ async function routes(app: FastifyInstance) {
   // -> `sites.ts` administers the site RECORD itself — including `PUT /sites/:siteId`, which is how
   //    `isEnabled` is flipped in either direction, and `DELETE /sites/:siteId`. Registered directly on
   //    `app`, outside the guarded `contentApp` encapsulation below, so both keep working on an already
-  //    -disabled site: a `guardSiteEnabledPreHandler` that also covered this route would make a
+  //    -disabled site: a `siteEnabledPreHandler` that also covered this route would make a
   //    disabled site permanently un-re-enableable through the API, since the very route that flips
   //    `isEnabled` back to `true` would itself already be refused with `isEnabled === false`. None of
   //    `sites.ts`'s own routes were ever among the nine hand-applied `guardSiteEnabled` call sites
@@ -86,7 +60,7 @@ async function routes(app: FastifyInstance) {
   //    child scope and its own descendants, not to `sites.ts` above, which was registered directly on
   //    the outer `app`.
   app.register(async (contentApp) => {
-    contentApp.addHook('preHandler', guardSiteEnabledPreHandler)
+    contentApp.addHook('preHandler', siteEnabledPreHandler)
 
     contentApp.register(import('./analytics.ts'))
     contentApp.register(import('./apiKeys.ts'), { prefix: '/api-keys' })

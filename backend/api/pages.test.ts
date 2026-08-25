@@ -12,10 +12,9 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes, { mayOnPage, pagePermissionsFor } from './pages.ts'
-import { guardSiteEnabledPreHandler } from './index.ts'
 import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, siteEnabledPreHandler } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
 
 /**
@@ -1789,19 +1788,20 @@ describe('GET /sites/:siteId/pages/alias/:alias — locale/tags reach the page r
   })
 })
 
-describe('pages API — isEnabled guard (OpenProject task 1593)', () => {
+describe('pages API — isEnabled guard (task 699 / OpenProject #1587 / #1593)', () => {
   /**
    * Regression coverage for the disabled-site guard on `pages.ts`'s own site-scoped routes. Originally
    * (task 699) this guard was hand-applied inside three handlers — LIST, SEARCH and INCLUDE — and this
-   * describe block registered `pagesRoutes` on its own to prove exactly those three. Task 1593 deleted
-   * all three hand-applied calls: the guard is now `guardSiteEnabledPreHandler`, one `preHandler`
-   * `api/index.ts` registers on its guarded content-route subtree, before any content route file
-   * (`pages.ts` is one of them; `sites.ts`, site administration rather than content, deliberately is
-   * not — see `index.ts`'s own doc comment), so a route in `pages.ts` no longer guards itself at all.
-   * Registering that same real preHandler here (not a re-implementation
-   * of it — see the import) before `pagesRoutes`, exactly as `index.ts` orders it, is what makes this
-   * describe block still a meaningful test of `pages.ts`'s routes rather than of the preHandler itself
-   * (which `index.test.ts` already covers directly).
+   * describe block registered `pagesRoutes` on its own to prove exactly those three. OpenProject
+   * #1587/#1593 deleted all three hand-applied calls: the guard is now `siteEnabledPreHandler`
+   * (`helpers/common.ts`), one `preHandler` `api/index.ts` registers on its guarded content-route
+   * subtree, before any content route file (`pages.ts` is one of them; `sites.ts`, site administration
+   * rather than content, deliberately is not — see `index.ts`'s own doc comment), so a route in
+   * `pages.ts` no longer guards itself at all. Registering that same real preHandler here (not a
+   * re-implementation of it — see the import) before `pagesRoutes`, exactly as `index.ts` orders it, is
+   * what makes this describe block still a meaningful test of `pages.ts`'s routes rather than of the
+   * preHandler itself (which `index.test.ts` already covers directly, across every `:siteId` route in
+   * every `api/` file, discovered structurally rather than named one by one).
    *
    * Widened past the original three routes to the rest of `pages.ts`'s previously-*unguarded* surface
    * named in the audit this task closes (`docs/audit-2026-08-24/correctness-api-routes.md` §1): GET
@@ -1882,9 +1882,10 @@ describe('pages API — isEnabled guard (OpenProject task 1593)', () => {
         message: error.message
       })
     })
-    // -> The real preHandler production wires in, registered before the route file exactly as
-    //    `index.ts` orders it — see this describe block's own doc comment.
-    app.addHook('preHandler', guardSiteEnabledPreHandler)
+    // -> Mirrors `api/index.ts`'s own registration order: the guard is a plugin-level hook, added
+    //    before the route file it covers is registered — `pages.ts` no longer calls
+    //    `guardSiteEnabled` itself (OpenProject #1593).
+    app.addHook('preHandler', siteEnabledPreHandler)
     await registerApprovalSchemas(app)
     await registerSchemas(app)
     await registerErrorSchema(app)
@@ -1950,6 +1951,13 @@ describe('pages API — isEnabled guard (OpenProject task 1593)', () => {
     assert.equal(res.statusCode, 404)
     assert.equal(getPageCalls, 1)
   })
+
+  /*
+    GET PAGE and PAGE HISTORY carried no `guardSiteEnabled` call at all before OpenProject #1587/
+    #1593 -- neither was reachable through this describe's original three-route scope. Both now
+    answer 403 through the shared preHandler wired above, with no route-specific stub required: the
+    preHandler runs before the handler ever touches `WIKI.models`.
+  */
 
   test('GET PAGE: answers 403 for a disabled site, without ever calling getPage', async () => {
     getPageCalls = 0

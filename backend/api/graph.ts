@@ -156,8 +156,9 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req) => {
+      const publicOnly = !req.session?.authenticated
       const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
+        WIKI.models.pages.listAllForGraph(req.params.siteId, publicOnly),
         WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
         WIKI.models.pageviews.countsForGraph(req.params.siteId)
       ])
