@@ -124,3 +124,42 @@ describe('site-scoping-audit.md', () => {
     assert.ok(unscopedTableNames().length > 0)
   })
 })
+
+/**
+ * OpenProject #1646: every `timestamp` column must be `timestamptz` (`withTimezone: true`).
+ * node-postgres decodes a naive `timestamp` (oid 1114) in the Node process's *local* timezone via
+ * `postgres-date`, while Drizzle writes a JS `Date` as `.toISOString()` (UTC) and `defaultNow()`
+ * compiles to the database server's own local `now()` — three clocks for one column type. A bare
+ * `timestamp()` reintroduces that split; this guards against one slipping back in.
+ */
+function timestampColumns(): { table: string; column: string; withTimezone: boolean }[] {
+  const found: { table: string; column: string; withTimezone: boolean }[] = []
+  for (const value of Object.values(schema)) {
+    if (!(value instanceof PgTable)) continue
+    const config = getTableConfig(value)
+    for (const column of config.columns) {
+      if (column.columnType !== 'PgTimestamp') continue
+      found.push({
+        table: config.name,
+        column: column.name,
+        withTimezone: (column as any).withTimezone === true
+      })
+    }
+  }
+  return found
+}
+
+describe('timestamp columns', () => {
+  test('every timestamp column is declared withTimezone: true', () => {
+    const offenders = timestampColumns().filter((c) => !c.withTimezone)
+    assert.deepEqual(
+      offenders,
+      [],
+      `columns missing withTimezone: true: ${offenders.map((c) => `${c.table}.${c.column}`).join(', ')}`
+    )
+  })
+
+  test('the fixture list itself is non-empty, so a schema-introspection regression cannot pass vacuously', () => {
+    assert.ok(timestampColumns().length > 0)
+  })
+})
