@@ -130,6 +130,7 @@ import { notify } from '@/composables/notify'
 
 import { DEFAULT_PAGE_ICON, usePageStore } from '@/stores/page'
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 import { apiErrorMessage } from '@/helpers/apiError'
 import { localizedPagePath } from '@/helpers/pagePaths'
 
@@ -145,6 +146,7 @@ const router = useRouter()
 
 const pageStore = usePageStore()
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -177,10 +179,7 @@ onMounted(loadNotifications)
 // METHODS
 
 function humanizeDate(val) {
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 /** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */

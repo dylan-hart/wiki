@@ -249,10 +249,12 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { fileSave } from 'browser-fs-access'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -291,15 +293,7 @@ const scanReportScannedAt = computed(() => {
   if (!state.scanReport?.scannedAt) {
     return ''
   }
-  return Temporal.Instant.from(state.scanReport.scannedAt).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, state.scanReport.scannedAt, { seconds: true })
 })
 
 /**

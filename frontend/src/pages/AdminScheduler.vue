@@ -413,6 +413,7 @@ import { apiErrorMessage } from '@/helpers/apiError'
 import { humanizeDuration, relativeDate } from '@/helpers/datetime'
 
 import { useSiteStore } from '@/stores/site'
+import { useUserStore } from '@/stores/user'
 
 // COMPOSABLES
 
@@ -421,6 +422,7 @@ const dark = useDark()
 // STORES
 
 const siteStore = useSiteStore()
+const userStore = useUserStore()
 
 // I18N
 
@@ -631,15 +633,7 @@ function humanizeDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val, { seconds: true })
 }
 
 async function load() {

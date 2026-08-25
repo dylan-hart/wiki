@@ -873,14 +873,7 @@ function formattedDate(val) {
   if (!val) {
     return '---'
   }
-  return Temporal.Instant.from(val).toLocaleString(undefined, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short'
-  })
+  return userStore.formatDateTime(t, val)
 }
 
 function assignGroup() {

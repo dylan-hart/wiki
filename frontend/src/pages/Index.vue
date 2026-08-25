@@ -605,15 +605,8 @@ const isUnsavedNewPage = computed(() => editorStore.isActive && editorStore.mode
 
 const lastModified = computed(() => {
   return pageStore.updatedAt
-    ? // -> The fields luxon's DATETIME_MED expanded to, so the bar reads exactly as before
-      Temporal.Instant.from(pageStore.updatedAt).toLocaleString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit'
-      })
-    : 'N/A'
+    ? userStore.formatDateTime(t, pageStore.updatedAt)
+    : t('common.notAvailable')
 })
 
 /**
