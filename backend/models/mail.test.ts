@@ -1,6 +1,6 @@
 import { describe, test, before, after, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { mail, classifyMailError } from './mail.ts'
+import { mail, classifyMailError, pickLocalizedString } from './mail.ts'
 
 /**
  * `mail` builds its nodemailer transport straight from `WIKI.config.mail` and never touches the
@@ -25,10 +25,25 @@ const DEFAULT_SITES = {
   }
 }
 
-function setMailConfig(cfg: Record<string, any> = {}, sites: Record<string, any> = DEFAULT_SITES) {
+/**
+ * Stubbed `WIKI.models.locales.getStrings`, matching the real model's return shape: an empty array
+ * (never an object) for a locale with no matching row — see `models/locales.ts#getStrings`.
+ * `catalogs` is keyed by locale code; a code with no entry here resolves to `[]`, same as an
+ * uninstalled/unknown locale would against the real table.
+ */
+function setMailConfig(
+  cfg: Record<string, any> = {},
+  sites: Record<string, any> = DEFAULT_SITES,
+  catalogs: Record<string, Record<string, string>> = {}
+) {
   ;(globalThis as any).WIKI = {
     config: { mail: cfg },
     sites,
+    models: {
+      locales: {
+        getStrings: mock.fn(async (locale: string) => catalogs[locale] ?? [])
+      }
+    },
     logger: {
       warn: mock.fn(),
       error: mock.fn(),
@@ -315,6 +330,98 @@ describe('mail.buildLink', () => {
   })
 })
 
+describe('pickLocalizedString', () => {
+  test('prefers the requested locale catalogue over en', () => {
+    const result = pickLocalizedString(
+      { 'mail.verifyEmail.subject': 'Vérifiez votre adresse e-mail' },
+      { 'mail.verifyEmail.subject': 'Verify your email address' },
+      'mail.verifyEmail.subject',
+      'fallback'
+    )
+    assert.equal(result, 'Vérifiez votre adresse e-mail')
+  })
+
+  test('falls back to en when the requested catalogue lacks the key', () => {
+    const result = pickLocalizedString(
+      {},
+      { 'mail.verifyEmail.subject': 'Verify your email address' },
+      'mail.verifyEmail.subject',
+      'fallback'
+    )
+    assert.equal(result, 'Verify your email address')
+  })
+
+  test('falls back to en when the requested catalogue has the key but blank', () => {
+    const result = pickLocalizedString(
+      { 'mail.verifyEmail.subject': '' },
+      { 'mail.verifyEmail.subject': 'Verify your email address' },
+      'mail.verifyEmail.subject',
+      'fallback'
+    )
+    assert.equal(result, 'Verify your email address')
+  })
+
+  test('falls back to the given literal when en lacks the key too', () => {
+    const result = pickLocalizedString({}, {}, 'mail.verifyEmail.subject', 'fallback')
+    assert.equal(result, 'fallback')
+  })
+})
+
+describe('mail.resolveMailString', () => {
+  test('resolves a key from the requested locale catalogue for a user whose prefs.locale is set', async () => {
+    setMailConfig({ host: 'smtp.example.com' }, DEFAULT_SITES, {
+      fr: { 'mail.verifyEmail.subject': 'Vérifiez votre adresse e-mail' }
+    })
+    const result = await mail.resolveMailString(
+      'fr',
+      'mail.verifyEmail.subject',
+      'Verify your email address'
+    )
+    assert.equal(result, 'Vérifiez votre adresse e-mail')
+  })
+
+  test('falls back to en for an unknown locale code', async () => {
+    setMailConfig({ host: 'smtp.example.com' }, DEFAULT_SITES, {
+      en: { 'mail.verifyEmail.subject': 'Verify your email address (en)' }
+    })
+    const result = await mail.resolveMailString(
+      'xx-not-a-locale',
+      'mail.verifyEmail.subject',
+      'fallback'
+    )
+    assert.equal(result, 'Verify your email address (en)')
+    // -> Queried en too, not just the unknown code -- this is the fallback path, not a lucky miss.
+    assert.deepEqual(
+      (WIKI.models.locales.getStrings as any).mock.calls.map((c: any) => c.arguments[0]),
+      ['xx-not-a-locale', 'en']
+    )
+  })
+
+  test('falls back to en for a key missing from the requested locale', async () => {
+    setMailConfig({ host: 'smtp.example.com' }, DEFAULT_SITES, {
+      fr: { 'mail.other.subject': 'Autre chose' },
+      en: { 'mail.verifyEmail.subject': 'Verify your email address (en)' }
+    })
+    const result = await mail.resolveMailString('fr', 'mail.verifyEmail.subject', 'fallback')
+    assert.equal(result, 'Verify your email address (en)')
+  })
+
+  test('a falsy locale resolves straight against en', async () => {
+    setMailConfig({ host: 'smtp.example.com' }, DEFAULT_SITES, {
+      en: { 'mail.verifyEmail.subject': 'Verify your email address (en)' }
+    })
+    const result = await mail.resolveMailString(undefined, 'mail.verifyEmail.subject', 'fallback')
+    assert.equal(result, 'Verify your email address (en)')
+    assert.equal((WIKI.models.locales.getStrings as any).mock.calls.length, 1)
+  })
+
+  test('falls back to the given literal when neither the locale nor en has the key', async () => {
+    setMailConfig({ host: 'smtp.example.com' })
+    const result = await mail.resolveMailString('fr', 'mail.verifyEmail.subject', 'fallback')
+    assert.equal(result, 'fallback')
+  })
+})
+
 describe('mail template senders', () => {
   let sendCalls: any[]
 
@@ -338,6 +445,41 @@ describe('mail template senders', () => {
     assert.match(msg.html, /https:\/\/wiki\.example\.com\/auth\/verify\/tok123/)
     assert.match(msg.text, /https:\/\/wiki\.example\.com\/auth\/verify\/tok123/)
     assert.match(msg.text, /Ada/)
+  })
+
+  test('sendVerifyEmail resolves its subject through the locale catalogue when a locale is given', async () => {
+    setMailConfig(
+      {
+        host: 'smtp.example.com',
+        senderEmail: 'wiki@example.com',
+        defaultBaseURL: 'https://wiki.example.com'
+      },
+      DEFAULT_SITES,
+      { fr: { 'mail.verifyEmail.subject': 'Vérifiez votre adresse e-mail' } }
+    )
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+    await mail.sendVerifyEmail({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok123',
+      locale: 'fr'
+    })
+    assert.equal(sendCalls[0].subject, 'Vérifiez votre adresse e-mail')
+  })
+
+  test('sendVerifyEmail falls back to the English subject for a locale nobody has installed', async () => {
+    mail.send = (async (msg: any) => {
+      sendCalls.push(msg)
+    }) as any
+    await mail.sendVerifyEmail({
+      to: 'ada@example.com',
+      name: 'Ada',
+      token: 'tok123',
+      locale: 'xx-not-a-locale'
+    })
+    assert.equal(sendCalls[0].subject, 'Verify your email address')
   })
 
   test('sendForgotPassword includes the reset link', async () => {

@@ -106,6 +106,7 @@ export async function task(payload?: NotifyPageWatchersPayload): Promise<void> {
       }
       await WIKI.models.mail.sendPageWatchNotification({
         to: recipient.email,
+        locale: (recipient.prefs as Record<string, any> | null)?.locale,
         siteId,
         page: { title: pageTitle, path: pagePath, locale: pageLocale },
         action,

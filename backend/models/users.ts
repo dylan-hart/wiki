@@ -1919,7 +1919,12 @@ class Users {
         `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
       )
       const token = await this.generateToken({ kind: 'verify', userId: existing.id })
-      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      await WIKI.models.mail.sendVerifyEmail({
+        to: existing.email,
+        name: existing.name,
+        token,
+        locale: (existing.prefs as Record<string, any> | null)?.locale
+      })
       return { nextAction: 'verify' }
     }
 
@@ -2437,7 +2442,12 @@ class Users {
       userId: user.id,
       meta: { strategyId }
     })
-    await WIKI.models.mail.sendForgotPassword({ to: user.email, name: user.name, token })
+    await WIKI.models.mail.sendForgotPassword({
+      to: user.email,
+      name: user.name,
+      token,
+      locale: (user.prefs as Record<string, any> | null)?.locale
+    })
     WIKI.models.flags.authDebug(`Password reset link sent to user ${user.id} <${user.email}>`)
   }
 
@@ -2494,7 +2504,11 @@ class Users {
     await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
 
     try {
-      await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })
+      await WIKI.models.mail.sendPasswordResetConfirmed({
+        to: user.email,
+        name: user.name,
+        locale: user.prefs?.locale
+      })
     } catch (err: any) {
       // -> The password change already succeeded; a failed notice email must not turn this into a
       //    failed reset

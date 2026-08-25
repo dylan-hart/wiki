@@ -42,6 +42,33 @@ export interface WatchEventItem {
 }
 
 /**
+ * Picks one string out of a resolved locale's catalogue, falling back to English's catalogue for a
+ * key the requested locale doesn't have (or, since {@link resolveMailString} passes an empty object
+ * for an unknown locale code, for a locale nobody has ever heard of either), and finally to
+ * `fallback` when even English's catalogue doesn't have `key` yet — which is the case for every
+ * `mail.*` key today, since moving the six templates into `en.json` is `models/mail.ts`'s own sibling
+ * work package (OpenProject #1627), not this one. Kept pure and exported so `mail.test.ts` can assert
+ * the fallback chain directly against plain objects, with no `WIKI` global and no database, per this
+ * workspace's own testing convention.
+ */
+export function pickLocalizedString(
+  localeStrings: Record<string, unknown>,
+  enStrings: Record<string, unknown>,
+  key: string,
+  fallback: string
+): string {
+  const fromLocale = localeStrings[key]
+  if (typeof fromLocale === 'string' && fromLocale.length > 0) {
+    return fromLocale
+  }
+  const fromEn = enStrings[key]
+  if (typeof fromEn === 'string' && fromEn.length > 0) {
+    return fromEn
+  }
+  return fallback
+}
+
+/**
  * Classify a failed send by nodemailer's `err.code` so logs — and the test-send endpoint's
  * response — distinguish a plain network-level problem (unreachable host, wrong port, timeout)
  * from a TLS certificate that failed validation, from bad credentials, from a rejected message,
@@ -108,6 +135,35 @@ class MailModel {
    */
   isConfigured(): boolean {
     return Boolean(WIKI.config.mail?.host)
+  }
+
+  /**
+   * Server-side counterpart to `frontend/src/helpers/localization.js`'s `t(key, fallback)`: resolves
+   * `key` from `locale`'s catalogue via `WIKI.models.locales.getStrings`, falling back to `en` for a
+   * locale code nobody has installed, a locale whose catalogue doesn't have `key`, or (until
+   * OpenProject #1627 moves the six mail templates into `en.json`) an `en` catalogue that doesn't
+   * have it yet either — see {@link pickLocalizedString} for the actual fallback chain, kept pure and
+   * separate so it can be unit-tested without a database.
+   *
+   * @param locale The recipient's `users.prefs.locale`, or a falsy value for "use the instance
+   *   default" — either way resolved to `en` before querying, since `getStrings` has no concept of an
+   *   instance default of its own.
+   */
+  async resolveMailString(
+    locale: string | null | undefined,
+    key: string,
+    fallback: string
+  ): Promise<string> {
+    const targetLocale = locale || 'en'
+    const localeStrings = await WIKI.models.locales.getStrings(targetLocale)
+    const enStrings =
+      targetLocale === 'en' ? localeStrings : await WIKI.models.locales.getStrings('en')
+    return pickLocalizedString(
+      Array.isArray(localeStrings) ? {} : (localeStrings as Record<string, unknown>),
+      Array.isArray(enStrings) ? {} : (enStrings as Record<string, unknown>),
+      key,
+      fallback
+    )
   }
 
   /**
@@ -228,16 +284,24 @@ class MailModel {
   async sendVerifyEmail({
     to,
     name,
-    token
+    token,
+    locale
   }: {
     to: string
     name: string
     token: string
+    /** The recipient's `users.prefs.locale` — see {@link resolveMailString}. */
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/auth/verify/${token}`)
+    const subject = await this.resolveMailString(
+      locale,
+      'mail.verifyEmail.subject',
+      'Verify your email address'
+    )
     await this.send({
       to,
-      subject: 'Verify your email address',
+      subject,
       text: `Hi ${name},\n\nPlease verify your email address to activate your account:\n${link}\n\nIf you did not request this, you can safely ignore this email.`,
       html: `<p>Hi ${name},</p><p>Please verify your email address to activate your account:</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email.</p>`
     })
@@ -256,19 +320,27 @@ class MailModel {
   async sendForgotPassword({
     to,
     name,
-    token
+    token,
+    locale
   }: {
     to: string
     name: string
     token: string
+    /** The recipient's `users.prefs.locale` — see {@link resolveMailString}. */
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`)
     const cfg = WIKI.config.mail ?? {}
     const signatureText = cfg.senderName ? `\n\n— ${cfg.senderName}` : ''
     const signatureHtml = cfg.senderName ? `<p>— ${cfg.senderName}</p>` : ''
+    const subject = await this.resolveMailString(
+      locale,
+      'mail.forgotPassword.subject',
+      'Reset your password'
+    )
     await this.send({
       to,
-      subject: 'Reset your password',
+      subject,
       text: `Hi ${name},\n\nA password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.\n${link}\n\nIf you did not request this, you can safely ignore this email — your password will not change.${signatureText}`,
       html: `<p>Hi ${name},</p><p>A password reset was requested for your account. Use the link below to choose a new password. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email — your password will not change.</p>${signatureHtml}`
     })
@@ -290,17 +362,25 @@ class MailModel {
     to,
     name,
     token,
-    siteId
+    siteId,
+    locale
   }: {
     to: string
     name: string
     token: string
     siteId?: string
+    /** The recipient's `users.prefs.locale` — see {@link resolveMailString}. */
+    locale?: string | null
   }): Promise<void> {
     const link = this.buildLink(`/login/reset-password/${token}`, this.resolveMailBaseURL(siteId))
+    const subject = await this.resolveMailString(
+      locale,
+      'mail.welcomeEmail.subject',
+      'Welcome — set up your account'
+    )
     await this.send({
       to,
-      subject: 'Welcome — set up your account',
+      subject,
       text: `Hi ${name},\n\nAn account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.\n${link}\n\nIf you were not expecting this, contact your wiki administrator.`,
       html: `<p>Hi ${name},</p><p>An account has been created for you. Use the link below to set your password and log in. This link will expire in 24 hours.</p><p><a href="${link}">${link}</a></p><p>If you were not expecting this, contact your wiki administrator.</p>`
     })
@@ -310,11 +390,25 @@ class MailModel {
    * Notice sent after a password reset completes, so the account owner has a record of it even if
    * they weren't the one who did it.
    */
-  async sendPasswordResetConfirmed({ to, name }: { to: string; name: string }): Promise<void> {
+  async sendPasswordResetConfirmed({
+    to,
+    name,
+    locale
+  }: {
+    to: string
+    name: string
+    /** The recipient's `users.prefs.locale` — see {@link resolveMailString}. */
+    locale?: string | null
+  }): Promise<void> {
     const link = this.buildLink('/login')
+    const subject = await this.resolveMailString(
+      locale,
+      'mail.passwordResetConfirmed.subject',
+      'Your password has been changed'
+    )
     await this.send({
       to,
-      subject: 'Your password has been changed',
+      subject,
       text: `Hi ${name},\n\nThis is a confirmation that the password for your account was just changed.\n\nIf you did not make this change, contact your wiki administrator immediately.\n\n${link}`,
       html: `<p>Hi ${name},</p><p>This is a confirmation that the password for your account was just changed.</p><p>If you did not make this change, contact your wiki administrator immediately.</p><p><a href="${link}">${link}</a></p>`
     })
@@ -326,7 +420,18 @@ class MailModel {
    * can also confirm that setting is correct — the same value {@link buildLink} stitches onto every
    * other template's links — rather than just proving SMTP connectivity in isolation.
    */
-  async sendTestEmail({ to }: { to: string }): Promise<void> {
+  async sendTestEmail({
+    to,
+    locale
+  }: {
+    to: string
+    /**
+     * The recipient's `users.prefs.locale` — see {@link resolveMailString}. There is no real
+     * recipient user account behind a test send (`recipientEmail` is whatever address the admin
+     * typed in), so callers typically leave this unset and let it fall back to `en`.
+     */
+    locale?: string | null
+  }): Promise<void> {
     const baseURL = WIKI.config.mail?.defaultBaseURL
     const baseURLText = baseURL
       ? `It is currently configured with the base URL: ${baseURL}`
@@ -334,9 +439,14 @@ class MailModel {
     const baseURLHtml = baseURL
       ? `It is currently configured with the base URL: <a href="${baseURL}">${baseURL}</a>`
       : 'No default base URL is set yet — links in other emails (password reset, email verification) will be relative until one is configured under Mail Configuration.'
+    const subject = await this.resolveMailString(
+      locale,
+      'mail.testEmail.subject',
+      'Wiki.js Test Email'
+    )
     await this.send({
       to,
-      subject: 'Wiki.js Test Email',
+      subject,
       text: `This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.\n\n${baseURLText}`,
       html: `<p>This is a test email sent from your Wiki.js instance to confirm your SMTP configuration is working.</p><p>${baseURLHtml}</p>`
     })
@@ -398,7 +508,8 @@ class MailModel {
     page,
     action,
     changedFields,
-    actorName
+    actorName,
+    locale
   }: {
     to: string
     siteId: string
@@ -406,6 +517,13 @@ class MailModel {
     action: PageWatchNotifiableAction
     changedFields: string[]
     actorName: string
+    /**
+     * The recipient's `users.prefs.locale` — see {@link resolveMailString}. The subject and the
+     * per-change line stay interpolated English literals (the page title, the actor's name) — moving
+     * them into localizable `mail.*` keys, with the interpolation that requires, is OpenProject
+     * #1627's scope, not this one — but the static footer line is resolved through the catalogue now.
+     */
+    locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
@@ -415,11 +533,16 @@ class MailModel {
       locales,
       baseURL
     )
+    const footer = await this.resolveMailString(
+      locale,
+      'mail.pageWatchNotification.footer',
+      "You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox."
+    )
     await this.send({
       to,
       subject: `Page ${label}: ${page.title}`,
-      text: `${line.text}\n\nYou are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.`,
-      html: `<p>${line.html}</p><p>You are receiving this because you are watching this page. Manage your watched pages from your profile's Inbox.</p>`
+      text: `${line.text}\n\n${footer}`,
+      html: `<p>${line.html}</p><p>${footer}</p>`
     })
   }
 
@@ -439,11 +562,18 @@ class MailModel {
   async sendPageWatchDigest({
     to,
     siteId,
-    items
+    items,
+    locale
   }: {
     to: string
     siteId: string
     items: WatchEventItem[]
+    /**
+     * The recipient's `users.prefs.locale` — see {@link resolveMailString}. The subject stays an
+     * interpolated English literal — replacing it with a proper plural message is OpenProject
+     * #1627's scope, not this one — but the static footer line is resolved through the catalogue now.
+     */
+    locale?: string | null
   }): Promise<void> {
     const locales = WIKI.sites[siteId]?.config?.locales
     const baseURL = this.resolveMailBaseURL(siteId)
@@ -452,11 +582,16 @@ class MailModel {
     const subject = `${count} update${count === 1 ? '' : 's'} on pages you're watching`
     const text = lines.map((line) => `- ${line.text}`).join('\n')
     const html = `<ul>${lines.map((line) => `<li>${line.html}</li>`).join('')}</ul>`
+    const footer = await this.resolveMailString(
+      locale,
+      'mail.pageWatchDigest.footer',
+      "You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox."
+    )
     await this.send({
       to,
       subject,
-      text: `${text}\n\nYou are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.`,
-      html: `${html}<p>You are receiving this digest because you are watching these pages. Manage your watched pages, and switch to immediate notifications, from your profile's Inbox.</p>`
+      text: `${text}\n\n${footer}`,
+      html: `${html}<p>${footer}</p>`
     })
   }
 }
