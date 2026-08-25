@@ -21,6 +21,7 @@
           :toggle-text-color="dark.isActive ? `black` : `white`"
           :text-color="dark.isActive ? `white` : `black`"
           :color="dark.isActive ? `dark-1` : `white`"
+          :aria-label="t(`admin.storage.title`)"
           :options="[
             { label: t('admin.storage.targets'), value: 'targets' },
             { label: t('admin.storage.deliveryPaths'), value: 'delivery' }

@@ -18,6 +18,7 @@
             glossy
             no-caps
             toggle-color="primary"
+            :aria-label="t(`editor.pageRel.position`)"
             :options="[
               { label: t('editor.pageRel.left'), value: 'left' },
               { label: t('editor.pageRel.center'), value: 'center' },

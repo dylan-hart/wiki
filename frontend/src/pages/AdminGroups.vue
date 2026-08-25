@@ -100,6 +100,7 @@
                   icon="la:trash"
                   :color="props.row.isSystem ? `grey` : `negative`"
                   :disabled="props.row.isSystem"
+                  :aria-label="t(`common.actions.delete`)"
                   @click="deleteGroup(props.row)" />
               </w-td>
             </template>

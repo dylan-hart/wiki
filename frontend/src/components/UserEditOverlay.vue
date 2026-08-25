@@ -212,6 +212,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`admin.users.timeFormat`)"
                       :options="[
                         { label: t('profile.timeFormat12h'), value: '12h' },
                         { label: t('profile.timeFormat24h'), value: '24h' }
@@ -232,6 +233,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`admin.users.appearance`)"
                       :options="[
                         { label: t('profile.appearanceDefault'), value: 'site' },
                         { label: t('profile.appearanceLight'), value: 'light' },
@@ -253,6 +255,7 @@
                       glossy
                       no-caps
                       toggle-color="primary"
+                      :aria-label="t(`profile.cvd`)"
                       :options="[
                         { value: 'none', label: t('profile.cvdNone') },
                         { value: 'protanopia', label: t('profile.cvdProtanopia') },

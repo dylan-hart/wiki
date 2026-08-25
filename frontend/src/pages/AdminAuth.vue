@@ -334,6 +334,7 @@
                     glossy
                     no-caps
                     toggle-color="primary"
+                    :aria-label="cfg.title"
                     :options="cfg.enum"
                     :disable="cfg.readOnly" />
                   <w-select
