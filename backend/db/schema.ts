@@ -625,19 +625,27 @@ export const jobLock = pgTable('jobLock', {
 })
 
 // JOBS --------------------------------
-export const jobs = pgTable('jobs', {
-  id: uuid().primaryKey().defaultRandom(),
-  task: varchar({ length: 255 }).notNull(),
-  useWorker: boolean().notNull().default(false),
-  payload: jsonb(),
-  retries: integer().notNull().default(0),
-  maxRetries: integer().notNull().default(0),
-  waitUntil: timestamp(),
-  isScheduled: boolean().notNull().default(false),
-  createdBy: varchar({ length: 255 }),
-  createdAt: timestamp().notNull().defaultNow(),
-  updatedAt: timestamp().notNull().defaultNow()
-})
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    task: varchar({ length: 255 }).notNull(),
+    useWorker: boolean().notNull().default(false),
+    payload: jsonb(),
+    retries: integer().notNull().default(0),
+    maxRetries: integer().notNull().default(0),
+    waitUntil: timestamp(),
+    isScheduled: boolean().notNull().default(false),
+    createdBy: varchar({ length: 255 }),
+    createdAt: timestamp().notNull().defaultNow(),
+    updatedAt: timestamp().notNull().defaultNow()
+  },
+  (table) => [
+    // -> Supports the claim subquery's `"waitUntil" ASC NULLS FIRST, "createdAt" ASC` ordering under
+    //    `FOR UPDATE SKIP LOCKED`, which otherwise sorts a sequential scan on every poll.
+    index('jobs_waitUntil_createdAt_idx').on(table.waitUntil, table.createdAt)
+  ]
+)
 
 // LOCALES -----------------------------
 export const locales = pgTable(
