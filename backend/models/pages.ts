@@ -226,6 +226,12 @@ export interface GraphPageRow {
  * into `checkAccess()`, so a scoped key's `write:scripts`/`write:styles` grant is narrowed the same
  * way `checkAccess()` narrows every other page-rule permission (OpenProject #930) — omitting it here
  * would leave `api/pages.ts`'s save path as the one caller still trusting `groupIds` unnarrowed.
+ *
+ * `siteId`, likewise, is the same key's site pin (`ApiKeyIdentity.siteId`, OpenProject #2189) —
+ * omitting it here is exactly what would have left a personal access token's `write:scripts`/
+ * `write:styles` grant reachable on a site other than the one it was pinned to, since
+ * `hasPermission()`'s `checkAccess()` call is the one page-rule decision in this file that never
+ * routes through `groups.actorForRequest()` (which already carries it).
  */
 export interface PageActor {
   id: string
@@ -234,6 +240,8 @@ export interface PageActor {
   /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #930/#1205) — see that type. */
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  /** Threaded through to `checkAccess()`'s `AccessActor` (OpenProject #2189) — see that type. */
+  siteId?: string | null
   /**
    * What actually made the save: the standard editor (undefined, the default) or an MCP tool call
    * (`mcp/auth.ts`'s `pageActorFor()` sets this to `'mcp'`). Threaded straight through to

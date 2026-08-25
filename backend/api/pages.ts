@@ -17,7 +17,6 @@ import {
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
-import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -80,7 +79,8 @@ const pageIdParam = {
  * tokens existed to fill it with something real. `write:scripts`/`write:styles` are page-rule-scoped
  * (see CLAUDE.md's Permissions section), so `groupIds` travels along too — it is what
  * `models/pages.ts`'s `hasPermission()` resolves a page rule against, the same way `mayOnPage()` does
- * here.
+ * here. `siteId` travels along for the same reason (OpenProject #2189): a personal token pinned to
+ * one site must not gain a `write:scripts`/`write:styles` grant on another's page through this path.
  */
 export function actorFrom(req: FastifyRequest): PageActor | null {
   if (req.apiKey?.userId) {
@@ -89,7 +89,8 @@ export function actorFrom(req: FastifyRequest): PageActor | null {
       permissions: req.apiKey.permissions,
       groupIds: req.apiKey.groupIds,
       scope: req.apiKey.scope,
-      allowedClassifications: req.apiKey.allowedClassifications
+      allowedClassifications: req.apiKey.allowedClassifications,
+      siteId: req.apiKey.siteId
     }
   }
   if (!req.session?.authenticated || !req.session.user?.id) {
@@ -665,10 +666,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
@@ -863,10 +860,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
