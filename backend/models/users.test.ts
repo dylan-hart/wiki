@@ -731,6 +731,161 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
 })
 
 /**
+ * `loginWithProvider()` used to hard-skip 2FA for every provider login (see WP 2101 /
+ * `docs/decisions/provider-login-2fa.md`): a TOTP secret enrolled under the local strategy is a
+ * signal the account's owner wants a second factor regardless of which door is used to sign in, so
+ * `afterLoginChecks()` now falls back to the local strategy's own secret when the strategy actually
+ * used to log in (the provider) has none of its own. `findOrCreateProviderUser()` is stubbed so
+ * this suite can drive an already-provisioned account directly, the same way the `resetPassword`
+ * suite above builds its account with `createUser()` and mutates its `auth` blob straight in the
+ * database -- provider registration/email-matching is `findOrCreateProviderUser()`'s own concern,
+ * not this one's.
+ */
+describe('users.loginWithProvider (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let previousTemporal: any
+
+  const localStrategyId = 'local-provider-test'
+  const providerStrategyId = 'oauth-provider-test'
+
+  function req(): any {
+    return { session: {} }
+  }
+
+  function registerLiveStrategies(): void {
+    ;(WIKI.auth.strategies as any)[localStrategyId] = { config: {} }
+    ;(WIKI.auth.strategies as any)[providerStrategyId] = { config: {} }
+  }
+
+  async function createLocalUser(email: string, name: string): Promise<string> {
+    WIKI.data.systemIds = { localAuthId: localStrategyId } as any
+    return users.createUser({ name, email, password: 'originalpwd1', isVerified: true })
+  }
+
+  async function enableLocalTfa(userId: string): Promise<void> {
+    const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+    const auth = row!.auth as Record<string, any>
+    auth[localStrategyId].tfaIsActive = true
+    auth[localStrategyId].tfaSecret = 'JBSWY3DPEHPK3PXP'
+    await fixtures.db.update(usersTable).set({ auth }).where(eq(usersTable.id, userId))
+  }
+
+  before(async () => {
+    previousTemporal = (globalThis as any).Temporal
+    installFakeTemporal()
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    mock.restoreAll()
+    await teardownTestDb()
+    uninstallFakeTemporal(previousTemporal)
+  })
+
+  test('a TOTP secret enrolled under the local strategy still gates a login through a provider strategy', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-2fa@example.com', 'Provider Target')
+    await enableLocalTfa(userId)
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+
+    const result = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: { id: 'ext-1', email: 'provider-2fa@example.com', name: 'Provider Target' },
+        ip: '127.0.0.1'
+      },
+      req()
+    )
+
+    assert.equal(result.nextAction, 'provideTfa')
+    assert.ok(result.continuationToken)
+    assert.equal(result.authenticated, undefined)
+
+    // -> The continuation verifies against the local strategy's own secret, not the provider's --
+    //    but still remembers the provider as the strategy actually logging in, for hooks/audit.
+    const [tokenRow] = await fixtures.db
+      .select()
+      .from(userKeys)
+      .where(eq(userKeys.token, result.continuationToken!))
+    assert.deepEqual(tokenRow!.meta, {
+      strategyId: providerStrategyId,
+      tfaStrategyId: localStrategyId
+    })
+  })
+
+  test('an account with no locally-enrolled 2FA still logs straight in through a provider', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-no-2fa@example.com', 'No 2FA')
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+    const request = req()
+
+    const result = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: { id: 'ext-2', email: 'provider-no-2fa@example.com', name: 'No 2FA' },
+        ip: '127.0.0.1'
+      },
+      request
+    )
+
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+    assert.equal(request.session.authenticated, true)
+  })
+
+  test('a correct code from loginTFA completes the provider login the local secret stopped', async (t) => {
+    registerLiveStrategies()
+    const userId = await createLocalUser('provider-2fa-complete@example.com', 'Completes Login')
+    await enableLocalTfa(userId)
+    const user = await users.getById(userId)
+    t.mock.method(users, 'findOrCreateProviderUser' as any, async () => user)
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    const request = req()
+
+    const stopped = await users.loginWithProvider(
+      {
+        siteId: fixtures.siteId,
+        strategy: { id: providerStrategyId } as any,
+        profile: {
+          id: 'ext-3',
+          email: 'provider-2fa-complete@example.com',
+          name: 'Completes Login'
+        },
+        ip: '127.0.0.1'
+      },
+      request
+    )
+
+    const result = await users.loginTFA(
+      {
+        strategyId: providerStrategyId,
+        siteId: fixtures.siteId,
+        securityCode: '123456',
+        continuationToken: stopped.continuationToken!
+      },
+      request
+    )
+
+    // -> Verified against the local strategy's secret, even though the login itself is the
+    //    provider's. Compared field-by-field rather than with the `user` object above: that
+    //    reference gets `.groups` mutated onto it by `afterLoginChecks()`'s own run inside
+    //    `loginWithProvider()`, which a freshly re-fetched row from `loginTFA()`'s own
+    //    `validateToken()` call never carries.
+    const verifyArgs = verifyTfaCode.mock.calls[0].arguments as [any, string, string]
+    assert.equal(verifyArgs[0].id, userId)
+    assert.equal(verifyArgs[1], localStrategyId)
+    assert.equal(verifyArgs[2], '123456')
+    assert.equal(result.authenticated, true)
+    assert.equal(result.nextAction, 'redirect')
+    assert.equal(request.session.authenticated, true)
+  })
+})
+
+/**
  * `matchRecoveryCode` is the constant-time-discipline core of recovery-code verification, split out
  * of `verifyAndConsumeRecoveryCode` precisely so it can be tested without `WIKI` or a database: given
  * a set of stored entries and a normalized code, which one (if any) matches. Hashed with a low
@@ -1095,6 +1250,46 @@ describe('users.loginTFA', () => {
     )
 
     assert.equal('recoveryCodes' in result, false)
+  })
+
+  test('verifies against tfaStrategyId from the token, not the login strategyId, when the token carries one', async (t) => {
+    const user = makeUser({ auth: { strat: {}, local: {} } })
+    t.mock.method(users, 'validateToken', async () => ({
+      user,
+      strategyId: 'strat',
+      tfaStrategyId: 'local'
+    }))
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    t.mock.method(users, 'destroyToken', async () => {})
+    t.mock.method(users, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await users.loginTFA(
+      { strategyId: 'strat', siteId: 'site-1', securityCode: '123456', continuationToken: 'tok' },
+      {}
+    )
+
+    assert.deepEqual(verifyTfaCode.mock.calls[0].arguments, [user, 'local', '123456'])
+  })
+
+  test('falls back to the login strategyId when the token carries no tfaStrategyId', async (t) => {
+    const user = makeUser()
+    t.mock.method(users, 'validateToken', async () => ({ user, strategyId: 'strat' }))
+    const verifyTfaCode = t.mock.method(users, 'verifyTfaCode', () => true)
+    t.mock.method(users, 'destroyToken', async () => {})
+    t.mock.method(users, 'afterLoginChecks', async () => ({
+      nextAction: 'redirect',
+      redirect: '/'
+    }))
+
+    await users.loginTFA(
+      { strategyId: 'strat', siteId: 'site-1', securityCode: '123456', continuationToken: 'tok' },
+      {}
+    )
+
+    assert.deepEqual(verifyTfaCode.mock.calls[0].arguments, [user, 'strat', '123456'])
   })
 
   test('rejects a submission whose strategyId does not match the one the token was issued for', async (t) => {

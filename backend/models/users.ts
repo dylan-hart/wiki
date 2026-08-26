@@ -1691,17 +1691,18 @@ class Users {
     const user = await this.findOrCreateProviderUser(strategy, profile)
 
     /*
-      Neither 2FA nor a password change is asked for: both are the local strategy's, and this user has
-      just proved who they are somewhere else — where whatever second factor that provider enforces has
-      already been satisfied.
+      A password change is never asked for here: `mustChangePwd` lives on the local strategy's own
+      auth entry and is about a stored password this login never touches, so it stays skipped.
+
+      2FA is deliberately NOT skipped, though (see docs/decisions/provider-login-2fa.md): a TOTP
+      secret enrolled under the local strategy is a signal the account's owner wanted a second
+      factor regardless of which door they used to sign in, so `afterLoginChecks()` still stops a
+      provider login at `provideTfa` when one is active there -- independently of whatever MFA the
+      provider itself may already have performed. An account with no locally-enrolled secret sees
+      no change: this call still sails through unless the provider strategy's own `auth` entry (in
+      practice, almost never populated) has one active.
     */
-    return this.afterLoginChecks(
-      user,
-      strategy.id,
-      { ip, siteId },
-      { skipTFA: true, skipChangePwd: true },
-      req
-    )
+    return this.afterLoginChecks(user, strategy.id, { ip, siteId }, { skipChangePwd: true }, req)
   }
 
   /**
@@ -2018,13 +2019,32 @@ class Users {
 
     // Is 2FA required?
     if (!skipTFA) {
-      if (authStr.tfaIsActive && authStr.tfaSecret) {
+      /*
+        A TOTP secret enrolled under the local strategy gates every login for the account, not
+        just one made through the local strategy itself -- enrolling it is a deliberate choice by
+        the account's owner, made independently of which door they use to sign in next. Without
+        this fallback, a provider login (whose own `auth[strategyId]` entry almost never has a
+        secret of its own) would sail straight past a second factor the owner explicitly turned
+        on. See docs/decisions/provider-login-2fa.md.
+      */
+      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const localAuthStr =
+        strategyId !== localStrategyId ? (user.auth?.[localStrategyId] as any) || {} : authStr
+      const usesLocalFallback =
+        !(authStr.tfaIsActive && authStr.tfaSecret) &&
+        localAuthStr.tfaIsActive &&
+        localAuthStr.tfaSecret
+      const tfaStrategyId = usesLocalFallback ? localStrategyId : strategyId
+      const tfaAuthStr = usesLocalFallback ? localAuthStr : authStr
+
+      if (tfaAuthStr.tfaIsActive && tfaAuthStr.tfaSecret) {
         try {
           const tfaToken = await this.generateToken({
             kind: 'tfa',
             userId: user.id,
             meta: {
-              strategyId
+              strategyId,
+              tfaStrategyId
             }
           })
           WIKI.models.flags.authDebug(
@@ -2178,7 +2198,11 @@ class Users {
       throw new Error('ERR_TFA_INVALID_REQUEST')
     }
 
-    const { user, strategyId: expectedStrategyId } = await this.validateToken({
+    const {
+      user,
+      strategyId: expectedStrategyId,
+      tfaStrategyId
+    } = await this.validateToken({
       kind: setup ? 'tfaSetup' : 'tfa',
       token: continuationToken,
       skipDelete: true
@@ -2190,18 +2214,23 @@ class Users {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
+    // -> The strategy whose secret actually gates this login: ordinarily the one just logged in
+    //    with, but a provider login stopped by a locally-enrolled secret (see `afterLoginChecks()`)
+    //    records which strategy's secret that was, since it is not this one.
+    const verifyStrategyId = tfaStrategyId || strategyId
+
     let verified: boolean
     if (isTotpShape) {
-      verified = this.verifyTfaCode(user, strategyId, securityCode)
+      verified = this.verifyTfaCode(user, verifyStrategyId, securityCode)
     } else {
       const auth = (user.auth ?? {}) as Record<string, any>
-      const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+      const entries = (auth[verifyStrategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
       // -> Distinguished from a plain wrong code: the client's response to "you mistyped it" and
       //    "you have nothing left to try" should not be the same generic rejection.
       if (entries.every((entry) => entry.usedAt)) {
         throw new Error('ERR_TFA_RECOVERY_CODES_EXHAUSTED')
       }
-      verified = await this.verifyAndConsumeRecoveryCode(user, strategyId, securityCode)
+      verified = await this.verifyAndConsumeRecoveryCode(user, verifyStrategyId, securityCode)
     }
     if (!verified) {
       await countTfaFailure(continuationToken)
