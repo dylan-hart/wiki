@@ -178,7 +178,7 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(exportedNavigation.some((n: any) => n.id === navRow!.id && n.locale === 'en'))
   })
 
-  test('exportSite excludes isSystem groups', async () => {
+  test('exportSite excludes isSystem groups (Administrators/Users/Guests)', async () => {
     const [systemGroup] = await fixtures.db
       .insert(groupsTable)
       .values({
@@ -193,9 +193,13 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const entries = await readTarball(result.filePath)
 
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
-    assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
-    // -> The ordinary, non-system fixture group must still be present
+
+    // -> The seeded, non-system fixture group still makes it through...
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
+    // -> ...but the isSystem row does not: `importSite` upserts groups by id, and restoring an
+    //    isSystem row onto a different instance overwrites that instance's own Administrators/
+    //    Users/Guests (see the comment on `exportSite`'s group select).
+    assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
   })
 
   test('exportSite rejects an unknown site', async () => {

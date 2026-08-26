@@ -103,8 +103,15 @@ class ExportModel {
         WIKI.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
         WIKI.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
         // -> Groups are global, not site-scoped (see CLAUDE.md's Permissions section) — a site's
-        //    access model cannot be reconstructed from its own rows alone. `isSystem` rows are
-        //    excluded outright — see the class-level doc comment.
+        //    access model cannot be reconstructed from its own rows alone. `isSystem` rows
+        //    (Administrators/Users/Guests, seeded by `models/groups.ts#init`) are excluded:
+        //    `importSite` upserts groups by id, and the three behave differently on a *different*
+        //    target instance -- Users/Guests sit at fixed cross-instance ids
+        //    (`WIKI.data.systemIds`, `base.yml`), so restoring them overwrites that instance's own
+        //    Users/Guests wholesale, while Administrators is per-instance random and would land as
+        //    a non-privileged duplicate instead. The 2.5.x importer made the same call already
+        //    (`migration/importers/users-groups.ts` -- "an equivalent is already seeded by this
+        //    install's own `Groups.init()`").
         WIKI.db.select().from(groupsTable).where(eq(groupsTable.isSystem, false))
       ])
 

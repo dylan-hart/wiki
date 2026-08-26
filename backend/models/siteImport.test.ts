@@ -180,6 +180,50 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(importedGroup)
   })
 
+  test('importSite leaves isSystem groups (Administrators/Users/Guests) untouched', async () => {
+    const [systemGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Users',
+        permissions: ['read:pages'],
+        rules: [],
+        isSystem: true
+      })
+      .returning()
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+
+    // -> Simulate the target instance's own Users group having since diverged from whatever it
+    //    looked like at export time (a different instance's own seeded row would never match the
+    //    source's anyway) -- if the import upserted this by id, as it does for every other group, this
+    //    edit would be reverted by the import below.
+    await fixtures.db
+      .update(groupsTable)
+      .set({ permissions: ['read:pages', 'write:pages'] })
+      .where(eq(groupsTable.id, systemGroup!.id))
+    const [beforeImport] = await fixtures.db
+      .select()
+      .from(groupsTable)
+      .where(eq(groupsTable.id, systemGroup!.id))
+
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+    // -> Only the fixture's own non-system group was ever exported
+    assert.equal(result.groups, 1)
+
+    const [afterImport] = await fixtures.db
+      .select()
+      .from(groupsTable)
+      .where(eq(groupsTable.id, systemGroup!.id))
+    assert.deepEqual(afterImport, beforeImport)
+
+    // -> No second isSystem row was created either
+    const systemGroupsByName = await fixtures.db
+      .select()
+      .from(groupsTable)
+      .where(and(eq(groupsTable.name, 'Users'), eq(groupsTable.isSystem, true)))
+    assert.equal(systemGroupsByName.length, 1)
+  })
+
   test("importSite replaces the target site's existing content rather than merging with it", async () => {
     const stalePage = await pagesModel.createPage(
       targetSiteId,
