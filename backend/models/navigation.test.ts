@@ -691,20 +691,45 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('getMode reads the same column back, and defaults to static for a menu with no row yet', async () => {
-    assert.equal(await navigationModel.getMode(crypto.randomUUID()), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, randomUUID()), 'static')
 
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'mixed' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'mixed')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'mixed')
 
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'static' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'static')
+  })
+
+  test('getMode is scoped to siteId -- a nav id owned by another site answers as not-found', async () => {
+    const [otherSite] = await WIKI.db
+      .insert(sitesTable)
+      .values({
+        hostname: `test-${randomUUID()}.localhost`,
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const otherSiteId = otherSite!.id
+
+    const navId = await navigationModel.ensureSiteNav(otherSiteId, 'en')
+    await WIKI.db
+      .update(navigationTable)
+      .set({ mode: 'mixed' })
+      .where(eq(navigationTable.id, navId))
+
+    // -> Queried with the owning site's id, the real mode comes back.
+    assert.equal(await navigationModel.getMode(otherSiteId, navId), 'mixed')
+
+    // -> Queried with an unrelated site's id, the row is invisible -- falls back to the
+    //    no-row-yet default rather than leaking another site's mode.
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'static')
   })
 })
 
