@@ -337,21 +337,34 @@ class Groups {
   }
 
   /**
-   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse, path- and
-   * site-blind, for a caller that spans many pages at once (search is the only one today) and so has
+   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse and
+   * path-blind, for a caller that spans many pages at once (search is the only one today) and so has
    * no single page to ask `checkAccess()` about.
+   *
+   * Site-scoped, unlike path: `siteId` is filtered the same fail-closed way
+   * `helpers/pageRules.ts#ruleMatchesPage` filters a rule against one page's site — a rule whose own
+   * `sites` is non-empty and does not name `siteId` is not counted, so a rule scoped to site A no
+   * longer reads as "holds it somewhere" for a question asked about site B. An empty `sites` still
+   * matches every site, same as everywhere else `rule.sites` is read. Pass `null` only when the
+   * caller itself has no one site to ask about — `api/icons.ts`'s `mayUseIconPicker()` is the only
+   * one today, since `/_api/icons` is not a site-scoped route — which skips the `sites` filter
+   * entirely, same as before this method took a site at all.
    *
    * Page permissions are granted by rules, not by the group-wide `permissions` list (same caveat as
    * `checkAccess()` above) — so this pools every rule across the actor's groups and asks whether any
-   * non-DENY one grants the permission somewhere, rather than reading `actor.permissions` for a page
-   * permission's name, which it never legitimately holds.
+   * non-DENY, site-matching one grants the permission somewhere, rather than reading
+   * `actor.permissions` for a page permission's name, which it never legitimately holds.
    *
    * Ignoring DENY (rather than resolving each rule the way `checkAccess()` does) is deliberate: the
    * question here is "is this actor generally the kind of person who holds `permission`", not "may
    * they use it on a particular page" — a rule that denies it under one subtree does not change the
    * answer for the rest of the site.
    */
-  mayHoldPermissionSomewhere(actor: AccessActor, permissions: string[]): boolean {
+  mayHoldPermissionSomewhere(
+    actor: AccessActor,
+    permissions: string[],
+    siteId: string | null
+  ): boolean {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
@@ -366,7 +379,12 @@ class Groups {
     }
     const rules = this.rulesForGroups(actor.groupIds)
     return inScope.some((permission) =>
-      rules.some((rule) => rule.mode !== 'DENY' && rule.roles.includes(permission))
+      rules.some(
+        (rule) =>
+          rule.mode !== 'DENY' &&
+          rule.roles.includes(permission) &&
+          (siteId === null || rule.sites.length === 0 || rule.sites.includes(siteId))
+      )
     )
   }
 
