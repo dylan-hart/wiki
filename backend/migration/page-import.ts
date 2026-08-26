@@ -1,6 +1,13 @@
 import { IdMap } from './id-map.ts'
-import { assignTreePaths } from './path-normalization.ts'
+import { assignTreePaths, normalizeMigratedPath } from './path-normalization.ts'
+import {
+  lookupOrInsert,
+  reconcileNaturalKeyMatch,
+  resolveExisting,
+  SOURCE_SYSTEM_WIKIJS_2_5X
+} from './provenance.ts'
 import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import type { ExistingMapping, LookupOrInsertAction, ProvenanceStore } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
@@ -15,10 +22,10 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * changes.
  *
  * Like every module in this feature so far, this one has no db access and is not wired to a CLI yet —
- * `WIKI.models.pages.createPage`/`queueRerender` and the tree existing-entry lookup are injected
- * (`ImportPagesDeps`), so tests exercise the real mapping/orchestration logic with fakes standing in for
- * both, and Task 421's CLI is what will eventually pass the real `WIKI.models.pages` /
- * `WIKI.models.tree` implementations here.
+ * `WIKI.models.pages.createPage`/`queueRerender`, the tree existing-entry lookup, and the provenance
+ * store are all injected (`ImportPagesDeps`), so tests exercise the real mapping/orchestration logic
+ * with fakes standing in for each, and Task 421's CLI is what will eventually pass the real
+ * `WIKI.models.pages` / `WIKI.models.tree` / `createProvenanceStore(WIKI.db)` implementations here.
  *
  * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
  * it first) — that module's own doc comment names this task as the wiring point for the real
@@ -26,6 +33,21 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to normalize
  * or collides never reaches `createPage()` at all; it comes back as a `PageImportFailure` with the same
  * `reason` `assignTreePaths` gave it.
+ *
+ * ## Provenance and re-runnability (Feature 421 task 746 / Bug 1761)
+ *
+ * A page this importer (or an interrupted prior run of it) already created is resolved through
+ * `../provenance.ts` *before* `assignTreePaths` ever sees it — a `migrationRecords` exact-key hit, or
+ * a natural-key match on `(siteId, locale, path)` for the interrupted-run edge case `provenance.ts`
+ * documents, marks the page `skipped` and hands back the destination id already on record, without
+ * ever asking `assignTreePaths` for a tree slot. Doing the lookup first (rather than filtering
+ * `assignTreePaths`'s own `existing-entry-collision` failures after the fact) is what lets a re-run
+ * tell "this page is my own prior work" apart from "a genuinely foreign occupant of this path" — the
+ * latter is the only thing that should still fail as `existing-entry-collision`. Only pages that come
+ * back with no mapping are handed to `assignTreePaths` as a batch (so sibling-collision detection still
+ * compares them against each other), and a genuinely new page's write goes through `lookupOrInsert`,
+ * which is what actually persists the new mapping — unlike the read-only classification pass in
+ * `phases/content.ts`, which deliberately does not (see that module's doc comment for why).
  *
  * ## The synthetic per-page actor
  *
@@ -99,6 +121,9 @@ export interface ImportPagesDeps {
   /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
    * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
   existingEntry: PathAssignmentOptions['existingEntry']
+  /** Backs the provenance/idempotency check every page is resolved through before `assignTreePaths` —
+   * see "Provenance and re-runnability" in the module doc comment. */
+  provenanceStore: ProvenanceStore
 }
 
 export interface ImportPagesOptions {
@@ -131,11 +156,18 @@ export interface PageImportFailure {
 
 export interface PageImportSuccess {
   oldId: number
-  /** The new 3.0 UUID `createPage()` returned — also recorded in `PageImportResult.pageIdMap`. */
+  /** The 3.0 UUID this page now maps to — freshly created by `createPage()` when `action` is
+   * `'created'`, or the id already on record (exact-key or natural-key match) when `'skipped'`. Also
+   * recorded in `PageImportResult.pageIdMap` either way. */
   pageId: string
   /** Per-page notes (editor fallback, render-bootstrap downgrade, unmigrated privacy setting, the
-   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. */
+   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. Empty for a `'skipped'`
+   * page, since none of the mapping logic that produces these notes runs when nothing is created. */
   warnings: string[]
+  /** What `lookupOrInsert` (or the pre-`assignTreePaths` provenance check standing in for it — see the
+   * module doc comment) did for this page. `importPages` never requests `'updated'`: a re-run always
+   * skips a page it finds already mapped rather than modifying it. */
+  action: LookupOrInsertAction
 }
 
 export interface PageImportResult {
@@ -144,8 +176,10 @@ export interface PageImportResult {
   /** Every per-page warning, in processing order, prefixed with the page it came from — the flat form
    * for whichever task ends up reporting import results to an operator (Task 421's CLI). */
   warnings: string[]
-  /** old-`pages.id` → new-UUID, populated only for pages that actually got created — Task 740 resolves
-   * `pageHistory.pageId` through this, per `content-staging.ts`'s `ContentStagingResult.pageIdMap` doc. */
+  /** old-`pages.id` → new-UUID, populated for every page in `succeeded` — both a freshly created page
+   * and one resolved as `'skipped'` against an existing mapping have a real destination id. Task 740
+   * resolves `pageHistory.pageId` through this, per `content-staging.ts`'s
+   * `ContentStagingResult.pageIdMap` doc. */
   pageIdMap: IdMap<number>
 }
 
@@ -334,11 +368,26 @@ function mapStagedPageToInput(
   }
 }
 
+/** The provenance key one staged page resolves through — `sourceId` is the 2.x `pages.id`, matching
+ * `phases/content.ts`'s `classifyPage` exactly (when its own `page.id` is present, which `StagedPage`
+ * always has by the time it reaches here) so an exact-key row written by one pass is found by the
+ * other. */
+function pageProvenanceKey(siteId: string, staged: Pick<StagedPage, 'oldId'>) {
+  return {
+    siteId,
+    sourceSystem: SOURCE_SYSTEM_WIKIJS_2_5X,
+    sourceTable: 'pages',
+    sourceId: String(staged.oldId)
+  }
+}
+
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Normalizes
- * every page's tree location first (Task 736's `assignTreePaths`); a page that fails to normalize or
- * collides never reaches `createPage()`. Never throws for one bad or colliding page — each becomes a
- * `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description. Every page
+ * is first resolved against `deps.provenanceStore` (see "Provenance and re-runnability" in the module
+ * doc comment); only a page with no existing mapping is handed to `assignTreePaths` (Task 736) for a
+ * tree location, and only that survives to `createPage()`. Never throws for one bad, colliding, or
+ * already-imported page — each becomes a `PageImportFailure`/skipped `PageImportSuccess` instead, so
+ * one page's bad data cannot abort the whole run.
  */
 export async function importPages(
   pages: StagedPage[],
@@ -353,8 +402,38 @@ export async function importPages(
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
 
+  // -> Provenance lookup ahead of assignTreePaths: a page already mapped (by prior run or natural-key
+  //    fallback) needs no tree slot at all, and must never compete for one against its own past self.
+  const preResolved = new Map<number, ExistingMapping>()
+  const pagesNeedingTreeSlot: StagedPage[] = []
+
+  for (const staged of pages) {
+    const normalized = normalizeMigratedPath(staged.path)
+    const existing = await resolveExisting(
+      deps.provenanceStore,
+      pageProvenanceKey(options.siteId, staged),
+      'reason' in normalized
+        ? undefined
+        : () =>
+            deps.provenanceStore.findExistingPageByPath(
+              options.siteId,
+              staged.locale,
+              normalized.path
+            )
+    )
+    if (existing) {
+      preResolved.set(staged.oldId, existing)
+      continue
+    }
+    pagesNeedingTreeSlot.push(staged)
+  }
+
   const pathResult = await assignTreePaths(
-    pages.map((page) => ({ oldId: page.oldId, path: page.path, locale: page.locale })),
+    pagesNeedingTreeSlot.map((page) => ({
+      oldId: page.oldId,
+      path: page.path,
+      locale: page.locale
+    })),
     { siteId: options.siteId, existingEntry: deps.existingEntry }
   )
 
@@ -371,6 +450,29 @@ export async function importPages(
   const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
 
   for (const staged of pages) {
+    const existing = preResolved.get(staged.oldId)
+    if (existing) {
+      // -> This IS the real write path (unlike phases/content.ts's read-only classification pass), so
+      //    a natural-key match is backfilled into migrationRecords here — reconcileNaturalKeyMatch has
+      //    just confirmed (via findExistingPageByPath) that the destination row genuinely exists.
+      if (existing.viaNaturalKey) {
+        await reconcileNaturalKeyMatch(
+          deps.provenanceStore,
+          pageProvenanceKey(options.siteId, staged),
+          'pages',
+          existing.destId
+        )
+      }
+      pageIdMap.set(staged.oldId, existing.destId)
+      succeeded.push({
+        oldId: staged.oldId,
+        pageId: existing.destId,
+        warnings: [],
+        action: 'skipped'
+      })
+      continue
+    }
+
     const assignment = assignmentByOldId.get(staged.oldId)
     // -> No assignment means this page already came back as a path failure above.
     if (!assignment) continue
@@ -383,9 +485,26 @@ export async function importPages(
       options.actorPermissions
     )
 
-    let created: Page
+    let result: { destId: string; action: LookupOrInsertAction }
     try {
-      created = await deps.pagesModel.createPage(options.siteId, mapped.input, mapped.actor)
+      result = await lookupOrInsert(deps.provenanceStore, {
+        ...pageProvenanceKey(options.siteId, staged),
+        destTable: 'pages',
+        findByNaturalKey: () =>
+          deps.provenanceStore.findExistingPageByPath(
+            options.siteId,
+            staged.locale,
+            assignment.path
+          ),
+        create: async () => {
+          const created: Page = await deps.pagesModel.createPage(
+            options.siteId,
+            mapped.input,
+            mapped.actor
+          )
+          return created.id
+        }
+      })
     } catch (err: any) {
       failed.push({
         oldId: staged.oldId,
@@ -397,12 +516,12 @@ export async function importPages(
       continue
     }
 
-    pageIdMap.set(staged.oldId, created.id)
+    pageIdMap.set(staged.oldId, result.destId)
 
-    const pageWarnings = mapped.warnings
-    if (mapped.queueRerender) {
+    const pageWarnings = result.action === 'created' ? mapped.warnings : []
+    if (result.action === 'created' && mapped.queueRerender) {
       try {
-        await deps.pagesModel.queueRerender(options.siteId, created.id, mapped.actor)
+        await deps.pagesModel.queueRerender(options.siteId, result.destId, mapped.actor)
       } catch (err: any) {
         pageWarnings.push(
           `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
@@ -412,7 +531,12 @@ export async function importPages(
     }
 
     warnings.push(...pageWarnings)
-    succeeded.push({ oldId: staged.oldId, pageId: created.id, warnings: pageWarnings })
+    succeeded.push({
+      oldId: staged.oldId,
+      pageId: result.destId,
+      warnings: pageWarnings,
+      action: result.action
+    })
   }
 
   return { succeeded, failed, warnings, pageIdMap }
