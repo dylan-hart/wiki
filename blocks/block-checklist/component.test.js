@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import './component.js'
+import { _resetSiteIdCache } from '../shared/site.js'
 
 const SITE_ID = 'site-1'
 const PAGE_ID = 'page-1'
@@ -22,10 +23,13 @@ async function mountChecklist({
     items.length > 0 ? `<ul>${items.map((label) => `<li>${label}</li>`).join('')}</ul>` : ''
   document.body.appendChild(el)
   await el.updateComplete
-  // -> `_load()`'s API_CLIENT.get is awaited but not blocking connectedCallback itself; one more
-  //    microtask turn plus a second updateComplete is enough for the mocked promise to resolve and
-  //    the state it sets to reach a render.
-  await new Promise((resolve) => queueMicrotask(resolve))
+  // -> `_load()`'s fetches are awaited but not blocking connectedCallback itself, and now chain
+  //    several hops deep (site -> page-by-hash -> latest execution). `setTimeout(0)` -- a macrotask
+  //    -- drains every microtask queued in between, however many hops there are, the same pattern
+  //    `block-live-data`'s own test uses for its own `getSiteId` fetch.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await el.updateComplete
+  await new Promise((resolve) => setTimeout(resolve, 0))
   await el.updateComplete
   return el
 }
@@ -49,31 +53,68 @@ function stubExecution(overrides = {}) {
   }
 }
 
+/**
+ * Stubs `fetch` for the whole chain this block now drives instead of `WIKI_STATE`/`API_CLIENT`:
+ * site id + page id + this reader's page permissions (`../shared/site.js`'s `getCurrentPageAccess`),
+ * then the checklist routes themselves. `latest`/`history`/`postResult` are each read fresh per call,
+ * so a test can reassign them after mounting (matching the old suite's `API_CLIENT.get = vi.fn(...)`
+ * re-stubbing style) without having to rebuild the whole mock.
+ */
+function stubFetch({
+  permissions = ['write:pages'],
+  latest = null,
+  history = [],
+  postResult
+} = {}) {
+  const state = { permissions, latest, history, postResult: postResult ?? stubExecution() }
+  const fetchMock = vi.fn(async (url, init) => {
+    if (url === '/_api/sites/current') {
+      return { ok: true, json: async () => ({ id: SITE_ID, locales: null }) }
+    }
+    if (!url.includes('/checklist/')) {
+      // -> The page-by-hash lookup `getCurrentPageAccess` makes to resolve pageId + viewer.permissions
+      return {
+        ok: true,
+        json: async () => ({ id: PAGE_ID, viewer: { permissions: state.permissions } })
+      }
+    }
+    if (url.endsWith('/executions/latest')) {
+      return { ok: true, json: async () => state.latest }
+    }
+    if (init?.method === 'POST' && url.endsWith('/items')) {
+      return { ok: true, json: async () => state.postResult }
+    }
+    if (url.endsWith('/executions')) {
+      return { ok: true, json: async () => state.history }
+    }
+    throw new Error(`Unexpected fetch: ${url}`)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return { fetchMock, state }
+}
+
+/** Just the checklist-route calls, in call order -- excludes the site/page lookups underneath. */
+function checklistCalls(fetchMock) {
+  return fetchMock.mock.calls.map(([url]) => url).filter((url) => url.includes('/checklist/'))
+}
+
 describe('block-checklist', () => {
   beforeEach(() => {
-    globalThis.WIKI_STATE = {
-      site: { id: SITE_ID },
-      page: { id: PAGE_ID },
-      user: { can: vi.fn(() => true) }
-    }
-    globalThis.API_CLIENT = {
-      get: vi.fn(() => ({ json: () => Promise.resolve(null) })),
-      post: vi.fn(() => ({ json: () => Promise.resolve(stubExecution()) }))
-    }
+    _resetSiteIdCache()
   })
 
   afterEach(() => {
     document.body.replaceChildren()
     document.body.className = ''
-    delete globalThis.WIKI_STATE
-    delete globalThis.API_CLIENT
+    vi.unstubAllGlobals()
   })
 
   it('reads the body into items and shows a not-started summary when nothing has run yet', async () => {
+    const { fetchMock } = stubFetch()
     const el = await mountChecklist({ items: ['Check exits', 'Test alarm'] })
 
-    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith(
-      `sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/executions/latest`
+    expect(checklistCalls(fetchMock)).toContain(
+      `/_api/sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/executions/latest`
     )
     const labels = [...el.shadowRoot.querySelectorAll('.label')].map((n) => n.textContent.trim())
     expect(labels).toEqual(['Check exits', 'Test alarm'])
@@ -81,31 +122,30 @@ describe('block-checklist', () => {
   })
 
   it('shows an error when the checklist has no Run Key', async () => {
+    const { fetchMock } = stubFetch()
     const el = await mountChecklist({ runKey: '' })
 
     expect(el.shadowRoot.querySelector('.error').textContent).toContain('Run Key')
-    expect(globalThis.API_CLIENT.get).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('shows an error when the checklist has no items', async () => {
+    const { fetchMock } = stubFetch()
     const el = await mountChecklist({ items: [] })
 
     expect(el.shadowRoot.querySelector('.error').textContent).toContain('no items')
-    expect(globalThis.API_CLIENT.get).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('renders an active execution: checked items show who and when, unchecked ones stay open', async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () =>
-        Promise.resolve(
-          stubExecution({
-            checkedCount: 1,
-            items: [
-              { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' }
-            ]
-          })
-        )
-    }))
+    stubFetch({
+      latest: stubExecution({
+        checkedCount: 1,
+        items: [
+          { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' }
+        ]
+      })
+    })
 
     const el = await mountChecklist()
 
@@ -123,21 +163,18 @@ describe('block-checklist', () => {
   })
 
   it('shows the completed state once every item is checked', async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () =>
-        Promise.resolve(
-          stubExecution({
-            checkedCount: 2,
-            completedAt: '2026-01-01T09:00:00.000Z',
-            completedBy: 'user-2',
-            completedByName: 'Bob',
-            items: [
-              { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' },
-              { itemKey: 'item-1', checkedByName: 'Bob', checkedAt: '2026-01-01T09:00:00.000Z' }
-            ]
-          })
-        )
-    }))
+    stubFetch({
+      latest: stubExecution({
+        checkedCount: 2,
+        completedAt: '2026-01-01T09:00:00.000Z',
+        completedBy: 'user-2',
+        completedByName: 'Bob',
+        items: [
+          { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' },
+          { itemKey: 'item-1', checkedByName: 'Bob', checkedAt: '2026-01-01T09:00:00.000Z' }
+        ]
+      })
+    })
 
     const el = await mountChecklist()
 
@@ -147,18 +184,15 @@ describe('block-checklist', () => {
   })
 
   it('checking an unchecked item posts the check and re-renders from the response', async () => {
-    globalThis.API_CLIENT.post = vi.fn(() => ({
-      json: () =>
-        Promise.resolve(
-          stubExecution({
-            checkedCount: 1,
-            startedByName: 'Alice',
-            items: [
-              { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' }
-            ]
-          })
-        )
-    }))
+    const { fetchMock } = stubFetch({
+      postResult: stubExecution({
+        checkedCount: 1,
+        startedByName: 'Alice',
+        items: [
+          { itemKey: 'item-0', checkedByName: 'Alice', checkedAt: '2026-01-01T08:00:00.000Z' }
+        ]
+      })
+    })
 
     const el = await mountChecklist()
     const [firstBox] = el.shadowRoot.querySelectorAll('input[type="checkbox"]')
@@ -168,15 +202,14 @@ describe('block-checklist', () => {
     await new Promise((resolve) => queueMicrotask(resolve))
     await el.updateComplete
 
-    expect(globalThis.API_CLIENT.post).toHaveBeenCalledWith(
-      `sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/items`,
-      { json: { itemKey: 'item-0', itemCount: 2 } }
-    )
+    const [postUrl, postInit] = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')
+    expect(postUrl).toBe(`/_api/sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/items`)
+    expect(JSON.parse(postInit.body)).toEqual({ itemKey: 'item-0', itemCount: 2 })
     expect(el.shadowRoot.querySelector('.summary').textContent).toContain('1 of 2 checked')
   })
 
   it('never posts when the reader has no write:pages, matching the disabled checkbox', async () => {
-    globalThis.WIKI_STATE.user.can = vi.fn(() => false)
+    const { fetchMock } = stubFetch({ permissions: [] })
 
     const el = await mountChecklist()
     const [firstBox] = el.shadowRoot.querySelectorAll('input[type="checkbox"]')
@@ -185,25 +218,21 @@ describe('block-checklist', () => {
     firstBox.dispatchEvent(new Event('change'))
     await el.updateComplete
 
-    expect(globalThis.API_CLIENT.post).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false)
   })
 
   describe('run history', () => {
     it('fetches and shows past executions on toggle, once, lazily', async () => {
-      globalThis.API_CLIENT.get = vi
-        .fn()
-        .mockReturnValueOnce({ json: () => Promise.resolve(null) })
-        .mockReturnValueOnce({
-          json: () =>
-            Promise.resolve([
-              stubExecution({
-                id: 'exec-old',
-                checkedCount: 2,
-                completedAt: '2026-01-01T09:00:00.000Z',
-                completedByName: 'Bob'
-              })
-            ])
-        })
+      const { fetchMock } = stubFetch({
+        history: [
+          stubExecution({
+            id: 'exec-old',
+            checkedCount: 2,
+            completedAt: '2026-01-01T09:00:00.000Z',
+            completedByName: 'Bob'
+          })
+        ]
+      })
 
       const el = await mountChecklist()
       expect(el.shadowRoot.querySelector('.history')).toBeNull()
@@ -213,9 +242,10 @@ describe('block-checklist', () => {
       await new Promise((resolve) => queueMicrotask(resolve))
       await el.updateComplete
 
-      expect(globalThis.API_CLIENT.get).toHaveBeenCalledTimes(2)
-      expect(globalThis.API_CLIENT.get).toHaveBeenLastCalledWith(
-        `sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/executions`
+      const historyCalls = fetchMock.mock.calls.filter(([url]) => url.endsWith('/executions'))
+      expect(historyCalls).toHaveLength(1)
+      expect(historyCalls[0][0]).toBe(
+        `/_api/sites/${SITE_ID}/pages/${PAGE_ID}/checklist/shift-open/executions`
       )
       const row = el.shadowRoot.querySelector('.history li')
       expect(row.textContent).toContain('Bob')
@@ -226,14 +256,11 @@ describe('block-checklist', () => {
       await el.updateComplete
       el.shadowRoot.querySelector('.history-toggle').click()
       await el.updateComplete
-      expect(globalThis.API_CLIENT.get).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/executions'))).toHaveLength(1)
     })
 
     it('shows an empty state for a checklist with no previous runs', async () => {
-      globalThis.API_CLIENT.get = vi
-        .fn()
-        .mockReturnValueOnce({ json: () => Promise.resolve(null) })
-        .mockReturnValueOnce({ json: () => Promise.resolve([]) })
+      stubFetch({ history: [] })
 
       const el = await mountChecklist()
       el.shadowRoot.querySelector('.history-toggle').click()
@@ -245,12 +272,30 @@ describe('block-checklist', () => {
     })
   })
 
+  describe('when the site or page cannot be resolved', () => {
+    it('shows the run-log error rather than throwing, and leaves checking disabled', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url) =>
+          url === '/_api/sites/current'
+            ? { ok: false, json: async () => null }
+            : { ok: false, json: async () => null }
+        )
+      )
+
+      const el = await mountChecklist()
+
+      expect(el.shadowRoot.querySelector('.error').textContent).toContain('could not be loaded')
+    })
+  })
+
   describe('dark mode', () => {
     beforeEach(() => {
       document.body.classList.remove('body--dark')
     })
 
     it('follows body--dark on mount and on later toggles, via the shared DarkMode controller', async () => {
+      stubFetch()
       document.body.classList.add('body--dark')
       const el = await mountChecklist()
 
