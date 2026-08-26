@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
-import { decodeTreePath, defaultLocale } from '../helpers/common.ts'
-import { actorFrom } from './pages.ts'
+import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
+import { actorFrom, mayOnPage } from './pages.ts'
 
 interface TreeQuery {
   parentId?: string
@@ -630,16 +630,57 @@ async function routes(app: FastifyInstance) {
       if (!existing || existing.siteId !== req.params.siteId) {
         return reply.notFound('This folder does not exist.')
       }
-      if (
-        !mayOnFolder(
-          req,
-          'manage:pages',
-          req.params.siteId,
-          folderPathOf(existing),
-          existing.locale
-        )
-      ) {
+      const currentPath = folderPathOf(existing)
+      if (!mayOnFolder(req, 'manage:pages', req.params.siteId, currentPath, existing.locale)) {
         return reply.forbidden('You are not allowed to rename this folder.')
+      }
+      // -> A title-only edit -- sending the current path segment back -- leaves every descendant's
+      //    path untouched (`renameFolder()`'s own short-circuit below), so there is nothing at a new
+      //    location to authorize. Normalized the same way the model normalizes it, so this agrees
+      //    with the model's own "did the segment actually change" check.
+      const newName = normalizePagePath(req.body.pathName)
+      if (newName !== existing.fileName) {
+        const parentPath = decodeTreePath(existing.folderPath ?? '') ?? ''
+        const destPath = parentPath ? `${parentPath}/${newName}` : newName
+        // -> Authorize like a move, the way `PATCH .../pages/:pageId/move` already does for a single
+        //    page (OpenProject #2102): `manage:pages` at the current path is not an opinion about the
+        //    destination, since rules are matched on path. Checked against `write:pages`, not
+        //    `manage:pages`, for the same reason the single-page move is -- see that route's own
+        //    comment.
+        if (!mayOnFolder(req, 'write:pages', req.params.siteId, destPath, existing.locale)) {
+          return reply.forbidden('You are not allowed to rename this folder there.')
+        }
+        // -> Everything under the folder moves with it, so every descendant page needs the same
+        //    two-sided check: `manage:pages` at where it sits now, `write:pages` at where the rename
+        //    would land it. A rule addressed at the folder's own path (e.g. an ALLOW at the site root
+        //    plus a narrower DENY on one descendant branch) would otherwise pass at the folder and
+        //    silently drag the denied branch to a path where the DENY no longer matches. Real `tags`
+        //    and `classification` travel with each descendant page, not `classification: null` --
+        //    that hardcoded null is only correct for the folder entry itself, which is not a page.
+        const descendants = await WIKI.models.tree.listDescendantPages(req.params.folderId)
+        for (const descendant of descendants) {
+          const newDescendantPath = destPath + descendant.path.slice(currentPath.length)
+          const sourceRef = {
+            path: descendant.path,
+            locale: existing.locale,
+            tags: descendant.tags,
+            classification: descendant.classification
+          }
+          const destRef = {
+            path: newDescendantPath,
+            locale: existing.locale,
+            tags: descendant.tags,
+            classification: descendant.classification
+          }
+          if (
+            !mayOnPage(req, 'manage:pages', req.params.siteId, sourceRef) ||
+            !mayOnPage(req, 'write:pages', req.params.siteId, destRef)
+          ) {
+            return reply.forbidden(
+              'You are not allowed to rename this folder: it would move a page you may not.'
+            )
+          }
+        }
       }
       const folder = await WIKI.models.tree.renameFolder({
         folderId: req.params.folderId,
