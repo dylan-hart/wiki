@@ -1500,7 +1500,7 @@
   "admin.utilities.title": "Utilities",
   "admin.utilities.tools": "Tools",
   "admin.webhooks.acceptUntrusted": "Accept untrusted SSL certificates",
-  "admin.webhooks.acceptUntrustedHint": "It is recommended that you leave this off for proper security.",
+  "admin.webhooks.acceptUntrustedHint": "When on, any Authorization header you've set below is sent to this endpoint even though its TLS certificate was never verified. It is recommended that you leave this off for proper security.",
   "admin.webhooks.authHeader": "Authentication Header",
   "admin.webhooks.authHeaderHint": "(Optional) The value of the Authorization header to send along the request.",
   "admin.webhooks.createInvalidData": "The webhook has some invalid or missing data.",

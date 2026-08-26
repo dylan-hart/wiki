@@ -19,25 +19,12 @@ cast, until their real fix lands. This entry is the audit trail so a marker sitt
 as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
-- **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
-  re-read per request. A secret rotation only stops working cookies on an instance once that instance
-  is later restarted; every other still-running instance keeps signing new cookies with the
-  just-invalidated secret until it restarts too. Real, narrow, already-cross-referenced from
-  `models/apiKeys.ts` and `models/sessions.ts` below — not forgotten, just not yet worth the
-  per-request config re-read it would take to close.
 - **`backend/mcp/site.ts`** (TODO, via its own doc comment) — flags that the site type it re-exports is
   narrowed off `WIKI.sites`' `Record<string, any>` shape, standing on the same untightened type
   `backend/types/global.d.ts` tracks below rather than duplicating a separate fix.
-- **`backend/models/apiKeys.ts`** (comment referencing the FIXME above) — notes that `verify()`'s own
-  cert-based check needs no restart to pick up a rotated value, unlike the session-secret path the
-  FIXME in `index.ts` describes; not a marker of its own so much as a pointer keeping the two paths'
-  different behavior from reading as inconsistent by accident.
 - **`backend/models/approvals.ts`** (`TODO(#375)`) — send the actual reviewer notification once
   Feature 375 exposes a delivery primitive. Explicitly scoped to a real, tracked OpenProject item;
   resolve by closing #375 and wiring this call, not by deleting the comment.
-- **`backend/models/sessions.ts`** (comment referencing the FIXME above) — same cross-reference as
-  `apiKeys.ts`: notes that a rotated secret invalidates a *new* session immediately, unlike the
-  still-signing-until-restart gap the `index.ts` FIXME describes for already-issued cookies.
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
