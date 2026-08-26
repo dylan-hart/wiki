@@ -253,6 +253,32 @@ describe('WSelect', () => {
 
       expect(wrapper.vm.validate('a')).toBe(true)
     })
+
+    it('announces the message from a live region, and the error text replaces the hint in that same node', async () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          hint: 'Pick one',
+          rules: [isRequired],
+          ariaLabel: 'Pick one'
+        }
+      })
+
+      const messageEl = wrapper.find('.min-h-5')
+      expect(messageEl.attributes('aria-live')).toBe('polite')
+      expect(messageEl.attributes('aria-atomic')).toBe('true')
+      expect(messageEl.text()).toBe('Pick one')
+
+      wrapper.vm.validate()
+      await wrapper.vm.$nextTick()
+
+      // -> Same node, not a second one -- see the matching WInput test for why that matters
+      expect(wrapper.findAll('.min-h-5')).toHaveLength(1)
+      const messageElAfter = wrapper.find('.min-h-5')
+      expect(messageElAfter.attributes('aria-live')).toBe('polite')
+      expect(messageElAfter.text()).toBe('Required')
+    })
   })
 
   it('shows an asterisk beside the label when required', () => {
