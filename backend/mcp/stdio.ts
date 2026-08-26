@@ -18,27 +18,47 @@
  * to.
  *
  * Auth: reads a single bearer token from `WIKI_MCP_API_KEY` (mint one via the existing API Keys admin
- * screen, or `POST /_api/system/api-keys`) and verifies it once at startup — refusing to start at all
- * on an invalid/revoked/expired key, rather than failing the first tool call. Every tool call for the
- * lifetime of this process then acts as that one key's identity. See `mcp/auth.ts`'s `McpAuthContext`
- * doc comment for exactly what that resolves to — a personal access token here grants the same
- * per-user page-rule authorization as it does over `mcp/http.ts`, just fixed to one caller for the
- * life of the process instead of re-verified per request.
+ * screen, or `POST /_api/system/api-keys`) and verifies it at startup — refusing to start at all on an
+ * invalid/revoked/expired key, rather than failing the first tool call. Unlike the stdio transport's
+ * older behaviour, that startup identity is not then trusted for the rest of the process: every
+ * `tools/call` message re-runs the same verification (`reverifyOnToolCall` below) before it is allowed
+ * to reach a tool handler, exactly mirroring what `mcp/http.ts:76`/`:149` already does per HTTP
+ * request. A key revoked or expired after boot fails that re-check and takes the whole process down
+ * through `shutdown()` rather than being honoured for one more call; a personal access token whose
+ * owner's group membership merely changed re-verifies fine but with a smaller `McpAuthContext`, so a
+ * permission removed after boot stops being honoured on the very next call without needing a restart.
+ * See `mcp/auth.ts`'s `McpAuthContext` doc comment for exactly what a verified token resolves to.
  */
 
-// -> MUST run before anything below logs a single line: `core/logger.ts` and various boot-path
-//    fallbacks write through `console.log`/`console.info`, and the stdio transport needs stdout free
-//    for JSON-RPC frames only. `console.error` (already used for genuine failures throughout
-//    `core/config.ts`/`core/db.ts`) is left alone — stderr is exactly where an MCP client expects a
-//    misbehaving server's diagnostics to go.
-console.log = console.error.bind(console)
-console.info = console.error.bind(console)
-
+import { pathToFileURL } from 'node:url'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { isJSONRPCRequest } from '@modelcontextprotocol/sdk/types.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import { bootstrapMcpRuntime } from './bootstrap.ts'
 import { auditActorFor, authenticateApiKey } from './auth.ts'
+import type { McpAuthContext } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
+
+/**
+ * True only when this file is the process's actual entry point (`node backend/mcp/stdio.ts`), false
+ * when another module `import`s it — `stdio.test.ts` does exactly that, to reach `reverifyOnToolCall`
+ * without a real MCP client to spawn this as a child process against. Everything below that behaves
+ * like a running CLI server (silencing `console.log`/`console.info`, installing signal handlers, and
+ * actually calling `main()`) is gated on this, so importing this module for its exports has no
+ * side effects of its own.
+ */
+const isEntryPoint = import.meta.url === pathToFileURL(process.argv[1] ?? '').href
+
+if (isEntryPoint) {
+  // -> MUST run before anything below logs a single line: `core/logger.ts` and various boot-path
+  //    fallbacks write through `console.log`/`console.info`, and the stdio transport needs stdout free
+  //    for JSON-RPC frames only. `console.error` (already used for genuine failures throughout
+  //    `core/config.ts`/`core/db.ts`) is left alone — stderr is exactly where an MCP client expects a
+  //    misbehaving server's diagnostics to go.
+  console.log = console.error.bind(console)
+  console.info = console.error.bind(console)
+}
 
 /**
  * Closes the db pool (if it was ever opened) and exits. The one path off this process: a startup
@@ -57,6 +77,58 @@ async function shutdown(code: number): Promise<never> {
   process.exit(code)
 }
 
+/**
+ * Wraps `transport.onmessage` so every `tools/call` request re-verifies `token` before it reaches the
+ * SDK's own dispatch (installed by `server.connect(transport)`, which this must therefore run AFTER —
+ * `Protocol#connect` chains onto whatever `onmessage` was already there rather than clobbering it, so
+ * capturing it here is exactly the SDK's own dispatch chain). This is the stdio counterpart to
+ * `mcp/http.ts`'s `onRequest` hook: that transport gets a real per-request hook from Fastify, and this
+ * one has no such hook of its own to lean on, since a stdio session is a single long-lived connection
+ * with no request/response boundary the transport surfaces — wrapping `onmessage` is what recovers one.
+ *
+ * A message that is not a `tools/call` request (`initialize`, `tools/list`, a notification, a response
+ * to a server-initiated request, …) passes straight through unexamined — none of those depend on the
+ * caller's page-rule grants the way a tool call does.
+ *
+ * On a successful re-verify, `applyCtx` is called with the fresh `McpAuthContext` before the message is
+ * forwarded, so the tool handler that runs moments later reads the just-updated identity (see
+ * `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`) — this is what makes a permission dropped from
+ * the owner's group after boot stop being honoured on the very next call. On a failed re-verify (a
+ * revoked/expired key), the message is NOT forwarded — the tool call never reaches a handler — and
+ * `onVerifyFailed` runs instead, which `main()` wires to the same `shutdown()` path a bad key at
+ * startup already takes: a re-verify failure means the identity this whole process is authorized as can
+ * no longer be trusted, not just the one call in flight.
+ *
+ * Exported for `stdio.test.ts`: a real `StdioServerTransport` talks to actual stdin/stdout, which a
+ * unit test has no good way to attach to, so the test drives this against a minimal stub transport and
+ * injects its own `applyCtx`/`onVerifyFailed` spies instead of the real `shutdown()`.
+ */
+export function reverifyOnToolCall(
+  transport: Pick<Transport, 'onmessage'>,
+  token: string,
+  applyCtx: (ctx: McpAuthContext) => void,
+  onVerifyFailed: (err: any) => Promise<void> | void
+): void {
+  const dispatch = transport.onmessage
+
+  transport.onmessage = ((message: unknown, extra?: unknown) => {
+    void handle(message, extra)
+  }) as Transport['onmessage']
+
+  async function handle(message: unknown, extra?: unknown): Promise<void> {
+    if (isJSONRPCRequest(message) && message.method === 'tools/call') {
+      try {
+        applyCtx(await authenticateApiKey(token))
+      } catch (err: any) {
+        console.error(`Re-verifying the MCP API key failed on a tool call: ${err.message}`)
+        await onVerifyFailed(err)
+        return
+      }
+    }
+    ;(dispatch as any)?.(message, extra)
+  }
+}
+
 async function main(): Promise<void> {
   const token = process.env.WIKI_MCP_API_KEY?.trim()
   if (!token) {
@@ -70,7 +142,7 @@ async function main(): Promise<void> {
 
   const WIKI = await bootstrapMcpRuntime('mcp-stdio')
 
-  let ctx
+  let ctx: McpAuthContext
   try {
     ctx = await authenticateApiKey(token)
   } catch (err: any) {
@@ -94,8 +166,9 @@ async function main(): Promise<void> {
   })
 
   const server = createMcpServer(WIKI.version)
-  // -> Fixed for the process's whole lifetime, unlike `mcp/http.ts`'s per-request-refreshed getter —
-  //    see `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`.
+  // -> `ctx` is mutated in place by `reverifyOnToolCall` below on every `tools/call` message, so this
+  //    getter always reads whatever the most recent re-verification resolved — see
+  //    `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`.
   registerAllTools(server, () => ctx)
 
   const transport = new StdioServerTransport()
@@ -105,13 +178,25 @@ async function main(): Promise<void> {
     void shutdown(0)
   }
   await server.connect(transport)
+  // -> Must run AFTER `connect()`, which is what installs the SDK's own `onmessage` dispatch this
+  //    wraps — see `reverifyOnToolCall`'s doc comment.
+  reverifyOnToolCall(
+    transport,
+    token,
+    (fresh) => {
+      ctx = fresh
+    },
+    () => shutdown(1)
+  )
 }
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => void shutdown(0))
-}
+if (isEntryPoint) {
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => void shutdown(0))
+  }
 
-main().catch((err) => {
-  console.error(err)
-  void shutdown(1)
-})
+  main().catch((err) => {
+    console.error(err)
+    void shutdown(1)
+  })
+}
