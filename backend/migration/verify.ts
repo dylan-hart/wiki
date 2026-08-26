@@ -348,14 +348,15 @@ export type SpotCheckStatus =
   | 'source_not_implemented'
 
 export interface SpotCheckEntry {
-  /** The raw, un-normalized 2.x path, kept as the human-readable identifier for the report — the
-   * lookup itself is done against its `normalizeMigratedPath()`-normalized form (see
-   * `normalizedLookupPath`), which is not surfaced here. */
+  /** The 2.x source path, unnormalized — what a caller passed via `--sample-paths` or what the
+   * source reported, not the folded 3.0 tree path actually used to look up the destination row (see
+   * `runContentSpotCheck`). */
   path: string
   status: SpotCheckStatus
-  /** `sourceHash`/`destinationHash` are `hashContent()` of 2.x `pages.content` (source) vs. 3.0
-   * `pages.content` (destination) — the one field `createPage()` stores verbatim. Not `render`: see
-   * the module doc comment. */
+  /** Both hashes are of `pages.content` (the raw, unrendered body `createPage` stores verbatim) on
+   * their respective side — never `pages.render`, which 3.0's `rendering.postProcess` derives
+   * through sanitization/cheerio/icon-handling and so is never byte-identical to the 2.x source's own
+   * `render`, even for a page that imported perfectly. */
   sourceHash?: string
   destinationHash?: string
 }
@@ -372,18 +373,21 @@ export interface SpotCheckOptions {
   rng?: () => number
 }
 
-/** Looks up one destination page's stored `content` by the natural key an importer would key on
- * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`, and `path` here is
- * expected to already be normalized, i.e. the same `normalizeMigratedPath()` output `assignTreePaths`
- * placed the page under). Returns `undefined` when no such page exists at the destination. `content`,
- * not `render`: see the module doc comment for why the render field can't be compared. */
+/** Looks up one destination page's stored body by the natural key an importer would key on
+ * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`; `path` is the
+ * already-normalized 3.0 tree path, not the raw 2.x one — see `runContentSpotCheck`). Returns
+ * `undefined` when no such page exists at the destination. */
 export type DestinationPageLookup = (
   siteId: string,
   locale: string,
   path: string
 ) => Promise<{ content: string | null } | undefined>
 
-/** Builds the real, `WikiDb`-backed `DestinationPageLookup`. */
+/** Builds the real, `WikiDb`-backed `DestinationPageLookup`. Reads `pages.content`, not
+ * `pages.render` — `createPage` (`models/pages.ts`) stores `content` verbatim from the import input,
+ * while `render` is derived by `rendering.postProcess` (sanitize, cheerio, `stripEditorArtifacts`,
+ * icon handling, `anchorHeadings`, re-serialize) and so is never a faithful copy of anything on the
+ * 2.x side. */
 export function createDestinationPageLookup(db: WikiDb): DestinationPageLookup {
   return async (siteId, locale, path) => {
     const [row] = await db
@@ -399,6 +403,15 @@ function pagePath(record: SourceRecord): string | undefined {
   return typeof record.path === 'string' ? record.path : undefined
 }
 
+/** Normalizes a raw 2.x source path into the 3.0 tree path an import would have actually placed it
+ * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `assignTreePaths` applies to
+ * every imported page. Returns `undefined` when the path doesn't normalize to anything valid (in
+ * which case the page was never importable in the first place, so there is nothing to look up). */
+function destinationLookupPath(rawPath: string): string | undefined {
+  const normalized = normalizeMigratedPath(rawPath)
+  return 'reason' in normalized ? undefined : normalized.path
+}
+
 function pageLocale(record: SourceRecord): string {
   return typeof record.localeCode === 'string' ? record.localeCode : 'en'
 }
@@ -407,25 +420,15 @@ function pageContent(record: SourceRecord): string | null {
   return typeof record.content === 'string' ? record.content : null
 }
 
-/** The 3.0 tree location `assignTreePaths`/`normalizeMigratedPath` would have placed this 2.x path
- * under — lowercased, underscores folded to hyphens (`path-normalization.ts`). Every imported page is
- * looked up at the destination under this normalized path, not the raw 2.x one: any path with an
- * uppercase letter or underscore would otherwise be looked up under a key `createPage()` never wrote,
- * reporting `destination_missing` even on a perfect import. Falls back to the raw path when it fails
- * to normalize (e.g. empty once trimmed) — such a page was never actually imported either, so the
- * lookup correctly reports `destination_missing` regardless of which string it is keyed on. */
-function normalizedLookupPath(rawPath: string): string {
-  const normalized = normalizeMigratedPath(rawPath)
-  return 'reason' in normalized ? rawPath : normalized.path
-}
-
 /**
- * Runs the content-integrity spot-check: for each sampled source page, hash-compares its raw 2.x
- * `pages.content` against the destination page's own stored `pages.content` — the one field
- * `createPage()` writes verbatim, unlike `render` (see the module doc comment) — to catch truncation
- * or encoding corruption a plain row-count match cannot reveal. The destination lookup is keyed on the
- * source path's `normalizeMigratedPath()`-normalized form, matching where `assignTreePaths` actually
- * placed the page in the 3.0 tree.
+ * Runs the content-integrity spot-check: for each sampled source page, hash-compares its raw body
+ * (2.x `pages.content`, which 3.0's `createPage` stores verbatim into `pages.content` — see
+ * `SpotCheckEntry`'s doc for why this is `content` and not `render`) against the destination page's
+ * own stored `content`, to catch truncation or encoding corruption a plain row-count match cannot
+ * reveal. The destination lookup uses the path *after* running it through the same
+ * `normalizeMigratedPath` fold every import applies (`path-normalization.ts`) — the raw 2.x `path`
+ * looked up unnormalized would miss any page whose path had an uppercase letter or an underscore,
+ * since those are exactly what the fold rewrites before the page is ever written to the 3.0 tree.
  *
  * When `options.paths` is given, this reads every source page once, picks out exactly those paths (a
  * miss is reported as `'source_missing'`), and reports a synthetic path for any explicitly-requested
@@ -481,7 +484,11 @@ export async function runContentSpotCheck(
       continue
     }
     const locale = pageLocale(record)
-    const destination = await lookupDestination(options.siteId, locale, normalizedLookupPath(path))
+    const lookupPath = destinationLookupPath(path)
+    const destination =
+      lookupPath === undefined
+        ? undefined
+        : await lookupDestination(options.siteId, locale, lookupPath)
     if (!destination) {
       entries.push({ path, status: 'destination_missing' })
       continue
