@@ -610,7 +610,7 @@ throw and fall to the error panel, which is a separate, already-tracked gap betw
 `::block-katex`, not something this task's audit re-derives. Everything else in the table above
 applies equally to the literal path, since it uses the same KaTeX engine and default options.
 
-## Feature 402 — Puppeteer: server-side diagram pre-rendering descoped
+## Feature 402 — Puppeteer/Pandoc: what each promised capability actually became
 
 **Decided in:** Task 666 ("Decide and record scope per promised capability; correct definition.yml
 wording for whatever is descoped"), part of Feature 402 ("Extension-to-Feature Wiring: Pandoc Import
@@ -620,10 +620,10 @@ Feature 402 covers three capabilities that `backend/modules/extensions/pandoc/de
 `backend/modules/extensions/puppeteer/definition.yml` promised but that nothing in the codebase
 actually implemented:
 
-1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **building now**
+1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **shipped**
    (Feature 402 tasks 667/668). A straightforward `execFile` shell-out, comparable in shape to the
    extension-install pattern already used elsewhere in `models/extensions.ts`.
-2. **Puppeteer PDF export** of a page — **building now** (Feature 402 tasks 669/670). A headless
+2. **Puppeteer PDF export** of a page — **shipped** (Feature 402 tasks 669/670). A headless
    Chromium print-to-PDF against the real, live page-view URL, waiting for async block components
    (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
    a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
@@ -632,10 +632,10 @@ actually implemented:
    OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
    from Feature #402)"), **since shipped** on `feature/puppeteer-diagram-prerender`
    (`backend/models/diagramRender.ts`). See "Task 785 — server-side diagram pre-rendering" below for
-   the design it landed on, which sidesteps the architectural problem described in "Why #3 is
+   the design it landed on, which sidesteps the architectural problem described in "Why #3 was
    deferred" rather than solving it as originally framed.
 
-### Why #3 is deferred and #1/#2 are not
+### Why #3 was deferred and #1/#2 were not
 
 Web research (recorded on Feature 402) confirms none of the three ever shipped in Wiki.js 2.5.x —
 each surfaces only as a community feature request, never a delivered feature. So none of the three
@@ -657,8 +657,8 @@ today even in principle. Making it do so means running Lit block components insi
 context outside their current view-time-only execution model — a real design problem (how a headless
 pass instantiates the block, waits for its diagram library to settle, extracts or rasterizes the
 result, and where that output is cached relative to stored `page.render` HTML), not a shell-out or a
-print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
-built now.
+print job. That was out of proportion for this Feature, so it was descoped to task 785 rather than
+built then.
 
 ### Correction made, then reverted once task 785 shipped
 
@@ -667,13 +667,21 @@ server-side diagram rendering; Feature 402 narrowed it to PDF export only, since
 built. Task 785 (below) restored a mention of diagram pre-rendering once that capability actually
 existed again.
 
+### No longer a live deviation
+
+All three capabilities have now shipped and the `definition.yml` correction was reverted once #3
+landed, so nothing here still describes a gap between what's promised and what's built — this entry
+is kept as the historical record of the scope decision (why #3 was harder than #1/#2, and what #3
+eventually settled on) rather than as an open item, and is cross-referenced by
+`backend/models/diagramRender.ts` and `backend/modules/extensions/puppeteer/definition.yml`.
+
 ## Task 785 — server-side diagram pre-rendering
 
 **Built on:** `feature/puppeteer-diagram-prerender`, closing OpenProject task 785. Delivers
 `backend/models/diagramRender.ts` (`WIKI.models.diagramRender.render()`) plus `POST
 /_api/diagrams/render`.
 
-**The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
+**The design problem this sidesteps, not solves.** "Why #3 was deferred" above framed the blocker as
 making the headless `/_render` shell run Lit block components as part of rendering a whole *page* —
 a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
 `page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
@@ -757,7 +765,7 @@ a specific query surface. This fork's `apiKeys` table (`backend/db/schema.ts`) i
 entirely: keys are bound to a list of **groups** (`groups` jsonb column), not a user, and authorize
 REST endpoints under the group's ordinary permission set rather than a GraphQL scope list (see
 `backend/models/apiKeys.ts`, `backend/api/apiKeys.ts`). There is no GraphQL server left in this fork
-to scope a token against in the first place (see CLAUDE.md, "GraphQL is being removed"). Because the
+to scope a token against in the first place (see CLAUDE.md, "GraphQL was removed"). Because the
 two token models have no field-for-field mapping — user-bound vs. group-bound, GraphQL scopes vs.
 REST/group permissions, and a different signing scheme (this fork's keys are JWTs signed by an
 instance-local keypair generated at migration time, per `SigningCertificates` in

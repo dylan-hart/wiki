@@ -137,8 +137,8 @@ export async function extractDiagramScript(
  * that cannot or should not run the block's own client-side JS to draw one itself — a faster PDF
  * export that pre-renders a page's diagrams instead of waiting on the live page view to draw them one
  * at a time, or serving a diagram to a client that never loads the block runtime at all. Deferred from
- * Feature 402 as OpenProject task 785 — see `docs/variances.md`'s "Feature 402 — Puppeteer:
- * server-side diagram pre-rendering descoped" entry for why, and the design this settles on.
+ * Feature 402 as OpenProject task 785 — see `docs/variances.md`'s "Feature 402 — Puppeteer/Pandoc:
+ * what each promised capability actually became" entry for why, and the design this settles on.
  *
  * MERMAID drives Puppeteer, sharing `helpers/puppeteer.ts` with `models/pdfExport.ts` and
  * `models/rendering.ts` for the browser itself: `block-diagram` draws with the `mermaid` library,

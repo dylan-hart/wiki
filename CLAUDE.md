@@ -62,7 +62,9 @@ scheduler → event emitters), `initHTTPServer()` (Fastify plugins, auth, routes
   `seo.ts` serves `robots.txt`/`sitemap.xml`; `terminal.ts` and `user.ts` round out the set.
 - `core/` — long-lived singletons: `config.ts` (yml + db-backed settings), `db.ts` (pg pool, Drizzle
   instance, migrations, LISTEN/NOTIFY pubsub), `logger.ts`, `scheduler.ts` (poolifier thread pool +
-  postgres-backed job queue).
+  postgres-backed job queue), `collab.ts` (Yjs document/room state backing the collaborative editor),
+  `maintenance.ts` (the admin utilities view's cross-instance actions — clear cache, drop websockets —
+  broadcast over the event bus so every instance runs them, not just the one that received the route).
 - `db/` — `schema.ts` (all Drizzle table definitions), `relations.ts`, `migrations/` (generated).
 - `models/` — data-access classes over Drizzle, aggregated by `models/index.ts` and exposed as
   `WIKI.models.*`. Business logic belongs here, not in route handlers. `types.ts` holds the shared
@@ -97,19 +99,20 @@ initializers → mount. There is no UI framework: `src/components/shared/` is th
 (every component is `W*`, used in templates as `<w-btn>`, `<w-input>`, …), registered globally by
 `boot/components.js` and styled with Tailwind.
 
-- `src/boot/` — one-time app initializers: `api.js` (creates the `ky` client, exposed
-  as the `API_CLIENT` global), `components.js` (global components), `eventbus.js` (`EVENT_BUS` global,
-  mitt), `externals.js`, `i18n.js`, `iconify.js` (points Iconify at this instance's `/_icons`),
-  `monaco.js`, `temporal.js` (conditionally polyfills `Temporal`, awaited before anything else in
-  `main.js`).
+- `src/boot/` — one-time app initializers: `analytics.js` (injects each enabled analytics provider's
+  tracking snippet into `document.head` once the site store has loaded), `api.js` (creates the `ky`
+  client, exposed as the `API_CLIENT` global), `components.js` (global components), `eventbus.js`
+  (`EVENT_BUS` global, mitt), `externals.js`, `i18n.js`, `iconify.js` (points Iconify at this
+  instance's `/_icons`), `monaco.js`, `temporal.js` (conditionally polyfills `Temporal`, awaited
+  before anything else in `main.js`).
 - `src/router/` — `index.js` (router factory) and `routes.js` (the full route table; page components
   are lazily imported).
 - `src/layouts/` — `MainLayout`, `AdminLayout`, `AuthLayout`, `ProfileLayout`.
 - `src/pages/` — route-level views. `Admin*.vue` are the admin area, `Profile*.vue` the user profile.
 - `src/components/` — everything else: dialogs (`*Dialog.vue`), full-screen overlays
   (`*Overlay.vue`), editors (`Editor*.vue`), nav/tree components.
-- `src/stores/` — Pinia stores (`site`, `user`, `page`, `editor`, `admin`, `common`, `flags`).
-  `stores/index.js` creates the pinia instance and injects `router` into every store.
+- `src/stores/` — Pinia stores (`site`, `user`, `page`, `editor`, `admin`, `common`, `flags`,
+  `collab`). `stores/index.js` creates the pinia instance and injects `router` into every store.
 - `src/renderers/` — page content rendering pipeline: `markdown.js` plus `modules/` (katex, kroki,
   plantuml, markdown-it plugins).
 - `src/css/` — `tailwind.css` (theme tokens, utilities and the shared component classes) plus SCSS:
@@ -221,7 +224,8 @@ updated by hand if the files they point at are ever renamed:
 - `models/search.ts` → `import('../modules/search/${key}/search.ts')`, plus the `search.ts`
   presence check in `hasImplementation()` that gates it
 
-`scheduler.ts` reads `tasks/simple/` filenames with `/\.[jt]s$/`, so task files are extension-agnostic.
+`scheduler.ts` matches `tasks/simple/` filenames against `/^[^.]+\.[jt]s$/`, so `.ts` and `.js` are
+both accepted but any other dotted filename (a stray `.test.ts`, a `.d.ts`) is rejected outright.
 
 `worker.ts` builds its own minimal `WIKI` (config + logger + lazy `ensureDb()`), but the shared
 declaration types it as the full object — so worker-only code can reference members that do not
@@ -333,7 +337,8 @@ editor (`GroupEditOverlay.vue`). They live on a group's `permissions` column, ar
 **Page rule permissions** are bound to paths, and to locales and sites: `read:pages`, `write:pages`,
 `review:pages`, `manage:pages`, `delete:pages`, `write:styles`, `write:scripts`, `read:source`,
 `read:history`, `read:assets`, `write:assets`, `manage:assets`, `read:comments`, `write:comments`,
-`manage:comments` (`PAGE_PERMISSIONS` in `api/pages.ts`). A group grants them through **rules**:
+`manage:comments`, `manage:classification` (`PAGE_PERMISSIONS`, declared in `helpers/permissions.ts`
+and imported by `api/pages.ts`). A group grants them through **rules**:
 each rule names some of them (`roles`) plus how it addresses pages (`match` + `path`, or tags) and
 what it does with them (`mode`: ALLOW / DENY / FORCEALLOW). Nothing is granted by default, and when
 several rules match, the most specific one wins — `helpers/pageRules.ts` documents the ordering.
@@ -792,27 +797,20 @@ store; no SVG is ever written into content.
 - Picking an icon calls `POST /_api/icons/materialize`, which is what guarantees the wiki can serve it
   afterwards without the Iconify API.
 
-### GraphQL is being removed
+### GraphQL was removed
 
-An earlier iteration of 3.x used GraphQL/Apollo. **All of it is gone from the live surface** — there
-is no GraphQL server left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call
-through it would throw, and `blocks/block-index/` no longer imports a `tree.graphql` (its tree comes
-from `sites/…/tree/pages`, plain REST).
+An earlier iteration of 3.x used GraphQL/Apollo; the removal is complete. There is no GraphQL server
+left in `backend/`, `APOLLO_CLIENT` is not defined as a global so any call through it would throw,
+`blocks/block-index/` no longer imports a `tree.graphql` (its tree comes from `sites/…/tree/pages`,
+plain REST), and every former consumer — `components/AuthLoginPanel.vue`'s `register()` call
+included, alongside the passkey login and 2FA paths that were REST from the start — has been ported
+to REST. `AdminPages.vue`, `AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue`, the
+last pages still calling `this.$apollo.mutate`/`this.$apollo.queries.*`, were deleted outright rather
+than ported (`frontend/src/pages/` now has only `AdminPagesDeleted.vue`, an unrelated page). A grep
+for `apollo|graphql` in `frontend/src` turns up only comments and test fixtures referring to the
+removal in the past tense — no live `$apollo` call site remains.
 
-Four route-*unreachable* pages under `frontend/src/pages/` are the only remnant: `AdminPages.vue`,
-`AdminPagesEdit.vue`, `AdminPagesVisualize.vue` and `AdminTags.vue` still call `this.$apollo.mutate`/
-`this.$apollo.queries.*` from an Options-API `apollo:` block — a different, older integration than
-the `APOLLO_CLIENT` global the paragraph above rules out, and one with nothing installed to back it,
-so any of these calls would throw `TypeError: Cannot read properties of undefined (reading
-'mutate')` the moment it ran. None of the four is presently linked from `routes.js` (dead code,
-not merely deprecated), so nothing exercises the throw today. Porting them to REST — or deleting
-them if the feature they back is superseded — is its own, separate work package rather than
-something to fix as a drive-by.
-
-Every other former GraphQL consumer has already been ported to REST — `components/AuthLoginPanel.vue`'s
-`register()` call included, alongside the passkey login and 2FA paths that were REST from the start.
-When touching one of the four remaining files, port it to the REST API (`API_CLIENT` + the matching
-`backend/api/` route) rather than extending the `$apollo` code. If the REST endpoint doesn't exist
-yet, add it under `backend/api/` following the schema + permissions conventions above —
-`sites/:siteId/images/:kind`, which replaced the logo and favicon upload mutations in
-`AdminGeneral.vue`, is a recent example of doing exactly that.
+If a future feature needs a REST endpoint that doesn't exist yet, add it under `backend/api/`
+following the schema + permissions conventions above — `sites/:siteId/images/:kind`, which replaced
+the logo and favicon upload mutations in `AdminGeneral.vue`, is a recent example of doing exactly
+that.
