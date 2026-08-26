@@ -6,26 +6,33 @@ import {
   resolveExisting,
   SOURCE_SYSTEM_WIKIJS_2_5X
 } from './provenance.ts'
-import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import type {
+  PathAssignmentInput,
+  PathAssignmentOptions,
+  TreePathAssignment
+} from './path-normalization.ts'
 import type { ExistingMapping, LookupOrInsertAction, ProvenanceStore } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
+import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
 /**
- * Page content import via `createPage()` (Feature 416 / Task 738)
+ * Page content import via `createPage()` (Feature 416 / Task 738; streamed per WP #1790 / Task #1818)
  *
- * Turns each `StagedPage` this feature's staging pass (`content-staging.ts`, Task 733) produced into a
- * real 3.0 page, exclusively through `WIKI.models.pages.createPage(siteId, input, actor)`
- * (`backend/models/pages.ts:457`) — never a raw insert, per this task's own description, since
- * `createPage()` is also what writes the matching `tree` row, records the first `pageHistory` row and
- * indexes the page for search; duplicating any of that here would drift the moment `createPage()`
- * changes.
+ * Turns each `StagedPage` this feature's staging pass (`content-staging.ts`'s `extractContentStaging()`
+ * generator, Task 733) produces into a real 3.0 page, exclusively through
+ * `WIKI.models.pages.createPage(siteId, input, actor)` (`backend/models/pages.ts:457`) — never a raw
+ * insert, per this task's own description, since `createPage()` is also what writes the matching
+ * `tree` row, records the first `pageHistory` row and indexes the page for search; duplicating any of
+ * that here would drift the moment `createPage()` changes.
  *
  * Like every module in this feature so far, this one has no db access and is not wired to a CLI yet —
- * `WIKI.models.pages.createPage`/`queueRerender`, the tree existing-entry lookup, and the provenance
- * store are all injected (`ImportPagesDeps`), so tests exercise the real mapping/orchestration logic
- * with fakes standing in for each, and Task 421's CLI is what will eventually pass the real
- * `WIKI.models.pages` / `WIKI.models.tree` / `createProvenanceStore(WIKI.db)` implementations here.
+ * `WIKI.models.pages.createPage`/`queueRerender`, the tree existing-entry lookup, the provenance
+ * store, and the per-page history backfill are all injected (`ImportPagesDeps`), so tests exercise
+ * the real mapping/orchestration logic with fakes standing in for each, and Task 421's CLI is what
+ * will eventually pass the real `WIKI.models.pages` / `WIKI.models.tree` /
+ * `createProvenanceStore(WIKI.db)` implementations (and `page-history-import.ts`'s
+ * `backfillPageHistoryForPage`) here.
  *
  * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
  * it first) — that module's own doc comment names this task as the wiring point for the real
@@ -124,6 +131,19 @@ export interface ImportPagesDeps {
   /** Backs the provenance/idempotency check every page is resolved through before `assignTreePaths` —
    * see "Provenance and re-runnability" in the module doc comment. */
   provenanceStore: ProvenanceStore
+  /**
+   * Called immediately after a page is created — before the next page is even pulled off `pages` —
+   * to backfill that page's whole 2.x `pageHistory` chain (WP #1790 / Task #1818). The real
+   * implementation wires this straight to `page-history-import.ts`'s
+   * `backfillPageHistoryForPage(staged, newPageId, siteId, deps)`; a caller that doesn't care about
+   * history at all (or a test exercising something else) can omit it, which skips backfill entirely
+   * — `importPages()` never calls history backfill on its own. Its `PageHistoryImportResult.failed`
+   * is folded into this run's own `warnings`, never aborting the page it belongs to (which already
+   * succeeded by the time this runs) or any other page. Only called for a page this run actually
+   * created (`result.action === 'created'`) — a page resolved via provenance as `'skipped'` already
+   * has whatever history a prior run gave it.
+   */
+  backfillHistory?: (page: StagedPage, newPageId: string) => Promise<PageHistoryImportResult>
 }
 
 export interface ImportPagesOptions {
@@ -414,15 +434,27 @@ function pageProvenanceKey(siteId: string, staged: Pick<StagedPage, 'oldId'>) {
 }
 
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Every page
- * is first resolved against `deps.provenanceStore` (see "Provenance and re-runnability" in the module
- * doc comment); only a page with no existing mapping is handed to `assignTreePaths` (Task 736) for a
- * tree location, and only that survives to `createPage()`. Never throws for one bad, colliding, or
- * already-imported page — each becomes a `PageImportFailure`/skipped `PageImportSuccess` instead, so
- * one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
+ * (WP #1790 / Task #1818): `pages` is consumed one page at a time from `content-staging.ts`'s
+ * `extractContentStaging()` generator, so a page's `content`/`render`/`toc` (and its whole history
+ * chain) are only ever resident for as long as this loop is actually working on that one page.
+ *
+ * `locations` is the lightweight `{oldId, path, locale}` triple for *every* page in the run — built
+ * once up front by `content-staging.ts`'s `buildContentStagingIndex()`, the same pre-pass
+ * `extractContentStaging()` itself depends on. It does double duty here: `assignTreePaths` (Task 736)
+ * has to see every page's path before it can detect a sibling collision, and the provenance/idempotency
+ * pre-resolution (below) has to run to completion before `assignTreePaths` is even called (see
+ * "Provenance and re-runnability") — both only need `{oldId, path, locale}`, so both run off `locations`
+ * rather than requiring a first pass over the heavy `pages` stream. Unlike `content`/`render`/`toc`, a
+ * `{oldId, path, locale}` triple is cheap enough to keep resident for a whole run without reintroducing
+ * the memory problem this streaming shape exists to fix.
+ *
+ * Never throws for one bad, colliding, or already-imported page — each becomes a `PageImportFailure`
+ * or a skipped/created `PageImportSuccess` instead, so one page's bad data cannot abort the whole run.
  */
 export async function importPages(
-  pages: StagedPage[],
+  locations: PathAssignmentInput[],
+  pages: AsyncIterable<StagedPage>,
   deps: ImportPagesDeps,
   options: ImportPagesOptions
 ): Promise<PageImportResult> {
@@ -436,38 +468,37 @@ export async function importPages(
 
   // -> Provenance lookup ahead of assignTreePaths: a page already mapped (by prior run or natural-key
   //    fallback) needs no tree slot at all, and must never compete for one against its own past self.
+  //    Resolved off `locations` — the lightweight {oldId, path, locale} triple, not the `pages` stream
+  //    itself — because `pages` is a single-pass AsyncIterable and this has to finish before
+  //    assignTreePaths is called; see the module doc comment's "Provenance and re-runnability".
   const preResolved = new Map<number, ExistingMapping>()
-  const pagesNeedingTreeSlot: StagedPage[] = []
+  const locationsNeedingTreeSlot: PathAssignmentInput[] = []
 
-  for (const staged of pages) {
-    const normalized = normalizeMigratedPath(staged.path)
+  for (const location of locations) {
+    const normalized = normalizeMigratedPath(location.path)
     const existing = await resolveExisting(
       deps.provenanceStore,
-      pageProvenanceKey(options.siteId, staged),
+      pageProvenanceKey(options.siteId, location),
       'reason' in normalized
         ? undefined
         : () =>
             deps.provenanceStore.findExistingPageByPath(
               options.siteId,
-              staged.locale,
+              location.locale,
               normalized.path
             )
     )
     if (existing) {
-      preResolved.set(staged.oldId, existing)
+      preResolved.set(location.oldId, existing)
       continue
     }
-    pagesNeedingTreeSlot.push(staged)
+    locationsNeedingTreeSlot.push(location)
   }
 
-  const pathResult = await assignTreePaths(
-    pagesNeedingTreeSlot.map((page) => ({
-      oldId: page.oldId,
-      path: page.path,
-      locale: page.locale
-    })),
-    { siteId: options.siteId, existingEntry: deps.existingEntry }
-  )
+  const pathResult = await assignTreePaths(locationsNeedingTreeSlot, {
+    siteId: options.siteId,
+    existingEntry: deps.existingEntry
+  })
 
   for (const failure of pathResult.failures) {
     failed.push({
@@ -481,7 +512,7 @@ export async function importPages(
 
   const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
 
-  for (const staged of pages) {
+  for await (const staged of pages) {
     const existing = preResolved.get(staged.oldId)
     if (existing) {
       // -> This IS the real write path (unlike phases/content.ts's read-only classification pass), so
@@ -558,6 +589,21 @@ export async function importPages(
         pageWarnings.push(
           `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
             `empty render and needs a manual re-render: ${err.message}`
+        )
+      }
+    }
+
+    if (result.action === 'created' && deps.backfillHistory) {
+      // -> Immediately after this page's own createPage() — before the next page is even pulled off
+      //    `pages` — so a large corpus's history lands interleaved with page creation rather than
+      //    buffered until the whole run's pages exist. See ImportPagesDeps.backfillHistory. Gated on
+      //    `result.action === 'created'` — a page resolved as `'updated'`/matched by natural key
+      //    already has whatever history a prior run gave it.
+      const historyResult = await deps.backfillHistory(staged, result.destId)
+      pageWarnings.push(...historyResult.warnings)
+      for (const historyFailure of historyResult.failed) {
+        pageWarnings.push(
+          `page ${staged.oldId}: pageHistory backfill failed — ${historyFailure.message}`
         )
       }
     }

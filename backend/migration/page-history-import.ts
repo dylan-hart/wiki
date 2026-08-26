@@ -48,6 +48,17 @@ import type { IdMap } from './id-map.ts'
  * anything but `'created'`/`'updated'`/`'moved'`/`'deleted'`. `mapHistoryAction` folds 2.x's
  * `'restored'` onto 3.0's `'updated'` accordingly, and falls back to `'updated'` (with a warning) for
  * any other free-text value the column allows but no known writer ever produced.
+ *
+ * ## Chunked inserts (WP #1790 / Task #1801)
+ *
+ * `PageHistoryInsertRow` has 12 fields, and a single `WIKI.db.insert(pageHistoryTable).values(rows)`
+ * call binds every field of every row as its own parameter — Postgres refuses more than 65535 bind
+ * parameters per statement, a ceiling a mature 2.x install's most-edited page can cross alone at
+ * around 5461 revisions. `backfillPageHistoryForPage()` (called once per page, immediately after that
+ * page's `createPage()` — see `page-import.ts`'s `importPages()`) chunks a single page's rows at
+ * `HISTORY_INSERT_CHUNK_SIZE`, and never buffers more than one page's history in memory or in one
+ * `insertVersions()` call — see `content-staging.ts`'s own streaming design for the matching page-side
+ * half of this fix.
  */
 
 /** One `pageHistory` row this module has finished building, ready to be inserted verbatim — column
@@ -69,24 +80,53 @@ export interface PageHistoryInsertRow {
 
 export interface PageHistoryImportDeps {
   /**
-   * Inserts already-built rows directly into the `pageHistory` table.
+   * Inserts already-built rows directly into the `pageHistory` table, for at most one page's worth
+   * of rows at a time (see `HISTORY_INSERT_CHUNK_SIZE` below — a single call is not guaranteed to be
+   * one page's *entire* history, only ever a chunk of it).
    *
    * DELIBERATE EXCEPTION to "always go through the model" (see the module doc comment above for
    * why `record()` cannot do this instead): the real implementation — wired up by Task 421's CLI,
    * same as every other injected dependency across this migration feature — is expected to do
-   * exactly one thing, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more. It must
-   * NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this module
-   * computed and re-derives its own from the current `pages` row instead — the opposite of what a
-   * historical backfill needs.
+   * exactly one thing per call, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more.
+   * It must NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this
+   * module computed and re-derives its own from the current `pages` row instead — the opposite of
+   * what a historical backfill needs.
+   *
+   * It also must not assume it will be called exactly once per run, or once per page: `rows` is
+   * chunked (per page, and further within a page above `HISTORY_INSERT_CHUNK_SIZE` rows) precisely
+   * so this can be a plain, unconditional `insert().values(rows)` without ever handing Postgres more
+   * bind parameters than its 65535 ceiling allows — see the module doc comment's "Chunked inserts"
+   * section.
    */
   insertVersions(rows: PageHistoryInsertRow[]): Promise<void>
 }
 
+/** One page whose history failed to backfill — the `pageId`/`content` values it *would* have carried
+ * either never left the process or landed in an earlier, already-committed chunk; either way, the
+ * page itself (already created by `importPages()`) is unaffected, only its history is incomplete. */
+export interface PageHistoryImportFailure {
+  oldId: number
+  message: string
+}
+
 export interface PageHistoryImportResult {
-  /** How many `pageHistory` rows were inserted, across every page. */
+  /** How many `pageHistory` rows were actually inserted, across every page and chunk — includes rows
+   * from any earlier chunk of a page whose backfill later failed partway through. */
   inserted: number
   warnings: string[]
+  /** One entry per page whose `insertVersions()` call(s) threw — modelled on `page-import.ts`'s
+   * `PageImportFailure`, so one page's history failing does not lose the run's ability to report on
+   * every other page's. */
+  failed: PageHistoryImportFailure[]
 }
+
+/**
+ * Rows per `insertVersions()` call. `PageHistoryInsertRow` has 12 fields, and Postgres refuses more
+ * than 65535 bind parameters in one statement — `floor(65535 / 12) = 5461` — so this stays safely
+ * under that ceiling with room to spare, chunking within a single page's history whenever it alone
+ * exceeds this (the largest 2.x installs' most-edited pages can), not only across pages.
+ */
+const HISTORY_INSERT_CHUNK_SIZE = 5000
 
 /** 2.x's confirmed `pageHistory.action` vocabulary (see the module doc comment) mapped onto 3.0's
  * four. `'restored'` collapses onto `'updated'` because 3.0 has no equivalent of its own. */
@@ -274,14 +314,52 @@ export function buildPageHistoryRowsForPage(
 }
 
 /**
- * Backfills `pageHistory` for every successfully-imported page in `pages`, per this task's
- * description: immediately after `importPages()`'s own `createPage()` call for a page (resolved here
- * through `pageIdMap`, the same map `importPages()` populated), insert its whole 2.x history chain as
- * a direct `pageHistory` insert (see the module doc comment for why `record()` cannot do this).
+ * Backfills `pageHistory` for one already-created page — the per-page entry point `importPages()`
+ * (`page-import.ts`, Task #1818) calls immediately after its own `createPage()` call for that page,
+ * so a large corpus's history lands page by page rather than all at once at the end of a run. Builds
+ * the page's whole 2.x history chain as direct `pageHistory` inserts (see the module doc comment for
+ * why `record()` cannot do this), chunked at `HISTORY_INSERT_CHUNK_SIZE` rows per `insertVersions()`
+ * call so one page's history can never alone exceed Postgres's bind-parameter ceiling.
  *
- * A page absent from `pageIdMap` (one of `PageImportResult.failed`, per `page-import.ts`) is skipped
- * silently — there is no 3.0 page for its history to attach to, and `importPages()` already reported
- * why it failed.
+ * Never throws: an `insertVersions()` rejection is caught and reported as this page's own
+ * `PageHistoryImportFailure` rather than propagated, so one page's history failing cannot abort a
+ * run already past the point of having created that page (or any other).
+ */
+export async function backfillPageHistoryForPage(
+  page: StagedPage,
+  newPageId: string,
+  siteId: string,
+  deps: PageHistoryImportDeps
+): Promise<PageHistoryImportResult> {
+  const warnings: string[] = []
+  const failed: PageHistoryImportFailure[] = []
+  let inserted = 0
+
+  if (page.history.length === 0) {
+    return { inserted, warnings, failed }
+  }
+
+  const rows = buildPageHistoryRowsForPage(page, newPageId, siteId, warnings)
+  try {
+    for (let offset = 0; offset < rows.length; offset += HISTORY_INSERT_CHUNK_SIZE) {
+      const chunk = rows.slice(offset, offset + HISTORY_INSERT_CHUNK_SIZE)
+      await deps.insertVersions(chunk)
+      inserted += chunk.length
+    }
+  } catch (err: any) {
+    failed.push({ oldId: page.oldId, message: `pageHistory insert failed: ${err.message}` })
+  }
+
+  return { inserted, warnings, failed }
+}
+
+/**
+ * Batch form of `backfillPageHistoryForPage()`, for a caller holding a full `StagedPage[]` plus the
+ * `pageIdMap` `importPages()` populated (e.g. a test, or any future caller that doesn't need the
+ * per-page interleaving `importPages()` itself uses) — resolves each page's new id through `pageIdMap`
+ * and folds every page's result together. A page absent from `pageIdMap` (one of
+ * `PageImportResult.failed`, per `page-import.ts`) is skipped silently — there is no 3.0 page for its
+ * history to attach to, and `importPages()` already reported why it failed.
  */
 export async function backfillPageHistory(
   pages: StagedPage[],
@@ -290,18 +368,17 @@ export async function backfillPageHistory(
   deps: PageHistoryImportDeps
 ): Promise<PageHistoryImportResult> {
   const warnings: string[] = []
-  const rows: PageHistoryInsertRow[] = []
+  const failed: PageHistoryImportFailure[] = []
+  let inserted = 0
 
   for (const page of pages) {
-    if (page.history.length === 0) continue
     const newPageId = pageIdMap.get(page.oldId)
     if (!newPageId) continue
-    rows.push(...buildPageHistoryRowsForPage(page, newPageId, siteId, warnings))
+    const result = await backfillPageHistoryForPage(page, newPageId, siteId, deps)
+    inserted += result.inserted
+    warnings.push(...result.warnings)
+    failed.push(...result.failed)
   }
 
-  if (rows.length > 0) {
-    await deps.insertVersions(rows)
-  }
-
-  return { inserted: rows.length, warnings }
+  return { inserted, warnings, failed }
 }

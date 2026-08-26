@@ -1,13 +1,14 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
-import { IdMap, resolveActorId, type UserIdMap } from './id-map.ts'
+import { resolveActorId, type UserIdMap } from './id-map.ts'
+import type { PathAssignmentInput } from './path-normalization.ts'
 import { coerceSourceBoolean } from './source-coercion.ts'
 
 /**
- * Content staging & id-mapping scaffold (Feature 416 / Task 733)
+ * Content staging & id-mapping scaffold (Feature 416 / Task 733; streamed per WP #1790 / Task #1798)
  *
  * The read side this feature owns: walks a connected `SourceConnector`'s `pages()`, `pageHistory()`
- * and `navigation()` generators and produces one in-process structure joining a page to its
- * locale-variant siblings and its full history chain, with tags already resolved to plain strings and
+ * and `navigation()` generators and produces one `StagedPage` at a time, joined to its locale-variant
+ * siblings and its full history chain, with tags already resolved to plain strings and
  * `authorId`/`creatorId` already resolved to 3.0 UUIDs (falling back to the operator running the
  * import wherever the source id is missing or unmapped).
  *
@@ -21,6 +22,25 @@ import { coerceSourceBoolean } from './source-coercion.ts'
  * `pages.json.gz`/`pages-history.json.gz` row shape — because the `SourceConnector` interface has no
  * separate `pageTags()`/`pageHistoryTags()` generator to join against here. `PostgresSourceConnector`
  * reproduces the same shape via a SQL join so both connector kinds hand this module identical input.
+ *
+ * ## Streaming shape (WP #1790)
+ *
+ * `localeSiblingOldIds` and orphan classification (`orphanedHistory`) each need to know about every
+ * page in the source before either can be answered for even one page — the first needs every other
+ * page sharing this one's `path`, the second decides orphanhood precisely by failing to find a
+ * `pageHistory` row's `pageId` among *every* current page. Neither, though, needs anything about a
+ * page beyond its `oldId`/`path`/`locale` — so `buildContentStagingIndex()` walks `connector.pages()`
+ * once up front to build exactly that (a `path → oldId[]` bucket, an `oldId` set, and a lightweight
+ * `{oldId, path, locale}` triple per page also shaped for `assignTreePaths()`'s own batch input), and
+ * `extractContentStaging()` then walks `connector.pages()` a *second* time, this time building the
+ * full `StagedPage` (with `content`/`render`/`toc`) one page at a time and yielding it immediately —
+ * nothing beyond the lightweight index and the current page's own data is ever resident together.
+ *
+ * `pageHistory()` is merged in via a merge-join against the same walk, relying on `PostgresSourceConnector`
+ * yielding it `ORDER BY "pageId"` (documented on `pageHistory()` in `connector.ts`) — the same order
+ * `pages()` yields by `id`. A row whose `pageId` sorts out of step with that (only possible on a
+ * connector that does not uphold the documented ordering) is warned about and dropped rather than
+ * mis-attached to the wrong page.
  */
 
 /** A 2.x tag string, resolved (from `pageTags`/`pageHistoryTags` via `tags.tag`) rather than left as
@@ -29,7 +49,7 @@ export type StagedTag = string
 
 export interface StagedPageHistoryEntry {
   /** The 2.x `pageHistory.id` this row came from — what a page-history id map (built the same way as
-   * `pageIdMap` below, by whichever task actually inserts these rows) keys off. */
+   * `page-import.ts`'s `pageIdMap`, by whichever task actually inserts these rows) keys off. */
   oldId: number
   action: string
   path: string
@@ -66,8 +86,8 @@ export interface OrphanedPageHistoryEntry extends StagedPageHistoryEntry {
 }
 
 export interface StagedPage {
-  /** The 2.x `pages.id` this row came from — what `pageIdMap` (see `ContentStagingResult`) is keyed
-   * on once a later task calls `createPage()` for it. */
+  /** The 2.x `pages.id` this row came from — what `page-import.ts`'s `PageImportResult.pageIdMap` is
+   * keyed on once `importPages()` calls `createPage()` for it. */
   oldId: number
   path: string
   locale: string
@@ -114,20 +134,51 @@ export interface StagedNavigation {
   items: unknown
 }
 
-export interface ContentStagingResult {
-  pages: StagedPage[]
-  /** `pageHistory` rows whose `pageId` matched no row in `pages` — see `OrphanedPageHistoryEntry`. */
-  orphanedHistory: OrphanedPageHistoryEntry[]
-  navigation: StagedNavigation[]
-  /** The old-pageId → new-UUID map this feature depends on, per this task's description — starts
-   * empty. Task 738 populates it with `pageIdMap.set(staged.oldId, createdPage.id)` as it creates each
-   * page; Task 740 (history backfill) then resolves `pageHistory.pageId` through the same instance. */
-  pageIdMap: IdMap<number>
+/**
+ * The lightweight pre-pass this feature's streaming walk needs before it can emit even its first
+ * `StagedPage` — see "Streaming shape" in the module doc comment. Built once by
+ * `buildContentStagingIndex()` and handed to both `extractContentStaging()` (for
+ * `localeSiblingOldIds`/orphan classification) and, unchanged, to `assignTreePaths()`
+ * (`path-normalization.ts`) via `locations` — `PathAssignmentInput`'s shape is exactly `{oldId, path,
+ * locale}`, so no separate walk is needed to feed that module's own whole-corpus batch requirement.
+ */
+export interface ContentStagingIndex {
+  /** Every page's lightweight identity, in `connector.pages()` order. A `{oldId, path, locale}` triple
+   * costs a few dozen bytes — keeping every page's worth of them resident for the whole run is not the
+   * same problem as keeping every page's `content`/`render`/`toc` resident, which is what this feature
+   * exists to stop doing. */
+  locations: PathAssignmentInput[]
+  /** Every page's `oldId` — what orphan classification tests membership against in O(1), without
+   * needing the full `StagedPage` map the pre-streaming implementation kept resident to answer the
+   * same question. */
+  pageOldIds: Set<number>
+  /** `oldId` → every other `oldId` sharing this page's 2.x `path` (locale variants), feeding
+   * `StagedPage.localeSiblingOldIds`. Absent from the map (rather than an empty array) for a page with
+   * no siblings — callers should default a missing entry to `[]`. */
+  siblingsByOldId: Map<number, number[]>
+}
+
+/**
+ * The mutable, run-scoped side channel `extractContentStaging()` writes into as it streams — since an
+ * async generator's return value is discarded by `for await`, warnings and orphaned history (both
+ * unknowable in full until the whole `pageHistory()` stream has been drained, which only happens once
+ * every page has been yielded) are collected here instead, for the caller to read once iteration
+ * finishes. Build one with `createContentStagingContext()` per run.
+ */
+export interface ContentStagingContext {
   /** Human-readable notes on data that could not be carried across faithfully — currently: an
    * orphaned `authorId`/`creatorId` FK (present in the source, unmapped by `userIdMap`) that fell back
    * to the operator actor, and a `pageHistory` row that named no current page. Surfaced for whichever
    * task ends up reporting import results to an operator (Task 421's CLI) rather than acted on here. */
   warnings: string[]
+  /** `pageHistory` rows whose `pageId` matched no row in `pages` — see `OrphanedPageHistoryEntry`.
+   * Only complete once the `extractContentStaging()` generator that was given this context has been
+   * fully drained — sorted by `versionDate` ascending at that point, same as before streaming. */
+  orphanedHistory: OrphanedPageHistoryEntry[]
+}
+
+export function createContentStagingContext(): ContentStagingContext {
+  return { warnings: [], orphanedHistory: [] }
 }
 
 export interface ContentStagingOptions {
@@ -293,73 +344,155 @@ function compareVersionDate(a: StagedPageHistoryEntry, b: StagedPageHistoryEntry
 }
 
 /**
- * Walks a connected `SourceConnector`'s `pages()`, `pageHistory()` and `navigation()` generators and
- * produces the joined, id-resolved staging structure this feature's later tasks (736/738/740/741)
- * consume. Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's
- * lifecycle, per its documented contract in `./connector.ts`.
+ * The lightweight pre-pass (Task #1794): walks `connector.pages()` once, retaining only what
+ * `localeSiblingOldIds` and orphan classification need — never `content`/`render`/`toc`. See
+ * "Streaming shape" in the module doc comment for why this has to run, in full, before
+ * `extractContentStaging()` can emit even its first page.
+ *
+ * Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's lifecycle, per
+ * its documented contract in `./connector.ts`.
  */
-export async function extractContentStaging(
-  connector: SourceConnector,
-  options: ContentStagingOptions
-): Promise<ContentStagingResult> {
-  const warnings: string[] = []
-  const pagesByOldId = new Map<number, StagedPage>()
+export async function buildContentStagingIndex(
+  connector: SourceConnector
+): Promise<ContentStagingIndex> {
+  const locations: PathAssignmentInput[] = []
+  const pageOldIds = new Set<number>()
   const oldIdsByPath = new Map<string, number[]>()
 
   for await (const raw of connector.pages()) {
-    const staged = stagePage(raw, options, warnings)
-    pagesByOldId.set(staged.oldId, staged)
-    const siblings = oldIdsByPath.get(staged.path)
+    const oldId = requireNumber(raw.id, 'pages.id')
+    const path = asString(raw.path)
+    const locale = asString(raw.localeCode)
+    locations.push({ oldId, path, locale })
+    pageOldIds.add(oldId)
+    const siblings = oldIdsByPath.get(path)
     if (siblings) {
-      siblings.push(staged.oldId)
+      siblings.push(oldId)
     } else {
-      oldIdsByPath.set(staged.path, [staged.oldId])
+      oldIdsByPath.set(path, [oldId])
     }
   }
 
+  const siblingsByOldId = new Map<number, number[]>()
   for (const oldIds of oldIdsByPath.values()) {
     if (oldIds.length <= 1) continue
     for (const oldId of oldIds) {
-      const page = pagesByOldId.get(oldId)!
-      page.localeSiblingOldIds = oldIds.filter((id) => id !== oldId)
-    }
-  }
-
-  const orphanedHistory: OrphanedPageHistoryEntry[] = []
-
-  for await (const raw of connector.pageHistory()) {
-    const sourcePageOldId = asNullableNumber(raw.pageId)
-    if (sourcePageOldId === null) {
-      warnings.push(`pageHistory ${asString(raw.id, '?')}: has no pageId at all — dropped.`)
-      continue
-    }
-    const page = pagesByOldId.get(sourcePageOldId)
-    if (!page) {
-      const entry = stageHistoryEntry(raw, options, warnings, sourcePageOldId)
-      orphanedHistory.push({ ...entry, sourcePageOldId })
-      warnings.push(
-        `pageHistory ${entry.oldId}: pageId ${sourcePageOldId} matches no matching page among the current pages — kept as orphaned history (likely a deleted page).`
+      siblingsByOldId.set(
+        oldId,
+        oldIds.filter((id) => id !== oldId)
       )
-      continue
     }
-    page.history.push(stageHistoryEntry(raw, options, warnings, sourcePageOldId))
   }
 
-  for (const page of pagesByOldId.values()) {
-    page.history.sort(compareVersionDate)
-  }
-  orphanedHistory.sort(compareVersionDate)
+  return { locations, pageOldIds, siblingsByOldId }
+}
 
+/**
+ * Walks a connected `SourceConnector`'s `pages()` a second time (the first being
+ * `buildContentStagingIndex()`, whose result this consumes as `index`), merge-joining
+ * `connector.pageHistory()` in as it goes, and yields one fully-built `StagedPage` at a time —
+ * `content`/`render`/`toc` (and every history entry's own `content`) exist only for as long as the
+ * caller holds onto the page it was just handed. See "Streaming shape" in the module doc comment for
+ * the merge-join's ordering assumption and how a violation of it degrades. Warnings and
+ * `orphanedHistory` accumulate on `context` as the walk proceeds — read them once this generator has
+ * been fully drained (`orphanedHistory` is only sorted at that point).
+ *
+ * Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's lifecycle, per
+ * its documented contract in `./connector.ts`. Navigation is not part of this walk at all — call
+ * `extractNavigation()` separately; it carries no per-page memory concern of its own.
+ */
+export async function* extractContentStaging(
+  connector: SourceConnector,
+  options: ContentStagingOptions,
+  index: ContentStagingIndex,
+  context: ContentStagingContext
+): AsyncGenerator<StagedPage> {
+  const historyIterator = connector.pageHistory()[Symbol.asyncIterator]()
+  let historyLookahead = await historyIterator.next()
+
+  const emitOrphan = (raw: SourceRecord, sourcePageOldId: number) => {
+    const entry = stageHistoryEntry(raw, options, context.warnings, sourcePageOldId)
+    context.orphanedHistory.push({ ...entry, sourcePageOldId })
+    context.warnings.push(
+      `pageHistory ${entry.oldId}: pageId ${sourcePageOldId} matches no matching page among the current pages — kept as orphaned history (likely a deleted page).`
+    )
+  }
+
+  for await (const raw of connector.pages()) {
+    const staged = stagePage(raw, options, context.warnings)
+    staged.localeSiblingOldIds = index.siblingsByOldId.get(staged.oldId) ?? []
+
+    // -> Drain every pageHistory row belonging to this page (or sorting before it) before moving on —
+    //    both streams are ordered ascending by the same page id, so this is a plain merge-join.
+    while (!historyLookahead.done) {
+      const rawHistory = historyLookahead.value
+      const sourcePageOldId = asNullableNumber(rawHistory.pageId)
+
+      if (sourcePageOldId === null) {
+        context.warnings.push(
+          `pageHistory ${asString(rawHistory.id, '?')}: has no pageId at all — dropped.`
+        )
+        historyLookahead = await historyIterator.next()
+        continue
+      }
+
+      if (sourcePageOldId < staged.oldId) {
+        if (index.pageOldIds.has(sourcePageOldId)) {
+          // Unreachable if the source genuinely orders pageHistory() ascending by pageId, as
+          // documented (`connector.ts`) — a row for an already-emitted page would mean it didn't.
+          // Warn and drop rather than mis-attach it to the wrong page or lose it silently.
+          context.warnings.push(
+            `pageHistory ${asString(rawHistory.id, '?')}: pageId ${sourcePageOldId} belongs to an already-emitted page — pageHistory() was not ordered ascending by pageId as expected, so this row could not be attached and was dropped.`
+          )
+        } else {
+          emitOrphan(rawHistory, sourcePageOldId)
+        }
+        historyLookahead = await historyIterator.next()
+        continue
+      }
+
+      if (sourcePageOldId === staged.oldId) {
+        staged.history.push(
+          stageHistoryEntry(rawHistory, options, context.warnings, sourcePageOldId)
+        )
+        historyLookahead = await historyIterator.next()
+        continue
+      }
+
+      // sourcePageOldId > staged.oldId: belongs to a page not yet reached — stop draining for now.
+      break
+    }
+
+    staged.history.sort(compareVersionDate)
+    yield staged
+  }
+
+  // -> Every page has been emitted — anything left in pageHistory() names no current page at all.
+  while (!historyLookahead.done) {
+    const rawHistory = historyLookahead.value
+    const sourcePageOldId = asNullableNumber(rawHistory.pageId)
+    if (sourcePageOldId === null) {
+      context.warnings.push(
+        `pageHistory ${asString(rawHistory.id, '?')}: has no pageId at all — dropped.`
+      )
+    } else {
+      emitOrphan(rawHistory, sourcePageOldId)
+    }
+    historyLookahead = await historyIterator.next()
+  }
+
+  context.orphanedHistory.sort(compareVersionDate)
+}
+
+/**
+ * Extracts `navigation()` rows verbatim — split out from `extractContentStaging()` because navigation
+ * carries no per-page memory concern of its own (one small tree per key) and has nothing to do with
+ * the page/history streaming problem this module otherwise exists to solve.
+ */
+export async function extractNavigation(connector: SourceConnector): Promise<StagedNavigation[]> {
   const navigation: StagedNavigation[] = []
   for await (const raw of connector.navigation()) {
     navigation.push({ key: asString(raw.key), items: raw.config ?? null })
   }
-
-  return {
-    pages: [...pagesByOldId.values()],
-    orphanedHistory,
-    navigation,
-    pageIdMap: new IdMap<number>(),
-    warnings
-  }
+  return navigation
 }
