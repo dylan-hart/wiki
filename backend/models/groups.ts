@@ -307,29 +307,32 @@ class Groups {
    * @param permission A single page permission, e.g. `read:pages` or `read:history`
    */
   checkAccess(actor: AccessActor, permission: string, page: RulePageRef): boolean {
-    // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
-    //    wiki whose only administrator had denied themselves would have nobody left to fix it
-    if (actor.permissions.includes('manage:system')) {
-      return true
-    }
-    if (!this.withinScope(actor, permission)) {
-      return false
-    }
     /*
-      OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
-      key/token may never be granted a page permission on a page whose classification is not in its
-      `allowedClassifications` allow-set, regardless of what its groups' rules say -- checked the same
-      way `scope` is, before any rule is resolved. Skipped when the page's own classification is
-      unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
-      there is nothing to compare the allow-set against, and this is a narrowing on top of the rules,
-      not a rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
-      match does in `helpers/pageRules.ts`.
+      OpenProject #2119 (moved above the `manage:system` short-circuit below; was #1205, replacing the
+      earlier #1055 single-value ceiling): a classification-scoped key/token may never be granted a
+      page permission on a page whose classification is not in its `allowedClassifications` allow-set,
+      regardless of what its groups' rules say -- and regardless of `manage:system`. A credential
+      narrowing is not a page rule an administrator overrides by virtue of being an administrator: an
+      admin who mints a classification-scoped token is asking for that scope to hold even over their
+      own admin rights, so this has to sit ahead of the bypass below, not behind it. Skipped when the
+      page's own classification is unknown (`null` — an asset, a folder, a not-yet-existing page)
+      rather than treated as a denial: there is nothing to compare the allow-set against, and this is a
+      narrowing on top of the rules, not a rule itself, so it has no fail-closed obligation of its own
+      the way a CLASSIFICATION rule match does in `helpers/pageRules.ts`.
     */
     if (
       actor.allowedClassifications != null &&
       page.classification != null &&
       !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
     ) {
+      return false
+    }
+    // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
+    //    wiki whose only administrator had denied themselves would have nobody left to fix it
+    if (actor.permissions.includes('manage:system')) {
+      return true
+    }
+    if (!this.withinScope(actor, permission)) {
       return false
     }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
