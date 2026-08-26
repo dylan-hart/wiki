@@ -5,6 +5,11 @@ import { mount, flushPromises } from '@vue/test-utils'
 import WMenu from './WMenu.vue'
 
 /**
+ * OpenProject #1641: the teleported panel used to render `role="menu"`, but its rows (`WItem`s,
+ * plain `<w-btn>`s, or arbitrary slot content) never render the required `menuitem`/`menuitemcheckbox`/
+ * `menuitemradio`/`group`/`separator` child roles `role="menu"` demands -- so the panel is a plain
+ * popup of buttons now, with no `menu` role claimed over content that doesn't satisfy it.
+ *
  * OpenProject #1645: the panel renders inside `<teleport to="body">`, appended at the end of the
  * document -- far from its trigger in DOM order -- with no focus management at all. A keyboard user
  * who opened it would have to Tab through the rest of the document to reach its first row, in
@@ -43,6 +48,23 @@ async function openMenu({ autoClose = false } = {}) {
   await flushPromises()
   return { wrapper, trigger }
 }
+
+describe('WMenu role', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('does not expose a menu role over its non-menuitem children', async () => {
+    const { wrapper } = await openMenu()
+
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    const panel = document.querySelector('.w-menu')
+    expect(panel).not.toBeNull()
+    expect(panel.getAttribute('role')).toBeNull()
+
+    wrapper.unmount()
+  })
+})
 
 describe('WMenu focus management', () => {
   afterEach(() => {
@@ -101,9 +123,8 @@ describe('WMenu focus management', () => {
  *
  * `WMenu` is mounted `modelValue: true` (controlled) so it shows immediately on mount rather than
  * needing a trigger climbed/clicked first -- see `onMounted`'s `if (props.modelValue === true) {
- * show() }`. Its `role="menu"` panel only exists in the DOM once shown, so every assertion below
- * queries `document` rather than `wrapper` (the panel is teleported to `body`, outside the mounted
- * subtree `@vue/test-utils` tracks).
+ * show() }`. The panel is teleported to `body`, outside the mounted subtree `@vue/test-utils`
+ * tracks, so every assertion below queries `document` rather than `wrapper`.
  */
 async function mountMenu(slotHtml) {
   const wrapper = mount(WMenu, {
@@ -116,7 +137,7 @@ async function mountMenu(slotHtml) {
 }
 
 function panel() {
-  return document.querySelector('[role="menu"]')
+  return document.querySelector('.w-menu')
 }
 
 function rows() {

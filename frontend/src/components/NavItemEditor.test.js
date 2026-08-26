@@ -14,7 +14,7 @@ vi.mock('@/composables/dialog', async (importOriginal) => ({
   `WMenu` (the kebab "more actions" menu) teleports its open content straight into `document.body`,
   independent of whichever wrapper mounted it -- and nothing here unmounts a wrapper between tests, so
   a menu left open by one test would otherwise still be sitting in `document.body` for the next one to
-  find via a plain `[role="menu"]` query.
+  find via a plain `.w-menu` query.
 */
 afterEach(() => {
   document.body.innerHTML = ''
@@ -92,8 +92,8 @@ function mountEditor({ items = SERVER_ITEMS, groups = [], menuMode, roots = [], 
 /** Opens the kebab ("more actions") menu and returns its teleported panel. */
 async function openKebabMenu(wrapper) {
   await wrapper.find('button.ml-2').trigger('click')
-  await vi.waitUntil(() => document.querySelector('[role="menu"]'))
-  return document.querySelector('[role="menu"]')
+  await vi.waitUntil(() => document.querySelector('.w-menu'))
+  return document.querySelector('.w-menu')
 }
 
 describe('NavItemEditor', () => {

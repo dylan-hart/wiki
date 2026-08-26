@@ -97,13 +97,13 @@ async function openAddStrategyMenu(wrapper) {
 }
 
 function menuItemTitles() {
-  return [...document.querySelectorAll('[role="menu"] strong')].map((el) => el.textContent.trim())
+  return [...document.querySelectorAll('.w-menu strong')].map((el) => el.textContent.trim())
 }
 
 /*
   Teleported menu content lives outside the mounted wrapper's own DOM subtree (WMenu.vue teleports to
   `document.body`), so a test that throws before its own `wrapper.unmount()` would otherwise leave
-  its menu panel behind for the next test's `document.querySelector('[role="menu"] ...')` to
+  its menu panel behind for the next test's `document.querySelector('.w-menu ...')` to
   accidentally pick up alongside the new one -- this clears the slate unconditionally either way.
 */
 afterEach(() => {
@@ -129,7 +129,7 @@ describe('AdminAuth add-strategy picker', () => {
     const wrapper = await mountPage()
     await openAddStrategyMenu(wrapper)
 
-    const filterInput = document.querySelector('[role="menu"] input')
+    const filterInput = document.querySelector('.w-menu input')
     expect(filterInput).toBeTruthy()
 
     filterInput.value = 'auth0'
@@ -146,7 +146,7 @@ describe('AdminAuth add-strategy picker', () => {
     const wrapper = await mountPage()
     await openAddStrategyMenu(wrapper)
 
-    const filterInput = document.querySelector('[role="menu"] input')
+    const filterInput = document.querySelector('.w-menu input')
     filterInput.value = 'slack'
     await filterInput.dispatchEvent(new Event('input'))
     await flushPromises()
@@ -164,7 +164,7 @@ describe('AdminAuth add-strategy picker', () => {
     const wrapper = await mountPage()
     await openAddStrategyMenu(wrapper)
 
-    const filterInput = document.querySelector('[role="menu"] input')
+    const filterInput = document.querySelector('.w-menu input')
     filterInput.value = 'okta'
     await filterInput.dispatchEvent(new Event('input'))
     await flushPromises()
@@ -189,7 +189,7 @@ describe('AdminAuth add-strategy picker', () => {
     // -> `w-icon` renders an `img:` reference as `<i class="w-icon" data-icon="img:...">` wrapping
     //    an `<img>` (WIcon.vue), not `<iconify-icon>` -- that branch is only for a bare
     //    `<prefix>:<name>` Iconify reference, which `'img:' + str.icon` never is.
-    const icons = [...document.querySelectorAll('[role="menu"] .w-avatar .w-icon')]
+    const icons = [...document.querySelectorAll('.w-menu .w-avatar .w-icon')]
     // -> One resolvable icon reference per listed module (11, `local` excluded)
     expect(icons).toHaveLength(11)
     for (const icon of icons) {

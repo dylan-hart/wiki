@@ -19,7 +19,6 @@
       <div
         v-if="shown"
         ref="floatEl"
-        role="menu"
         tabindex="-1"
         v-bind="$attrs"
         class="w-menu fixed overflow-auto rounded shadow-menu"
