@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
+import { uniq } from 'es-toolkit/array'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
@@ -10,6 +11,9 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { RulePageRef } from '../helpers/pageRules.ts'
+import { hasPermission } from './pages.ts'
+import type { RenderPermissions } from './rendering.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -1027,7 +1031,10 @@ class Approvals {
       .select({
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
-        baseHash: submissionsTable.baseHash
+        baseHash: submissionsTable.baseHash,
+        // -> Whose markup this is, for `resolveSubmitterRenderPermissions` -- null for a guest
+        //    submission (`POST .../submissions` allows one; see that route)
+        authorId: submissionsTable.authorId
       })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
@@ -1092,16 +1099,29 @@ class Approvals {
     if (!render) {
       await WIKI.models.rendering.ensureCanRender(page.editor)
     }
+    // -> Resolved from the SUBMITTER, not `actor` (the reviewer finalizing this) -- see
+    //    `resolveSubmitterRenderPermissions`'s own comment for why.
+    const submitterRenderPermissions = await this.resolveSubmitterRenderPermissions(
+      submission.authorId,
+      {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        tags: page.tags,
+        classification: page.classification
+      }
+    )
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
       { content, ...(render && { render }) },
-      actor
+      actor,
+      submitterRenderPermissions
     )
     if (!render) {
       // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
       //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
     }
 
     // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up
@@ -1109,6 +1129,43 @@ class Approvals {
     await WIKI.db.delete(submissionsTable).where(eq(submissionsTable.id, submissionId))
     WIKI.logger.debug(`Approved edit suggestion ${submissionId} onto page ${page.id}`)
     return { ok: true, finalized: true, approvalsCount, approvalsRequired }
+  }
+
+  /**
+   * What `write:scripts`/`write:styles` the SUBMITTER holds on this page -- not the reviewer.
+   *
+   * `POST /sites/:siteId/pages/:pageId/submissions` only requires a matching submit rule, and
+   * explicitly allows a guest (no `authorId`) to raise a suggestion; the reviewer's own browser then
+   * renders that markdown and posts the resulting HTML to `approveSubmission`. Resolving these
+   * permissions from `actor` (the reviewer) the way an ordinary save does would let a reviewer who
+   * holds `write:scripts`/`write:styles` launder a submitter's `<script>`/inline `style` past a
+   * permission the submitter never had -- a confused-deputy path, since the reviewer could always
+   * have written the same markup themselves, but one that quietly turns a technical control into a
+   * human one for third-party content the reviewer only skimmed as a diff (`InboxReview.vue`).
+   *
+   * A guest submission gets neither permission, unconditionally -- there is no group to check.
+   */
+  private async resolveSubmitterRenderPermissions(
+    authorId: string | null,
+    pageRef: RulePageRef
+  ): Promise<RenderPermissions> {
+    if (!authorId) {
+      return { scripts: false, styles: false }
+    }
+    const groupRows = await WIKI.db
+      .select({ groupId: groupsTable.id, permissions: groupsTable.permissions })
+      .from(userGroupsTable)
+      .innerJoin(groupsTable, eq(userGroupsTable.groupId, groupsTable.id))
+      .where(eq(userGroupsTable.userId, authorId))
+    const submitterActor = {
+      id: authorId,
+      permissions: uniq(groupRows.flatMap((row) => (row.permissions as string[] | null) ?? [])),
+      groupIds: groupRows.map((row) => row.groupId)
+    }
+    return {
+      scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
+      styles: hasPermission(submitterActor, 'write:styles', pageRef)
+    }
   }
 
   /**

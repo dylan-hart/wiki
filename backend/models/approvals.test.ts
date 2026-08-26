@@ -1,7 +1,11 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 
@@ -998,6 +1002,172 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     assert.deepEqual(forPage.map((s) => s.id).sort(), [first.id, second.id].sort())
   })
 })
+
+/**
+ * OpenProject #2187: `approveSubmission` must resolve `write:scripts`/`write:styles` from the
+ * SUBMITTER, not the reviewer finalizing the approval -- otherwise a reviewer who happens to hold
+ * either permission launders a submitter's `<script>`/inline handler past a grant the submitter
+ * never had (see `resolveSubmitterRenderPermissions`'s own comment in `models/approvals.ts`).
+ * `reviewer` below holds `manage:system` specifically because that is the case where laundering
+ * would be easiest to miss -- it bypasses every page-rule check for the reviewer themselves.
+ */
+describe(
+  'approvals render permissions resolve from the submitter, not the reviewer (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let reviewer: PageActor
+    let scriptedAuthorId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      reviewer = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: []
+      })
+
+      // -> A second user, granted `write:scripts` through a real group rule -- the "submitter who
+      //    DOES hold the permission" half of the assertion below.
+      const [scriptedAuthor] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'scripted-author@example.com',
+          name: 'Scripted Author',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      scriptedAuthorId = scriptedAuthor!.id
+
+      const [scriptsGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Scripters',
+          permissions: [],
+          rules: [
+            {
+              id: 'allow-scripts',
+              name: 'Allow scripts',
+              roles: ['write:scripts', 'write:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ userId: scriptedAuthorId, groupId: scriptsGroup!.id })
+      await WIKI.models.groups.reloadCache()
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    test('strips <script> and on* from a guest-authored submission even though the reviewer holds write:scripts', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/render-perms/guest',
+          title: 'Guest',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        reviewer
+      )
+      const html = '<p onclick="alert(1)">hi</p><script>alert(2)</script>'
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Guest suggestion',
+        authorId: null,
+        guestName: 'Guest',
+        guestEmail: 'guest@example.com'
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Guest suggestion',
+        render: html,
+        actor: reviewer
+      })
+
+      assert.equal(result.ok, true)
+      const updated = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.doesNotMatch(updated!.render, /<script/)
+      assert.doesNotMatch(updated!.render, /onclick/)
+    })
+
+    test('keeps <script> and on* from a submission whose author does hold write:scripts', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/render-perms/scripted',
+          title: 'Scripted',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        reviewer
+      )
+      const html = '<p onclick="alert(1)">hi</p><script>alert(2)</script>'
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Scripted suggestion',
+        authorId: scriptedAuthorId
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Scripted suggestion',
+        render: html,
+        actor: reviewer
+      })
+
+      assert.equal(result.ok, true)
+      const updated = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.match(updated!.render, /<script/)
+      assert.match(updated!.render, /onclick/)
+    })
+  }
+)
 
 describe('approvals pageViewerState siteId threading (task 678)', () => {
   /**
