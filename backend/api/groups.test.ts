@@ -147,6 +147,9 @@ describe(
     before(async () => {
       fixtures = await setupTestDb()
       ;({ groups: groupsModel } = await import('../models/groups.ts'))
+      // -> Not the guests group: `clampGuestPatch` only clamps roles for that one group, and this test
+      //    is about the `match`/`classifications` shape surviving validation, not the guest clamp.
+      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
 
       app = fastify({
         ajv: {
@@ -165,9 +168,7 @@ describe(
       await teardownTestDb()
     })
 
-    test('accepts a CLASSIFICATION rule and reads back its classifications array intact', async () => {
-      const classificationId = '11111111-1111-1111-1111-111111111111'
-
+    test('accepts a CLASSIFICATION rule and reads its classifications array back intact', async () => {
       const res = await app.inject({
         method: 'PUT',
         url: `/${fixtures.groupId}`,
@@ -175,14 +176,14 @@ describe(
           rules: [
             {
               id: 'classification-rule',
-              name: 'Confidential readers',
+              name: 'Restricted classification',
               roles: ['read:pages'],
               match: 'CLASSIFICATION',
-              mode: 'ALLOW',
+              mode: 'DENY',
               path: '',
               locales: [],
               sites: [],
-              classifications: [classificationId]
+              classifications: [fixtures.classificationId]
             }
           ]
         }
@@ -193,7 +194,7 @@ describe(
 
       const saved = await groupsModel.getGroupById(fixtures.groupId)
       assert.equal(saved?.rules[0]!.match, 'CLASSIFICATION')
-      assert.deepEqual(saved?.rules[0]!.classifications, [classificationId])
+      assert.deepEqual(saved?.rules[0]!.classifications, [fixtures.classificationId])
     })
   }
 )

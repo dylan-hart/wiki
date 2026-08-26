@@ -1,5 +1,5 @@
-import type { FastifyInstance } from 'fastify'
 import { GROUP_RULE_MATCH_VALUES } from '../../models/groups.ts'
+import type { FastifyInstance } from 'fastify'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -33,7 +33,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       match: {
         type: 'string',
-        description: 'How `path` is compared against the page path.',
+        description:
+          "How `path` is compared against the page path. CLASSIFICATION is the odd one out: it ignores `path` entirely and matches a page's `classification` against `classifications` instead — see GROUP_RULE_MATCH_VALUES in models/groups.ts, which this enum is generated from.",
         enum: GROUP_RULE_MATCH_VALUES
       },
       mode: {
@@ -64,7 +65,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       classifications: {
         type: 'array',
         description:
-          'Classification level IDs this rule addresses. Only read when `match` is `CLASSIFICATION`.',
+          'Classification level IDs this rule addresses. Read only when `match` is CLASSIFICATION, the same way `path` is read as a comma list only for TAG/TAGALL.',
         items: {
           type: 'string',
           format: 'uuid'
