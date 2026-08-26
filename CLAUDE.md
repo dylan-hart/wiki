@@ -241,12 +241,16 @@ Conventions established during the conversion, worth following in new code:
   wouldn't silently change runtime behavior. All four bugs that convention originally flagged
   (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
   `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
-  removed with them. One `FIXME:` remains, unrelated to the TS conversion — `index.ts`'s note by the
+  removed with them. A fifth `FIXME:`, unrelated to the TS conversion — `index.ts`'s note by the
   session/cookie plugin registration, on `WIKI.config.auth.secret` being captured by value instead of
-  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) does not
+  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) did not
   actually stop a still-running instance from signing new cookies with the invalidated secret until
-  that instance restarts; echoed at `models/apiKeys.ts:236` and `models/sessions.ts:93`. If a future
-  migration or refactor turns up another pre-existing bug outside its scope, follow the same
+  that instance restarted — has since been fixed too (OpenProject #2172): both `@fastify/cookie` and
+  `@fastify/session` are now handed `helpers/authSecretSigner.ts`, an object that reads
+  `WIKI.config.auth.secret` at call time instead of a value captured once at registration, so rotation
+  takes effect on every instance immediately, no restart needed. No `FIXME:` markers remain from the
+  TypeScript conversion, or from anywhere else in `backend/`. If a future migration or refactor turns
+  up another pre-existing bug outside its scope, follow the same
   pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
   rather than changing runtime behavior inline.
 
