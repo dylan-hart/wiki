@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 import { decodeTreePath, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
-import { INLINE_EXTS } from '../models/assets.ts'
+import { dispositionFor } from '../models/assets.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -307,7 +307,7 @@ async function routes(app: FastifyInstance) {
         return reply.redirect(content.redirectUrl, 302)
       }
 
-      if (WIKI.config.security?.forceAssetDownload || !INLINE_EXTS.has(asset.fileExt)) {
+      if (dispositionFor(asset)) {
         reply.header(
           'Content-Disposition',
           `attachment; filename="${encodeURIComponent(asset.fileName)}"`

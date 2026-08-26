@@ -39,9 +39,14 @@ describe('download route: byte-serving behavior', () => {
   let readContentResult: any
   let readContentCalledWith: any
 
+  /**
+   * `security.forceAssetDownload: true` matches `base.yml`'s real default, mirroring
+   * `files.test.ts`'s own `buildApp` -- both routes go through the same `dispositionFor()` now
+   * (OpenProject #2164), so a `zip` (a non-`INLINE_EXTS` extension) is only attached when this is on.
+   */
   async function buildApp() {
     global.WIKI = {
-      config: {},
+      config: { security: { forceAssetDownload: true } },
       sites: {
         [siteId]: { id: siteId, isEnabled: true }
       },

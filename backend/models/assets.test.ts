@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { assets } from './assets.ts'
+import { assets, dispositionFor } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -397,4 +397,39 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubStorage({ targets: [target] })
   stubDb(undefined)
   assert.equal(await assets.readContent(testAsset, 'site-1'), null)
+})
+
+/**
+ * `dispositionFor()` (OpenProject #2164) is the one predicate both `controllers/files.ts`'s `/_files/`
+ * route and `api/assets.ts`'s `/sites/:siteId/assets/:assetId/content` route call to decide
+ * `Content-Disposition: attachment` vs. inline. Before this, each route re-derived its own expression
+ * from `INLINE_EXTS` and `forceAssetDownload`, and the two had drifted to opposite answers for a
+ * non-`INLINE_EXTS` extension with `forceAssetDownload` off. These cases pin one answer per
+ * (extension, setting) pair, so a future edit to either call site can't reintroduce that drift without
+ * failing here first.
+ */
+function withForceAssetDownload(forceAssetDownload: boolean) {
+  global.WIKI.config = { security: { forceAssetDownload } }
+}
+
+test('dispositionFor never forces an INLINE_EXTS extension to download, forceAssetDownload on or off', () => {
+  withForceAssetDownload(true)
+  assert.equal(dispositionFor({ fileExt: 'png' }), false)
+  assert.equal(dispositionFor({ fileExt: 'svg' }), false)
+  withForceAssetDownload(false)
+  assert.equal(dispositionFor({ fileExt: 'png' }), false)
+  assert.equal(dispositionFor({ fileExt: 'svg' }), false)
+})
+
+test('dispositionFor forces a non-INLINE_EXTS extension to download only when forceAssetDownload is on', () => {
+  withForceAssetDownload(true)
+  assert.equal(dispositionFor({ fileExt: 'zip' }), true)
+  withForceAssetDownload(false)
+  assert.equal(dispositionFor({ fileExt: 'zip' }), false)
+})
+
+test('dispositionFor treats forceAssetDownload as off when the security config is absent entirely', () => {
+  global.WIKI.config = {}
+  assert.equal(dispositionFor({ fileExt: 'zip' }), false)
+  assert.equal(dispositionFor({ fileExt: 'png' }), false)
 })

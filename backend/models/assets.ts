@@ -44,6 +44,26 @@ const SWEEP_TARGET_RATIO = 0.8
  */
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
 
+/**
+ * Whether an asset's bytes should be sent as `Content-Disposition: attachment` rather than inline.
+ *
+ * The one decision both asset-serving routes (`controllers/files.ts`'s `/_files/` and
+ * `api/assets.ts`'s `/sites/:siteId/assets/:assetId/content`) call, so they cannot silently diverge
+ * on it the way they used to (OpenProject #2164): the API route forced a download on every asset
+ * once `forceAssetDownload` was on, images included, while `/_files/` never did — two different
+ * predicates guarding the same setting.
+ *
+ * An `INLINE_EXTS` member is never forced to download, `forceAssetDownload` or not: those are the
+ * types a page embeds inline in its own content (an `<img>`'s `src`, most often), and forcing a
+ * download would break that regardless of what an operator wants for files fetched directly. The
+ * per-response CSP the sibling task adds for SVG/HTML-typed assets is what keeps an inline asset
+ * from executing script — this predicate is defence in depth on top of it, not instead of it.
+ * Everything else downloads only when the site has `forceAssetDownload` turned on.
+ */
+export function dispositionFor(asset: Pick<Asset, 'fileExt'>): boolean {
+  return !INLINE_EXTS.has(asset.fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
+}
+
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
 export type AssetKind = 'document' | 'image' | 'other'
 

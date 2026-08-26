@@ -52,7 +52,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       forceAssetDownload: {
         type: 'boolean',
         description:
-          'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
+          'Enforced by both asset-serving routes — `GET /sites/:siteId/assets/:assetId/content` and the public `/_files/` path — through one shared predicate: when this is on, a non-image/non-SVG extension sends `Content-Disposition: attachment`; an inline-safe extension (images, SVG) is never forced to download, on or off, since those are the types a page embeds directly in its own content. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
         type: 'boolean',

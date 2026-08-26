@@ -35,6 +35,10 @@ describe('response headers (byte-serving behavior)', () => {
    * stub bypasses the base.yml merge entirely (task/OpenProject #859: the route used to force download
    * on EVERY asset whenever this was on, images included, contradicting its own admin-facing
    * description ("non-image files"); the fix scopes it to non-`INLINE_EXTS` extensions only).
+   *
+   * That scoping now lives in `models/assets.ts`'s exported `dispositionFor()`, called by this route
+   * unchanged (OpenProject #2164: it used to be re-derived here and independently, and divergently, in
+   * `api/assets.ts` -- see that route's own test coverage of the same predicate).
    */
   async function buildApp(security: Record<string, unknown> = { forceAssetDownload: true }) {
     global.WIKI = {
@@ -113,7 +117,7 @@ describe('response headers (byte-serving behavior)', () => {
     await app.close()
   })
 
-  test('never forces an image (INLINE_EXTS) extension to download, even with forceAssetDownload on (OpenProject #859)', async () => {
+  test('never forces an image (INLINE_EXTS) extension to download, even with forceAssetDownload on -- dispositionFor() (OpenProject #859, #2164)', async () => {
     resolvedAsset = { ...asset, fileName: 'photo.png', fileExt: 'png', mimeType: 'image/png' }
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: true })
@@ -124,7 +128,7 @@ describe('response headers (byte-serving behavior)', () => {
     await app.close()
   })
 
-  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+  test("does not force a non-image extension to download when forceAssetDownload is off -- dispositionFor() answers the same for this route as for `api/assets.ts`'s (OpenProject #2164)", async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
