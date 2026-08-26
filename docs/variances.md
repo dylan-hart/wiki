@@ -1406,7 +1406,7 @@ until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass
 
 ## Elasticsearch smoke suite is deliberately manual, not run in CI (OpenProject #2016)
 
-**Date:** 2026-08-26
+**Date:** 2026-08-25
 **Feature:** #2016 (part of #2004, "Make the four never-executing test suites run, or delete them")
 
 `backend/modules/search/elasticsearch/search.smoke.test.ts` gates its 12 tests on
