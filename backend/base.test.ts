@@ -22,3 +22,35 @@ test('base.yml declares an auditLog.retentionDays default matching DEFAULT_AUDIT
 
   assert.equal(parsed.defaults?.config?.auditLog?.retentionDays, DEFAULT_AUDIT_LOG_RETENTION_DAYS)
 })
+
+/**
+ * Regression coverage for the three dead top-level `defaults.config` keys removed by task 2021
+ * (2026-08-24 audit, operability-devex.md §15): `ssl.enabled`, `channel`, `maintainerEmail`. None
+ * of the three had a reader anywhere in `backend` or `frontend` -- `ssl.enabled` in particular is
+ * actively harmful to keep around, since it reads like the switch for the wiki's own HTTPS listener
+ * (which Wiki.js never terminates) even though nothing ever consulted it, right next to the
+ * genuinely-read, doc-commented `db.ssl` that configures the Postgres connection's TLS instead.
+ * This locks their removal so none of the three reappears in `base.yml`.
+ */
+test('base.yml has no top-level ssl, channel, or maintainerEmail keys', async () => {
+  const raw = await fs.readFile(baseYmlPath, 'utf8')
+  const data = load(raw) as Record<string, any>
+  const config = data.defaults?.config
+
+  assert.ok(config, 'expected defaults.config to exist in base.yml')
+  assert.equal(
+    Object.hasOwn(config, 'ssl'),
+    false,
+    'top-level ssl is dead (never read anywhere) and must not reappear in base.yml -- db.ssl is the real, read TLS setting'
+  )
+  assert.equal(
+    Object.hasOwn(config, 'channel'),
+    false,
+    'channel is dead (never read anywhere) and must not reappear in base.yml'
+  )
+  assert.equal(
+    Object.hasOwn(config, 'maintainerEmail'),
+    false,
+    'maintainerEmail is dead (never read anywhere) and must not reappear in base.yml'
+  )
+})

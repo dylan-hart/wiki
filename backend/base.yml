@@ -17,8 +17,6 @@ defaults:
       sslOptions:
         auto: true
       schema: wiki
-    ssl:
-      enabled: false
     pool:
       min: 1
     bindIP: 0.0.0.0
@@ -119,8 +117,6 @@ defaults:
       # Whether the daily updateLocales scheduled job is allowed to pull the latest strings from
       # requarks/wiki-locales. Set to false to disable automatic locale syncing.
       locales: true
-    # System defaults
-    channel: NEXT
 systemIds:
   localAuthId: '5a528c4c-0a82-4ad2-96a5-2b23811e6588'
   guestsGroupId: '10000000-0000-4000-8000-000000000001'
