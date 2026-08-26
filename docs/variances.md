@@ -610,77 +610,21 @@ throw and fall to the error panel, which is a separate, already-tracked gap betw
 `::block-katex`, not something this task's audit re-derives. Everything else in the table above
 applies equally to the literal path, since it uses the same KaTeX engine and default options.
 
-## Feature 402 — Puppeteer: server-side diagram pre-rendering descoped
-
-**Decided in:** Task 666 ("Decide and record scope per promised capability; correct definition.yml
-wording for whatever is descoped"), part of Feature 402 ("Extension-to-Feature Wiring: Pandoc Import
-& Puppeteer PDF/Diagram Export").
-
-Feature 402 covers three capabilities that `backend/modules/extensions/pandoc/definition.yml` and
-`backend/modules/extensions/puppeteer/definition.yml` promised but that nothing in the codebase
-actually implemented:
-
-1. **Pandoc multi-format page import** (MediaWiki, AsciiDoc, Textile, DocBook, …) — **building now**
-   (Feature 402 tasks 667/668). A straightforward `execFile` shell-out, comparable in shape to the
-   extension-install pattern already used elsewhere in `models/extensions.ts`.
-2. **Puppeteer PDF export** of a page — **building now** (Feature 402 tasks 669/670). A headless
-   Chromium print-to-PDF against the real, live page-view URL, waiting for async block components
-   (Mermaid, PlantUML) to settle before calling `page.pdf()`. This collided at merge-review time with
-   a materially simpler competing PDF export from `feature/page-version-export` (Feature 371, task
-   496); see "PDF export: two competing implementations reconciled" below for how that was resolved.
-3. **Puppeteer server-side pre-rendered Mermaid/PlantUML diagrams** — deferred at the time as
-   OpenProject task 785 ("Puppeteer: server-side pre-rendered Mermaid/PlantUML diagrams (deferred
-   from Feature #402)"), **since shipped** on `feature/puppeteer-diagram-prerender`
-   (`backend/models/diagramRender.ts`). See "Task 785 — server-side diagram pre-rendering" below for
-   the design it landed on, which sidesteps the architectural problem described in "Why #3 is
-   deferred" rather than solving it as originally framed.
-
-### Why #3 is deferred and #1/#2 are not
-
-Web research (recorded on Feature 402) confirms none of the three ever shipped in Wiki.js 2.5.x —
-each surfaces only as a community feature request, never a delivered feature. So none of the three
-required migration or compatibility handling; the only question was whether to build each for real
-now or correct the `definition.yml` claim.
-
-\#1 and #2 are both straightforward: a CLI conversion piped through `execFile`, and a headless-browser
-print of a page that already renders correctly in a live browser context. Both fit cleanly into
-existing patterns in this codebase.
-
-\#3 is architecturally heavier. Mermaid, PlantUML, and Kroki diagrams are drawn entirely client-side
-today by `block-diagram` / `block-plantuml` / `block-kroki` — Lit web components that read their
-fenced source out of the page and render at _view time_, inside a live browser page that has loaded
-the full block-component runtime. The existing headless surface
-(`backend/controllers/render.ts` `/_render`, driven by `models/rendering.ts`) only re-runs the
-markdown-to-HTML pass (`frontend/src/renderers/headless.js` → `window.__wikiRender`); it is a bare
-shell that does not load block components at all, so it cannot produce pre-rendered diagram markup
-today even in principle. Making it do so means running Lit block components inside a headless
-context outside their current view-time-only execution model — a real design problem (how a headless
-pass instantiates the block, waits for its diagram library to settle, extracts or rasterizes the
-result, and where that output is cached relative to stored `page.render` HTML), not a shell-out or a
-print job. That is out of proportion for this Feature, so it is descoped to task 785 rather than
-built now.
-
-### Correction made, then reverted once task 785 shipped
-
-`backend/modules/extensions/puppeteer/definition.yml`'s `description` originally mentioned
-server-side diagram rendering; Feature 402 narrowed it to PDF export only, since that was all it
-built. Task 785 (below) restored a mention of diagram pre-rendering once that capability actually
-existed again.
-
 ## Task 785 — server-side diagram pre-rendering
 
 **Built on:** `feature/puppeteer-diagram-prerender`, closing OpenProject task 785. Delivers
 `backend/models/diagramRender.ts` (`WIKI.models.diagramRender.render()`) plus `POST
 /_api/diagrams/render`.
 
-**The design problem this sidesteps, not solves.** "Why #3 is deferred" above framed the blocker as
-making the headless `/_render` shell run Lit block components as part of rendering a whole *page* —
-a real design problem (block lifecycle inside a non-view context, cache invalidation against stored
-`page.render` HTML) genuinely out of proportion for Feature 402. This task never takes on that
-problem: it renders one diagram from raw source, independent of any page, so there is no page-render
-pipeline to extend and no render cache to invalidate. That framing — page-level pre-rendering wired
-into `models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task
-if ever wanted.
+**The design problem this sidesteps, not solves.** `docs/decisions/diagram-prerendering-scope.md`
+(the record of Feature 402's original descope decision) frames the blocker as making the headless
+`/_render` shell run Lit block components as part of rendering a whole *page* — a real design
+problem (block lifecycle inside a non-view context, cache invalidation against stored `page.render`
+HTML) genuinely out of proportion for that Feature's scope. This task never takes on that problem:
+it renders one diagram from raw source, independent of any page, so there is no page-render pipeline
+to extend and no render cache to invalidate. That framing — page-level pre-rendering wired into
+`models/rendering.ts`'s stored-HTML pipeline — remains unbuilt and would be its own future task if
+ever wanted.
 
 **Mermaid** still needs a real browser — `mermaid` lays out and paints via the DOM, so there is no way
 around one. Rather than adding a second `mermaid` dependency to the backend (liable to drift from the
