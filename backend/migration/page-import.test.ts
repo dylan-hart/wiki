@@ -3,7 +3,6 @@ import { describe, test } from 'node:test'
 import { SOURCE_SYSTEM_WIKIJS_2_5X } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { MigrationRecord, ProvenanceStore } from './provenance.ts'
-import type { PathAssignmentInput } from './path-normalization.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 import {
@@ -149,14 +148,6 @@ class FakePagesModel implements PagesWriteModel {
 
 const noExistingEntries = () => false
 
-/** `importPages()` (WP #1790 / Task #1818) takes the lightweight `{oldId, path, locale}` locations
- * separately from the streamed `StagedPage`s themselves — see the module doc comment. Most of this
- * file's tests don't care about that split at all, so this wrapper reconstructs both from a plain
- * array the same way the pre-streaming signature used to accept it. */
-function locationsFor(pages: StagedPage[]): PathAssignmentInput[] {
-  return pages.map((p) => ({ oldId: p.oldId, path: p.path, locale: p.locale }))
-}
-
 async function* toAsyncIterable(pages: StagedPage[]): AsyncGenerator<StagedPage> {
   yield* pages
 }
@@ -166,7 +157,7 @@ function runImportPages(
   deps: ImportPagesDeps,
   options: ImportPagesOptions
 ): Promise<PageImportResult> {
-  return importPages(locationsFor(pages), toAsyncIterable(pages), deps, options)
+  return importPages(toAsyncIterable(pages), deps, options)
 }
 
 describe('derivePublishState', () => {
@@ -584,7 +575,11 @@ describe('importPages', () => {
     assert.equal(pagesModel.created.length, 1)
   })
 
-  test('sibling-collision pages are both reported as failures and neither is created', async () => {
+  test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — only the later one fails', async () => {
+    // -> Streaming importPages() cannot fail both sides of a collision the way a batch assignTreePaths()
+    //    call could: by the time "foobar" is seen to collide with "FooBar", "FooBar" has already been
+    //    created. See the module doc comment's "Streaming input and per-page sibling-collision
+    //    detection".
     const pagesModel = new FakePagesModel()
     const pages = [
       buildStagedPage({ oldId: 1, path: 'FooBar' }),
@@ -597,9 +592,12 @@ describe('importPages', () => {
       { siteId: 'site-1', actorPermissions: [] }
     )
 
-    assert.equal(pagesModel.created.length, 0)
-    assert.equal(result.failed.length, 2)
-    assert.ok(result.failed.every((f) => f.reason === 'sibling-collision'))
+    assert.equal(pagesModel.created.length, 1)
+    assert.equal(result.succeeded.length, 1)
+    assert.equal(result.succeeded[0].oldId, 1)
+    assert.equal(result.failed.length, 1)
+    assert.equal(result.failed[0].oldId, 2)
+    assert.equal(result.failed[0].reason, 'sibling-collision')
   })
 
   describe('provenance/idempotency (Feature 421 task 746 / Bug 1761)', () => {
@@ -621,8 +619,8 @@ describe('importPages', () => {
       })
 
       // The prior run's own page really does occupy this tree slot — existingEntry would report a
-      // collision if assignTreePaths ever saw this page, which is exactly what the provenance lookup
-      // ahead of it must prevent.
+      // collision if the per-page collision check ever saw this page, which is exactly what the
+      // provenance lookup ahead of it must prevent.
       const result = await runImportPages(
         [staged],
         { pagesModel, existingEntry: () => true, provenanceStore },
@@ -745,7 +743,6 @@ describe('importPages', () => {
     }
 
     const result = await importPages(
-      locationsFor(staged),
       source(),
       { pagesModel, existingEntry: noExistingEntries, provenanceStore: fakeProvenanceStore() },
       { siteId: 'site-1', actorPermissions: [] }
@@ -779,7 +776,6 @@ describe('importPages', () => {
     }
 
     await importPages(
-      locationsFor(staged),
       source(),
       {
         pagesModel,
@@ -813,7 +809,6 @@ describe('importPages', () => {
     }
 
     const result = await importPages(
-      locationsFor(staged),
       toAsyncIterable(staged),
       {
         pagesModel,

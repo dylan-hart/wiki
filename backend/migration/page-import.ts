@@ -1,16 +1,12 @@
 import { IdMap } from './id-map.ts'
-import { assignTreePaths, normalizeMigratedPath } from './path-normalization.ts'
+import { normalizeMigratedPath } from './path-normalization.ts'
 import {
   lookupOrInsert,
   reconcileNaturalKeyMatch,
   resolveExisting,
   SOURCE_SYSTEM_WIKIJS_2_5X
 } from './provenance.ts'
-import type {
-  PathAssignmentInput,
-  PathAssignmentOptions,
-  TreePathAssignment
-} from './path-normalization.ts'
+import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
 import type { ExistingMapping, LookupOrInsertAction, ProvenanceStore } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { PageHistoryImportResult } from './page-history-import.ts'
@@ -34,27 +30,63 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `createProvenanceStore(WIKI.db)` implementations (and `page-history-import.ts`'s
  * `backfillPageHistoryForPage`) here.
  *
- * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
- * it first) — that module's own doc comment names this task as the wiring point for the real
- * `WIKI.models.tree` lookup its `existingEntry` callback needs, so it is threaded straight through as
- * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to normalize
- * or collides never reaches `createPage()` at all; it comes back as a `PageImportFailure` with the same
- * `reason` `assignTreePaths` gave it.
+ * `importPages()` normalizes and collision-checks each page's tree location itself, via `./path-normalization.ts`'s
+ * `normalizeMigratedPath()`, rather than requiring the caller to run it first. That module's own doc
+ * comment names this task as the wiring point for the real `WIKI.models.tree` lookup its
+ * `existingEntry` callback needs, so it is threaded straight through as `ImportPagesDeps.existingEntry`
+ * rather than re-implemented here. A page whose path fails to normalize or collides never reaches
+ * `createPage()` at all; it comes back as a `PageImportFailure` with the same `reason`
+ * `normalizeMigratedPath()`/the collision check below gave it.
+ *
+ * ## Streaming input and per-page sibling-collision detection (OpenProject #1818)
+ *
+ * `pages` is consumed as an `AsyncIterable` (an ordinary array works too — `for await` accepts both),
+ * one page at a time, rather than materialized into a `StagedPage[]` up front — this is what lets
+ * `extractContentStaging()`'s streaming generator (#1798) hand pages to `importPages()` one at a time
+ * instead of buffering the whole corpus, per the parent epic #1790. Each page is fully processed
+ * (path-assigned, created, its history backfilled — see below) before the next one is even pulled from
+ * the iterable, so at most one page's heavy fields (`content`/`render`/`toc`/history `content`) are
+ * resident at a time.
+ *
+ * That single-pass shape changes sibling-collision semantics from the previous batch behavior: `path-normalization.ts`'s
+ * `assignTreePaths()` sees every page up front and fails *both* sides of a collision, since which of
+ * two arbitrarily-cased paths "should" win isn't its call to make. A true one-pass stream cannot do
+ * that — by the time a later page is discovered to collide with an earlier one, the earlier page has
+ * already been created; there is no "both fail" available any more. `importPages()` therefore tracks
+ * each `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes, and a later page
+ * that lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
+ * already-created page is kept. First-in-the-stream wins.
+ *
+ * ## History backfill, interleaved (OpenProject #1818)
+ *
+ * Immediately after a page is created (and any `queueRerender()` call resolves), `importPages()` calls
+ * `page-history-import.ts`'s `backfillPageHistoryForPage()` for that one page's `history` chain alone —
+ * resolving `pageIdMap` for a single freshly-created page rather than waiting for the whole run, via
+ * `ImportPagesDeps.backfillHistory`. This is what "page 1's history lands before page 2 is even staged"
+ * means in practice: nothing about page 2 is pulled from the input iterable until page 1's
+ * create-and-backfill has already finished. A history-insert failure for one page is folded into that
+ * page's own warnings (and the flat `PageImportResult.warnings`) rather than turned into a
+ * `PageImportFailure` — the page itself was created successfully; only some of its past revisions may
+ * be missing, the same "non-fatal, reported as a warning" treatment already given to an editor fallback
+ * or a render-bootstrap downgrade. This keeps every source page accounted for exactly once, in exactly
+ * one of `succeeded`/`failed`, per this task's own description, and means one page's history failure
+ * neither aborts the run nor loses any other page's rows.
  *
  * ## Provenance and re-runnability (Feature 421 task 746 / Bug 1761)
  *
  * A page this importer (or an interrupted prior run of it) already created is resolved through
- * `../provenance.ts` *before* `assignTreePaths` ever sees it — a `migrationRecords` exact-key hit, or
- * a natural-key match on `(siteId, locale, path)` for the interrupted-run edge case `provenance.ts`
- * documents, marks the page `skipped` and hands back the destination id already on record, without
- * ever asking `assignTreePaths` for a tree slot. Doing the lookup first (rather than filtering
- * `assignTreePaths`'s own `existing-entry-collision` failures after the fact) is what lets a re-run
- * tell "this page is my own prior work" apart from "a genuinely foreign occupant of this path" — the
- * latter is the only thing that should still fail as `existing-entry-collision`. Only pages that come
- * back with no mapping are handed to `assignTreePaths` as a batch (so sibling-collision detection still
- * compares them against each other), and a genuinely new page's write goes through `lookupOrInsert`,
- * which is what actually persists the new mapping — unlike the read-only classification pass in
- * `phases/content.ts`, which deliberately does not (see that module's doc comment for why).
+ * `../provenance.ts` *before* this page's path is assigned or collision-checked at all — a
+ * `migrationRecords` exact-key hit, or a natural-key match on `(siteId, locale, path)` for the
+ * interrupted-run edge case `provenance.ts` documents, marks the page `skipped` and hands back the
+ * destination id already on record, without ever asking `normalizeMigratedPath()`/the per-page
+ * sibling-collision check above for a tree slot. Doing the lookup first (rather than treating an
+ * `existingEntry` collision as fatal after the fact) is what lets a re-run tell "this page is my own
+ * prior work" apart from "a genuinely foreign occupant of this path" — the latter is the only thing
+ * that should still fail as `existing-entry-collision`. Only a page that comes back with no mapping
+ * goes through the sibling-collision/`existingEntry` checks above, and a genuinely new page's write
+ * goes through `lookupOrInsert`, which is what actually persists the new mapping — unlike the
+ * read-only classification pass in `phases/content.ts`, which deliberately does not (see that module's
+ * doc comment for why).
  *
  * ## The synthetic per-page actor
  *
@@ -126,9 +158,10 @@ export interface PagesWriteModel {
 export interface ImportPagesDeps {
   pagesModel: PagesWriteModel
   /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
-   * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
+   * straight through to the per-page collision check this module runs itself (see module doc
+   * comment's "Streaming input and per-page sibling-collision detection"). */
   existingEntry: PathAssignmentOptions['existingEntry']
-  /** Backs the provenance/idempotency check every page is resolved through before `assignTreePaths` —
+  /** Backs the provenance/idempotency check every page is resolved through before path assignment —
    * see "Provenance and re-runnability" in the module doc comment. */
   provenanceStore: ProvenanceStore
   /**
@@ -184,9 +217,9 @@ export interface PageImportSuccess {
    * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. Empty for a `'skipped'`
    * page, since none of the mapping logic that produces these notes runs when nothing is created. */
   warnings: string[]
-  /** What `lookupOrInsert` (or the pre-`assignTreePaths` provenance check standing in for it — see the
-   * module doc comment) did for this page. `importPages` never requests `'updated'`: a re-run always
-   * skips a page it finds already mapped rather than modifying it. */
+  /** What `lookupOrInsert` (or the pre-tree-slot provenance check standing in for it — see the module
+   * doc comment) did for this page. `importPages` never requests `'updated'`: a re-run always skips a
+   * page it finds already mapped rather than modifying it. */
   action: LookupOrInsertAction
 }
 
@@ -433,28 +466,30 @@ function pageProvenanceKey(siteId: string, staged: Pick<StagedPage, 'oldId'>) {
   }
 }
 
+/** Builds the `Map` key one `(locale, parentPath, fileName)` tree location collapses to for the
+ * per-page sibling-collision check — see the module doc comment. ` `-joined rather than
+ * space-joined (as `path-normalization.ts`'s own private `locationKey` does) purely so a value
+ * containing a literal space can never coincide with the separator; the two are otherwise equivalent
+ * and never compared against each other. */
+function streamedLocationKey(locale: string, parentPath: string, fileName: string): string {
+  return `${locale} ${parentPath} ${fileName}`
+}
+
 /**
  * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
- * (WP #1790 / Task #1818): `pages` is consumed one page at a time from `content-staging.ts`'s
- * `extractContentStaging()` generator, so a page's `content`/`render`/`toc` (and its whole history
- * chain) are only ever resident for as long as this loop is actually working on that one page.
+ * (WP #1790 / Task #1818): `pages` is consumed one page at a time (an `AsyncIterable` or a plain
+ * `Iterable` both work — `for await` accepts either), and each page is fully resolved — provenance
+ * checked, path-assigned, created, its history backfilled — before the next one is even pulled off
+ * `pages`, so at most one page's heavy fields are resident at a time. See the module doc comment's
+ * "Streaming input and per-page sibling-collision detection", "History backfill, interleaved" and
+ * "Provenance and re-runnability".
  *
- * `locations` is the lightweight `{oldId, path, locale}` triple for *every* page in the run — built
- * once up front by `content-staging.ts`'s `buildContentStagingIndex()`, the same pre-pass
- * `extractContentStaging()` itself depends on. It does double duty here: `assignTreePaths` (Task 736)
- * has to see every page's path before it can detect a sibling collision, and the provenance/idempotency
- * pre-resolution (below) has to run to completion before `assignTreePaths` is even called (see
- * "Provenance and re-runnability") — both only need `{oldId, path, locale}`, so both run off `locations`
- * rather than requiring a first pass over the heavy `pages` stream. Unlike `content`/`render`/`toc`, a
- * `{oldId, path, locale}` triple is cheap enough to keep resident for a whole run without reintroducing
- * the memory problem this streaming shape exists to fix.
- *
- * Never throws for one bad, colliding, or already-imported page — each becomes a `PageImportFailure`
- * or a skipped/created `PageImportSuccess` instead, so one page's bad data cannot abort the whole run.
+ * Never throws for one bad, colliding, already-imported, or history-failing page — each becomes a
+ * `PageImportFailure` (or a warning on an otherwise-successful page) instead, so one page's bad data
+ * cannot abort the whole run.
  */
 export async function importPages(
-  locations: PathAssignmentInput[],
-  pages: AsyncIterable<StagedPage>,
+  pages: AsyncIterable<StagedPage> | Iterable<StagedPage>,
   deps: ImportPagesDeps,
   options: ImportPagesOptions
 ): Promise<PageImportResult> {
@@ -465,55 +500,29 @@ export async function importPages(
   const pageIdMap = new IdMap<number>()
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
+  // -> Every tree location already claimed by an earlier page in this stream, oldId → key. Lightweight
+  //    by construction (three short strings per page) — safe to keep resident for the whole run, unlike
+  //    the heavy StagedPage fields this streaming shape exists to avoid holding onto.
+  const claimedLocations = new Map<string, number>()
 
-  // -> Provenance lookup ahead of assignTreePaths: a page already mapped (by prior run or natural-key
-  //    fallback) needs no tree slot at all, and must never compete for one against its own past self.
-  //    Resolved off `locations` — the lightweight {oldId, path, locale} triple, not the `pages` stream
-  //    itself — because `pages` is a single-pass AsyncIterable and this has to finish before
-  //    assignTreePaths is called; see the module doc comment's "Provenance and re-runnability".
-  const preResolved = new Map<number, ExistingMapping>()
-  const locationsNeedingTreeSlot: PathAssignmentInput[] = []
+  for await (const staged of pages) {
+    const normalized = normalizeMigratedPath(staged.path)
 
-  for (const location of locations) {
-    const normalized = normalizeMigratedPath(location.path)
-    const existing = await resolveExisting(
+    // -> Provenance lookup ahead of the tree-slot check below: a page already mapped (by a prior run,
+    //    or the natural-key fallback) needs no tree slot at all, and must never compete for one against
+    //    its own past self — see the module doc comment's "Provenance and re-runnability".
+    const existing: ExistingMapping | undefined = await resolveExisting(
       deps.provenanceStore,
-      pageProvenanceKey(options.siteId, location),
+      pageProvenanceKey(options.siteId, staged),
       'reason' in normalized
         ? undefined
         : () =>
             deps.provenanceStore.findExistingPageByPath(
               options.siteId,
-              location.locale,
+              staged.locale,
               normalized.path
             )
     )
-    if (existing) {
-      preResolved.set(location.oldId, existing)
-      continue
-    }
-    locationsNeedingTreeSlot.push(location)
-  }
-
-  const pathResult = await assignTreePaths(locationsNeedingTreeSlot, {
-    siteId: options.siteId,
-    existingEntry: deps.existingEntry
-  })
-
-  for (const failure of pathResult.failures) {
-    failed.push({
-      oldId: failure.oldId,
-      path: failure.path,
-      locale: failure.locale,
-      reason: failure.reason,
-      message: failure.message
-    })
-  }
-
-  const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
-
-  for await (const staged of pages) {
-    const existing = preResolved.get(staged.oldId)
     if (existing) {
       // -> This IS the real write path (unlike phases/content.ts's read-only classification pass), so
       //    a natural-key match is backfilled into migrationRecords here — reconcileNaturalKeyMatch has
@@ -536,9 +545,63 @@ export async function importPages(
       continue
     }
 
-    const assignment = assignmentByOldId.get(staged.oldId)
-    // -> No assignment means this page already came back as a path failure above.
-    if (!assignment) continue
+    if ('reason' in normalized) {
+      failed.push({
+        oldId: staged.oldId,
+        path: staged.path,
+        locale: staged.locale,
+        reason: normalized.reason,
+        message: normalized.message
+      })
+      continue
+    }
+
+    const locationKey = streamedLocationKey(
+      staged.locale,
+      normalized.parentPath,
+      normalized.fileName
+    )
+    const claimedByOldId = claimedLocations.get(locationKey)
+    if (claimedByOldId !== undefined) {
+      failed.push({
+        oldId: staged.oldId,
+        path: normalized.path,
+        locale: staged.locale,
+        reason: 'sibling-collision',
+        message:
+          `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
+          `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
+          '— the earlier page was kept, this one was not.'
+      })
+      continue
+    }
+
+    const treeExists = await deps.existingEntry(
+      options.siteId,
+      staged.locale,
+      normalized.parentPath,
+      normalized.fileName
+    )
+    if (treeExists) {
+      failed.push({
+        oldId: staged.oldId,
+        path: normalized.path,
+        locale: staged.locale,
+        reason: 'existing-entry-collision',
+        message: `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
+      })
+      continue
+    }
+
+    claimedLocations.set(locationKey, staged.oldId)
+
+    const assignment: TreePathAssignment = {
+      oldId: staged.oldId,
+      locale: staged.locale,
+      parentPath: normalized.parentPath,
+      fileName: normalized.fileName,
+      path: normalized.path
+    }
 
     const mapped = mapStagedPageToInput(
       staged,
@@ -597,8 +660,8 @@ export async function importPages(
       // -> Immediately after this page's own createPage() — before the next page is even pulled off
       //    `pages` — so a large corpus's history lands interleaved with page creation rather than
       //    buffered until the whole run's pages exist. See ImportPagesDeps.backfillHistory. Gated on
-      //    `result.action === 'created'` — a page resolved as `'updated'`/matched by natural key
-      //    already has whatever history a prior run gave it.
+      //    `result.action === 'created'` — a page resolved as `'skipped'` via provenance already has
+      //    whatever history a prior run gave it.
       const historyResult = await deps.backfillHistory(staged, result.destId)
       pageWarnings.push(...historyResult.warnings)
       for (const historyFailure of historyResult.failed) {
