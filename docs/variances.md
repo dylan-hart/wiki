@@ -890,6 +890,12 @@ site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filt
 document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
 explicitly.
 
+The same reasoning applies verbatim to `aws-cloudsearch/search.ts` (OpenProject #2113): its `init()`
+provisions one CloudSearch domain per site, but nothing enforces that two sites' `domain`/`endpoint`
+config can't collide, so its documents also carry a filterable `siteId` field and `buildFilterQuery()`
+unconditionally terms every query against it — this module was the one holdout among the five search
+modules until #2113 closed the gap.
+
 ## Feature 413 ("RTL support end-to-end")
 
 ### No real Arabic/Hebrew locale data (task 727)

@@ -156,11 +156,20 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
       ].sort()
     )
+  })
+
+  test('siteId is a literal, unreturned, unsearched, unfaceted field (OpenProject #2113)', () => {
+    const siteId = fields.find((f) => f.name === 'siteId')!
+    assert.equal(siteId.type, 'literal')
+    assert.equal(siteId.options.searchEnabled, false)
+    assert.equal(siteId.options.facetEnabled, false)
+    assert.equal(siteId.options.returnEnabled, false)
   })
 
   test('id is a literal field with search and facet disabled', () => {
@@ -261,6 +270,7 @@ describe('aws-cloudsearch module: init()', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
@@ -405,6 +415,7 @@ describe('aws-cloudsearch module: toIndexDocument', () => {
     const doc = toIndexDocument(basePage())
     assert.equal(doc.type, 'add')
     assert.equal(doc.id, 'page-1')
+    assert.equal(doc.fields.siteId, 'site-1')
     assert.equal(doc.fields.path, 'en/getting-started')
     assert.equal(doc.fields.locale, 'en')
     assert.equal(doc.fields.title, 'Getting Started')
@@ -501,86 +512,91 @@ describe('aws-cloudsearch module: buildStructuredQuery', () => {
 })
 
 describe('aws-cloudsearch module: buildFilterQuery', () => {
-  test('undefined when nothing is set beyond the default draft exclusion is itself the only clause', () => {
-    // -> `includeDrafts: false` (the default) always contributes a clause, so this asserts the shape
-    //    of that one clause rather than an empty filter.
-    assert.equal(buildFilterQuery({}), `(not (term field=publishState 'draft'))`)
-  })
-
-  test('undefined when every filter is off, including draft exclusion', () => {
-    assert.equal(buildFilterQuery({ includeDrafts: true }), undefined)
-  })
-
-  test('path becomes a prefix clause', () => {
+  test('siteId alone (every other filter off, including draft exclusion) is the whole clause', () => {
+    // -> OpenProject #2113: `siteId` is unconditional, unlike every other filter, so this is the
+    //    no-filters floor rather than an empty/undefined result.
     assert.equal(
-      buildFilterQuery({ path: 'en/guides', includeDrafts: true }),
-      `(prefix field=path 'en/guides')`
+      buildFilterQuery({ siteId: 'site-1', includeDrafts: true }),
+      `(term field=siteId 'site-1')`
+    )
+  })
+
+  test('siteId plus the default draft exclusion and-join into one clause', () => {
+    // -> `includeDrafts: false` (the default) always contributes a clause too, so with no other
+    //    filter set this is `siteId` and-joined with the draft exclusion.
+    assert.equal(
+      buildFilterQuery({ siteId: 'site-1' }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')))`
+    )
+  })
+
+  test('path becomes a prefix clause, alongside the unconditional siteId term', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: 'site-1', path: 'en/guides', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en/guides'))`
     )
   })
 
   test('multiple locales become an or of term clauses', () => {
     assert.equal(
-      buildFilterQuery({ locales: ['en', 'fr'], includeDrafts: true }),
-      `(or (term field=locale 'en') (term field=locale 'fr'))`
+      buildFilterQuery({ siteId: 'site-1', locales: ['en', 'fr'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=locale 'en') (term field=locale 'fr')))`
     )
   })
 
   test('multiple tags become an or of term clauses, any-of not all-of', () => {
     assert.equal(
-      buildFilterQuery({ tags: ['a', 'b'], includeDrafts: true }),
-      `(or (term field=tags 'a') (term field=tags 'b'))`
+      buildFilterQuery({ siteId: 'site-1', tags: ['a', 'b'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=tags 'a') (term field=tags 'b')))`
     )
   })
 
   test('editor becomes a term clause', () => {
     assert.equal(
-      buildFilterQuery({ editor: 'markdown', includeDrafts: true }),
-      `(term field=editor 'markdown')`
+      buildFilterQuery({ siteId: 'site-1', editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=editor 'markdown'))`
     )
   })
 
   test('publicOnly restricts to published, overriding includeDrafts', () => {
     assert.equal(
-      buildFilterQuery({ publicOnly: true, includeDrafts: true }),
-      `(term field=publishState 'published')`
+      buildFilterQuery({ siteId: 'site-1', publicOnly: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=publishState 'published'))`
     )
   })
 
   test('an explicit publishState adds its own clause alongside the draft exclusion', () => {
     assert.equal(
-      buildFilterQuery({ publishState: 'published' }),
-      `(and (not (term field=publishState 'draft')) (term field=publishState 'published'))`
+      buildFilterQuery({ siteId: 'site-1', publishState: 'published' }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')) (term field=publishState 'published'))`
     )
   })
 
   test('hasPassword becomes a literal true/false term clause', () => {
     assert.equal(
-      buildFilterQuery({ hasPassword: false, includeDrafts: true }),
-      `(term field=hasPassword 'false')`
+      buildFilterQuery({ siteId: 'site-1', hasPassword: false, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'false'))`
     )
     assert.equal(
-      buildFilterQuery({ hasPassword: true, includeDrafts: true }),
-      `(term field=hasPassword 'true')`
+      buildFilterQuery({ siteId: 'site-1', hasPassword: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'true'))`
     )
   })
 
-  test('several filters and-join into one clause', () => {
+  test('several filters and-join into one clause, siteId always first', () => {
     assert.equal(
-      buildFilterQuery({ path: 'en', editor: 'markdown', includeDrafts: true }),
-      `(and (prefix field=path 'en') (term field=editor 'markdown'))`
+      buildFilterQuery({ siteId: 'site-1', path: 'en', editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en') (term field=editor 'markdown'))`
     )
   })
 
-  test('never mentions siteId — a site only ever talks to its own domain', () => {
-    const clause = buildFilterQuery({
-      path: 'en',
-      locales: ['en'],
-      tags: ['a'],
-      editor: 'markdown',
-      publishState: 'published',
-      hasPassword: true
-    })
-    assert.ok(!clause!.includes('siteId'))
+  test('always scopes to the requesting site — OpenProject #2113, two sites sharing one domain', () => {
+    const clauseForA = buildFilterQuery({ siteId: 'site-a', includeDrafts: true })
+    const clauseForB = buildFilterQuery({ siteId: 'site-b', includeDrafts: true })
+    assert.ok(clauseForA.includes(`field=siteId 'site-a'`))
+    assert.ok(!clauseForA.includes('site-b'))
+    assert.ok(clauseForB.includes(`field=siteId 'site-b'`))
+    assert.ok(!clauseForB.includes('site-a'))
   })
 })
 

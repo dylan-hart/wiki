@@ -94,6 +94,17 @@ export function buildIndexFields(analysisScheme: string): CloudSearchFieldSpec[]
       //    name); indexing/faceting on it would be meaningless.
       options: { searchEnabled: false, facetEnabled: false, returnEnabled: true }
     },
+    {
+      name: 'siteId',
+      type: 'literal',
+      // -> OpenProject #2113: what `buildFilterQuery()` unconditionally terms every query against, so
+      //    a query never returns another site's rows even when two sites' engine config happens to
+      //    point at the same domain. Same treatment as `hasPassword`/`classification` above: a literal
+      //    field is filterable via a `term` clause regardless of `searchEnabled`/`facetEnabled`, so
+      //    neither is needed here, and the value is never surfaced to a caller — `SearchResult` has no
+      //    `siteId` of its own — so it is not returned either.
+      options: { searchEnabled: false, facetEnabled: false, returnEnabled: false }
+    },
     { name: 'path', type: 'text', options: { returnEnabled: true, analysisScheme } },
     { name: 'locale', type: 'text', options: { returnEnabled: true, analysisScheme } },
     { name: 'title', type: 'text', options: { returnEnabled: true, analysisScheme } },
@@ -362,6 +373,7 @@ export function toIndexDocument(page: SearchIndexablePage): SdfAddDocument {
     type: 'add',
     id: page.id,
     fields: {
+      siteId: page.siteId,
       path: page.path,
       locale: page.locale,
       title: page.title,
@@ -481,6 +493,7 @@ function publishStateClauses(
 }
 
 export interface CloudSearchFilterParams {
+  siteId: string
   path?: string
   locales?: string[]
   tags?: string[]
@@ -496,20 +509,24 @@ export interface CloudSearchFilterParams {
  * The `filterQuery` (`fq`) expression for a query — structured-query clauses `and`-joined, one per
  * active filter, the same shape `azure-search`'s own `buildFilter` builds as an OData `$filter`.
  *
- * Deliberately carries no `siteId` clause, unlike `azure-search`'s: that module's index can hold
- * documents from several sites sharing one Azure service, so every one of its queries scopes by
- * `siteId`. This module's `CloudSearchQueryClient` is built per site from that site's own stored
- * `domain`/`endpoint` config (`queryClientFor` below) — talking to a given site's engine already only
- * ever reaches that site's own CloudSearch domain, so a document-level `siteId` clause would filter
- * against a value nothing in this schema stores. Matches this task's own literal `fq` spec, which
- * enumerates `path`/`locale`/`tags`/`editor`/`publishState` and not `siteId`.
+ * OpenProject #2113: always scoped to `siteId`, mirroring `elasticsearch/search.ts:175`
+ * (`{ term: { siteId } }`), `algolia/search.ts:101` (`siteId: "..."`) and `azure-search/search.ts:347`
+ * (`eqFilter('siteId', params.siteId)`). This used to be the one search module that left `siteId` out,
+ * on the assumption that `queryClientFor`'s per-site client — built from that site's own stored
+ * `domain`/`endpoint` config — already meant a query could only ever reach that site's own domain. That
+ * assumption doesn't hold: `site.config.search.engines[key]`'s `domain`/`endpoint` carries no
+ * uniqueness check, so two sites can be configured against the same domain, and a shared domain would
+ * otherwise let a request scoped to one site's page rules see the other site's rows. The value is not
+ * "nothing in this schema stores" either — `init()` provisions `siteId` as a plain filterable literal
+ * field (`buildIndexFields()`) and `toIndexDocument()` writes it on every document, the same as every
+ * other field this clause filters on.
  *
  * `tags` becomes an `or` of one `term` clause per requested tag: a document matches if any of its tags
  * is in the requested set — the array-field equivalent of `p.tags @> ...` in postgres (any-of, not
  * all-of), matching `azure-search`'s `tags/any(...)`.
  */
-export function buildFilterQuery(params: CloudSearchFilterParams): string | undefined {
-  const clauses: string[] = []
+export function buildFilterQuery(params: CloudSearchFilterParams): string {
+  const clauses: string[] = [termClause('siteId', params.siteId)]
   if (params.path) {
     clauses.push(prefixClause('path', params.path))
   }
@@ -532,9 +549,7 @@ export function buildFilterQuery(params: CloudSearchFilterParams): string | unde
   if (params.hasPassword !== undefined) {
     clauses.push(termClause('hasPassword', params.hasPassword ? 'true' : 'false'))
   }
-  if (clauses.length === 0) {
-    return undefined
-  }
+  // -> Never empty: the leading `siteId` clause is unconditional, unlike every other filter here.
   return clauses.length === 1 ? clauses[0] : `(and ${clauses.join(' ')})`
 }
 
@@ -1036,6 +1051,7 @@ export class AwsCloudSearchModule implements SearchModule {
     const client = this.queryClientFor(siteId, this.configFor(siteId))
     const sort = buildSort(orderBy, orderByDirection)
     const filterParams: CloudSearchFilterParams = {
+      siteId,
       path,
       locales,
       tags,
