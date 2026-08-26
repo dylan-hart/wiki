@@ -937,12 +937,19 @@ class Pages {
 
   /**
    * Update a page. Only the fields present in the patch are touched.
+   *
+   * @param renderPermissions Overrides the `write:scripts`/`write:styles` grant a rendered `patch`
+   *   is post-processed against, instead of deriving it from `actor` (OpenProject #2187). The
+   *   motivating caller is `approveSubmission`: the HTML being written is the SUBMITTER's markup, not
+   *   the reviewing `actor`'s, so what it may keep has to be resolved against the submitter's own
+   *   grant, not stamped with whatever the reviewer happens to hold.
    */
   async updatePage(
     siteId: string,
     id: string,
     patch: Partial<PageInput>,
-    actor: PageActor
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
   ): Promise<Page | null> {
     const results = await WIKI.db
       .select()
@@ -1052,7 +1059,7 @@ class Pages {
       const { render, toc, text, links } = await WIKI.models.rendering.postProcess(
         siteId,
         patch.render,
-        {
+        renderPermissions ?? {
           scripts: hasPermission(actor, 'write:scripts', existingRef),
           styles: hasPermission(actor, 'write:styles', existingRef)
         },
@@ -1612,11 +1619,19 @@ class Pages {
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
    *
+   * @param renderPermissions Overrides the `write:scripts`/`write:styles` grant queued with the
+   *   request, instead of deriving it from `actor` — see `updatePage`'s own doc comment on the same
+   *   parameter (OpenProject #2187) for why a caller acting on somebody else's content needs this.
    * @returns False when there is no such page
    * @throws `renderUnsupportedEditor` for a page the server cannot render, or
    *         `renderPuppeteerMissing` when nothing here could drain the queue
    */
-  async queueRerender(siteId: string, id: string, actor: PageActor): Promise<boolean> {
+  async queueRerender(
+    siteId: string,
+    id: string,
+    actor: PageActor,
+    renderPermissions?: RenderPermissions
+  ): Promise<boolean> {
     const page = await this.getPage({ siteId, id })
     if (!page) {
       return false
@@ -1626,7 +1641,7 @@ class Pages {
     await WIKI.models.rendering.queuePage({
       siteId,
       pageId: page.id,
-      permissions: {
+      permissions: renderPermissions ?? {
         scripts: hasPermission(actor, 'write:scripts', { ...page, siteId }),
         styles: hasPermission(actor, 'write:styles', { ...page, siteId })
       },

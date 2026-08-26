@@ -10,6 +10,8 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { RulePageRef } from '../helpers/pageRules.ts'
+import type { RenderPermissions } from './rendering.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -1027,7 +1029,8 @@ class Approvals {
       .select({
         id: submissionsTable.id,
         pageId: submissionsTable.pageId,
-        baseHash: submissionsTable.baseHash
+        baseHash: submissionsTable.baseHash,
+        authorId: submissionsTable.authorId
       })
       .from(submissionsTable)
       .where(and(eq(submissionsTable.id, submissionId), eq(submissionsTable.siteId, siteId)))
@@ -1092,16 +1095,46 @@ class Approvals {
     if (!render) {
       await WIKI.models.rendering.ensureCanRender(page.editor)
     }
+
+    /*
+      OpenProject #2187: the markup being written is the SUBMITTER's, not this reviewing `actor`'s --
+      a submission requires only a matching submit rule and explicitly supports guests, and the
+      reviewer's own browser merely renders whatever markdown the submitter wrote and posts the HTML
+      back. Resolving `write:scripts`/`write:styles` from `actor` here would apply the REVIEWER's
+      grant to content somebody else authored, letting a guest or under-privileged submitter smuggle a
+      `<script>`/inline handler through a reviewer who happens to hold the permission. A guest
+      submission (`authorId` null) has no account to check, so it gets no script/style trust at all --
+      the same floor `saveSubmission` gives a guest-authored suggestion no other permission a page
+      rule could grant them either.
+    */
+    const pageRef: RulePageRef = {
+      path: page.path,
+      locale: page.locale,
+      siteId,
+      tags: page.tags ?? [],
+      classification: page.classification
+    }
+    const submitterRenderPermissions: RenderPermissions = submission.authorId
+      ? await (async () => {
+          const submitterActor = await WIKI.models.groups.actorForUserId(submission.authorId!)
+          return {
+            scripts: WIKI.models.groups.checkAccess(submitterActor, 'write:scripts', pageRef),
+            styles: WIKI.models.groups.checkAccess(submitterActor, 'write:styles', pageRef)
+          }
+        })()
+      : { scripts: false, styles: false }
+
     await WIKI.models.pages.updatePage(
       siteId,
       page.id,
       { content, ...(render && { render }) },
-      actor
+      actor,
+      submitterRenderPermissions
     )
     if (!render) {
       // -> Briefly stale rather than wrong: the browser is a queue away, and a suggestion approved
       //    while it is busy waits its turn instead of starting a second one
-      await WIKI.models.pages.queueRerender(siteId, page.id, actor)
+      await WIKI.models.pages.queueRerender(siteId, page.id, actor, submitterRenderPermissions)
     }
 
     // -> Cascades onto `pageEditSubmissionApprovals`, so the votes that got it here are cleaned up

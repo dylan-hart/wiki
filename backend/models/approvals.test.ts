@@ -1,7 +1,11 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { userGroups as userGroupsTable, users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor } from './pages.ts'
 import type { ApprovalPageRef } from './approvals.ts'
 
@@ -1145,3 +1149,152 @@ describe('approvals.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, 
     }
   })
 })
+
+/**
+ * OpenProject #2187: `approveSubmission` used to post-process the approved render against the
+ * REVIEWING actor's `write:scripts`/`write:styles` grant, not the SUBMITTER's -- `POST
+ * .../submissions` requires only a matching submit rule and explicitly supports guests, and the
+ * reviewer's own browser merely renders whatever markdown the submitter wrote and posts the HTML
+ * back (`InboxReview.vue`). A guest -- or any submitter who does not themselves hold the permission
+ * -- could therefore smuggle a `<script>`/inline event handler through a reviewer who happened to
+ * hold `write:scripts` themselves, which is exactly what the reviewer's own `manage:system` actor
+ * below would have let through under the old behaviour.
+ */
+describe(
+  'approvals approveSubmission render permissions resolve from the submitter (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let reviewerActor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      // -> The reviewer holds write:scripts (and everything else) via manage:system -- proving the
+      //    stored render is decided by the SUBMITTER's grant means it must come out different for the
+      //    two submissions below despite this one reviewer approving both of them.
+      reviewerActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    const scriptedRender = '<p>Hello</p><script>alert(1)</script><p onclick="alert(2)">click</p>'
+
+    test('a guest-authored submission has <script> and on* handlers stripped even though the reviewer holds write:scripts', async () => {
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        { path: 'approvals/perms/guest', title: 'Guest', editor: 'markdown', content: 'Original' },
+        reviewerActor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested by a guest',
+        authorId: null,
+        guestName: 'A Guest'
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested by a guest',
+        render: scriptedRender,
+        actor: reviewerActor
+      })
+      assert.equal(result.ok, true)
+
+      const updated = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+      assert.ok(!updated!.render.includes('<script>'), 'expected <script> to be stripped')
+      assert.ok(
+        !updated!.render.includes('onclick='),
+        'expected the onclick handler to be stripped'
+      )
+    })
+
+    test('a submission from an author who holds write:scripts keeps them', async () => {
+      const [scriptGroup] = await fixtures.db
+        .insert(groupsTable)
+        .values({
+          name: 'Script Authors',
+          permissions: [],
+          rules: [
+            {
+              id: 'grant-write-scripts',
+              name: 'grant write:scripts everywhere',
+              roles: ['write:scripts'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .returning({ id: groupsTable.id })
+      // -> Rules are served from an in-memory cache (`models/groups.ts`), not read live from the db --
+      //    the group row above is invisible to `checkAccess()` until this refreshes it.
+      await WIKI.models.groups.reloadCache()
+
+      const [privilegedAuthor] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'privileged-author@example.com',
+          name: 'Privileged Author',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      await fixtures.db
+        .insert(userGroupsTable)
+        .values({ userId: privilegedAuthor!.id, groupId: scriptGroup!.id })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'approvals/perms/privileged',
+          title: 'Privileged',
+          editor: 'markdown',
+          content: 'Original'
+        },
+        reviewerActor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original',
+        content: 'Suggested by a privileged author',
+        authorId: privilegedAuthor!.id
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested by a privileged author',
+        render: scriptedRender,
+        actor: reviewerActor
+      })
+      assert.equal(result.ok, true)
+
+      const updated = await pagesModel.getPage({ siteId: fixtures.siteId, id: page.id })
+      assert.ok(updated!.render.includes('<script>'), 'expected <script> to survive')
+      assert.ok(updated!.render.includes('onclick='), 'expected the onclick handler to survive')
+    })
+  }
+)
