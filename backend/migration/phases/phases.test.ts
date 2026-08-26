@@ -254,7 +254,7 @@ describe('migration phases', () => {
       assert.equal(result.report!.wouldSkipExisting, 1)
     })
 
-    test('usersPhase reconciles the interrupted-run edge case via the email natural-key fallback, and backfills the provenance record', async () => {
+    test('usersPhase matches the interrupted-run edge case via the email natural-key fallback, but persists nothing (OpenProject #1766)', async () => {
       async function* users(): AsyncGenerator<SourceRecord> {
         yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
       }
@@ -265,10 +265,10 @@ describe('migration phases', () => {
       const result = await usersPhase.run(contextWith(connector, store))
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
-      // The fallback match is backfilled into the provenance store so a later run hits the fast path.
-      assert.equal(store.records.length, 1)
-      assert.equal(store.records[0].destId, 'dest-alice-prior-run')
-      assert.equal(store.records[0].sourceId, '1')
+      // This is a read-only classification pass with no real user-creation write behind it — the
+      // natural-key match is not backfilled into migrationRecords. Only lookupOrInsert's write path
+      // (Feature 414) is allowed to persist a mapping.
+      assert.equal(store.records.length, 0)
     })
 
     test('usersPhase still reports a genuinely new user as wouldCreate', async () => {
@@ -281,7 +281,7 @@ describe('migration phases', () => {
       assert.equal(result.report!.wouldSkipExisting, 0)
     })
 
-    test('a dry run does not backfill the provenance record for a natural-key match', async () => {
+    test('dry run vs. live run persist nothing either way for a natural-key match', async () => {
       async function* users(): AsyncGenerator<SourceRecord> {
         yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
       }
@@ -295,7 +295,7 @@ describe('migration phases', () => {
       assert.equal(store.records.length, 0)
     })
 
-    test('contentPhase skips a page already mapped by the exact (siteId, locale, path) natural key', async () => {
+    test('contentPhase matches a page via the exact (siteId, locale, path) natural key, but persists nothing (OpenProject #1766)', async () => {
       async function* pages(): AsyncGenerator<SourceRecord> {
         yield { id: 10, path: 'en/getting-started', localeCode: 'en' }
       }
@@ -309,8 +309,9 @@ describe('migration phases', () => {
       const result = await contentPhase.run(contextWith(connector, store))
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
-      assert.equal(store.records.length, 1)
-      assert.equal(store.records[0].sourceTable, 'pages')
+      // Read-only classification pass, no real page-creation write behind it — the natural-key match
+      // is not backfilled into migrationRecords.
+      assert.equal(store.records.length, 0)
     })
 
     test('assetsPhase skips an asset file already mapped by an exact provenance record', async () => {
