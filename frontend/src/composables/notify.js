@@ -127,8 +127,3 @@ notify.positive = (message, caption) => notify({ type: 'positive', message, capt
 notify.negative = (message, caption) => notify({ type: 'negative', message, caption })
 notify.warning = (message, caption) => notify({ type: 'warning', message, caption })
 notify.info = (message, caption) => notify({ type: 'info', message, caption })
-
-/** Composable-style accessor, for symmetry with the other `use*` helpers. */
-export function useNotify() {
-  return notify
-}

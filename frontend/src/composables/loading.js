@@ -39,8 +39,3 @@ export const loading = {
     isActive.value = false
   }
 }
-
-/** Composable-style accessor, for symmetry with the other `use*` helpers. */
-export function useLoading() {
-  return loading
-}
