@@ -405,7 +405,10 @@ With that pinned, and `node-saml` never validating a `SubjectConfirmationData`'s
 assertion to this SP and this specific login — see `buildSaml()`'s own header comment (Feature 2145)
 for how both are now enforced by default: `audience` falls back to the strategy's `issuer` rather than
 disabling the check, and `validateInResponseTo` is pinned `always` against an AuthnRequest id carried
-on the session, via `singleRequestCacheProvider`.
+on the session, via `singleRequestCacheProvider`. `maxAssertionAgeMs` is likewise pinned to a fixed
+ceiling — never configurable, never left at the library's own `0` default of "no cap beyond the
+assertion's own `NotOnOrAfter`" — matched to `AUTH_FLOW_MINUTES` in `api/authentication.ts` (see
+`buildSaml()`'s `MAX_ASSERTION_AGE_MS` comment).
 
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
 
