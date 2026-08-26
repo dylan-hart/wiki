@@ -77,7 +77,8 @@ function parseOnly(raw: string | undefined): MigrationPhaseId[] | undefined {
  * Parses the migration CLI's argv into a fully-resolved `ParsedMigrationArgs`, validating everything
  * that can be checked before a database connection is opened: the required `--site-id`, that exactly
  * one source kind's fields were given and completely, the port is a real number, and every `--only`
- * id is a known phase.
+ * id is a known phase. See `refusalReason` below for the one check that depends on the *parsed*
+ * result rather than raw argv.
  *
  * Takes bare argv (no `node`/script path prefix) so it is callable the same way from the CLI entry
  * point (`../tasks/migrate.ts`, via `process.argv.slice(2)`) and from tests.
@@ -103,4 +104,22 @@ export function parseMigrationArgs(argv: string[]): ParsedMigrationArgs {
     // file" apart from "don't" with a plain truthiness check rather than an `in` check.
     ...(opts.reportFile ? { reportFile: opts.reportFile } : {})
   }
+}
+
+/**
+ * No import phase implements an actual destination write yet (2026-08-24 audit,
+ * `correctness-migration.md` §2). A non-`--dry-run` invocation would otherwise report success
+ * ("content: ok {...}", a report table full of "Would Create", exit code 0) while writing nothing —
+ * indistinguishable from a real import having run. Returns the one-line refusal message when `args`
+ * must not be allowed to run, or `undefined` when it may proceed (currently: whenever `--dry-run` was
+ * given). `../tasks/migrate.ts`'s `main()` checks this immediately after `parseMigrationArgs`, before
+ * `bootstrapMigrationRuntime` opens any destination connection — so a refused invocation never
+ * touches the database and never runs a phase. Delete this the moment a phase gains a real write
+ * path; see the epic (#1788) this task is part of.
+ */
+export function refusalReason(args: ParsedMigrationArgs): string | undefined {
+  if (args.dryRun) {
+    return undefined
+  }
+  return 'Refusing to run: no migration phase can write to the destination yet. Pass --dry-run to see a report of what would happen.'
 }
