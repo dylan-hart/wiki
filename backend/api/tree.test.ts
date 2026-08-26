@@ -35,6 +35,13 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
+        createFolder: async (input: any) => ({
+          ...input,
+          id: FOLDER_ID,
+          fileName: input.pathName,
+          folderPath: '',
+          meta: {}
+        }),
         renameFolder: async (input: any) => ({
           ...input,
           siteId: ENABLED_SITE_ID,
@@ -399,4 +406,28 @@ test('DELETE FOLDER route: still cascades as before once every descendant is aut
   assert.equal(assetsDeleteOrphanedCalls.length, 1)
   assert.deepEqual(assetsDeleteOrphanedCalls[0].entries, removedAssets)
   assert.equal(assetsDeleteOrphanedCalls[0].siteId, ENABLED_SITE_ID)
+})
+
+/**
+ * OpenProject #2131: a `parentId` naming a folder in another site used to be resolved anyway (the
+ * model's `getFolderById()` filtered on `id` alone) and its path/locale flowed straight into the
+ * response. `getFolderById` now takes the route's own siteId, so a foreign `parentId` resolves to
+ * `null` here (this suite's mock ignores the id — the model layer's own DB-backed refusal is
+ * `models/tree.test.ts`'s `createFolder refuses a parentId belonging to another site`) and the route
+ * must refuse the request itself rather than falling through to the request's own `parentPath`.
+ */
+test('CREATE FOLDER route: refuses a foreign parentId and leaks neither a path nor a locale', async () => {
+  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+  ;(globalThis as any).WIKI.models.tree.getFolderById = async () => null
+  const foreignParentId = '99999999-9999-4999-8999-999999999999'
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
+    payload: { parentId: foreignParentId, pathName: 'intruder', title: 'Intruder' }
+  })
+  ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+  assert.equal(res.statusCode, 404)
+  const body = res.json()
+  assert.equal(body.message, 'The parent folder does not exist.')
+  assert.equal('folder' in body, false, 'the response must not carry a folder object')
 })

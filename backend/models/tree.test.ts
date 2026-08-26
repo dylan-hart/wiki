@@ -8,6 +8,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -70,7 +71,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    await treeModel.renameFolder({ folderId: en.id, pathName: 'guides', title: 'Guides' })
+    await treeModel.renameFolder({
+      folderId: en.id,
+      siteId: fixtures.siteId,
+      pathName: 'guides',
+      title: 'Guides'
+    })
 
     const frPage = await pagesModel.getPage({
       siteId: fixtures.siteId,
@@ -116,17 +122,17 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const removed = await treeModel.deleteFolder(en.id)
+    const removed = await treeModel.deleteFolder(en.id, fixtures.siteId)
     await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
 
     const frPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: frPage.id })
     assert.ok(frPageAfter, 'the fr page must still exist')
-    const frFolderAfter = await treeModel.getFolderById(fr.id)
+    const frFolderAfter = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.ok(frFolderAfter, 'the fr folder row must still exist')
 
     const enPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: enPage.id })
     assert.equal(enPageAfter, null, 'the en page must be gone')
-    const enFolderAfter = await treeModel.getFolderById(en.id)
+    const enFolderAfter = await treeModel.getFolderById(en.id, fixtures.siteId)
     assert.equal(enFolderAfter, null, 'the en folder row must be gone')
   })
 
@@ -150,8 +156,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const enFolder = await treeModel.getFolderById(en.id)
-    const frFolder = await treeModel.getFolderById(fr.id)
+    const enFolder = await treeModel.getFolderById(en.id, fixtures.siteId)
+    const frFolder = await treeModel.getFolderById(fr.id, fixtures.siteId)
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
@@ -286,8 +292,50 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId
     })
     await assert.rejects(
-      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      treeModel.renameFolder({
+        folderId: folder.id,
+        siteId: fixtures.siteId,
+        pathName: 'en',
+        title: 'Renameable'
+      }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
+    )
+  })
+
+  /**
+   * OpenProject #2131: `getFolderById()` used to filter on `id` + `type = 'folder'` only, never
+   * `siteId` — a folder-create `parentId` naming a folder in ANOTHER site resolved successfully, and
+   * `createFolder()` derived the new folder's ltree path (and locale) from that foreign row. Locked
+   * down at the model layer here: `createFolder()`'s own `getFolderById()` lookup is scoped, so a
+   * cross-tenant `parentId` is refused with `treeInvalidParent` — the same "parent does not exist"
+   * error a genuinely missing `parentId` gets, carrying no trace of the foreign folder's real path or
+   * locale.
+   */
+  test('createFolder refuses a parentId belonging to another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'other-tenant.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en', active: ['en'] } }
+      })
+      .returning({ id: sitesTable.id })
+    const foreignParent = await treeModel.createFolder({
+      pathName: 'foreign-secret',
+      title: 'Foreign Secret',
+      locale: 'en',
+      siteId: otherSite.id
+    })
+
+    await assert.rejects(
+      treeModel.createFolder({
+        parentId: foreignParent.id,
+        pathName: 'intruder',
+        title: 'Intruder',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeInvalidParent'
     )
   })
 
@@ -425,7 +473,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
         siteId: fixtures.siteId
       })
 
-      const result = await treeModel.listDescendants(root.id)
+      const result = await treeModel.listDescendants(root.id, fixtures.siteId)
 
       assert.equal(result.pages.length, 2, 'both pages at any depth should be returned')
       const top = result.pages.find((p) => p.id === topPage.id)
@@ -445,8 +493,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       // -> Nothing was deleted or renamed by the call: every row this fixture created is still exactly
       //    where it was.
-      const rootAfter = await treeModel.getFolderById(root.id)
-      const nestedAfter = await treeModel.getFolderById(nested.id)
+      const rootAfter = await treeModel.getFolderById(root.id, fixtures.siteId)
+      const nestedAfter = await treeModel.getFolderById(nested.id, fixtures.siteId)
       const topPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: topPage.id })
       const deepPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: deepPage.id })
       const assetAfter = await treeModel.getById(asset.id)
@@ -466,7 +514,7 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     test('throws for a folder id that does not exist', async () => {
       await assert.rejects(
-        treeModel.listDescendants('00000000-0000-0000-0000-000000000000'),
+        treeModel.listDescendants('00000000-0000-0000-0000-000000000000', fixtures.siteId),
         (err: any) => err.name === 'treeInvalidFolder'
       )
     })
