@@ -109,6 +109,63 @@ function unscopedTableNames(): string[] {
   return names.sort()
 }
 
+/**
+ * Regression coverage for OpenProject #1984/#2012 -- eight index declarations that were a strict
+ * column prefix of another non-partial btree index on the same table, so they were paid for on
+ * every INSERT/UPDATE/DELETE for no lookup they uniquely served. Locks each drop in place, plus the
+ * one sibling index in each table that both replaces the dropped one AND must survive (dropping the
+ * wrong one of the pair would silently reintroduce the exact cost this cleanup removed).
+ */
+describe('prefix-redundant indexes (#2012)', () => {
+  function indexNames(table: PgTable): string[] {
+    return getTableConfig(table).indexes.map((idx) => idx.config.name ?? '')
+  }
+
+  test('pages has no standalone siteId index, but keeps the composite ones that cover it', () => {
+    const names = indexNames(schema.pages)
+    assert.equal(names.includes('pages_siteId_idx'), false)
+    assert.ok(names.includes('pages_siteId_locale_path_idx'))
+    assert.ok(names.includes('pages_siteId_locale_hash_idx'))
+  })
+
+  test('navigation has no standalone siteId index, but keeps the siteId+locale one', () => {
+    const names = indexNames(schema.navigation)
+    assert.equal(names.includes('navigation_siteId_idx'), false)
+    assert.ok(names.includes('navigation_siteId_locale_idx'))
+  })
+
+  test('glossaryTerms has no standalone siteId index, but keeps the composite one', () => {
+    const names = indexNames(schema.glossaryTerms)
+    assert.equal(names.includes('glossaryTerms_siteId_idx'), false)
+    assert.ok(names.includes('glossaryTerms_composite_idx'))
+  })
+
+  test('glossaryVersions has no standalone siteId index, but keeps the siteId+createdAt one', () => {
+    const names = indexNames(schema.glossaryVersions)
+    assert.equal(names.includes('glossaryVersions_siteId_idx'), false)
+    assert.ok(names.includes('glossaryVersions_siteId_createdAt_idx'))
+  })
+
+  test('tags has no standalone siteId index, but keeps the composite one', () => {
+    const names = indexNames(schema.tags)
+    assert.equal(names.includes('tags_siteId_idx'), false)
+    assert.ok(names.includes('tags_composite_idx'))
+  })
+
+  test('pageEditSubmissionApprovals has no standalone submissionId index, but keeps the composite one', () => {
+    const names = indexNames(schema.pageEditSubmissionApprovals)
+    assert.equal(names.includes('pageEditSubmissionApprovals_submissionId_idx'), false)
+    assert.ok(names.includes('pageEditSubmissionApprovals_submission_reviewer_idx'))
+  })
+
+  test('userGroups drops the two indexes redundant with its own primary key, keeping only groupId', () => {
+    const names = indexNames(schema.userGroups)
+    assert.equal(names.includes('userGroups_userId_idx'), false)
+    assert.equal(names.includes('userGroups_composite_idx'), false)
+    assert.ok(names.includes('userGroups_groupId_idx'))
+  })
+})
+
 describe('site-scoping-audit.md', () => {
   test('names every unscoped table in schema.ts', async () => {
     const doc = await readFile(AUDIT_DOC_PATH, 'utf8')
