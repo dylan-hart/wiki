@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import {
   generateRecoveryCodes,
   isRecoveryCodeShape,
@@ -24,7 +25,6 @@ import {
 import { ProvisionableLoginError } from './authentication.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
-import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
 export interface UserCore {
