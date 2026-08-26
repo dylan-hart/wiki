@@ -10,6 +10,7 @@ import {
   storage as storageTable
 } from '../db/schema.ts'
 import { and, eq } from 'drizzle-orm'
+import { normalizeHostname } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, normalizeImage, svgMimeType } from '../helpers/images.ts'
 import type { ImageNormalization } from '../helpers/images.ts'
 import type { SystemIds } from './types.ts'
@@ -61,9 +62,10 @@ class Sites {
     if (forceReload) {
       await WIKI.models.sites.reloadCache()
     }
+    const normalizedHostname = normalizeHostname(hostname)
     const siteId = strict
-      ? WIKI.sitesMappings[hostname]
-      : WIKI.sitesMappings[hostname] || WIKI.sitesMappings['*']
+      ? WIKI.sitesMappings[normalizedHostname]
+      : WIKI.sitesMappings[normalizedHostname] || WIKI.sitesMappings['*']
     if (siteId) {
       return WIKI.sites[siteId]
     }
@@ -84,7 +86,7 @@ class Sites {
     WIKI.sites = keyBy(sites, (s) => s.id)
     WIKI.sitesMappings = {}
     for (const site of sites) {
-      WIKI.sitesMappings[site.hostname] = site.id
+      WIKI.sitesMappings[normalizeHostname(site.hostname)] = site.id
     }
     WIKI.logger.info(`Loaded ${sites.length} site configurations [ OK ]`)
   }
