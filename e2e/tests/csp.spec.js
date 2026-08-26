@@ -107,8 +107,7 @@ test('editor, a block and a KaTeX expression all load clean under the enforced C
   await page.goto(`/_edit/${path}`)
   await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
 
-  expect(
-    getViolations(),
-    'expected no CSP violation across the editor/block/KaTeX flows'
-  ).toEqual([])
+  expect(getViolations(), 'expected no CSP violation across the editor/block/KaTeX flows').toEqual(
+    []
+  )
 })
