@@ -8,6 +8,33 @@ export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
 
 /**
+ * Locks down a response that is otherwise an active document — an SVG (which can carry `<script>`
+ * and event-handler attributes) or an HTML/XHTML file — so that opening it directly (typed into the
+ * address bar, or reached through `<object>`/`<iframe>`/a same-origin top-level navigation) cannot
+ * run anything in this origin. `X-Content-Type-Options: nosniff` does not help here: the declared
+ * type is honestly `image/svg+xml` or `text/html`, which a browser treats as a document either way.
+ *
+ * Originally local to `controllers/site.ts` (which attaches it to admin-uploaded logo/favicon SVGs,
+ * with manual Chrome/Firefox verification recorded in that file's header) and moved here so
+ * `controllers/files.ts` and `api/assets.ts`'s `/content` route reference the exact same constant
+ * rather than a copy that could drift (OpenProject #2157).
+ */
+export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+/**
+ * Extensions whose declared MIME type is a document a browser will parse and can execute
+ * script/markup within, rather than passive image or binary data — SVG and HTML/XHTML. Every route
+ * that serves stored asset bytes by extension (`controllers/files.ts`, `api/assets.ts`'s `/content`)
+ * checks this before deciding whether to attach `SVG_CSP`.
+ */
+const ACTIVE_DOCUMENT_EXTS = new Set(['svg', 'html', 'htm', 'xhtml'])
+
+/** Whether a served asset needs `SVG_CSP` attached, based on its stored extension. */
+export function needsSvgCsp(fileExt: string): boolean {
+  return ACTIVE_DOCUMENT_EXTS.has(fileExt.toLowerCase())
+}
+
+/**
  * Turn a Content-Security-Policy string into helmet's directives object.
  *
  * `default-src 'self'; img-src * data:` becomes

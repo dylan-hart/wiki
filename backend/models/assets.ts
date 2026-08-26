@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import mime from 'mime'
+import sanitizeHtml from 'sanitize-html'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
@@ -43,6 +44,126 @@ const SWEEP_TARGET_RATIO = 0.8
  * `/_files/` path — which have to agree on what a browser is allowed to open in place.
  */
 export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'])
+
+/**
+ * Whether a served asset should be sent as `Content-Disposition: attachment` rather than inline.
+ *
+ * The single predicate both byte-serving routes call (`controllers/files.ts` and `api/assets.ts`'s
+ * `/content`), replacing two expressions that used to disagree: an `INLINE_EXTS` member is never
+ * forced to download, whatever `forceAssetDownload` says — that flag only ever adds attachment
+ * framing to what would otherwise be sent as a plain download already. Adopting the API route's old,
+ * stricter `forceAssetDownload || !INLINE_EXTS.has(fileExt)` everywhere instead would break every
+ * inline image in every page's content the moment an operator turned the setting on, which is why
+ * `controllers/files.ts` was written the other way to begin with (OpenProject #2164).
+ */
+export function dispositionFor(fileExt: string): boolean {
+  return !INLINE_EXTS.has(fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
+}
+
+/**
+ * SVG structure/shape tags a stored SVG file may keep once `security.uploadScanSVG` sanitizes it at
+ * upload time. Everything capable of carrying script — `script` itself, event-handler attributes,
+ * `foreignObject`, the SMIL animation tags — is left out. A standalone copy of the subset
+ * `models/rendering.ts` allows for SVG embedded *inside* page content (kept separate rather than
+ * imported: an uploaded SVG file has no page-permission gate — `write:scripts`/`write:styles` —
+ * around it the way markup embedded in a page does, so this list has to stand on its own, and
+ * importing `rendering.ts` here would pull cheerio/puppeteer into every consumer of this module).
+ */
+const SVG_SANITIZE_TAGS = [
+  'svg',
+  'circle',
+  'clipPath',
+  'defs',
+  'desc',
+  'ellipse',
+  'g',
+  'line',
+  'linearGradient',
+  'marker',
+  'mask',
+  'path',
+  'pattern',
+  'polygon',
+  'polyline',
+  'radialGradient',
+  'rect',
+  'stop',
+  'symbol',
+  'text',
+  'title',
+  'tspan',
+  'use'
+]
+
+/** Presentation attributes shared across the SVG tags above. None of them can execute. */
+const SVG_SANITIZE_ATTRIBUTES = [
+  'clip-path',
+  'clip-rule',
+  'cx',
+  'cy',
+  'd',
+  'fill',
+  'fill-opacity',
+  'fill-rule',
+  'height',
+  'href',
+  'id',
+  'mask',
+  'offset',
+  'opacity',
+  'points',
+  'preserveAspectRatio',
+  'r',
+  'rx',
+  'ry',
+  'stop-color',
+  'stop-opacity',
+  'stroke',
+  'stroke-dasharray',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'stroke-opacity',
+  'stroke-width',
+  'transform',
+  'viewBox',
+  'width',
+  'x',
+  'x1',
+  'x2',
+  'xmlns',
+  'xmlns:xlink',
+  'y',
+  'y1',
+  'y2'
+]
+
+/**
+ * When `security.uploadScanSVG` is on, strip an uploaded SVG down to the structure/shape subset
+ * above — `<script>`, event-handler attributes (`onload`, `onclick`, ...) and anything else capable
+ * of executing are removed rather than merely escaped, since the file is later served back with its
+ * own `image/svg+xml` type. `dispositionFor`/`SVG_CSP` (`helpers/security.ts`) are the read-side half
+ * of this defence-in-depth; this is the write side. A no-op for every other extension, and for SVG
+ * when the flag is off.
+ */
+export function sanitizeSvgAsset(fileExt: string, data: Buffer): Buffer {
+  if (fileExt !== 'svg' || !WIKI.config.security?.uploadScanSVG) {
+    return data
+  }
+  const cleaned = sanitizeHtml(data.toString('utf8'), {
+    allowedTags: SVG_SANITIZE_TAGS,
+    allowedAttributes: { '*': SVG_SANITIZE_ATTRIBUTES },
+    // -> Applies only to tags that were dropped: without it, the body of a rejected `<script>` would
+    //    come back out as visible text inside the SVG
+    nonTextTags: ['style', 'script', 'textarea', 'option', 'noscript'],
+    parser: {
+      // -> SVG attributes are case-sensitive (`viewBox`, `preserveAspectRatio`), which lowercasing
+      //    would quietly break — the same reasoning `models/rendering.ts`'s own sanitize() call
+      //    documents for inline SVG embedded in page content.
+      lowerCaseAttributeNames: false
+    }
+  })
+  return Buffer.from(cleaned, 'utf8')
+}
 
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
 export type AssetKind = 'document' | 'image' | 'other'
@@ -245,10 +366,14 @@ class Assets {
     //    like sending, and this value is what gets served back to a browser later
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
+    // -> A no-op unless this is an SVG and security.uploadScanSVG is on; everything below stores and
+    //    previews these bytes rather than the ones that arrived, so the sanitized version is what
+    //    every reader ever sees
+    const sanitizedData = sanitizeSvgAsset(fileExt, data)
 
     const preview =
       kind === 'image'
-        ? await makeImageThumbnail(data, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
+        ? await makeImageThumbnail(sanitizedData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
     // -> What is already at this name, if anything, and what the site says to do about it. Asked
@@ -290,7 +415,7 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        data,
+        data: sanitizedData,
         preview,
         authorId
       })
@@ -306,7 +431,7 @@ class Assets {
       locale,
       siteId,
       meta: {
-        fileSize: data.length,
+        fileSize: sanitizedData.length,
         fileExt,
         mimeType: resolvedMime
       }
@@ -320,8 +445,8 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        fileSize: data.length,
-        data,
+        fileSize: sanitizedData.length,
+        data: sanitizedData,
         preview,
         authorId,
         siteId
@@ -338,7 +463,7 @@ class Assets {
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
-      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+      metadata: { fileSize: sanitizedData.length, mimeType: resolvedMime, kind }
     })
     WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
@@ -347,7 +472,7 @@ class Assets {
       siteId,
       authorId,
       kind,
-      fileSize: data.length
+      fileSize: sanitizedData.length
     })
 
     return {
@@ -356,7 +481,7 @@ class Assets {
       fileExt,
       kind,
       mimeType: resolvedMime,
-      fileSize: data.length,
+      fileSize: sanitizedData.length,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       title: entry.title,
       hasPreview: Boolean(preview),

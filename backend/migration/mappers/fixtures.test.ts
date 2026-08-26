@@ -119,9 +119,10 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
         // renamed AND polarity-inverted: source had both flags `true`
         disallowOpenRedirect: false,
         disallowIframe: false,
-        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`
+        // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`. `uploads.maxFiles` in the
+        // fixture has no 3.0 destination (`security.uploadMaxFiles` was removed — dead key, never
+        // enforced anywhere; OpenProject #2174) and is dropped rather than mapped.
         uploadMaxFileSize: 200,
-        uploadMaxFiles: 20,
         uploadScanSVG: true,
         forceAssetDownload: false
       }

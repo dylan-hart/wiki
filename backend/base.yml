@@ -89,7 +89,6 @@ defaults:
       cspDirectives: ''
       uploadScanSVG: true
       disallowIframe: true
-      uploadMaxFiles: 20
       uploadMaxFileSize: 10485760
       forceAssetDownload: true
       disallowOpenRedirect: true
