@@ -494,6 +494,24 @@ function readSourceString(source: SourceRecord, column: string): string | undefi
   return typeof raw === 'string' && raw.length > 0 ? raw : undefined
 }
 
+/** Reads a timestamp column off a source record. A live `PostgresSourceConnector` hands back a real
+ * `Date` (node-postgres's own decoding of a `timestamp` column); a bundle/JSON-backed connector may
+ * instead hand back an ISO string. Either is accepted; anything else (missing column, `null`,
+ * malformed string) degrades to `undefined` — the same "let the target column default rather than
+ * fail the whole record" tolerance `page-import.ts`'s `normalizeStagedDate` gives a malformed staged
+ * date — so one bad timestamp on one source row never blocks that user's import. */
+function readSourceDate(source: SourceRecord, column: string): Date | undefined {
+  const raw = source[column]
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? undefined : raw
+  }
+  if (typeof raw === 'string' && raw.length > 0) {
+    const millis = Date.parse(raw)
+    return Number.isNaN(millis) ? undefined : new Date(millis)
+  }
+  return undefined
+}
+
 export interface ProviderFallbackConverterOptions {
   /** Target UUID of this install's local authentication strategy. The engine deliberately has no
    * `WIKI` dependency (see the module doc's testability goal), so the caller — the future #421 CLI —
@@ -567,16 +585,30 @@ export function createProviderFallbackUserConverter(
         }
       },
       isSystem: false,
-      isActive: true,
-      isVerified: true,
-      meta: { location: '', jobTitle: '', pronouns: '' },
+      // -> Read off the source, never assumed — an account an administrator deliberately
+      //    deactivated on the source install must not be silently recreated as active. No 2.x
+      //    source row is missing this column (it's a real, non-nullable 2.x `users.isActive`), so
+      //    `false` here only ever covers a malformed/absent test fixture, not a real import.
+      isActive: readSourceBoolean(source, 'isActive') ?? false,
+      isVerified: readSourceBoolean(source, 'isVerified') ?? true,
+      meta: {
+        location: readSourceString(source, 'location') ?? '',
+        jobTitle: readSourceString(source, 'jobTitle') ?? '',
+        // -> No 2.x source column: `pronouns` is a 3.0-only field.
+        pronouns: ''
+      },
       prefs: {
-        timezone: 'America/New_York',
-        dateFormat: 'YYYY-MM-DD',
+        timezone: readSourceString(source, 'timezone') ?? 'America/New_York',
+        dateFormat: readSourceString(source, 'dateFormat') ?? 'YYYY-MM-DD',
+        // -> No 2.x source column: `timeFormat` has no `2.5x-to-3.0-mapping.md` entry.
         timeFormat: '12h',
-        appearance: 'site',
+        appearance: readSourceString(source, 'appearance') ?? 'site',
+        // -> No 2.x source column: `cvd` is a 3.0-only field.
         cvd: 'none'
-      }
+      },
+      createdAt: readSourceDate(source, 'createdAt'),
+      updatedAt: readSourceDate(source, 'updatedAt'),
+      lastLoginAt: readSourceDate(source, 'lastLoginAt')
     }
 
     return {
