@@ -8,6 +8,7 @@ import ajvFormats from 'ajv-formats'
 import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -177,10 +178,21 @@ describe('download route: byte-serving behavior', () => {
       url: `/sites/${siteId}/assets/${assetId}/content`
     })
     assert.equal(res.statusCode, 200)
-    assert.equal(
-      res.headers['content-security-policy'],
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-    )
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('attaches SVG_CSP when the served asset is HTML-typed (OpenProject #2157)', async () => {
+    resolvedAsset = { ...asset, fileName: 'snippet.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>evil()</script>'), size: 24 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
     resolvedAsset = undefined
     await app.close()
   })

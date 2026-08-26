@@ -5,6 +5,7 @@ import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import filesRoutes from './files.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('response headers (byte-serving behavior)', () => {
   /**
@@ -133,16 +134,19 @@ describe('response headers (byte-serving behavior)', () => {
     await app.close()
   })
 
+  /**
+   * OpenProject #2157: an SVG- or HTML-typed asset is active content that `X-Content-Type-Options:
+   * nosniff` does not blunt, so this route must attach the same `SVG_CSP` the admin-uploaded site
+   * image route (`controllers/site.ts`) already does — sourced from one shared constant
+   * (`helpers/security.ts`) so the two cannot drift.
+   */
   test('attaches SVG_CSP for an image/svg+xml asset, whether or not forceAssetDownload is on (OpenProject #2157)', async () => {
     resolvedAsset = { ...asset, fileName: 'icon.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
     readContentResult = { body: Buffer.from('<svg></svg>'), size: 11 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/icon.svg' })
     assert.equal(res.statusCode, 200)
-    assert.equal(
-      res.headers['content-security-policy'],
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-    )
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
     resolvedAsset = undefined
     await app.close()
   })
@@ -153,10 +157,7 @@ describe('response headers (byte-serving behavior)', () => {
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/snippet.html' })
     assert.equal(res.statusCode, 200)
-    assert.equal(
-      res.headers['content-security-policy'],
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-    )
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
     resolvedAsset = undefined
     await app.close()
   })
@@ -165,6 +166,7 @@ describe('response headers (byte-serving behavior)', () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp()
     const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
+    assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-security-policy'], undefined)
     await app.close()
   })

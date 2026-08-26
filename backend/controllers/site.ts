@@ -1,6 +1,6 @@
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
-import { SVG_CSP } from '../helpers/security.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { SiteAssetKind } from '../models/sites.ts'

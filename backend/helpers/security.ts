@@ -13,11 +13,16 @@ export type CorsMode = (typeof CORS_MODES)[number]
  * address bar, or reached through `<object>`/`<iframe>`/a same-origin top-level navigation) cannot
  * run anything in this origin. `X-Content-Type-Options: nosniff` does not help here: the declared
  * type is honestly `image/svg+xml` or `text/html`, which a browser treats as a document either way.
+ * A browser never executes script markup found through an `<img src>` either way, so this is not
+ * what stops such a payload from running embedded in the app's own UI; nothing needs to, because
+ * `<img>` already can't run it. (Verified manually against an uploaded SVG carrying a `<script>`
+ * payload in both Chrome and Firefox: rendered via `<img src>` it never runs, matching the reasoning
+ * above regardless of this header; opened directly in a new tab, this header's `sandbox` neutralizes
+ * it in both browsers.)
  *
- * Originally local to `controllers/site.ts` (which attaches it to admin-uploaded logo/favicon SVGs,
- * with manual Chrome/Firefox verification recorded in that file's header) and moved here so
- * `controllers/files.ts` and `api/assets.ts`'s `/content` route reference the exact same constant
- * rather than a copy that could drift (OpenProject #2157).
+ * Originally local to `controllers/site.ts` (which attaches it to admin-uploaded logo/favicon SVGs)
+ * and moved here so `controllers/files.ts` and `api/assets.ts`'s `/content` route reference the
+ * exact same constant rather than a copy that could drift (OpenProject #2157).
  */
 export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
