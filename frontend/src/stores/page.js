@@ -905,8 +905,7 @@ export const usePageStore = defineStore('page', {
       await this.pageLoad({ id: editorStore.originPageId ? editorStore.originPageId : this.id })
       // -> Awaited for the same reason as in `pageSave`: the editor closes when this resolves
       await this.router.replace(this.editorExitPath)
-    },
-    generateToc() {}
+    }
   }
 })
 
