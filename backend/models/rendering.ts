@@ -276,7 +276,10 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   // -> `style` is here rather than behind `write:styles` because the renderer itself produces it:
   //    KaTeX sizes and positions every piece of a formula with inline styles, and math would come
   //    out mangled for any author without the permission. The permission gates the `<style>` tag,
-  //    which is where a page can restyle everything around it.
+  //    which is where a page can restyle everything around it -- and, for an author without it, an
+  //    `allowedStyles` allowlist (see `KATEX_STYLE_PROPERTIES` / `sanitize()`) further constrains
+  //    which *declarations* the attribute itself may carry, since `style` alone is not confined to
+  //    the element it sits on: `position: fixed` escapes it entirely.
   '*': ['id', 'class', 'style', 'title', 'dir', 'lang', 'aria-*', 'role', 'data-*'],
   a: ['href', 'name', 'target', 'rel', 'download'],
   audio: ['controls', 'loop', 'muted', 'preload', 'src'],
@@ -353,6 +356,61 @@ const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
  * small inline graphic is written and where it cannot script.
  */
 const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel', 'ftp']
+
+/**
+ * The inline `style` declarations an author without `write:styles` may keep -- sized to what KaTeX
+ * actually emits when it sizes and positions a formula (`rendering.test.ts`'s `\ce{}`/`\pu{}` corpus,
+ * captured from a real `katex.renderToString` run, is the regression check that this list doesn't cost
+ * a formula its layout).
+ *
+ * Deliberately excludes anything that can move a box outside the flow it sits in, or hide it, or read
+ * from it: no `position` (so `top`/`left` below are inert -- they do nothing without it), no `inset`,
+ * `z-index`, `transform`, `opacity`, `pointer-events` or `content`. That is the actual gap this list
+ * closes -- `write:styles` already gates the `<style>` tag, but a bare `style` attribute is not confined
+ * to the element it sits on: `position: fixed; inset: 0; z-index: …` on a `div` escapes the page's own
+ * scroll container (`WScrollArea.vue` establishes no containing block) and can cover the viewport from
+ * the wiki's own trusted origin. An author who does hold `write:styles` skips this list entirely --
+ * `sanitize()` only builds it for the author who doesn't.
+ */
+const KATEX_STYLE_PROPERTIES = [
+  'height',
+  'width',
+  'min-width',
+  'margin',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'padding',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'top',
+  'left',
+  'vertical-align',
+  'font-size',
+  'border',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-width',
+  'border-top-width',
+  'border-right-width',
+  'border-bottom-width',
+  'border-left-width',
+  'border-style',
+  'border-color',
+  'color',
+  'background-color',
+  'text-align'
+]
+
+/** `sanitize-html`'s `allowedStyles` shape restricted to `KATEX_STYLE_PROPERTIES`, any value accepted. */
+const KATEX_ALLOWED_STYLES: Record<string, RegExp[]> = Object.fromEntries(
+  KATEX_STYLE_PROPERTIES.map((property) => [property, [/.*/]])
+)
 
 /** Attributes the editor adds for its own preview and that mean nothing in a stored page. */
 const EDITOR_ARTIFACT_ATTRIBUTES = ['data-line']
@@ -554,6 +612,10 @@ class Rendering {
     return sanitizeHtml(html, {
       allowedTags,
       allowedAttributes,
+      // -> An author holding `write:styles` may already write a `<style>` tag that restyles the whole
+      //    page, so constraining their `style` *attribute* buys nothing further -- `allowedStyles` is
+      //    only built for the author who doesn't hold it, gating declarations down to what KaTeX needs.
+      ...(permissions.styles ? {} : { allowedStyles: { '*': KATEX_ALLOWED_STYLES } }),
       // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
       //    the library warns about them on every call, and the warning is the thing to silence, not
       //    the permission
