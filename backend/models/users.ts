@@ -1870,8 +1870,17 @@ class Users {
    * `ERR_EMAIL_ALREADY_EXISTS`, since nobody else could have claimed that address in the meantime (an
    * unverified account cannot log in). The submitted `name` and `password` are ignored on that path --
    * only the address that already exists is trusted -- so registering an address that is not yours but
-   * still pending cannot be used to overwrite whatever password it was originally set up with. A
-   * verified account, or one on a strategy with `emailValidation` off, always refuses as a duplicate.
+   * still pending cannot be used to overwrite whatever password it was originally set up with.
+   *
+   * A *verified* address colliding under `emailValidation` answers the same generic
+   * `{ nextAction: 'verify' }` a fresh registration gets, rather than throwing
+   * `ERR_EMAIL_ALREADY_EXISTS` -- mirroring the non-enumerating design `forgotPassword()` already
+   * uses (see its own doc comment), since a distinct thrown error here is exactly the oracle that
+   * would let a caller test which addresses already have an account. The real owner is emailed a
+   * "someone tried to register with your address" notice instead, and the submitted `name` and
+   * `password` are discarded the same as the unverified-resend path above. With `emailValidation`
+   * off there is no verification step to hide behind -- the strategy logs a fresh registration
+   * straight in -- so that case still refuses as a duplicate.
    *
    * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
    *         `ERR_EMAIL_NOT_ALLOWED`
@@ -1912,7 +1921,22 @@ class Users {
     const existing = await this.getByEmail(normalizedEmail)
 
     if (existing) {
-      if (existing.isVerified || !requiresVerification) {
+      if (existing.isVerified) {
+        if (!requiresVerification) {
+          throw new Error('ERR_EMAIL_ALREADY_EXISTS')
+        }
+        // -> Non-enumerating: same generic response a fresh registration gets, not
+        //    ERR_EMAIL_ALREADY_EXISTS. The real owner learns about the attempt by email instead.
+        WIKI.models.flags.authDebug(
+          `Registration for <${normalizedEmail}> matched an already-verified account; answering generically and notifying the owner`
+        )
+        await WIKI.models.mail.sendRegistrationCollision({
+          to: existing.email,
+          name: existing.name
+        })
+        return { nextAction: 'verify' }
+      }
+      if (!requiresVerification) {
         throw new Error('ERR_EMAIL_ALREADY_EXISTS')
       }
       WIKI.models.flags.authDebug(

@@ -174,13 +174,14 @@ function uninstallFakeTemporal(previousTemporal: any): void {
  * `register()` is SQL orchestration -- a strategy lookup, an existence check, then coordinating the
  * `users`, `userGroups` and `userKeys` tables -- so this runs the real method against a migrated,
  * per-run-fresh database (see `test/db.ts`), the same DB-backed pattern `models/pages.test.ts` uses.
- * `mail.sendVerifyEmail` is stubbed rather than pulling in a real SMTP transport, matching how
- * `api/mail.test.ts` isolates the route it covers from `models/mail.test.ts`'s own coverage of that
- * mapping.
+ * `mail.sendVerifyEmail` and `mail.sendRegistrationCollision` are stubbed rather than pulling in a
+ * real SMTP transport, matching how `api/mail.test.ts` isolates the route it covers from
+ * `models/mail.test.ts`'s own coverage of that mapping.
  */
 describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendVerifyEmailMock: ReturnType<typeof mock.fn>
+  let sendRegistrationCollisionMock: ReturnType<typeof mock.fn>
   let previousTemporal: any
 
   const MODULE_KEY = 'local-test'
@@ -228,6 +229,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     fixtures = await setupTestDb()
     const { mail } = await import('./mail.ts')
     sendVerifyEmailMock = mock.method(mail, 'sendVerifyEmail', async () => {})
+    sendRegistrationCollisionMock = mock.method(mail, 'sendRegistrationCollision', async () => {})
 
     WIKI.data.authentication = [
       {
@@ -256,6 +258,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   beforeEach(() => {
     sendVerifyEmailMock.mock.resetCalls()
+    sendRegistrationCollisionMock.mock.resetCalls()
   })
 
   test('refuses an unknown strategy id', async () => {
@@ -310,8 +313,41 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  test('refuses a duplicate of an already-verified address', async () => {
-    const strategyId = await createStrategy()
+  test('emailValidation on: a duplicate of an already-verified address answers the same generic response as a fresh registration, and notifies the real owner instead of throwing', async () => {
+    const strategyId = await createStrategy({ emailValidation: true })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    const request = req()
+
+    const result = await users.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Impersonator',
+        // -> setupTestDb() seeds this address already verified, owned by "Fixture User"
+        email: 'fixture@example.com',
+        password: 'someotherpassword1'
+      },
+      request
+    )
+
+    // -> Not an oracle: indistinguishable from the fresh-registration success shape
+    assert.deepEqual(result, { nextAction: 'verify' })
+    assert.equal(request.session.authenticated, undefined)
+    assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+
+    // -> The real owner is notified, not the caller who submitted the collision
+    assert.equal(sendRegistrationCollisionMock.mock.calls.length, 1)
+    const call = sendRegistrationCollisionMock.mock.calls[0].arguments[0] as any
+    assert.equal(call.to, 'fixture@example.com')
+    assert.equal(call.name, 'Fixture User')
+
+    // -> The submitted name and password were discarded -- the existing account is untouched
+    const existing = await users.getByEmail('fixture@example.com')
+    assert.equal(existing!.name, 'Fixture User')
+  })
+
+  test('emailValidation off: still refuses a duplicate of an already-verified address as ERR_EMAIL_ALREADY_EXISTS', async () => {
+    const strategyId = await createStrategy({ emailValidation: false })
 
     await assert.rejects(
       users.register(
@@ -328,6 +364,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       /ERR_EMAIL_ALREADY_EXISTS/
     )
     assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+    assert.equal(sendRegistrationCollisionMock.mock.calls.length, 0)
   })
 
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {

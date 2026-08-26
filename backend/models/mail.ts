@@ -82,9 +82,11 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
- * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
- * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
- * test-email (the admin "Send Test Email" action), and the page-watch notification. Templates are
+ * registration-collision (the non-enumerating notice `register()` sends the real owner instead of
+ * throwing `ERR_EMAIL_ALREADY_EXISTS`), forgot-password (the reset-*request* email, with the actual
+ * reset link), password-reset-confirmed (the after-the-fact notice once a reset completes — a
+ * distinct email from the request one above), test-email (the admin "Send Test Email" action), and
+ * the page-watch notification. Templates are
  * plain inline HTML/text pairs — building a DB-backed, admin-editable template system is explicitly
  * out of scope here. `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area
  * section are unwired UI for that unbuilt system, gated behind `flagStore.experimental` on the
@@ -240,6 +242,22 @@ class MailModel {
       subject: 'Verify your email address',
       text: `Hi ${name},\n\nPlease verify your email address to activate your account:\n${link}\n\nIf you did not request this, you can safely ignore this email.`,
       html: `<p>Hi ${name},</p><p>Please verify your email address to activate your account:</p><p><a href="${link}">${link}</a></p><p>If you did not request this, you can safely ignore this email.</p>`
+    })
+  }
+
+  /**
+   * Notice sent to the *existing* owner of an address when someone else tries to self-register with
+   * it, on a strategy with `emailValidation` on. `register()` answers the caller with the same
+   * generic `{ nextAction: 'verify' }` a fresh registration gets rather than `ERR_EMAIL_ALREADY_EXISTS`
+   * -- this email is where the real signal goes instead, mirroring how `sendForgotPassword` never
+   * tells an unmatched caller their address has no account either.
+   */
+  async sendRegistrationCollision({ to, name }: { to: string; name: string }): Promise<void> {
+    await this.send({
+      to,
+      subject: 'Someone tried to register with your email address',
+      text: `Hi ${name},\n\nSomeone just tried to create a new account using this email address, which already has an account here. No new account was created, and your existing account and password are unchanged.\n\nIf this wasn't you, you can safely ignore this email. If you've forgotten your password, use the "Forgot Password" link on the login page instead.`,
+      html: `<p>Hi ${name},</p><p>Someone just tried to create a new account using this email address, which already has an account here. No new account was created, and your existing account and password are unchanged.</p><p>If this wasn't you, you can safely ignore this email. If you've forgotten your password, use the "Forgot Password" link on the login page instead.</p>`
     })
   }
 
