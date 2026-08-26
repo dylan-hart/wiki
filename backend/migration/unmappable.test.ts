@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { describe, test } from 'node:test'
-import { COMMENTS_UNMAPPABLE, classifyUserAuthProvider } from './unmappable.ts'
+import {
+  COMMENTS_UNMAPPABLE,
+  UNSUPPORTED_AUTH_PROVIDERS,
+  classifyUserAuthProvider
+} from './unmappable.ts'
 
 describe('classifyUserAuthProvider', () => {
-  for (const providerKey of ['ldap', 'saml', 'cas', 'auth0', 'okta']) {
+  for (const providerKey of ['azure', 'dropbox', 'facebook', 'firebase', 'rocketchat']) {
     test(`flags "${providerKey}" as unmappable (unsupported-auth-provider)`, () => {
       const result = classifyUserAuthProvider({ providerKey, email: 'alice@example.com' })
       assert.ok(result)
@@ -18,7 +24,19 @@ describe('classifyUserAuthProvider', () => {
     })
   }
 
-  for (const providerKey of ['local', 'google', 'github', 'oidc']) {
+  // -> These five all have a real backend/modules/authentication/<key>/ directory (confirmed by the
+  //    cross-check below), so a 2.x account on any of them is mappable, not flagged.
+  for (const providerKey of [
+    'ldap',
+    'saml',
+    'cas',
+    'auth0',
+    'okta',
+    'local',
+    'google',
+    'github',
+    'oidc'
+  ]) {
     test(`does not flag a supported provider ("${providerKey}")`, () => {
       assert.equal(classifyUserAuthProvider({ providerKey }), null)
     })
@@ -33,8 +51,26 @@ describe('classifyUserAuthProvider', () => {
   })
 
   test('falls back to id when email is missing', () => {
-    const result = classifyUserAuthProvider({ providerKey: 'okta', id: 42 })
+    const result = classifyUserAuthProvider({ providerKey: 'rocketchat', id: 42 })
     assert.equal(result?.identifier, '42')
+  })
+})
+
+describe('UNSUPPORTED_AUTH_PROVIDERS', () => {
+  test('is disjoint from the real backend/modules/authentication/ directory listing', async () => {
+    const authPath = path.join(import.meta.dirname, '..', 'modules', 'authentication')
+    const onDisk = new Set(
+      (await fs.readdir(authPath, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    )
+    for (const providerKey of UNSUPPORTED_AUTH_PROVIDERS) {
+      assert.ok(
+        !onDisk.has(providerKey),
+        `'${providerKey}' is listed as unmappable but backend/modules/authentication/${providerKey}/ ` +
+          'exists on disk — remove it from UNSUPPORTED_AUTH_PROVIDERS'
+      )
+    }
   })
 })
 

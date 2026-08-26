@@ -11,6 +11,7 @@ import {
 } from '../../db/schema.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
+import { UNSUPPORTED_AUTH_PROVIDERS } from '../unmappable.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -450,12 +451,6 @@ export function createGroupConverter(): GroupConverter {
 // doc and `needsProviderFallback()` below.
 // ---------------------------------------------------------------------------
 
-/** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
- * today — `backend/modules/authentication/{local,github,google,oidc}/` is the full list. Membership
- * here is necessary but not sufficient for a real provider-linked import: see
- * `needsProviderFallback()`. */
-const IMPLEMENTED_PROVIDER_MODULES = new Set(['local', 'github', 'google', 'oidc'])
-
 /**
  * Whether a source user's `providerKey` must be routed through the unsupported/reconfigured-provider
  * local-strategy fallback, rather than a real provider-linked (or local-password-carryover) import.
@@ -463,15 +458,16 @@ const IMPLEMENTED_PROVIDER_MODULES = new Set(['local', 'github', 'google', 'oidc
  * - `local` never falls back here — a local password carries over through `Users.importLocalUser()`
  *   (Task 728), a different path entirely, not this one.
  * - Every other `providerKey` falls back UNLESS `strategyMapping` names a target strategy id for it.
- *   This covers both halves of the task deliberately: a 2.x provider with no 3.0 module at all (LDAP,
- *   SAML, CAS, Auth0, Okta, ... — Epic #333's territory) has nowhere else to go, and a 2.x
- *   `github`/`google`/`oidc` account has nowhere *safe* to go either — 3.0 keys `auth` by
- *   strategy-instance UUID, and a fresh 3.0 install's same-module strategy (if configured at all)
- *   will not share the source's client id/secret, so the linked external account id cannot be
- *   assumed to resolve to anything on this install. A caller that has actually verified the mapping
- *   (an administrator who reconfigured the equivalent strategy and knows its new id) opts out per
- *   source module by supplying it here; real conversion for a mapped entry is not this function's
- *   job — see the module doc.
+ *   This covers both halves of the task deliberately: a 2.x provider with genuinely no 3.0 module at
+ *   all (`UNSUPPORTED_AUTH_PROVIDERS` in `../unmappable.ts` — Azure AD, Dropbox, Facebook, Firebase,
+ *   Rocket.Chat — Epic #333's territory) has nowhere else to go, and a 2.x provider that *does* have a
+ *   3.0 module (LDAP/SAML/CAS/Auth0/Okta/... included, same as `github`/`google`/`oidc`) has nowhere
+ *   *safe* to go either — 3.0 keys `auth` by strategy-instance UUID, and a fresh 3.0 install's
+ *   same-module strategy (if configured at all) will not share the source's client id/secret or bind
+ *   DN, so the linked external account id cannot be assumed to resolve to anything on this install. A
+ *   caller that has actually verified the mapping (an administrator who reconfigured the equivalent
+ *   strategy and knows its new id) opts out per source module by supplying it here; real conversion
+ *   for a mapped entry is not this function's job — see the module doc.
  */
 export function needsProviderFallback(
   providerKey: string,
@@ -481,10 +477,15 @@ export function needsProviderFallback(
   return !(providerKey in strategyMapping)
 }
 
+/** Reuses `unmappable.ts`'s `UNSUPPORTED_AUTH_PROVIDERS` as the single source of truth for which
+ * providers have no 3.0 module at all, rather than a second, independently-maintained list — the two
+ * used to disagree (see Feature 354 / Epic 1822's audit finding), which produced a false
+ * "has no 3.0-native implementation" reason for a provider (e.g. `ldap`) that in fact has a real
+ * `backend/modules/authentication/<key>/` directory and only lacks a verified target-strategy mapping. */
 function providerFallbackReason(providerKey: string): string {
-  return IMPLEMENTED_PROVIDER_MODULES.has(providerKey)
-    ? `source provider '${providerKey}' is implemented in 3.0, but no target-strategy mapping was supplied for it — a fresh install's ${providerKey} strategy (if configured at all) would not share the source's client id/secret, so the linked account cannot be assumed to resolve on this install`
-    : `source provider '${providerKey}' has no 3.0-native implementation (local/github/google/oidc is the full list — see Epic #333)`
+  return UNSUPPORTED_AUTH_PROVIDERS.has(providerKey)
+    ? `source provider '${providerKey}' has no 3.0-native implementation — see docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory (Epic #333)`
+    : `source provider '${providerKey}' is implemented in 3.0, but no target-strategy mapping was supplied for it — a fresh install's ${providerKey} strategy (if configured at all) would not share the source's client id/secret, so the linked account cannot be assumed to resolve on this install`
 }
 
 /** Reads a string column, treating an empty string the same as absent so a blank source field is

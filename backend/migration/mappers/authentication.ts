@@ -25,15 +25,23 @@ import type { SourceRecord } from '../connector.ts'
  *
  * ## Unsupported source modules (mirrors Feature 414's provider-fallback precedent)
  *
- * 3.0 ships four authentication modules (`backend/modules/authentication/{github,google,local,oidc}`);
- * 2.x ships twenty-one. A source row whose `strategyKey` isn't one of the four survivors — resolved via
- * `resolver.getModule()` returning `null`, not a hardcoded list, so this mapper tracks whichever
- * modules actually exist on disk rather than a snapshot of them — has nowhere to land: not just its
- * `config` (a remap target that exists), but the row itself. Exactly like Feature 414's
+ * `backend/modules/authentication/` ships sixteen modules today (`auth0`, `cas`, `discord`, `github`,
+ * `gitlab`, `google`, `keycloak`, `ldap`, `local`, `microsoft`, `oauth2`, `oidc`, `okta`, `saml`,
+ * `slack`, `twitch`); 2.x ships twenty-one. A source row whose `strategyKey` names none of these —
+ * resolved via `resolver.getModule()` returning `null`, not a hardcoded list, so this mapper tracks
+ * whichever modules actually exist on disk rather than a snapshot of them — has nowhere to land: not
+ * just its `config` (a remap target that exists), but the row itself. Exactly like Feature 414's
  * `needsProviderFallback()`/`ProviderFallbackFlag` for source *users* on an unimplemented provider,
  * this mapper does not write a row for it: it reports one `status: 'unsupported'` entry in the
  * result, carrying the source key and module, for whichever future dry-run report (Feature 421) wants
  * to show an administrator exactly what didn't come across and why.
+ *
+ * Below, `CONFIG_TRANSFORMS` only implements the per-module config remap for four of those sixteen —
+ * `local`/`google`/`github`/`oidc` — the modules `docs/migration/2.5x-settings-auth-storage-field-
+ * mapping.md`'s Part 2 has a confirmed prop-by-prop mapping for today. That is a narrower, separate
+ * fact from module *existence* above: a `strategyKey` resolving to one of the other twelve on-disk
+ * modules (e.g. `ldap`, `saml`) is not `unsupported` here — `resolver.getModule()` finds it — but
+ * produces an empty `config` until a future task extends `CONFIG_TRANSFORMS` for it.
  *
  * ## Multi-source conflict policy
  *
