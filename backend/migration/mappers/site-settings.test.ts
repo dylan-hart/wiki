@@ -205,7 +205,7 @@ describe('mapSiteSettings', () => {
         key: 'uploads',
         // -> `maxFiles` has no 3.0 destination (`security.uploadMaxFiles` was removed as a dead key
         //    that nothing ever enforced; OpenProject #2174) and is expected to be dropped, not mapped.
-        value: { maxFileSize: 5242880, maxFiles: 10, scanSVG: false, forceDownload: false }
+        value: { maxFileSize: 5242880, scanSVG: false, forceDownload: false }
       }
     ]
     const { instanceSettings } = mapSiteSettings(rows)
