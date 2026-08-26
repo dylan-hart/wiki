@@ -4,6 +4,9 @@ import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 
+import { GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from './helpers/permissions.ts'
+import { SITE_PERMISSIONS } from './helpers/siteRules.ts'
+
 /**
  * Drift check for CLAUDE.md's "Pre-existing bugs are preserved, not fixed" bullet (task #782).
  *
@@ -16,6 +19,12 @@ import assert from 'node:assert/strict'
  *
  * Was docs/claude-md-fixme-bullet.test.mjs, unrun by anything (OpenProject #959). Moved into
  * backend/, logic unchanged, so `npm run test` actually runs it.
+ *
+ * Also carries a second drift check (OpenProject #1961), added once a real drift was found between
+ * CLAUDE.md's Permissions section and `helpers/permissions.ts`/`helpers/siteRules.ts`: the three
+ * enumerated lists there (global, page-rule, site-scoped) are asserted as sets against
+ * `GLOBAL_PERMISSIONS`, `PAGE_PERMISSIONS` and `SITE_PERMISSIONS`, so adding a permission to either
+ * constant without updating CLAUDE.md now fails `npm run test` instead of silently going stale.
  */
 
 const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -65,6 +74,57 @@ function extractBullet(claudeMd: string): string | null {
   const bulletEnd = nextBulletOffset === -1 ? claudeMd.length : start + nextBulletOffset
   return claudeMd.slice(bulletStart, bulletEnd)
 }
+
+/**
+ * Extracts the backtick-quoted permission tokens between two anchor phrases in CLAUDE.md's
+ * "Permissions" section, e.g. the text right after "**Global permissions**" up to the prose that
+ * names the backing constant. Bounding the slice before that parenthetical is what keeps the
+ * constant's own name (`PAGE_PERMISSIONS`, `SITE_PERMISSIONS`, `GroupEditOverlay.vue`, …) out of the
+ * extracted token list -- only the enumerated permission strings sit between the two anchors.
+ */
+function extractPermissionList(claudeMd: string, startAnchor: string, endAnchor: string): string[] {
+  const start = claudeMd.indexOf(startAnchor)
+  assert.notStrictEqual(start, -1, `expected to find "${startAnchor}" in CLAUDE.md`)
+  const end = claudeMd.indexOf(endAnchor, start)
+  assert.notStrictEqual(
+    end,
+    -1,
+    `expected to find "${endAnchor}" in CLAUDE.md after "${startAnchor}"`
+  )
+  const slice = claudeMd.slice(start, end)
+  return [...slice.matchAll(/`([a-z][\w-]*:[\w-]+)`/g)].map((m) => m[1])
+}
+
+describe("CLAUDE.md's three permission lists stay in sync with the backend constants", () => {
+  const claudeMd = readFileSync(claudeMdPath, 'utf8')
+
+  test('global permissions list matches GLOBAL_PERMISSIONS (helpers/permissions.ts)', () => {
+    const listed = extractPermissionList(
+      claudeMd,
+      '**Global permissions** are held site-wide',
+      '. That list is the whole of it'
+    )
+    assert.deepStrictEqual(new Set(listed), new Set(GLOBAL_PERMISSIONS))
+  })
+
+  test('page rule permissions list matches PAGE_PERMISSIONS (helpers/permissions.ts)', () => {
+    const listed = extractPermissionList(
+      claudeMd,
+      '**Page rule permissions** are bound to paths',
+      '(`PAGE_PERMISSIONS`'
+    )
+    assert.deepStrictEqual(new Set(listed), new Set(PAGE_PERMISSIONS))
+  })
+
+  test('site-scoped delegation permissions list matches SITE_PERMISSIONS (helpers/siteRules.ts)', () => {
+    const listed = extractPermissionList(
+      claudeMd,
+      '**Site-scoped delegation permissions** are bound to a site',
+      '(`SITE_PERMISSIONS`'
+    )
+    assert.deepStrictEqual(new Set(listed), new Set(SITE_PERMISSIONS))
+  })
+})
 
 describe("CLAUDE.md's FIXME-preservation bullet stays honest about backend/'s actual markers", () => {
   const claudeMd = readFileSync(claudeMdPath, 'utf8')

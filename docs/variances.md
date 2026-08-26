@@ -698,7 +698,7 @@ a specific query surface. This fork's `apiKeys` table (`backend/db/schema.ts`) i
 entirely: keys are bound to a list of **groups** (`groups` jsonb column), not a user, and authorize
 REST endpoints under the group's ordinary permission set rather than a GraphQL scope list (see
 `backend/models/apiKeys.ts`, `backend/api/apiKeys.ts`). There is no GraphQL server left in this fork
-to scope a token against in the first place (see CLAUDE.md, "GraphQL is being removed"). Because the
+to scope a token against in the first place (see CLAUDE.md, "GraphQL was removed"). Because the
 two token models have no field-for-field mapping — user-bound vs. group-bound, GraphQL scopes vs.
 REST/group permissions, and a different signing scheme (this fork's keys are JWTs signed by an
 instance-local keypair generated at migration time, per `SigningCertificates` in

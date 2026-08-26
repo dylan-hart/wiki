@@ -133,7 +133,7 @@ describe('AuthLoginPanel recovery code toggle', () => {
 
 /**
  * `register()` used to be a dead `APOLLO_CLIENT.mutate(...)` call (there is no GraphQL server left --
- * see CLAUDE.md's "GraphQL is being removed") that also never sent `strategyId`, which the REST route
+ * see CLAUDE.md's "GraphQL was removed") that also never sent `strategyId`, which the REST route
  * requires. This covers the two shapes `POST sites/:siteId/auth/register` answers with: `nextAction:
  * 'verify'` (email validation on -- show the check-your-email screen rather than auto-logging in) and
  * any other `nextAction` (email validation off -- falls straight through to the same
