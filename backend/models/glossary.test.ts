@@ -5,28 +5,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import { groups as groupsTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
-
-// -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via `Date#toTemporalInstant()`
-//    + `Temporal.Instant.compare()`, matching CLAUDE.md's "Backend patterns". That is only a runtime
-//    global on Node 26+; this sandbox's Node is 25.9, where both are simply absent -- see
-//    `locales.test.ts`'s identical shim for the fuller explanation. Feature-detected so this is a no-op
-//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
-if (typeof Temporal === 'undefined') {
-  class FakeInstant {
-    epochMs: number
-    constructor(epochMs: number) {
-      this.epochMs = epochMs
-    }
-  }
-  ;(globalThis as any).Temporal = {
-    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
-  }
-  if (!(Date.prototype as any).toTemporalInstant) {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return new FakeInstant(this.getTime())
-    }
-  }
-}
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness
@@ -41,6 +20,9 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
   let actor: PageActor
 
   before(async () => {
+    // -> The versioning tests below compare `GlossaryVersionSummary.createdAt` via
+    //    `Date#toTemporalInstant()` + `Temporal.Instant.compare()`, per CLAUDE.md's "Backend patterns".
+    await ensureTemporal()
     fixtures = await setupTestDb()
     ;({ glossary: glossaryModel } = await import('./glossary.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))

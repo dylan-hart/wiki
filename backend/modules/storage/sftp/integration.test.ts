@@ -9,6 +9,7 @@ import { exportAll } from './storage.ts'
 import { generateTestKeyPair, startTestSftpServer } from '../../../test/sftpServer.ts'
 import type { TestSftpServer } from '../../../test/sftpServer.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
+import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * Integration coverage for the `sftp` storage module, against a real (if narrow) SFTP server rather
@@ -22,24 +23,13 @@ import type { StorageTarget } from '../../../models/storage.ts'
  *
  * `injectFrontMatter` (via `exportPages`) converts a page's `createdAt`/`updatedAt` through
  * `Date#toTemporalInstant()`, a Node 26 global this sandbox's Node v25.9.0 doesn't provide — same gap
- * `helpers/pageSerialization.test.ts` and `core/scheduler.test.ts` already work around, stubbed here
- * the same way.
+ * `helpers/pageSerialization.test.ts` and `core/scheduler.test.ts` already work around.
  */
-let previousToTemporalInstant: any
 let previousWiki: any
 let loggerCalls: string[]
 
-before(() => {
-  previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const epochMs = this.getTime()
-    return {
-      toString: ({ smallestUnit }: { smallestUnit?: string } = {}) => {
-        const iso = new Date(epochMs).toISOString()
-        return smallestUnit === 'second' ? iso.replace(/\.\d{3}Z$/, 'Z') : iso
-      }
-    }
-  }
+before(async () => {
+  await ensureTemporal()
   previousWiki = (globalThis as any).WIKI
 })
 
@@ -56,7 +46,6 @@ beforeEach(() => {
 })
 
 after(() => {
-  ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   ;(globalThis as any).WIKI = previousWiki
 })
 
