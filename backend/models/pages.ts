@@ -117,9 +117,6 @@ export interface Page {
   showTags: boolean
   showToc: boolean
   tocDepth: { min: number; max: number }
-  scriptJsLoad: string
-  scriptJsUnload: string
-  scriptCss: string
   navigationId: string | null
   navigationMode: string
   authorId: string
@@ -163,9 +160,6 @@ export interface PageInput {
   showTags?: boolean
   showToc?: boolean
   tocDepth?: { min: number; max: number }
-  scriptJsLoad?: string
-  scriptJsUnload?: string
-  scriptCss?: string
   /**
    * Why this save is being made, as the editor's reason-for-change prompt collected it. Not a page
    * field: it belongs to the version this save produces, and is recorded on the history row.
@@ -369,7 +363,6 @@ class Pages {
     }: { withContent?: boolean; withPassword?: boolean; locked?: boolean } = {}
   ): Page {
     const config = row.config ?? {}
-    const scripts = row.scripts ?? {}
     return {
       id: row.id,
       path: row.path,
@@ -402,9 +395,6 @@ class Pages {
       showTags: config.showTags ?? true,
       showToc: config.showToc ?? true,
       tocDepth: config.tocDepth ?? { min: 1, max: 2 },
-      scriptJsLoad: scripts.jsLoad ?? '',
-      scriptJsUnload: scripts.jsUnload ?? '',
-      scriptCss: scripts.css ?? '',
       navigationId: row.navigationId ?? null,
       navigationMode: row.navigationMode ?? 'inherit',
       authorId: row.authorId,
@@ -864,7 +854,6 @@ class Pages {
           links,
           render,
           searchContent: text,
-          scripts: this.buildScripts(input, actor, pageRef),
           siteId,
           tags: input.tags ?? [],
           title,
@@ -1066,18 +1055,6 @@ class Pages {
 
     if (CONFIG_FIELDS.some((field) => patch[field] !== undefined)) {
       values.config = this.buildConfig(patch, siteId, existing.config as Record<string, any>)
-    }
-    if (
-      patch.scriptJsLoad !== undefined ||
-      patch.scriptJsUnload !== undefined ||
-      patch.scriptCss !== undefined
-    ) {
-      values.scripts = this.buildScripts(
-        patch,
-        actor,
-        existingRef,
-        existing.scripts as Record<string, any>
-      )
     }
 
     // -> The author is whoever last changed it; the creator and owner do not move
@@ -1852,29 +1829,6 @@ class Pages {
       showTags: input.showTags ?? existing.showTags ?? true,
       showToc: input.showToc ?? existing.showToc ?? true,
       tocDepth: input.tocDepth ?? existing.tocDepth ?? defaults.tocDepth ?? { min: 1, max: 2 }
-    }
-  }
-
-  /**
-   * Same for the per-page scripts — which only an author holding the matching permission may set.
-   *
-   * Silently dropped rather than refused, as with the rest of the sanitizing: an author pasting a
-   * page template that carries scripts should get their page, minus the scripts.
-   */
-  private buildScripts(
-    input: Partial<PageInput>,
-    actor: PageActor,
-    page: RulePageRef,
-    existing: Record<string, any> = {}
-  ): Record<string, any> {
-    const mayScript = hasPermission(actor, 'write:scripts', page)
-    const mayStyle = hasPermission(actor, 'write:styles', page)
-    return {
-      jsLoad: mayScript ? (input.scriptJsLoad ?? existing.jsLoad ?? '') : (existing.jsLoad ?? ''),
-      jsUnload: mayScript
-        ? (input.scriptJsUnload ?? existing.jsUnload ?? '')
-        : (existing.jsUnload ?? ''),
-      css: mayStyle ? (input.scriptCss ?? existing.css ?? '') : (existing.css ?? '')
     }
   }
 

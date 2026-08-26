@@ -17,3 +17,17 @@ scheduler:
   #    `active` row reads as stale within the test's own polling window, long enough that no
   #    genuinely-running seeded task (checkVersion, purgeRateLimits, ...) is ever mistaken for one.
   staleJobTimeout: 20
+security:
+  # -> WP #2166 (part of #2154): `enforceCsp` is off by default in `base.yml` -- shipping it ON
+  #    there would mean every real fresh install starts life with a policy nobody has confirmed
+  #    works for THEIR site's blocks/theme/analytics. Here it is deliberately flipped on, so
+  #    `e2e/tests/csp.spec.js` runs the editor, a block and a KaTeX expression against the exact
+  #    default `cspDirectives` string this WP ships, catching a real violation instead of a
+  #    disabled policy silently letting anything through. Reaches the seeded DB row via
+  #    `models/settings.ts#securityCspSeed` (`WIKI.config.security`, which this file's merge into
+  #    `base.yml`'s defaults produces) -- there is no live-reload of `enforceCsp` (`index.ts` reads
+  #    it once, at server start, to register helmet's CSP plugin), so this has to be set before the
+  #    very first boot, not toggled by a spec at runtime. `cspDirectives` itself is left unset here
+  #    on purpose: `base.yml`'s own default is what `securityCspSeed` falls back to, so this spec
+  #    is proving the SHIPPED string, not a copy of it duplicated into this file.
+  enforceCsp: true

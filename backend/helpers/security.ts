@@ -35,11 +35,56 @@ export function needsSvgCsp(fileExt: string): boolean {
 }
 
 /**
+ * Directive names recognised by the CSP3 spec (fetch, document, navigation, reporting and
+ * trusted-types directives — https://www.w3.org/TR/CSP3/#csp-directives) plus the two long-deprecated
+ * ones (`block-all-mixed-content`, `plugin-types`) some still-supported browsers accept. Anything
+ * outside this set is almost certainly a typo, which is exactly the case `parseCspDirectives` is
+ * built to catch: a misspelled `srcipt-src` previously stored (and enforced) silently as nothing,
+ * rather than refusing the save.
+ */
+export const CSP_DIRECTIVE_NAMES = new Set([
+  'base-uri',
+  'block-all-mixed-content',
+  'child-src',
+  'connect-src',
+  'default-src',
+  'fenced-frame-src',
+  'font-src',
+  'form-action',
+  'frame-ancestors',
+  'frame-src',
+  'img-src',
+  'manifest-src',
+  'media-src',
+  'navigate-to',
+  'object-src',
+  'plugin-types',
+  'prefetch-src',
+  'report-to',
+  'report-uri',
+  'require-trusted-types-for',
+  'sandbox',
+  'script-src',
+  'script-src-attr',
+  'script-src-elem',
+  'style-src',
+  'style-src-attr',
+  'style-src-elem',
+  'trusted-types',
+  'upgrade-insecure-requests',
+  'worker-src'
+])
+
+/**
  * Turn a Content-Security-Policy string into helmet's directives object.
  *
  * `default-src 'self'; img-src * data:` becomes
  * `{ 'default-src': ["'self'"], 'img-src': ['*', 'data:'] }`. A directive with no value, such as
  * `upgrade-insecure-requests`, maps to an empty list, which is how helmet expresses it too.
+ *
+ * @throws {Error} naming the offending token when a chunk's directive name is not one of
+ * `CSP_DIRECTIVE_NAMES` — `models/security.ts#validate` is what turns this into a rejected save
+ * rather than a silently-narrower policy.
  */
 export function parseCspDirectives(value: string): Record<string, string[]> {
   const directives: Record<string, string[]> = {}
@@ -49,7 +94,11 @@ export function parseCspDirectives(value: string): Record<string, string[]> {
     if (!name) {
       continue
     }
-    directives[name.toLowerCase()] = parts
+    const key = name.toLowerCase()
+    if (!CSP_DIRECTIVE_NAMES.has(key)) {
+      throw new Error(`Unknown Content-Security-Policy directive "${name}".`)
+    }
+    directives[key] = parts
   }
   return directives
 }
