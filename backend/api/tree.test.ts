@@ -35,6 +35,13 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
+        createFolder: async (input: any) => ({
+          ...input,
+          id: FOLDER_ID,
+          fileName: input.pathName,
+          folderPath: '',
+          meta: {}
+        }),
         renameFolder: async (input: any) => ({
           ...input,
           siteId: ENABLED_SITE_ID,
@@ -56,6 +63,17 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/etc. is a thrown
+  //    `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that shapes it
+  //    into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
   await app.register(treeRoutes)
@@ -173,4 +191,28 @@ test('RENAME FOLDER route: passes the route siteId through to checkAccess', asyn
   assert.equal(res.statusCode, 200)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+})
+
+/**
+ * OpenProject #2131: a `parentId` naming a folder in another site used to be resolved anyway (the
+ * model's `getFolderById()` filtered on `id` alone) and its path/locale flowed straight into the
+ * response. `getFolderById` now takes the route's own siteId, so a foreign `parentId` resolves to
+ * `null` here (this suite's mock ignores the id — the model layer's own DB-backed refusal is
+ * `models/tree.test.ts`'s `createFolder refuses a parentId belonging to another site`) and the route
+ * must refuse the request itself rather than falling through to the request's own `parentPath`.
+ */
+test('CREATE FOLDER route: refuses a foreign parentId and leaks neither a path nor a locale', async () => {
+  const originalGetFolderById = (globalThis as any).WIKI.models.tree.getFolderById
+  ;(globalThis as any).WIKI.models.tree.getFolderById = async () => null
+  const foreignParentId = '99999999-9999-4999-8999-999999999999'
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders`,
+    payload: { parentId: foreignParentId, pathName: 'intruder', title: 'Intruder' }
+  })
+  ;(globalThis as any).WIKI.models.tree.getFolderById = originalGetFolderById
+  assert.equal(res.statusCode, 404)
+  const body = res.json()
+  assert.equal(body.message, 'The parent folder does not exist.')
+  assert.equal('folder' in body, false, 'the response must not carry a folder object')
 })

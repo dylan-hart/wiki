@@ -309,7 +309,7 @@ class Tree {
     // -> Resolve what to list into the ltree path its children carry
     let path = ''
     if (parentId) {
-      const parent = await this.getFolderById(parentId)
+      const parent = await this.getFolderById(parentId, siteId)
       if (parent) {
         path = childPathOf(parent)
       }
@@ -611,13 +611,22 @@ class Tree {
   }
 
   /**
-   * A single folder by ID, or null if the ID is not a folder
+   * A single folder by ID, scoped to a site, or null if the ID is not a folder in that site.
+   *
+   * `siteId` is required, not optional-with-a-fallback: an unscoped lookup here is exactly the
+   * cross-tenant read OpenProject #2131 fixed (a folder-create `parentId` from another site was
+   * resolved and its path/locale leaked into the caller's response), so every call site names the
+   * site it expects the folder to belong to rather than trusting the ID alone.
    */
-  async getFolderById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  async getFolderById(
+    id: string,
+    siteId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<TreeRow | null> {
     const results = await db
       .select()
       .from(treeTable)
-      .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder')))
+      .where(and(eq(treeTable.id, id), eq(treeTable.siteId, siteId), eq(treeTable.type, 'folder')))
       .limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -690,7 +699,7 @@ class Tree {
     id?: string | null
     path?: string | null
     locale?: string
-    siteId?: string
+    siteId: string
     createIfMissing?: boolean
     /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
      *  transaction here so a folder it has to create is rolled back along with everything else in
@@ -698,7 +707,7 @@ class Tree {
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id, db)
+      const folder = await this.getFolderById(id, siteId, db)
       if (!folder) {
         throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
       }
@@ -711,7 +720,7 @@ class Tree {
       .from(treeTable)
       .where(
         and(
-          eq(treeTable.siteId, siteId!),
+          eq(treeTable.siteId, siteId),
           eq(treeTable.locale, locale!),
           eq(treeTable.folderPath, folderPath),
           eq(treeTable.fileName, fileName),
@@ -730,7 +739,7 @@ class Tree {
       pathName: fileName,
       title: fileName,
       locale: locale!,
-      siteId: siteId!,
+      siteId,
       db
     })
   }
@@ -777,7 +786,7 @@ class Tree {
     let path = encodeTreePath(parentPath)
     let effectiveLocale = locale
     if (parentId) {
-      const parent = await this.getFolderById(parentId, db)
+      const parent = await this.getFolderById(parentId, siteId, db)
       if (!parent) {
         throw new CustomError('treeInvalidParent', 'The parent folder does not exist.', 404)
       }
@@ -933,14 +942,16 @@ class Tree {
    */
   async renameFolder({
     folderId,
+    siteId,
     pathName,
     title
   }: {
     folderId: string
+    siteId: string
     pathName: string
     title: string
   }): Promise<TreeRow> {
-    const folder = await this.getFolderById(folderId)
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
@@ -1125,8 +1136,11 @@ class Tree {
    *          back with it: the tree row is the only record of that, and it is gone by then — but what
    *          was deleted is exactly what a webhook subscriber is owed.
    */
-  async deleteFolder(folderId: string): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
-    const folder = await this.getFolderById(folderId)
+  async deleteFolder(
+    folderId: string,
+    siteId: string
+  ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
+    const folder = await this.getFolderById(folderId, siteId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
