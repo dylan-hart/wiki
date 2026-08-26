@@ -137,6 +137,23 @@ Blocks style themselves off `:host` and read the theme colors via CSS custom pro
 (`var(--q-primary)` — the `--q-` prefix is historical; the properties are declared in
 `css/tailwind.css` and rewritten at runtime for per-site theming).
 
+**A block reaches the API and learns its site id through `blocks/shared/site.js`'s `getSiteId()`
+plus a bare `fetch` against the public, hostname-routed surface — never `globalThis.API_CLIENT` /
+`globalThis.WIKI_STATE`.** Those two globals only exist inside the SPA shell (see
+`frontend/src/boot/api.js`); a block sitting in transcluded content, a future standalone embed, or
+anywhere else the SPA never booted has no access to them, while a public `fetch` (`getSiteId()`
+itself, or `shared/config.js`'s `fetchSite()`) works everywhere a block can be placed — the reason
+`getSiteId()`'s header gives for choosing it. `block-checklist`, `block-index` and `block-include`
+predate this decision and still read the SPA globals directly; converting them is separate,
+tracked work, not license to add a fourth block that does the same. The one gap the public API
+doesn't cover is a permission check with no public equivalent — `block-checklist`'s
+`WIKI_STATE.user.can('write:pages')` gate. Until a public, anonymous-safe permissions endpoint
+exists, a block that genuinely needs one keeps reading `globalThis.WIKI_STATE?.user?.can?.(...)`
+directly (optional-chained, since the global may be absent), treating an absent or `false` read as
+"not permitted" and hiding or disabling the gated control — so the block still renders outside the
+SPA shell, just without that one affordance, rather than throwing. See `blocks/shared/site.js`'s
+header for the fuller rationale.
+
 **Dark mode goes through `blocks/shared/theme.js`, never `:host-context()`.** The app's source of
 truth is the `body--dark` class on `<body>`, which CSS in a shadow root cannot see; `:host-context()`
 is the selector for exactly that and is what every block used to use, but only Chromium ever shipped
