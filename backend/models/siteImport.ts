@@ -98,6 +98,14 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  * - **Authorship cannot travel with the content**, since accounts are not part of the export — every
  *   imported page's and asset's author/creator/owner columns are rewritten to the account performing
  *   the import.
+ * - **Tags are not part of the archive, and need no purge or rebuild.** `db/schema.ts`'s `tags` table
+ *   looks like it belongs on the same purge-then-rebuild list as pages/tree/assets, but nothing under
+ *   `backend/` ever writes to it — a tag exists only because a page carries it in `pages.tags`, and
+ *   that column is a plain part of every row the page swap above already deletes and re-inserts
+ *   wholesale (see `models/tags.ts`'s own note on the table being dead). So there is no stale
+ *   `usageCount` for this import to leave behind, and nothing for it to touch. The table itself stays
+ *   dead code, tracked for removal rather than use, by correctness-models §15 / correctness-data-schema
+ *   §6.
  * - **The target site's own config, hostname and enabled state are left untouched.** `site.json` is
  *   validated as present (it is part of the archive's structure) but its contents are not applied —
  *   only pages, tree entries, assets and groups are what this restores.
