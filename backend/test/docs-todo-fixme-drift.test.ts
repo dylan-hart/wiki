@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
  * Drift check for the "## TODO/FIXME audit" section of docs/variances.md (task #780, section added
  * by #959; made bidirectional, bounded, and closed over its marker vocabulary by #1951).
  *
- * backend/docs-todo-fixme-audit.test.ts locks down one specific, durable outcome of the original
+ * backend/test/docs-todo-fixme-audit.test.ts locks down one specific, durable outcome of the original
  * audit pass, but it hard-codes what it checks, so it cannot notice a marker the audit never looked
  * at in the first place. This test is the "re-run the grep before trusting this list" instruction
  * automated: it walks backend/ and frontend/src/ for TODO/FIXME markers and fails if any file
@@ -25,10 +25,12 @@ import assert from 'node:assert/strict'
  * section didn't exist yet). Moved into backend/, logic unchanged, so `npm run test` actually runs
  * it -- this file is exactly the kind of drift-guard suite CLAUDE.md's own "TODO/FIXME audit" note
  * points at, so it belongs where the thing it guards against (a scoped, narrow-cast marker going
- * unreviewed) actually gets caught.
+ * unreviewed) actually gets caught. Moved again, into backend/test/, by #1949, alongside its
+ * `docs-*.test.ts` / `localazy-config.test.ts` siblings -- see CLAUDE.md's "Testing (backend)"
+ * section for the co-located-test-fixture rule this falls under.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const variancesPath = path.join(REPO_ROOT, 'docs', 'variances.md')
 
 const MARKER = /\b(TODO|FIXME)\b/

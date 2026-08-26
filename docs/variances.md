@@ -16,7 +16,7 @@ generated bundle is machine output no one hand-edits).
 A TODO or FIXME marker is not automatically a lint failure or a bug to close on sight — CLAUDE.md's
 "Pre-existing bugs are preserved, not fixed" convention deliberately leaves some in place, narrowly
 cast, until their real fix lands. This entry is the audit trail so a marker sitting in the tree reads
-as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
+as "reviewed and intentional" rather than "forgotten." `backend/test/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
 - **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not

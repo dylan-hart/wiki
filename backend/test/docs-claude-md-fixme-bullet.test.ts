@@ -4,8 +4,8 @@ import path from 'node:path'
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from './helpers/permissions.ts'
-import { SITE_PERMISSIONS } from './helpers/siteRules.ts'
+import { GLOBAL_PERMISSIONS, PAGE_PERMISSIONS } from '../helpers/permissions.ts'
+import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 
 /**
  * Drift check for CLAUDE.md's "Pre-existing bugs are preserved, not fixed" bullet (task #782).
@@ -27,7 +27,7 @@ import { SITE_PERMISSIONS } from './helpers/siteRules.ts'
  * constant without updating CLAUDE.md now fails `npm run test` instead of silently going stale.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const claudeMdPath = path.join(REPO_ROOT, 'CLAUDE.md')
 const backendDir = path.join(REPO_ROOT, 'backend')
 

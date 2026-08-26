@@ -481,16 +481,21 @@ separate transpile or worker config.
   unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
   `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
   this one is the real round trip between them), and a structural/self-consistency check against a
-  repo-root doc or CI config with no backend-workspace file to sit next to at all
-  (`changelog.test.ts` against `cliff.toml`, `release-checklist-doc.test.ts` against
-  `docs/release-checklist.md`, `release-workflow.test.ts` against `.github/workflows/build.yml` AND
-  `release.yml` together, `releasing-doc.test.ts` against `docs/versioning.md` — none of those
+  repo-root doc or CI config with no backend-workspace file to sit next to at all — none of those
   subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
-  this workspace). A test file that genuinely does have one specific co-located sibling belongs next
-  to it, not here — three such near-namesake pairs (`test/api/sites.test.ts` vs. `api/sites.test.ts`,
-  `test/core/config.test.ts` vs. `core/config.test.ts`, `test/core/scheduler.test.ts` vs.
-  `core/scheduler.test.ts`) existed as discovery hazards until this pass confirmed each co-located
-  file already fully superseded its `test/` namesake and deleted the redundant copy.
+  this workspace, so a test guarding one has to live somewhere inside it regardless. This is the
+  rule to apply, not a fixed list of examples: a by-name enumeration here goes stale the moment a
+  new such test lands elsewhere, which is exactly what happened to the six `docs-*.test.ts` /
+  `localazy-config.test.ts` files that used to sit at the `backend/` root before being moved in here
+  under this same rule. `base.test.ts` is the one file in this category that stays at the `backend/`
+  root rather than moving into `test/`: it is co-located with `backend/base.yml`, resolving it as
+  `path.join(path.dirname(fileURLToPath(import.meta.url)), 'base.yml')`, so it belongs with the file
+  it guards the same way any other co-located test does. A test file that genuinely does have one
+  specific co-located sibling belongs next to it, not here — three such near-namesake pairs
+  (`test/api/sites.test.ts` vs. `api/sites.test.ts`, `test/core/config.test.ts` vs.
+  `core/config.test.ts`, `test/core/scheduler.test.ts` vs. `core/scheduler.test.ts`) existed as
+  discovery hazards until this pass confirmed each co-located file already fully superseded its
+  `test/` namesake and deleted the redundant copy.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
