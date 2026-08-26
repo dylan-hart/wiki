@@ -436,14 +436,9 @@ class Passkeys {
       )
     })
 
-    // -> Checks the password strategy would have made, which a passkey login would otherwise skip
-    if (!user.isActive) {
-      throw new Error('ERR_INACTIVE_USER')
-    }
-    if (!user.isVerified) {
-      throw new Error('ERR_USER_NOT_VERIFIED')
-    }
-
+    // -> `isActive`/`isVerified` are checked centrally by `models/users.ts#afterLoginChecks()`, called
+    //    a few lines below -- every login path ends there, this one included, so a passkey login is no
+    //    longer able to skip the check the password strategy would have made.
     WIKI.models.flags.authDebug(
       `User ${user.id} <${user.email}> authenticated with passkey "${passkey.name}"`
     )

@@ -1514,6 +1514,20 @@ class Users {
     return (result.rowCount ?? 0) > 0
   }
 
+  /**
+   * Purge every outstanding `userKeys` row for a user -- reset-password, email-verify, TFA-setup and
+   * change-password tokens alike.
+   *
+   * The counterpart to `sessions.clearSessionsFromUser()` for deactivation (`api/users.ts`'s
+   * `patch.isActive === false` path calls both): a token minted before an account was deactivated
+   * would otherwise still be redeemable afterwards. `afterLoginChecks()` would refuse the login that
+   * redemption ends in, but not before `resetPassword()` has already rewritten the password hash --
+   * purging the row here means the token never gets that far.
+   */
+  async clearKeysFromUser(userId: string): Promise<void> {
+    await WIKI.db.delete(userKeys).where(eq(userKeys.userId, userId))
+  }
+
   async init(ids: SystemIds): Promise<void> {
     WIKI.logger.info('Inserting default users...')
 
@@ -1713,8 +1727,10 @@ class Users {
    * no local match and threw `ProvisionableLoginError`) needs exactly the same find-or-create rules
    * rather than a second copy of them.
    *
-   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_LOGIN_FAILED`,
-   *         `ERR_INACTIVE_USER`
+   * `isActive`/`isVerified` are deliberately not checked here: both callers hand the returned user
+   * straight to `afterLoginChecks()`, which is the one place that check belongs now.
+   *
+   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_LOGIN_FAILED`
    */
   private async findOrCreateProviderUser(
     strategy: AuthStrategy,
@@ -1761,9 +1777,6 @@ class Users {
 
     if (!user) {
       throw new Error('ERR_LOGIN_FAILED')
-    }
-    if (!user.isActive) {
-      throw new Error('ERR_INACTIVE_USER')
     }
 
     /*
@@ -1981,6 +1994,19 @@ class Users {
     const str = WIKI.auth.strategies[strategyId] as any
     if (!str) {
       throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    // -> The funnel every login path ends in: local, provider, passkey and the 2FA/password-change/
+    //    reset-password continuations all call this method, so this is the one place an account-state
+    //    check is guaranteed to run regardless of which path got here. `restrictLogin` is deliberately
+    //    NOT checked here -- it is a per-strategy (local-only) flag, already enforced by
+    //    `modules/authentication/local/authentication.ts#authenticate()` before a local login ever
+    //    reaches this method, and by `forgotPassword()` before a reset token is minted.
+    if (!user.isActive) {
+      throw new Error('ERR_INACTIVE_USER')
+    }
+    if (!user.isVerified) {
+      throw new Error('ERR_USER_NOT_VERIFIED')
     }
 
     // Get user groups
@@ -2402,11 +2428,17 @@ class Users {
    * Request a password reset link by email.
    *
    * Never throws and never reports which of its checks failed: an unknown/disabled strategy, one
-   * with `allowForgotPassword` off, an email matching no account, and an account that has no password
-   * under this strategy (e.g. provider-only) are all silently a no-op. `api/authentication.ts`'s route
+   * with `allowForgotPassword` off, an email matching no account, an account that has no password
+   * under this strategy (e.g. provider-only), a deactivated account, and one whose password login has
+   * been restricted (`restrictLogin`) are all silently a no-op. `api/authentication.ts`'s route
    * answers the same generic success either way, which is what actually closes the
    * email-enumeration hole -- this method just makes sure there is nothing here (a thrown `ERR_`, a
    * different return shape) for that route to leak by accident.
+   *
+   * The deactivated/restricted checks are also what stops a reset token from ever being minted for
+   * such an account: `afterLoginChecks()` (via `resetPassword()`) would refuse the login anyway, but
+   * only after the password hash has already been rewritten -- refusing here means a token never
+   * exists to redeem in the first place.
    */
   async forgotPassword({
     strategyId,
@@ -2425,9 +2457,9 @@ class Users {
 
     const user = await this.getByEmail(email.toLowerCase().trim())
     const auth = (user?.auth ?? {}) as Record<string, any>
-    if (!user || !auth[strategyId]?.password) {
+    if (!user || !auth[strategyId]?.password || !user.isActive || auth[strategyId].restrictLogin) {
       WIKI.models.flags.authDebug(
-        `Forgot-password request for an address with no matching local account under strategy ${strategyId}`
+        `Forgot-password request for an address with no matching, resettable local account under strategy ${strategyId}`
       )
       return
     }
