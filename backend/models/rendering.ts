@@ -7,6 +7,7 @@ import { CustomError } from '../helpers/common.ts'
 import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
+import type { BlockProp } from './blocks.ts'
 
 /**
  * Rendering model
@@ -65,6 +66,12 @@ function withRenderTimeout<T>(work: Promise<T>): Promise<T> {
     )
   })
   return Promise.race([work, expiry]).finally(() => clearTimeout(timer))
+}
+
+/** The shape `blockAllowances()` needs from a custom block -- see `models/blocks.ts#getCustomBlockDefinitions()`. */
+interface CustomBlockAllowance {
+  block: string
+  props: BlockProp[]
 }
 
 /** A heading in the table of contents, shaped for the Quasar tree the page sidebar draws. */
@@ -464,14 +471,32 @@ class Rendering {
     pagePath: string = ''
   ): Promise<PostProcessResult> {
     const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(siteId)
-    const clean = this.sanitize(html ?? '', permissions, enabledBlocks)
+    const customBlocks = await WIKI.models.blocks.getCustomBlockDefinitions(siteId)
+    const options = this.sanitizeOptions(
+      permissions,
+      this.blockAllowances(enabledBlocks, customBlocks)
+    )
 
-    const $ = cheerio.load(clean, null, false)
+    let $ = cheerio.load(sanitizeHtml(html ?? '', options), null, false)
 
     this.stripEditorArtifacts($)
     this.unwrapOrphanedChildBlocks($)
     this.liftIconChildren($)
     await this.inlineIcons($)
+
+    /*
+      A second pass, against the very same `options` object the first pass used rather than a second,
+      independently built one -- so the two calls cannot drift apart from each other. `inlineIcons()`
+      is the last step that inserts markup into the stored document (an icon's SVG body, resolved from
+      a third party and parsed straight into the DOM by `iconSvg()`'s own `$(...)` call, which
+      HTML-entity-decodes attribute values exactly like a browser would), and until this pass existed it
+      ran after the only step that filtered what a page may contain -- `isSafeIconBody`
+      (`models/icons.ts`) is a denylist over the icon's raw, still-encoded body at ingest time, and does
+      not see what an entity reference decodes to once it is drawn into a real DOM. See OpenProject
+      #2139.
+    */
+    $ = cheerio.load(sanitizeHtml($.html(), options), null, false)
+
     const toc = this.anchorHeadings($)
     const links = this.extractInternalLinks($, pagePath)
 
@@ -487,11 +512,21 @@ class Rendering {
    * The block elements a page may carry, and what each of them may be given.
    *
    * A block is the one thing in a page that is not HTML, so sanitising against a list of HTML tags
-   * drops every one of them and no block ever survives being saved. The list is built from the
+   * drops every one of them and no block ever survives being saved. Built-in blocks come from the
    * compiled manifest — a block that is installed may be embedded, one that is not may not — and
-   * each tag gets exactly the attributes its component declares as props, which is the same set the
-   * editor's block picker offers. The markup is inert either way: what makes a block do anything is
-   * the component fetched from `/_blocks` at view time.
+   * custom blocks (OpenProject #2132) come from `customBlocks`, the site's own `blocks` rows with
+   * `isCustom: true` (`models/blocks.ts#getCustomBlockDefinitions()`), which have no manifest entry to
+   * be found in otherwise. Either way each tag gets exactly the attributes its component declares as
+   * props, which is the same set the editor's block picker offers. The markup is inert either way: what
+   * makes a block do anything is the component fetched from `/_blocks` at view time.
+   *
+   * A custom block's prop names are trusted here without re-checking them: the one thing standing
+   * between an uploaded prop name and this allowlist is `helpers/blockDefinition.ts#extractBlockDefinition()`
+   * rejecting anything not shaped like a plain attribute name at upload time (`/^[a-z][a-z0-9-]*$/`) --
+   * sanitize-html matches attribute names with `*`-glob support, so an unvalidated prop named `on*` or
+   * `*` would otherwise widen the sanitizer's allowlist arbitrarily, opening inline event handlers (or
+   * every attribute at all) on that element for every page author. `blockDefinition.test.ts` covers the
+   * upload-time rejection; this function is not itself a second gate for it.
    *
    * Installed is not sufficient: the block also has to be switched on for this site. Leaving the
    * picker to decide that would only cover the authors who use it — the content is markdown, so
@@ -521,7 +556,10 @@ class Rendering {
    * `<block-mathjax>` with equivalent props) is a real feature but a distinct, opt-in one; scope it as
    * its own task if automatic migration is ever actually wanted; nothing here blocks building it.
    */
-  private blockAllowances(enabledBlocks: Set<string>): {
+  private blockAllowances(
+    enabledBlocks: Set<string>,
+    customBlocks: CustomBlockAllowance[] = []
+  ): {
     tags: string[]
     attributes: Record<string, string[]>
   } {
@@ -534,6 +572,16 @@ class Rendering {
       const tag = `block-${definition.block}`
       tags.push(tag)
       attributes[tag] = (definition.props ?? []).map((prop) => prop.name)
+    }
+    // -> Custom blocks are never children of another block (`isChild` is a built-in-only concept, set
+    //    from a manifest a custom upload has none of), so the enabled check applies unconditionally.
+    for (const custom of customBlocks) {
+      if (!enabledBlocks.has(custom.block)) {
+        continue
+      }
+      const tag = `block-${custom.block}`
+      tags.push(tag)
+      attributes[tag] = (custom.props ?? []).map((prop) => prop.name)
     }
     return { tags, attributes }
   }
@@ -571,14 +619,16 @@ class Rendering {
   }
 
   /**
-   * Strip everything the author is not allowed to embed.
+   * The `sanitize-html` options a page's HTML has to be run through -- whether at the point it arrives
+   * from the editor, or a second time after `inlineIcons()` has drawn more markup into the document
+   * (see `postProcess`, OpenProject #2139). Built once, from the same `blocks` allowance and the same
+   * `permissions`, and reused for both calls: two independently-built option objects could drift apart
+   * from each other in a way one shared object cannot.
    */
-  private sanitize(
-    html: string,
+  private sanitizeOptions(
     permissions: RenderPermissions,
-    enabledBlocks: Set<string>
-  ): string {
-    const blocks = this.blockAllowances(enabledBlocks)
+    blocks: { tags: string[]; attributes: Record<string, string[]> }
+  ): sanitizeHtml.IOptions {
     const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
     const allowedAttributes: Record<string, string[]> = {
       ...BASE_ALLOWED_ATTRIBUTES,
@@ -609,7 +659,7 @@ class Rendering {
       ]
     }
 
-    return sanitizeHtml(html, {
+    return {
       allowedTags,
       allowedAttributes,
       // -> An author holding `write:styles` may already write a `<style>` tag that restyles the whole
@@ -635,7 +685,26 @@ class Rendering {
         //    matched and dropped.
         lowerCaseAttributeNames: false
       }
-    })
+    }
+  }
+
+  /**
+   * Strip everything the author is not allowed to embed.
+   *
+   * A thin wrapper around `sanitizeOptions()` -- `postProcess` calls that directly so its two passes
+   * share one options object; this exists for callers (and tests) that just want one clean string back
+   * from a single set of inputs.
+   */
+  private sanitize(
+    html: string,
+    permissions: RenderPermissions,
+    enabledBlocks: Set<string>,
+    customBlocks: CustomBlockAllowance[] = []
+  ): string {
+    return sanitizeHtml(
+      html,
+      this.sanitizeOptions(permissions, this.blockAllowances(enabledBlocks, customBlocks))
+    )
   }
 
   /**

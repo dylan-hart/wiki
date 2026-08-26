@@ -151,7 +151,14 @@ async function routes(app: FastifyInstance) {
         arbitrary script, wiki-wide, on the next page view of any block using it. `manage:sites` is
         also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
         Permissions section) and no new, narrower permission name may be invented for this route.
-        Applied identically on the PUT (enable/disable) and DELETE routes below.
+
+        NOT applied identically on the PUT (enable/disable) and DELETE routes below — see
+        `mayManageBlocks()`, which also accepts the site-scoped `site:blocks` delegation
+        (`docs/decisions/delegated-per-site-administration.md`). That is a deliberate widening for
+        those two routes, not a drift from this one: a `site:blocks` delegate can never reach THIS
+        upload route (still `manage:sites` only), so the reach a delegate gets through PUT/DELETE
+        alone is disabling or deleting a block, never introducing new script. Full accounting in
+        `docs/security/custom-block-upload.md` §2.
       */
       config: {
         permissions: ['manage:sites']
