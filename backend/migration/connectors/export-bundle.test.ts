@@ -190,6 +190,51 @@ describe('ExportBundleSourceConnector', () => {
       assert.equal(rows[0].pageId, 1)
     })
 
+    test('pages() yields the first valid row without needing the rest of the file to even parse (proves incremental, not whole-file, gunzip+parse)', async () => {
+      // A whole-file implementation (`gunzipSync` + `.toString('utf8')` + `JSON.parse`) has to
+      // successfully parse the entire array before yielding anything — so it would throw on this
+      // fixture's unparseable second element before ever producing the first row. A truly
+      // incremental generator only parses each element's own text on demand, so calling `.next()`
+      // once must succeed with the first row, and the file's second element — padded well past a
+      // single read-chunk's worth of bytes so a whole-file read is unmistakably the thing being
+      // distinguished — must still be there, unconsumed and unparsed, until asked for.
+      const validPrefix = `[\n  ${JSON.stringify(pageRow)},\n  `
+      // Brace-balanced (so the parser's boundary scan closes the element and hands it to
+      // `JSON.parse`) but not valid JSON inside, so that parse throws.
+      const corruptSuffix = `{ not valid JSON ${'x'.repeat(65536)} }\n]`
+      const dir = await makeBundle({
+        'pages.json.gz': zlib.gzipSync(validPrefix + corruptSuffix)
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      const iterator = connector.pages()[Symbol.asyncIterator]()
+      const first = await iterator.next()
+      assert.equal(first.done, false)
+      assert.equal(first.value.id, pageRow.id)
+      assert.equal(first.value.path, pageRow.path)
+      // The rest of the file really is unparseable — proving the row above was yielded without the
+      // generator needing to touch it.
+      await assert.rejects(() => iterator.next())
+    })
+
+    test('pages() throws the existing error when pages.json.gz does not contain a JSON array at the top level', async () => {
+      const dir = await makeBundle({
+        'pages.json.gz': zlib.gzipSync(JSON.stringify({ notAnArray: true }))
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      await assert.rejects(() => collect(connector.pages()), /does not contain a JSON array/)
+    })
+
+    test('pageHistory() throws the existing error when pages-history.json.gz does not contain a JSON array at the top level', async () => {
+      const dir = await makeBundle({
+        'pages-history.json.gz': zlib.gzipSync('"just a string, not an array"')
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      await assert.rejects(() => collect(connector.pageHistory()), /does not contain a JSON array/)
+    })
+
     test('navigation() re-expands the {key: config} object back into (key, config) rows', async () => {
       const dir = await makeBundle({ 'navigation.json': validNavigation })
       const connector = new ExportBundleSourceConnector(dir)

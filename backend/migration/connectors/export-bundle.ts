@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import zlib from 'node:zlib'
@@ -28,6 +29,153 @@ function collectTags(tags: unknown, seen: Map<string, SourceRecord>): void {
         const title = 'title' in entry ? ((entry as { title: unknown }).title ?? null) : null
         seen.set(tag, { tag, title })
       }
+    }
+  }
+}
+
+/**
+ * Incrementally parses a UTF-8 byte stream whose top-level JSON value is an array, yielding each
+ * element the instant its own closing boundary is read rather than waiting for the whole array (or
+ * even the whole stream) to arrive. This is a minimal state machine over top-level structural
+ * boundaries — string/escape tracking so a `,`/`}`/`]` inside a string value is never mistaken for a
+ * structural one, plus a depth counter so only a *top-level* comma or closing bracket ends an
+ * element — not a full JSON tokenizer, because it never has to interpret anything below one array
+ * element: once an element's own text (object, array, string, number, boolean or null) is bounded,
+ * that slice is handed to `JSON.parse` on its own. `filePath` is used only to phrase the
+ * non-array-top-level error the same way the old whole-file parse did.
+ */
+async function* streamJsonArray(
+  source: AsyncIterable<Buffer>,
+  filePath: string
+): AsyncGenerator<unknown> {
+  type State = 'before-array' | 'before-element' | 'in-element' | 'after-element' | 'after-array'
+  let state: State = 'before-array'
+  let buffer = ''
+  let elementStart = 0
+  let depth = 0
+  let inString = false
+  let escapeNext = false
+
+  const isWhitespace = (ch: string): boolean =>
+    ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t'
+  const notAnArrayError = (): Error =>
+    new Error(`"${filePath}" does not contain a JSON array, as every 2.5.x entity file does.`)
+
+  // Scan position into `buffer`, hoisted above the chunk loop rather than reset to 0 per chunk: a
+  // chunk boundary can land mid-element (commonly mid-string), and restarting the scan from 0 would
+  // re-walk already-consumed characters through the state machine a second time, double-toggling
+  // stateful ones (`"`, `{`/`[`, `}`/`]`) and corrupting `inString`/`depth`.
+  let i = 0
+  for await (const chunk of source) {
+    buffer += chunk.toString('utf8')
+    while (i < buffer.length) {
+      const ch = buffer[i]
+
+      if (state === 'before-array') {
+        if (isWhitespace(ch)) {
+          i++
+          continue
+        }
+        if (ch !== '[') throw notAnArrayError()
+        state = 'before-element'
+        i++
+        continue
+      }
+
+      if (state === 'before-element') {
+        if (isWhitespace(ch)) {
+          i++
+          continue
+        }
+        if (ch === ']') {
+          state = 'after-array'
+          i++
+          continue
+        }
+        elementStart = i
+        depth = 0
+        inString = false
+        escapeNext = false
+        state = 'in-element'
+        continue
+      }
+
+      if (state === 'in-element') {
+        if (inString) {
+          if (escapeNext) escapeNext = false
+          else if (ch === '\\') escapeNext = true
+          else if (ch === '"') inString = false
+          i++
+          continue
+        }
+        if (ch === '"') {
+          inString = true
+          i++
+          continue
+        }
+        if (ch === '{' || ch === '[') {
+          depth++
+          i++
+          continue
+        }
+        if (ch === '}' || ch === ']') {
+          if (depth === 0) {
+            // This bracket closes the enclosing array, not our element — the element itself was a
+            // bare primitive (string/number/boolean/null) that just ended.
+            yield JSON.parse(buffer.slice(elementStart, i))
+            state = 'after-element'
+            continue
+          }
+          depth--
+          i++
+          if (depth === 0) {
+            yield JSON.parse(buffer.slice(elementStart, i))
+            state = 'after-element'
+          }
+          continue
+        }
+        if (depth === 0 && ch === ',') {
+          yield JSON.parse(buffer.slice(elementStart, i))
+          state = 'after-element'
+          continue
+        }
+        i++
+        continue
+      }
+
+      if (state === 'after-element') {
+        if (isWhitespace(ch)) {
+          i++
+          continue
+        }
+        if (ch === ',') {
+          state = 'before-element'
+          i++
+          continue
+        }
+        if (ch === ']') {
+          state = 'after-array'
+          i++
+          continue
+        }
+        throw new Error(`"${filePath}" has an unexpected character between JSON array elements.`)
+      }
+
+      // after-array: trailing whitespace or content past the closing bracket, ignored.
+      i++
+    }
+
+    // Nothing before the current element's start is needed again — drop it so a large array never
+    // accumulates the whole file in `buffer`, keeping peak memory bounded to one element at a time.
+    // `i` is adjusted by the same amount (not reset) so the next chunk's scan resumes exactly where
+    // this one left off, per the note above.
+    if (state === 'in-element') {
+      buffer = buffer.slice(elementStart)
+      i -= elementStart
+      elementStart = 0
+    } else {
+      buffer = ''
+      i = 0
     }
   }
 }
@@ -186,14 +334,17 @@ export class ExportBundleSourceConnector implements SourceConnector {
   }
 
   /**
-   * Decompresses and parses one `.json.gz` entity file in one shot — `docs/migration/
-   * 2.5x-export-bundle-format.md` documents each such file as one pretty-printed JSON array written by
-   * the exporter's own batch-fetch loop, so there is no true streaming parse to do (the whole array
-   * already exists as one gzip member on disk); this keeps peak memory bounded to one entity file at a
-   * time rather than the whole bundle, mirroring what the exporter itself held before gzipping.
+   * Streams one `.json.gz` entity file: `createReadStream` -> `zlib.createGunzip()` -> `
+   * streamJsonArray`, so a row is yielded as soon as its own closing boundary is decompressed rather
+   * than after the whole file has been read, decompressed and turned into one JS string first. That
+   * matters because the old whole-file approach (`gunzipSync` + `.toString('utf8')` + `JSON.parse`)
+   * could not read a `pages-history.json.gz` past V8's ~512 MB string ceiling at all —
+   * `.toString('utf8')` throws outright above it — while this keeps peak memory bounded to whatever
+   * is buffered for the row currently being read, not the entity file's full size.
    * Yields nothing, rather than throwing, when the file is absent — every export entity is
-   * independently optional (a zero-row entity is skipped entirely, per the same doc), and a missing
-   * file is exactly that case, not an error.
+   * independently optional (a zero-row entity is skipped entirely, per `docs/migration/
+   * 2.5x-export-bundle-format.md`), and a missing file is exactly that case, not an error. Throws the
+   * same "does not contain a JSON array" error as before when the top-level value isn't an array.
    */
   private async *readGzipJsonArray(filePath: string): AsyncGenerator<SourceRecord> {
     const exists = await fs
@@ -201,15 +352,10 @@ export class ExportBundleSourceConnector implements SourceConnector {
       .then(() => true)
       .catch(() => false)
     if (!exists) return
-    const compressed = await fs.readFile(filePath)
-    const decompressed = zlib.gunzipSync(compressed).toString('utf8')
-    const rows = JSON.parse(decompressed)
-    if (!Array.isArray(rows)) {
-      throw new Error(
-        `"${filePath}" does not contain a JSON array, as every 2.5.x entity file does.`
-      )
+    const gunzip = createReadStream(filePath).pipe(zlib.createGunzip())
+    for await (const row of streamJsonArray(gunzip, filePath)) {
+      yield row as SourceRecord
     }
-    yield* rows as SourceRecord[]
   }
 
   pages(): AsyncIterable<SourceRecord> {
