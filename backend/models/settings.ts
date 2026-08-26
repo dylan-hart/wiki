@@ -138,22 +138,14 @@ class Settings {
       },
       {
         key: 'security',
-        value: {
-          corsConfig: '',
-          corsMode: 'OFF',
-          cspDirectives: '',
-          disallowIframe: true,
-          disallowOpenRedirect: true,
-          enforceCsp: false,
-          enforceHsts: false,
-          enforceSameOriginReferrerPolicy: true,
-          forceAssetDownload: true,
-          hstsDuration: 0,
-          trustProxy: false,
-          uploadMaxFileSize: 10485760,
-          uploadMaxFiles: 20,
-          uploadScanSVG: true
-        }
+        // -> Read from the merged config.yml/base.yml `WIKI.config.security` -- already loaded by
+        //    `configSvc.init()`, well before this ever runs (see `index.ts`'s boot sequence) --
+        //    rather than a second, hand-duplicated copy of the same defaults. In production the two
+        //    are identical (nothing in config.yml overrides `security` by default), so this changes
+        //    no installed behavior; what it does do is let `e2e/config.e2e.yml` turn `enforceCsp` on
+        //    for a freshly-seeded e2e database (`e2e/tests/csp.spec.js`, OpenProject #2166) without
+        //    touching the real shipped default (`enforceCsp: false`) here or in `base.yml`.
+        value: { ...WIKI.config.security }
       },
       {
         key: 'update',

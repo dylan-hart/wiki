@@ -86,7 +86,30 @@ defaults:
       trustProxy: false
       enforceHsts: false
       hstsDuration: 0
-      cspDirectives: ''
+      # -> Known-good default so flipping `enforceCsp` on is one click, not a research project --
+      #    see docs/audit-2026-08-24/security/08-frontend-client.md §10 and OpenProject #2154/#2158.
+      #    `enforceCsp` itself stays false above; only the string an operator would turn on is
+      #    shipped here. Proved live -- editor session (Monaco), several shipped blocks/ and KaTeX --
+      #    by `e2e/tests/csp.spec.js` (OpenProject #2166), which runs the whole e2e suite with
+      #    `enforceCsp: true` (see `e2e/config.e2e.yml`) against exactly this string.
+      #      script-src/style-src/img-src/font-src/connect-src 'self': the app bundle, blocks/ (same-
+      #        origin ES modules under /_blocks/) and twemoji/font assets are all same-origin; no
+      #        analytics or external font CDN is wired in by default (an operator turning one on adds
+      #        its origin here explicitly -- not silently opened up).
+      #      worker-src 'self' blob:: Monaco's own workers, which Vite's production build always
+      #        instantiates from a `blob:` URL (see frontend/vite.config.js's `worker.format` note).
+      #      style-src 'unsafe-inline': Vue's `:style` bindings and the inline `style` attributes
+      #        KaTeX renders into its output -- there is no practical nonce/hash story for a
+      #        per-element style attribute.
+      #      img-src additionally allows data: (inline SVG/icon data) and https: (an author-embedded
+      #        image, e.g. block-gallery's own template, is not necessarily same-origin).
+      #      font-src additionally allows data:: block-katex's font-face rules are inlined as data:
+      #        URIs (see blocks/block-katex/component.js).
+      #      object-src 'none'; base-uri 'self'; frame-ancestors 'none': belt-and-braces baseline: no
+      #        plugin content, no base-tag hijacking of the SPA's own relative module loads, no
+      #        embedding this instance in someone else's frame (already covered for current browsers
+      #        by `disallowIframe`'s X-Frame-Options, but a CSP-only client benefits too).
+      cspDirectives: "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'"
       uploadScanSVG: true
       disallowIframe: true
       uploadMaxFiles: 20

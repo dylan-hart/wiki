@@ -17,3 +17,22 @@ scheduler:
   #    `active` row reads as stale within the test's own polling window, long enough that no
   #    genuinely-running seeded task (checkVersion, purgeRateLimits, ...) is ever mistaken for one.
   staleJobTimeout: 20
+security:
+  # -> Turns on the shipped `cspDirectives` default (base.yml, unchanged and still inherited from
+  #    there -- not repeated here) for the whole suite, not just `tests/csp.spec.js`: the backend
+  #    boots once for every spec file (see "Boots the real thing, not a dev proxy" in CLAUDE.md), CSP
+  #    is read once at that boot (`index.ts`'s `Security` section) and there is no live-reload path
+  #    for it (`models/security.ts`'s own doc comment: "takes effect on the next restart"), so there
+  #    is no way to flip it on for one spec only without a second backend process against the same
+  #    database -- which risks two `initDbValues()` racing an empty `settings` table on first boot,
+  #    a hazard CLAUDE.md's e2e section already steers away from ("the seed IS the app's own
+  #    first-run path"). Running the whole suite under the enforced policy is also the more honest
+  #    check of the epic's own bar (OpenProject #2154): "do not flip enforceCsp's default without
+  #    validating a full editor session... and every shipped block" -- if the shipped default broke
+  #    `auth.spec.js` or `page-publish.spec.js`, that is exactly the kind of collateral damage this
+  #    epic exists to catch before `enforceCsp: true` ever becomes the real default.
+  #
+  #    Reaches a fresh e2e database via `models/settings.ts#init()`, which seeds the `security`
+  #    settings row from this merged `WIKI.config.security` rather than a hardcoded literal --
+  #    see that file's own comment.
+  enforceCsp: true
