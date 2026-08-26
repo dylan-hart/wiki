@@ -22,6 +22,7 @@ export type BlockDefinitionFailureReason =
   | 'no-definition'
   | 'interpolated-template'
   | 'non-literal'
+  | 'invalid-prop-name'
 
 export interface BlockDefinitionFailure {
   reason: BlockDefinitionFailureReason
@@ -110,6 +111,36 @@ function propertyKeyName(key: Expression | PrivateIdentifier, label: string): st
 }
 
 /**
+ * What a prop's `name` is allowed to look like: a plain, dash-separated lowercase identifier.
+ *
+ * `backend/models/rendering.ts#blockAllowances()` (OpenProject #2132) admits a custom block's `props`
+ * straight into the sanitizer's per-tag attribute allowlist, trusting the name unvalidated — sanitize-html
+ * matches attribute names with `*`-glob support, so a prop named `on*` or `*` would silently open inline
+ * event handlers (or every attribute at all) on that element for every author on every page using the
+ * block, not merely describe one authorable field. This is the one check standing between an uploaded
+ * prop name and that allowlist, which is why it lives at upload time rather than at render time: render
+ * has no way left to tell "declared by this block" from "widened by this block".
+ */
+const PROP_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
+
+/**
+ * The first `props` entry (if any) whose `name` does not match `PROP_NAME_PATTERN`, for the error
+ * message — or `null` when every prop name is safe to admit into the sanitizer's allowlist.
+ */
+function findInvalidPropName(props: unknown): string | null {
+  if (!Array.isArray(props)) {
+    return null
+  }
+  for (const prop of props) {
+    const name = (prop as { name?: unknown })?.name
+    if (typeof name !== 'string' || !PROP_NAME_PATTERN.test(name)) {
+      return typeof name === 'string' ? name : JSON.stringify(name)
+    }
+  }
+  return null
+}
+
+/**
  * Read the `static definition` a block component declares on its class, the same way the rollup
  * build's `blocksManifest()` plugin does — but from raw source text rather than `this.parse`, which
  * only exists inside a running rollup build.
@@ -167,8 +198,18 @@ export function extractBlockDefinition(
   }
 
   try {
-    const value = literalToValue(definitionValue, label)
-    return { ok: true, definition: value as BlockDefinition }
+    const value = literalToValue(definitionValue, label) as BlockDefinition
+    const invalidPropName = findInvalidPropName(value.props)
+    if (invalidPropName !== null) {
+      return {
+        ok: false,
+        error: {
+          reason: 'invalid-prop-name',
+          message: `${label}: prop name "${invalidPropName}" is not a valid attribute name — it must match ${PROP_NAME_PATTERN}.`
+        }
+      }
+    }
+    return { ok: true, definition: value }
   } catch (err: any) {
     if (err instanceof DefinitionValueError) {
       return { ok: false, error: { reason: err.reason, message: err.message } }

@@ -56,6 +56,9 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
 
 let enabledBlocks = new Set<string>()
 
+/** Custom blocks (OpenProject #2132) -- the shape `models/blocks.ts#getCustomBlockDefinitions()` returns. */
+let customBlocks: { block: string; props: { name: string }[] }[] = []
+
 // -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
 //    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
 ;(global as any).WIKI = {
@@ -64,6 +67,9 @@ let enabledBlocks = new Set<string>()
       definitions: DIAGRAM_BLOCKS,
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
+      },
+      async getCustomBlockDefinitions(_siteId: string) {
+        return customBlocks
       }
     }
   }
@@ -150,6 +156,41 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.doesNotMatch(result.render, /onclick/)
+  })
+})
+
+/*
+ * `blockAllowances()` used to read only `WIKI.models.blocks.definitions` -- the compiled manifest,
+ * which a custom block (a `blocks` row with `isCustom: true`, uploaded through `api/blocks.ts`) has no
+ * entry in at all. That meant `block-<customTag>` never reached the sanitizer's allowlist and was
+ * silently stripped from every saved page, however the editor's own preview rendered it. OpenProject
+ * #2132 admits custom blocks from `getCustomBlockDefinitions()` (stubbed here as the mutable
+ * `customBlocks`, mirroring `enabledBlocks` above) the same way built-ins are admitted -- gated on
+ * being enabled, and with only the prop names the block's own upload declared.
+ */
+describe('rendering.postProcess: custom blocks admitted to blockAllowances (OpenProject #2132)', () => {
+  test("keeps a custom block's tag and declared prop, but strips an attribute it never declared", async () => {
+    enabledBlocks = new Set(['gallery-custom'])
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html =
+      '<block-gallery-custom caption="Trip photos" onclick="alert(1)"><p>content</p></block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-gallery-custom caption="Trip photos">/)
+    assert.doesNotMatch(result.render, /onclick/)
+  })
+
+  test('drops the element, but keeps its text content, when the custom block is not enabled for the site', async () => {
+    enabledBlocks = new Set() // -> nothing enabled, including the custom block below
+    customBlocks = [{ block: 'gallery-custom', props: [{ name: 'caption' }] }]
+    const html = '<block-gallery-custom caption="Trip photos">content</block-gallery-custom>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /block-gallery-custom/)
+    // -> Same as any other disallowed tag: the element goes, the text inside it stays
+    assert.match(result.render, /content/)
   })
 })
 
@@ -354,5 +395,77 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     const clean = (rendering as any).sanitize(`<p>${math}</p>`, {}, new Set())
 
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
+  })
+})
+
+/*
+ * `postProcess` used to run `sanitize()` before `inlineIcons()`, so the last step that draws more
+ * markup into the document (an icon's SVG body, resolved from a third party) ran AFTER the only step
+ * that filtered what a page may contain -- `isSafeIconBody` (`models/icons.ts`) is a denylist over the
+ * icon's raw, still HTML-entity-encoded body at ingest time, and never sees what that decodes to once
+ * `iconSvg()`'s own `$(...)` call parses it straight into the live DOM, entity-decoding attribute
+ * values exactly like a browser would. OpenProject #2139 closes the gap with a second sanitize pass
+ * after `inlineIcons()`, against the identical options object the first pass used.
+ *
+ * `WIKI.models.icons` is stubbed only with what `inlineIcons()`/`iconSvg()` actually call --
+ * `parseRef`, `resolveIcons`, `renderInlineSvg` -- keyed off a `resolvedIcons` map this describe block
+ * populates per test, the same "minimal stub of the one real dependency" approach the file's own
+ * header comment already uses for `WIKI.models.blocks`.
+ */
+describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
+  const resolvedIcons = new Map<string, { body: string }>()
+
+  ;(global as any).WIKI.models.icons = {
+    parseRef(ref: string) {
+      const [prefix, name] = `${ref}`.split(':')
+      return prefix && name ? { prefix, name } : null
+    },
+    async resolveIcons(prefix: string, names: string[]) {
+      const icons: Record<string, { body: string }> = {}
+      for (const name of names) {
+        const found = resolvedIcons.get(`${prefix}:${name}`)
+        if (found) {
+          icons[name] = found
+        }
+      }
+      return { icons, notFound: names.filter((name) => !icons[name]) }
+    },
+    // -> A trimmed stand-in for the real `iconToSVG`/`iconToHTML`/`replaceIDs` pipeline: wraps the
+    //    icon's body in an <svg> exactly the way the real method does, without needing a real
+    //    IconifyIcon shape -- what's under test is `postProcess`'s two sanitize passes, not this
+    //    method's own rendering, which has no coverage gap of its own to fill here.
+    renderInlineSvg(icon: { body: string }) {
+      return `<svg viewBox="0 0 24 24">${icon.body}</svg>`
+    }
+  }
+
+  test('removes an entity-encoded javascript: href that only exists after inlineIcons, not before', async () => {
+    // -> `&#106;avascript:` is `javascript:` with its first letter as a numeric character reference --
+    //    `isSafeIconBody`'s denylist matches the literal string `javascript:`, so this passes ingest,
+    //    and only becomes a real `javascript:` value once something HTML-parses it (`iconSvg()`'s
+    //    `$(...)` call does exactly that, the same as a browser would).
+    resolvedIcons.set('mdi:trap', {
+      body: '<a href="&#106;avascript:alert(1)">click</a><circle cx="12" cy="12" r="10"></circle>'
+    })
+    const html = '<iconify-icon icon="mdi:trap"></iconify-icon>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /javascript:/i)
+    assert.doesNotMatch(result.render, /\shref=/)
+    // -> The rest of the icon body, which is not itself dangerous, still comes through
+    assert.match(result.render, /<circle cx="12" cy="12" r="10">/)
+  })
+
+  test('still inlines an ordinary icon with its shape primitives and attributes intact', async () => {
+    resolvedIcons.set('mdi:plain', {
+      body: '<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor"></path>'
+    })
+    const html = '<iconify-icon icon="mdi:plain"></iconify-icon>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<svg viewBox="0 0 24 24"[^>]*>/)
+    assert.match(result.render, /<path d="M12 2L2 7l10 5 10-5-10-5z" fill="currentColor">/)
   })
 })
