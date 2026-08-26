@@ -379,7 +379,17 @@ const hookNameValidation = [
 ]
 const hookEventsValidation = [(val) => val.length > 0 || t('admin.webhooks.eventsMissing')]
 const hookUrlValidation = [
-  (val) => (val.length > 0 && val.startsWith('http')) || t('admin.webhooks.urlMissing'),
+  (val) => {
+    if (!val || val.length < 1) {
+      return t('admin.webhooks.urlMissing')
+    }
+    try {
+      const parsed = new URL(val)
+      return ['http:', 'https:'].includes(parsed.protocol) || t('admin.webhooks.urlMissing')
+    } catch {
+      return t('admin.webhooks.urlMissing')
+    }
+  },
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
