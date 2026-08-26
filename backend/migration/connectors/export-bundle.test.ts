@@ -218,6 +218,47 @@ describe('ExportBundleSourceConnector', () => {
       assert.deepEqual(tags, ['draft', 'intro'])
     })
 
+    test('tags() reuses tags collected by a prior pages()/pageHistory() walk, issuing no additional read of either file', async (t) => {
+      const dir = await makeBundle({
+        'pages.json.gz': gzipJsonArray([pageRow]),
+        'pages-history.json.gz': gzipJsonArray([historyRow])
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+
+      // The caller (`phases/content.ts`) always walks `pages()` and `pageHistory()` to completion
+      // before ever calling `tags()` — reproduce that ordering here.
+      await collect(connector.pages())
+      await collect(connector.pageHistory())
+
+      const readFileSpy = t.mock.method(fs, 'readFile')
+      const rows = await collect(connector.tags())
+      const tags = rows.map((r) => r.tag).sort()
+      assert.deepEqual(tags, ['draft', 'intro'])
+
+      const readPaths = readFileSpy.mock.calls.map((call) => call.arguments[0])
+      assert.ok(
+        !readPaths.includes(path.join(dir, 'pages.json.gz')),
+        `tags() must not re-read pages.json.gz; readFile was called with: ${readPaths.join(', ')}`
+      )
+      assert.ok(
+        !readPaths.includes(path.join(dir, 'pages-history.json.gz')),
+        `tags() must not re-read pages-history.json.gz; readFile was called with: ${readPaths.join(', ')}`
+      )
+    })
+
+    test('tags() still falls back to reading the files itself when called without a prior pages()/pageHistory() walk', async () => {
+      const dir = await makeBundle({
+        'pages.json.gz': gzipJsonArray([pageRow]),
+        'pages-history.json.gz': gzipJsonArray([historyRow])
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      const rows = await collect(connector.tags())
+      const tags = rows.map((r) => r.tag).sort()
+      assert.deepEqual(tags, ['draft', 'intro'])
+    })
+
     test('every generator throws when called before connect()', async () => {
       const dir = await makeBundle({ 'pages.json.gz': gzipJsonArray([pageRow]) })
       const connector = new ExportBundleSourceConnector(dir)

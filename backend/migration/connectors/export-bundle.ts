@@ -68,6 +68,19 @@ export class ExportBundleSourceConnector implements SourceConnector {
   private detectedVersion: string | undefined
   private connected = false
 
+  /**
+   * Tags collected as a side effect of a `pages()`/`pageHistory()` walk reaching its end (each is
+   * `null` until then — see `tagsImpl()` below). `tagsImpl()` reuses these instead of re-reading and
+   * re-parsing `pages.json.gz`/`pages-history.json.gz`, which is the whole point: the content phase
+   * (`phases/content.ts`) already walks both entities before it ever calls `tags()`, so a second
+   * decompress-and-parse pass over the bundle's two largest files bought nothing. Populated only once
+   * the corresponding generator's loop actually finishes — a caller that abandons `pages()`/
+   * `pageHistory()` partway through (e.g. via an early `break`) leaves the field `null`, and `tagsImpl()`
+   * falls back to reading that file directly, exactly as it always did.
+   */
+  private tagsFromPages: Map<string, SourceRecord> | null = null
+  private tagsFromPageHistory: Map<string, SourceRecord> | null = null
+
   constructor(bundlePath: string) {
     this.bundlePath = bundlePath
   }
@@ -212,18 +225,48 @@ export class ExportBundleSourceConnector implements SourceConnector {
     yield* rows as SourceRecord[]
   }
 
+  /**
+   * Streams `pages.json.gz` while also collecting its rows' tags into `tagsFromPages` — so a `tags()`
+   * call that follows a full walk of this generator can reuse them instead of re-reading the file. The
+   * cache is only committed after the underlying generator runs out of rows; a caller that stops
+   * iterating early never sees `tagsFromPages` populated, and `tagsImpl()` reads the file itself in
+   * that case exactly as before.
+   */
+  private async *pagesImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pages)
+    )) {
+      collectTags(row.tags, seen)
+      yield row
+    }
+    this.tagsFromPages = seen
+  }
+
+  /** `pageHistory()`'s counterpart to `pagesImpl()` above — see its docblock. */
+  private async *pageHistoryImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+    )) {
+      collectTags(row.tags, seen)
+      yield row
+    }
+    this.tagsFromPageHistory = seen
+  }
+
   pages(): AsyncIterable<SourceRecord> {
     if (!this.connected) {
       throw new Error('pages() called before a successful connect().')
     }
-    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pages))
+    return this.pagesImpl()
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
     if (!this.connected) {
       throw new Error('pageHistory() called before a successful connect().')
     }
-    return this.readGzipJsonArray(path.join(this.bundlePath, ENTITY_FILES.pageHistory))
+    return this.pageHistoryImpl()
   }
 
   /**
@@ -236,18 +279,37 @@ export class ExportBundleSourceConnector implements SourceConnector {
    * actually need to call this — it reads `tags` straight off each page/history row — but the
    * `SourceConnector` interface promises the generator, so it is implemented for real rather than left
    * throwing for a table this connector kind genuinely has no separate file for.
+   *
+   * Reuses `tagsFromPages`/`tagsFromPageHistory` when a full `pages()`/`pageHistory()` walk already
+   * populated them (the phase that wires this in, `phases/content.ts`, always walks both before calling
+   * `tags()`) rather than decompressing and re-parsing `pages.json.gz`/`pages-history.json.gz` a second
+   * time — those are the two largest files in the bundle. A caller that goes straight to `tags()`
+   * without walking the other two generators first still gets a correct answer: each half falls back to
+   * reading its file directly when its cache is unset. Merge order matters — pages' entries (and their
+   * titles) win over history's for a tag seen in both, matching the un-cached scan's own "seen" ordering
+   * (pages read to completion, then history, only adding what wasn't already there).
    */
   private async *tagsImpl(): AsyncGenerator<SourceRecord> {
     const seen = new Map<string, SourceRecord>()
-    for await (const row of this.readGzipJsonArray(
-      path.join(this.bundlePath, ENTITY_FILES.pages)
-    )) {
-      collectTags(row.tags, seen)
+    if (this.tagsFromPages) {
+      for (const [tag, record] of this.tagsFromPages) seen.set(tag, record)
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pages)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
-    for await (const row of this.readGzipJsonArray(
-      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
-    )) {
-      collectTags(row.tags, seen)
+    if (this.tagsFromPageHistory) {
+      for (const [tag, record] of this.tagsFromPageHistory) {
+        if (!seen.has(tag)) seen.set(tag, record)
+      }
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
     yield* seen.values()
   }
