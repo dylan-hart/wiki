@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
- /**
+/**
  * Heading band at the top of a `WCard`.
  *
  * Replaces the plain `WCardSection` + `text-subtitle1` pairing the admin cards used, so the whole
