@@ -191,7 +191,7 @@ describe('migration phases', () => {
     ])
   })
 
-  test('assetsPhase always reports comments as unmappable (no destination table)', async () => {
+  test('assetsPhase always reports comments as unmappable (no connector read path)', async () => {
     const result = await assetsPhase.run(contextWith(stubConnector()))
     assert.ok(result.report)
     assert.deepEqual(result.report!.unmappable, [
@@ -199,7 +199,7 @@ describe('migration phases', () => {
         identifier: 'comments',
         reason: 'no-destination-table',
         detail:
-          'Wiki.js 3.0 has no comments table, model, or API route yet (blocked on Epic 335) — comments are not imported.'
+          'Wiki.js 3.0 has its own comments table, model, and API route, but this migration does not import 2.5.x comments because the SourceConnector interface has no comments() generator to read them through yet.'
       }
     ])
   })

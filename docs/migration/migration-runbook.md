@@ -170,12 +170,13 @@ implemented in `backend/migration/unmappable.ts`). There are exactly two:
   own deployment, whether they get a local-account password reset after cutover, an OIDC mapping if
   your IdP is OIDC-compatible, or manual account recreation. Do not expect the import to solve this
   for you — these users will not appear in the 3.0 destination at all until you've made that call.
-- **`no-destination-table`** — reported once per run, not per record: 2.5.x comments have no 3.0
-  destination table, model, or API route yet (blocked on Epic 335, a sibling of this migration
-  Feature's parent Epic 341). Comments are **not** imported by this tool, full stop, regardless of
-  dry-run or live. If comment continuity matters for your cutover, that is a gap this migration
-  cannot close — plan around it (e.g. keep the frozen 2.5.x instance reachable read-only, for
-  reference, alongside 3.0) rather than expecting a later flag to fix it.
+- **`no-destination-table`** — reported once per run, not per record: 3.0 has its own comments table,
+  model, and API route, but 2.5.x comments have no import path into them, because the
+  `SourceConnector` interface has no `comments()` generator to read them through yet. Comments are
+  **not** imported by this tool, full stop, regardless of dry-run or live. If comment continuity
+  matters for your cutover, that is a gap this migration cannot close — plan around it (e.g. keep the
+  frozen 2.5.x instance reachable read-only, for reference, alongside 3.0) rather than expecting a
+  later flag to fix it.
 
 Do not proceed past this step until you've reviewed every `conflicts` and `unmappable` entry in the
 report and are comfortable with what each one means for your users.

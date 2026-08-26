@@ -69,15 +69,16 @@ export function classifyUserAuthProvider(record: SourceRecord): UnmappableEntry 
 }
 
 /**
- * Comments have no 3.0 destination table at all (`docs/migration/2.5x-to-3.0-mapping.md`'s "comments"
- * section) — tracked by Epic 335, a sibling of this feature's parent Epic 341, not a child of it. This
- * is a structural fact about the current schema, not something read per-record off the source (the
- * `SourceConnector` interface — Feature 412 — deliberately has no `comments()` generator to read
- * through in the first place), so it is reported once per run rather than enumerated per row.
+ * 3.0 has its own comments table, model, and API route (`backend/db/schema.ts`'s `comments` table,
+ * `backend/models/comments.ts`, `backend/api/comments.ts`) — what has no destination is the *import
+ * path* into them: the `SourceConnector` interface (Feature 412) deliberately has no `comments()`
+ * generator to read 2.x comments through in the first place, so there is nothing per-record to
+ * classify. This is a structural fact about the connector interface, not the 3.0 schema, so it is
+ * reported once per run rather than enumerated per row.
  */
 export const COMMENTS_UNMAPPABLE: UnmappableEntry = {
   identifier: 'comments',
   reason: 'no-destination-table',
   detail:
-    'Wiki.js 3.0 has no comments table, model, or API route yet (blocked on Epic 335) — comments are not imported.'
+    'Wiki.js 3.0 has its own comments table, model, and API route, but this migration does not import 2.5.x comments because the SourceConnector interface has no comments() generator to read them through yet.'
 }
