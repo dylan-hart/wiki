@@ -132,11 +132,31 @@
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                v-model="state.config.trustProxy"
+                v-model="trustProxyEnabled"
                 :loading="state.loading > 0"
                 :aria-label="t(`admin.security.trustProxy`)" />
             </w-item-section>
           </w-item>
+          <template v-if="trustProxyEnabled">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="firewall" key="trustProxyAddresses" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.security.trustProxyAddresses`) }}</w-item-label>
+                <w-item-label caption>{{
+                  t(`admin.security.trustProxyAddressesHint`)
+                }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-input
+                  outlined
+                  v-model="trustProxyAddresses"
+                  dense
+                  :placeholder="t(`admin.security.trustProxyAddressesPlaceholder`)"
+                  :aria-label="t(`admin.security.trustProxyAddresses`)" />
+              </w-item-section>
+            </w-item>
+          </template>
           <!--
             Only shown once the backend has actually seen the misconfiguration on a live request
             (`GET /system/security`'s `insecureCookieRiskAt`) -- unlike the rate-limit warnings
@@ -577,7 +597,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { onMounted, reactive } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { useMeta } from '@/composables/meta'
 import { notify } from '@/composables/notify'
@@ -651,6 +671,29 @@ const corsModes = [
   { value: 'REGEX', text: 'Regex Pattern Match' }
 ]
 
+// COMPUTED
+
+// `state.config.trustProxy` is a single field that is either a boolean (trust everyone / nobody)
+// or a `proxy-addr` address/CIDR list string (trust only those proxies) -- see `models/security.ts`.
+// The toggle and text field below both edit that one field; `trustProxyAddressCache` remembers the
+// last-typed list across a toggle-off/on cycle so switching the toggle back on doesn't lose it.
+const trustProxyAddressCache = ref('')
+
+const trustProxyEnabled = computed({
+  get: () => Boolean(state.config.trustProxy),
+  set: (val) => {
+    state.config.trustProxy = val ? trustProxyAddressCache.value || true : false
+  }
+})
+
+const trustProxyAddresses = computed({
+  get: () => (typeof state.config.trustProxy === 'string' ? state.config.trustProxy : ''),
+  set: (val) => {
+    trustProxyAddressCache.value = val
+    state.config.trustProxy = val.trim() === '' ? true : val
+  }
+})
+
 // METHODS
 
 /** Same long-form spelling `AdminCluster.vue` / `AdminApi.vue` use for a stored timestamp. */
@@ -674,6 +717,9 @@ async function load() {
   try {
     const resp = await API_CLIENT.get('system/security').json()
     state.config = { ...state.config, ...resp }
+    if (typeof state.config.trustProxy === 'string') {
+      trustProxyAddressCache.value = state.config.trustProxy
+    }
     state.humanUploadMaxFileSize = filesize(state.config.uploadMaxFileSize ?? 0, {
       base: 2,
       standard: 'jedec'

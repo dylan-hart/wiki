@@ -55,8 +55,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
-        type: 'boolean',
-        description: 'Whether to trust `X-Forwarded-*` headers.'
+        type: ['boolean', 'string'],
+        description:
+          'Whether to trust `X-Forwarded-*` headers. `true` trusts every proxy; `false` trusts none; a string is a comma-separated list of trusted proxy IPs / CIDR ranges (e.g. `10.0.0.0/8, 192.168.1.1`), validated with `proxy-addr`.'
       },
       insecureCookieRiskAt: {
         type: 'string',

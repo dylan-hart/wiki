@@ -1,3 +1,4 @@
+import proxyAddr from '@fastify/proxy-addr'
 import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
@@ -172,6 +173,28 @@ class Security {
           return `The ${label} must be a duration such as 30s, 15m, 2h or 1d.`
         }
       }
+    }
+
+    if (typeof merged.trustProxy === 'string') {
+      // -> Same comma-splitting Fastify's own `getTrustProxyFn` does before handing a string
+      //    `trustProxy` option to `proxyAddr.compile` (`fastify/lib/request.js`) -- validating
+      //    with the identical package and shape this ultimately gets passed to verbatim
+      //    (`index.ts`'s `trustProxy: WIKI.config.security.trustProxy`) is what makes "accepted
+      //    here" mean "accepted there".
+      const addresses = merged.trustProxy
+        .split(',')
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+      if (addresses.length < 1) {
+        return 'The trusted proxy list needs at least one address or CIDR range.'
+      }
+      try {
+        proxyAddr.compile(addresses)
+      } catch (err: any) {
+        return `The trusted proxy list is invalid: ${err.message}`
+      }
+    } else if (typeof merged.trustProxy !== 'boolean') {
+      return 'Trust Proxy must be either on/off or a comma-separated list of trusted addresses/CIDR ranges.'
     }
 
     return null
