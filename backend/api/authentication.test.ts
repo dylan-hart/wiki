@@ -215,6 +215,246 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
 })
 
 /**
+ * OpenProject #2208 §6: `GET /auth/:strategyId/authorize`'s `redirect` query parameter used to be
+ * guarded with `startsWith('/')` alone -- `'//attacker.example'.startsWith('/')` is true, and a
+ * browser resolves a leading `/\` the same protocol-relative way, so both reached the provider round
+ * trip and came back as an absolute cross-origin `Location`. Checked here against the flow stored on
+ * the session, since the response itself redirects to the PROVIDER, not to `redirect` -- `redirect`
+ * only takes effect later, at the callback (covered by the describe block below this one).
+ */
+describe('GET /auth/:strategyId/authorize — redirect query validation', () => {
+  const STRATEGY_ID = 'a3333333-3333-3333-3333-333333333333'
+  let app: FastifyInstance
+  let session: Record<string, any>
+
+  before(async () => {
+    if (typeof Temporal === 'undefined') {
+      const polyfill = await import('@js-temporal/polyfill')
+      ;(globalThis as any).Temporal = polyfill.Temporal
+    }
+    ;(globalThis as any).WIKI = {
+      config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
+      sitesMappings: {},
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            id === STRATEGY_ID ? { id: STRATEGY_ID, module: 'oidc', isEnabled: true } : null
+        }
+      },
+      auth: {
+        strategies: {
+          [STRATEGY_ID]: {
+            module: 'oidc',
+            authorizationUrl: async () => 'https://provider.example/authorize'
+          }
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = session
+    })
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    session = {}
+  })
+
+  test('?redirect=//attacker.example lands the stored flow on / (protocol-relative)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('//attacker.example')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, 'https://provider.example/authorize')
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('?redirect=/\\attacker.example lands the stored flow on / (browser-normalized to //)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/\\attacker.example')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('?redirect=javascript:alert(1) lands the stored flow on /', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('javascript:alert(1)')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('a rooted path still round-trips through the stored flow', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/dashboard')}`
+    })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/dashboard')
+  })
+
+  test('an absent redirect defaults the stored flow to /', async () => {
+    const res = await app.inject({ method: 'GET', url: `/auth/${STRATEGY_ID}/authorize` })
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+})
+
+/**
+ * OpenProject #2208 §6: the callback's `reply.redirect(result.redirect || redirect)` used to emit
+ * `result.redirect` -- ultimately a group's `redirectOnLogin`/`redirectOnFirstLogin` -- as a raw
+ * `Location` header with no validation of its own, so an unvalidated stored value became a
+ * server-emitted header on this specific route even before OpenProject #2208's group/site field
+ * validation (#2214) existed. Covered here independently of that fix, since this route must refuse
+ * such a value regardless of whether it ever should have been stored in the first place.
+ */
+describe('GET/POST /auth/:strategyId/callback — result.redirect validation', () => {
+  const STRATEGY_ID = 'a4444444-4444-4444-4444-444444444444'
+  let app: FastifyInstance
+  let session: Record<string, any>
+  let providerResult: Record<string, any>
+
+  function freshFlow(overrides: Record<string, any> = {}) {
+    return {
+      strategyId: STRATEGY_ID,
+      siteId: 'site-1',
+      state: 'abc123',
+      nonce: 'nonce123',
+      codeVerifier: 'verifier123',
+      redirect: '/target',
+      startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }),
+      ...overrides
+    }
+  }
+
+  before(async () => {
+    if (typeof Temporal === 'undefined') {
+      const polyfill = await import('@js-temporal/polyfill')
+      ;(globalThis as any).Temporal = polyfill.Temporal
+    }
+    ;(globalThis as any).WIKI = {
+      config: { security: { disallowOpenRedirect: true, authRateLimitEnabled: false } },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            id === STRATEGY_ID
+              ? { id: STRATEGY_ID, module: 'oidc', isEnabled: true, registration: true }
+              : null
+        },
+        users: {
+          loginWithProvider: async () => providerResult
+        }
+      },
+      auth: {
+        strategies: {
+          [STRATEGY_ID]: {
+            module: 'oidc',
+            profile: async () => ({ id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' })
+          }
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await app.register(fastifyFormBody)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = session
+    })
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    session = { authFlow: freshFlow() }
+  })
+
+  test('a javascript: result.redirect is not emitted as the Location header -- falls back to the flow redirect', async () => {
+    providerResult = {
+      authenticated: true,
+      nextAction: 'redirect',
+      redirect: 'javascript:alert(1)'
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/target')
+  })
+
+  test('a protocol-relative //host result.redirect is not emitted -- falls back to the flow redirect', async () => {
+    providerResult = { authenticated: true, nextAction: 'redirect', redirect: '//evil.example' }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/target')
+  })
+
+  test('a valid rooted result.redirect is used as the Location header', async () => {
+    providerResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/welcome')
+  })
+
+  test('no result.redirect at all falls back to the flow redirect', async () => {
+    providerResult = { authenticated: true, nextAction: 'redirect' }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/callback?code=abc&state=abc123`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/target')
+  })
+})
+
+/**
  * `POST /sites/:siteId/auth/register` and `GET /auth/verify/:token` — the request/response wiring
  * around `WIKI.models.users.register()` / `validateToken()` / `updateUser()`, which are stubbed here
  * rather than run for real (that's `models/users.test.ts`'s DB-backed coverage of `register()` itself).

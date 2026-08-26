@@ -491,11 +491,41 @@ window.addEventListener('beforeunload', (e) => {
 
 // GLOBAL EVENTS HANDLERS
 
+/**
+ * Whether `target` is safe to send a just-logged-out reader to: a same-origin rooted path (that does
+ * not itself look protocol-relative), or a complete `http(s)://` address. Mirrors the backend's own
+ * `helpers/redirectTarget.ts#isFollowableRedirectTarget` -- see its comment for why `//host`/`/\host`
+ * are refused alongside `javascript:`, and why this parses with `URL` rather than the scheme-prefix
+ * regex this replaces (OpenProject #2208 §3/§9): `/^[a-z][a-z0-9+.-]*:\/\//i` is satisfied by
+ * `javascript://%0aalert(1)`, because the `//` reads as a JS line comment and the decoded newline
+ * ends it before `alert(1)` runs, well past where the regex already matched.
+ */
+function isSafeLogoutTarget(target) {
+  if (typeof target !== 'string' || target.length < 1) {
+    return false
+  }
+  if (target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\')) {
+    return true
+  }
+  let url
+  try {
+    url = new URL(target)
+  } catch {
+    return false
+  }
+  return url.protocol === 'http:' || url.protocol === 'https:'
+}
+
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
-  const target = redirect || '/'
-  // -> A group or the site can send logged out users to another site entirely, which the router cannot
-  //    navigate to — and leaving the wiki means there is no point notifying anyone either
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
+  const target = isSafeLogoutTarget(redirect) ? redirect : '/'
+  /*
+    A group or the site can send logged out users to another site entirely, which the router cannot
+    navigate to — and leaving the wiki means there is no point notifying anyone either. Told apart by
+    shape now that `target` is already validated: a rooted path (the only other shape
+    `isSafeLogoutTarget` accepts) is same-origin and the router's; anything else is a complete
+    http(s) address to a real elsewhere.
+  */
+  if (!target.startsWith('/')) {
     window.location.assign(target)
     return
   }

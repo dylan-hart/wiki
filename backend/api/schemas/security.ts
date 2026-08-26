@@ -47,7 +47,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       disallowOpenRedirect: {
         type: 'boolean',
-        description: 'Stored, but nothing redirects on user input yet.'
+        description:
+          'When on (the default), a group/site login/logout redirect and the `?redirect=` query parameter on a provider login must name a path on this wiki; an absolute URL to another host is refused. Turning it off additionally permits a complete `https?://` URL. Read live on each request via `helpers/redirectTarget.ts#absoluteRedirectsAllowed()`, unlike most of this card — flipping it applies immediately, no restart needed.'
       },
       forceAssetDownload: {
         type: 'boolean',

@@ -458,7 +458,6 @@ import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import Cookies from 'js-cookie'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 import VOtpInput from 'vue3-otp-input'
 
@@ -662,20 +661,46 @@ async function fetchStrategies(showAll = false) {
  * Where a provider button goes: the backend builds the URL at the provider, because everything that
  * ties the answer back to this browser — `state`, `nonce`, the PKCE verifier — is generated there and
  * kept on the session.
+ *
+ * No `redirect` param is set here: this used to be read off a `loginRedirect` cookie, but nothing in
+ * this app ever wrote one (OpenProject #2208 §9 -- confirmed by grep, not assumed), so it was a dead
+ * read of a value that could only ever come from something else able to set a cookie on this wiki's
+ * registrable domain. The backend's own `GET /_api/auth/:strategyId/authorize` already defaults an
+ * absent `redirect` to `/`, and validates one that IS given (`helpers/redirectTarget.ts`) -- so
+ * dropping this rather than reintroducing a writer is the "where I was going" memory this component
+ * loses, not a regression in what a caller can still ask for explicitly via a query param of its own.
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })
-  /*
-    The same cookie a form login reads on its way out: whatever sent the reader to the login screen
-    left where they were going in it. The provider flow cannot come back through the code above — it
-    lands on the callback route, which redirects — so the destination travels with the request and is
-    handed back by the callback instead.
-  */
-  const loginRedirect = Cookies.get('loginRedirect')
-  if (loginRedirect) {
-    params.set('redirect', loginRedirect)
-  }
   return `/_api/auth/${str.id}/authorize?${params.toString()}`
+}
+
+/**
+ * Whether `target` is safe to hand to `window.location.replace()` -- a same-origin rooted path (that
+ * does not itself look protocol-relative), or a complete `http(s)://` address. Everything else,
+ * `javascript:` above all, is refused: assigning one to `location` executes it in this origin
+ * (OpenProject #2208 §2/§9), and `resp.redirect` here is a server value this page does not otherwise
+ * control (ultimately a group's `redirectOnLogin`, or the `redirect` this page itself sent to
+ * `GET /_api/auth/:strategyId/authorize`). The backend already validates both before it ever answers
+ * with them (`helpers/redirectTarget.ts`), so this is defense in depth rather than the only check --
+ * mirroring that same helper's rule rather than resolving blindly against `location.origin`, which
+ * would otherwise accept `//evil.example` as if it were a same-origin path (a browser resolves a
+ * protocol-relative address against the CURRENT origin's scheme, not this page's own).
+ */
+function safeRedirectTarget(target) {
+  if (typeof target !== 'string' || target.length < 1) {
+    return '/'
+  }
+  if (target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\')) {
+    return target
+  }
+  let url
+  try {
+    url = new URL(target)
+  } catch {
+    return '/'
+  }
+  return url.protocol === 'http:' || url.protocol === 'https:' ? target : '/'
 }
 
 async function handleLoginResponse(resp) {
@@ -728,18 +753,7 @@ async function handleLoginResponse(resp) {
         message: t('auth.loginSuccess')
       })
       setTimeout(() => {
-        const loginRedirect = Cookies.get('loginRedirect')
-        if (loginRedirect === '/' && resp.redirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(resp.redirect)
-        } else if (loginRedirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(loginRedirect)
-        } else if (resp.redirect) {
-          window.location.replace(resp.redirect)
-        } else {
-          window.location.replace('/')
-        }
+        window.location.replace(safeRedirectTarget(resp.redirect))
       }, 1000)
       break
     }

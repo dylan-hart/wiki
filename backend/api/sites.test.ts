@@ -149,6 +149,7 @@ async function countEnabledSites() {
 
 before(async () => {
   ;(globalThis as any).WIKI = {
+    config: { security: { disallowOpenRedirect: true } },
     models: {
       sites: {
         getSiteByHostname,
@@ -554,6 +555,55 @@ test('site:login on this site may save auth and authStrategies', async () => {
   })
   assert.equal(res.statusCode, 200)
   assert.equal(updateSiteCalls.length, 1)
+})
+
+/**
+ * OpenProject #2208 §2: `auth.loginRedirect`/`welcomeRedirect`/`logoutRedirect` used to be copied
+ * into `config` with no validation at all, so a `site:login` holder -- a delegated,
+ * non-administrator permission -- could plant `javascript:...` there and have it execute for the
+ * next reader `AuthLoginPanel.vue`'s `window.location.replace()` sends through it.
+ */
+test('site:login on this site may NOT save a javascript: loginRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { loginRedirect: 'javascript:alert(1)' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:login on this site may NOT save a protocol-relative //host welcomeRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { welcomeRedirect: '//evil.example' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(updateSiteCalls.length, 0)
+})
+
+test('site:login on this site may save a rooted-path logoutRedirect', async () => {
+  const res = await app.inject({
+    method: 'PUT',
+    url: `/${PUT_SITE_ID}`,
+    headers: {
+      'x-test-permissions': '',
+      'x-test-site-permissions': `site:login@${PUT_SITE_ID}`
+    },
+    payload: { auth: { logoutRedirect: '/goodbye' } }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(updateSiteCalls.length, 1)
+  assert.equal(updateSiteCalls[0].patch.config.auth.logoutRedirect, '/goodbye')
 })
 
 test('site:locale on this site may save locales', async () => {

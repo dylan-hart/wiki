@@ -275,3 +275,104 @@ test('an anonymous request is refused the list', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 401)
 })
+
+/**
+ * OpenProject #2208 §2: `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` used to be
+ * copied into the patch with no validation at all, so a `manage:groups` holder could store
+ * `javascript:...` on the administrators group and have it execute for the next admin who signs in
+ * -- with no click required, and a complete bypass of `api/groups.ts`'s own `manage:system` guard,
+ * whose entire purpose is to stop `manage:groups` reaching that permission. Isolated route-file
+ * approach, same as the permission-surface suite above: `WIKI.models.groups` stubbed rather than a
+ * real database, since this is about the route's own validation rather than model behavior.
+ */
+describe('PUT /:groupId — redirect field validation', () => {
+  const REDIRECT_GROUP_ID = '55555555-5555-5555-5555-555555555555'
+  let redirectApp: FastifyInstance
+  let updateGroupCalls: Array<{ id: string; patch: Record<string, unknown> }>
+
+  before(async () => {
+    updateGroupCalls = []
+    ;(globalThis as any).WIKI = {
+      config: { security: { disallowOpenRedirect: true } },
+      models: {
+        groups: {
+          async getGroupById(id: string) {
+            return id === REDIRECT_GROUP_ID
+              ? { id: REDIRECT_GROUP_ID, name: 'Editors', permissions: [], rules: [] }
+              : null
+          },
+          async updateGroup(id: string, patch: Record<string, unknown>) {
+            updateGroupCalls.push({ id, patch })
+          },
+          holdsSystemPermission() {
+            return true
+          }
+        },
+        auditLog: {
+          async record() {}
+        }
+      }
+    }
+
+    redirectApp = fastify()
+    await redirectApp.register(fastifySensible)
+    redirectApp.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerGroupSchema(redirectApp)
+    await registerUserSchema(redirectApp)
+    await registerErrorSchema(redirectApp)
+    await redirectApp.register(groupsRoutes)
+    await redirectApp.ready()
+  })
+
+  after(async () => {
+    await redirectApp.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('rejects a javascript: redirectOnLogin with 400 and does not persist it', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogin: 'javascript:alert(1)' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('rejects a protocol-relative //host redirectOnFirstLogin with 400', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnFirstLogin: '//evil.example' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('rejects a complete https:// redirectOnLogout while disallowOpenRedirect is on', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogout: 'https://elsewhere.example/bye' }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateGroupCalls.length, 0)
+  })
+
+  test('accepts a rooted path redirectOnLogin and persists it', async () => {
+    const res = await redirectApp.inject({
+      method: 'PUT',
+      url: `/${REDIRECT_GROUP_ID}`,
+      payload: { redirectOnLogin: '/welcome' }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateGroupCalls.at(-1)?.patch.redirectOnLogin, '/welcome')
+  })
+})

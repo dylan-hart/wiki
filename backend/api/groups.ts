@@ -1,4 +1,5 @@
 import { CustomError } from '../helpers/common.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -30,6 +31,36 @@ function systemGroupGuard(
     `This group has the ${SYSTEM_PERMISSION} permission. Only a user who holds it can ${action}.`,
     403
   )
+}
+
+/** The three group redirect fields, and where in `PUT /:groupId`'s body each one is named. */
+const GROUP_REDIRECT_FIELDS = [
+  'redirectOnLogin',
+  'redirectOnFirstLogin',
+  'redirectOnLogout'
+] as const
+
+/**
+ * Refuse a group redirect field whose value is not a same-origin path (or, when
+ * `security.disallowOpenRedirect` is off, a complete `https?://` URL) — the guard that closes
+ * OpenProject #2208 §2: unvalidated, one of these becomes a `javascript:` payload that runs for the
+ * next member who signs in or out, with no click required for `redirectOnLogin`.
+ */
+function invalidGroupRedirectField(
+  body: GroupUpdateBody
+): (typeof GROUP_REDIRECT_FIELDS)[number] | null {
+  const allowAbsolute = absoluteRedirectsAllowed()
+  for (const field of GROUP_REDIRECT_FIELDS) {
+    const value = body[field]
+    if (
+      value !== undefined &&
+      value !== '' &&
+      !isFollowableRedirectTarget(value, { allowAbsolute })
+    ) {
+      return field
+    }
+  }
+  return null
 }
 
 interface GroupUpdateBody {
@@ -286,6 +317,14 @@ async function routes(app: FastifyInstance) {
       const group = await WIKI.models.groups.getGroupById(req.params.groupId)
       if (!group) {
         return reply.notFound('Group does not exist.')
+      }
+
+      const invalidRedirectField = invalidGroupRedirectField(req.body)
+      if (invalidRedirectField) {
+        throw new CustomError(
+          'groupUpdateInvalidRedirect',
+          `${invalidRedirectField} must be a path on this wiki${absoluteRedirectsAllowed() ? ' or a complete https:// URL' : ''}.`
+        )
       }
 
       // -> Collect only the fields actually provided

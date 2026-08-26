@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { absoluteRedirectsAllowed, isFollowableRedirectTarget } from '../helpers/redirectTarget.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -141,7 +142,15 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
-    return reply.redirect(result.redirect || redirect)
+    // -> `result.redirect` is a group's `redirectOnLogin`/`redirectOnFirstLogin` value -- stored,
+    //    not re-validated on the way in from `api/groups.ts` before this route existed, so it is
+    //    checked again here rather than trusted as a server-emitted `Location` header.
+    const target =
+      result.redirect &&
+      isFollowableRedirectTarget(result.redirect, { allowAbsolute: absoluteRedirectsAllowed() })
+        ? result.redirect
+        : redirect
+    return reply.redirect(target)
   } catch (err: any) {
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
@@ -1031,8 +1040,15 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        // -> Only a path on this wiki (or, with `security.disallowOpenRedirect` off, a complete
+        //    https:// URL): an open redirect is how a login page is turned into a lure, and
+        //    `startsWith('/')` alone let `//evil.example` and `/\evil.example` both through, since a
+        //    browser resolves either as protocol-relative to whatever host follows.
+        redirect: isFollowableRedirectTarget(req.query.redirect, {
+          allowAbsolute: absoluteRedirectsAllowed()
+        })
+          ? req.query.redirect!
+          : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow
