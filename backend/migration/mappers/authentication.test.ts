@@ -205,6 +205,42 @@ describe('mapAuthenticationRow', () => {
     assert.equal(result.row, undefined)
   })
 
+  test('unverified module (saml) with a non-empty config is flagged, naming the module, and writes no row', async () => {
+    const result = mapAuthenticationRow(
+      baseRow({
+        key: 'saml',
+        strategyKey: 'saml',
+        config: { entryPoint: 'https://idp.example.com/sso', cert: 'MIIC...' }
+      }),
+      { resolver: await resolver() }
+    )
+    assert.equal(result.status, 'flagged')
+    assert.ok(result.message?.includes('saml'))
+    assert.equal(result.row, undefined)
+  })
+
+  test('unverified module (saml) with an empty config is still created, not flagged', async () => {
+    const result = mapAuthenticationRow(baseRow({ key: 'saml', strategyKey: 'saml', config: {} }), {
+      resolver: await resolver()
+    })
+    assert.equal(result.status, 'created')
+    assert.ok(result.row)
+  })
+
+  test('a covered transform (google) with a non-empty config is unaffected by the unverified-module gate', async () => {
+    const result = mapAuthenticationRow(
+      baseRow({
+        key: 'google',
+        strategyKey: 'google',
+        config: { clientId: 'abc', clientSecret: 'secret' }
+      }),
+      { resolver: await resolver() }
+    )
+    assert.equal(result.status, 'created')
+    assert.equal(result.row!.module, 'google')
+    assert.equal((result.row!.config as Record<string, unknown>).clientId, 'abc')
+  })
+
   test('domainWhitelist -> allowedEmailRegex end to end on a real row', async () => {
     const result = mapAuthenticationRow(baseRow({ domainWhitelist: { v: ['example.com'] } }), {
       resolver: await resolver()
