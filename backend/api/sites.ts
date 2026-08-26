@@ -102,7 +102,7 @@ function maySaveSiteImage(req: FastifyRequest, siteId: string, kind: SiteAssetKi
  *
  * Deliberately does NOT fold in `manage:sites`, `manage:theme` or `manage:navigation` — each of those
  * covers a different subset of the eight surfaces (see `SITE_FIELD_PERMISSIONS`, `mayManageBlocks` in
- * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayReadApprovalRules` in
+ * `api/blocks.ts`, `canManageNavigation` in `api/navigation.ts`, `mayAdministerApprovals` in
  * `api/approvals.ts`), so folding any one of them in here would tell the caller they hold a permission
  * a specific route would still refuse. The frontend already has all three of those in
  * `userStore.permissions` and combines them itself — see `frontend/src/composables/siteAdminAccess.js`.
