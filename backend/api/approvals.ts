@@ -63,7 +63,7 @@ function reviewerFor(
   page?: { path: string; locale: string | null; tags?: string[]; classification?: string | null }
 ): ReviewerScope {
   if (!isReviewerSession(req)) {
-    return { groupIds: [], reviewsAll: false }
+    return { groupIds: [], reviewsAll: false, actor: WIKI.models.groups.actorForRequest(req) }
   }
   const actor = WIKI.models.groups.actorForRequest(req)
   return {
@@ -81,7 +81,11 @@ function reviewerFor(
     // -> Undefined for a guest: `isReviewerSession` above already sent them home with an empty scope,
     //    but a guest could not have approved anything anyway, so `hasApproved` reading `false` for them
     //    is right either way.
-    viewerId: actorFrom(req)?.id
+    viewerId: actorFrom(req)?.id,
+    // -> OpenProject #2160: the same actor `reviewsAll` above already resolved, threaded through so
+    //    `getReviewableSubmissions`/`getSubmissionForReview` can re-check `read:pages`/`read:source`
+    //    against the real page rather than trusting approval-rule membership alone.
+    actor
   }
 }
 
@@ -509,7 +513,6 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       return WIKI.models.approvals.getReviewableSubmissions(
         req.params.siteId,
-        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
     }
@@ -545,7 +548,6 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -621,7 +623,6 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -645,9 +646,8 @@ async function routes(app: FastifyInstance) {
             'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
           )
         }
-        // -> Approval-rule membership got this reviewer to the review queue, but writing the page
-        //    still takes `write:pages` on it, the same as any other save. The submission stays
-        //    pending, not partially applied.
+        // -> OpenProject #2165: the vote was recorded (reviewing this far is real), but writing the
+        //    page itself needs write:pages on the target, which this reviewer does not hold
         if (applied.reason === 'forbidden') {
           return reply.forbidden('You do not have permission to write to this page.')
         }
@@ -700,7 +700,6 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
-        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -784,14 +783,10 @@ async function routes(app: FastifyInstance) {
       }
       return {
         canReview: true,
-        submissions: await WIKI.models.approvals.getReviewableSubmissions(
-          req.params.siteId,
-          WIKI.models.groups.actorForRequest(req),
-          {
-            ...scope,
-            pageId: req.params.pageId
-          }
-        )
+        submissions: await WIKI.models.approvals.getReviewableSubmissions(req.params.siteId, {
+          ...scope,
+          pageId: req.params.pageId
+        })
       }
     }
   )

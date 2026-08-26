@@ -18,6 +18,17 @@ import {
 } from '../db/schema.ts'
 import { NAVIGATION_MODES, type NavigationItem, type NavigationMode } from './navigation.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { AccessActor } from './groups.ts'
+
+/**
+ * A permissive stand-in for `getNav`'s now-required `actor` (OpenProject #2155), for the many tests
+ * in this file that exercise `static`-menu behavior or structural cascade logic having nothing to do
+ * with per-entry `read:pages` filtering. `manage:system` bypasses `checkAccess()` entirely, so this
+ * behaves exactly like the pre-#2155 unfiltered-by-permission `getNav` these tests were written
+ * against. Tests that DO exercise the new filtering build their own narrower actor instead — see
+ * `navigation generateFromTree read:pages filtering (DB-backed)` below.
+ */
+const OMNI_ACTOR: AccessActor = { groupIds: [], permissions: ['manage:system'] }
 
 /**
  * `listOverrides` is a flat, indexed scan against `tree` — no ltree ancestry logic to mock, so this
@@ -184,7 +195,10 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
 
-    const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
+    const stored = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      actor: OMNI_ACTOR,
+      unfiltered: true
+    })
     assert.deepEqual(stored, items)
   })
 
@@ -208,7 +222,10 @@ describe('navigation setNavItems (DB-backed)', { skip: !hasTestDatabase() }, () 
     const items = [{ id: 'b', type: 'header' as const, label: 'Section' }]
     await navigationModel.setNavItems(fixtures.siteId, page.id, items)
 
-    const stored = await navigationModel.getNav(fixtures.siteId, page.id, { unfiltered: true })
+    const stored = await navigationModel.getNav(fixtures.siteId, page.id, {
+      actor: OMNI_ACTOR,
+      unfiltered: true
+    })
     assert.deepEqual(stored, items)
   })
 
@@ -266,6 +283,7 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      actor: OMNI_ACTOR,
       unfiltered: true
     })
     assert.equal(targetItems.length, 1)
@@ -279,6 +297,7 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     // -> The source is left untouched
     const sourceStillIntact = await navigationModel.getNav(fixtures.siteId, sourceId, {
+      actor: OMNI_ACTOR,
       unfiltered: true
     })
     assert.equal(sourceStillIntact[0]!.id, 'source-parent')
@@ -304,6 +323,7 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
 
     const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      actor: OMNI_ACTOR,
       unfiltered: true
     })
     assert.deepEqual(
@@ -448,9 +468,11 @@ describe(
       assert.equal(frResult.navigationId, frSiteNavId)
 
       const enItems = await navigationModel.getNav(fixtures.siteId, enSiteNavId, {
+        actor: OMNI_ACTOR,
         unfiltered: true
       })
       const frItems = await navigationModel.getNav(fixtures.siteId, frSiteNavId, {
+        actor: OMNI_ACTOR,
         unfiltered: true
       })
       assert.equal(enItems[0]!.label, 'EN')
@@ -503,6 +525,7 @@ describe('navigation siteRoots (DB-backed)', { skip: !hasTestDatabase() }, () =>
     assert.equal(roots[0]!.locale, 'pt')
     assert.notEqual(roots[0]!.navigationId, fixtures.siteId)
     const items = await navigationModel.getNav(fixtures.siteId, roots[0]!.navigationId, {
+      actor: OMNI_ACTOR,
       unfiltered: true
     })
     assert.deepEqual(items, [])
@@ -924,17 +947,11 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
   let pagesModel: typeof import('./pages.ts').pages
-  // -> `getNav`'s own `actor` default (OpenProject #2155) is "nobody" -- fails closed on every
-  //    generated entry -- so every call here that expects generated content back needs an actor whose
-  //    `read:pages` genuinely resolves true. `manage:system` is the simplest such actor and matches
-  //    what the rest of this file already uses to set content up.
-  let actor: { id: string; groupIds: string[]; permissions: string[] }
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ navigation: navigationModel } = await import('./navigation.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
-    actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
   })
 
   after(async () => {
@@ -951,7 +968,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     await navigationModel.setNavItems(fixtures.siteId, siteNavId, items)
     await setMode(siteNavId, 'static')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: OMNI_ACTOR })
     assert.deepEqual(result, items)
   })
 
@@ -972,7 +989,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'auto')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: OMNI_ACTOR })
     assert.equal(
       result.some((item) => item.label === 'Should not appear'),
       false
@@ -1002,12 +1019,12 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     //    confirms the filtering pass runs at all (it would throw/behave differently on `unfiltered`
     //    input shaped unexpectedly) and that `unfiltered` still returns the same generated set
     const filtered = await navigationModel.getNav(fixtures.siteId, siteNavId, {
-      userGroups: [],
-      actor
+      actor: OMNI_ACTOR,
+      userGroups: []
     })
     const full = await navigationModel.getNav(fixtures.siteId, siteNavId, {
-      unfiltered: true,
-      actor
+      actor: OMNI_ACTOR,
+      unfiltered: true
     })
     assert.deepEqual(
       filtered.map((i) => i.id),
@@ -1034,7 +1051,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: OMNI_ACTOR })
     const ids = result.map((i) => i.id)
     const generatedIndex = result.findIndex((i) => i.label === 'Mixed Mode Page')
 
@@ -1075,14 +1092,18 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     })
     await setMode(overriddenPage.id, 'auto')
 
-    const result = await navigationModel.getNav(fixtures.siteId, overriddenPage.id, { actor })
+    const result = await navigationModel.getNav(fixtures.siteId, overriddenPage.id, {
+      actor: OMNI_ACTOR
+    })
     const labels = result.map((i) => i.label)
     assert.ok(labels.includes('Override Target'))
     assert.ok(labels.includes('Sibling Page'))
   })
 
   test('a nonexistent menu id returns an empty list rather than throwing', async () => {
-    const result = await navigationModel.getNav(fixtures.siteId, crypto.randomUUID())
+    const result = await navigationModel.getNav(fixtures.siteId, crypto.randomUUID(), {
+      actor: OMNI_ACTOR
+    })
     assert.deepEqual(result, [])
   })
 
@@ -1099,12 +1120,14 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
       { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     )
     await setMode(siteNavId, 'auto')
-    const auto = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
+    const auto = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: OMNI_ACTOR })
     assert.ok(auto.length > 0)
     assert.ok(auto.every((item) => item.generated === true))
 
     await setMode(siteNavId, 'static')
-    const staticResult = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
+    const staticResult = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      actor: OMNI_ACTOR
+    })
     assert.ok(staticResult.every((item) => item.generated === undefined))
   })
 
@@ -1128,7 +1151,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: OMNI_ACTOR })
     const stored = result.filter((i) => i.id === 'stored-before' || i.id === 'stored-after')
     const generated = result.filter((i) => i.label === 'Generated Flag Page')
 
@@ -1140,53 +1163,52 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
 })
 
 /**
- * OpenProject #2155: `generateFromTree()` used to include every published/browsable page in an
- * `auto`/`mixed` menu regardless of the requester's own `read:pages` grant — an anonymous visitor's
- * `GET .../navigation/:navId` got the title, path and icon of every page in the tree, including ones
- * a path or classification DENY keeps them out of. This is the fix's own acceptance test, run through
- * the real public entry point (`getNav` in `auto` mode, exactly as the API route calls it) rather than
- * the private `generateFromTree` directly.
- *
- * `fixtures.groupId` stands in for the guests group here, the same substitution
- * `pages.test.ts#listPagesForSitemap`'s `setGuestRules` uses: `WIKI.data.systemIds.guestsGroupId` is
- * only ever a fixed id looked up at runtime, not something `setupTestDb()` seeds meaning into, so
- * pointing a plain actor's `groupIds` at the fixture group and writing rules onto it exercises the
- * exact same `rulesForGroups()` / `helpers/pageRules.ts` path a real anonymous request would.
+ * OpenProject #2155: `generateFromTree` never asked the page-rule engine anything before this feature
+ * -- an `auto`/`mixed` menu's entries came straight from `pageIsVisible` (browsable + published) with
+ * no `read:pages` check at all, so a plain path DENY, or a `CLASSIFICATION` DENY, leaked through an
+ * unauthenticated `GET .../navigation/:navId` the same as anything else in the tree. These assert the
+ * fix: a reader denied `read:pages` on an entry never sees it generated, an authorized reader still
+ * does, and a folder left with nothing visible under it (because every descendant was individually
+ * denied, not because none existed) is dropped rather than shown as an empty dead end.
  */
 describe(
-  'navigation getNav filters generated entries through read:pages (OpenProject #2155) (DB-backed)',
-  { skip: !hasTestDatabase() },
+  'navigation getNav read:pages filtering (DB-backed, OpenProject #2155)',
+  {
+    skip: !hasTestDatabase()
+  },
   () => {
     let fixtures: TestFixtures
     let navigationModel: typeof import('./navigation.ts').navigation
     let pagesModel: typeof import('./pages.ts').pages
-    let creatorActor: PageActor
-    let guestActor: { groupIds: string[]; permissions: string[] }
-    let authorizedActor: { groupIds: string[]; permissions: string[] }
-    let siteNavId: string
+    let groupsModel: typeof import('./groups.ts').groups
+    let adminActor: PageActor
+    let deniedActor: AccessActor
+    let restrictedClassificationId: string
 
     before(async () => {
       fixtures = await setupTestDb()
       ;({ navigation: navigationModel } = await import('./navigation.ts'))
       ;({ pages: pagesModel } = await import('./pages.ts'))
-      const { classificationLevels } = await import('./classificationLevels.ts')
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+      adminActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
 
-      creatorActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
-      guestActor = { groupIds: [fixtures.groupId], permissions: [] }
-      authorizedActor = { groupIds: [], permissions: ['manage:system'] }
+      const restrictedLevel = await WIKI.models.classificationLevels.create({
+        name: 'Filtering Test Restricted'
+      })
+      restrictedClassificationId = restrictedLevel.id
 
-      // -> The strictest seeded level -- deliberately not `fixtures.classificationId`, which is the
-      //    most-open ("Public") one every other page in this suite defaults to
-      const levels = classificationLevels.list()
-      const restrictedClassificationId = levels.at(-1)!.id
-
-      await WIKI.db
-        .update(groupsTable)
-        .set({
+      // -> Broadly allows read:pages, then carves out a path DENY and a classification DENY on top --
+      //    exactly the "a plain path DENY leaks here too" and "a classification DENY leaks here too"
+      //    scenarios #2150/#2155 describe.
+      const [group] = await WIKI.db
+        .insert(groupsTable)
+        .values({
+          name: 'Filtering Test Denied Reader',
+          permissions: ['read:pages'],
           rules: [
             {
-              id: 'allow-all',
-              name: 'Allow',
+              id: randomUUID(),
+              name: 'broad allow',
               roles: ['read:pages'],
               match: 'START',
               mode: 'ALLOW',
@@ -1195,120 +1217,128 @@ describe(
               sites: []
             },
             {
-              id: 'deny-path',
-              name: 'Deny path',
+              id: randomUUID(),
+              name: 'path deny',
               roles: ['read:pages'],
               match: 'START',
               mode: 'DENY',
-              path: 'denied-path-page',
+              path: 'denied-path',
               locales: [],
               sites: []
             },
             {
-              id: 'deny-classification',
-              name: 'Deny classification',
+              id: randomUUID(),
+              name: 'classification deny',
               roles: ['read:pages'],
               match: 'CLASSIFICATION',
               mode: 'DENY',
               path: '',
-              classifications: [restrictedClassificationId],
               locales: [],
-              sites: []
+              sites: [],
+              classifications: [restrictedClassificationId]
             }
           ]
         })
-        .where(eq(groupsTable.id, fixtures.groupId))
-      await WIKI.models.groups.reloadCache()
-
-      await pagesModel.createPage(
-        fixtures.siteId,
-        {
-          path: 'denied-path-page',
-          title: 'Denied Path Page',
-          editor: 'markdown',
-          content: '# Hello'
-        },
-        creatorActor
-      )
-      await pagesModel.createPage(
-        fixtures.siteId,
-        {
-          path: 'denied-classification-page',
-          title: 'Denied Classification Page',
-          editor: 'markdown',
-          content: '# Hello',
-          classification: restrictedClassificationId
-        },
-        creatorActor
-      )
-      await pagesModel.createPage(
-        fixtures.siteId,
-        {
-          path: 'visible-page',
-          title: 'Visible Page',
-          editor: 'markdown',
-          content: '# Hello'
-        },
-        creatorActor
-      )
-      // -> A folder whose only child the classification DENY removes -- once filtering runs, this
-      //    folder should drop out too, mirroring the existing `holdsVisiblePages` dead-end rule.
-      await pagesModel.createPage(
-        fixtures.siteId,
-        {
-          path: 'empty-once-filtered/only-denied-child',
-          title: 'Only Denied Child',
-          editor: 'markdown',
-          content: '# Hello',
-          classification: restrictedClassificationId
-        },
-        creatorActor
-      )
-
-      siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
-      await WIKI.db
-        .update(navigationTable)
-        .set({ mode: 'auto' })
-        .where(eq(navigationTable.id, siteNavId))
+        .returning({ id: groupsTable.id })
+      deniedActor = { groupIds: [group!.id], permissions: [] }
+      await groupsModel.reloadCache()
     })
 
     after(async () => {
       await teardownTestDb()
     })
 
-    test("a guest's generated menu omits an entry under a path DENY", async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
-      assert.ok(!items.some((i) => i.label === 'Denied Path Page'))
-    })
+    async function autoMenu(): Promise<string> {
+      const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      await WIKI.db
+        .update(navigationTable)
+        .set({ mode: 'auto' })
+        .where(eq(navigationTable.id, siteNavId))
+      return siteNavId
+    }
 
-    test("a guest's generated menu omits an entry under a classification DENY", async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
-      assert.ok(!items.some((i) => i.label === 'Denied Classification Page'))
-    })
+    test('a path DENY omits the entry, and drops the folder left with nothing visible under it', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'denied-path/secret-page',
+          title: 'Secret Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        adminActor
+      )
 
-    test('a folder left with no visible descendants once filtering runs is dropped', async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
-      assert.ok(!items.some((i) => i.label === 'empty-once-filtered'))
-    })
-
-    test('the guest still sees an unrestricted page', async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
-      assert.ok(items.some((i) => i.label === 'Visible Page'))
-    })
-
-    test('an authorized reader still sees all three filtered-for-the-guest entries', async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, {
-        actor: authorizedActor
+      const asDenied = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor
       })
-      const labels = items.map((i) => i.label)
-      assert.ok(labels.includes('Denied Path Page'))
-      assert.ok(labels.includes('Denied Classification Page'))
-      assert.ok(labels.includes('empty-once-filtered'))
+      assert.equal(
+        asDenied.some((item) => item.label === 'Secret Page'),
+        false
+      )
+      // -> The folder holding only that page is a dead end for this reader -- dropped, not shown empty
+      assert.equal(
+        asDenied.some((item) => item.label === 'denied-path'),
+        false
+      )
+
+      const asAuthorized = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: adminActor
+      })
+      const folder = asAuthorized.find((item) => item.label === 'denied-path')
+      assert.ok(folder)
+      assert.ok(folder!.children?.some((c) => c.label === 'Secret Page'))
     })
 
-    test('omitting actor entirely fails closed -- every generated entry is filtered out', async () => {
-      const items = await navigationModel.getNav(fixtures.siteId, siteNavId)
-      assert.deepEqual(items, [])
+    test('a classification DENY omits the entry for a denied reader, but not an authorized one', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'classified-page',
+          title: 'Classified Page',
+          editor: 'markdown',
+          content: '# Hello',
+          classification: restrictedClassificationId
+        },
+        adminActor
+      )
+
+      const asDenied = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor
+      })
+      assert.equal(
+        asDenied.some((item) => item.label === 'Classified Page'),
+        false
+      )
+
+      const asAuthorized = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: adminActor
+      })
+      assert.ok(asAuthorized.some((item) => item.label === 'Classified Page'))
+    })
+
+    test('unfiltered (editor preview) reads skip the read:pages check entirely', async () => {
+      const siteNavId = await autoMenu()
+      await pagesModel
+        .createPage(
+          fixtures.siteId,
+          {
+            path: 'denied-path/secret-page',
+            title: 'Secret Page',
+            editor: 'markdown',
+            content: '# Hello'
+          },
+          adminActor
+        )
+        .catch(() => {}) // -> May already exist from an earlier test in this describe; irrelevant here
+
+      const full = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: deniedActor,
+        unfiltered: true
+      })
+      assert.ok(full.some((item) => item.label === 'denied-path'))
     })
   }
 )
@@ -1364,7 +1394,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('ensureSiteNav creates an empty menu once, idempotently', async () => {
     const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     assert.deepEqual(
-      await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
+      await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: OMNI_ACTOR,
+        unfiltered: true
+      }),
       []
     )
 
@@ -1380,7 +1413,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const sameSiteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     assert.equal(sameSiteNavId, siteNavId)
     assert.deepEqual(
-      await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
+      await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: OMNI_ACTOR,
+        unfiltered: true
+      }),
       items
     )
   })
@@ -1398,13 +1434,17 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
     })
     assert.equal(navigationId, page.id)
 
-    const asGuest = await navigationModel.getNav(fixtures.siteId, navigationId!, { userGroups: [] })
+    const asGuest = await navigationModel.getNav(fixtures.siteId, navigationId!, {
+      actor: OMNI_ACTOR,
+      userGroups: []
+    })
     assert.deepEqual(
       asGuest.map((i) => i.id),
       ['a']
     )
 
     const asAdmin = await navigationModel.getNav(fixtures.siteId, navigationId!, {
+      actor: OMNI_ACTOR,
       userGroups: ['admins']
     })
     assert.deepEqual(
@@ -1431,13 +1471,19 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     // -> The row is real and readable under its own site...
     assert.deepEqual(
-      await navigationModel.getNav(otherSiteId, otherNavId, { unfiltered: true }),
+      await navigationModel.getNav(otherSiteId, otherNavId, {
+        actor: OMNI_ACTOR,
+        unfiltered: true
+      }),
       secretItems
     )
     // -> ...but a caller holding only `fixtures.siteId`'s id cannot read it by guessing/reusing the
     //    row id under the wrong site, the same way `setNavItems`/`copyNav`'s writes already refuse to.
     assert.deepEqual(
-      await navigationModel.getNav(fixtures.siteId, otherNavId, { unfiltered: true }),
+      await navigationModel.getNav(fixtures.siteId, otherNavId, {
+        actor: OMNI_ACTOR,
+        unfiltered: true
+      }),
       []
     )
   })
@@ -2042,7 +2088,10 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.notEqual(navigationId, page.id)
       assert.equal(navigationId, await navigationModel.ensureSiteNav(fixtures.siteId, 'en'))
       assert.deepEqual(
-        await navigationModel.getNav(fixtures.siteId, navigationId!, { unfiltered: true }),
+        await navigationModel.getNav(fixtures.siteId, navigationId!, {
+          actor: OMNI_ACTOR,
+          unfiltered: true
+        }),
         items
       )
 
@@ -2061,6 +2110,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       const siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
       const siteItemsBefore = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: OMNI_ACTOR,
         unfiltered: true
       })
 
@@ -2073,12 +2123,18 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(navigationId, page.id)
       assert.deepEqual(
-        await navigationModel.getNav(fixtures.siteId, page.id, { unfiltered: true }),
+        await navigationModel.getNav(fixtures.siteId, page.id, {
+          actor: OMNI_ACTOR,
+          unfiltered: true
+        }),
         items
       )
       // -> The site (ancestor) menu is untouched by a save that targeted the page's own menu.
       assert.deepEqual(
-        await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true }),
+        await navigationModel.getNav(fixtures.siteId, siteNavId, {
+          actor: OMNI_ACTOR,
+          unfiltered: true
+        }),
         siteItemsBefore
       )
     })
@@ -2179,7 +2235,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.notEqual(navigationId, siteId)
       assert.notEqual(navigationId, home.id)
       assert.deepEqual(
-        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        await navigationModel.getNav(siteId, enSiteNavId, { actor: OMNI_ACTOR, unfiltered: true }),
         items
       )
       // -> Exactly one navigation row for this site — the insert path, not a duplicate.
@@ -2205,7 +2261,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       const enSiteNavId = await navigationModel.ensureSiteNav(siteId, 'en')
       assert.deepEqual(
-        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        await navigationModel.getNav(siteId, enSiteNavId, { actor: OMNI_ACTOR, unfiltered: true }),
         originalItems
       )
 
@@ -2223,7 +2279,7 @@ describe('navigation (DB-backed)', { skip: !hasTestDatabase() }, () => {
       // -> onConflictDoUpdate's `set: { items }` replaces the array outright — the old items are
       //    gone, not merged alongside the new one.
       assert.deepEqual(
-        await navigationModel.getNav(siteId, enSiteNavId, { unfiltered: true }),
+        await navigationModel.getNav(siteId, enSiteNavId, { actor: OMNI_ACTOR, unfiltered: true }),
         replacementItems
       )
     })

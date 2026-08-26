@@ -81,10 +81,11 @@ describe(
       assert.equal(entry!.locale, 'en')
       // -> OpenProject #2168: tags/classification are carried so a caller can run `mayOnPage()`
       //    against the deleted path with a TAG/TAGALL/CLASSIFICATION rule, and the author's email is
-      //    never populated on this listing (unlike `list()`'s single-page history).
+      //    left out of this row's shape entirely (unlike `list()`'s single-page history), since this
+      //    listing spans every deleted path on the site in one sweep.
       assert.deepEqual(entry!.tags, ['keep-me'])
       assert.ok(entry!.classification, 'a page always has a classification')
-      assert.equal(entry!.author.email, '')
+      assert.ok(entry!.author.name, 'the author name is still carried, unlike the email')
     })
 
     test('listRecoverable omits a path that was deleted and then reused', async () => {

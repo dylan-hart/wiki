@@ -79,9 +79,9 @@ async function routes(app: FastifyInstance) {
         )
       }
       return WIKI.models.navigation.getNav(req.params.siteId, req.params.navId, {
+        actor: WIKI.models.groups.actorForRequest(req),
         userGroups: req.session?.authenticated ? (req.session.groups ?? []) : [],
-        unfiltered,
-        actor: WIKI.models.groups.actorForRequest(req)
+        unfiltered
       })
     }
   )
