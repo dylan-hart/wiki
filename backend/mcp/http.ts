@@ -24,6 +24,7 @@
 
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { LRUCache } from 'lru-cache'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js'
 import { limitApiKey } from '../helpers/rateLimit.ts'
@@ -31,6 +32,28 @@ import { actorFromRequest } from '../models/auditLog.ts'
 import { contextFromIdentity, type McpAuthContext } from './auth.ts'
 import { createMcpServer } from './server.ts'
 import { registerAllTools } from './tools/index.ts'
+
+/**
+ * Production default: how long an MCP HTTP session may sit idle — no request naming it — before it
+ * is swept and its transport closed. Reset on every request that touches the session (the `.get()`
+ * calls below, with `updateAgeOnGet`), so this is a genuine idle timeout, not a fixed lifetime from
+ * `initialize`.
+ */
+const DEFAULT_SESSION_IDLE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+
+/**
+ * Production default: hard cap on live sessions across every API key combined. Past this, the
+ * oldest-idle session is evicted (its transport closed) to make room for a new `initialize` — see
+ * `sessions` below.
+ */
+const DEFAULT_MAX_SESSIONS = 1000
+
+/** Overrides for the session store's limits — real callers never pass these; tests do, to exercise
+ *  the idle-TTL and cap behavior without a 30-minute wait or 1000 live sessions. */
+interface McpHttpOpts {
+  sessionIdleTtlMs?: number
+  maxSessions?: number
+}
 
 interface McpSession {
   transport: StreamableHTTPServerTransport
@@ -46,9 +69,6 @@ interface McpSession {
   ctx: McpAuthContext
 }
 
-/** Process-local: an HTTP/SSE session belongs to whichever instance's request created it. */
-const sessions = new Map<string, McpSession>()
-
 function sessionIdOf(req: {
   headers: Record<string, string | string[] | undefined>
 }): string | undefined {
@@ -56,7 +76,35 @@ function sessionIdOf(req: {
   return Array.isArray(raw) ? raw[0] : raw
 }
 
-async function routes(app: FastifyInstance) {
+async function routes(app: FastifyInstance, opts: McpHttpOpts = {}) {
+  /**
+   * Process-local: an HTTP/SSE session belongs to whichever instance's request created it.
+   *
+   * `ttl` + `updateAgeOnGet` give the map a genuine idle timeout rather than a fixed lifetime — every
+   * `.get()` below (a request naming an existing session) slides the deadline forward. `max` caps the
+   * map's size outright, evicting the oldest-idle entry to make room for a new `initialize` once the
+   * cap is hit — the same LRU ordering `updateAgeOnGet` keeps current. `ttlAutopurge` schedules a real
+   * sweep per entry (the SDK's own `setTimeout`, `.unref()`'d) rather than relying on some later
+   * request to notice an entry has gone stale, since a session nobody ever touches again would
+   * otherwise never trigger its own removal. Either path — idle sweep or cap eviction — runs
+   * `dispose`, which closes the transport: `StreamableHTTPServerTransport#close()` is idempotent
+   * (guarded by the SDK's own `_closed` flag), so this is safe to call even for a session whose
+   * transport is already mid-close via the `DELETE` path below, and it is what releases the SDK's own
+   * per-session resources (its SSE stream mapping, resumable-stream buffers, …) for a session nobody
+   * ever sent a `DELETE` for.
+   */
+  const sessions = new LRUCache<string, McpSession>({
+    max: opts.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    ttl: opts.sessionIdleTtlMs ?? DEFAULT_SESSION_IDLE_TTL_MS,
+    updateAgeOnGet: true,
+    ttlAutopurge: true,
+    dispose: (session, _sid, reason) => {
+      session.transport.close().catch((err: any) => {
+        WIKI.logger.debug(`Error closing an MCP HTTP session on ${reason}: ${err.message}`)
+      })
+    }
+  })
+
   app.decorateRequest('mcpCtx', null)
 
   app.addHook('onRequest', async (req, reply) => {

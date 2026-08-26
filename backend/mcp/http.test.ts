@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import fastify from 'fastify'
 import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
@@ -349,5 +349,101 @@ describe('mcp/http', () => {
       payload: { jsonrpc: '2.0', id: 3, method: 'tools/list' }
     })
     assert.equal(res.statusCode, 404)
+  })
+
+  /**
+   * A separate Fastify instance per describe block, registered with tiny `sessionIdleTtlMs` /
+   * `maxSessions` overrides (see `McpHttpOpts` in `mcp/http.ts`) rather than the 30-minute /
+   * 1000-session production defaults the outer `app` above uses — real waits, but short ones, so this
+   * stays fast without needing to fake `lru-cache`'s internal clock (`performance.now()`, not `Date`,
+   * so `node:test`'s `mock.timers` wouldn't reach it anyway). "Evicted, transport closed" is asserted
+   * the same black-box way the DELETE test above asserts session removal: a later request naming that
+   * session id gets 404 — `StreamableHTTPServerTransport#close()` is what the eviction's `dispose`
+   * callback runs, and 404 is the observable result of the session having left the map.
+   */
+  describe('session idle TTL and cap', () => {
+    let capApp: FastifyInstance
+
+    async function buildApp(opts: { sessionIdleTtlMs?: number; maxSessions?: number }) {
+      const built = fastify()
+      await built.register(fastifySensible)
+      await built.register(httpRoutes, opts)
+      await built.ready()
+      return built
+    }
+
+    async function open(app: FastifyInstance) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/',
+        headers: {
+          authorization: `Bearer ${TOKEN_A}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream'
+        },
+        payload: initializeRequest()
+      })
+      assert.equal(res.statusCode, 200)
+      return res.headers['mcp-session-id'] as string
+    }
+
+    async function touch(app: FastifyInstance, sessionId: string) {
+      return app.inject({
+        method: 'POST',
+        url: '/',
+        headers: {
+          authorization: `Bearer ${TOKEN_A}`,
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-session-id': sessionId
+        },
+        payload: { jsonrpc: '2.0', id: 2, method: 'tools/list' }
+      })
+    }
+
+    afterEach(async () => {
+      await capApp?.close()
+    })
+
+    test('an idle session is evicted and its transport closed', async () => {
+      capApp = await buildApp({ sessionIdleTtlMs: 20, maxSessions: 10 })
+      const sessionId = await open(capApp)
+
+      // Long enough past the 20ms idle TTL for the autopurge sweep to have run.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      const res = await touch(capApp, sessionId)
+      assert.equal(res.statusCode, 404)
+    })
+
+    test('the map does not grow past its cap under repeated initialize calls', async () => {
+      capApp = await buildApp({ sessionIdleTtlMs: 60_000, maxSessions: 2 })
+      const first = await open(capApp)
+      await open(capApp)
+      await open(capApp) // pushes the cap: `first` is the oldest-idle entry and gets evicted
+
+      const res = await touch(capApp, first)
+      assert.equal(res.statusCode, 404)
+    })
+
+    test('an active session is not evicted while it is still being used', async () => {
+      capApp = await buildApp({ sessionIdleTtlMs: 60_000, maxSessions: 2 })
+      const first = await open(capApp)
+      const second = await open(capApp)
+
+      // Touching `first` makes it the most-recently-used entry, so `second` — now the oldest-idle —
+      // is the one evicted when the cap is next exceeded, not `first`.
+      const touchRes = await touch(capApp, first)
+      assert.equal(touchRes.statusCode, 200)
+
+      const third = await open(capApp)
+
+      const firstRes = await touch(capApp, first)
+      assert.equal(firstRes.statusCode, 200)
+      const thirdRes = await touch(capApp, third)
+      assert.equal(thirdRes.statusCode, 200)
+      const secondRes = await touch(capApp, second)
+      assert.equal(secondRes.statusCode, 404)
+    })
   })
 })
