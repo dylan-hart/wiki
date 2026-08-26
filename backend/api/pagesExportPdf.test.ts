@@ -18,7 +18,7 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
  * and what this file checks, is the wiring: `read:pages` is checked in the handler (page rules, not
  * `config.permissions`), a missing or password-locked page is refused before the model is ever asked
  * to open a browser, and the request the model receives carries the caller's own hostname, this
- * instance's port, the page's path, and the raw `wikiSession` cookie value.
+ * instance's port, the page's path, and the raw `__Host-wikiSession` cookie value.
  */
 
 const SITE_ID = '11111111-1111-1111-1111-111111111111'
@@ -73,7 +73,7 @@ before(async () => {
       ;(req as any).session = { authenticated: true, user: { id: 'user-1' }, permissions: [] }
     }
     const cookie = req.headers['x-test-cookie']
-    ;(req as any).cookies = typeof cookie === 'string' ? { wikiSession: cookie } : {}
+    ;(req as any).cookies = typeof cookie === 'string' ? { '__Host-wikiSession': cookie } : {}
     done()
   })
   await registerErrorSchema(app)

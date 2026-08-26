@@ -1457,3 +1457,41 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## OpenProject #2109 — session cookie `secure: true` pinned unconditionally, not `secure: 'auto'`
+
+**Date:** 2026-08-26
+
+Task #2109 asked for `sameSite: 'lax'` plus `cookiePrefix: '__Host-'` on the session cookie
+registration in `index.ts`, describing the `__Host-` prefix as "free" since there is no `domain` and
+`path` is already `/`. Verified against `@fastify/session` 11.1.2's own source
+(`node_modules/@fastify/session/index.js`) that this is not quite right: `cookiePrefix` only
+prefixes the *value* `@fastify/session` round-trips through the session store — an
+express-session-compatibility shim — and never touches the `Set-Cookie` name a browser actually
+checks the `__Host-` prefix's guarantees against. Getting a literal `__Host-wikiSession` cookie
+means naming it via `cookieName` instead, which is what was implemented (see
+`helpers/security.ts`'s `SESSION_COOKIE_NAME` and its use in `index.ts`).
+
+That substitution has one unavoidable consequence the ticket's text didn't anticipate: a browser
+enforces the `__Host-` prefix by *rejecting outright* any cookie under that name lacking `Secure`,
+with no exception for a plaintext connection — so keeping `secure: 'auto'` (which resolves `false`
+over plain HTTP) would silently break every login on such a connection instead of merely weakening
+the cookie. `index.ts`'s registration pins `secure: true` unconditionally instead. This is safe and,
+for the ticket's own target case (a reverse proxy terminating TLS with `trustProxy` off), strictly
+more correct than `'auto'` — the browser's own connection is what `Secure` is checked against, not
+this instance's often-wrong belief about it — and `localhost`/`127.0.0.1` dev keeps working, since
+every major browser treats loopback as a trustworthy origin for `Secure` cookies regardless of
+scheme (the same reasoning `models/pdfExport.ts`'s puppeteer cookie-forward already relied on,
+now also marked `secure: true` since Chromium's cookie store enforces the same `__Host-` rule at
+the CDP `Network.setCookie` level).
+
+The one real cost: a deployment that is genuinely all-plaintext, end to end, with no TLS anywhere in
+the path, now fails closed on login (the browser drops the cookie) rather than failing open with an
+insecure one. That is the intended trade-off for this hardening pass — a wiki serving 100% unencrypted
+HTTP is not a configuration this fork means to keep working, and failing loudly (broken login) beats
+failing quietly (a cookie an on-path attacker can read) — but it is a real behavior change worth a
+second look if some deployment this fork still wants to support genuinely has no TLS anywhere.
+`models/security.ts`'s `insecureCookieRiskAt` diagnostic (task 833) is repointed accordingly: it no
+longer means the session cookie came out weak (that path is closed now, unconditionally), only that
+this instance's `request.protocol` is wrong, which still misdirects the OAuth/SAML callback URL
+(`api/authentication.ts#callbackUrl()`) and the sitemap/robots URLs (`controllers/seo.ts`).

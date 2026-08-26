@@ -39,14 +39,22 @@ const DURATION_PATTERN = /^\d+[smhdwy]$/
 class Security {
   /**
    * Runtime diagnostic, not a stored setting: the moment (if ever, since this process started) a
-   * request showed the classic reverse-proxy cookie misconfiguration (upstream discussion #6866,
-   * task 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`),
-   * but this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself.
-   * `request.protocol` can only ever reflect the raw, plaintext connection in that case, so the
-   * `secure: 'auto'` session cookie (see the `Sessions` section of `index.ts`) resolves to
-   * `false` even though every browser in front of the proxy is really talking HTTPS. Reset only by
-   * a restart -- it describes how the process was started, not something that self-heals while it
-   * keeps running the same way.
+   * request showed the classic reverse-proxy misconfiguration (upstream discussion #6866, task
+   * 833) -- the proxy says the original connection was HTTPS (`X-Forwarded-Proto: https`), but
+   * this instance neither trusts that header (`trustProxy` is off) nor terminated TLS itself, so
+   * `request.protocol` can only ever reflect the raw, plaintext connection.
+   *
+   * Originally this meant the session cookie itself came out insecure (`secure: 'auto'` resolving
+   * `false`). As of task 2109 that is no longer true: the session cookie's `Secure`, `SameSite` and
+   * `__Host-` name are all pinned unconditionally in `index.ts`'s `fastifySession` registration, so
+   * this misdetection can no longer weaken it. What it still breaks is everything else that reads
+   * `request.protocol` to decide what scheme it is talking: `api/authentication.ts#callbackUrl()`
+   * builds the OAuth/SAML return URL from it (wrong scheme there fails the whole federated login,
+   * not just the cookie), and `controllers/seo.ts` builds the sitemap/robots URLs the same way. The
+   * field name and trigger stay as they are -- same underlying misconfiguration, same fix (turn on
+   * Trust Proxy) -- but the risk it warns about is this broader one now, not a weakened cookie.
+   * Reset only by a restart -- it describes how the process was started, not something that
+   * self-heals while it keeps running the same way.
    */
   private insecureCookieRiskAt: string | null = null
 

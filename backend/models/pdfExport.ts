@@ -1,5 +1,6 @@
 import { CustomError } from '../helpers/common.ts'
 import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 
 /** How long the live page view gets to finish loading before giving up, in milliseconds. */
 const EXPORT_NAVIGATION_TIMEOUT = 30000
@@ -18,9 +19,6 @@ const EXPORT_SETTLE_TIMEOUT = 15000
 /** How long `page.pdf()` itself gets, in milliseconds. */
 const EXPORT_PDF_TIMEOUT = 30000
 
-/** The name every session cookie is issued under — see `index.ts`'s `fastifySession` registration. */
-const SESSION_COOKIE_NAME = 'wikiSession'
-
 export interface PdfExportRequest {
   /**
    * The hostname this instance's own live page view should be asked for under — see the comment on
@@ -33,8 +31,9 @@ export interface PdfExportRequest {
   /** The page's own path, e.g. `getting-started`. Empty string for the home page. */
   path: string
   /**
-   * The requester's `wikiSession` cookie value, forwarded so the headless browser sees exactly the
-   * page they may — `null`/absent for an anonymous requester exporting a public page.
+   * The requester's `SESSION_COOKIE_NAME` (`__Host-wikiSession`) cookie value, forwarded so the
+   * headless browser sees exactly the page they may — `null`/absent for an anonymous requester
+   * exporting a public page.
    */
   sessionCookie?: string | null
 }
@@ -152,14 +151,15 @@ class PdfExport {
    * exports may not be public, so the headless browser needs the requester's own session, not an
    * anonymous one. Two designs were on the table —
    *
-   *   1. Forward the requester's own `wikiSession` cookie value to `page.setCookie()`, scoped to this
-   *      instance's own loopback origin.
+   *   1. Forward the requester's own `SESSION_COOKIE_NAME` (`__Host-wikiSession`) cookie value to
+   *      `page.setCookie()`, scoped to this instance's own loopback origin.
    *   2. Mint a short-lived, one-time render token, consumed by a dedicated internal route that trades
    *      it for a session.
    *
    * (1) is what this does. The cookie value handed to the API route is already exactly what
-   * `@fastify/session` signs and reads back — `req.cookies.wikiSession` is the raw, still-signed
-   * string, since `@fastify/cookie` only parses cookies into name/value pairs and never unsigns one
+   * `@fastify/session` signs and reads back — `req.cookies[SESSION_COOKIE_NAME]` is the raw,
+   * still-signed string, since `@fastify/cookie` only parses cookies into name/value pairs and never
+   * unsigns one
    * unless asked — so forwarding it costs nothing to mint and nothing new to verify: the same
    * `onRequest` session hook this instance already runs on every request reads it back exactly as it
    * would from the original browser, permissions included. (2) would also work, but is strictly more
@@ -189,14 +189,22 @@ class PdfExport {
       const page = await browser.newPage()
 
       if (request.sessionCookie) {
-        // -> Scoped to this process's own loopback origin — see the AUTH comment above. Never marked
-        //    `secure`: the URL puppeteer connects to is plain `http://`, and a `Secure` cookie would
-        //    silently not be sent over it
+        // -> Scoped to this process's own loopback origin — see the AUTH comment above. Marked
+        //    `secure: true` even though puppeteer connects over plain `http://`: task 2109 made
+        //    `SESSION_COOKIE_NAME` a `__Host-`-prefixed name, and Chromium's cookie store enforces
+        //    that prefix's `Secure`-required rule at the store level (CDP's `Network.setCookie`
+        //    included) regardless of how the cookie is being set, not just when parsing a
+        //    `Set-Cookie` header — omitting it here would make the store reject the cookie outright,
+        //    silently exporting the page as if anonymous. Safe to send over plain `http://` for the
+        //    same reason `index.ts` can pin the browser-facing cookie `secure: true` unconditionally:
+        //    `127.0.0.1` is a loopback address, which every major browser (Chromium included) treats
+        //    as a potentially-trustworthy origin for `Secure` cookies regardless of scheme.
         await page.setCookie({
           name: SESSION_COOKIE_NAME,
           value: request.sessionCookie,
           url: `http://127.0.0.1:${request.port}`,
-          httpOnly: true
+          httpOnly: true,
+          secure: true
         })
       }
 

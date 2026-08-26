@@ -42,7 +42,7 @@ import {
 } from './helpers/common.ts'
 import { OPENAPI_SECURITY, OPENAPI_SECURITY_SCHEMES } from './helpers/openapi.ts'
 import { limitApiKey, limitApiRequests } from './helpers/rateLimit.ts'
-import { corsOptions, parseCspDirectives } from './helpers/security.ts'
+import { corsOptions, parseCspDirectives, SESSION_COOKIE_NAME } from './helpers/security.ts'
 
 // -> `Temporal` is not yet a real native global on any currently-shipping Node 26.x build (V8 has not
 //    landed it even behind `--harmony-temporal`, despite the flag existing) — every call site in this
@@ -446,11 +446,34 @@ async function initHTTPServer() {
   })
   app.register(fastifySession, {
     secret: WIKI.config.auth.secret,
-    cookieName: 'wikiSession',
+    // -> task 2109: `__Host-`-prefixed and pinned explicit, not `secure: 'auto'` -- see
+    //    `SESSION_COOKIE_NAME`'s doc comment for why `cookiePrefix` (what the task's own text
+    //    suggested) cannot get there, and the two notes below for what pinning these two costs.
+    cookieName: SESSION_COOKIE_NAME,
     cookie: {
       httpOnly: true,
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      secure: 'auto'
+      // -> The `__Host-` prefix requires `Secure` on *every* response that sets this cookie, with
+      //    no exceptions for a plaintext connection -- `secure: 'auto'` (the previous setting)
+      //    resolves to `false` on one, which a `__Host-`-named cookie without `Secure` is simply
+      //    dropped by the browser for, silently failing every login over that path. Unconditional
+      //    `true` fails a genuinely all-plaintext deployment closed (login never completes) instead
+      //    of open (a working but insecure cookie) -- the intended trade-off for this hardening
+      //    pass. Unaffected: `localhost`/`127.0.0.1` dev is treated as a secure context by every
+      //    major browser even over plain HTTP, so `npm run dev`/`npm start` keep working. A
+      //    reverse-proxy deployment that terminates TLS but hasn't turned on `trustProxy` also keeps
+      //    working -- the browser's own connection is what a `Secure` cookie is checked against, not
+      //    this instance's belief about it, so pinning `true` is strictly more correct there
+      //    regardless of `trustProxy`. See `models/security.ts#observeRequest`'s doc comment for
+      //    what a `trustProxy` gap still breaks even with the cookie itself now hardened.
+      secure: true,
+      // -> Explicit, not left to `@fastify/session`'s own `secure === 'auto'` branch
+      //    (`node_modules/@fastify/session/lib/cookie.js`), which forced `'lax'` only in the
+      //    non-HTTPS half of that branch -- so a correctly-deployed HTTPS instance used to emit no
+      //    `SameSite` at all while a plain-HTTP one got `Lax`, exactly backwards. `'lax'`, not
+      //    `'strict'`: a `strict` cookie is withheld on the top-level navigation back from an
+      //    OAuth/SAML provider's redirect, which would break every federated login's callback.
+      sameSite: 'lax'
     },
     saveUninitialized: false,
     store: {
