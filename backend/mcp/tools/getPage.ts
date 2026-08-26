@@ -2,7 +2,13 @@ import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { generatePathHash, normalizePagePath } from '../../helpers/common.ts'
-import { actorFor, McpToolError, type McpAuthContext, type McpAuthContextGetter } from '../auth.ts'
+import {
+  actorFor,
+  pageActorFor,
+  McpToolError,
+  type McpAuthContext,
+  type McpAuthContextGetter
+} from '../auth.ts'
 import { resolveRequestedSite } from '../site.ts'
 
 const getPageInputSchema = {
@@ -35,8 +41,11 @@ function toResult(payload: unknown): CallToolResult {
 /**
  * Read a single page by path, restricted to what the configured key may actually read. Mirrors
  * `GET /_api/sites/:siteId/pages/:pageIdOrHash` (`api/pages.ts`): `read:pages` gates the page at all,
- * `read:source` gates the raw source on top of that, and a password-protected page comes back with
- * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it.
+ * `read:source` gates the raw source on top of that, a password-protected page comes back with
+ * `isLocked: true` and no body unless the key holds `write:pages`/`manage:pages` on it, and
+ * `publicOnly` is derived from `pageActorFor(ctx)` exactly as the REST route derives it from
+ * `actorFrom(req)` — an admin-issued key (no `ctx.userId`) is treated as an anonymous reader on both
+ * transports, and sees only published pages.
  *
  * `includeSource` is honored best-effort: asked for without `read:source` on the page, the call still
  * succeeds and returns everything else, with `sourceOmitted: true` explaining why — refusing the whole
@@ -56,7 +65,9 @@ export async function handleGetPage(
     hash: generatePathHash(path || 'home'),
     locale: args.locale,
     withContent: Boolean(args.includeSource),
-    publicOnly: false,
+    // -> Mirrors `actorFrom(req)` on the REST route: no attributable user behind the key means an
+    //    anonymous reader, restricted to published pages, on both transports alike.
+    publicOnly: !pageActorFor(ctx),
     // -> Whoever may write or manage the page is not stopped by its own password
     unlocked: (unlockRef) =>
       WIKI.models.groups.checkAccess(actor, 'write:pages', { ...unlockRef, siteId: site.id }) ||
