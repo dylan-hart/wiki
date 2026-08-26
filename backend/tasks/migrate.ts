@@ -19,7 +19,7 @@
 
 import fs from 'node:fs/promises'
 import { bootstrapMigrationRuntime, buildSourceConnector } from '../migration/bootstrap.ts'
-import { parseMigrationArgs } from '../migration/cli.ts'
+import { parseMigrationArgs, refusalReason } from '../migration/cli.ts'
 import { MIGRATION_PHASES } from '../migration/phases/index.ts'
 import { runMigration } from '../migration/orchestrator.ts'
 import { createProvenanceStore } from '../migration/provenance.ts'
@@ -28,49 +28,42 @@ import { emptyPhaseReport } from '../migration/report.ts'
 import type { MigrationContext } from '../migration/context.ts'
 import type { ParsedMigrationArgs } from '../migration/cli.ts'
 
-function printBanner(args: ParsedMigrationArgs): void {
-  console.log('=======================================')
-  console.log('= Wiki.js 2.5.x -> 3.0 Migration CLI  =')
-  console.log('=======================================')
-  // Unconditional, not just under --dry-run: no phase has a real destination write path yet (see
-  // definePhase's write-capability reclassification in ../migration/phases/define-phase.ts), so
-  // this tool is report-only regardless of which flags were passed — see the refusal below for the
-  // enforcement half of that same fact.
-  console.log(
-    'Report-only: no migration phase has a destination write path implemented yet, so this run only reads the source and reports what it finds.'
-  )
-  if (args.dryRun) {
-    console.log('Dry run: no destination writes will be made.')
-  }
-  if (args.updateExisting) {
-    console.log('Update-existing: an already-imported row will be updated in place, not skipped.')
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseMigrationArgs(process.argv.slice(2))
 
-  printBanner(args)
-
-  // No phase can write to the destination yet (Features 414/416/418/420 own that) — refuse a
-  // non-dry-run invocation outright, before ever opening the destination database connection, rather
-  // than let an operator believe a live run happened. definePhase's write-capability reclassification
-  // means every phase always reports 'not_implemented' today regardless of what --dry-run's absence
-  // implies. See Feature 421 task 742's follow-up (docs/audit-2026-08-24/correctness-migration.md §2).
-  if (!args.dryRun) {
-    console.error(
-      'Refusing to run: no migration phase can write to the destination yet. Pass --dry-run to compute and report what would happen.'
-    )
+  // 2026-08-24 audit, correctness-migration.md §2 (WP #1797, part of epic #1788): no phase can write
+  // to the destination yet, so a non-`--dry-run` invocation is refused outright, before anything --
+  // including `bootstrapMigrationRuntime` -- touches the destination database. Checked here rather
+  // than folded into `parseMigrationArgs` so the refusal prints as a clean one-liner instead of the
+  // stack-trace-shaped output `main().catch()` below gives a genuine parse error.
+  const refusal = refusalReason(args)
+  if (refusal) {
+    console.error(refusal)
     process.exitCode = 1
     return
   }
 
   const WIKI = await bootstrapMigrationRuntime('migrate-cli')
 
+  WIKI.logger.info('=======================================')
+  WIKI.logger.info('= Wiki.js 2.5.x -> 3.0 Migration CLI  =')
+  WIKI.logger.info('=======================================')
+  // Unconditional, not gated on `args.dryRun`: the refusal above guarantees every run reaching this
+  // line already IS a dry run, and the banner should say so truthfully regardless -- it must never
+  // again read as "no news means writes are happening".
+  WIKI.logger.info(
+    'Report-only mode: no migration phase can write to the destination yet; nothing will be written.'
+  )
+  if (args.updateExisting) {
+    WIKI.logger.info(
+      'Update-existing: an already-imported row will be updated in place, not skipped.'
+    )
+  }
+
   // Unlike index.ts's server, this process has nothing else keeping the event loop alive once it's
   // done — an open pg Pool does, though, so without closing it here the CLI would exit its own logic
   // but never actually return control to whoever ran it (a real bug an operator would hit on every
-  // invocation).
+  // invocation, dry-run or not).
   try {
     await runAgainstDestination(WIKI, args)
   } finally {

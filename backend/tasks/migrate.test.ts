@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
+import { parseMigrationArgs, refusalReason } from '../migration/cli.ts'
 
 /**
  * Static wiring checks for the migration CLI entry point — see Feature 421 task 742's binding
@@ -12,11 +13,6 @@ import { describe, test } from 'node:test'
  * this suite deliberately does not stand up (per the run's own instructions, DB-layer logic is
  * exercised through `orchestrator.test.ts` / `phases/phases.test.ts` / `cli.test.ts` instead, with the
  * source connector stubbed).
- *
- * The refusal check below is the one exception: it is deliberately placed in `migrate.ts` *before*
- * `bootstrapMigrationRuntime()` ever opens a destination database connection (see the comment at that
- * call site), so it can be exercised by actually spawning the real CLI process — no `DATABASE_URL`,
- * no `config.yml`, no stubbing required, and it returns almost immediately either way.
  */
 
 const backendDir = path.resolve(fileURLToPath(import.meta.url), '..', '..')
@@ -24,29 +20,6 @@ const repoRoot = path.resolve(backendDir, '..')
 
 async function readBackendFile(relativePath: string): Promise<string> {
   return readFile(path.join(backendDir, relativePath), 'utf8')
-}
-
-/** Spawns the real `migrate.ts` entry point against a source that parses fine but is never actually
- * reached (a nonexistent bundle path) — exactly enough for `parseMigrationArgs` to succeed and control
- * to reach the refusal check, without needing a real 2.x source or a 3.0 destination database. */
-function runMigrateCli(extraArgs: string[]): {
-  status: number | null
-  stdout: string
-  stderr: string
-} {
-  const result = spawnSync(
-    process.execPath,
-    [
-      'backend/tasks/migrate.ts',
-      '--site-id',
-      'test-site',
-      '--bundle-path',
-      '/nonexistent-migrate-cli-test-bundle',
-      ...extraArgs
-    ],
-    { cwd: repoRoot, encoding: 'utf8', timeout: 15000 }
-  )
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
 describe('migration CLI entry point isolation', () => {
@@ -79,35 +52,60 @@ describe('migration CLI entry point isolation', () => {
   })
 })
 
-describe('migration CLI: refusing a non-dry-run invocation while no phase can write', () => {
-  test('a non-dry-run invocation exits non-zero and prints the refusal message, without running any phase', () => {
-    const { status, stdout, stderr } = runMigrateCli([])
-
-    assert.notEqual(status, 0)
-    assert.match(
-      stderr,
-      /Refusing to run: no migration phase can write to the destination yet\. Pass --dry-run/
-    )
-    // Nothing past the refusal ever printed — in particular, no "Running phase" progress line
-    // (`../migration/orchestrator.ts`'s `ctx.log`) and no migration summary/report table.
-    assert.doesNotMatch(stdout, /Running phase/)
-    assert.doesNotMatch(stdout, /Migration summary/)
+/**
+ * WP 1797 (2026-08-24 audit, correctness-migration.md §2, epic #1788): a non-`--dry-run` invocation
+ * must be refused, not silently no-op while reporting success. `refusalReason` (`../migration/cli.ts`)
+ * is the pure decision the refusal is built from; `main()` checks it before `bootstrapMigrationRuntime`
+ * opens any destination connection, so a refused invocation cannot reach a phase.
+ *
+ * The child-process case below exercises the real entry point end-to-end -- it deliberately never
+ * supplies `--dry-run`, so it exits through the refusal branch before ever touching a database,
+ * keeping it safe to run with no `DATABASE_URL` (same constraint the rest of this file's suite
+ * follows -- see the file header comment above).
+ */
+describe('a non---dry-run invocation is refused (no phase can write yet)', () => {
+  test('refusalReason returns a one-line message naming --dry-run for a non---dry-run invocation', () => {
+    const args = parseMigrationArgs(['--site-id', 'site-1', '--bundle-path', '/bundle'])
+    const message = refusalReason(args)
+    assert.equal(typeof message, 'string')
+    assert.doesNotMatch(message as string, /\n/)
+    assert.match(message as string, /--dry-run/)
   })
 
-  test('the startup banner is printed unconditionally, stating the importer is report-only, before the refusal', () => {
-    const { stdout } = runMigrateCli([])
-
-    assert.match(stdout, /Wiki\.js 2\.5\.x -> 3\.0 Migration CLI/)
-    assert.match(
-      stdout,
-      /Report-only: no migration phase has a destination write path implemented yet/
-    )
+  test('refusalReason returns undefined for a --dry-run invocation, letting it proceed', () => {
+    const args = parseMigrationArgs([
+      '--site-id',
+      'site-1',
+      '--bundle-path',
+      '/bundle',
+      '--dry-run'
+    ])
+    assert.equal(refusalReason(args), undefined)
   })
 
-  test('a --dry-run invocation is not refused: it passes the check and prints the dry-run notice instead', () => {
-    const { stdout, stderr } = runMigrateCli(['--dry-run'])
+  test('a real non---dry-run invocation exits non-zero and prints the refusal, without running any phase', () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        'backend/tasks/migrate.ts',
+        '--site-id',
+        'wp-1797-site',
+        '--bundle-path',
+        '/nonexistent/wp-1797-bundle'
+      ],
+      { cwd: repoRoot, encoding: 'utf8' }
+    )
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /no migration phase can write to the destination/i)
+    // The CLI banner is only printed once bootstrapMigrationRuntime() has connected to the
+    // destination and runAgainstDestination() is about to run phases -- its absence here is direct
+    // evidence the refusal happened first and no phase ran.
+    assert.doesNotMatch(result.stdout, /Migration CLI/)
+  })
 
-    assert.doesNotMatch(stderr, /Refusing to run/)
-    assert.match(stdout, /Dry run: no destination writes will be made\./)
+  test('the startup banner states report-only mode unconditionally, not gated on --dry-run', async () => {
+    const source = await readBackendFile('tasks/migrate.ts')
+    assert.doesNotMatch(source, /if \(args\.dryRun\)/)
+    assert.match(source, /Report-only mode: no migration phase can write to the destination/)
   })
 })
