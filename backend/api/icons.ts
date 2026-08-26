@@ -32,7 +32,10 @@ function mayUseIconPicker(req: FastifyRequest): boolean {
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES)
+  // -> `null`: none of these routes are site-scoped (no `:siteId` param), so there is no one site to
+  //    filter `rule.sites` against -- see `mayHoldPermissionSomewhere()`'s own doc comment for what
+  //    `null` means there.
+  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
 }
 
 /**

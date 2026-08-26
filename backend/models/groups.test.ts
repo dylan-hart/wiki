@@ -372,7 +372,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       true
     )
   })
@@ -382,7 +382,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'], null),
       false
     )
   })
@@ -391,7 +391,14 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([])
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  test('mayHoldPermissionSomewhere still answers true for manage:system when asked about a real site, with no matching rule at all (OpenProject #2162)', async () => {
+    await setGroupRules([])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'site-a'), true)
   })
 
   /**
@@ -420,7 +427,36 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
+  })
+
+  /**
+   * OpenProject #2162: `rule.sites` is a fail-closed match filter everywhere else
+   * (`helpers/pageRules.ts#ruleMatchesPage`) -- an actor whose only `write:pages` rule carries
+   * `sites: ['siteA']` must not read as "generally holds write:pages" for a question asked about
+   * siteB, the way it used to before this method took a `siteId` at all.
+   */
+  test('mayHoldPermissionSomewhere filters by rule.sites: a rule scoped to one site does not grant elsewhere (OpenProject #2162)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: ['site-a'] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'site-b'), false)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'site-a'), true)
+  })
+
+  test('mayHoldPermissionSomewhere: a rule with an empty sites array still grants everywhere (OpenProject #2162)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: [] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'site-a'), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'site-b'), true)
+  })
+
+  test('mayHoldPermissionSomewhere: siteId null skips the sites filter entirely, for a caller with no one site to ask about (OpenProject #2162)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: ['site-a'] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
   })
 
   /**
@@ -513,9 +549,9 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'] })])
 
     const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages'], null), false)
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages']),
+      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages'], null),
       true
     )
   })

@@ -496,7 +496,7 @@ describe(
 
       assert.equal(groupsModel.checkAccess(actor, 'read:pages', page), true)
       assert.equal(groupsModel.checkAccess(actor, 'write:pages', page), false)
-      assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), false)
+      assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), false)
     })
   }
 )

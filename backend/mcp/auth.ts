@@ -155,13 +155,18 @@ export function pageActorFor(ctx: McpAuthContext): PageActor | null {
 }
 
 /**
- * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE — the same question
+ * Whether this actor holds `write:pages`/`manage:pages` ANYWHERE on `siteId` — the same question
  * `api/pages.ts`'s search route asks before deciding whether unpublished pages and password-protected
  * excerpts belong in a result set. See `PAGE_PASSWORD_BYPASS_ROLES`'s doc comment there for why DENY
- * is ignored and why this is deliberately coarser than a per-page check.
+ * is ignored and why this is deliberately coarser than a per-page check, and
+ * `mayHoldPermissionSomewhere()`'s own doc comment for why `siteId` narrows which rules count.
  */
-export function maySeeEverything(actor: AccessActor): boolean {
-  return WIKI.models.groups.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages'])
+export function maySeeEverything(actor: AccessActor, siteId: string): boolean {
+  return WIKI.models.groups.mayHoldPermissionSomewhere(
+    actor,
+    ['write:pages', 'manage:pages'],
+    siteId
+  )
 }
 
 /**

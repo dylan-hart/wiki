@@ -178,12 +178,12 @@ test('actorFor: threads scope and allowedClassifications through, for checkAcces
 })
 
 test('maySeeEverything: true when the actor holds write:pages or manage:pages anywhere', () => {
-  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['write:pages'] }))), true)
-  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['read:pages'] }))), false)
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['write:pages'] })), 'site-1'), true)
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['read:pages'] })), 'site-1'), false)
 })
 
 test('maySeeEverything: manage:system counts too, via mayHoldPermissionSomewhere', () => {
-  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['manage:system'] }))), true)
+  assert.equal(maySeeEverything(actorFor(ctx({ permissions: ['manage:system'] })), 'site-1'), true)
 })
 
 test('assertSiteInScope: an unscoped key (siteId null) may reach any site', () => {
