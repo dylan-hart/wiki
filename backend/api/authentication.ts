@@ -211,7 +211,9 @@ async function routes(app: FastifyInstance) {
                       type: 'string'
                     },
                     registration: {
-                      type: 'boolean'
+                      type: 'boolean',
+                      description:
+                        'Whether this strategy currently accepts a self-registration POST. Omitted entirely for a strategy whose module is not form-based -- there is no self-registration form for it to gate.'
                     },
                     allowForgotPassword: {
                       type: 'boolean',
@@ -275,7 +277,14 @@ async function routes(app: FastifyInstance) {
             isVisible: siteStr.isVisible ?? false,
             activeStrategy: {
               displayName: str.displayName,
-              registration: str.registration,
+              /*
+                Omitted entirely -- not just published `false` -- for a non-form module: `registration`
+                gates self-registration, which only ever runs through the login panel's own form
+                (`AuthLoginPanel.vue`'s `formStrategies` already filters to `useForm !== false`), so
+                publishing it for a SAML/OIDC/redirect strategy would tell an unauthenticated caller
+                whether that strategy currently accepts a self-registration POST it never actually does.
+              */
+              ...(authModule?.useForm === true ? { registration: str.registration } : {}),
               /*
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.

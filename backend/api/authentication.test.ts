@@ -595,3 +595,107 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
     assert.equal(res.json().message, 'ERR_RESET_PASSWORD_FAILED')
   })
 })
+
+/**
+ * `registration` gates a self-registration POST, which only ever runs through the login panel's own
+ * form (`AuthLoginPanel.vue`'s `formStrategies` filters to `useForm !== false`) -- so the handler must
+ * omit the flag entirely for a strategy whose module is not form-based, rather than publish it `false`,
+ * since publishing anything at all would tell an unauthenticated caller whether that redirect strategy
+ * currently accepts a self-registration POST it never actually does.
+ */
+describe('GET /sites/:siteId/auth/strategies', () => {
+  const SITE_ID = '33333333-3333-3333-3333-333333333333'
+  const LOCAL_STRATEGY_ID = '11111111-1111-1111-1111-111111111111'
+  const SAML_STRATEGY_ID = '22222222-2222-2222-2222-222222222222'
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      models: {
+        sites: {
+          getSiteById: async ({ id }: { id: string }) =>
+            id === SITE_ID ? { id: SITE_ID, config: { authStrategies: [] } } : null
+        },
+        authentication: {
+          getActiveStrategies: async () => [
+            {
+              id: LOCAL_STRATEGY_ID,
+              module: 'local',
+              displayName: 'Local',
+              isEnabled: true,
+              registration: true,
+              config: {}
+            },
+            {
+              id: SAML_STRATEGY_ID,
+              module: 'saml',
+              displayName: 'Corporate SSO',
+              isEnabled: true,
+              registration: true,
+              config: {}
+            }
+          ]
+        }
+      },
+      data: {
+        authentication: [
+          {
+            key: 'local',
+            title: 'Local',
+            icon: '',
+            color: 'primary',
+            useForm: true,
+            usernameType: 'email'
+          },
+          {
+            key: 'saml',
+            title: 'SAML',
+            icon: '',
+            color: 'primary',
+            useForm: false,
+            usernameType: 'email'
+          }
+        ]
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('a form-based (local) strategy carries the self-registration flag', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/auth/strategies`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const local = res.json().find((s: any) => s.id === LOCAL_STRATEGY_ID)
+    assert.equal(local.activeStrategy.registration, true)
+  })
+
+  test('a redirect (SAML) strategy carries no self-registration flag at all', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/auth/strategies`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const saml = res.json().find((s: any) => s.id === SAML_STRATEGY_ID)
+    assert.equal('registration' in saml.activeStrategy, false)
+  })
+})
