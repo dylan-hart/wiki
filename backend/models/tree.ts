@@ -1119,6 +1119,66 @@ class Tree {
   }
 
   /**
+   * Every page and asset at or below a folder, without deleting or renaming anything.
+   *
+   * What `api/tree.ts`'s DELETE FOLDER route asks before it mutates anything: each descendant page's
+   * real `tags` and `classification`, and each descendant asset's location, so the caller can weigh
+   * them against `delete:pages` / `manage:assets` instead of authorizing only the folder's own path
+   * (OpenProject #2100, `docs/audit-2026-08-24/security/02-authorization.md` §1). Scoped the same way
+   * `deleteFolder` scopes what it deletes -- by `siteId` and the folder's own `locale`, so this lists
+   * exactly what a delete of this folder would remove.
+   */
+  async listDescendants(folderId: string): Promise<{
+    pages: { path: string; locale: string; tags: string[]; classification: string | null }[]
+    assets: { folderPath: string; fileName: string; locale: string }[]
+  }> {
+    const folder = await this.getFolderById(folderId)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await WIKI.db
+      .select({
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale,
+        tags: treeTable.tags,
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
+        //    this null, the same "no classification" treatment `getTree()` (OpenProject #1128) gives.
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    const pages: { path: string; locale: string; tags: string[]; classification: string | null }[] =
+      []
+    const assets: { folderPath: string; fileName: string; locale: string }[] = []
+    for (const row of rows) {
+      const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      if (row.type === 'page') {
+        pages.push({
+          path: folderPath ? `${folderPath}/${row.fileName}` : row.fileName,
+          locale: row.locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      } else if (row.type === 'asset') {
+        assets.push({ folderPath, fileName: row.fileName, locale: row.locale })
+      }
+    }
+    return { pages, assets }
+  }
+
+  /**
    * Delete a folder and everything under it.
    *
    * @returns The deleted pages and assets, for the caller to clean up after. Where each one sat comes
