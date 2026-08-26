@@ -258,6 +258,10 @@ describe(
       ;({ approvals: approvalsModel } = await import('./approvals.ts'))
       ;({ groups: groupsModel } = await import('./groups.ts'))
       authorActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+      // -> `groupsModel.updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
+      //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty (see
+      //    `groups.broadcastReload (DB-backed)` in `models/groups.test.ts` for the same fix).
+      WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
 
       // -> `createGroup`'s own default rule grants only read:pages/read:assets/read:comments -- no
       //    write:pages -- which is exactly the "reviewer matches the rule but holds no write:pages"
@@ -367,11 +371,15 @@ describe(
       })
       assert.equal(untouched!.content, 'Original content')
 
-      const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
-        groupIds: [],
-        reviewsAll: true,
-        pageId: page.id
-      })
+      const stillPending = await approvalsModel.getReviewableSubmissions(
+        fixtures.siteId,
+        authorActor,
+        {
+          groupIds: [],
+          reviewsAll: true,
+          pageId: page.id
+        }
+      )
       assert.ok(stillPending.some((s) => s.id === submission.id))
     })
 
