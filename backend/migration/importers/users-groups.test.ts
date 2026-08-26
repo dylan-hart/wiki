@@ -456,6 +456,26 @@ describe('createGroupConverter', () => {
     }
   })
 
+  test('converts an integer-valued deny (the export-bundle representation) to the same mode as a real boolean (Task 1850)', async () => {
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: false,
+      permissions: [],
+      pageRules: [
+        { id: '1', deny: 1, match: 'START', path: 'private', roles: [], locales: [] },
+        { id: '2', deny: 0, match: 'EXACT', path: '', roles: [], locales: [] }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 2) // -> neither rule was dropped as malformed
+    assert.equal(rules[0].mode, 'DENY')
+    assert.equal(rules[1].mode, 'ALLOW')
+  })
+
   test('drops a malformed page rule (missing deny, or an unsupported match value) instead of failing the group', async () => {
     const outcome = await convert({
       id: 1,
@@ -606,6 +626,32 @@ describe('system-row exclusion (Task 731)', () => {
         groups: iter([
           { id: 1, name: 'Administrators', isSystem: true },
           { id: 3, name: 'Editors', isSystem: false }
+        ]),
+        users: iter([]),
+        userGroups: iter([])
+      },
+      writer: createDryRunWriter(),
+      convertGroup
+    })
+
+    assert.equal(result.groups.skipped, 1)
+    assert.equal(result.groups.created, 1)
+    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.match(result.groups.records[0].message ?? '', /system group/)
+  })
+
+  test('a source group flagged isSystem: 1 (the export-bundle integer representation) is skipped the same as isSystem: true (Task 1850)', async () => {
+    let convertCalls = 0
+    const convertGroup = (source: { name?: unknown }) => {
+      convertCalls++
+      return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
+    }
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([
+          { id: 1, name: 'Administrators', isSystem: 1 },
+          { id: 3, name: 'Editors', isSystem: 0 }
         ]),
         users: iter([]),
         userGroups: iter([])

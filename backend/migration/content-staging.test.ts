@@ -403,4 +403,69 @@ describe('extractContentStaging', () => {
     assert.deepEqual(result.navigation, [])
     assert.equal(result.pageIdMap.size, 0)
   })
+
+  test('stages integer-valued isPrivate/isPublished flags (the export-bundle representation) the same as real booleans (Task 1850)', async () => {
+    // The export bundle is the only supported source for MySQL/MariaDB/SQLite
+    // (docs/migration/decision-source-scope.md), where 2.x's knex/Objection layer represents these
+    // columns as integer 0/1 rather than the Postgres connector's real JS boolean.
+    const bundlePage: SourceRecord = {
+      id: 5,
+      path: 'bundle-sourced',
+      localeCode: 'en',
+      title: 'Bundle Sourced',
+      hash: 'hash-5',
+      description: null,
+      content: 'body',
+      render: '<p>body</p>',
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: 1,
+      privateNS: null,
+      isPublished: 0,
+      publishStartDate: null,
+      publishEndDate: null,
+      createdAt: '2019-12-01T00:00:00.000Z',
+      updatedAt: '2019-12-01T00:00:00.000Z',
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }
+    const bundleHistory: SourceRecord = {
+      id: 500,
+      pageId: 5,
+      action: 'created',
+      path: 'bundle-sourced',
+      localeCode: 'en',
+      title: 'Bundle Sourced',
+      description: null,
+      content: 'body',
+      contentType: 'markdown',
+      isPrivate: 1,
+      isPublished: 0,
+      publishStartDate: null,
+      publishEndDate: null,
+      editorKey: 'markdown',
+      versionDate: '2019-12-01T00:00:00.000Z',
+      createdAt: '2019-12-01T00:00:00.000Z',
+      extra: {},
+      authorId: 10,
+      tags: []
+    }
+
+    const connector = new FixtureSourceConnector([bundlePage], [bundleHistory], [])
+    const result = await extractContentStaging(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    const page = result.pages.find((p) => p.oldId === 5)!
+    assert.equal(page.isPrivate, true)
+    assert.equal(page.isPublished, false)
+
+    const history = page.history[0]
+    assert.equal(history.isPrivate, true)
+    assert.equal(history.isPublished, false)
+  })
 })

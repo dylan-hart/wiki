@@ -1,4 +1,4 @@
-import type { SourceConnector, SourceRecord } from './connector.ts'
+import { coerceSourceBoolean, type SourceConnector, type SourceRecord } from './connector.ts'
 import { IdMap, resolveActorId, type UserIdMap } from './id-map.ts'
 
 /**
@@ -155,8 +155,12 @@ function asString(value: unknown, fallback = ''): string {
   return value === null || value === undefined ? fallback : String(value)
 }
 
+/** Widened past a strict `=== true` (Task 1850) — see `coerceSourceBoolean`'s doc comment for why a
+ * bundle-sourced 0/1 has to coerce the same as the Postgres connector's real boolean. A value this
+ * doesn't recognize (missing column, malformed row) falls back to `false` rather than throwing,
+ * matching this function's pre-1850 total behavior. */
 function asBoolean(value: unknown): boolean {
-  return value === true
+  return coerceSourceBoolean(value) ?? false
 }
 
 function asNullableNumber(value: unknown): number | null {

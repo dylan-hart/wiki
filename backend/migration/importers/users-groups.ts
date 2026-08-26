@@ -10,7 +10,7 @@ import {
   users as usersTable
 } from '../../db/schema.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
-import type { SourceRecord } from '../connector.ts'
+import { coerceSourceBoolean, type SourceRecord } from '../connector.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -322,10 +322,11 @@ const GLOBAL_PERMISSIONS = new Set([
  * (or anything else) is treated as malformed rather than guessed at. */
 const VALID_2X_RULE_MATCH = new Set(['START', 'END', 'REGEX', 'TAG', 'EXACT'])
 
-/** Reads a boolean column off a source record. */
+/** Reads a boolean column off a source record. Delegates to `coerceSourceBoolean` (Task 1850) so a
+ * bundle-sourced integer 0/1 (or 't'/'f'/'true'/'false' string) is recognized the same as the
+ * Postgres connector's real boolean, rather than only ever matching a strict JS `boolean`. */
 function readSourceBoolean(source: SourceRecord, column: string): boolean | undefined {
-  const raw = source[column]
-  return typeof raw === 'boolean' ? raw : undefined
+  return coerceSourceBoolean(source[column])
 }
 
 /** Narrows an arbitrary value to a string array, dropping any non-string element rather than

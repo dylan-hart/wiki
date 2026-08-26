@@ -36,6 +36,26 @@ export interface SourceDescription {
 export type SourceRecord = Record<string, unknown>
 
 /**
+ * Normalizes a 2.x source column's boolean representation across every connector kind this
+ * migration supports (Task 1850).
+ *
+ * The Postgres connector decodes a `boolean` column straight to a real JS `boolean`, but
+ * `docs/migration/decision-source-scope.md` makes the export bundle the *only* supported path for
+ * MySQL, MariaDB and SQLite — engines where 2.x's knex/Objection layer represents these columns as
+ * integer `0`/`1`, landing in the bundle's JSON as JSON numbers (occasionally strings, depending on
+ * how a given exporter serialized them). MSSQL is unaffected (tedious decodes `BIT` to a real
+ * boolean). Recognizes `true`/`false`, `1`/`0`, `'1'`/`'0'`, `'t'`/`'f'` and `'true'`/`'false'`;
+ * anything else — including `null`, `undefined`, or a value that merely looks falsy — is
+ * `undefined`, so a caller can tell "not a recognizable boolean at all" from a real `false`.
+ */
+export function coerceSourceBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (value === 1 || value === '1' || value === 't' || value === 'true') return true
+  if (value === 0 || value === '0' || value === 'f' || value === 'false') return false
+  return undefined
+}
+
+/**
  * One file entry under an `assets` export — the connector hands back a stream, never the full bytes,
  * so an importer never has to buffer a whole asset (potentially large) in memory.
  */
