@@ -41,6 +41,14 @@ import { coerceSourceBoolean } from './source-coercion.ts'
  * `pages()` yields by `id`. A row whose `pageId` sorts out of step with that (only possible on a
  * connector that does not uphold the documented ordering) is warned about and dropped rather than
  * mis-attached to the wrong page.
+ *
+ * WP #1798 independently targeted this same "don't buffer the whole corpus" goal from an older base,
+ * before the `buildContentStagingIndex()`/`ContentStagingIndex` split above had landed — its
+ * alternative shape (a single `extractContentStaging()` returning a `ContentStagingResult` wrapper,
+ * with the pre-pass folded inside) was superseded by the design here rather than merged in, since
+ * `page-import.ts` (Task 738) already depends on the two-call `buildContentStagingIndex()` +
+ * `extractContentStaging(connector, options, index, context)` shape to share the pre-pass with
+ * `assignTreePaths()`'s own batch input.
  */
 
 /** A 2.x tag string, resolved (from `pageTags`/`pageHistoryTags` via `tags.tag`) rather than left as
