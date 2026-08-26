@@ -1544,6 +1544,7 @@ async function routes(app: FastifyInstance) {
         'registration',
         'allowedEmailRegex',
         'autoEnrollGroups',
+        'trustEmailForLinking',
         'config'
       ] as const) {
         if (req.body[field] !== undefined) {

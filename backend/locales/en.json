@@ -263,6 +263,8 @@
   "admin.auth.strategyStateLocked": "and cannot be disabled.",
   "admin.auth.subtitle": "Configure the authentication settings of your wiki",
   "admin.auth.title": "Authentication",
+  "admin.auth.trustEmailForLinking": "Trust Email For Account Linking",
+  "admin.auth.trustEmailForLinkingHint": "Off by default. When on, a login from this strategy for an address matching an existing, still-unlinked account is bound to it automatically instead of being refused. Only turn this on for a provider whose email addresses are verified.",
   "admin.auth.unsaved": "Not saved",
   "admin.auth.vendor": "Vendor",
   "admin.auth.vendorWebsite": "Website",

@@ -14,9 +14,9 @@ props:
   tenantId:
     type: String
     title: Tenant ID
-    hint: A directory (tenant) ID or verified domain from the app registration's Overview page. Leave as "common" for a multi-tenant app that accepts any Microsoft account.
+    hint: Required. A directory (tenant) ID or verified domain from the app registration's Overview page. There is no multi-tenant ("common") option -- Microsoft's own OIDC library resolves the login's own tenant from the token itself rather than validating it against this value, so leaving it open would accept a token from any Microsoft tenant, not just this one.
     icon: building
-    default: common
+    required: true
     order: 1
   clientId:
     type: String

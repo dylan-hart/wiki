@@ -210,6 +210,19 @@
                 :aria-label="t(`admin.auth.registration`)" />
             </w-item-section>
           </w-item>
+          <w-separator class="my-2" inset />
+          <w-item tag="label">
+            <blueprint-icon icon="link" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.auth.trustEmailForLinking`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.auth.trustEmailForLinkingHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.strategy.trustEmailForLinking"
+                :aria-label="t(`admin.auth.trustEmailForLinking`)" />
+            </w-item-section>
+          </w-item>
           <template v-if="state.strategy.registration">
             <w-separator class="my-2" inset />
             <w-item>
@@ -653,6 +666,7 @@ function payloadFor(str) {
     registration: str.registration,
     allowedEmailRegex: str.allowedEmailRegex ?? '',
     autoEnrollGroups: str.autoEnrollGroups ?? [],
+    trustEmailForLinking: str.trustEmailForLinking ?? false,
     config
   }
 }
@@ -729,6 +743,7 @@ function addStrategy(mod) {
     registration: false,
     allowedEmailRegex: '',
     autoEnrollGroups: [],
+    trustEmailForLinking: false,
     strategy: mod,
     config: buildConfigEditor(mod.props, {})
   }

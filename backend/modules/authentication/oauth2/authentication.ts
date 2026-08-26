@@ -145,7 +145,14 @@ export default class OAuth2Authentication {
     return (await infoResp.json()) as Record<string, any>
   }
 
-  /** Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names. */
+  /**
+   * Map raw userinfo JSON onto a `ProviderProfile` using the configured claim names.
+   *
+   * Unlike an OIDC provider there is no standard claim to read here -- `emailVerifiedClaim` names
+   * whichever field of the userinfo response answers the question, left unset by default because most
+   * plain OAuth2 providers have no such concept at all (see the class doc comment). Only a claim that is
+   * explicitly `false` refuses the login: an unconfigured or absent claim is not assumed unverified.
+   */
   protected mapProfile(info: Record<string, any>): ProviderProfile {
     const id = info[this.conf.userIdClaim || 'id']
     if (id === undefined || id === null || id === '') {
@@ -155,6 +162,13 @@ export default class OAuth2Authentication {
     const email = info[this.conf.emailClaim || 'email']
     if (!email || typeof email !== 'string') {
       throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+    }
+
+    if (this.conf.emailVerifiedClaim) {
+      const emailVerified = info[this.conf.emailVerifiedClaim]
+      if (emailVerified === false && this.conf.allowUnverifiedEmail !== true) {
+        throw new Error('ERR_EMAIL_NOT_VERIFIED')
+      }
     }
 
     return {

@@ -33,10 +33,52 @@ describe('MicrosoftAuthentication', () => {
     )
   })
 
-  test('defaults tenantId to "common" (multi-tenant) when left blank', () => {
+  /**
+   * No `common` fallback: `openid-client` special-cases `login.microsoftonline.com`, deriving the
+   * issuer it actually validates an ID token against from that token's own `tid` claim rather than
+   * the tenant this preset names -- so a `common` default would make issuer validation pass for a
+   * token from *any* Microsoft tenant. An empty issuer here is what makes a missing `tenantId` fail
+   * configuration build the same way a missing `issuer` already does in the generic module.
+   */
+  test('builds an empty issuer -- not "common" -- when tenantId is left blank', () => {
     const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
     const inner = (ms as unknown as { inner: OidcAuthentication }).inner
-    assert.equal(inner.conf.issuer, 'https://login.microsoftonline.com/common/v2.0')
+    assert.equal(inner.conf.issuer, '')
+  })
+
+  test('configuration build fails with no tenantId, the way a missing issuer already fails in the generic module', async () => {
+    const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+    const flow = {
+      redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
+      state: 's',
+      nonce: 'n',
+      codeVerifier: 'v'
+    }
+    await assert.rejects(ms.authorizationUrl(flow), /ERR_STRATEGY_MISCONFIGURED/)
+  })
+
+  test('configuration build succeeds once tenantId is set (same setup as "templates the issuer..." above)', async () => {
+    const ms = new MicrosoftAuthentication('strategy-1', {
+      tenantId: 'contoso.onmicrosoft.com',
+      clientId: 'abc',
+      clientSecret: 'xyz',
+      useDiscovery: false,
+      authorizationURL:
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize',
+      tokenURL: 'https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/token',
+      jwksURL: 'https://login.microsoftonline.com/contoso.onmicrosoft.com/discovery/v2.0/keys'
+    })
+    const flow = {
+      redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
+      state: 's',
+      nonce: 'n',
+      codeVerifier: 'v'
+    }
+    const url = new URL(await ms.authorizationUrl(flow))
+    assert.equal(
+      url.origin + url.pathname,
+      'https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize'
+    )
   })
 
   test('authorizationUrl/profile forward to the internal OidcAuthentication', async () => {
@@ -101,9 +143,10 @@ describe('microsoft/definition.yml', () => {
     assert.equal(def.usernameType, 'email')
   })
 
-  test('declares a tenantId prop defaulting to common, and no issuer prop', () => {
+  test('declares a required tenantId prop with no "common" default, and no issuer prop', () => {
     assert.ok(def.props.tenantId, 'expected a tenantId prop')
-    assert.equal(def.props.tenantId.default, 'common')
+    assert.equal(def.props.tenantId.required, true)
+    assert.notEqual(def.props.tenantId.default, 'common')
     assert.equal(def.props.issuer, undefined, 'issuer is templated, not admin-supplied')
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
