@@ -400,6 +400,13 @@ real-world case — Okta/Auth0-style providers that sign only the assertion — 
 `buildSaml()` hardcodes it `false` and exposes only `wantAssertionsSigned` (default `true`) as a
 config field, matching 2.5.x's own field set, which never exposed this knob either.
 
+With that pinned, and `node-saml` never validating a `SubjectConfirmationData`'s `Recipient` against
+`callbackUrl` under any setting, `audience` and `InResponseTo` are the only two things binding a given
+assertion to this SP and this specific login — see `buildSaml()`'s own header comment (Feature 2145)
+for how both are now enforced by default: `audience` falls back to the strategy's `issuer` rather than
+disabling the check, and `validateInResponseTo` is pinned `always` against an AuthnRequest id carried
+on the session, via `singleRequestCacheProvider`.
+
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
 
 **Area:** `backend/modules/authentication/{ldap,saml}/definition.yml`,

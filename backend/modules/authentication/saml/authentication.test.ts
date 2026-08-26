@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { inflateRawSync } from 'node:zlib'
 import { after, before, test } from 'node:test'
 import SamlAuthentication from './authentication.ts'
 // -> A deep import into `@node-saml/node-saml`'s own compiled output, not the package's public entry
@@ -56,6 +57,14 @@ const AUDIENCE = 'urn:wiki:test'
 const ASSERTION_XPATH =
   '//*[local-name(.)="Assertion" and namespace-uri(.)="urn:oasis:names:tc:SAML:2.0:assertion"]'
 
+/**
+ * Stands in for the id `api/authentication.ts`'s `/auth/:strategyId/authorize` route would have
+ * generated and carried on `req.session.authFlow` — every fixture below is signed as if it were
+ * answering an AuthnRequest with this `InResponseTo`, and every `profile()` call hands the matching
+ * `authnRequestId` back, the same round trip the real callback route performs.
+ */
+const REQUEST_ID = '_test-authn-request-1'
+
 function iso(d: Date): string {
   return d.toISOString().replace(/\.\d+Z$/, 'Z')
 }
@@ -67,7 +76,8 @@ function buildResponseXml({
   issueInstant,
   audience = AUDIENCE,
   nameId = 'alice@example.com',
-  groups = ['editors', 'admins']
+  groups = ['editors', 'admins'],
+  inResponseTo = REQUEST_ID
 }: {
   notBefore: string
   notOnOrAfter: string
@@ -75,10 +85,13 @@ function buildResponseXml({
   audience?: string
   nameId?: string
   groups?: string[]
+  /** Omit entirely (`null`) to build a response with no `InResponseTo` attribute at all. */
+  inResponseTo?: string | null
 }): string {
   const groupValues = groups.map((g) => `<saml:AttributeValue>${g}</saml:AttributeValue>`).join('')
+  const inResponseToAttr = inResponseTo ? ` InResponseTo="${inResponseTo}"` : ''
   return `<?xml version="1.0"?>
-<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="${issueInstant}" Destination="https://wiki.example.com/_api/auth/strategy1/callback">
+<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="${issueInstant}" Destination="https://wiki.example.com/_api/auth/strategy1/callback"${inResponseToAttr}>
 <saml:Issuer>https://idp.example.com/saml</saml:Issuer>
 <samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>
 <saml:Assertion Version="2.0" ID="_assertion1" IssueInstant="${issueInstant}">
@@ -234,6 +247,7 @@ test('profile: refuses to validate a response against a strategy with entryPoint
       state: 's',
       nonce: '',
       codeVerifier: '',
+      authnRequestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
     }),
@@ -248,6 +262,7 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
     state: 's',
     nonce: '',
     codeVerifier: '',
+    authnRequestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -264,6 +279,7 @@ test('profile: mapGroups off leaves groups undefined rather than empty', async (
     state: 's',
     nonce: '',
     codeVerifier: '',
+    authnRequestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -290,6 +306,7 @@ test('profile: rejects a tampered assertion (signature no longer verifies)', asy
       state: 's',
       nonce: '',
       codeVerifier: '',
+      authnRequestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: tamperedBody, RelayState: 's' }
     })
@@ -311,10 +328,15 @@ test('profile: rejects an assertion whose validity window has passed outside acc
       state: 's',
       nonce: '',
       codeVerifier: '',
+      authnRequestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: body, RelayState: 's' }
     }),
-    /expired/
+    // -> With `validateInResponseTo` on, `node-saml` re-checks the `SubjectConfirmationData` window
+    //    before it ever reaches the plain `Conditions` check this used to fail on, and rejects with a
+    //    different message for the same underlying reason (an assertion outside its validity window)
+    //    -- either wording is the same expiry being refused.
+    /expired|subject confirmation/i
   )
 })
 
@@ -336,6 +358,7 @@ test('profile: an assertion just inside acceptedClockSkewMs is accepted', async 
     state: 's',
     nonce: '',
     codeVerifier: '',
+    authnRequestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: body, RelayState: 's' }
   })
@@ -357,6 +380,7 @@ test('profile: rejects an assertion whose audience does not match', async () => 
       state: 's',
       nonce: '',
       codeVerifier: '',
+      authnRequestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: body, RelayState: 's' }
     }),
@@ -396,6 +420,7 @@ test('profile: cert config with a pipe-joined pair of certificates still validat
     state: 's',
     nonce: '',
     codeVerifier: '',
+    authnRequestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -413,5 +438,101 @@ test('profile: rejects a callback with no SAMLResponse at all (the GET login cal
       currentUrl: REDIRECT_URI
     }),
     { message: 'ERR_NO_SAML_RESPONSE' }
+  )
+})
+
+/*
+  Feature 2145: default audience, `validateInResponseTo`, and the outbound AuthnRequest id.
+*/
+
+test('authorizationUrl: pins the outbound AuthnRequest ID to the id it was handed, rather than letting node-saml invent one', async () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    authnRequestBinding: 'HTTP-Redirect'
+  })
+  const result = await auth.authorizationUrl({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID
+  })
+  const url = new URL(result as string)
+  const deflated = Buffer.from(url.searchParams.get('SAMLRequest')!, 'base64')
+  const xml = inflateRawSync(deflated).toString('utf8')
+  assert.match(xml, new RegExp(`<samlp:AuthnRequest[^>]*\\bID="${REQUEST_ID}"`))
+})
+
+test('profile: rejects a response with no InResponseTo at all', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const body = validResponseBase64({ inResponseTo: null })
+
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      authnRequestId: REQUEST_ID,
+      currentUrl: REDIRECT_URI,
+      body: { SAMLResponse: body, RelayState: 's' }
+    }),
+    /InResponseTo/
+  )
+})
+
+test('profile: rejects a response whose InResponseTo does not match this login flow’s own AuthnRequest id (replayed against a different login)', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  // -> Signed for a login whose AuthnRequest id was REQUEST_ID (the default), but this flow's own
+  //    session recorded a different one -- exactly what a captured SAMLResponse replayed against a
+  //    freshly-started login looks like.
+  const body = validResponseBase64()
+
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      authnRequestId: '_some-other-login-entirely',
+      currentUrl: REDIRECT_URI,
+      body: { SAMLResponse: body, RelayState: 's' }
+    }),
+    /InResponseTo/
+  )
+})
+
+test('profile: with no configured audience, the assertion is still checked -- against the strategy issuer', async () => {
+  // -> `audience` blanked out: `buildSaml()` must fall back to `issuer`, not skip the check the way
+  //    passing `false` used to.
+  const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, audience: '' })
+  // -> Signed for `AUDIENCE`, which is also BASE_CONF's `issuer` -- the fallback this asserts
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    authnRequestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
+  })
+  assert.equal(profile.email, 'alice@example.com')
+})
+
+test('profile: with no configured audience, an assertion for a different audience is rejected (previously accepted, since audience checking was fully disabled)', async () => {
+  const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, audience: '' })
+  const body = validResponseBase64({ audience: 'urn:someone-else:not-this-wiki' })
+
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      authnRequestId: REQUEST_ID,
+      currentUrl: REDIRECT_URI,
+      body: { SAMLResponse: body, RelayState: 's' }
+    }),
+    /[Aa]udience/
   )
 })

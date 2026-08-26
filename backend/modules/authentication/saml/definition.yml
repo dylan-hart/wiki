@@ -28,7 +28,7 @@ props:
   audience:
     type: String
     title: Audience
-    hint: (optional) The audience value expected inside the assertion's `AudienceRestriction`. Left empty, audience is not checked at all — leave it empty only if the identity provider does not set one.
+    hint: (optional) The audience value expected inside the assertion's `AudienceRestriction`. Left empty, defaults to the Issuer / Entity ID above — the correct value for almost every identity provider, and it is always checked against something.
     icon: flag-filled
     default: ''
     order: 3

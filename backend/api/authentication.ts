@@ -132,6 +132,7 @@ async function finishProviderLogin(
       state: flow.state,
       nonce: flow.nonce,
       codeVerifier: flow.codeVerifier,
+      authnRequestId: flow.authnRequestId,
       currentUrl: extra.currentUrl,
       code: extra.code,
       ticket: extra.ticket,
@@ -1031,6 +1032,15 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
+        /*
+          SAML only: an XML NCName-safe id (must not start with a digit, which `nanoid`'s own
+          alphabet does not guarantee) for the outbound AuthnRequest — ignored by every other
+          module's `authorizationUrl()`, the same way SAML ignores `nonce`/`codeVerifier`. Generated
+          here, ahead of the request being built, so it can be written onto the session first and
+          read back by `finishProviderLogin()` below once the identity provider answers — see
+          `AuthFlow.authnRequestId` in `models/authentication.ts`.
+        */
+        authnRequestId: `_${nanoid(40)}`,
         // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
         redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
@@ -1042,7 +1052,8 @@ async function routes(app: FastifyInstance) {
           redirectUri: callbackUrl(req, strategy.id),
           state: flow.state,
           nonce: flow.nonce,
-          codeVerifier: flow.codeVerifier
+          codeVerifier: flow.codeVerifier,
+          authnRequestId: flow.authnRequestId
         })
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
