@@ -226,7 +226,11 @@ export const authentication = pgTable('authentication', {
   isEnabled: boolean().notNull().default(false),
   displayName: varchar({ length: 255 }).notNull().default(''),
   config: jsonb().notNull().default({}),
-  registration: boolean().notNull().default(false),
+  // -> Split from a single `registration` column: a form-based module's own self-registration form
+  //    and a redirect-based provider's auto-provisioning of new accounts are gated separately, since
+  //    an administrator may want one without the other (WP #2130).
+  selfRegistration: boolean().notNull().default(false),
+  autoProvision: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
   autoEnrollGroups: uuid().array().default([])
 })

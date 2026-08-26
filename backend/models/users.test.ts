@@ -184,31 +184,50 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let previousTemporal: any
 
   const MODULE_KEY = 'local-test'
+  // -> A stand-in for a redirect-based module (SAML/OIDC/LDAP-delegation-style): `useForm: false`,
+  //    same as every non-local, non-LDAP module's `definition.yml`. Used to prove `register()` refuses
+  //    it outright regardless of its `selfRegistration` flag.
+  const NON_FORM_MODULE_KEY = 'redirect-test'
 
   function req(): any {
     return { session: {} }
   }
 
   async function createStrategy({
-    registration = true,
+    module = MODULE_KEY,
+    selfRegistration = true,
+    autoProvision = false,
     allowedEmailRegex = '',
     autoEnrollGroups = [] as string[],
     emailValidation = true,
-    isEnabled = true
+    isEnabled = true,
+    attachToSite = true
   } = {}): Promise<string> {
     const [row] = await fixtures.db
       .insert(authenticationTable)
       .values({
-        module: MODULE_KEY,
+        module,
         isEnabled,
         displayName: 'Test Local',
-        registration,
+        selfRegistration,
+        autoProvision,
         allowedEmailRegex,
         autoEnrollGroups,
         config: { emailValidation }
       })
       .returning({ id: authenticationTable.id })
-    return row!.id
+    const strategyId = row!.id
+    // -> `register()` now also checks the strategy is attached to the site the request came in on
+    //    (`site.config.authStrategies`) -- `getSiteById()` reads the in-memory `WIKI.sites` cache, not
+    //    the database, so the fixture site installed by `setupTestDb()` is what needs updating here.
+    if (attachToSite) {
+      const site = (WIKI.sites as any)[fixtures.siteId]
+      site.config.authStrategies = [
+        ...(site.config.authStrategies ?? []),
+        { id: strategyId, order: 0, isVisible: true }
+      ]
+    }
+    return strategyId
   }
 
   /**
@@ -240,6 +259,15 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         props: {
           emailValidation: { type: 'Boolean', title: 'Email Validation', default: true }
         }
+      },
+      {
+        key: NON_FORM_MODULE_KEY,
+        title: 'Test Redirect',
+        description: '',
+        isAvailable: true,
+        useForm: false,
+        usernameType: 'email',
+        props: {}
       }
     ] as any
     // -> `getActiveStrategies()` reads this unconditionally (to sort the built-in local strategy
@@ -275,7 +303,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('refuses when the strategy does not accept new users', async () => {
-    const strategyId = await createStrategy({ registration: false })
+    const strategyId = await createStrategy({ selfRegistration: false })
 
     await assert.rejects(
       users.register(
@@ -287,6 +315,78 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
           password: 'longenough1'
         },
         req()
+      ),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+
+  test('refuses a strategy whose module is not form-based, even with selfRegistration set', async () => {
+    const strategyId = await createStrategy({ module: NON_FORM_MODULE_KEY, selfRegistration: true })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.redirect@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('refuses a strategy not attached to the target site', async () => {
+    const strategyId = await createStrategy({ attachToSite: false })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.unattached@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('autoProvision alone does not permit self-registration', async () => {
+    const strategyId = await createStrategy({ selfRegistration: false, autoProvision: true })
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.autoprovision-only@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+
+  test('selfRegistration alone does not permit provider auto-provisioning', async () => {
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(
+        {
+          id: 'strategy-self-registration-only',
+          module: MODULE_KEY,
+          selfRegistration: true,
+          autoProvision: false,
+          allowedEmailRegex: '',
+          autoEnrollGroups: [],
+          config: {}
+        },
+        { id: 'ext-1', email: 'selfreg.only@example.com', name: 'Self Reg Only' }
       ),
       /ERR_REGISTRATION_DISABLED/
     )
@@ -492,7 +592,7 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
         module: MODULE_KEY,
         isEnabled,
         displayName: 'Test Local Reset',
-        registration: true,
+        selfRegistration: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { allowForgotPassword }
@@ -1341,8 +1441,8 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
  * without a database.
  *
  * Regression coverage for a real bug this suite caught: `login()` used to refuse *every* form-based
- * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `registration` flag was off —
- * including a returning user who already has an account. `registration` means "accepts new users", not
+ * provider login with `ERR_REGISTRATION_DISABLED` the moment a strategy's `autoProvision` flag was off —
+ * including a returning user who already has an account. `autoProvision` means "accepts new users", not
  * "accepts logins", and `findOrCreateProviderUser()` already enforces it correctly on its own (only for
  * an address with no existing account) — so `login()` no longer re-checks it before calling in.
  */
@@ -1377,8 +1477,8 @@ describe('users.login (form-based provider auto-provisioning)', () => {
     delete (globalThis as any).WIKI
   })
 
-  test('a returning provider user is not refused just because the strategy has registration disabled', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+  test('a returning provider user is not refused just because the strategy has autoProvision disabled', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: false, config: {} }))
     const fakeUser = { id: 'user-1' }
     const findOrCreate = t.mock.method(
       users,
@@ -1403,7 +1503,7 @@ describe('users.login (form-based provider auto-provisioning)', () => {
   })
 
   test('a brand-new address is still refused when the strategy does not accept new users', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: false, config: {} }))
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: false, config: {} }))
     t.mock.method(users, 'findOrCreateProviderUser' as any, async () => {
       throw new Error('ERR_REGISTRATION_DISABLED')
     })
@@ -1417,8 +1517,8 @@ describe('users.login (form-based provider auto-provisioning)', () => {
     )
   })
 
-  test('registration enabled still provisions a brand-new address', async (t) => {
-    installWiki(async () => ({ id: strategyId, module: 'ldap', registration: true, config: {} }))
+  test('autoProvision enabled still provisions a brand-new address', async (t) => {
+    installWiki(async () => ({ id: strategyId, module: 'ldap', autoProvision: true, config: {} }))
     const fakeUser = { id: 'user-2' }
     t.mock.method(users, 'findOrCreateProviderUser' as any, async () => fakeUser)
     const afterLogin = t.mock.method(users, 'afterLoginChecks', async () => ({

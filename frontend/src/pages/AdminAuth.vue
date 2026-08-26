@@ -189,28 +189,40 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <w-item tag="label">
+          <!-- Exactly one registration control per module, matching what it actually does: a
+               form-based module (Local, LDAP) registers visitors itself, a redirect-based provider
+               auto-provisions whoever it signs in -- the two are enforced separately server-side, so
+               only the one that applies to this module is ever shown. -->
+          <w-item tag="label" v-if="state.strategy.strategy.useForm">
             <blueprint-icon icon="register" />
             <w-item-section>
-              <w-item-label>{{ t(`admin.auth.registration`) }}</w-item-label>
-              <w-item-label caption>{{
-                state.strategy.strategy.key === `local`
-                  ? t(`admin.auth.registrationLocalHint`)
-                  : t(`admin.auth.registrationHint`)
-              }}</w-item-label>
-              <!-- Saved, but there is no self-registration path in the server yet — say so rather than -->
-              <!-- let the toggle read as a working setting -->
-              <w-item-label class="text-orange" caption>{{
-                t(`admin.auth.registrationNotEnforced`)
-              }}</w-item-label>
+              <w-item-label>{{ t(`admin.auth.selfRegistration`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.auth.selfRegistrationHint`) }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
               <w-toggle
-                v-model="state.strategy.registration"
-                :aria-label="t(`admin.auth.registration`)" />
+                v-model="state.strategy.selfRegistration"
+                :aria-label="t(`admin.auth.selfRegistration`)" />
             </w-item-section>
           </w-item>
-          <template v-if="state.strategy.registration">
+          <w-item tag="label" v-else>
+            <blueprint-icon icon="register" />
+            <w-item-section>
+              <w-item-label>{{ t(`admin.auth.autoProvision`) }}</w-item-label>
+              <w-item-label caption>{{ t(`admin.auth.autoProvisionHint`) }}</w-item-label>
+            </w-item-section>
+            <w-item-section avatar>
+              <w-toggle
+                v-model="state.strategy.autoProvision"
+                :aria-label="t(`admin.auth.autoProvision`)" />
+            </w-item-section>
+          </w-item>
+          <template
+            v-if="
+              state.strategy.strategy.useForm
+                ? state.strategy.selfRegistration
+                : state.strategy.autoProvision
+            ">
             <w-separator class="my-2" inset />
             <w-item>
               <blueprint-icon icon="team" />
@@ -650,7 +662,8 @@ function payloadFor(str) {
   return {
     displayName: str.displayName,
     isEnabled: str.isEnabled,
-    registration: str.registration,
+    selfRegistration: str.selfRegistration,
+    autoProvision: str.autoProvision,
     allowedEmailRegex: str.allowedEmailRegex ?? '',
     autoEnrollGroups: str.autoEnrollGroups ?? [],
     config
@@ -726,7 +739,8 @@ function addStrategy(mod) {
     displayName: mod.title,
     // -> Off until it has been configured and saved: an enabled strategy appears on login screens
     isEnabled: false,
-    registration: false,
+    selfRegistration: false,
+    autoProvision: false,
     allowedEmailRegex: '',
     autoEnrollGroups: [],
     strategy: mod,

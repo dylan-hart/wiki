@@ -1610,9 +1610,9 @@ class Users {
           always throws this once verification succeeds, whether or not an account already exists, so
           every login (not only the one that creates an account) goes through the same find-or-create
           path a redirect-based provider uses, which is also what re-syncs group membership on every
-          login. `findOrCreateProviderUser()` enforces `registration` itself, and only for the case
+          login. `findOrCreateProviderUser()` enforces `autoProvision` itself, and only for the case
           that actually needs it: an unknown address with no local account. Gating on it *here* as well
-          would refuse a returning user who already has an account the moment `registration` is turned
+          would refuse a returning user who already has an account the moment `autoProvision` is turned
           off — the flag means "accepts new users", not "accepts logins" — so it is deliberately not
           checked again at this outer layer.
         */
@@ -1668,8 +1668,8 @@ class Users {
    * keys on. A module must therefore only ever report an address it has established belongs to the
    * person — see `ProviderProfile`.
    *
-   * Registration is refused rather than silently allowed: a wiki that has not opened its doors to a
-   * provider gets `ERR_REGISTRATION_DISABLED` for an unknown account, and one that has can still
+   * Auto-provisioning is refused rather than silently allowed: a wiki that has not opened its doors to
+   * a provider gets `ERR_REGISTRATION_DISABLED` for an unknown account, and one that has can still
    * limit who by, with the strategy's email allow-list pattern.
    *
    * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_INACTIVE_USER`
@@ -1724,7 +1724,7 @@ class Users {
     let user = await this.getByEmail(email)
 
     if (!user) {
-      if (!strategy.registration) {
+      if (!strategy.autoProvision) {
         WIKI.models.flags.authDebug(
           `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
         )
@@ -1873,6 +1873,12 @@ class Users {
    * still pending cannot be used to overwrite whatever password it was originally set up with. A
    * verified account, or one on a strategy with `emailValidation` off, always refuses as a duplicate.
    *
+   * A strategy is only ever eligible here when its module is form-based (`useForm: true`) and it is
+   * attached to the site the request came in on -- `createUser()` always writes the submitted password
+   * under the local strategy, so accepting this against a redirect-based provider (SAML, OIDC, LDAP's
+   * own delegation, ...) would mint a permanent local account for an identity that provider was
+   * supposed to own, bypassing it entirely.
+   *
    * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
    *         `ERR_EMAIL_NOT_ALLOWED`
    */
@@ -1900,7 +1906,30 @@ class Users {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
-    if (!strategy.registration) {
+    // -> Resolved the way `login()` resolves it: only a form-based module verifies the credentials it
+    //    is handed, so only one may mint a local account through this public form.
+    const authModule = WIKI.data.authentication.find((a: any) => a.key === strategy.module)
+    if (!authModule?.useForm) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} (${strategy.module}) is not a form-based module`
+      )
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    // -> A strategy exists globally the moment it is configured, but only accepts requests through
+    //    the sites an administrator attached it to.
+    const site = await WIKI.models.sites.getSiteById({ id: siteId })
+    const attachedToSite = (site?.config?.authStrategies ?? []).some(
+      (s: any) => s.id === strategyId
+    )
+    if (!attachedToSite) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} is not attached to site ${siteId}`
+      )
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    if (!strategy.selfRegistration) {
       WIKI.models.flags.authDebug(
         `Registration refused: strategy ${strategy.id} does not accept new users`
       )
