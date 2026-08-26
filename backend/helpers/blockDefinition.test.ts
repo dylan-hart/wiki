@@ -232,6 +232,86 @@ describe('extractBlockDefinition', () => {
     }
     assert.equal(result.definition.block, 'second')
   })
+
+  // -> OpenProject #2132: `blockAllowances()` (`models/rendering.ts`) hands a custom block's prop
+  //    names straight to sanitize-html as an attribute allow-list, and sanitize-html matches
+  //    attribute names with `*` glob support -- so a prop named `on*` or `*` would allow inline
+  //    event handlers, or every attribute at all, on that element for every page author.
+  test('rejects a glob-bearing prop name ("on*")', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {
+        static definition = {
+          block: 'widget',
+          name: 'Widget',
+          description: 'd',
+          icon: 'i',
+          props: [{ name: 'on*', type: 'string' }]
+        }
+      }
+    `
+    const result = extractBlockDefinition(source)
+    assert.equal(result.ok, false)
+    if (result.ok) {
+      return
+    }
+    assert.equal(result.error.reason, 'invalid-prop-name')
+  })
+
+  test('rejects a bare wildcard prop name ("*")', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {
+        static definition = {
+          block: 'widget',
+          name: 'Widget',
+          description: 'd',
+          icon: 'i',
+          props: [{ name: '*', type: 'string' }]
+        }
+      }
+    `
+    const result = extractBlockDefinition(source)
+    assert.equal(result.ok, false)
+    if (result.ok) {
+      return
+    }
+    assert.equal(result.error.reason, 'invalid-prop-name')
+  })
+
+  test('rejects a prop name starting with an uppercase letter or digit', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {
+        static definition = {
+          block: 'widget',
+          name: 'Widget',
+          description: 'd',
+          icon: 'i',
+          props: [{ name: 'Title', type: 'string' }]
+        }
+      }
+    `
+    const result = extractBlockDefinition(source)
+    assert.equal(result.ok, false)
+    if (result.ok) {
+      return
+    }
+    assert.equal(result.error.reason, 'invalid-prop-name')
+  })
+
+  test('accepts a hyphenated, all-lowercase prop name', () => {
+    const source = `
+      export class BlockWidget extends HTMLElement {
+        static definition = {
+          block: 'widget',
+          name: 'Widget',
+          description: 'd',
+          icon: 'i',
+          props: [{ name: 'aspect-ratio', type: 'string' }]
+        }
+      }
+    `
+    const result = extractBlockDefinition(source)
+    assert.equal(result.ok, true)
+  })
 })
 
 describe('extractDefinedElementTag', () => {

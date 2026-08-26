@@ -7,6 +7,7 @@ import { CustomError } from '../helpers/common.ts'
 import { launchPuppeteerBrowser } from '../helpers/puppeteer.ts'
 import type { IconifyIcon } from '@iconify/types'
 import type { IconifyIconCustomisations } from '@iconify/utils'
+import type { BlockProp } from './blocks.ts'
 
 /**
  * Rendering model
@@ -405,8 +406,11 @@ class Rendering {
     permissions: RenderPermissions,
     pagePath: string = ''
   ): Promise<PostProcessResult> {
-    const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(siteId)
-    const clean = this.sanitize(html ?? '', permissions, enabledBlocks)
+    const [enabledBlocks, customBlocks] = await Promise.all([
+      WIKI.models.blocks.getEnabledKeys(siteId),
+      WIKI.models.blocks.getCustomBlockDefinitions(siteId)
+    ])
+    const clean = this.sanitize(html ?? '', permissions, enabledBlocks, customBlocks)
 
     const $ = cheerio.load(clean, null, false)
 
@@ -463,13 +467,23 @@ class Rendering {
    * `<block-mathjax>` with equivalent props) is a real feature but a distinct, opt-in one; scope it as
    * its own task if automatic migration is ever actually wanted; nothing here blocks building it.
    */
-  private blockAllowances(enabledBlocks: Set<string>): {
+  private blockAllowances(
+    enabledBlocks: Set<string>,
+    customBlocks: { block: string; props: BlockProp[] }[]
+  ): {
     tags: string[]
     attributes: Record<string, string[]>
   } {
     const tags: string[] = []
     const attributes: Record<string, string[]> = {}
-    for (const definition of WIKI.models.blocks.definitions) {
+    // -> Custom blocks carry no `isChild` -- that concept only exists for a built-in declared in the
+    //    manifest -- so they fall through to the same `enabledBlocks` gate every non-child built-in
+    //    already goes through below.
+    const sources: { block: string; props?: BlockProp[]; isChild?: boolean }[] = [
+      ...WIKI.models.blocks.definitions,
+      ...customBlocks
+    ]
+    for (const definition of sources) {
       if (!definition.isChild && !enabledBlocks.has(definition.block)) {
         continue
       }
@@ -518,9 +532,10 @@ class Rendering {
   private sanitize(
     html: string,
     permissions: RenderPermissions,
-    enabledBlocks: Set<string>
+    enabledBlocks: Set<string>,
+    customBlocks: { block: string; props: BlockProp[] }[] = []
   ): string {
-    const blocks = this.blockAllowances(enabledBlocks)
+    const blocks = this.blockAllowances(enabledBlocks, customBlocks)
     const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
     const allowedAttributes: Record<string, string[]> = {
       ...BASE_ALLOWED_ATTRIBUTES,

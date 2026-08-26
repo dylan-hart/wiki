@@ -345,6 +345,33 @@ class Blocks {
   }
 
   /**
+   * Custom blocks' own tag + declared props, for `blockAllowances()` in `models/rendering.ts` to
+   * allow-list a custom block's element and attributes the same way it already does for a built-in's
+   * `static definition.props`.
+   *
+   * Custom blocks have no manifest entry -- `definitions` above is only ever the compiled built-in
+   * manifest -- so this is their own source, read straight from the row `getSiteBlocks()` also reads
+   * `props` from. Whether a given block is actually enabled is `blockAllowances()`'s call, the same
+   * way it already is for a built-in: this returns every custom block on the site, enabled or not, so
+   * both kinds are gated through the exact same `enabledBlocks` set rather than two allow-lists that
+   * could disagree.
+   *
+   * A prop's `name` was validated at upload against `PROP_NAME_PATTERN`
+   * (`helpers/blockDefinition.ts`) -- sanitize-html matches attribute names with `*` glob support, so
+   * an unvalidated name here would let a custom block author grant inline event handlers or a wildcard
+   * attribute to every page author who embeds it.
+   */
+  async getCustomBlockDefinitions(
+    siteId: string
+  ): Promise<{ block: string; props: BlockProp[] }[]> {
+    const rows = await WIKI.db
+      .select({ block: blocksTable.block, props: blocksTable.props })
+      .from(blocksTable)
+      .where(and(eq(blocksTable.siteId, siteId), eq(blocksTable.isCustom, true)))
+    return rows.map((row) => ({ block: row.block, props: (row.props as BlockProp[]) ?? [] }))
+  }
+
+  /**
    * Strip a config object down to the keys a block still declares.
    *
    * `blockKey` is looked up from the row rather than trusted from the request body, since the point

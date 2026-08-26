@@ -55,6 +55,7 @@ const DIAGRAM_BLOCKS: BlockDefinition[] = [
 ]
 
 let enabledBlocks = new Set<string>()
+let customBlocks: { block: string; props: { name: string }[] }[] = []
 
 // -> A minimal stub rather than `test/db.ts`'s full `installTestWiki`: nothing under test here
 //    reaches the database, so the only real dependency is `WIKI.models.blocks` itself
@@ -64,6 +65,9 @@ let enabledBlocks = new Set<string>()
       definitions: DIAGRAM_BLOCKS,
       async getEnabledKeys(_siteId: string) {
         return enabledBlocks
+      },
+      async getCustomBlockDefinitions(_siteId: string) {
+        return customBlocks
       }
     }
   }
@@ -150,6 +154,36 @@ describe('rendering.postProcess: diagram block-vs-fence handoff', () => {
 
     assert.match(result.render, /<block-diagram theme="auto">/)
     assert.doesNotMatch(result.render, /onclick/)
+  })
+})
+
+/*
+ * OpenProject #2132: a custom block (`isCustom: true`) has no manifest entry, so it never reached
+ * `WIKI.models.blocks.definitions` -- `blockAllowances()` allow-listed only built-ins, and
+ * sanitize-html's default `disallowedTagsMode: 'discard'` silently dropped every custom block's tag
+ * on save. `getCustomBlockDefinitions()` is the model's own source for a site's custom blocks; this
+ * stub mirrors it the same way `getEnabledKeys` above mirrors the enabled-block query.
+ */
+describe('rendering.postProcess: custom blocks (OpenProject #2132)', () => {
+  test("keeps a custom block's tag and declared props, but strips an undeclared one, when enabled", async () => {
+    enabledBlocks = new Set(['widget'])
+    customBlocks = [{ block: 'widget', props: [{ name: 'title' }] }]
+    const html = '<block-widget title="Hello" onclick="alert(1)"></block-widget>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.match(result.render, /<block-widget title="Hello">/)
+    assert.doesNotMatch(result.render, /onclick/)
+  })
+
+  test('drops a custom block entirely when the site has not enabled it', async () => {
+    enabledBlocks = new Set() // -> nothing enabled
+    customBlocks = [{ block: 'widget', props: [{ name: 'title' }] }]
+    const html = '<block-widget title="Hello"></block-widget>'
+
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.doesNotMatch(result.render, /block-widget/)
   })
 })
 

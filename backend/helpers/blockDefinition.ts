@@ -22,6 +22,19 @@ export type BlockDefinitionFailureReason =
   | 'no-definition'
   | 'interpolated-template'
   | 'non-literal'
+  | 'invalid-prop-name'
+
+/**
+ * What a `static definition.props[].name` is required to look like.
+ *
+ * This is also the shape `blockAllowances()` (`models/rendering.ts`) trusts every custom block's
+ * prop name to already have when it hands the list straight to sanitize-html as an attribute
+ * allow-list: sanitize-html matches attribute names with `*` glob support, so an unvalidated name
+ * like `on*` or `*` would grant inline event handlers -- or every attribute at all -- on that
+ * element to every page author who embeds it. Validating here, once, at upload, is what lets that
+ * trust hold without `blockAllowances()` re-checking it on every render.
+ */
+export const PROP_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
 
 export interface BlockDefinitionFailure {
   reason: BlockDefinitionFailureReason
@@ -168,7 +181,20 @@ export function extractBlockDefinition(
 
   try {
     const value = literalToValue(definitionValue, label)
-    return { ok: true, definition: value as BlockDefinition }
+    const definition = value as BlockDefinition
+    const invalidProp = (definition.props ?? []).find(
+      (prop) => typeof prop?.name !== 'string' || !PROP_NAME_PATTERN.test(prop.name)
+    )
+    if (invalidProp) {
+      return {
+        ok: false,
+        error: {
+          reason: 'invalid-prop-name',
+          message: `${label}: prop name "${invalidProp?.name}" must match ${PROP_NAME_PATTERN} -- sanitize-html allow-lists attributes by this name, and a glob or "on*"-shaped name would grant more than one attribute.`
+        }
+      }
+    }
+    return { ok: true, definition }
   } catch (err: any) {
     if (err instanceof DefinitionValueError) {
       return { ok: false, error: { reason: err.reason, message: err.message } }
