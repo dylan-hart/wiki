@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { StagedPage } from './content-staging.ts'
+import type { MigrationRecord, MigrationRecordKey, ProvenanceStore } from './provenance.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 import {
   derivePublishState,
@@ -107,6 +108,44 @@ class FakePagesModel implements PagesWriteModel {
 }
 
 const noExistingEntries = () => false
+
+/** In-memory fake standing in for `../provenance.ts`'s `ProvenanceStore` — records every `find()` call
+ * so a test can assert on which pages actually reached the provenance lookup ahead of `assignTreePaths`,
+ * and defaults to "nothing is mapped yet" (a fresh corpus) so existing tests that don't care about
+ * provenance keep exercising the same fresh-corpus path they always have. */
+function createFakeProvenanceStore(
+  overrides: {
+    records?: (MigrationRecordKey & { destId: string })[]
+    findExistingPageByPath?: () => Promise<string | undefined>
+  } = {}
+): ProvenanceStore & { findCalls: MigrationRecordKey[] } {
+  const records = overrides.records ?? []
+  const findCalls: MigrationRecordKey[] = []
+  return {
+    findCalls,
+    async find(key: MigrationRecordKey): Promise<MigrationRecord | undefined> {
+      findCalls.push(key)
+      const record = records.find(
+        (r) =>
+          r.siteId === key.siteId &&
+          r.sourceSystem === key.sourceSystem &&
+          r.sourceTable === key.sourceTable &&
+          r.sourceId === key.sourceId
+      )
+      return record ? { ...record, destTable: 'pages', importedAt: new Date() } : undefined
+    },
+    async record() {},
+    async findExistingUserByEmail() {
+      return undefined
+    },
+    async findExistingPageByPath() {
+      return overrides.findExistingPageByPath ? overrides.findExistingPageByPath() : undefined
+    },
+    async findExistingAssetByFolderAndFilename() {
+      return undefined
+    }
+  }
+}
 
 describe('derivePublishState', () => {
   test('isPublished false is always draft, regardless of dates', () => {
@@ -266,7 +305,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: ['write:scripts', 'write:styles'] }
     )
 
@@ -303,7 +346,11 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -317,7 +364,11 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -331,7 +382,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -347,7 +402,11 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -361,7 +420,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
     )
 
@@ -381,7 +444,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
     )
 
@@ -396,7 +463,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -411,7 +482,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: () => true },
+      { pagesModel, existingEntry: () => true, provenanceStore: createFakeProvenanceStore() },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -429,7 +500,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -448,7 +523,11 @@ describe('importPages', () => {
 
     const result = await importPages(
       pages,
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -471,12 +550,115 @@ describe('importPages', () => {
 
     const result = await importPages(
       pages,
-      { pagesModel, existingEntry: noExistingEntries },
+      {
+        pagesModel,
+        existingEntry: noExistingEntries,
+        provenanceStore: createFakeProvenanceStore()
+      },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
     assert.equal(pagesModel.created.length, 0)
     assert.equal(result.failed.length, 2)
     assert.ok(result.failed.every((f) => f.reason === 'sibling-collision'))
+  })
+
+  describe('provenance lookup ahead of assignTreePaths (Bug 1761 / Task 1770)', () => {
+    test('a page already mapped in provenance is resolved without ever reaching assignTreePaths, and does not compete for the same tree slot as a colliding new page', async () => {
+      // -> Both pages normalize to the exact same tree location ("dup"). If the already-mapped page
+      //    (oldId 1) were still handed to assignTreePaths alongside the new page (oldId 2), both would
+      //    land in the same location bucket and assignTreePaths would fail *both* as a sibling-collision
+      //    (see the "sibling-collision" tests above). Since the already-mapped page must instead be
+      //    filtered out ahead of assignTreePaths, the new page is the sole occupant of that bucket and
+      //    is created normally — proving assignTreePaths was invoked with only the pre-filtered set.
+      const pagesModel = new FakePagesModel()
+      const provenanceStore = createFakeProvenanceStore({
+        records: [
+          {
+            siteId: 'site-1',
+            sourceSystem: 'wikijs-2.5x',
+            sourceTable: 'pages',
+            sourceId: '1',
+            destId: 'existing-page-1'
+          }
+        ]
+      })
+      const pages = [
+        buildStagedPage({ oldId: 1, path: 'dup' }),
+        buildStagedPage({ oldId: 2, path: 'dup' })
+      ]
+
+      const result = await importPages(
+        pages,
+        { pagesModel, existingEntry: noExistingEntries, provenanceStore },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      // -> No sibling-collision: the already-mapped page never reached assignTreePaths, so the new page
+      //    had the location bucket to itself.
+      assert.equal(result.failed.length, 0)
+      assert.equal(pagesModel.created.length, 1)
+      assert.equal(pagesModel.created[0].input.path, 'dup')
+
+      // -> The already-mapped page resolved straight to its existing destination id, with no createPage()
+      //    call of its own.
+      assert.equal(result.succeeded.length, 2)
+      const preResolved = result.succeeded.find((s) => s.oldId === 1)
+      assert.equal(preResolved?.pageId, 'existing-page-1')
+      assert.deepEqual(preResolved?.warnings, [])
+      assert.equal(result.pageIdMap.get(1), 'existing-page-1')
+
+      const created = result.succeeded.find((s) => s.oldId === 2)
+      assert.equal(created?.pageId, 'page-1')
+      assert.equal(result.pageIdMap.get(2), 'page-1')
+
+      // -> The provenance lookup itself happened for both pages, exact-key keyed by their own oldId.
+      assert.deepEqual(
+        provenanceStore.findCalls.map((k) => k.sourceId),
+        ['1', '2']
+      )
+    })
+
+    test('a page resolved only via the natural-key fallback is also excluded from assignTreePaths', async () => {
+      const pagesModel = new FakePagesModel()
+      const provenanceStore = createFakeProvenanceStore({
+        findExistingPageByPath: async () => 'existing-page-via-natural-key'
+      })
+      const staged = buildStagedPage({ oldId: 7, path: 'already-there' })
+
+      const result = await importPages(
+        [staged],
+        { pagesModel, existingEntry: () => true, provenanceStore },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      // -> existingEntry is only ever consulted by assignTreePaths, so it being wired to always report a
+      //    collision (and yet the page still succeeding) proves this page never reached assignTreePaths.
+      assert.equal(result.failed.length, 0)
+      assert.equal(result.succeeded.length, 1)
+      assert.equal(result.succeeded[0].pageId, 'existing-page-via-natural-key')
+      assert.equal(pagesModel.created.length, 0)
+    })
+
+    test('a fresh corpus (no existing provenance mappings) still passes every existing failure/creation case unchanged', async () => {
+      // -> Belt-and-suspenders on top of the individual tests above, which already run against
+      //    createFakeProvenanceStore()'s "nothing mapped" default: with no provenance entries, every
+      //    staged page is a "pagesNeedingTreeSlot" page, so assignTreePaths sees the exact same input it
+      //    always did and outcomes are unchanged from before this task.
+      const pagesModel = new FakePagesModel()
+      const provenanceStore = createFakeProvenanceStore()
+      const staged = buildStagedPage({ oldId: 99, path: 'brand-new' })
+
+      const result = await importPages(
+        [staged],
+        { pagesModel, existingEntry: noExistingEntries, provenanceStore },
+        { siteId: 'site-1', actorPermissions: [] }
+      )
+
+      assert.equal(result.failed.length, 0)
+      assert.equal(result.succeeded.length, 1)
+      assert.equal(pagesModel.created.length, 1)
+      assert.equal(result.succeeded[0].pageId, 'page-1')
+    })
   })
 })

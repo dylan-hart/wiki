@@ -1,6 +1,8 @@
 import { IdMap } from './id-map.ts'
-import { assignTreePaths } from './path-normalization.ts'
+import { assignTreePaths, normalizeMigratedPath } from './path-normalization.ts'
+import { resolveExisting, SOURCE_SYSTEM_WIKIJS_2_5X } from './provenance.ts'
 import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import type { ExistingMapping, MigrationRecordKey, ProvenanceStore } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
@@ -26,6 +28,20 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to normalize
  * or collides never reaches `createPage()` at all; it comes back as a `PageImportFailure` with the same
  * `reason` `assignTreePaths` gave it.
+ *
+ * ## Provenance lookup ahead of `assignTreePaths` (Bug 1761 / Task 1770)
+ *
+ * Before any page is handed to `assignTreePaths`, it is first resolved against `deps.provenanceStore`
+ * (`../provenance.ts`'s `resolveExisting` — an exact-key `migrationRecords` hit, or a natural-key match
+ * on `(siteId, locale, path)` for the interrupted-run edge case that module documents). A page that
+ * already has a mapping needs no tree slot at all: it is reported as a success against its existing
+ * destination id and never reaches `assignTreePaths`, so it can never compete with its own past self for
+ * a location, and never trips `assignTreePaths`'s `existing-entry-collision` check the way a genuinely
+ * foreign occupant of the same path still does. Only pages with no existing mapping are batched into the
+ * `assignTreePaths` call, which is what lets its sibling-collision detection keep comparing them against
+ * each other. This ordering is deliberately the whole of this pass's scope — actually routing a page's
+ * *creation* through `../provenance.ts`'s `lookupOrInsert` (so a re-run persists/backfills a mapping
+ * rather than merely reading one) is Task 1773's job, not this one's.
  *
  * ## The synthetic per-page actor
  *
@@ -99,6 +115,9 @@ export interface ImportPagesDeps {
   /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
    * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
   existingEntry: PathAssignmentOptions['existingEntry']
+  /** Backs the provenance lookup every staged page is resolved through *before* `assignTreePaths` — see
+   * "Provenance lookup ahead of `assignTreePaths`" in the module doc comment. */
+  provenanceStore: ProvenanceStore
 }
 
 export interface ImportPagesOptions {
@@ -131,10 +150,14 @@ export interface PageImportFailure {
 
 export interface PageImportSuccess {
   oldId: number
-  /** The new 3.0 UUID `createPage()` returned — also recorded in `PageImportResult.pageIdMap`. */
+  /** The 3.0 UUID this page now maps to — freshly created by `createPage()`, or the id already on
+   * record when the provenance lookup ahead of `assignTreePaths` found an existing mapping for this
+   * page (see the module doc comment). Also recorded in `PageImportResult.pageIdMap` either way. */
   pageId: string
   /** Per-page notes (editor fallback, render-bootstrap downgrade, unmigrated privacy setting, the
-   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. */
+   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. Empty when this page
+   * resolved against an existing provenance mapping, since none of the mapping logic that produces
+   * these notes runs when nothing is created. */
   warnings: string[]
 }
 
@@ -144,8 +167,10 @@ export interface PageImportResult {
   /** Every per-page warning, in processing order, prefixed with the page it came from — the flat form
    * for whichever task ends up reporting import results to an operator (Task 421's CLI). */
   warnings: string[]
-  /** old-`pages.id` → new-UUID, populated only for pages that actually got created — Task 740 resolves
-   * `pageHistory.pageId` through this, per `content-staging.ts`'s `ContentStagingResult.pageIdMap` doc. */
+  /** old-`pages.id` → new-UUID, populated for every page in `succeeded` — both a freshly created page
+   * and one resolved against an existing provenance mapping have a real destination id. Task 740
+   * resolves `pageHistory.pageId` through this, per `content-staging.ts`'s
+   * `ContentStagingResult.pageIdMap` doc. */
   pageIdMap: IdMap<number>
 }
 
@@ -334,11 +359,25 @@ function mapStagedPageToInput(
   }
 }
 
+/** The provenance key one staged page resolves through — `sourceId` is the 2.x `pages.id`, matching
+ * `phases/content.ts`'s `classifyPage` exactly so an exact-key row written by one pass is found by the
+ * other. */
+function pageProvenanceKey(siteId: string, staged: Pick<StagedPage, 'oldId'>): MigrationRecordKey {
+  return {
+    siteId,
+    sourceSystem: SOURCE_SYSTEM_WIKIJS_2_5X,
+    sourceTable: 'pages',
+    sourceId: String(staged.oldId)
+  }
+}
+
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Normalizes
- * every page's tree location first (Task 736's `assignTreePaths`); a page that fails to normalize or
- * collides never reaches `createPage()`. Never throws for one bad or colliding page — each becomes a
- * `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description. Every page is
+ * first resolved against `deps.provenanceStore` (see "Provenance lookup ahead of `assignTreePaths`" in
+ * the module doc comment); only a page with no existing mapping is handed to `assignTreePaths` (Task
+ * 736) for a tree location, and only that survives to `createPage()`. Never throws for one bad,
+ * colliding, or already-mapped page — each becomes a `PageImportFailure`/`PageImportSuccess` instead, so
+ * one page's bad data cannot abort the whole run.
  */
 export async function importPages(
   pages: StagedPage[],
@@ -353,8 +392,38 @@ export async function importPages(
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
 
+  // -> Provenance lookup ahead of assignTreePaths: a page already mapped (prior run, or the natural-key
+  //    fallback's interrupted-run case) needs no tree slot at all, and must never compete for one
+  //    against its own past self — see "Provenance lookup ahead of assignTreePaths" above.
+  const preResolved = new Map<number, ExistingMapping>()
+  const pagesNeedingTreeSlot: StagedPage[] = []
+  for (const staged of pages) {
+    const normalized = normalizeMigratedPath(staged.path)
+    const existing = await resolveExisting(
+      deps.provenanceStore,
+      pageProvenanceKey(options.siteId, staged),
+      'reason' in normalized
+        ? undefined
+        : () =>
+            deps.provenanceStore.findExistingPageByPath(
+              options.siteId,
+              staged.locale,
+              normalized.path
+            )
+    )
+    if (existing) {
+      preResolved.set(staged.oldId, existing)
+      continue
+    }
+    pagesNeedingTreeSlot.push(staged)
+  }
+
   const pathResult = await assignTreePaths(
-    pages.map((page) => ({ oldId: page.oldId, path: page.path, locale: page.locale })),
+    pagesNeedingTreeSlot.map((page) => ({
+      oldId: page.oldId,
+      path: page.path,
+      locale: page.locale
+    })),
     { siteId: options.siteId, existingEntry: deps.existingEntry }
   )
 
@@ -371,6 +440,13 @@ export async function importPages(
   const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
 
   for (const staged of pages) {
+    const existing = preResolved.get(staged.oldId)
+    if (existing) {
+      pageIdMap.set(staged.oldId, existing.destId)
+      succeeded.push({ oldId: staged.oldId, pageId: existing.destId, warnings: [] })
+      continue
+    }
+
     const assignment = assignmentByOldId.get(staged.oldId)
     // -> No assignment means this page already came back as a path failure above.
     if (!assignment) continue
