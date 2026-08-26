@@ -1,11 +1,10 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import mime from 'mime'
-import sanitizeHtml from 'sanitize-html'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
-import { makeImageThumbnail } from '../helpers/images.ts'
+import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
@@ -58,111 +57,6 @@ export const INLINE_EXTS = new Set(['png', 'apng', 'jpg', 'jpeg', 'gif', 'bmp', 
  */
 export function dispositionFor(fileExt: string): boolean {
   return !INLINE_EXTS.has(fileExt) && Boolean(WIKI.config.security?.forceAssetDownload)
-}
-
-/**
- * SVG structure/shape tags a stored SVG file may keep once `security.uploadScanSVG` sanitizes it at
- * upload time. Everything capable of carrying script — `script` itself, event-handler attributes,
- * `foreignObject`, the SMIL animation tags — is left out. A standalone copy of the subset
- * `models/rendering.ts` allows for SVG embedded *inside* page content (kept separate rather than
- * imported: an uploaded SVG file has no page-permission gate — `write:scripts`/`write:styles` —
- * around it the way markup embedded in a page does, so this list has to stand on its own, and
- * importing `rendering.ts` here would pull cheerio/puppeteer into every consumer of this module).
- */
-const SVG_SANITIZE_TAGS = [
-  'svg',
-  'circle',
-  'clipPath',
-  'defs',
-  'desc',
-  'ellipse',
-  'g',
-  'line',
-  'linearGradient',
-  'marker',
-  'mask',
-  'path',
-  'pattern',
-  'polygon',
-  'polyline',
-  'radialGradient',
-  'rect',
-  'stop',
-  'symbol',
-  'text',
-  'title',
-  'tspan',
-  'use'
-]
-
-/** Presentation attributes shared across the SVG tags above. None of them can execute. */
-const SVG_SANITIZE_ATTRIBUTES = [
-  'clip-path',
-  'clip-rule',
-  'cx',
-  'cy',
-  'd',
-  'fill',
-  'fill-opacity',
-  'fill-rule',
-  'height',
-  'href',
-  'id',
-  'mask',
-  'offset',
-  'opacity',
-  'points',
-  'preserveAspectRatio',
-  'r',
-  'rx',
-  'ry',
-  'stop-color',
-  'stop-opacity',
-  'stroke',
-  'stroke-dasharray',
-  'stroke-linecap',
-  'stroke-linejoin',
-  'stroke-opacity',
-  'stroke-width',
-  'transform',
-  'viewBox',
-  'width',
-  'x',
-  'x1',
-  'x2',
-  'xmlns',
-  'xmlns:xlink',
-  'y',
-  'y1',
-  'y2'
-]
-
-/**
- * When `security.uploadScanSVG` is on, strip an uploaded SVG down to the structure/shape subset
- * above — `<script>`, event-handler attributes (`onload`, `onclick`, ...) and anything else capable
- * of executing are removed rather than merely escaped, since the file is later served back with its
- * own `image/svg+xml` type. `dispositionFor`/`SVG_CSP` (`helpers/security.ts`) are the read-side half
- * of this defence-in-depth; this is the write side. A no-op for every other extension, and for SVG
- * when the flag is off.
- */
-export function sanitizeSvgAsset(fileExt: string, data: Buffer): Buffer {
-  if (fileExt !== 'svg' || !WIKI.config.security?.uploadScanSVG) {
-    return data
-  }
-  const cleaned = sanitizeHtml(data.toString('utf8'), {
-    allowedTags: SVG_SANITIZE_TAGS,
-    allowedAttributes: { '*': SVG_SANITIZE_ATTRIBUTES },
-    // -> Applies only to tags that were dropped: without it, the body of a rejected `<script>` would
-    //    come back out as visible text inside the SVG
-    nonTextTags: ['style', 'script', 'textarea', 'option', 'noscript'],
-    parser: {
-      // -> SVG attributes are case-sensitive (`viewBox`, `preserveAspectRatio`), which lowercasing
-      //    would quietly break — the same reasoning `models/rendering.ts`'s own sanitize() call
-      //    documents for inline SVG embedded in page content.
-      lowerCaseAttributeNames: false
-    }
-  })
-  return Buffer.from(cleaned, 'utf8')
 }
 
 /** What an asset is, for the sake of grouping and filtering. Mirrors the `assetKind` schema enum. */
@@ -366,14 +260,14 @@ class Assets {
     //    like sending, and this value is what gets served back to a browser later
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
-    // -> A no-op unless this is an SVG and security.uploadScanSVG is on; everything below stores and
-    //    previews these bytes rather than the ones that arrived, so the sanitized version is what
-    //    every reader ever sees
-    const sanitizedData = sanitizeSvgAsset(fileExt, data)
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
+    const fileData =
+      resolvedMime === svgMimeType && WIKI.config.security?.uploadScanSVG ? sanitizeSvg(data) : data
 
     const preview =
       kind === 'image'
-        ? await makeImageThumbnail(sanitizedData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
+        ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
     // -> What is already at this name, if anything, and what the site says to do about it. Asked
@@ -415,7 +309,7 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        data: sanitizedData,
+        data: fileData,
         preview,
         authorId
       })
@@ -431,7 +325,7 @@ class Assets {
       locale,
       siteId,
       meta: {
-        fileSize: sanitizedData.length,
+        fileSize: fileData.length,
         fileExt,
         mimeType: resolvedMime
       }
@@ -445,8 +339,8 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        fileSize: sanitizedData.length,
-        data: sanitizedData,
+        fileSize: fileData.length,
+        data: fileData,
         preview,
         authorId,
         siteId
@@ -463,7 +357,7 @@ class Assets {
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
-      metadata: { fileSize: sanitizedData.length, mimeType: resolvedMime, kind }
+      metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind }
     })
     WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
@@ -472,7 +366,7 @@ class Assets {
       siteId,
       authorId,
       kind,
-      fileSize: sanitizedData.length
+      fileSize: fileData.length
     })
 
     return {
@@ -481,7 +375,7 @@ class Assets {
       fileExt,
       kind,
       mimeType: resolvedMime,
-      fileSize: sanitizedData.length,
+      fileSize: fileData.length,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       title: entry.title,
       hasPreview: Boolean(preview),

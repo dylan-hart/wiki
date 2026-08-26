@@ -75,7 +75,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       uploadScanSVG: {
         type: 'boolean',
         description:
-          'Enforced: an uploaded `.svg` file is run through an allowlist sanitizer before it is stored, stripping `<script>`, event-handler attributes and anything else capable of executing. Read live at upload time, unlike the rest of this card.'
+          'Whether an uploaded SVG is run through a structure-and-shapes-only tag/attribute allowlist before being stored, stripping `<script>`, event-handler attributes, `foreignObject` and SMIL animation. Enforced on `POST /sites/:siteId/assets` and on a site image upload (logo, favicon, login background). Read live at upload time, unlike the rest of this card.'
       },
       authRateLimitEnabled: {
         type: 'boolean',
