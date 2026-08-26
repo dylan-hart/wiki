@@ -15,11 +15,24 @@ import { EXPORT_FORMAT_VERSION } from './export.ts'
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
 
+/** One `GroupRule.sites[]` entry that named a site id found on neither the archive's own source
+ *  site nor this instance's existing sites, surfaced rather than silently left as-is. */
+export interface UnresolvedRuleSite {
+  groupId: string
+  groupName: string
+  ruleId: string
+  ruleName: string
+  siteId: string
+}
+
 export interface ImportResult {
   pages: number
   tree: number
   assets: number
   groups: number
+  /** Rule/site pairs that could not be resolved to either the target site or a known existing
+   *  site — see `UnresolvedRuleSite`. Empty when every rule's `sites[]` resolved cleanly. */
+  unresolvedRuleSites: UnresolvedRuleSite[]
 }
 
 /**
@@ -95,6 +108,13 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  *   already on this instance when its id matches (the ordinary case: restoring a backup onto the same
  *   instance that produced it) or is inserted as a new one when it does not (importing onto a
  *   different instance).
+ * - **A group rule's `sites[]` is re-scoped to the target site.** The archive's own source site id
+ *   (`manifest.json`'s `siteId`) is rewritten to `targetSiteId` in every rule, so a same-instance
+ *   restore into a different site is governed by the same rules the source site was, rather than by
+ *   rules that (fail-closed, per `helpers/pageRules.ts`) match no page on the new site at all. A site
+ *   id that is neither the source site nor a site that still exists on this instance cannot be
+ *   resolved either way — it is left as written and reported on `ImportResult.unresolvedRuleSites`
+ *   rather than silently kept.
  * - **Authorship cannot travel with the content**, since accounts are not part of the export — every
  *   imported page's and asset's author/creator/owner columns are rewritten to the account performing
  *   the import.
@@ -180,12 +200,13 @@ class ImportModel {
     // -> Structure and version are validated in full before a single query runs against the
     //    database — an archive this code does not recognize is refused outright, never restored
     //    best-effort. `readJson` itself is what enforces every entry's mere presence.
-    const manifest = readJson<{ formatVersion?: number }>(entries, 'manifest.json')
+    const manifest = readJson<{ formatVersion?: number; siteId?: string }>(entries, 'manifest.json')
     if (manifest.formatVersion !== EXPORT_FORMAT_VERSION) {
       throw new Error(
         `Unsupported import archive version ${manifest.formatVersion ?? '(none)'} — this instance can only restore version ${EXPORT_FORMAT_VERSION} archives.`
       )
     }
+    const sourceSiteId = manifest.siteId
     // -> Validated for presence, deliberately unused: the target site's own config/hostname/enabled
     //    state are not part of what an import restores (see the class-level doc comment).
     readJson<Record<string, any>>(entries, 'site.json')
@@ -202,6 +223,44 @@ class ImportModel {
     if (!targetSiteRows[0]) {
       throw new Error(`Target site ${targetSiteId} does not exist.`)
     }
+
+    // -> Every site id known to this instance, for validating a rule's `sites[]` entries below —
+    //    a site id that is neither the archive's own source site (rewritten to `targetSiteId`) nor
+    //    one of these is unresolvable and gets surfaced rather than silently kept as-is.
+    const existingSiteRows = await WIKI.db.select({ id: sitesTable.id }).from(sitesTable)
+    const knownSiteIds = new Set(existingSiteRows.map((row) => row.id))
+
+    // -> Rewrite each imported group rule's `sites[]`: an occurrence of the archive's own source
+    //    site is what this restore is actually re-targeting (see the class-level doc comment), so it
+    //    becomes `targetSiteId`; anything else is left as-is only if it still names a real site on
+    //    this instance, and is otherwise reported in `unresolvedRuleSites` rather than stored
+    //    silently — see `docs/audit-2026-08-24/correctness-migration.md` §4.
+    const unresolvedRuleSites: UnresolvedRuleSite[] = []
+    const mappedGroupRows = groupRows.map((group) => {
+      const rules = Array.isArray(group.rules) ? group.rules : []
+      const mappedRules = rules.map((rule: any) => {
+        if (!Array.isArray(rule.sites) || rule.sites.length === 0) {
+          return rule
+        }
+        const mappedSites = rule.sites.map((siteId: string) => {
+          if (siteId === sourceSiteId) {
+            return targetSiteId
+          }
+          if (!knownSiteIds.has(siteId)) {
+            unresolvedRuleSites.push({
+              groupId: group.id,
+              groupName: group.name,
+              ruleId: rule.id,
+              ruleName: rule.name,
+              siteId
+            })
+          }
+          return siteId
+        })
+        return { ...rule, sites: mappedSites }
+      })
+      return { ...group, rules: mappedRules }
+    })
 
     // -> Fresh ids for pages and assets, computed up front so a tree entry can be matched to the
     //    same new id its page/asset just got — see the class-level doc comment.
@@ -253,8 +312,8 @@ class ImportModel {
       await tx.delete(pagesTable).where(eq(pagesTable.siteId, targetSiteId))
 
       // -> Groups are global, so they are upserted by id rather than replaced wholesale — see the
-      //    class-level doc comment.
-      for (const group of groupRows) {
+      //    class-level doc comment. Rules were already re-scoped to `targetSiteId` above.
+      for (const group of mappedGroupRows) {
         await tx
           .insert(groupsTable)
           .values(group as any)
@@ -278,7 +337,8 @@ class ImportModel {
       pages: mappedPageRows.length,
       tree: mappedTreeRows.length,
       assets: mappedAssetRows.length,
-      groups: groupRows.length
+      groups: groupRows.length,
+      unresolvedRuleSites
     }
   }
 }

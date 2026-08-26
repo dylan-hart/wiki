@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -27,6 +28,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let exportModel: typeof import('./export.ts').exportModel
   let importModel: typeof import('./siteImport.ts').importModel
   let pagesModel: typeof import('./pages.ts').pages
+  let groupsModel: typeof import('./groups.ts').groups
   let dataPath: string
   let targetSiteId: string
 
@@ -48,6 +50,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;({ exportModel } = await import('./export.ts'))
     ;({ importModel } = await import('./siteImport.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ groups: groupsModel } = await import('./groups.ts'))
 
     dataPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-import-test-'))
     WIKI.config.dataPath = dataPath
@@ -270,5 +273,89 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pagesTable)
       .where(eq(pagesTable.id, stalePage.id))
     assert.ok(found)
+  })
+
+  test("importSite re-scopes an imported group rule's sites[] to the target site, and surfaces an unresolvable one", async () => {
+    const unknownSiteId = '00000000-0000-0000-0000-0000000000ff'
+    const [ruleGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Rule Import Group',
+        permissions: [],
+        rules: [
+          {
+            id: crypto.randomUUID(),
+            name: 'Source site read',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: [fixtures.siteId]
+          },
+          {
+            id: crypto.randomUUID(),
+            name: 'Unknown site rule',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: [unknownSiteId]
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+
+    await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'rule-scoped', title: 'Rule Scoped', editor: 'markdown', content: 'content' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    // -> Captured against the ORIGINAL rules, before the import overwrites this same group row —
+    //    this is the "the way it did against the source page" baseline the restored-page check
+    //    below is compared against.
+    await groupsModel.reloadCache()
+    const actor = { permissions: [], groupIds: [ruleGroup!.id] }
+    const sourceAccess = groupsModel.checkAccess(actor, 'read:pages', {
+      path: 'rule-scoped',
+      locale: 'en',
+      siteId: fixtures.siteId,
+      classification: null
+    })
+    assert.equal(sourceAccess, true)
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+
+    // -> The rule naming the source site was rewritten to name the target site instead
+    const [importedGroup] = await fixtures.db
+      .select({ rules: groupsTable.rules })
+      .from(groupsTable)
+      .where(eq(groupsTable.id, ruleGroup!.id))
+    const importedRules = importedGroup!.rules as any[]
+    const rewritten = importedRules.find((rule) => rule.name === 'Source site read')
+    assert.deepEqual(rewritten.sites, [targetSiteId])
+
+    // -> The rule naming a site that exists on neither side was left alone but surfaced, not stored
+    //    silently
+    const stillUnknown = importedRules.find((rule) => rule.name === 'Unknown site rule')
+    assert.deepEqual(stillUnknown.sites, [unknownSiteId])
+    assert.equal(result.unresolvedRuleSites.length, 1)
+    assert.equal(result.unresolvedRuleSites[0]!.siteId, unknownSiteId)
+    assert.equal(result.unresolvedRuleSites[0]!.groupId, ruleGroup!.id)
+    assert.equal(result.unresolvedRuleSites[0]!.ruleName, 'Unknown site rule')
+
+    // -> Access resolves against the restored page on the target site the same way it did against
+    //    the source page (`sourceAccess`, captured above) — the whole point of the re-scoping.
+    await groupsModel.reloadCache()
+    const restoredAccess = groupsModel.checkAccess(actor, 'read:pages', {
+      path: 'rule-scoped',
+      locale: 'en',
+      siteId: targetSiteId,
+      classification: null
+    })
+    assert.equal(restoredAccess, sourceAccess)
   })
 })
