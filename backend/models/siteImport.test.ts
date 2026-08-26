@@ -9,6 +9,7 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import {
   assets as assetsTable,
   groups as groupsTable,
+  navigation as navigationTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -241,6 +242,52 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       importModel.importSite(filePath, '00000000-0000-0000-0000-000000000000', fixtures.userId),
       /does not exist/
     )
+  })
+
+  test('importSite restores navigation into the target site, replacing whatever was already there', async () => {
+    const items = [
+      { id: 'item-1', type: 'link', label: 'Home', target: '/' },
+      { id: 'item-2', type: 'link', label: 'Docs', target: '/docs' },
+      { id: 'item-3', type: 'separator' }
+    ]
+    await fixtures.db.insert(navigationTable).values({
+      items,
+      mode: 'static',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+
+    // -> Something already on the target site, to prove it gets replaced rather than merged
+    const [staleNav] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'stale', type: 'link', label: 'Stale', target: '/stale' }],
+        mode: 'static',
+        locale: 'en',
+        siteId: targetSiteId
+      })
+      .returning({ id: navigationTable.id })
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+    assert.equal(result.navigation, 1)
+
+    const importedNav = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, targetSiteId))
+    assert.equal(importedNav.length, 1)
+    assert.deepEqual(importedNav[0]!.items, items)
+    // -> Rewritten to the target site, not left naming the source site the archive came from
+    assert.equal(importedNav[0]!.siteId, targetSiteId)
+    assert.notEqual(importedNav[0]!.siteId, fixtures.siteId)
+
+    // -> The target's pre-existing navigation row is gone, not merged with the imported one
+    const [staleFound] = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.id, staleNav!.id))
+    assert.equal(staleFound, undefined)
   })
 
   test('importSite rolls back entirely when the restore fails partway through the transaction', async () => {

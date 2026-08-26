@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { assets as assetsTable } from '../db/schema.ts'
+import { assets as assetsTable, navigation as navigationTable } from '../db/schema.ts'
 
 /**
  * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
@@ -66,7 +66,7 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     return entries
   }
 
-  test('exportSite writes a tarball with pages, tree, assets and groups', async () => {
+  test('exportSite writes a tarball with pages, tree, assets, navigation and groups', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
       {
@@ -92,6 +92,16 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning({ id: assetsTable.id })
 
+    const [nav] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'home', type: 'link', label: 'Home', target: '/' }],
+        mode: 'static',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      .returning({ id: navigationTable.id })
+
     const result = await exportModel.exportSite(fixtures.siteId)
 
     assert.match(result.filePath, /\.tar\.gz$/)
@@ -109,6 +119,9 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(exportedPages.some((p: any) => p.id === page.id && p.path === 'export-me'))
     // -> Regenerated columns must not have made it into the export
     assert.equal('ts' in exportedPages[0], false)
+
+    const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
+    assert.ok(exportedNavigation.some((n: any) => n.id === nav!.id && n.siteId === fixtures.siteId))
 
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))

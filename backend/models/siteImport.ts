@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
   groups as groupsTable,
+  navigation as navigationTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -19,6 +20,7 @@ export interface ImportResult {
   pages: number
   tree: number
   assets: number
+  navigation: number
   groups: number
 }
 
@@ -82,13 +84,15 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  *   the target site is deleted before the imported ones are inserted. Pages and tree entries are
  *   matched by path/locale with no natural merge order, so "restore" is defined as putting the site
  *   back to exactly what the archive describes, not layering it on top of whatever is already there.
- * - **Pages, tree entries and assets get fresh ids, unlike groups.** `pages.id`/`tree.id`/`assets.id`
- *   are one global primary-key space, not scoped per site, so re-using the archive's own ids would
- *   collide with the source site's rows the moment it still exists in the same database — restoring a
- *   backup while the original site is still around, or duplicating one site's content into another,
- *   are both ordinary uses of this, not edge cases. A page's and an asset's tree entry share its id
- *   (see below), so the new id is generated once per page/asset and carried through to its tree row
- *   rather than each row picking its own.
+ * - **Pages, tree entries, assets and navigation rows get fresh ids, unlike groups.**
+ *   `pages.id`/`tree.id`/`assets.id`/`navigation.id` are each one global primary-key space, not scoped
+ *   per site, so re-using the archive's own ids would collide with the source site's rows the moment
+ *   it still exists in the same database — restoring a backup while the original site is still around,
+ *   or duplicating one site's content into another, are both ordinary uses of this, not edge cases. A
+ *   page's and an asset's tree entry share its id (see below), so the new id is generated once per
+ *   page/asset and carried through to its tree row rather than each row picking its own. A tree
+ *   entry's own `navigationId` (its per-entry menu override, when set) is remapped the same way, to
+ *   the new id its `navigation` row just got.
  * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets, groups are global rather
  *   than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore one
  *   site's export would take every other site's access model with it. An imported group updates one
@@ -191,6 +195,7 @@ class ImportModel {
     readJson<Record<string, any>>(entries, 'site.json')
     const pageRows = readJson<Record<string, any>[]>(entries, 'pages.json')
     const treeRows = readJson<Record<string, any>[]>(entries, 'tree.json')
+    const navigationRows = readJson<Record<string, any>[]>(entries, 'navigation.json')
     const groupRows = readJson<Record<string, any>[]>(entries, 'groups.json')
     const assetManifest = readJson<Record<string, any>[]>(entries, 'assets/manifest.json')
 
@@ -208,6 +213,9 @@ class ImportModel {
     const pageIdMap = new Map<string, string>(pageRows.map((row) => [row.id, crypto.randomUUID()]))
     const assetIdMap = new Map<string, string>(
       assetManifest.map((row) => [row.id, crypto.randomUUID()])
+    )
+    const navigationIdMap = new Map<string, string>(
+      navigationRows.map((row) => [row.id, crypto.randomUUID()])
     )
 
     const mappedPageRows = pageRows.map((row) => ({
@@ -228,6 +236,12 @@ class ImportModel {
       authorId: importedById
     }))
 
+    const mappedNavigationRows = navigationRows.map((row) => ({
+      ...row,
+      id: navigationIdMap.get(row.id),
+      siteId: targetSiteId
+    }))
+
     const mappedTreeRows = treeRows.map((row) => {
       // -> A folder has no page/asset counterpart to stay in step with, so it simply gets a new id
       //    of its own; a page's or asset's tree entry must resolve to the exact id that row just got
@@ -242,7 +256,14 @@ class ImportModel {
           `Malformed import archive: tree entry ${row.id} (${row.type}) has no matching entry in ${row.type === 'page' ? 'pages.json' : 'assets/manifest.json'}.`
         )
       }
-      return { ...row, id: newId, siteId: targetSiteId }
+      return {
+        ...row,
+        id: newId,
+        siteId: targetSiteId,
+        // -> A per-entry menu override, when set, must resolve to the exact new id its own
+        //    `navigation` row just got — see the class-level doc comment
+        navigationId: row.navigationId ? (navigationIdMap.get(row.navigationId) ?? null) : null
+      }
     })
 
     await WIKI.db.transaction(async (tx) => {
@@ -251,6 +272,7 @@ class ImportModel {
       await tx.delete(assetsTable).where(eq(assetsTable.siteId, targetSiteId))
       await tx.delete(treeTable).where(eq(treeTable.siteId, targetSiteId))
       await tx.delete(pagesTable).where(eq(pagesTable.siteId, targetSiteId))
+      await tx.delete(navigationTable).where(eq(navigationTable.siteId, targetSiteId))
 
       // -> Groups are global, so they are upserted by id rather than replaced wholesale — see the
       //    class-level doc comment.
@@ -263,6 +285,10 @@ class ImportModel {
 
       if (mappedPageRows.length > 0) {
         await tx.insert(pagesTable).values(mappedPageRows as any)
+      }
+
+      if (mappedNavigationRows.length > 0) {
+        await tx.insert(navigationTable).values(mappedNavigationRows as any)
       }
 
       if (mappedTreeRows.length > 0) {
@@ -278,6 +304,7 @@ class ImportModel {
       pages: mappedPageRows.length,
       tree: mappedTreeRows.length,
       assets: mappedAssetRows.length,
+      navigation: mappedNavigationRows.length,
       groups: groupRows.length
     }
   }

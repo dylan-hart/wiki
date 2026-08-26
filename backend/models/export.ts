@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
   groups as groupsTable,
+  navigation as navigationTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -46,8 +47,9 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 /**
  * Content export model
  *
- * Serializes one site's pages, tree, assets (bytea included) and the (site-wide) groups into a single
- * gzipped tar archive under `<dataPath>/exports/`, for the "Export content" system utility.
+ * Serializes one site's pages, tree, assets (bytea included), navigation and the (site-wide) groups
+ * into a single gzipped tar archive under `<dataPath>/exports/`, for the "Export content" system
+ * utility.
  *
  * Every entry is first written into a per-export staging directory under the OS temp dir, then `tar`'s
  * file-based `create()` archives the whole directory in one pass — the same approach
@@ -82,10 +84,11 @@ class ExportModel {
       throw new Error(`Site ${siteId} does not exist.`)
     }
 
-    const [pageRows, treeRows, assetRows, groupRows] = await Promise.all([
+    const [pageRows, treeRows, assetRows, navigationRows, groupRows] = await Promise.all([
       WIKI.db.select().from(pagesTable).where(eq(pagesTable.siteId, siteId)),
       WIKI.db.select().from(treeTable).where(eq(treeTable.siteId, siteId)),
       WIKI.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
+      WIKI.db.select().from(navigationTable).where(eq(navigationTable.siteId, siteId)),
       // -> Groups are global, not site-scoped (see CLAUDE.md's Permissions section) — a site's
       //    access model cannot be reconstructed from its own rows alone
       WIKI.db.select().from(groupsTable)
@@ -120,6 +123,10 @@ class ExportModel {
       await fs.writeFile(
         path.join(stagingDir, 'tree.json'),
         JSON.stringify(treeRows.map(stripDerived), null, 2)
+      )
+      await fs.writeFile(
+        path.join(stagingDir, 'navigation.json'),
+        JSON.stringify(navigationRows, null, 2)
       )
       await fs.writeFile(path.join(stagingDir, 'groups.json'), JSON.stringify(groupRows, null, 2))
 
