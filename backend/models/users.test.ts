@@ -174,9 +174,9 @@ function uninstallFakeTemporal(previousTemporal: any): void {
  * `register()` is SQL orchestration -- a strategy lookup, an existence check, then coordinating the
  * `users`, `userGroups` and `userKeys` tables -- so this runs the real method against a migrated,
  * per-run-fresh database (see `test/db.ts`), the same DB-backed pattern `models/pages.test.ts` uses.
- * `mail.sendVerifyEmail` is stubbed rather than pulling in a real SMTP transport, matching how
- * `api/mail.test.ts` isolates the route it covers from `models/mail.test.ts`'s own coverage of that
- * mapping.
+ * `mail.sendVerifyEmail` and `mail.sendRegistrationAttemptNotice` are stubbed rather than pulling in a
+ * real SMTP transport, matching how `api/mail.test.ts` isolates the route it covers from
+ * `models/mail.test.ts`'s own coverage of that mapping.
  */
 describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
@@ -419,24 +419,32 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    const request = req()
 
     const result = await users.register(
       {
         siteId: fixtures.siteId,
         strategyId,
         name: 'Attacker-Supplied Name',
-        // -> setupTestDb() seeds this address already verified
+        // -> setupTestDb() seeds this address already verified, owned by "Fixture User"
         email: 'fixture@example.com',
         password: 'longenough1'
       },
-      req()
+      request
     )
 
+    // -> Not an oracle: indistinguishable from the fresh-registration success shape
     assert.deepEqual(result, { nextAction: 'verify' })
+    assert.equal(request.session.authenticated, undefined)
     assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
     assert.equal(sendRegistrationAttemptNoticeMock.mock.calls.length, 1)
     const call = sendRegistrationAttemptNoticeMock.mock.calls[0].arguments[0] as any
     assert.equal(call.to, 'fixture@example.com')
+
+    // -> The submitted name and password were discarded -- the existing account is untouched
+    const existing = await users.getByEmail('fixture@example.com')
+    assert.equal(existing!.name, 'Fixture User')
   })
 
   test('a duplicate address on a strategy with emailValidation off still refuses as a duplicate -- no email step to route secrecy through', async () => {

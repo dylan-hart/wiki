@@ -2091,12 +2091,6 @@ class Users {
    * own delegation, ...) would mint a permanent local account for an identity that provider was
    * supposed to own, bypassing it entirely.
    *
-   * A strategy is only ever eligible here when its module is form-based (`useForm: true`) and it is
-   * attached to the site the request came in on -- `createUser()` always writes the submitted password
-   * under the local strategy, so accepting this against a redirect-based provider (SAML, OIDC, LDAP's
-   * own delegation, ...) would mint a permanent local account for an identity that provider was
-   * supposed to own, bypassing it entirely.
-   *
    * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
    *         `ERR_EMAIL_NOT_ALLOWED`
    */

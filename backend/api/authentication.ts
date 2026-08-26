@@ -415,7 +415,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Register a new account',
         description:
-          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt.",
+          "Creates an account under a strategy configured to accept new users. When that strategy's `emailValidation` setting is on (the local strategy's default), the account starts unverified and this answers `nextAction: 'verify'` rather than logging in — a link mailed to the address is what finishes it, at `GET /auth/verify/:token`. With `emailValidation` off, this logs the account straight in like any other successful auth attempt. Submitting an address that already has a verified account under such a strategy answers the same generic `nextAction: 'verify'` rather than an error — that account's owner is emailed a notice instead — so this endpoint cannot be used to test which addresses are already registered.",
         tags: ['Authentication'],
         params: {
           type: 'object',

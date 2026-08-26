@@ -82,9 +82,11 @@ export function classifyMailError(err: any): 'connection' | 'tls' | 'auth' | 'se
  *
  * Builds a single `nodemailer` SMTP transporter from `WIKI.config.mail` (CRUD'd by `api/mail.ts`)
  * and exposes a generic `send()` plus the transactional templates this feature needs: verify-email,
- * forgot-password (the reset-*request* email, with the actual reset link), password-reset-confirmed
- * (the after-the-fact notice once a reset completes — a distinct email from the request one above),
- * test-email (the admin "Send Test Email" action), and the page-watch notification. Templates are
+ * registration-collision (the non-enumerating notice `register()` sends the real owner instead of
+ * throwing `ERR_EMAIL_ALREADY_EXISTS`), forgot-password (the reset-*request* email, with the actual
+ * reset link), password-reset-confirmed (the after-the-fact notice once a reset completes — a
+ * distinct email from the request one above), test-email (the admin "Send Test Email" action), and
+ * the page-watch notification. Templates are
  * plain inline HTML/text pairs — building a DB-backed, admin-editable template system is explicitly
  * out of scope here. `MailTemplateEditorOverlay.vue` and the `admin.mail.templates` admin-area
  * section are unwired UI for that unbuilt system, gated behind `flagStore.experimental` on the
