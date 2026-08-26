@@ -241,6 +241,39 @@ test('profile: refuses to validate a response against a strategy with entryPoint
   )
 })
 
+/*
+  `buildSaml()` is private; these three reach into it the same way the rest of this suite already
+  reaches past TypeScript's compile-time-only `private` to exercise real `@node-saml/node-saml`
+  behavior (`.options` is where the constructed `SAML` instance stores what it resolved each field to,
+  including its own `audience || issuer` fallback and `maxAssertionAgeMs` default).
+*/
+test('buildSaml: an empty configured audience defaults to the strategy issuer, never to false', () => {
+  const auth: any = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    issuer: 'urn:wiki:the-issuer',
+    audience: ''
+  })
+  const saml = auth.buildSaml(REDIRECT_URI)
+  assert.equal(saml.options.audience, 'urn:wiki:the-issuer')
+  assert.notEqual(saml.options.audience, false)
+})
+
+test('buildSaml: an explicitly configured audience is kept, not overridden by issuer', () => {
+  const auth: any = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    issuer: 'urn:wiki:the-issuer',
+    audience: 'urn:some-other-audience'
+  })
+  const saml = auth.buildSaml(REDIRECT_URI)
+  assert.equal(saml.options.audience, 'urn:some-other-audience')
+})
+
+test('buildSaml: maxAssertionAgeMs is capped to a non-zero ceiling', () => {
+  const auth: any = new SamlAuthentication('strategy1', BASE_CONF)
+  const saml = auth.buildSaml(REDIRECT_URI)
+  assert.ok(saml.options.maxAssertionAgeMs > 0)
+})
+
 test('profile: validates a genuinely signed assertion and extracts the mapped claims', async () => {
   const auth = new SamlAuthentication('strategy1', BASE_CONF)
   const profile = await auth.profile({
@@ -325,10 +358,12 @@ test('profile: an assertion just inside acceptedClockSkewMs is accepted', async 
   })
   const now = new Date()
   const body = validResponseBase64({
-    // -> Expired two minutes ago, but within the 5-minute accepted skew
-    notBefore: iso(new Date(now.getTime() - 10 * 60_000)),
+    // -> Expired two minutes ago, but within the 5-minute accepted skew. IssueInstant is kept close to
+    //    NotOnOrAfter (a realistic, short assertion validity window) so `maxAssertionAgeMs`'s own fixed
+    //    ceiling isn't what's actually under test here — `NotOnOrAfter` still is.
+    notBefore: iso(new Date(now.getTime() - 4 * 60_000)),
     notOnOrAfter: iso(new Date(now.getTime() - 2 * 60_000)),
-    issueInstant: iso(new Date(now.getTime() - 10 * 60_000))
+    issueInstant: iso(new Date(now.getTime() - 3 * 60_000))
   })
 
   const profile = await auth.profile({

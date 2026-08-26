@@ -413,6 +413,16 @@ real-world case — Okta/Auth0-style providers that sign only the assertion — 
 `buildSaml()` hardcodes it `false` and exposes only `wantAssertionsSigned` (default `true`) as a
 config field, matching 2.5.x's own field set, which never exposed this knob either.
 
+This is what makes `audience` load-bearing rather than a nice-to-have: with the response envelope's
+own signature not required, and `@node-saml/node-saml` never validating the `SubjectConfirmationData`
+`Recipient` against `callbackUrl` under any setting (`grep -c Recipient` on the library returns 0),
+`audience` is the only scope binding this stack offers against an assertion signed for one service
+provider being replayed at another. `buildSaml()` defaults an empty configured `audience` to the
+strategy's own `issuer` (the library's own default, rather than the `false` — "skip the check
+entirely" — this module used to pass) and pins `maxAssertionAgeMs` to a fixed five-minute ceiling
+(never configurable, never left at the library's own `0` default of "no cap beyond the assertion's own
+`NotOnOrAfter`").
+
 ### `mappingPicture` (LDAP, SAML) and CAS's `baseUrl` are present in config but inert
 
 **Area:** `backend/modules/authentication/{ldap,saml}/definition.yml`,

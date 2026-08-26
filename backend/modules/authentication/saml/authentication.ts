@@ -36,6 +36,11 @@ function asStringArray(value: unknown): string[] {
  * around: unlike OIDC there is no discovery round trip to amortize, and a `NodeSAML` instance is cheap
  * — this way a config change (a rotated certificate, say) takes effect on the very next login with no
  * cache to invalidate.
+ *
+ * With `wantAuthnResponseSigned` pinned `false` below, and `@node-saml/node-saml` never validating the
+ * `SubjectConfirmationData` `Recipient` against `callbackUrl` under any setting, `audience` is the only
+ * scope binding this stack offers an assertion signed for one service provider to another — see
+ * `docs/variances.md`'s SAML entry for the full reasoning.
  */
 export default class SamlAuthentication {
   strategyId: string
@@ -61,6 +66,17 @@ export default class SamlAuthentication {
       .filter(Boolean)
     return parts.length > 1 ? parts : raw
   }
+
+  /**
+   * Not a configurable field. Caps how long after `IssueInstant` an assertion may still be accepted,
+   * on top of (and never looser than) its own `NotOnOrAfter` — `@node-saml/node-saml` defaults this to
+   * `0`, meaning no cap beyond the assertion's own stated window. An identity provider is trusted to
+   * set that window sanely, but nothing stops one from issuing an assertion with an unreasonably long
+   * `NotOnOrAfter`; five minutes is comfortably inside every mainstream IdP's own default assertion
+   * lifetime (Okta and Auth0 both default to five minutes or less) while still bounding replay exposure
+   * for a captured assertion.
+   */
+  private static readonly MAX_ASSERTION_AGE_MS = 5 * 60 * 1000
 
   private buildSaml(redirectUri: string): SAML {
     const {
@@ -92,7 +108,14 @@ export default class SamlAuthentication {
       entryPoint,
       issuer,
       idpCert: SamlAuthentication.certs(cert),
-      audience: audience || false,
+      /*
+        `false` skips `AudienceRestriction` validation entirely (`@node-saml/node-saml`'s own check is
+        `if (this.options.audience !== false)`), which is strictly weaker than the library's own default
+        of falling back to `issuer` — the entity ID this SP registered with the IdP. An empty configured
+        `audience` therefore defaults to `issuer`, never to skipping the check.
+      */
+      audience: audience || issuer,
+      maxAssertionAgeMs: SamlAuthentication.MAX_ASSERTION_AGE_MS,
       privateKey: privateKey || undefined,
       decryptionPvk: decryptionPvk || undefined,
       signatureAlgorithm: signatureAlgorithm || 'sha256',
