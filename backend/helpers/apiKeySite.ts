@@ -23,21 +23,27 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * }
  * ```
  *
- * A small reusable helper rather than inline logic in one route, so that Epic 11 (or a later Feature
- * 395 task) can drop the same one-line guard into the rest of the site-scoped surface — `api/
- * assets.ts`'s asset routes, page history, page moves, and so on — without re-deriving this. See the
- * task's own description for the enumeration of what is deliberately left uncovered here.
+ * `apiKeySitePinHook` below wraps this into the global `preHandler` (registered in `index.ts`
+ * alongside the permissions hook — task 2194) that applies it automatically to every
+ * `/sites/:siteId/...` route, so no route needs to call this directly for that shape any more. It
+ * stays exported as the hook's own implementation and for `helpers/apiKeySite.test.ts` to unit-test
+ * the comparison in isolation.
  *
- * `req.params.siteId` isn't the only shape a route resolves its site from — some resolve it from
- * `req.hostname` (`controllers/files.ts`, `controllers/site.ts`), and are called here explicitly for
- * exactly that reason (OpenProject #2201). A third shape — a site id named in the request *body*,
- * used by every `manage:system`-gated admin route that creates or exports something scoped to one
- * site (`api/hooks.ts`'s webhook create/update, `api/apiKeys.ts`'s admin-issued key create, `api/
- * system.ts`'s `/export`) — is deliberately left *uncalled*, not merely unenumerated: `manage:system`
- * already bypasses every other authorization check in this codebase (see CLAUDE.md's Permissions
- * section), so pinning would be enforced only on this one action a `manage:system` key can take and
- * nowhere else it matters just as much — an inconsistent partial boundary rather than a real one. Each
- * such route carries a comment pointing back here instead of a call.
+ * `req.params.siteId` isn't the only shape a route resolves its site from, and the hook only ever
+ * looks at that one param — two other shapes still call this (or its equivalent) directly:
+ *   - `req.hostname` (`controllers/files.ts`, `controllers/site.ts` — OpenProject #2201), where the
+ *     route has to resolve the real site itself before this can run;
+ *   - a site id named in the request *body*, used by every `manage:system`-gated admin route that
+ *     creates or exports something scoped to one site (`api/hooks.ts`'s webhook create/update,
+ *     `api/apiKeys.ts`'s admin-issued key create, `api/system.ts`'s `/export`) — deliberately left
+ *     *uncalled*, not merely unenumerated: `manage:system` already bypasses every other authorization
+ *     check in this codebase (see CLAUDE.md's Permissions section), so pinning would be enforced only
+ *     on this one action a `manage:system` key can take and nowhere else it matters just as much — an
+ *     inconsistent partial boundary rather than a real one. Each such route carries a comment pointing
+ *     back here instead of a call.
+ *
+ * `mcp/auth.ts`'s `assertSiteInScope` re-implements the same check rather than calling this, since it
+ * throws instead of writing a Fastify reply.
  */
 export function enforceApiKeySite(
   req: FastifyRequest,
@@ -49,4 +55,25 @@ export function enforceApiKeySite(
     return false
   }
   return true
+}
+
+/**
+ * The global `preHandler` hook (`index.ts`, registered alongside the permissions hook) that applies
+ * `enforceApiKeySite` to *every* route, not just the ones that remember to call it — see task 2194.
+ *
+ * A route is "covered" simply by having a `:siteId` in its path; there is no per-route allow-list to
+ * keep in sync, so a newly added `/sites/:siteId/...` route is guarded automatically. Routes with no
+ * `:siteId` param (`req.params.siteId` undefined) are untouched, matching `enforceApiKeySite`'s own
+ * "no opinion when there is nothing to check" behavior for a request with no API key at all.
+ */
+export function apiKeySitePinHook(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: (err?: Error) => void
+): void {
+  const siteId = (req.params as Record<string, string | undefined> | undefined)?.siteId
+  if (siteId && !enforceApiKeySite(req, reply, siteId)) {
+    return
+  }
+  done()
 }

@@ -102,7 +102,7 @@ async function routes(app: FastifyInstance) {
               format: 'uuid',
               default: null,
               description:
-                "The single site to pin the key to, or null for instance-wide (every site) — today's only behavior, and the default."
+                'The single site to pin the key to — every /sites/:siteId route rejects a request this key makes against any other site — or null for instance-wide (every site), which stays the default.'
             }
           }
         },
