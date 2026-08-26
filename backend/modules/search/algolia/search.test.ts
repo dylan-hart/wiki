@@ -465,12 +465,53 @@ describe('AlgoliaSearchModule', () => {
       })
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0]!.path, 'open')
-      // -> totalHits is nbHits adjusted by what checkAccess removed from this page, not the raw count
+      // -> totalHits is offset (0) plus how many of this page's hits survived checkAccess, never
+      //    Algolia's own nbHits
       assert.equal(result.totalHits, 1)
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
     }
     assert.equal(calls.searchSingleIndex!.length, 1)
+  })
+
+  test('totalHits never reflects nbHits when it exceeds what this page can vouch for', async () => {
+    const { mod, setSearchResponse } = moduleWithFakeClient()
+    setSearchResponse({
+      hits: [
+        { objectID: 'p1', path: 'open-1', locale: 'en', title: 'Open 1', tags: [], updatedAt: 'x' },
+        {
+          objectID: 'p2',
+          path: 'secret-1',
+          locale: 'en',
+          title: 'Secret 1',
+          tags: [],
+          updatedAt: 'x'
+        },
+        { objectID: 'p3', path: 'open-2', locale: 'en', title: 'Open 2', tags: [], updatedAt: 'x' }
+      ],
+      // -> Algolia reports 100 total matches across many pages this call never fetched -- the old
+      //    arithmetic (nbHits - hits.length + visible.length) would have leaked most of that into
+      //    totalHits even though only this one page was ever checked against checkAccess.
+      nbHits: 100
+    })
+    const denySecret = (_actor: AccessActor, _permission: string, page: { path: string }) =>
+      !page.path.startsWith('secret')
+    const previousCheckAccess = (globalThis as any).WIKI.models.groups.checkAccess
+    ;(globalThis as any).WIKI.models.groups.checkAccess = denySecret
+
+    try {
+      const result = await mod.query({
+        siteId,
+        query: 'x',
+        offset: 0,
+        actor: { groupIds: [], permissions: [] }
+      })
+      assert.equal(result.results.length, 2)
+      // -> Exactly the readable count of this page (offset 0 + 2 visible), never Algolia's 100
+      assert.equal(result.totalHits, 2)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = previousCheckAccess
+    }
   })
 
   test('query() passes each hit’s own indexed classification to checkAccess, not a hardcoded null (OpenProject #1125)', async () => {

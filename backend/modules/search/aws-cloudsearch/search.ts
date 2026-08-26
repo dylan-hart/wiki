@@ -1046,7 +1046,6 @@ export class AwsCloudSearchModule implements SearchModule {
     }
 
     let rows: CloudSearchHit[]
-    let totalHits: number
 
     if (hasQuery && hideProtectedContent) {
       const split = await this.runProtectedSplitQuery(
@@ -1060,7 +1059,6 @@ export class AwsCloudSearchModule implements SearchModule {
         limit
       )
       rows = split.rows
-      totalHits = split.totalHits
     } else {
       const result = await this.runQuery(client, {
         query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
@@ -1071,8 +1069,9 @@ export class AwsCloudSearchModule implements SearchModule {
         return: RETURN_FIELDS,
         highlight: hasQuery ? highlightOption() : undefined
       })
+      // -> `result.count` (CloudSearch's own pre-filter `found`) is intentionally left unread:
+      //    `totalHits` below is derived purely from rows that survived `checkAccess`.
       rows = result.rows
-      totalHits = result.count
     }
 
     /*
@@ -1112,11 +1111,16 @@ export class AwsCloudSearchModule implements SearchModule {
 
     return {
       results,
-      // -> The count CloudSearch reported for both halves of the query, less whatever the rules just
-      //    removed -- not exact when rows are dropped, same caveat the `db`/`azure-search` engines'
-      //    own comments document, but a total that ignored the filtering entirely would promise
-      //    results that don't exist.
-      totalHits: Math.max(0, totalHits - rows.length + visible.length),
+      /*
+        A floor, not CloudSearch's own `found`: that count is evaluated over every match regardless
+        of what the actor may read, so it is never consulted here (same discipline as `db/search.ts`,
+        which drops its own `COUNT(*) OVER()` entirely rather than adjust it). This page's `offset`
+        plus how many of *this* page's rows survived `checkAccess` is the only figure this module can
+        vouch for -- exact once CloudSearch returns fewer than `limit` rows (there is nothing further
+        to find beyond this page), otherwise a lower bound, since a later page may add more readable
+        matches this call never fetched.
+      */
+      totalHits: offset + visible.length,
       // -> No "did you mean" here: CloudSearch has no built-in fuzzy-title suggestion API comparable
       //    to `db`'s `pg_trgm` similarity, and building one out of band is future scope, not this task's.
       suggestion: null
@@ -1150,8 +1154,10 @@ export class AwsCloudSearchModule implements SearchModule {
     orderByDirection: 'asc' | 'desc',
     offset: number,
     limit: number
-  ): Promise<{ rows: CloudSearchHit[]; totalHits: number }> {
+  ): Promise<{ rows: CloudSearchHit[] }> {
     const fetchDepth = offset + limit
+    // -> `.count` (CloudSearch's own pre-filter `found`) is intentionally left unread on both halves:
+    //    the caller derives `totalHits` purely from rows that survived `checkAccess`.
     const [publicResult, protectedResult] = await Promise.all([
       this.runQuery(client, {
         query: buildStructuredQuery(FULL_SEARCH_FIELDS, terms),
@@ -1176,8 +1182,7 @@ export class AwsCloudSearchModule implements SearchModule {
       compareRows(a, b, orderBy, orderByDirection)
     )
     return {
-      rows: merged.slice(offset, offset + limit),
-      totalHits: publicResult.count + protectedResult.count
+      rows: merged.slice(offset, offset + limit)
     }
   }
 
