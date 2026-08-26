@@ -1,6 +1,8 @@
 import { IdMap } from './id-map.ts'
 import { assignTreePaths } from './path-normalization.ts'
 import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import { lookupOrInsert, SOURCE_SYSTEM_WIKIJS_2_5X } from './provenance.ts'
+import type { LookupOrInsertAction, LookupOrInsertResult, ProvenanceStore } from './provenance.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
@@ -23,9 +25,32 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
  * it first) — that module's own doc comment names this task as the wiring point for the real
  * `WIKI.models.tree` lookup its `existingEntry` callback needs, so it is threaded straight through as
- * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to normalize
- * or collides never reaches `createPage()` at all; it comes back as a `PageImportFailure` with the same
- * `reason` `assignTreePaths` gave it.
+ * `ImportPagesDeps.existingEntry`, wrapped (see below) rather than passed raw. A page whose path fails
+ * to normalize or genuinely collides never reaches `createPage()` at all; it comes back as a
+ * `PageImportFailure` with the same `reason` `assignTreePaths` gave it.
+ *
+ * ## Idempotent re-runs via `lookupOrInsert` (Task 421 continuity — OpenProject #1773)
+ *
+ * A migration CLI run can be interrupted partway through (`--only` exists precisely so an operator can
+ * re-run just the phases that didn't finish), and every previously-created page must not be recreated —
+ * or reported as a collision — the second time `importPages()` sees it. Each surviving page therefore
+ * goes through `./provenance.ts`'s `lookupOrInsert()` rather than calling `deps.pagesModel.createPage()`
+ * directly: an exact `migrationRecords` hit for `{sourceTable: 'pages', sourceId: String(staged.oldId)}`
+ * (a full success on an earlier run) or a natural-key hit via `findExistingPageByPath(siteId, locale,
+ * path)` (the process died after `createPage()` but before the provenance row was written) both resolve
+ * to `action: 'skipped'`, with the found id reused for `pageIdMap`/`PageImportSuccess` — only a genuine
+ * `resolveExisting()` miss on both calls `createPage()` at all.
+ *
+ * This means the raw `existingEntry` tree-occupancy check `deps.existingEntry` provides can no longer be
+ * trusted as-is to decide `'existing-entry-collision'`: on a re-run, every page this module created
+ * earlier now occupies its tree slot, and the *raw* check alone cannot tell that apart from a genuinely
+ * foreign occupant (a folder, an asset, or some other tree entry never touched by this import).
+ * `importPages()` wraps it before handing it to `assignTreePaths()`: an occupied slot is only reported as
+ * a real collision when `findExistingPageByPath` finds no `pages` row there at all — a match defers the
+ * decision to the per-page `lookupOrInsert()` call below instead, which is what actually turns it into a
+ * `skipped` success (and backfills the missing provenance row) rather than a `PageImportFailure`.
+ * `path-normalization.ts`'s own `'existing-entry-collision'` branch (`path-normalization.ts:247-262`) is
+ * therefore reached only for that genuinely-foreign case.
  *
  * ## The synthetic per-page actor
  *
@@ -96,9 +121,14 @@ export interface PagesWriteModel {
 
 export interface ImportPagesDeps {
   pagesModel: PagesWriteModel
-  /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
-   * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
+  /** The raw tree-occupancy check `assignTreePaths` (`./path-normalization.ts`) needs — same contract as
+   * `PathAssignmentOptions.existingEntry`, but not passed to it directly: `importPages` wraps it with a
+   * `findExistingPageByPath` check first (see module doc comment's "Idempotent re-runs" section) so a
+   * slot occupied by this import's own earlier output resolves via `provenanceStore` instead of failing
+   * as a collision. */
   existingEntry: PathAssignmentOptions['existingEntry']
+  /** The provenance store every write routes through — see module doc comment. */
+  provenanceStore: ProvenanceStore
 }
 
 export interface ImportPagesOptions {
@@ -131,10 +161,16 @@ export interface PageImportFailure {
 
 export interface PageImportSuccess {
   oldId: number
-  /** The new 3.0 UUID `createPage()` returned — also recorded in `PageImportResult.pageIdMap`. */
+  /** The 3.0 page UUID — freshly created, or the id `lookupOrInsert` resolved an existing mapping to.
+   * Also recorded in `PageImportResult.pageIdMap`. */
   pageId: string
+  /** What `lookupOrInsert` actually did for this page — `'created'` the normal first-run case,
+   * `'skipped'` a re-run that found this page already imported (by provenance record or natural-key
+   * fallback). `'updated'` never occurs today: `importPages` passes no `update`/`updateExisting`. */
+  action: LookupOrInsertAction
   /** Per-page notes (editor fallback, render-bootstrap downgrade, unmigrated privacy setting, the
-   * authorId/creatorId collapse) — also folded into `PageImportResult.warnings`. */
+   * authorId/creatorId collapse) — only populated for `action: 'created'`, since a skipped page was never
+   * actually mapped through those decisions this run. Also folded into `PageImportResult.warnings`. */
   warnings: string[]
 }
 
@@ -335,10 +371,11 @@ function mapStagedPageToInput(
 }
 
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Normalizes
- * every page's tree location first (Task 736's `assignTreePaths`); a page that fails to normalize or
- * collides never reaches `createPage()`. Never throws for one bad or colliding page — each becomes a
- * `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId`, resolved through `./provenance.ts`'s `lookupOrInsert()` so a
+ * page already imported by an earlier run is skipped rather than recreated (see module doc comment).
+ * Normalizes every page's tree location first (Task 736's `assignTreePaths`); a page that fails to
+ * normalize or genuinely collides never reaches `createPage()`. Never throws for one bad or colliding
+ * page — each becomes a `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
  */
 export async function importPages(
   pages: StagedPage[],
@@ -353,9 +390,27 @@ export async function importPages(
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
 
+  // -> A tree slot occupied by *this import's own* earlier output (a re-run) must not be reported as a
+  //    collision — defer to the per-page lookupOrInsert() call below, which is what actually resolves it
+  //    to a skip. Only a slot occupied by something findExistingPageByPath can't account for (a foreign
+  //    tree entry never touched by this import) is a genuine 'existing-entry-collision'. See the module
+  //    doc comment's "Idempotent re-runs" section.
+  const wrappedExistingEntry: PathAssignmentOptions['existingEntry'] = async (
+    siteId,
+    locale,
+    parentPath,
+    fileName
+  ) => {
+    const occupied = await deps.existingEntry(siteId, locale, parentPath, fileName)
+    if (!occupied) return false
+    const path = parentPath ? `${parentPath}/${fileName}` : fileName
+    const existingPageId = await deps.provenanceStore.findExistingPageByPath(siteId, locale, path)
+    return existingPageId === undefined
+  }
+
   const pathResult = await assignTreePaths(
     pages.map((page) => ({ oldId: page.oldId, path: page.path, locale: page.locale })),
-    { siteId: options.siteId, existingEntry: deps.existingEntry }
+    { siteId: options.siteId, existingEntry: wrappedExistingEntry }
   )
 
   for (const failure of pathResult.failures) {
@@ -383,9 +438,39 @@ export async function importPages(
       options.actorPermissions
     )
 
-    let created: Page
+    let lookup: LookupOrInsertResult
     try {
-      created = await deps.pagesModel.createPage(options.siteId, mapped.input, mapped.actor)
+      lookup = await lookupOrInsert(deps.provenanceStore, {
+        siteId: options.siteId,
+        sourceSystem: SOURCE_SYSTEM_WIKIJS_2_5X,
+        sourceTable: 'pages',
+        sourceId: String(staged.oldId),
+        destTable: 'pages',
+        findByNaturalKey: () =>
+          deps.provenanceStore.findExistingPageByPath(
+            options.siteId,
+            staged.locale,
+            assignment.path
+          ),
+        create: async () => {
+          const created: Page = await deps.pagesModel.createPage(
+            options.siteId,
+            mapped.input,
+            mapped.actor
+          )
+          if (mapped.queueRerender) {
+            try {
+              await deps.pagesModel.queueRerender(options.siteId, created.id, mapped.actor)
+            } catch (err: any) {
+              mapped.warnings.push(
+                `page ${staged.oldId}: queueRerender() failed after creation — the page was created with ` +
+                  `an empty render and needs a manual re-render: ${err.message}`
+              )
+            }
+          }
+          return created.id
+        }
+      })
     } catch (err: any) {
       failed.push({
         oldId: staged.oldId,
@@ -397,22 +482,25 @@ export async function importPages(
       continue
     }
 
-    pageIdMap.set(staged.oldId, created.id)
+    pageIdMap.set(staged.oldId, lookup.destId)
 
-    const pageWarnings = mapped.warnings
-    if (mapped.queueRerender) {
-      try {
-        await deps.pagesModel.queueRerender(options.siteId, created.id, mapped.actor)
-      } catch (err: any) {
-        pageWarnings.push(
-          `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
-            `empty render and needs a manual re-render: ${err.message}`
-        )
-      }
+    // -> Mapping warnings (editor fallback, render downgrade, ...) only describe decisions actually
+    //    applied by a fresh create() — a skipped/updated page was never routed through them this run.
+    const pageWarnings = lookup.action === 'created' ? mapped.warnings : []
+    if (lookup.reconciledViaNaturalKey) {
+      pageWarnings.push(
+        `page ${staged.oldId}: found an existing 3.0 page at this path with no matching provenance ` +
+          'record (an interrupted earlier run) — backfilled the provenance record and skipped recreating it.'
+      )
     }
 
     warnings.push(...pageWarnings)
-    succeeded.push({ oldId: staged.oldId, pageId: created.id, warnings: pageWarnings })
+    succeeded.push({
+      oldId: staged.oldId,
+      pageId: lookup.destId,
+      action: lookup.action,
+      warnings: pageWarnings
+    })
   }
 
   return { succeeded, failed, warnings, pageIdMap }
