@@ -22,8 +22,13 @@ npm install
 # `--no-save` leaves package.json alone, which also means a later reinstall can prune it and turn
 # server-side rendering back off -- run this line again if the admin area says it is missing. The
 # browser itself is in the image, so this fetches no Chromium (see PUPPETEER_* in the Dockerfile).
+#
+# The version is read from the extension definition, the same way dev/build/Dockerfile does -- one
+# place to bump, so the devcontainer can't drift from what the production image installs.
 echo "Installing the Puppeteer extension..."
-npm install --no-save puppeteer@25.4.0
+PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/puppeteer/definition.yml)"
+test -n "$PUPPETEER_VERSION"
+npm install --no-save "puppeteer@${PUPPETEER_VERSION}"
 
 cd ../frontend
 npm install
