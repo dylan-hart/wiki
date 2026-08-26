@@ -284,7 +284,7 @@ describe('runContentSpotCheck', () => {
       if (!(path in pagesByPath)) {
         return undefined
       }
-      return { render: pagesByPath[path] }
+      return { content: pagesByPath[path] }
     }
   }
 
@@ -296,43 +296,35 @@ describe('runContentSpotCheck', () => {
     assert.deepEqual(results, [{ path: '(all pages)', status: 'source_not_implemented' }])
   })
 
-  test('matches when source and destination render hash the same', async () => {
+  test('matches when source and destination content hash the same', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
-    const results = await runContentSpotCheck(
-      connector,
-      fakeLookup({ 'en/home': '<p>hello</p>' }),
-      {
-        siteId: 'site-1',
-        paths: ['en/home']
-      }
-    )
+    const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
+      siteId: 'site-1',
+      paths: ['en/home']
+    })
     assert.equal(results.length, 1)
     assert.equal(results[0].status, 'match')
     assert.equal(results[0].sourceHash, results[0].destinationHash)
   })
 
-  test('flags a mismatch when the rendered bodies differ (truncation/corruption)', async () => {
+  test('flags a mismatch when the stored bodies differ (truncation/corruption)', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello world</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello world' }
     }
     const connector = { ...stubConnector(), pages }
-    const results = await runContentSpotCheck(
-      connector,
-      fakeLookup({ 'en/home': '<p>hello</p>' }),
-      {
-        siteId: 'site-1',
-        paths: ['en/home']
-      }
-    )
+    const results = await runContentSpotCheck(connector, fakeLookup({ 'en/home': '# hello' }), {
+      siteId: 'site-1',
+      paths: ['en/home']
+    })
     assert.equal(results[0].status, 'mismatch')
   })
 
   test('reports destination_missing when the destination has no such page', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
@@ -344,7 +336,7 @@ describe('runContentSpotCheck', () => {
 
   test('reports source_missing for an explicit path never found at the source', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: '<p>hello</p>' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: '# hello' }
     }
     const connector = { ...stubConnector(), pages }
     const results = await runContentSpotCheck(connector, fakeLookup({}), {
@@ -359,7 +351,7 @@ describe('runContentSpotCheck', () => {
   test('random-samples up to sampleSize pages when no explicit paths are given', async () => {
     async function* pages(): AsyncGenerator<SourceRecord> {
       for (let i = 0; i < 50; i++) {
-        yield { id: i, path: `en/page-${i}`, localeCode: 'en', render: `body-${i}` }
+        yield { id: i, path: `en/page-${i}`, localeCode: 'en', content: `body-${i}` }
       }
     }
     const connector = { ...stubConnector(), pages }
@@ -379,7 +371,7 @@ describe('runContentSpotCheck', () => {
     // Defends against a spot-check that accidentally reads through more of SourceConnector than
     // pages() alone.
     async function* pages(): AsyncGenerator<SourceRecord> {
-      yield { id: 1, path: 'en/home', localeCode: 'en', render: 'x' }
+      yield { id: 1, path: 'en/home', localeCode: 'en', content: 'x' }
     }
     const connector: SourceConnector = { ...stubConnector(), pages }
     assert.throws(() => connector.assets() as AsyncIterable<SourceAssetFile>)
@@ -388,6 +380,38 @@ describe('runContentSpotCheck', () => {
       paths: ['en/home']
     })
     assert.equal(results[0].status, 'match')
+  })
+
+  test('normalizes an uppercase/underscored 2.x source path before the destination lookup', async () => {
+    // The source path is exactly what a real 2.x row would carry -- uppercase segments and an
+    // underscore -- while the destination is keyed the way `assignTreePaths`/`normalizeMigratedPath`
+    // actually wrote it on import: lowercased, underscores folded to hyphens. An unnormalized lookup
+    // would miss this row entirely and report `destination_missing`.
+    async function* pages(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, path: 'Guide/Getting_Started', localeCode: 'en', content: '# intro' }
+    }
+    const connector = { ...stubConnector(), pages }
+    const results = await runContentSpotCheck(
+      connector,
+      fakeLookup({ 'guide/getting-started': '# intro' }),
+      { siteId: 'site-1', paths: ['Guide/Getting_Started'] }
+    )
+    assert.equal(results.length, 1)
+    assert.equal(results[0].path, 'Guide/Getting_Started') // reported path stays the raw source path
+    assert.equal(results[0].status, 'match')
+  })
+
+  test('reports destination_missing, not a crash, when a source path fails to normalize at all', async () => {
+    async function* pages(): AsyncGenerator<SourceRecord> {
+      yield { id: 1, path: '///', localeCode: 'en', content: '# unreachable' }
+    }
+    const connector = { ...stubConnector(), pages }
+    const results = await runContentSpotCheck(connector, fakeLookup({}), {
+      siteId: 'site-1',
+      paths: ['///']
+    })
+    assert.equal(results.length, 1)
+    assert.equal(results[0].status, 'destination_missing')
   })
 })
 

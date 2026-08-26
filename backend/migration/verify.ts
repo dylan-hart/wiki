@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import { assets, groups, navigation, pageHistory, pages, tags, users } from '../db/schema.ts'
 import { NotYetImplementedError } from './connector.ts'
+import { normalizeMigratedPath } from './path-normalization.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { MigrationPhaseId } from './context.ts'
 import type { SourceConnector, SourceRecord } from './connector.ts'
@@ -316,8 +317,15 @@ export type SpotCheckStatus =
   | 'source_not_implemented'
 
 export interface SpotCheckEntry {
+  /** The 2.x source path, unnormalized — what a caller passed via `--sample-paths` or what the
+   * source reported, not the folded 3.0 tree path actually used to look up the destination row (see
+   * `runContentSpotCheck`). */
   path: string
   status: SpotCheckStatus
+  /** Both hashes are of `pages.content` (the raw, unrendered body `createPage` stores verbatim) on
+   * their respective side — never `pages.render`, which 3.0's `rendering.postProcess` derives
+   * through sanitization/cheerio/icon-handling and so is never byte-identical to the 2.x source's own
+   * `render`, even for a page that imported perfectly. */
   sourceHash?: string
   destinationHash?: string
 }
@@ -334,20 +342,25 @@ export interface SpotCheckOptions {
   rng?: () => number
 }
 
-/** Looks up one destination page's rendered body by the natural key an importer would key on
- * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`). Returns
+/** Looks up one destination page's stored body by the natural key an importer would key on
+ * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`; `path` is the
+ * already-normalized 3.0 tree path, not the raw 2.x one — see `runContentSpotCheck`). Returns
  * `undefined` when no such page exists at the destination. */
 export type DestinationPageLookup = (
   siteId: string,
   locale: string,
   path: string
-) => Promise<{ render: string | null } | undefined>
+) => Promise<{ content: string | null } | undefined>
 
-/** Builds the real, `WikiDb`-backed `DestinationPageLookup`. */
+/** Builds the real, `WikiDb`-backed `DestinationPageLookup`. Reads `pages.content`, not
+ * `pages.render` — `createPage` (`models/pages.ts`) stores `content` verbatim from the import input,
+ * while `render` is derived by `rendering.postProcess` (sanitize, cheerio, `stripEditorArtifacts`,
+ * icon handling, `anchorHeadings`, re-serialize) and so is never a faithful copy of anything on the
+ * 2.x side. */
 export function createDestinationPageLookup(db: WikiDb): DestinationPageLookup {
   return async (siteId, locale, path) => {
     const [row] = await db
-      .select({ render: pages.render })
+      .select({ content: pages.content })
       .from(pages)
       .where(and(eq(pages.siteId, siteId), eq(pages.locale, locale), eq(pages.path, path)))
       .limit(1)
@@ -359,19 +372,32 @@ function pagePath(record: SourceRecord): string | undefined {
   return typeof record.path === 'string' ? record.path : undefined
 }
 
+/** Normalizes a raw 2.x source path into the 3.0 tree path an import would have actually placed it
+ * at — the same `normalizeMigratedPath` fold (lowercase, `_` → `-`) `assignTreePaths` applies to
+ * every imported page. Returns `undefined` when the path doesn't normalize to anything valid (in
+ * which case the page was never importable in the first place, so there is nothing to look up). */
+function destinationLookupPath(rawPath: string): string | undefined {
+  const normalized = normalizeMigratedPath(rawPath)
+  return 'reason' in normalized ? undefined : normalized.path
+}
+
 function pageLocale(record: SourceRecord): string {
   return typeof record.localeCode === 'string' ? record.localeCode : 'en'
 }
 
-function pageRender(record: SourceRecord): string | null {
-  return typeof record.render === 'string' ? record.render : null
+function pageContent(record: SourceRecord): string | null {
+  return typeof record.content === 'string' ? record.content : null
 }
 
 /**
- * Runs the content-integrity spot-check: for each sampled source page, hash-compares its rendered
- * body (2.x `pages.render` — maps directly onto 3.0 `pages.render` per
- * `docs/migration/2.5x-to-3.0-mapping.md`'s pages table) against the destination page's own `render`,
- * to catch truncation or encoding corruption a plain row-count match cannot reveal.
+ * Runs the content-integrity spot-check: for each sampled source page, hash-compares its raw body
+ * (2.x `pages.content`, which 3.0's `createPage` stores verbatim into `pages.content` — see
+ * `SpotCheckEntry`'s doc for why this is `content` and not `render`) against the destination page's
+ * own stored `content`, to catch truncation or encoding corruption a plain row-count match cannot
+ * reveal. The destination lookup uses the path *after* running it through the same
+ * `normalizeMigratedPath` fold every import applies (`path-normalization.ts`) — the raw 2.x `path`
+ * looked up unnormalized would miss any page whose path had an uppercase letter or an underscore,
+ * since those are exactly what the fold rewrites before the page is ever written to the 3.0 tree.
  *
  * When `options.paths` is given, this reads every source page once, picks out exactly those paths (a
  * miss is reported as `'source_missing'`), and reports a synthetic path for any explicitly-requested
@@ -427,13 +453,17 @@ export async function runContentSpotCheck(
       continue
     }
     const locale = pageLocale(record)
-    const destination = await lookupDestination(options.siteId, locale, path)
+    const lookupPath = destinationLookupPath(path)
+    const destination =
+      lookupPath === undefined
+        ? undefined
+        : await lookupDestination(options.siteId, locale, lookupPath)
     if (!destination) {
       entries.push({ path, status: 'destination_missing' })
       continue
     }
-    const sourceHash = hashContent(pageRender(record))
-    const destinationHash = hashContent(destination.render)
+    const sourceHash = hashContent(pageContent(record))
+    const destinationHash = hashContent(destination.content)
     entries.push({
       path,
       status: sourceHash === destinationHash ? 'match' : 'mismatch',
