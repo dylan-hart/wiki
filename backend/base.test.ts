@@ -33,7 +33,7 @@ test('base.yml declares an auditLog.retentionDays default matching DEFAULT_AUDIT
  * This locks their removal so none of the three reappears in `base.yml`.
  */
 test('base.yml has no top-level ssl, channel, or maintainerEmail keys', async () => {
-  const raw = await fs.readFile(baseYmlPath, 'utf8')
+  const raw = await fs.readFile(BASE_YML_PATH, 'utf8')
   const data = load(raw) as Record<string, any>
   const config = data.defaults?.config
 
