@@ -859,8 +859,8 @@ const syncModeOptions = computed(() =>
 
 /** What the currently selected mode does, shown as the picker's caption. */
 const syncModeHint = computed(() => {
-  const key = SYNC_MODE_HINT_KEYS[state.target?.sync?.mode]
-  return key ? t(key) : ''
+  const mode = state.target?.sync?.mode
+  return SYNC_MODE_HINT_KEYS[mode] ? t(SYNC_MODE_HINT_KEYS[mode]) : ''
 })
 
 /** 'error' | 'never' | 'outOfDate' | 'synced' -- see `syncStatusKind` for the priority order. */

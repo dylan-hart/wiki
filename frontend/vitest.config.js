@@ -80,7 +80,7 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: [fileURLToPath(new URL('./test/setup.js', import.meta.url))],
-    include: ['src/**/*.test.js'],
+    include: ['src/**/*.test.js', 'scripts/**/*.test.js'],
     css: true,
     server: {
       deps: {

@@ -185,8 +185,10 @@ function humanizeDate(val) {
 
 /** The one-line summary of a notification, phrased by its action — see `inbox.notificationAction*`. */
 function notificationLine(notification) {
-  const key = `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`
-  return t(key, { actor: notification.actorName, title: notification.pageTitle })
+  return t(
+    `inbox.notificationAction${notification.action[0].toUpperCase()}${notification.action.slice(1)}`,
+    { actor: notification.actorName, title: notification.pageTitle }
+  )
 }
 
 async function load() {
