@@ -134,6 +134,16 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> Admin-issued keys are session-only: a bearer-token caller (an admin-issued key or a
+      //    personal access token, both stand in as `req.apiKey`) must never be able to mint another
+      //    key, restricted or not -- see the self-service PAT routes' own `sessionUserId(req)` gate
+      //    in `api/users.ts`, which the same rule mirrors here. Simpler and more defensible than
+      //    clamping the requested groups/scope/siteId/allowedClassifications against the caller's own
+      //    restrictions (OpenProject #2190).
+      if (req.apiKey) {
+        return reply.forbidden('API keys cannot be created using a bearer token.')
+      }
+
       if (!/^[^<>"]+$/.test(req.body.name)) {
         return reply.badRequest('Key name contains invalid characters.')
       }
@@ -238,6 +248,12 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> Same rule as create, above: a bearer-token caller must never be able to revoke a key
+      //    (including one that outranks it) using a bearer token of its own (OpenProject #2190).
+      if (req.apiKey) {
+        return reply.forbidden('API keys cannot be revoked using a bearer token.')
+      }
+
       const key = await WIKI.models.apiKeys.getKeyById(req.params.keyId)
       if (!key) {
         return reply.notFound('API key does not exist.')

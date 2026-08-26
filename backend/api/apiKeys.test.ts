@@ -19,7 +19,9 @@ import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 const GROUP_ID = '11111111-1111-4111-8111-111111111111'
 const SITE_ID = '22222222-2222-4222-8222-222222222222'
 const LEVEL_ID = '33333333-3333-4333-8333-333333333333'
+const KEY_ID = '44444444-4444-4444-8444-444444444444'
 let createKeyCalls: any[] = []
+let revokeKeyCalls: any[] = []
 
 let app: FastifyInstance
 
@@ -33,6 +35,11 @@ before(async () => {
         createKey: async (args: any) => {
           createKeyCalls.push(args)
           return { id: 'new-key-id', key: 'signed.jwt.token' }
+        },
+        getKeyById: async (id: string) =>
+          id === KEY_ID ? { id: KEY_ID, name: 'Existing Key', isRevoked: false } : null,
+        revokeKey: async (id: string) => {
+          revokeKeyCalls.push(id)
         }
       },
       classificationLevels: {
@@ -64,6 +71,25 @@ before(async () => {
       statusCode: error.statusCode ?? 500,
       message: error.message
     })
+  })
+  // -> Mirrors `index.ts`'s real `apiKey` decoration + onRequest hook (`app.decorateRequest('apiKey',
+  //    null)` then populating it from a verified bearer token), narrowed to what these tests need: a
+  //    request carrying the `x-test-bearer` header simulates a bearer-token-authenticated caller
+  //    (an admin-issued key or a personal access token), and one without it simulates a
+  //    session-authenticated caller -- the two cases OpenProject #2190 tells apart.
+  app.decorateRequest('apiKey', null)
+  app.addHook('onRequest', async (req) => {
+    if (req.headers['x-test-bearer']) {
+      req.apiKey = {
+        id: 'caller-key-id',
+        permissions: ['manage:system'],
+        groupIds: [],
+        scope: null,
+        allowedClassifications: null,
+        userId: null,
+        siteId: null
+      }
+    }
   })
   await registerErrorSchema(app)
   await registerApiKeySchema(app)
@@ -265,4 +291,62 @@ test('creating a key records an apiKey.issued audit log entry, never the key val
   assert.equal(call.targetId, 'new-key-id')
   assert.equal(call.targetLabel, 'Test Key')
   assert.equal(JSON.stringify(call).includes('signed.jwt.token'), false)
+})
+
+/**
+ * OpenProject #2190: a verified bearer token (an admin-issued key or a personal access token, both
+ * arrive as `req.apiKey`) must never be able to mint or revoke another API key -- only a
+ * session-authenticated caller may, matching the self-service PAT routes' own `sessionUserId(req)`
+ * gate in `api/users.ts`.
+ */
+test('refuses to create a key for a bearer-token caller, even one carrying manage:system', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    headers: { 'x-test-bearer': 'true' },
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(createKeyCalls.length, 0)
+})
+
+test('still creates a key for a session-authenticated caller', async () => {
+  createKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: {
+      name: 'Test Key',
+      expiration: '30d',
+      groups: [GROUP_ID]
+    }
+  })
+  assert.equal(res.statusCode, 200)
+  assert.equal(createKeyCalls.length, 1)
+})
+
+test('refuses to revoke a key for a bearer-token caller, even one carrying manage:system', async () => {
+  revokeKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: `/${KEY_ID}/revoke`,
+    headers: { 'x-test-bearer': 'true' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(revokeKeyCalls.length, 0)
+})
+
+test('still revokes a key for a session-authenticated caller', async () => {
+  revokeKeyCalls = []
+  const res = await app.inject({
+    method: 'POST',
+    url: `/${KEY_ID}/revoke`
+  })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(revokeKeyCalls, [KEY_ID])
 })
