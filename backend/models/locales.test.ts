@@ -408,6 +408,39 @@ describe('sideloadFromDataPath() (DB-backed)', { skip: !hasTestDatabase() }, () 
 })
 
 /**
+ * `getLocales()` (OpenProject #2005): used to write one extra `locale:<code>` cache entry per
+ * installed locale, alongside the `locales` list it actually serves and freshness-checks (`has
+ * ('locales')`). Nothing ever read that prefix back, so it was dead writes that could drift from the
+ * `locales` list with no reader to notice. Asserts the cache only ever receives the one `locales` key.
+ */
+describe('getLocales() (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let localesModel: typeof import('./locales.ts').locales
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ locales: localesModel } = await import('./locales.ts'))
+    await seedLocale(fixtures.db, { code: 'en' })
+    await seedLocale(fixtures.db, { code: 'fr' })
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('writes only the "locales" cache key, no per-locale entries', async () => {
+    const cacheSetCalls = (WIKI.cache.set as any).mock.calls.length
+    await localesModel.getLocales({ cache: false })
+
+    const newCalls = (WIKI.cache.set as any).mock.calls.slice(cacheSetCalls)
+    assert.deepEqual(
+      newCalls.map((call: any) => call.arguments[0]),
+      ['locales']
+    )
+  })
+})
+
+/**
  * `isReservedLocaleCode` (task 12 / #994): whether a path segment names an INSTALLED locale, case-
  * insensitively — installed, not merely active on a given site, per the decision doc's item 4: a
  * locale can be activated later, so a page created while it was only installed must already be
