@@ -435,6 +435,33 @@ export function isValidUuid(value: string): boolean {
 }
 
 /**
+ * Whether a stored redirect target is safe to hand to a browser with no click in between.
+ *
+ * A group's `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` and a site's
+ * `auth.loginRedirect`/`welcomeRedirect`/`logoutRedirect` all land in `window.location.replace()`
+ * (`AuthLoginPanel.vue`) the moment the matching user signs in or out — nobody chooses to follow
+ * them, so any scheme other than a rooted path or a complete `http(s)` address is either useless
+ * (`mailto:`) or an invitation (`javascript:`) that fires unattended for whoever hits it next,
+ * including an administrator. This is the same rule `models/pages.ts`'s `normalizeRedirectContent`
+ * already holds a `redirect`-kind page to, and what `frontend/src/helpers/pageRedirect.js`'s
+ * `isFollowable` re-checks client-side; kept here as its own export because a group/site redirect
+ * field has no `kind` tag of its own to sniff — it is either empty (no override), a rooted path, or
+ * an absolute URL, decided from the string alone.
+ *
+ * An empty string is valid: it is the default for every one of these six fields and means "no
+ * override", not "an unset target that got here anyway".
+ */
+export function isValidRedirectTarget(value: string): boolean {
+  if (value.length < 1) {
+    return true
+  }
+  if (value.startsWith('/')) {
+    return !value.startsWith('//')
+  }
+  return /^https?:\/\/\S/i.test(value)
+}
+
+/**
  * Hash a page path the way the frontend does.
  *
  * A page is addressed by the hash of its path rather than the path itself, so that a URL with slashes

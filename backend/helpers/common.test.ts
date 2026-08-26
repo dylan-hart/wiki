@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   defaultLocale,
   guardSiteEnabled,
+  isValidRedirectTarget,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
@@ -387,5 +388,43 @@ describe('guardSiteEnabled', () => {
     const handled = guardSiteEnabled(null, reply)
     assert.equal(handled, false)
     assert.deepEqual(calls.forbidden, [])
+  })
+})
+
+describe('isValidRedirectTarget', () => {
+  test('an empty string is valid -- the default, meaning no override', () => {
+    assert.equal(isValidRedirectTarget(''), true)
+  })
+
+  test('a rooted path is valid', () => {
+    assert.equal(isValidRedirectTarget('/welcome'), true)
+  })
+
+  test('a complete http:// address is valid', () => {
+    assert.equal(isValidRedirectTarget('http://example.com/welcome'), true)
+  })
+
+  test('a complete https:// address is valid', () => {
+    assert.equal(isValidRedirectTarget('https://example.com/welcome'), true)
+  })
+
+  test('a javascript: URL is refused', () => {
+    assert.equal(isValidRedirectTarget('javascript:alert(1)'), false)
+  })
+
+  test('a data: URL is refused', () => {
+    assert.equal(isValidRedirectTarget('data:text/html,<script>alert(1)</script>'), false)
+  })
+
+  test('a protocol-relative URL is refused (not a rooted path, not an http(s) address)', () => {
+    assert.equal(isValidRedirectTarget('//evil.example.com'), false)
+  })
+
+  test('a bare relative path (no leading slash) is refused', () => {
+    assert.equal(isValidRedirectTarget('welcome'), false)
+  })
+
+  test('mailto: is refused', () => {
+    assert.equal(isValidRedirectTarget('mailto:someone@example.com'), false)
   })
 })

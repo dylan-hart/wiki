@@ -982,3 +982,49 @@ test('blocksIndex omits a disabled block', async () => {
   assert.equal(res.statusCode, 200)
   assert.deepEqual(res.json().blocksIndex, {})
 })
+
+/**
+ * OpenProject #2214: `auth.loginRedirect`/`welcomeRedirect`/`logoutRedirect` land in
+ * `window.location.replace()` with no click in between (`AuthLoginPanel.vue`), so a `javascript:`
+ * value stored on a site's login config would fire for the next visitor who signs in or out.
+ */
+beforeEach(() => {
+  updateSiteCalls = []
+})
+
+for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect']) {
+  test(`rejects a javascript: auth.${field} with 400`, async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { auth: { [field]: 'javascript:alert(1)' } }
+    })
+    assert.equal(res.statusCode, 400)
+    assert.equal(updateSiteCalls.length, 0)
+  })
+
+  test(`accepts a rooted path for auth.${field}`, async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { auth: { [field]: '/welcome' } }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateSiteCalls.length, 1)
+    assert.equal(updateSiteCalls[0].patch.config.auth[field], '/welcome')
+  })
+
+  test(`accepts an absolute https:// URL for auth.${field}`, async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/${PUT_SITE_ID}`,
+      headers: { 'x-test-permissions': 'manage:sites' },
+      payload: { auth: { [field]: 'https://example.com/welcome' } }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(updateSiteCalls.length, 1)
+    assert.equal(updateSiteCalls[0].patch.config.auth[field], 'https://example.com/welcome')
+  })
+}

@@ -275,3 +275,101 @@ test('an anonymous request is refused the list', async () => {
   const res = await app.inject({ method: 'GET', url: '/' })
   assert.equal(res.statusCode, 401)
 })
+
+/**
+ * OpenProject #2214: `redirectOnLogin`/`redirectOnFirstLogin`/`redirectOnLogout` land in
+ * `window.location.replace()` with no click in between (`AuthLoginPanel.vue`), so a `javascript:`
+ * value stored on a group would fire for the next member who signs in or out. Non-DB and isolated
+ * from the block above: only `getGroupById`/`updateGroup`/`auditLog.record` are stubbed, which is
+ * everything the handler touches for a redirect-only patch with no `permissions`/`rules` in it.
+ */
+describe('PUT /:groupId — redirect field validation (non-DB)', () => {
+  const REDIRECT_GROUP_ID = '44444444-4444-4444-4444-444444444444'
+  const redirectGroup = {
+    id: REDIRECT_GROUP_ID,
+    name: 'Editors',
+    isSystem: false,
+    userCount: 0,
+    permissions: [],
+    rules: []
+  }
+
+  let redirectApp: FastifyInstance
+  let updateGroup: ReturnType<typeof mock.fn>
+
+  before(async () => {
+    updateGroup = mock.fn(async () => {})
+    ;(globalThis as any).WIKI = {
+      config: { auth: { rootAdminGroupId: null } },
+      logger: { warn: () => {} },
+      models: {
+        groups: {
+          async getGroupById(id: string) {
+            return id === REDIRECT_GROUP_ID ? redirectGroup : null
+          },
+          updateGroup,
+          holdsSystemPermission: () => true
+        },
+        auditLog: {
+          record: mock.fn(async () => {})
+        }
+      }
+    }
+
+    redirectApp = fastify()
+    await redirectApp.register(fastifySensible)
+    redirectApp.setErrorHandler((error: any, req, reply) => {
+      reply.code(error.statusCode ?? 500).send({
+        ok: false,
+        error: error.name,
+        statusCode: error.statusCode ?? 500,
+        message: error.message
+      })
+    })
+    await registerGroupSchema(redirectApp)
+    await registerUserSchema(redirectApp)
+    await registerErrorSchema(redirectApp)
+    await redirectApp.register(groupsRoutes)
+    await redirectApp.ready()
+  })
+
+  after(async () => {
+    await redirectApp.close()
+    delete (globalThis as any).WIKI
+  })
+
+  for (const field of ['redirectOnLogin', 'redirectOnFirstLogin', 'redirectOnLogout']) {
+    test(`rejects a javascript: ${field} with 400`, async () => {
+      updateGroup.mock.resetCalls()
+      const res = await redirectApp.inject({
+        method: 'PUT',
+        url: `/${REDIRECT_GROUP_ID}`,
+        payload: { [field]: 'javascript:alert(1)' }
+      })
+      assert.equal(res.statusCode, 400)
+      assert.equal(updateGroup.mock.calls.length, 0)
+    })
+
+    test(`accepts a rooted path for ${field}`, async () => {
+      updateGroup.mock.resetCalls()
+      const res = await redirectApp.inject({
+        method: 'PUT',
+        url: `/${REDIRECT_GROUP_ID}`,
+        payload: { [field]: '/welcome' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(updateGroup.mock.calls.length, 1)
+    })
+
+    test(`accepts an absolute https:// URL for ${field}`, async () => {
+      updateGroup.mock.resetCalls()
+      const res = await redirectApp.inject({
+        method: 'PUT',
+        url: `/${REDIRECT_GROUP_ID}`,
+        payload: { [field]: 'https://example.com/welcome' }
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(updateGroup.mock.calls.length, 1)
+    })
+  }
+})

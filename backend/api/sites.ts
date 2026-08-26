@@ -1,6 +1,6 @@
 import { and, count, eq, inArray } from 'drizzle-orm'
 import { pages as pagesTable } from '../db/schema.ts'
-import { CustomError, isValidUuid } from '../helpers/common.ts'
+import { CustomError, isValidRedirectTarget, isValidUuid } from '../helpers/common.ts'
 import { detectImageMime, detectSvg, imageMimeTypes, svgMimeType } from '../helpers/images.ts'
 import { SITE_PERMISSIONS } from '../helpers/siteRules.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
@@ -633,6 +633,19 @@ async function routes(app: FastifyInstance) {
       // -> Validate inputs
       if (req.body.title !== undefined && !/^[^<>"]+$/.test(req.body.title)) {
         throw new CustomError('siteUpdateInvalidTitle', 'Invalid Site Title')
+      }
+
+      // -> Each redirect lands in `window.location.replace()` with no click in between (see
+      //    `isValidRedirectTarget`'s doc comment) -- refuse anything but a rooted path or a complete
+      //    http(s) address rather than storing it for the next visitor who signs in or out.
+      for (const field of ['loginRedirect', 'welcomeRedirect', 'logoutRedirect'] as const) {
+        const target = req.body.auth?.[field]
+        if (target !== undefined && !isValidRedirectTarget(target)) {
+          throw new CustomError(
+            'siteUpdateInvalidRedirect',
+            `auth.${field} must be empty, a path starting with a single slash, or a complete http:// or https:// address.`
+          )
+        }
       }
 
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })

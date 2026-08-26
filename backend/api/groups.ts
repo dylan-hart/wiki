@@ -1,4 +1,4 @@
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, isValidRedirectTarget } from '../helpers/common.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 import { SYSTEM_PERMISSION } from '../models/groups.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
@@ -302,6 +302,23 @@ async function routes(app: FastifyInstance) {
       if (req.body.redirectOnLogout !== undefined) {
         patch.redirectOnLogout = req.body.redirectOnLogout
       }
+
+      // -> Each redirect lands in `window.location.replace()` with no click in between (see
+      //    `isValidRedirectTarget`'s doc comment) -- refuse anything but a rooted path or a complete
+      //    http(s) address rather than storing it for the next admin who signs in.
+      for (const field of [
+        'redirectOnLogin',
+        'redirectOnFirstLogin',
+        'redirectOnLogout'
+      ] as const) {
+        if (patch[field] !== undefined && !isValidRedirectTarget(patch[field])) {
+          throw new CustomError(
+            'groupUpdateInvalidRedirect',
+            `${field} must be empty, a path starting with a single slash, or a complete http:// or https:// address.`
+          )
+        }
+      }
+
       if (req.body.permissions !== undefined) {
         patch.permissions = req.body.permissions
       }
