@@ -10,9 +10,13 @@
  *    disagreeing with what the dry run itself said it would do) is a stronger signal than a bare
  *    source-vs-destination mismatch, which could just mean the source changed between runs.
  * 2. **Content-integrity spot-check**: for a sample of pages (random or explicit), hash-compare the
- *    source's rendered body against the destination's, to catch truncation/encoding corruption that a
- *    row-count match alone would never reveal (a page that imported "successfully" but with its body
- *    cut off half way through still counts as 1 row either side).
+ *    source's raw body against the destination's stored `pages.content`, to catch truncation/encoding
+ *    corruption that a row-count match alone would never reveal (a page that imported "successfully"
+ *    but with its body cut off half way through still counts as 1 row either side). Deliberately
+ *    `content`, not `render`: `createPage()` never stores the render it was given verbatim — it
+ *    recomputes one via `WIKI.models.rendering.postProcess()` (sanitize, cheerio transforms,
+ *    re-serialize), so a render-vs-render hash comparison would report a mismatch for essentially
+ *    every real page. `content` is the one field `createPage()` stores unmodified.
  *
  * Every entity generator this reads through `SourceConnector` is, as of this task, still a
  * `NotYetImplementedError` stub (Features 414/416/418/420 own implementing them) — exactly the same
@@ -24,9 +28,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
-import { assets, groups, navigation, pageHistory, pages, tags, users } from '../db/schema.ts'
+import { and, eq, sql } from 'drizzle-orm'
+import { assets, groups, navigation, pageHistory, pages, users } from '../db/schema.ts'
 import { NotYetImplementedError } from './connector.ts'
+import { normalizeMigratedPath } from './path-normalization.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { MigrationPhaseId } from './context.ts'
 import type { SourceConnector, SourceRecord } from './connector.ts'
@@ -141,8 +146,18 @@ export function createDestinationCounter(db: WikiDb): DestinationCounter {
     async pageHistory(siteId) {
       return db.$count(pageHistory, eq(pageHistory.siteId, siteId))
     },
+    // -> The `tags` table (`db/schema.ts`) is a dead leftover nothing in `backend/` ever writes to
+    //    (see `models/tags.ts`'s own doc comment) — the real tag list lives in `pages.tags`, so the
+    //    destination count is derived the same way `models/tags.ts#getTags` derives it: DISTINCT tags
+    //    unnested across the site's pages.
     async tags(siteId) {
-      return db.$count(tags, eq(tags.siteId, siteId))
+      const result = await db.execute(sql`
+        SELECT COUNT(DISTINCT tag)::int AS count
+        FROM pages, unnest(tags) AS tag
+        WHERE "siteId" = ${siteId}
+      `)
+      const rows = (result.rows ?? result) as { count: number }[]
+      return rows[0]?.count ?? 0
     },
     async assets(siteId) {
       return db.$count(assets, eq(assets.siteId, siteId))
@@ -183,9 +198,25 @@ export interface EntityCount {
   status: EntityCountStatus
 }
 
+/** Per-entity `destinationCount - sourceCount` a flawless import is expected to land on, when it is
+ * not simply 0. Only `groups` currently has one: the importer deliberately skips every `isSystem`
+ * source row (2.x Administrators id 1 / Guests id 2 — `importers/users-groups.ts:798,870`) because
+ * 3.0 seeds its own three (`models/groups.ts:404,422,440` — Administrators, Users, Guests), so a
+ * perfect import lands the destination exactly one group ahead of the source (3 seeded - 2 skipped).
+ * `users` is deliberately absent: on a fresh single-site import 2.x's two skipped system users
+ * (`importers/users-groups.ts`) net out exactly against 3.0's own two seeded users (admin
+ * `isSystem: false` at `models/users.ts:1535`, Guest `isSystem: true` at `:1553-1556`) — filtering or
+ * offsetting `users` here would turn a currently-matching case into a false mismatch. */
+const EXPECTED_ENTITY_DELTA: Partial<Record<VerifyEntity, number>> = {
+  groups: 1
+}
+
 /** Per-entity source-vs-destination reconciliation — task 748's first check. A `'not_implemented'`
  * source count is reported as-is rather than as a mismatch: there is nothing to compare against yet,
- * and calling that a failure would make every run fail until Features 414/416/418/420 all land. */
+ * and calling that a failure would make every run fail until Features 414/416/418/420 all land.
+ * `destinationCount` is compared against `sourceCount + EXPECTED_ENTITY_DELTA[entity]` (0 when the
+ * entity has no entry), not bare equality — see that map's doc comment for why `groups` alone needs
+ * one. */
 export function compareEntityCounts(
   sourceCounts: SourceEntityCounts,
   destinationCounts: DestinationEntityCounts
@@ -196,11 +227,12 @@ export function compareEntityCounts(
     if (sourceCount === 'not_implemented') {
       return { entity, sourceCount: null, destinationCount, status: 'source_not_implemented' }
     }
+    const expectedDelta = EXPECTED_ENTITY_DELTA[entity] ?? 0
     return {
       entity,
       sourceCount,
       destinationCount,
-      status: sourceCount === destinationCount ? 'match' : 'mismatch'
+      status: destinationCount === sourceCount + expectedDelta ? 'match' : 'mismatch'
     }
   })
 }
@@ -264,8 +296,8 @@ export function compareAgainstDryRunReports(
 // Content-integrity spot-check
 // ----------------------------------------
 
-/** SHA-256 of the given text, treating `null`/`undefined` as empty — a page with no render yet and a
- * page whose render is genuinely `''` hash identically, which is the right call here: this check is
+/** SHA-256 of the given text, treating `null`/`undefined` as empty — a page with no content yet and a
+ * page whose content is genuinely `''` hash identically, which is the right call here: this check is
  * about whether two present bodies match, not about presence itself (a missing page is its own
  * `'source_missing'`/`'destination_missing'` status below). */
 export function hashContent(content: string | null | undefined): string {
@@ -316,8 +348,14 @@ export type SpotCheckStatus =
   | 'source_not_implemented'
 
 export interface SpotCheckEntry {
+  /** The raw, un-normalized 2.x path, kept as the human-readable identifier for the report — the
+   * lookup itself is done against its `normalizeMigratedPath()`-normalized form (see
+   * `normalizedLookupPath`), which is not surfaced here. */
   path: string
   status: SpotCheckStatus
+  /** `sourceHash`/`destinationHash` are `hashContent()` of 2.x `pages.content` (source) vs. 3.0
+   * `pages.content` (destination) — the one field `createPage()` stores verbatim. Not `render`: see
+   * the module doc comment. */
   sourceHash?: string
   destinationHash?: string
 }
@@ -334,20 +372,22 @@ export interface SpotCheckOptions {
   rng?: () => number
 }
 
-/** Looks up one destination page's rendered body by the natural key an importer would key on
- * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`). Returns
- * `undefined` when no such page exists at the destination. */
+/** Looks up one destination page's stored `content` by the natural key an importer would key on
+ * (`siteId`, `locale`, `path` — same as `provenance.ts`'s `findExistingPageByPath`, and `path` here is
+ * expected to already be normalized, i.e. the same `normalizeMigratedPath()` output `assignTreePaths`
+ * placed the page under). Returns `undefined` when no such page exists at the destination. `content`,
+ * not `render`: see the module doc comment for why the render field can't be compared. */
 export type DestinationPageLookup = (
   siteId: string,
   locale: string,
   path: string
-) => Promise<{ render: string | null } | undefined>
+) => Promise<{ content: string | null } | undefined>
 
 /** Builds the real, `WikiDb`-backed `DestinationPageLookup`. */
 export function createDestinationPageLookup(db: WikiDb): DestinationPageLookup {
   return async (siteId, locale, path) => {
     const [row] = await db
-      .select({ render: pages.render })
+      .select({ content: pages.content })
       .from(pages)
       .where(and(eq(pages.siteId, siteId), eq(pages.locale, locale), eq(pages.path, path)))
       .limit(1)
@@ -363,15 +403,29 @@ function pageLocale(record: SourceRecord): string {
   return typeof record.localeCode === 'string' ? record.localeCode : 'en'
 }
 
-function pageRender(record: SourceRecord): string | null {
-  return typeof record.render === 'string' ? record.render : null
+function pageContent(record: SourceRecord): string | null {
+  return typeof record.content === 'string' ? record.content : null
+}
+
+/** The 3.0 tree location `assignTreePaths`/`normalizeMigratedPath` would have placed this 2.x path
+ * under — lowercased, underscores folded to hyphens (`path-normalization.ts`). Every imported page is
+ * looked up at the destination under this normalized path, not the raw 2.x one: any path with an
+ * uppercase letter or underscore would otherwise be looked up under a key `createPage()` never wrote,
+ * reporting `destination_missing` even on a perfect import. Falls back to the raw path when it fails
+ * to normalize (e.g. empty once trimmed) — such a page was never actually imported either, so the
+ * lookup correctly reports `destination_missing` regardless of which string it is keyed on. */
+function normalizedLookupPath(rawPath: string): string {
+  const normalized = normalizeMigratedPath(rawPath)
+  return 'reason' in normalized ? rawPath : normalized.path
 }
 
 /**
- * Runs the content-integrity spot-check: for each sampled source page, hash-compares its rendered
- * body (2.x `pages.render` — maps directly onto 3.0 `pages.render` per
- * `docs/migration/2.5x-to-3.0-mapping.md`'s pages table) against the destination page's own `render`,
- * to catch truncation or encoding corruption a plain row-count match cannot reveal.
+ * Runs the content-integrity spot-check: for each sampled source page, hash-compares its raw 2.x
+ * `pages.content` against the destination page's own stored `pages.content` — the one field
+ * `createPage()` writes verbatim, unlike `render` (see the module doc comment) — to catch truncation
+ * or encoding corruption a plain row-count match cannot reveal. The destination lookup is keyed on the
+ * source path's `normalizeMigratedPath()`-normalized form, matching where `assignTreePaths` actually
+ * placed the page in the 3.0 tree.
  *
  * When `options.paths` is given, this reads every source page once, picks out exactly those paths (a
  * miss is reported as `'source_missing'`), and reports a synthetic path for any explicitly-requested
@@ -427,13 +481,13 @@ export async function runContentSpotCheck(
       continue
     }
     const locale = pageLocale(record)
-    const destination = await lookupDestination(options.siteId, locale, path)
+    const destination = await lookupDestination(options.siteId, locale, normalizedLookupPath(path))
     if (!destination) {
       entries.push({ path, status: 'destination_missing' })
       continue
     }
-    const sourceHash = hashContent(pageRender(record))
-    const destinationHash = hashContent(destination.render)
+    const sourceHash = hashContent(pageContent(record))
+    const destinationHash = hashContent(destination.content)
     entries.push({
       path,
       status: sourceHash === destinationHash ? 'match' : 'mismatch',
