@@ -12,6 +12,7 @@ import {
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
 import { coerceSourceBoolean } from '../source-coercion.ts'
+import { KNOWN_3_0_AUTH_MODULES } from '../unmappable.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -453,10 +454,11 @@ export function createGroupConverter(): GroupConverter {
 // ---------------------------------------------------------------------------
 
 /** 2.x `providerKey` values that correspond to a 3.0 authentication module that actually exists
- * today — `backend/modules/authentication/{local,github,google,oidc}/` is the full list. Membership
- * here is necessary but not sufficient for a real provider-linked import: see
- * `needsProviderFallback()`. */
-const IMPLEMENTED_PROVIDER_MODULES = new Set(['local', 'github', 'google', 'oidc'])
+ * today — `../unmappable.ts`'s `KNOWN_3_0_AUTH_MODULES` (`backend/modules/authentication/*`,
+ * cross-checked live against disk by that module's test), reused here rather than duplicated so the
+ * two lists can't drift apart again. Membership here is necessary but not sufficient for a real
+ * provider-linked import: see `needsProviderFallback()`. */
+const IMPLEMENTED_PROVIDER_MODULES = KNOWN_3_0_AUTH_MODULES
 
 /**
  * Whether a source user's `providerKey` must be routed through the unsupported/reconfigured-provider
@@ -486,7 +488,7 @@ export function needsProviderFallback(
 function providerFallbackReason(providerKey: string): string {
   return IMPLEMENTED_PROVIDER_MODULES.has(providerKey)
     ? `source provider '${providerKey}' is implemented in 3.0, but no target-strategy mapping was supplied for it — a fresh install's ${providerKey} strategy (if configured at all) would not share the source's client id/secret, so the linked account cannot be assumed to resolve on this install`
-    : `source provider '${providerKey}' has no 3.0-native implementation (local/github/google/oidc is the full list — see Epic #333)`
+    : `source provider '${providerKey}' has no 3.0-native implementation (see backend/modules/authentication/ and docs/migration/2.5x-settings-auth-storage-field-mapping.md's Part 2 provider inventory for the confirmed no-destination providers)`
 }
 
 /** Reads a string column, treating an empty string the same as absent so a blank source field is
