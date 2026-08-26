@@ -5,8 +5,16 @@ import { OidcPreset } from '../oidc/preset.ts'
  *
  * The v2.0 endpoint publishes standard OIDC discovery per tenant at
  * `https://login.microsoftonline.com/{tenantId}/v2.0/.well-known/openid-configuration` — `tenantId`
- * is a directory (tenant) ID or domain, or `common` for a multi-tenant app that accepts any Microsoft
- * account. `common` is the default here because that is the app registration most admins start from.
+ * is a directory (tenant) ID or verified domain from the app registration's Overview page.
+ *
+ * There is deliberately no default (and no fallback to Microsoft's `common` multi-tenant endpoint):
+ * `openid-client` special-cases `login.microsoftonline.com` and, for that host, replaces the issuer it
+ * expects with one derived from the token's own `tid` claim rather than the tenant that was
+ * configured — so an ID token from *any* Microsoft tenant passes issuer validation regardless of which
+ * tenant an admin thinks they restricted sign-in to, and Entra's `email` claim is a mutable directory
+ * attribute a tenant administrator controls. Leaving `tenantId` blank templates the issuer to an empty
+ * string, which `OidcAuthentication#configuration()` already refuses to build a configuration from
+ * (`ERR_STRATEGY_MISCONFIGURED`) — the same refusal a missing issuer gets for every other preset.
  *
  * 2.5.x's `microsoft/authentication.js` used `passport-microsoft` against hardcoded v2.0 endpoints
  * instead of discovery, presumably because at the time this fork's generic `OidcAuthentication` (or
@@ -18,7 +26,7 @@ import { OidcPreset } from '../oidc/preset.ts'
 export default class MicrosoftAuthentication extends OidcPreset {
   constructor(strategyId: string, conf: Record<string, any>) {
     super(strategyId, conf, {
-      issuer: (c) => `https://login.microsoftonline.com/${c.tenantId || 'common'}/v2.0`
+      issuer: (c) => (c.tenantId ? `https://login.microsoftonline.com/${c.tenantId}/v2.0` : '')
     })
   }
 }

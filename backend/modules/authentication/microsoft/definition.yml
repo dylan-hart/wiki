@@ -14,9 +14,8 @@ props:
   tenantId:
     type: String
     title: Tenant ID
-    hint: A directory (tenant) ID or verified domain from the app registration's Overview page. Leave as "common" for a multi-tenant app that accepts any Microsoft account.
+    hint: A directory (tenant) ID or verified domain from the app registration's Overview page. Required — sign-in is refused until this is set, since Microsoft's issuer validation cannot otherwise be trusted to restrict which tenant's accounts may sign in.
     icon: building
-    default: common
     order: 1
   clientId:
     type: String

@@ -33,17 +33,44 @@ describe('MicrosoftAuthentication', () => {
     )
   })
 
-  test('defaults tenantId to "common" (multi-tenant) when left blank', () => {
+  test('templates an empty issuer when tenantId is left blank, rather than defaulting to "common"', () => {
     const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
     const inner = (ms as unknown as { inner: OidcAuthentication }).inner
-    assert.equal(inner.conf.issuer, 'https://login.microsoftonline.com/common/v2.0')
+    assert.equal(inner.conf.issuer, '')
+  })
+
+  test('refuses to build a configuration with no tenantId (OpenProject #2112)', async () => {
+    const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+    await assert.rejects(
+      ms.authorizationUrl({
+        redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
+        state: 's',
+        nonce: 'n',
+        codeVerifier: 'v'
+      }),
+      /ERR_STRATEGY_MISCONFIGURED/
+    )
+  })
+
+  test('builds a configuration successfully once a tenantId is supplied (OpenProject #2112)', () => {
+    const ms = new MicrosoftAuthentication('strategy-1', {
+      tenantId: 'contoso.onmicrosoft.com',
+      clientId: 'abc',
+      clientSecret: 'xyz'
+    })
+    const inner = (ms as unknown as { inner: OidcAuthentication }).inner
+    assert.equal(
+      inner.conf.issuer,
+      'https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0'
+    )
   })
 
   test('authorizationUrl/profile forward to the internal OidcAuthentication', async () => {
     const authorizationUrlMock = mock.method(
       OidcAuthentication.prototype,
       'authorizationUrl',
-      async () => 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=xyz'
+      async () =>
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize?state=xyz'
     )
     const profileMock = mock.method(OidcAuthentication.prototype, 'profile', async () => ({
       id: 'abc123',
@@ -51,7 +78,11 @@ describe('MicrosoftAuthentication', () => {
       name: 'A Person'
     }))
     try {
-      const ms = new MicrosoftAuthentication('strategy-1', { clientId: 'abc', clientSecret: 'xyz' })
+      const ms = new MicrosoftAuthentication('strategy-1', {
+        tenantId: 'contoso.onmicrosoft.com',
+        clientId: 'abc',
+        clientSecret: 'xyz'
+      })
       const flow = {
         redirectUri: 'https://wiki.example/_api/auth/strategy-1/callback',
         state: 's',
@@ -60,7 +91,7 @@ describe('MicrosoftAuthentication', () => {
       }
       assert.equal(
         await ms.authorizationUrl(flow),
-        'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?state=xyz'
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/authorize?state=xyz'
       )
       assert.equal(authorizationUrlMock.mock.callCount(), 1)
 
@@ -74,6 +105,7 @@ describe('MicrosoftAuthentication', () => {
 
   test('carries mapGroups/groupsClaim/groupsScope through to the internal OidcAuthentication unchanged (OpenProject #826)', () => {
     const ms = new MicrosoftAuthentication('strategy-1', {
+      tenantId: 'contoso.onmicrosoft.com',
       clientId: 'abc',
       clientSecret: 'xyz',
       mapGroups: true,
@@ -101,9 +133,13 @@ describe('microsoft/definition.yml', () => {
     assert.equal(def.usernameType, 'email')
   })
 
-  test('declares a tenantId prop defaulting to common, and no issuer prop', () => {
+  test('declares a required tenantId prop with no default (OpenProject #2112), and no issuer prop', () => {
     assert.ok(def.props.tenantId, 'expected a tenantId prop')
-    assert.equal(def.props.tenantId.default, 'common')
+    assert.equal(
+      def.props.tenantId.default,
+      undefined,
+      'tenantId must not default to "common" or anything else — an explicit tenant is required'
+    )
     assert.equal(def.props.issuer, undefined, 'issuer is templated, not admin-supplied')
     assert.ok(def.props.clientId)
     assert.ok(def.props.clientSecret)
