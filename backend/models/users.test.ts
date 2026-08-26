@@ -184,12 +184,16 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let previousTemporal: any
 
   const MODULE_KEY = 'local-test'
+  // -> A redirect/verify-only module stand-in (SAML/OIDC/LDAP shape): no `useForm`, so it has no
+  //    username/password of its own to register with.
+  const NON_FORM_MODULE_KEY = 'saml-test'
 
   function req(): any {
     return { session: {} }
   }
 
   async function createStrategy({
+    module = MODULE_KEY,
     registration = true,
     allowedEmailRegex = '',
     autoEnrollGroups = [] as string[],
@@ -199,7 +203,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const [row] = await fixtures.db
       .insert(authenticationTable)
       .values({
-        module: MODULE_KEY,
+        module,
         isEnabled,
         displayName: 'Test Local',
         registration,
@@ -221,6 +225,19 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;(WIKI.auth.strategies as any)[strategyId] = { config }
   }
 
+  /**
+   * `register()` reads the site's attached-strategies list off `WIKI.sites[siteId].config`, the same
+   * in-memory cache `getSiteById()` reads without `forceReload` -- `setupTestDb()` seeds that cache
+   * once with no `authStrategies` key, so a strategy created by `createStrategy()` starts out
+   * unattached to `fixtures.siteId` and every test that expects a strategy to actually work has to
+   * attach it here first.
+   */
+  function attachStrategyToSite(strategyId: string): void {
+    ;(WIKI.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
+      { id: strategyId, order: 0, isVisible: true }
+    ]
+  }
+
   before(async () => {
     previousTemporal = (globalThis as any).Temporal
     installFakeTemporal()
@@ -240,6 +257,15 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
         props: {
           emailValidation: { type: 'Boolean', title: 'Email Validation', default: true }
         }
+      },
+      {
+        key: NON_FORM_MODULE_KEY,
+        title: 'Test SAML',
+        description: '',
+        isAvailable: true,
+        useForm: false,
+        usernameType: 'email',
+        props: {}
       }
     ] as any
     // -> `getActiveStrategies()` reads this unconditionally (to sort the built-in local strategy
@@ -274,8 +300,48 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
+  test('refuses registration against a non-form-based strategy, even with registration enabled', async () => {
+    const strategyId = await createStrategy({ module: NON_FORM_MODULE_KEY, registration: true })
+    attachStrategyToSite(strategyId)
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.saml@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
+  test('refuses registration against a strategy not attached to the target site', async () => {
+    const strategyId = await createStrategy()
+    // -> Deliberately not calling attachStrategyToSite(): this strategy exists and accepts
+    //    registration, but was never added to fixtures.siteId's login screen.
+
+    await assert.rejects(
+      users.register(
+        {
+          siteId: fixtures.siteId,
+          strategyId,
+          name: 'Ada Lovelace',
+          email: 'ada.unattached@example.com',
+          password: 'longenough1'
+        },
+        req()
+      ),
+      /ERR_INVALID_STRATEGY/
+    )
+  })
+
   test('refuses when the strategy does not accept new users', async () => {
     const strategyId = await createStrategy({ registration: false })
+    attachStrategyToSite(strategyId)
 
     await assert.rejects(
       users.register(
@@ -294,6 +360,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('refuses an address outside allowedEmailRegex', async () => {
     const strategyId = await createStrategy({ allowedEmailRegex: '^[^@]+@allowed\\.example$' })
+    attachStrategyToSite(strategyId)
 
     await assert.rejects(
       users.register(
@@ -312,6 +379,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('refuses a duplicate of an already-verified address', async () => {
     const strategyId = await createStrategy()
+    attachStrategyToSite(strategyId)
 
     await assert.rejects(
       users.register(
@@ -333,6 +401,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     const request = req()
 
     const result = await users.register(
@@ -371,6 +440,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('emailValidation off: logs the new account straight in, like every other successful auth path', async () => {
     const strategyId = await createStrategy({ emailValidation: false })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
     const request = req()
 
@@ -401,6 +471,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       autoEnrollGroups: [fixtures.groupId]
     })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
     await users.register(
@@ -422,6 +493,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('re-registering a still-unverified address resends the link for the same account instead of creating a duplicate', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
 
     const first = await users.register(
       {

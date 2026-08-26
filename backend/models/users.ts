@@ -1900,6 +1900,31 @@ class Users {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
+    // -> Same module lookup login() does. A strategy backed by a redirect/verify-only module (SAML,
+    //    OIDC, LDAP, ...) has no username/password of its own to register with; `createUser()` would
+    //    still happily mint one under the local auth key, so this has to be refused before it, not
+    //    left to the module to notice.
+    const moduleDef = WIKI.data.authentication.find((a: any) => a.key === strategy.module)
+    if (!moduleDef?.useForm) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} module ${strategy.module} is not form-based`
+      )
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
+    // -> `getStrategyById()` resolves against the global strategy list, not what this site actually
+    //    offers -- a strategy an administrator removed from (or never added to) this site's login
+    //    screen must not be reachable through the API by id alone.
+    const site = await WIKI.models.sites.getSiteById({ id: siteId })
+    const configuredStrategies = ((site?.config as Record<string, any>)?.authStrategies ??
+      []) as Array<{ id: string }>
+    if (!configuredStrategies.some((s) => s.id === strategy.id)) {
+      WIKI.models.flags.authDebug(
+        `Registration refused: strategy ${strategy.id} is not attached to site ${siteId}`
+      )
+      throw new Error('ERR_INVALID_STRATEGY')
+    }
+
     if (!strategy.registration) {
       WIKI.models.flags.authDebug(
         `Registration refused: strategy ${strategy.id} does not accept new users`
