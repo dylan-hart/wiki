@@ -121,7 +121,6 @@ describe('fixture: 2.5x-settings.json -> mapSiteSettings', () => {
         disallowIframe: false,
         // moved tables: 2.x `uploads.*` -> 3.0 `settings.security.*`
         uploadMaxFileSize: 200,
-        uploadMaxFiles: 20,
         uploadScanSVG: true,
         forceAssetDownload: false
       }

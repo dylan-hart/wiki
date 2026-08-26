@@ -128,7 +128,6 @@ const SECURITY_INVERTED_RENAMES: Record<string, string> = {
  * "biggest scope surprise": these move tables (2.x `uploads` -> 3.0 `security`), not just names. */
 const UPLOADS_TO_SECURITY_RENAMES: Record<string, string> = {
   maxFileSize: 'uploadMaxFileSize',
-  maxFiles: 'uploadMaxFiles',
   scanSVG: 'uploadScanSVG',
   forceDownload: 'forceAssetDownload'
 }
