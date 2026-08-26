@@ -152,13 +152,14 @@ async function routes(app: FastifyInstance) {
         also the only correct gate available here: it is a closed, group-wide permission (CLAUDE.md's
         Permissions section) and no new, narrower permission name may be invented for this route.
 
-        NOT applied identically on the PUT (enable/disable) and DELETE routes below — see
-        `mayManageBlocks()`, which also accepts the site-scoped `site:blocks` delegation
-        (`docs/decisions/delegated-per-site-administration.md`). That is a deliberate widening for
-        those two routes, not a drift from this one: a `site:blocks` delegate can never reach THIS
-        upload route (still `manage:sites` only), so the reach a delegate gets through PUT/DELETE
-        alone is disabling or deleting a block, never introducing new script. Full accounting in
-        `docs/security/custom-block-upload.md` §2.
+        NOT applied identically on the PUT (enable/disable) and DELETE routes below: those also accept
+        the narrower site-scoped `site:blocks` delegation (`mayManageBlocks()`, backed by
+        `checkSiteAccess()` — see `docs/decisions/delegated-per-site-administration.md` §3, which lists
+        `site:blocks` as covering exactly these two routes). That is a deliberate, accepted widening,
+        not an inconsistency: introducing NEW arbitrary script is the more sensitive act, so upload
+        stays gated on `manage:sites` alone one tier tighter than merely enabling, disabling or deleting
+        a block someone with `manage:sites` already put there. Full reconciliation:
+        docs/security/custom-block-upload.md (OpenProject #2128).
       */
       config: {
         permissions: ['manage:sites']
