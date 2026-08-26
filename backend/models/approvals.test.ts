@@ -227,6 +227,186 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
 })
 
 /**
+ * OpenProject #2165: `approveSubmission()` writes the reviewer's content straight to the page, so it
+ * is still a write and takes the same `write:pages` a direct save would -- approval-rule
+ * (`reviewerGroups`) membership alone must not be enough to push arbitrary content onto a page nobody
+ * granted this reviewer write access to. Covers both halves of the done-when: a reviewer who matches
+ * the rule but holds no `write:pages` on the target is refused, with the page untouched and the
+ * submission left pending rather than partially applied; a reviewer who does hold it still succeeds.
+ */
+describe(
+  'approvals approveSubmission write:pages gate (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let groupsModel: typeof import('./groups.ts').groups
+    let authorActor: PageActor
+    let noWriteGroupId: string
+    let writeGroupId: string
+    let noWriteReviewerId: string
+    let writeReviewerId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+      authorActor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+
+      // -> `createGroup`'s own default rule grants only read:pages/read:assets/read:comments -- no
+      //    write:pages -- which is exactly the "reviewer matches the rule but holds no write:pages"
+      //    case this gate exists for.
+      noWriteGroupId = await groupsModel.createGroup('WP2165 reviewers, no write:pages')
+
+      // -> A second group, granted write:pages everywhere, for the "and still succeeds for one who
+      //    does" half of the done-when.
+      writeGroupId = await groupsModel.createGroup('WP2165 reviewers, with write:pages')
+      await groupsModel.updateGroup(writeGroupId, {
+        rules: [
+          {
+            id: 'wp2165-write-rule',
+            name: 'Grants write:pages',
+            roles: ['read:pages', 'write:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+
+      // -> Both groups are reviewer groups on the same rule -- membership in either gets a submission
+      //    into the review queue, but only `writeGroupId` also grants the permission that actually
+      //    writing the page requires.
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: [noWriteGroupId, writeGroupId]
+      })
+
+      const [noWriteReviewer] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'wp2165-no-write@example.com',
+          name: 'No Write Reviewer',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      noWriteReviewerId = noWriteReviewer!.id
+
+      const [writeReviewer] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'wp2165-write@example.com',
+          name: 'Write Reviewer',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      writeReviewerId = writeReviewer!.id
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    async function makePage(path: string, content: string) {
+      return pagesModel.createPage(
+        fixtures.siteId,
+        { path, title: path, editor: 'markdown', content },
+        authorActor
+      )
+    }
+
+    test('refuses the write, leaving content and submission untouched, for a reviewer with no write:pages on the target', async () => {
+      const page = await makePage('approvals/write-gate-refused', 'Original content')
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original content',
+        content: 'Suggested content',
+        authorId: fixtures.userId
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor: { id: noWriteReviewerId, permissions: [], groupIds: [noWriteGroupId] }
+      })
+
+      assert.deepEqual(result, { ok: false, reason: 'forbidden' })
+
+      const untouched = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.equal(untouched!.content, 'Original content')
+
+      const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+        groupIds: [],
+        reviewsAll: true,
+        pageId: page.id
+      })
+      assert.ok(stillPending.some((s) => s.id === submission.id))
+    })
+
+    test('succeeds and writes the page for a reviewer who holds write:pages on the target', async () => {
+      const page = await makePage('approvals/write-gate-allowed', 'Original content')
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original content',
+        content: 'Suggested content',
+        authorId: fixtures.userId
+      })
+
+      const result = await approvalsModel.approveSubmission({
+        siteId: fixtures.siteId,
+        submissionId: submission.id,
+        content: 'Suggested content',
+        render: '<p>Suggested content</p>',
+        actor: { id: writeReviewerId, permissions: [], groupIds: [writeGroupId] }
+      })
+
+      assert.deepEqual(result, {
+        ok: true,
+        finalized: true,
+        approvalsCount: 1,
+        approvalsRequired: 1
+      })
+
+      const updated = await pagesModel.getPage({
+        siteId: fixtures.siteId,
+        id: page.id,
+        withContent: true
+      })
+      assert.equal(updated!.content, 'Suggested content')
+    })
+  }
+)
+
+/**
  * OpenProject #828: multi-approver minimum-threshold support. `approveSubmission` used to write the
  * page and close the submission out on the very first approve, whoever cast it -- a single-approver
  * sign-off no matter how many reviewers a rule named. These pin the threshold behaviour a rule's
