@@ -291,10 +291,33 @@ const CONFIG_TRANSFORMS: Record<string, ConfigTransform> = {
     pick(raw, ['clientId', 'clientSecret', 'authorizationURL', 'tokenURL', 'userInfoURL'])
 }
 
+/**
+ * The only modules whose `CONFIG_TRANSFORMS` entry has actually been checked key-by-key against a
+ * real 2.x `definition.yml` (`docs/migration/2.5x-settings-auth-storage-field-mapping.md`'s Part 2).
+ * `resolver.getModule(module)` resolves for all sixteen 3.0 authentication modules on disk — far more
+ * than the four this mapper has a real transform for — so a module missing here is not "no config",
+ * it is "config nobody has verified how to remap yet". Deliberately **not** a copy of
+ * `mappers/storage.ts`'s `KNOWN_3_0_STORAGE_MODULES` gate: storage's transform coverage matches every
+ * module a 2.x row can name (`db`/`gcs` deliberately absent because no 2.x row can ever carry that
+ * key — see that module's own doc comment), which is not true here. A `saml`/`ldap`/`cas`/`auth0`/
+ * `okta`/`gitlab`/`keycloak`/`microsoft`/`discord`/`slack`/`twitch`/`oauth2` row is a real, resolvable
+ * module with real, still-unmapped config — silently discarding that config and importing the
+ * strategy enabled would hand end users a broken login option reported as a successful create.
+ */
+const MODULES_WITH_VERIFIED_CONFIG_MAPPING = new Set(Object.keys(CONFIG_TRANSFORMS))
+
 function transformConfig(module: string, rawConfig: unknown): Record<string, unknown> {
   const raw = isPlainObject(rawConfig) ? rawConfig : {}
   const transform = CONFIG_TRANSFORMS[module]
   return transform ? transform(raw) : {}
+}
+
+/** A source row's `config` is "non-empty" — worth flagging when its module has no verified mapping —
+ * whenever it's a plain object with at least one own key. `null`/`undefined`/an array/a row that
+ * never had a `config` at all carries nothing to lose, so it's safe to import with the (empty,
+ * fully-defaulted) config every unverified module would otherwise get silently. */
+function hasNonEmptyConfig(rawConfig: unknown): boolean {
+  return isPlainObject(rawConfig) && Object.keys(rawConfig).length > 0
 }
 
 // ---------------------------------------------------------------------------
