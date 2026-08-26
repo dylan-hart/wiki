@@ -327,7 +327,11 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(
+        actor,
+        ['write:pages', 'manage:pages'],
+        fixtures.siteId
+      ),
       true
     )
   })
@@ -337,7 +341,11 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages', 'manage:pages']),
+      groupsModel.mayHoldPermissionSomewhere(
+        actor,
+        ['write:pages', 'manage:pages'],
+        fixtures.siteId
+      ),
       false
     )
   })
@@ -346,7 +354,10 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([])
 
     const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
   })
 
   test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
@@ -356,7 +367,58 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ])
 
     const actor = { groupIds: [fixtures.groupId], permissions: [] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
+  })
+
+  /**
+   * OpenProject #2146/#2162: `mayHoldPermissionSomewhere()` used to pool every rule of every group
+   * the actor belongs to with no regard for `rule.sites` at all, so a `write:pages` rule scoped to
+   * one site answered "true" for every other site too — unlocking that other site's unpublished
+   * drafts and password-protected excerpts through the search route's `maySeeEverything` switch for
+   * an actor whose delegation covered only one site.
+   */
+  test("mayHoldPermissionSomewhere answers false for a site the actor's only matching rule is not scoped to, and true for the site it is scoped to", async () => {
+    const otherSiteId = 'a1e6c6a2-51e2-4b3f-9a8b-2b6f2b7c9a10'
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], otherSiteId), false)
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
+  })
+
+  test('mayHoldPermissionSomewhere still answers true for every site when the matching rule carries an empty sites array (unscoped, grants everywhere)', async () => {
+    const otherSiteId = 'a1e6c6a2-51e2-4b3f-9a8b-2b6f2b7c9a10'
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: [] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], fixtures.siteId),
+      true
+    )
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], otherSiteId), true)
+  })
+
+  test('mayHoldPermissionSomewhere: manage:system still short-circuits to true regardless of siteId', async () => {
+    await setGroupRules([rule({ mode: 'DENY', roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], 'some-other-site'),
+      true
+    )
+  })
+
+  test('mayHoldPermissionSomewhere: siteId null skips the site filter entirely, for the one caller with no site to ask about (the icon picker)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['write:pages'], sites: [fixtures.siteId] })])
+
+    const actor = { groupIds: [fixtures.groupId], permissions: [] }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
   })
 
   /**
@@ -449,9 +511,16 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages', 'write:pages'] })])
 
     const scoped = { groupIds: [fixtures.groupId], permissions: [], scope: ['read:pages'] }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages']), false)
     assert.equal(
-      groupsModel.mayHoldPermissionSomewhere(scoped, ['read:pages', 'write:pages']),
+      groupsModel.mayHoldPermissionSomewhere(scoped, ['write:pages'], fixtures.siteId),
+      false
+    )
+    assert.equal(
+      groupsModel.mayHoldPermissionSomewhere(
+        scoped,
+        ['read:pages', 'write:pages'],
+        fixtures.siteId
+      ),
       true
     )
   })

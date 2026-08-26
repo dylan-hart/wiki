@@ -55,6 +55,21 @@ export const DEFAULT_DICTIONARIES: Record<string, string> = {
 /** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
 export const FALLBACK_DICTIONARY = 'simple'
 
+/**
+ * How many matching rows `query()` pulls, in `ORDER BY` order, before permission-filtering them.
+ *
+ * OpenProject #2146/#2151: `totalHits` used to come from a `COUNT(*) OVER()` window evaluated before
+ * any page-rule filtering, adjusted only for the rows dropped from the single page just fetched —
+ * which left an unauthenticated `?query=<phrase>&limit=1` able to confirm a restricted page's body
+ * matched a distinctive phrase. Over-fetching up to this cap and deriving `totalHits` from
+ * `visible.length` (below) is what keeps the count honest: it can never count a row `checkAccess`
+ * rejected. The cap keeps that over-fetch affordable — a broad term, or an empty query (which matches
+ * every searchable page), does not pull the whole table. When a query's true match count exceeds it,
+ * `totalHits` reports the visible count within the cap, which is a floor rather than an exact total —
+ * documented as such on `SearchPagesResult.totalHits` and in this route's OpenAPI response.
+ */
+const MAX_SCANNED_ROWS = 1000
+
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'db'
 
@@ -284,10 +299,13 @@ class DbSearchModule implements SearchModule {
     const direction = orderByDirection === 'asc' ? sql`ASC` : sql`DESC`
     // -> Every page ranks 0 without a query, which would leave the order down to the planner
     const effectiveOrderBy = orderBy === 'relevancy' && !hasQuery ? 'updatedAt' : orderBy
+    // -> `p.id` breaks every tie: over-fetching up to `MAX_SCANNED_ROWS` and then slicing the
+    //    caller's `offset`/`limit` window out in JS (below) only lands on a stable page of results
+    //    when the underlying order is fully deterministic
     const ordering = {
-      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC`,
-      title: sql`p.title ${direction}`,
-      updatedAt: sql`p."updatedAt" ${direction}`
+      relevancy: sql`relevancy ${direction}, p."updatedAt" DESC, p.id`,
+      title: sql`p.title ${direction}, p.id`,
+      updatedAt: sql`p."updatedAt" ${direction}, p.id`
     }[effectiveOrderBy]
 
     const { termHighlighting } = search.getEngineConfig(siteId, MODULE_KEY)
@@ -317,18 +335,21 @@ class DbSearchModule implements SearchModule {
         p.classification,
         to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
         ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
-        ${highlight} AS highlight,
-        COUNT(*) OVER() AS "totalHits"
+        ${highlight} AS highlight
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
       ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${MAX_SCANNED_ROWS}
     `)
 
     /*
       Filtered here rather than in SQL: a page rule can be a regular expression or a set of tags, so
       the deciding rule is only knowable per row. Search must not be a way around page permissions —
       a title and an excerpt are content too.
+
+      This runs over every scanned row (up to MAX_SCANNED_ROWS), not just the caller's page of
+      `limit` results -- `totalHits` below is derived from `visible.length`, so it has to see every
+      row that survived the query before the caller's `offset`/`limit` window is sliced out of it.
     */
     const visible = actor
       ? ((rows.rows ?? rows) as any[]).filter((row) =>
@@ -342,7 +363,11 @@ class DbSearchModule implements SearchModule {
         )
       : ((rows.rows ?? rows) as any[])
 
-    const result = visible.map((row) => ({
+    // -> The caller's page of results comes out of the FILTERED list, not the raw scan -- an
+    //    unreadable row must not consume a slot in someone else's page of results
+    const windowed = visible.slice(offset, offset + limit)
+
+    const result = windowed.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -360,18 +385,12 @@ class DbSearchModule implements SearchModule {
         : null
     }))
 
-    const totalHits = Math.max(
-      0,
-      /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
-      */
-      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-        ((rows.rows ?? rows) as any[]).length +
-        visible.length
-    )
+    /*
+      A count of rows that survived `checkAccess`, and nothing else -- see `MAX_SCANNED_ROWS`'s doc
+      comment for why this is exact up to that cap and a floor beyond it, never a total that includes
+      a match the caller could not open.
+    */
+    const totalHits = visible.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has
     //    nothing to be corrected, and no query means there was nothing to have mistyped.

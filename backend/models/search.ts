@@ -82,6 +82,15 @@ export interface SearchResult {
 
 export interface SearchPagesResult {
   results: SearchResult[]
+  /**
+   * How many pages match AND are visible to the searching actor, ignoring `limit`/`offset`.
+   *
+   * OpenProject #2146/#2151: derived only from rows that survived `read:pages` filtering, never from
+   * a raw match count computed before permissions are applied — the `db` engine's own
+   * `MAX_SCANNED_ROWS` doc comment (`modules/search/db/search.ts`) has the detail. Exact up to
+   * whatever cap the active engine scans before filtering; beyond that cap it is a floor (at least
+   * this many), not a precise total — an engine that caps should say so at its own cap constant.
+   */
   totalHits: number
   /**
    * The closest page title to a query that matched nothing, for a "did you mean" prompt.
