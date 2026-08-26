@@ -60,14 +60,22 @@ failure looks unrelated." Fix it, or get it fixed, and re-run.
 
 ### 2. Test suites all green
 
-**Owner: Feature #424 ("Build test infrastructure from zero").** This item is deliberately **not**
-a step in `release.yml` (task #777) even though the suites exist and run in CI today: the release
-workflow's own top-of-file comment spells out why — `build.yml`'s `quality` job already runs the
-backend/frontend/blocks suites and its `build` job already runs the e2e Playwright suite against
-every `scarlett` push, including the commit a release tag points at, so re-running them a second
-time on the tag push would be an expensive echo of a check that already ran, not an independent
-gate. This item therefore stays a manual "look at the `build.yml` run for the release commit" read,
-recorded in the release PR, not a `release.yml` CI assertion.
+**Owner: Feature #424 ("Build test infrastructure from zero").** Re-running the suites themselves
+is deliberately **not** a step in `release.yml` (task #777) even though they exist and run in CI
+today: the release workflow's own top-of-file comment spells out why — `build.yml`'s `quality` job
+already runs the backend/frontend/blocks suites and its `build` job already runs the e2e Playwright
+suite against every `scarlett` push, including the commit a release tag points at, so re-running
+them a second time on the tag push would be an expensive echo of a check that already ran, not an
+independent gate.
+
+**The existence of that run is now enforced, not just assumed (task #1943).** `release.yml`'s
+first step, "Verify build.yml succeeded for this commit", fails the release job closed if
+`gh run list --workflow=build.yml --commit=<tag SHA> --status=success` comes back empty — so a tag
+pushed against a release branch, or against a `scarlett` commit whose push run was cancelled or
+skipped, no longer reaches the Docker publish at all. That guard proves a green run exists; it does
+not itself read which of the four suites below passed within that run — this item's manual read of
+the actual `build.yml` run for the release commit, recorded in the release PR, is still required for
+that level of detail, not a `release.yml` CI assertion.
 
 **Enforceable today.** Feature #424 has landed on this branch: every workspace has a real test
 suite wired into `build.yml` as a required step, run in this order, each one gating the steps after
@@ -194,7 +202,7 @@ future-tense sections above for present-tense fact:
 | Item                   | Owner                    | Exists on `scarlett` today?                                                                                                                                     |
 | ---------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. CI quality gates    | Feature #423 / task #777 | Yes — `build.yml`'s `build` job `needs:` the `quality` job (`quality.yml`, also run standalone on `pull_request`); `release.yml` enforces the same checks again  |
-| 2. Test suites         | Feature #424             | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job |
+| 2. Test suites         | Feature #424 / task #1943 | Yes — backend/frontend/blocks run in `quality.yml` (which both `build.yml` and every PR run); the e2e Playwright suite runs as a step in `build.yml`'s `build` job. `release.yml` additionally gates on a successful `build.yml` run existing for the tagged commit (task #1943); the actual per-suite pass/fail read for that run is still manual |
 | 3. `docs/variances.md` | Feature #425             | Yes — file exists and is populated; #425 formalizes ongoing discipline around it                                                                                 |
 | 4. Bundle drift guards | Feature #423 / task #777 | Yes — same as item 1, enforced in both `quality.yml` and `release.yml`                                                                                           |
 | 5. Migration dry-run   | Epic #341 / task #421    | No — no migration code exists                                                                                                                                    |
