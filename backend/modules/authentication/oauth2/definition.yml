@@ -80,6 +80,7 @@ props:
     title: Email Verified Claim
     hint: (optional) Which field of the user info response says whether the address is verified. A plain OAuth2 provider has no standard field for this -- leave empty for one that reports none, so nothing is refused for a claim that was never going to be present.
     icon: validation
+    default: ''
     order: 11
   allowUnverifiedEmail:
     type: Boolean
