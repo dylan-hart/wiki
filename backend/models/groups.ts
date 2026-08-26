@@ -360,6 +360,24 @@ class Groups {
     //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
     //    method is path- and page-blind by design (see the doc comment above), so there is no single
     //    page's classification to compare the allow-set against.
+    //
+    //    OpenProject #2121: deliberately left page-blind rather than given a "deny everything once any
+    //    classification cap is set" approximation, because every caller today (`api/pages.ts`'s search
+    //    route, and `mcp/auth.ts`'s `maySeeEverything()`, which backs the `search_pages` MCP tool) uses
+    //    this only as a coarse pre-filter that decides whether unpublished pages/protected excerpts are
+    //    even candidates for a result set — the actual per-page decision, `allowedClassifications`
+    //    included, is still made by `checkAccess()` (directly, or via each search module's per-hit
+    //    `checkAccess()` call) before any page content reaches the caller. A classification-scoped
+    //    actor is never granted more than the real per-page check allows; the only cost of leaving
+    //    this page-blind is that such an actor's coarse "may write/see everything" flag is a shade more
+    //    generous than what checkAccess would grant on the specific pages a result set turns out to
+    //    contain, and a false positive is confined to which drafts/passwords a search result is
+    //    considered for, never bypassed outright, because checkAccess re-decides each one for real
+    //    before its content is returned. `api/icons.ts`'s call is unaffected either way: it gates icon
+    //    authoring, which pages classification levels have nothing to do with.
+    //    If a future caller ever uses this as the SOLE gate before returning page content — with no
+    //    per-page `checkAccess()`/`mayOnPage()` following it — that caller is not safe under this
+    //    decision and needs its own page-blind classification narrowing (or a per-row check) added.
     const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
     if (inScope.length === 0) {
       return false

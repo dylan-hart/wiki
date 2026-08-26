@@ -349,6 +349,25 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
   })
 
+  /**
+   * OpenProject #2121: `mayHoldPermissionSomewhere()` is page-blind, so unlike `checkAccess()` it has
+   * no single page's classification to compare `allowedClassifications` against. The decision (see the
+   * comment at the method's `manage:system` guard) is to leave the `manage:system` short-circuit as the
+   * very first check regardless of a non-null allow-set: every caller only uses this as a coarse
+   * pre-filter ahead of a real per-page `checkAccess()`, which is where `allowedClassifications` is
+   * actually enforced. This pins that answer so it cannot silently regress into a page-blind denial.
+   */
+  test('mayHoldPermissionSomewhere stays true for a manage:system actor even with a non-null allowedClassifications allow-set', async () => {
+    await setGroupRules([])
+
+    const actor = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+  })
+
   test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
     await setGroupRules([
       rule({ id: 'deny-secret', path: 'secret', mode: 'DENY', roles: ['write:pages'] }),
