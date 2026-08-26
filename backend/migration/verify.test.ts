@@ -115,6 +115,75 @@ describe('countDestinationEntities', () => {
   })
 })
 
+describe('createDestinationCounter.tags', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  /** Minimal `.values()` object satisfying every NOT NULL column on `pages`, same shape
+   * `models/pages.test.ts`'s `rawPageRow` uses for a raw insert. */
+  function rawPageRow(overrides: { path: string; tags: string[] }) {
+    return {
+      siteId: fixtures.siteId,
+      locale: 'en',
+      path: overrides.path,
+      hash: `raw-hash-${overrides.path}`,
+      title: 'Raw Row',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: fixtures.userId,
+      creatorId: fixtures.userId,
+      ownerId: fixtures.userId,
+      classification: fixtures.classificationId,
+      tags: overrides.tags
+    }
+  }
+
+  test('counts DISTINCT tags unnested from pages.tags, not the dead tags table', async () => {
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/one', tags: ['a', 'b'] }))
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/two', tags: ['b', 'c'] }))
+
+    const counter = createDestinationCounter(fixtures.db)
+    const destinationCount = await counter.tags(fixtures.siteId)
+    assert.equal(destinationCount, 3)
+
+    const reconciled = compareEntityCounts(
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: 3,
+        assets: 0,
+        navigation: 0
+      },
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: destinationCount,
+        assets: 0,
+        navigation: 0
+      }
+    )
+    assert.deepEqual(
+      reconciled.find((entry) => entry.entity === 'tags'),
+      { entity: 'tags', sourceCount: 3, destinationCount: 3, status: 'match' }
+    )
+  })
+})
+
 describe('compareEntityCounts', () => {
   test('matches when source and destination agree', () => {
     const [result] = compareEntityCounts(
@@ -505,63 +574,5 @@ describe('formatVerifySummary', () => {
     assert.match(summary.text, /users: source=3 destination=3/)
     assert.match(summary.text, /users: dry-run found=3 live found=3/)
     assert.match(summary.text, /en\/home: match/)
-  })
-})
-
-/**
- * `createDestinationCounter(db).tags()` is DB-backed SQL orchestration (a real `unnest(pages.tags)`
- * aggregate query), not pure logic — a mock of the query builder would mostly just be re-describing
- * it, so this runs against a real, migrated database (see `test/db.ts`) rather than a fake.
- */
-describe("createDestinationCounter's tags()", { skip: !hasTestDatabase() }, () => {
-  let fixtures: TestFixtures
-
-  before(async () => {
-    fixtures = await setupTestDb()
-  })
-
-  after(async () => {
-    await teardownTestDb()
-  })
-
-  function rawPageRow(path: string, tags: string[]) {
-    return {
-      locale: 'en',
-      path,
-      hash: `hash-${path}`,
-      title: path,
-      editor: 'markdown',
-      contentType: 'markdown',
-      authorId: fixtures.userId,
-      creatorId: fixtures.userId,
-      ownerId: fixtures.userId,
-      siteId: fixtures.siteId,
-      classification: fixtures.classificationId,
-      tags
-    }
-  }
-
-  test('counts DISTINCT tags unnested from pages.tags, not the dead tags table', async () => {
-    await fixtures.db
-      .insert(pagesTable)
-      .values([rawPageRow('page-a', ['a', 'b']), rawPageRow('page-b', ['b', 'c'])])
-
-    const counter = createDestinationCounter(fixtures.db)
-    const destinationCount = await counter.tags(fixtures.siteId)
-    assert.equal(destinationCount, 3)
-
-    const [tagResult] = compareEntityCounts(
-      { users: 0, groups: 0, pages: 0, pageHistory: 0, tags: 3, assets: 0, navigation: 0 },
-      {
-        users: 0,
-        groups: 0,
-        pages: 0,
-        pageHistory: 0,
-        tags: destinationCount,
-        assets: 0,
-        navigation: 0
-      }
-    ).filter((r) => r.entity === 'tags')
-    assert.equal(tagResult!.status, 'match')
   })
 })
