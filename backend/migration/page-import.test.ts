@@ -325,6 +325,63 @@ describe('importPages', () => {
     assert.equal(pagesModel.created[0].input.updatedAt, undefined)
   })
 
+  test('carries a valid staged publishStartDate/publishEndDate through to PageInput', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({
+      publishStartDate: '2024-01-01T00:00:00.000Z',
+      publishEndDate: '2024-06-01T00:00:00.000Z'
+    })
+
+    await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.publishStartDate, '2024-01-01T00:00:00.000Z')
+    assert.equal(pagesModel.created[0].input.publishEndDate, '2024-06-01T00:00:00.000Z')
+  })
+
+  test('a null staged publishStartDate/publishEndDate stays null', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({ publishStartDate: null, publishEndDate: null })
+
+    await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.publishStartDate, null)
+    assert.equal(pagesModel.created[0].input.publishEndDate, null)
+  })
+
+  test('a malformed staged publishStartDate degrades to null and imports the page, with a warning naming the field and value', async () => {
+    // -> Regression test for OpenProject #1853: normalizeStagedDate already exists precisely so
+    //    malformed source data degrades instead of failing a page, but mapStagedPageToInput only
+    //    applied it to createdAt/updatedAt — publishStartDate/publishEndDate passed straight through
+    //    to createPage(), where Drizzle's timestamp mapper throws RangeError on an Invalid Date and
+    //    the whole page is lost as a 'create-error' failure instead.
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({
+      publishStartDate: 'not-a-date',
+      publishEndDate: '2024-06-01T00:00:00.000Z'
+    })
+
+    const result = await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(result.failed.length, 0)
+    assert.equal(pagesModel.created[0].input.publishStartDate, null)
+    assert.equal(pagesModel.created[0].input.publishEndDate, '2024-06-01T00:00:00.000Z')
+    assert.ok(
+      result.warnings.some((w) => w.includes('publishStartDate') && w.includes('not-a-date'))
+    )
+  })
+
   test('uses creatorId as the synthetic actor and warns when authorId differs', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 1, authorId: 'editor-uuid', creatorId: 'creator-uuid' })

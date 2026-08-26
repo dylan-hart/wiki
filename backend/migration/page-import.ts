@@ -218,6 +218,31 @@ function normalizeStagedDate(value: string): string | undefined {
 }
 
 /**
+ * Applies `normalizeStagedDate` to a staged `publishStartDate`/`publishEndDate`, which — unlike
+ * `createdAt`/`updatedAt` — are already nullable at the staging layer (`content-staging.ts`'s
+ * `asNullableString`). A non-empty value that fails to parse degrades to `null` (the column's
+ * ordinary unset state) rather than reaching `createPage()`'s `new Date(...)` call, which would
+ * build an Invalid Date and throw `RangeError: Invalid time value` when Drizzle's `timestamp`
+ * mapper calls `.toISOString()` on it during the insert — losing the whole page instead of just
+ * this one field. Unlike `createdAt`/`updatedAt`, a discard here also pushes a warning naming the
+ * field and the discarded value, so the operator can go fix it at the source.
+ */
+function normalizeStagedPublishDate(
+  field: 'publishStartDate' | 'publishEndDate',
+  value: string | null,
+  oldId: number,
+  warnings: string[]
+): string | null {
+  if (!value) return null
+  const normalized = normalizeStagedDate(value)
+  if (normalized === undefined) {
+    warnings.push(`page ${oldId}: ${field} "${value}" is not a valid date and was discarded.`)
+    return null
+  }
+  return normalized
+}
+
+/**
  * Derives 3.0's three-state `publishState` from 2.x's `isPublished` boolean plus its
  * `publishStartDate`/`publishEndDate` pair, per `docs/migration/2.5x-to-3.0-mapping.md`'s "2.x's
  * boolean + the publishStartDate/publishEndDate pair together decide which of the three 3.0 enum states
@@ -316,8 +341,18 @@ function mapStagedPageToInput(
     locale: staged.locale,
     description: staged.description ?? '',
     publishState,
-    publishStartDate: staged.publishStartDate,
-    publishEndDate: staged.publishEndDate,
+    publishStartDate: normalizeStagedPublishDate(
+      'publishStartDate',
+      staged.publishStartDate,
+      staged.oldId,
+      warnings
+    ),
+    publishEndDate: normalizeStagedPublishDate(
+      'publishEndDate',
+      staged.publishEndDate,
+      staged.oldId,
+      warnings
+    ),
     tags: staged.tags,
     // -> Preserve the source page's real timestamps instead of createPage()'s ordinary now() default —
     //    see PageInput.createdAt/updatedAt's doc comment (backend/models/pages.ts) and upstream
