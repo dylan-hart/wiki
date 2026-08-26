@@ -213,6 +213,8 @@
   "admin.auth.allowedWebOrigins": "Allowed Web Origins",
   "admin.auth.autoEnrollGroups": "Assign to group(s)",
   "admin.auth.autoEnrollGroupsHint": "(optional) Automatically assign new users to these groups. New users are always added to the Users group regardless of this setting.",
+  "admin.auth.mappableGroups": "Mappable group(s)",
+  "admin.auth.mappableGroupsHint": "Only a group selected here can ever be granted or revoked by Map Groups. Leaving this empty maps nothing. A group with system administrator permissions, or the root administrators group, is never offered here and is never mapped even if it somehow ends up in this list.",
   "admin.auth.callbackUrl": "Callback URL / Redirect URI",
   "admin.auth.configReference": "Configuration Reference",
   "admin.auth.configReferenceSubtitle": "Some strategies may require some configuration values to be set on your provider. These are provided for reference only and may not be needed by the current strategy.",
