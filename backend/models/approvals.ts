@@ -10,6 +10,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -106,8 +107,13 @@ export interface ReviewableSubmission {
 export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   /** What the suggestion proposes the page should say. */
   content: string
-  /** What it currently says, i.e. the other side of the diff. */
-  pageContent: string
+  /**
+   * What it currently says, i.e. the other side of the diff -- the page's raw source. Omitted (not
+   * merely an empty string) when the reviewer lacks `read:source` on this page: they can still act on
+   * the queue entry (approve/reject), they just are not handed the page's current markdown to read
+   * (OpenProject #2160).
+   */
+  pageContent?: string
   /** Unified diff against the page as it stood when the suggestion was made. */
   patch: string
 }
@@ -512,6 +518,7 @@ class Approvals {
   }> {
     const actorId = req.session?.authenticated ? (req.session.user?.id ?? null) : null
     const groupIds = this.getActorGroupIds(req)
+    const actor = WIKI.models.groups.actorForRequest(req)
 
     const submitRule = await this.findSubmitRule(siteId, page, groupIds)
     /*
@@ -528,17 +535,13 @@ class Approvals {
           groupIds,
           reviewsAll:
             (req.session?.permissions ?? []).includes('manage:system') ||
-            WIKI.models.groups.checkAccess(
-              WIKI.models.groups.actorForRequest(req),
-              'review:pages',
-              {
-                path: page.path,
-                siteId,
-                locale: page.locale,
-                classification: page.classification,
-                tags: page.tags
-              }
-            ),
+            WIKI.models.groups.checkAccess(actor, 'review:pages', {
+              path: page.path,
+              siteId,
+              locale: page.locale,
+              classification: page.classification,
+              tags: page.tags
+            }),
           viewerId: actorId ?? undefined
         }
       : { groupIds: [], reviewsAll: false }
@@ -549,7 +552,7 @@ class Approvals {
       hasOpenSuggestion,
       canReview,
       pendingSubmissions: canReview
-        ? await this.getReviewableSubmissions(siteId, { ...reviewerScope, pageId: page.id })
+        ? await this.getReviewableSubmissions(siteId, actor, { ...reviewerScope, pageId: page.id })
         : []
     }
   }
@@ -846,10 +849,19 @@ class Approvals {
    * in — the same rules that let it be submitted, read from the other side. Someone holding
    * `manage:system` sees the site's whole queue, as they do everywhere else.
    *
+   * Approval rules are page-blind to ordinary page permissions -- `matchesPage()` only knows START /
+   * END / REGEX / TAG / TAGALL, with no ALLOW/DENY and no classification axis of its own -- so a rule
+   * naming a reviewer's group is necessary but not sufficient. `actor` is intersected against every
+   * matched row with `read:pages`, the same permission and the same `checkAccess()` any other reader
+   * of a page would be held to; a rule with `match: 'START', path: ''` covering the whole site no
+   * longer hands its named groups every page on it regardless of what the page's own rules say
+   * (OpenProject #2160).
+   *
    * Ordered oldest first because a queue is worked through in the order things arrived.
    */
   async getReviewableSubmissions(
     siteId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId, pageId }: ReviewerScope & { pageId?: string }
   ): Promise<ReviewableSubmission[]> {
     if (!reviewsAll && groupIds.length < 1) {
@@ -876,6 +888,7 @@ class Approvals {
         pageTitle: pagesTable.title,
         pageLocale: pagesTable.locale,
         pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification,
         pageContent: pagesTable.content,
         authorId: usersTable.id,
         authorName: usersTable.name,
@@ -893,8 +906,8 @@ class Approvals {
 
     // -> Matched in memory rather than in SQL: a rule can be a regular expression or a set of tags,
     //    which no `WHERE` clause here could express, and a review queue is small
-    const matchedRows = rows.filter((row: any) =>
-      rules.some((rule) =>
+    const matchedRows = rows.filter((row: any) => {
+      const matchesRule = rules.some((rule) =>
         /*
           No `allowContributions` here, deliberately: that switch governs whether a suggestion may
           be MADE. One already sent stays in its reviewers' queue if the page is later closed to
@@ -903,7 +916,19 @@ class Approvals {
         */
         this.matchesPage(rule, { path: row.pagePath, tags: row.pageTags ?? [] })
       )
-    )
+      if (!matchesRule) {
+        return false
+      }
+      // -> The intersection: an approval rule naming this reviewer's group is not itself a grant of
+      //    `read:pages` -- see the doc comment above.
+      return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: row.pagePath,
+        locale: row.pageLocale,
+        siteId,
+        classification: row.pageClassification ?? null,
+        tags: row.pageTags ?? []
+      })
+    })
 
     // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
     //    submission has to clear is the strictest rule covering the page, whoever it names as
@@ -935,15 +960,22 @@ class Approvals {
   /**
    * One submission, if it is this reviewer's to look at, with both sides of the diff.
    *
+   * `pageContent` -- the page's raw current markdown -- is withheld unless `actor` holds
+   * `read:source` on this page, the same permission `GET pages/:id?withContent` requires. A reviewer
+   * denied it still gets everything else: the submission metadata, the suggested `content`, and the
+   * `patch`, so they can act on the queue entry (approve/reject) without being handed a read of the
+   * page's source they were never granted (OpenProject #2160).
+   *
    * @returns The submission, or null when it does not exist or is not theirs to review
    */
   async getSubmissionForReview(
     siteId: string,
     submissionId: string,
+    actor: AccessActor,
     { groupIds, reviewsAll = false, viewerId }: ReviewerScope
   ): Promise<ReviewableSubmissionDetail | null> {
     // -> Reuses the queue rather than re-deriving who may see what: one definition of reviewable
-    const reviewable = await this.getReviewableSubmissions(siteId, {
+    const reviewable = await this.getReviewableSubmissions(siteId, actor, {
       groupIds,
       reviewsAll,
       viewerId
@@ -956,6 +988,10 @@ class Approvals {
       .select({
         content: submissionsTable.content,
         patch: submissionsTable.patch,
+        pagePath: pagesTable.path,
+        pageLocale: pagesTable.locale,
+        pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification,
         pageContent: pagesTable.content
       })
       .from(submissionsTable)
@@ -967,12 +1003,19 @@ class Approvals {
       return null
     }
 
-    return {
+    const base = {
       ...reviewable.find((s) => s.id === submissionId)!,
       content: detail.content,
-      pageContent: detail.pageContent ?? '',
       patch: detail.patch
     }
+    const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+      path: detail.pagePath,
+      locale: detail.pageLocale,
+      siteId,
+      classification: detail.pageClassification ?? null,
+      tags: detail.pageTags ?? []
+    })
+    return maySeeSource ? { ...base, pageContent: detail.pageContent ?? '' } : base
   }
 
   /**

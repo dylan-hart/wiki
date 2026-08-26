@@ -144,7 +144,7 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     assert.equal(untouched!.content, 'Somebody else changed this')
 
     // -> And the submission is still there to be reconciled, not silently discarded
-    const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const stillPending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
       pageId: page.id
@@ -181,7 +181,7 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
     })
 
     // Sanity: before either is approved, neither is stale
-    const beforeApproval = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const beforeApproval = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
       pageId: page.id
@@ -205,11 +205,15 @@ describe('approvals approveSubmission staleness (DB-backed)', { skip: !hasTestDa
 
     // -> `getReviewableSubmissions` joins the live page row every time it is called -- there is no
     //    cache sitting in front of it to miss, so this is what "without a manual queue refresh" means
-    const afterFirstApproval = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
-      groupIds: [],
-      reviewsAll: true,
-      pageId: page.id
-    })
+    const afterFirstApproval = await approvalsModel.getReviewableSubmissions(
+      fixtures.siteId,
+      actor,
+      {
+        groupIds: [],
+        reviewsAll: true,
+        pageId: page.id
+      }
+    )
     const secondNow = afterFirstApproval.find((s) => s.id === second.id)
     assert.ok(secondNow, 'the second submission is still in the queue')
     assert.equal(secondNow!.isStale, true)
@@ -337,7 +341,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     assert.equal(untouched!.content, 'Original content')
 
     // -> Still in the queue, and shows progress towards the threshold
-    const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const pending = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
       pageId: page.id,
@@ -375,7 +379,7 @@ describe('approvals multi-approver threshold (DB-backed)', { skip: !hasTestDatab
     assert.equal(finalPage!.content, 'Second reviewer content')
 
     // -> Closed out: gone from the queue
-    const afterFinalize = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const afterFinalize = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [],
       reviewsAll: true,
       pageId: page.id
@@ -940,7 +944,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     //    `onConflictDoUpdate` collapses into one row
     assert.equal(await approvalsModel.countSubmissions(page.id), 2)
 
-    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [fixtures.groupId]
     })
     const forPage = reviewable.filter((s) => s.page.id === page.id)
@@ -983,7 +987,7 @@ describe('approvals guest multi-submission (DB-backed)', { skip: !hasTestDatabas
     //    labels are otherwise identical
     assert.notEqual(first.id, second.id)
 
-    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, {
+    const reviewable = await approvalsModel.getReviewableSubmissions(fixtures.siteId, actor, {
       groupIds: [fixtures.groupId]
     })
     const forPage = reviewable.filter((s) => s.page.id === page.id)
@@ -1145,3 +1149,240 @@ describe('approvals.broadcastReload (DB-backed)', { skip: !hasTestDatabase() }, 
     }
   })
 })
+
+/**
+ * OpenProject #2160: an approval rule's `reviewerGroups` covers a page independently of the group's
+ * own page rules -- a `START ''` approval rule matches the whole site regardless of what
+ * `read:pages`/`read:source` a reviewer's group actually grants there. `getReviewableSubmissions`
+ * now intersects every rule-matched row with `checkAccess(actor, 'read:pages', ...)`, and
+ * `getSubmissionForReview` additionally gates `pageContent` on `read:source` -- both against the
+ * SAME group page rules any other reader of the page is held to, not the approval rule's own
+ * (permission-blind) matching.
+ */
+describe(
+  'approvals reviewer queue intersected with read:pages / read:source (DB-backed)',
+  {
+    skip: !hasTestDatabase()
+  },
+  () => {
+    let fixtures: TestFixtures
+    let pagesModel: typeof import('./pages.ts').pages
+    let approvalsModel: typeof import('./approvals.ts').approvals
+    let groupsModel: typeof import('./groups.ts').groups
+    let actor: PageActor
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      ;({ approvals: approvalsModel } = await import('./approvals.ts'))
+      ;({ groups: groupsModel } = await import('./groups.ts'))
+      actor = { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+      // -> `groupsModel.updateGroup()` -> `clampGuestPatch()` reads `WIKI.data.systemIds.guestsGroupId`
+      //    unconditionally; the minimal `WIKI` from `setupTestDb()` leaves `WIKI.data` empty (see
+      //    `groups.broadcastReload (DB-backed)` in `models/groups.test.ts` for the same fix).
+      WIKI.data.systemIds = { guestsGroupId: '00000000-0000-0000-0000-000000000000' }
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    function pageRef(page: { id: string; path: string }): ApprovalPageRef {
+      return {
+        id: page.id,
+        path: page.path,
+        locale: 'en',
+        tags: [],
+        allowContributions: true,
+        classification: null
+      }
+    }
+
+    async function assignToGroup(groupId: string, userId: string) {
+      await fixtures.db.insert(userGroupsTable).values({ groupId, userId })
+    }
+
+    test('a reviewer whose group matches a site-wide approval rule but is denied read:pages on one page does not see that page in the queue', async () => {
+      const reviewerGroup = await groupsModel.createGroup('Queue Intersect Reviewers')
+      const [reviewerUser] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'queue-intersect-reviewer@example.com',
+          name: 'Queue Intersect Reviewer',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      await assignToGroup(reviewerGroup, reviewerUser!.id)
+
+      // -> Covers the whole site: the exact `START ''` shape the audit (OpenProject #2160) called out
+      //    as handing every page to `reviewerGroup`'s members regardless of their own read:pages grant.
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'covers everything',
+        isEnabled: true,
+        match: 'START',
+        path: '',
+        submitterGroups: [],
+        reviewerGroups: [reviewerGroup]
+      })
+
+      const allowedPage = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'review/2160/allowed',
+          title: 'Allowed',
+          editor: 'markdown',
+          content: 'Original allowed content'
+        },
+        actor
+      )
+      const deniedPage = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'review/2160/denied',
+          title: 'Denied',
+          editor: 'markdown',
+          content: 'Original denied content'
+        },
+        actor
+      )
+
+      const allowedSubmission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(allowedPage),
+        baseContent: 'Original allowed content',
+        content: 'Suggested allowed content',
+        authorId: fixtures.userId
+      })
+      const deniedSubmission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(deniedPage),
+        baseContent: 'Original denied content',
+        content: 'Suggested denied content',
+        authorId: fixtures.userId
+      })
+
+      // -> `createGroup` seeds a `START ''` ALLOW of `read:pages` (among others); an `EXACT` DENY on
+      //    just `deniedPage`'s path outranks it on specificity, so this group reads every page except
+      //    that one -- an ordinary page-rule denial, nothing approval-specific about it.
+      const group = await groupsModel.getGroupById(reviewerGroup)
+      await groupsModel.updateGroup(reviewerGroup, {
+        rules: [
+          ...group!.rules,
+          {
+            id: 'deny-read-pages-on-denied-page',
+            name: 'Deny read:pages on the denied page',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'DENY',
+            path: 'review/2160/denied',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+
+      const reviewerAccessActor = { groupIds: [reviewerGroup], permissions: [] }
+      const reviewable = await approvalsModel.getReviewableSubmissions(
+        fixtures.siteId,
+        reviewerAccessActor,
+        { groupIds: [reviewerGroup], reviewsAll: false }
+      )
+
+      assert.ok(
+        reviewable.some((s) => s.id === allowedSubmission.id),
+        'the page the reviewer may still read:pages on stays in the queue'
+      )
+      assert.equal(
+        reviewable.some((s) => s.id === deniedSubmission.id),
+        false,
+        'the page the reviewer is denied read:pages on is filtered out of the queue, even though the approval rule covers it'
+      )
+    })
+
+    test('a reviewer allowed read:pages but not read:source gets a detail response with no pageContent, and gets it once granted', async () => {
+      const reviewerGroup = await groupsModel.createGroup('Detail Source Gate Reviewers')
+      const [reviewerUser] = await fixtures.db
+        .insert(usersTable)
+        .values({
+          email: 'detail-source-gate-reviewer@example.com',
+          name: 'Detail Source Gate Reviewer',
+          isActive: true,
+          isVerified: true
+        })
+        .returning({ id: usersTable.id })
+      await assignToGroup(reviewerGroup, reviewerUser!.id)
+
+      await approvalsModel.createRule(fixtures.siteId, {
+        name: 'covers the source-gate page',
+        isEnabled: true,
+        match: 'START',
+        path: 'review/2160/source-gate',
+        submitterGroups: [],
+        reviewerGroups: [reviewerGroup]
+      })
+
+      const page = await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'review/2160/source-gate',
+          title: 'Source Gate',
+          editor: 'markdown',
+          content: 'Original source-gate content'
+        },
+        actor
+      )
+      const submission = await approvalsModel.saveSubmission({
+        siteId: fixtures.siteId,
+        page: pageRef(page),
+        baseContent: 'Original source-gate content',
+        content: 'Suggested source-gate content',
+        authorId: fixtures.userId
+      })
+
+      const reviewerAccessActor = { groupIds: [reviewerGroup], permissions: [] }
+
+      // -> `createGroup`'s seeded rule grants `read:pages` (among others) but never `read:source` -- no
+      //    rule matches that permission at all, so `checkAccess` refuses it by default.
+      const beforeGrant = await approvalsModel.getSubmissionForReview(
+        fixtures.siteId,
+        submission.id,
+        reviewerAccessActor,
+        { groupIds: [reviewerGroup], reviewsAll: false }
+      )
+      assert.ok(beforeGrant, 'still reachable: read:pages is enough to see the queue entry itself')
+      assert.equal(beforeGrant!.content, 'Suggested source-gate content')
+      assert.equal(typeof beforeGrant!.patch, 'string')
+      assert.equal(
+        beforeGrant!.pageContent,
+        undefined,
+        'withheld without read:source, not merely emptied'
+      )
+
+      const group = await groupsModel.getGroupById(reviewerGroup)
+      await groupsModel.updateGroup(reviewerGroup, {
+        rules: [
+          ...group!.rules,
+          {
+            id: 'grant-read-source',
+            name: 'Grant read:source',
+            roles: ['read:source'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+
+      const afterGrant = await approvalsModel.getSubmissionForReview(
+        fixtures.siteId,
+        submission.id,
+        reviewerAccessActor,
+        { groupIds: [reviewerGroup], reviewsAll: false }
+      )
+      assert.equal(afterGrant!.pageContent, 'Original source-gate content')
+    })
+  }
+)
