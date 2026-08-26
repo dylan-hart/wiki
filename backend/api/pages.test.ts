@@ -1763,7 +1763,8 @@ describe('pages API — isEnabled guard (task 699)', () => {
    * reading indefinitely — none of these are reached through the page/shell hook in `index.ts` (task
    * 695), which only ever sees a hostname-addressed navigation, not an already-cached siteId.
    *
-   * Covers the three routes task 699 names: LIST, SEARCH and INCLUDE. Asserts the same 403-vs-404-ish
+   * Covers SEARCH and INCLUDE (the LIST route task 699 originally named was deleted by OpenProject
+   * #1986 as a permanently-empty stub with no caller). Asserts the same 403-vs-404-ish
    * contract as the other entry points in this task — here there is no "site not found" branch to
    * contrast with (`guardSiteEnabled` deliberately leaves an unknown siteId to whatever the route
    * already did with one, see its doc comment), so this only proves the disabled case answers 403 and
@@ -1835,18 +1836,6 @@ describe('pages API — isEnabled guard (task 699)', () => {
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-  })
-
-  test('LIST: answers 403 for a disabled site', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${DISABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 403)
-    assert.match(res.json().message, /disabled/i)
-  })
-
-  test('LIST: an enabled site still answers its (currently always-empty) list', async () => {
-    const res = await app.inject({ method: 'GET', url: `/sites/${ENABLED_SITE_ID}/pages` })
-    assert.equal(res.statusCode, 200)
-    assert.deepEqual(res.json(), [])
   })
 
   test('SEARCH: answers 403 for a disabled site, without ever calling searchPages', async () => {
