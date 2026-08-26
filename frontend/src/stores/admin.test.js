@@ -48,4 +48,26 @@ describe('admin store: versionStatus / isVersionLatest', () => {
     expect(store.versionStatus).toBe('outdated')
     expect(store.isVersionLatest).toBe(false)
   })
+
+  it('compares semver-aware rather than string-aware for a prerelease/patch pair', () => {
+    const store = useAdminStore()
+    // -> A plain string compare would call '3.0.0-alpha.1' >= '3.0.0-alpha.10' true (lexicographic
+    //    '1' > '1' ties, then string compare stops), but semver correctly ranks alpha.10 higher.
+    store.info.currentVersion = '3.0.0-alpha.1'
+    store.info.latestVersion = '3.0.0-alpha.10'
+
+    expect(store.versionStatus).toBe('outdated')
+
+    // -> Same pair reversed: current genuinely is ahead
+    store.info.currentVersion = '3.0.0-alpha.10'
+    store.info.latestVersion = '3.0.0-alpha.1'
+
+    expect(store.versionStatus).toBe('latest')
+
+    // -> A patch bump that a naive string compare ('3.0.9' vs '3.0.10') would rank the wrong way
+    store.info.currentVersion = '3.0.10'
+    store.info.latestVersion = '3.0.9'
+
+    expect(store.versionStatus).toBe('latest')
+  })
 })
