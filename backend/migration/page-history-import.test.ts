@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type {
+  OrphanedPageHistoryEntry,
+  StagedPage,
+  StagedPageHistoryEntry
+} from './content-staging.ts'
 import { IdMap } from './id-map.ts'
 import {
   backfillPageHistory,
@@ -66,6 +70,16 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     sourceCreatorId: 1,
     localeSiblingOldIds: [],
     history: [],
+    ...overrides
+  }
+}
+
+function buildOrphanedHistoryEntry(
+  overrides: Partial<OrphanedPageHistoryEntry> = {}
+): OrphanedPageHistoryEntry {
+  return {
+    ...buildHistoryEntry(),
+    sourcePageOldId: 900,
     ...overrides
   }
 }
@@ -209,6 +223,48 @@ describe('buildPageHistoryRowsForPage', () => {
     })
   })
 
+  test("merges a 2.x row's extra blob into meta, alongside the computed keys", () => {
+    const page = buildStagedPage({
+      history: [buildHistoryEntry({ extra: { customField: 'kept', anotherOne: 42 } })]
+    })
+    const warnings: string[] = []
+    const [row] = buildPageHistoryRowsForPage(page, 'new-page-1', 'site-1', warnings)
+
+    assert.equal(row.meta.customField, 'kept')
+    assert.equal(row.meta.anotherOne, 42)
+  })
+
+  test('does not let a stray extra key clobber a real computed meta field', () => {
+    const page = buildStagedPage({
+      history: [
+        buildHistoryEntry({
+          tags: ['real-tag'],
+          editorKey: 'markdown',
+          contentType: 'markdown',
+          extra: { tags: ['stale-tag'], editor: 'stale-editor', contentType: 'stale-type' }
+        })
+      ]
+    })
+    const warnings: string[] = []
+    const [row] = buildPageHistoryRowsForPage(page, 'new-page-1', 'site-1', warnings)
+
+    assert.deepEqual(row.meta.tags, ['real-tag'])
+    assert.equal(row.meta.editor, 'markdown')
+    assert.equal(row.meta.contentType, 'markdown')
+  })
+
+  test('does not report extra as a changed field even when it differs between versions', () => {
+    const page = buildStagedPage({
+      history: [
+        buildHistoryEntry({ oldId: 10, extra: { a: 1 } }),
+        buildHistoryEntry({ oldId: 11, extra: { a: 2 } })
+      ]
+    })
+    const warnings: string[] = []
+    const rows = buildPageHistoryRowsForPage(page, 'new-page-1', 'site-1', warnings)
+    assert.deepEqual(rows[1].changedFields, [])
+  })
+
   test('has no reason column to carry — 2.x pageHistory rows have none', () => {
     const page = buildStagedPage({ history: [buildHistoryEntry()] })
     const warnings: string[] = []
@@ -238,7 +294,7 @@ describe('backfillPageHistory', () => {
     // -> Page 2 never got created, so it has no entry in pageIdMap.
 
     const deps = new FakePageHistoryWriteModel()
-    return backfillPageHistory([created, failed], pageIdMap, 'site-1', deps).then((result) => {
+    return backfillPageHistory([created, failed], [], pageIdMap, 'site-1', deps).then((result) => {
       assert.equal(result.inserted, 1)
       assert.deepEqual(result.failed, [])
       assert.equal(deps.inserted.length, 1)
@@ -253,7 +309,7 @@ describe('backfillPageHistory', () => {
     pageIdMap.set(1, 'new-page-1')
 
     const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([noHistory], pageIdMap, 'site-1', deps)
+    const result = await backfillPageHistory([noHistory], [], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 0)
     assert.equal(deps.inserted.length, 0)
@@ -270,7 +326,7 @@ describe('backfillPageHistory', () => {
     pageIdMap.set(2, 'new-page-2')
 
     const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([pageA, pageB], pageIdMap, 'site-1', deps)
+    const result = await backfillPageHistory([pageA, pageB], [], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 3)
     // -> One insertVersions call per page (each well under the chunk size), not one call for the
@@ -301,6 +357,7 @@ describe('backfillPageHistory', () => {
 
     const result = await backfillPageHistory(
       [okPage, badPage, alsoOkPage],
+      [],
       pageIdMap,
       'site-1',
       deps
@@ -367,5 +424,70 @@ describe('backfillPageHistoryForPage', () => {
 
     assert.equal(result.inserted, 0)
     assert.equal(deps.inserted.length, 0)
+  })
+
+  test('inserts orphaned history rows under one synthesized pageId per source page, distinct from real pages', () => {
+    const orphaned = [
+      buildOrphanedHistoryEntry({
+        oldId: 500,
+        sourcePageOldId: 900,
+        versionDate: '2024-01-01T00:00:00.000Z',
+        action: 'updated'
+      }),
+      buildOrphanedHistoryEntry({
+        oldId: 501,
+        sourcePageOldId: 900,
+        versionDate: '2024-02-01T00:00:00.000Z',
+        action: 'deleted'
+      })
+    ]
+    const pageIdMap = new IdMap<number>()
+
+    const deps = new FakePageHistoryWriteModel()
+    return backfillPageHistory([], orphaned, pageIdMap, 'site-1', deps).then((result) => {
+      assert.equal(result.inserted, 2)
+      const [row0, row1] = deps.inserted[0]
+      // -> Both rows for the same deleted 2.x page share one synthesized pageId ...
+      assert.equal(row0.pageId, row1.pageId)
+      // -> ... which is a real UUID, not the source's numeric old id or anything derived from it.
+      assert.match(row0.pageId, /^[0-9a-f-]{36}$/)
+      assert.equal(row0.siteId, 'site-1')
+      assert.equal(row1.action, 'deleted')
+    })
+  })
+
+  test('gives two different orphaned source pages two different synthesized pageIds', async () => {
+    const orphaned = [
+      buildOrphanedHistoryEntry({ oldId: 500, sourcePageOldId: 900 }),
+      buildOrphanedHistoryEntry({ oldId: 600, sourcePageOldId: 901 })
+    ]
+    const pageIdMap = new IdMap<number>()
+
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistory([], orphaned, pageIdMap, 'site-1', deps)
+
+    assert.equal(result.inserted, 2)
+    // -> Each orphaned source page goes through its own backfillPageHistoryForPage call (and
+    //    therefore its own insertVersions call), the same way two real pages are isolated from
+    //    each other — see the "own separate insertVersions calls" test below.
+    assert.equal(deps.inserted.length, 2)
+    assert.notEqual(deps.inserted[0][0].pageId, deps.inserted[1][0].pageId)
+  })
+
+  test('gives ordinary page history and an orphaned group their own separate insertVersions calls', async () => {
+    const page = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
+    const orphaned = [buildOrphanedHistoryEntry({ oldId: 500, sourcePageOldId: 900 })]
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(1, 'new-page-1')
+
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistory([page], orphaned, pageIdMap, 'site-1', deps)
+
+    assert.equal(result.inserted, 2)
+    // -> One insertVersions call for the real page, one for the orphaned group — never batched
+    //    together into a single call, same chunking/isolation guarantee as two real pages.
+    assert.equal(deps.inserted.length, 2)
+    assert.equal(deps.inserted[0].length, 1)
+    assert.equal(deps.inserted[1].length, 1)
   })
 })
