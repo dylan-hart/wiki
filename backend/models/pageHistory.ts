@@ -132,6 +132,16 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
+ * A recoverable-deletion row, with the tags and classification the page held at the moment it was
+ * deleted -- what `listRecoverable()`'s caller needs to run `mayOnPage()` against the deleted path
+ * itself (TAG/TAGALL/CLASSIFICATION rules can only narrow a listing that carries them).
+ */
+export type PageHistoryRecoverableEntry = PageHistoryEntry & {
+  tags: string[]
+  classification: string | null
+}
+
+/**
  * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
  * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
  * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
@@ -463,7 +473,7 @@ class PageHistory {
    * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
    * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
    */
-  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
+  async listRecoverable(siteId: string): Promise<PageHistoryRecoverableEntry[]> {
     const rows = await WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
@@ -477,7 +487,7 @@ class PageHistory {
         title: pageHistoryTable.title,
         authorId: usersTable.id,
         authorName: usersTable.name,
-        authorEmail: usersTable.email
+        meta: pageHistoryTable.meta
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
@@ -501,22 +511,31 @@ class PageHistory {
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
+    return rows.map((row: any) => {
+      const meta = (row.meta ?? {}) as Record<string, any>
+      return {
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          id: row.authorId ?? null,
+          name: row.authorName ?? '',
+          // -> Deliberately never populated: this listing is filtered per row against the caller's
+          //    OWN `read:history` grant at that path, not against `read:users`/`manage:users` -- so
+          //    unlike the single-page `list()` above, holding `read:history` here must not also hand
+          //    back another user's email address.
+          email: ''
+        },
+        tags: (meta.tags ?? []) as string[],
+        classification: (meta.classification ?? null) as string | null
       }
-    }))
+    })
   }
 
   /**
@@ -524,8 +543,11 @@ class PageHistory {
    *
    * Exposed separately from `recoverDeletedPage` so a caller can inspect a version — its path and
    * locale, most usefully — before deciding whether to actually recover it. The REST route asks this
-   * first, to check `write:pages` against the *target* path ahead of the write, and to answer 404
-   * cleanly for an id that names no recoverable version.
+   * first, to check `read:pages`/`read:source` against the path the version was deleted FROM and
+   * `write:pages` against the *target* path ahead of the write, and to answer 404 cleanly for an id
+   * that names no recoverable version. `tags`/`classification` are the version's own, as stored on
+   * the deletion, so that source-side check can be narrowed by a TAG/TAGALL/CLASSIFICATION rule the
+   * same way any other page-permission check is.
    *
    * @returns The version, or null when no `deleted` version exists at this id for this site.
    */
@@ -538,6 +560,8 @@ class PageHistory {
     title: string
     content: string
     meta: Record<string, any>
+    tags: string[]
+    classification: string | null
   } | null> {
     const rows = await WIKI.db
       .select({
@@ -561,12 +585,15 @@ class PageHistory {
     if (!row) {
       return null
     }
+    const meta = (row.meta ?? {}) as Record<string, any>
     return {
       path: row.path,
       locale: row.locale,
       title: row.title,
       content: row.content ?? '',
-      meta: (row.meta ?? {}) as Record<string, any>
+      meta,
+      tags: (meta.tags ?? []) as string[],
+      classification: (meta.classification ?? null) as string | null
     }
   }
 

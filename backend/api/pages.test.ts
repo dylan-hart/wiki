@@ -2151,6 +2151,93 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.equal(body[0].path, 'visible')
   })
 
+  test('GET /sites/:siteId/pages/deleted never carries authorEmail, even for a row the actor may read', async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        author: { id: 'u2', name: 'Someone', email: '' },
+        tags: [],
+        classification: null
+      }
+    ]
+    checkAccessImpl = () => true
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].author.email, '')
+  })
+
+  test('GET /sites/:siteId/pages/deleted narrows by a TAG-scoped DENY rule', async () => {
+    // -> Real rule-matching engine, mirroring the `allowPublic`/`denyConfidential` pair in the
+    //    `GET .../pages/alias/:alias` TAG suite above: both TAG, so only the ALLOW-vs-DENY mode
+    //    tiebreak decides — reachable only because `tags` is now threaded into `mayOnPage` here.
+    const rules: GroupRule[] = [
+      {
+        id: 'allow-public',
+        name: 'Allow public',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'ALLOW',
+        path: 'public',
+        locales: [],
+        sites: []
+      },
+      {
+        id: 'deny-secret',
+        name: 'Deny secret',
+        roles: ['read:history'],
+        match: 'TAG',
+        mode: 'DENY',
+        path: 'secret',
+        locales: [],
+        sites: []
+      }
+    ]
+    checkAccessImpl = (_actor, permission, page) => {
+      const rule = resolvePageRule(rules, permission, {
+        path: page.path,
+        locale: page.locale,
+        siteId: SITE_ID,
+        classification: page.classification ?? null,
+        tags: page.tags ?? []
+      })
+      return rule ? rule.mode !== 'DENY' : false
+    }
+    listRecoverableResult = [
+      { id: 'v1', path: 'open', locale: 'en', title: 'Open', action: 'deleted', tags: ['public'] },
+      {
+        id: 'v2',
+        path: 'closed',
+        locale: 'en',
+        title: 'Closed',
+        action: 'deleted',
+        // -> Tagged BOTH: matches the broad ALLOW too, so this actually exercises the DENY tiebreak
+        //    rather than just "no rule matched at all".
+        tags: ['public', 'secret']
+      }
+    ]
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json()
+    assert.equal(body.length, 1)
+    assert.equal(body[0].path, 'open')
+  })
+
   test('POST recover requires a logged in user', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -2176,9 +2263,21 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('POST recover checks write:pages against the target path, not the original', async () => {
-    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
+      // -> The source check must pass here so the request reaches the target check at all.
+      if (permission === 'read:pages' || permission === 'read:source') {
+        return true
+      }
       if (permission === 'write:pages') {
         seenTargets.push(page)
       }
@@ -2196,6 +2295,100 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.deepEqual(seenTargets, [
       { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
     ])
+  })
+
+  test('POST recover refuses recovery when the caller cannot read the deleted path, even though they can write the destination', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    // -> Holds write:pages everywhere but no read:pages/read:source anywhere -- e.g. a caller who
+    //    only ever held `read:history` at this path, per the vulnerability this route-level check
+    //    closes (OpenProject #2168).
+    checkAccessImpl = (_actor, permission) => permission === 'write:pages'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 403)
+    const body = res.json()
+    assert.match(body.message, /not allowed to read/)
+  })
+
+  test('POST recover checks read:pages/read:source against the SOURCE path even when the target is overridden', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: { tags: ['secret'], classification: 'classification-id' },
+      tags: ['secret'],
+      classification: 'classification-id'
+    }
+    const seenSources: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:pages' || permission === 'read:source') {
+        seenSources.push({ permission, page })
+      }
+      return false
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { path: 'overridden', locale: 'fr' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    // -> Both checks ran against the deleted version's OWN path/locale/tags/classification, not the
+    //    override -- and it stopped after the first failing one (`read:pages`), never asking
+    //    `read:source` once the caller was already refused.
+    assert.deepEqual(seenSources, [
+      {
+        permission: 'read:pages',
+        page: {
+          path: 'original',
+          locale: 'en',
+          tags: ['secret'],
+          classification: 'classification-id',
+          siteId: SITE_ID
+        }
+      }
+    ])
+  })
+
+  test('POST recover succeeds when the caller can read the deleted path and write the destination', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().ok, true)
   })
 
   test('POST recover recreates the page and returns it', async () => {

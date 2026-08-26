@@ -2143,14 +2143,17 @@ async function routes(app: FastifyInstance) {
     {
       /*
         No route-level `permissions`: that hook reads the group-wide list, and `read:history` is a
-        page permission granted by a rule. Checked per row below instead, against the path and locale
-        each deletion happened at — a caller sees only the deletions they could have read the history
-        of; the rest are left out rather than answered as a whole-list 403.
+        page permission granted by a rule. Checked per row below instead, against the path, locale,
+        tags and classification each deletion happened at — a caller sees only the deletions they
+        could have read the history of; the rest are left out rather than answered as a whole-list
+        403. `author.email` is never populated on these rows: `read:history` here is granted per row
+        by whatever the caller could read, not `read:users`/`manage:users`, so it must not double as
+        a way to learn another user's address.
       */
       schema: {
         summary: 'List recoverable deletions',
         description:
-          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule.',
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path, locale, tags and classification it was deleted from, granted by a group rule. `author.email` is always empty on these rows.',
         tags: ['Pages'],
         params: siteIdParam,
         response: {
@@ -2165,7 +2168,12 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        mayOnPage(req, 'read:history', req.params.siteId, {
+          path: row.path,
+          locale: row.locale,
+          tags: row.tags,
+          classification: row.classification
+        })
       )
     }
   )
@@ -2180,14 +2188,17 @@ async function routes(app: FastifyInstance) {
     '/sites/:siteId/pages/deleted/:versionId/recover',
     {
       /*
-        No route-level `permissions`: that hook reads the group-wide list, and `write:pages` is a page
-        permission granted by a rule. Checked against the TARGET path below instead — the override
-        path/locale when given, otherwise the path/locale the version was deleted from.
+        No route-level `permissions`: that hook reads the group-wide list, and `write:pages`/
+        `read:pages`/`read:source` are page permissions granted by a rule. Checked in the handler
+        against TWO refs: the SOURCE path/locale the version was deleted from (must be readable, since
+        `recoverDeletedPage` rebuilds title, content, tags, relations and scripts from it) and the
+        TARGET path/locale — the override when given, otherwise the same source path/locale — which
+        must be writable.
       */
       schema: {
         summary: 'Recover a deleted page',
         description:
-          'Recreates the page from one specific deleted version, found by its history id rather than "the latest deletion at this path" — so a caller acting on a `GET …/pages/deleted` row recovers exactly the version it showed.\n\n`path` and/or `locale` in the body steer the recreated page around a conflict the plain restore would hit: a path a newer page has since taken answers `pageDuplicatePath` (409), and a locale the site no longer serves answers `pageInvalidLocale` (400) — both as the same JSON error shape every other page-creation failure uses, not a generic 500.',
+          'Recreates the page from one specific deleted version, found by its history id rather than "the latest deletion at this path" — so a caller acting on a `GET …/pages/deleted` row recovers exactly the version it showed.\n\nRequires `read:pages` and `read:source` at the path the version was deleted from — the version is rebuilding title, content, tags, relations and scripts, so recovering it must not hand those back to someone who could not have read them there — and `write:pages` at the target path (the override below, or the same deleted path when none is given).\n\n`path` and/or `locale` in the body steer the recreated page around a conflict the plain restore would hit: a path a newer page has since taken answers `pageDuplicatePath` (409), and a locale the site no longer serves answers `pageInvalidLocale` (400) — both as the same JSON error shape every other page-creation failure uses, not a generic 500.',
         tags: ['Pages'],
         params: {
           type: 'object',
@@ -2236,6 +2247,18 @@ async function routes(app: FastifyInstance) {
       )
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
+      }
+      const source = {
+        path: version.path,
+        locale: version.locale,
+        tags: version.tags,
+        classification: version.classification
+      }
+      if (
+        !mayOnPage(req, 'read:pages', req.params.siteId, source) ||
+        !mayOnPage(req, 'read:source', req.params.siteId, source)
+      ) {
+        return reply.forbidden('You are not allowed to read the page you are recovering.')
       }
       const overrides = req.body ?? {}
       const target = {
