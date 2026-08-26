@@ -205,10 +205,8 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
   })
 
   /**
-   * Task 491: locks the `pages.ts` side of the asciidoc contentType agreement -- `base.test.ts`'s
-   * "base.yml declares the asciidoc editor with asciidoc as its content type" locks the `base.yml`
-   * side. Before this task the two disagreed (`base.yml` said `html`, `EDITOR_CONTENT_TYPES.asciidoc`
-   * said `asciidoc`); this is what a real save actually produces.
+   * Task 491: locks `EDITOR_CONTENT_TYPES.asciidoc` mapping to `'asciidoc'`, not `'html'` -- this is
+   * what a real save actually produces.
    */
   test('createPage stores the asciidoc editor content as asciidoc, matching EDITOR_CONTENT_TYPES', async () => {
     const page = await pagesModel.createPage(
