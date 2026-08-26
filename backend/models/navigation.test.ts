@@ -691,20 +691,39 @@ describe('navigation.mode column (DB-backed)', { skip: !hasTestDatabase() }, () 
   })
 
   test('getMode reads the same column back, and defaults to static for a menu with no row yet', async () => {
-    assert.equal(await navigationModel.getMode(crypto.randomUUID()), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, crypto.randomUUID()), 'static')
 
     const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'mixed' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'mixed')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'mixed')
 
     await WIKI.db
       .update(navigationTable)
       .set({ mode: 'static' })
       .where(eq(navigationTable.id, navId))
-    assert.equal(await navigationModel.getMode(navId), 'static')
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'static')
+  })
+
+  /**
+   * OpenProject #2135: `getMode()` used to select on `id` alone, so a `site:navigation` delegate on
+   * one site could read another site's menu mode by guessing/knowing its id. It now pairs `id` with
+   * `siteId` the same way `getNav()` already does.
+   */
+  test('getMode does not return a mode for a nav id owned by another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname: 'other-getmode.localhost', isEnabled: true, config: {} })
+      .returning({ id: sitesTable.id })
+    const navId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+    await WIKI.db.update(navigationTable).set({ mode: 'auto' }).where(eq(navigationTable.id, navId))
+
+    // -> Owning site still reads the real mode
+    assert.equal(await navigationModel.getMode(fixtures.siteId, navId), 'auto')
+    // -> A foreign site asking for the same id gets the no-row default, not the real mode
+    assert.equal(await navigationModel.getMode(otherSite!.id, navId), 'static')
   })
 })
 

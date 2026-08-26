@@ -309,7 +309,7 @@ class Tree {
     // -> Resolve what to list into the ltree path its children carry
     let path = ''
     if (parentId) {
-      const parent = await this.getFolderById(parentId)
+      const parent = await this.getFolderById(siteId, parentId)
       if (parent) {
         path = childPathOf(parent)
       }
@@ -611,13 +611,17 @@ class Tree {
   }
 
   /**
-   * A single folder by ID, or null if the ID is not a folder
+   * A single folder by ID, or null if the ID is not a folder or belongs to a different site
    */
-  async getFolderById(id: string, db: WikiDbOrTx = WIKI.db): Promise<TreeRow | null> {
+  async getFolderById(
+    siteId: string,
+    id: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<TreeRow | null> {
     const results = await db
       .select()
       .from(treeTable)
-      .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder')))
+      .where(and(eq(treeTable.id, id), eq(treeTable.type, 'folder'), eq(treeTable.siteId, siteId)))
       .limit(1)
     return (results[0] as TreeRow) ?? null
   }
@@ -690,7 +694,7 @@ class Tree {
     id?: string | null
     path?: string | null
     locale?: string
-    siteId?: string
+    siteId: string
     createIfMissing?: boolean
     /** Runs against this instead of the ambient `WIKI.db` — a batch import passes its own
      *  transaction here so a folder it has to create is rolled back along with everything else in
@@ -698,7 +702,7 @@ class Tree {
     db?: WikiDbOrTx
   }): Promise<TreeRow> {
     if (id) {
-      const folder = await this.getFolderById(id, db)
+      const folder = await this.getFolderById(siteId, id, db)
       if (!folder) {
         throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
       }
@@ -777,7 +781,7 @@ class Tree {
     let path = encodeTreePath(parentPath)
     let effectiveLocale = locale
     if (parentId) {
-      const parent = await this.getFolderById(parentId, db)
+      const parent = await this.getFolderById(siteId, parentId, db)
       if (!parent) {
         throw new CustomError('treeInvalidParent', 'The parent folder does not exist.', 404)
       }
@@ -932,15 +936,17 @@ class Tree {
    *                 one when only the title differs, which leaves every descendant's path untouched.
    */
   async renameFolder({
+    siteId,
     folderId,
     pathName,
     title
   }: {
+    siteId: string
     folderId: string
     pathName: string
     title: string
   }): Promise<TreeRow> {
-    const folder = await this.getFolderById(folderId)
+    const folder = await this.getFolderById(siteId, folderId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }
@@ -1125,8 +1131,11 @@ class Tree {
    *          back with it: the tree row is the only record of that, and it is gone by then — but what
    *          was deleted is exactly what a webhook subscriber is owed.
    */
-  async deleteFolder(folderId: string): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
-    const folder = await this.getFolderById(folderId)
+  async deleteFolder(
+    siteId: string,
+    folderId: string
+  ): Promise<{ pages: DeletedEntry[]; assets: DeletedEntry[] }> {
+    const folder = await this.getFolderById(siteId, folderId)
     if (!folder) {
       throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
     }

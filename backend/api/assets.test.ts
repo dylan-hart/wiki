@@ -402,7 +402,7 @@ describe('upload route: parentPath resolution (OpenProject #879)', () => {
           }
         },
         tree: {
-          getFolderById: async (id: string) => {
+          getFolderById: async (_siteId: string, id: string) => {
             getFolderByIdCalls.push(id)
             return null
           },

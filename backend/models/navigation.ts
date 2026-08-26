@@ -232,13 +232,14 @@ class Navigation {
    * preselect the option that is actually stored rather than always defaulting to `static`. `static`
    * (the schema default) for a menu with no row yet, same fallback `getNav` uses.
    *
+   * @param siteId Site the menu row must belong to
    * @param id Menu id -- a tree entry id, or a site id for the site-wide menu
    */
-  async getMode(id: string): Promise<NavigationSourceMode> {
+  async getMode(siteId: string, id: string): Promise<NavigationSourceMode> {
     const rows = await WIKI.db
       .select({ mode: navigationTable.mode })
       .from(navigationTable)
-      .where(eq(navigationTable.id, id))
+      .where(and(eq(navigationTable.id, id), eq(navigationTable.siteId, siteId)))
       .limit(1)
     return rows[0]?.mode ?? 'static'
   }

@@ -8,6 +8,7 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
+import { sites as sitesTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -70,7 +71,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    await treeModel.renameFolder({ folderId: en.id, pathName: 'guides', title: 'Guides' })
+    await treeModel.renameFolder({
+      siteId: fixtures.siteId,
+      folderId: en.id,
+      pathName: 'guides',
+      title: 'Guides'
+    })
 
     const frPage = await pagesModel.getPage({
       siteId: fixtures.siteId,
@@ -116,17 +122,17 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const removed = await treeModel.deleteFolder(en.id)
+    const removed = await treeModel.deleteFolder(fixtures.siteId, en.id)
     await pagesModel.deleteOrphaned(fixtures.siteId, removed.pages, actor)
 
     const frPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: frPage.id })
     assert.ok(frPageAfter, 'the fr page must still exist')
-    const frFolderAfter = await treeModel.getFolderById(fr.id)
+    const frFolderAfter = await treeModel.getFolderById(fixtures.siteId, fr.id)
     assert.ok(frFolderAfter, 'the fr folder row must still exist')
 
     const enPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: enPage.id })
     assert.equal(enPageAfter, null, 'the en page must be gone')
-    const enFolderAfter = await treeModel.getFolderById(en.id)
+    const enFolderAfter = await treeModel.getFolderById(fixtures.siteId, en.id)
     assert.equal(enFolderAfter, null, 'the en folder row must be gone')
   })
 
@@ -150,8 +156,8 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       actor
     )
 
-    const enFolder = await treeModel.getFolderById(en.id)
-    const frFolder = await treeModel.getFolderById(fr.id)
+    const enFolder = await treeModel.getFolderById(fixtures.siteId, en.id)
+    const frFolder = await treeModel.getFolderById(fixtures.siteId, fr.id)
     assert.equal(enFolder!.meta.children, 1, "only the en folder's count should have moved")
     assert.equal(frFolder!.meta.children, 0, "the fr folder's count must be untouched")
   })
@@ -278,6 +284,38 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(child.fileName, 'fr')
   })
 
+  /**
+   * OpenProject #2131: `getFolderById()` used to select on `id` alone, so `createFolder({ parentId })`
+   * (and the `POST /sites/:siteId/tree/folders` route on top of it) would resolve a `parentId`
+   * belonging to a DIFFERENT site, deriving the new folder's ltree path and locale from a foreign row
+   * it had no business reading. `getFolderById()` now pairs `id` with `siteId`, so a foreign `parentId`
+   * simply never matches and the create is refused rather than leaking the other site's folder path or
+   * locale.
+   */
+  test('createFolder refuses a parentId belonging to another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname: 'other-createfolder.localhost', isEnabled: true, config: {} })
+      .returning({ id: sitesTable.id })
+    const foreignParent = await treeModel.createFolder({
+      pathName: 'foreign-secret',
+      title: 'Foreign Secret',
+      locale: 'en',
+      siteId: otherSite!.id
+    })
+
+    await assert.rejects(
+      treeModel.createFolder({
+        parentId: foreignParent.id,
+        pathName: 'child',
+        title: 'Child',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeInvalidParent'
+    )
+  })
+
   test('renameFolder refuses renaming a root folder to an installed locale code', async () => {
     const folder = await treeModel.createFolder({
       pathName: 'renameable',
@@ -286,7 +324,12 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       siteId: fixtures.siteId
     })
     await assert.rejects(
-      treeModel.renameFolder({ folderId: folder.id, pathName: 'en', title: 'Renameable' }),
+      treeModel.renameFolder({
+        siteId: fixtures.siteId,
+        folderId: folder.id,
+        pathName: 'en',
+        title: 'Renameable'
+      }),
       (err: any) => err.name === 'treeReservedLocaleSegment'
     )
   })

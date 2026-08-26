@@ -470,8 +470,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const folder = await WIKI.models.tree.getFolderById(req.params.folderId)
-      if (!folder || folder.siteId !== req.params.siteId) {
+      const folder = await WIKI.models.tree.getFolderById(req.params.siteId, req.params.folderId)
+      if (!folder) {
         return reply.notFound('This folder does not exist.')
       }
       const folderPath = folderPathOf(folder)
@@ -543,20 +543,26 @@ async function routes(app: FastifyInstance) {
               folder: { $ref: 'Folder#' }
             }
           },
-          403: { $ref: 'ApiError#' }
+          403: { $ref: 'ApiError#' },
+          404: { $ref: 'ApiError#' }
         }
       }
     },
     async (req, reply) => {
       /*
         Against where the folder is going. `parentPath` is the slash-separated path when given; with
-        `parentId` the parent has to be looked up, and a missing one is left to the model to report.
+        `parentId` the parent has to be looked up, and a missing one -- including a `parentId`
+        belonging to another site, which `getFolderById` is scoped by siteId so it never matches --
+        is a 404 here rather than being handed to the model.
       */
       let parentPath = req.body.parentPath ?? ''
       let parent: Awaited<ReturnType<typeof WIKI.models.tree.getFolderById>> = null
       if (req.body.parentId) {
-        parent = await WIKI.models.tree.getFolderById(req.body.parentId)
-        parentPath = parent ? folderPathOf(parent) : parentPath
+        parent = await WIKI.models.tree.getFolderById(req.params.siteId, req.body.parentId)
+        if (!parent) {
+          return reply.notFound('This folder does not exist.')
+        }
+        parentPath = folderPathOf(parent)
       }
       const target = [parentPath, req.body.pathName].filter(Boolean).join('/')
       // -> Mirrors createFolder's own parent-wins locale rule (models/tree.ts:750-751): a folder
@@ -626,8 +632,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      const existing = await WIKI.models.tree.getFolderById(req.params.folderId)
-      if (!existing || existing.siteId !== req.params.siteId) {
+      const existing = await WIKI.models.tree.getFolderById(req.params.siteId, req.params.folderId)
+      if (!existing) {
         return reply.notFound('This folder does not exist.')
       }
       if (
@@ -642,6 +648,7 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to rename this folder.')
       }
       const folder = await WIKI.models.tree.renameFolder({
+        siteId: req.params.siteId,
         folderId: req.params.folderId,
         pathName: req.body.pathName,
         title: req.body.title
@@ -691,8 +698,8 @@ async function routes(app: FastifyInstance) {
       if (!actor) {
         return reply.unauthorized('Deleting a folder requires a logged in user.')
       }
-      const existing = await WIKI.models.tree.getFolderById(req.params.folderId)
-      if (!existing || existing.siteId !== req.params.siteId) {
+      const existing = await WIKI.models.tree.getFolderById(req.params.siteId, req.params.folderId)
+      if (!existing) {
         return reply.notFound('This folder does not exist.')
       }
       if (
@@ -706,7 +713,7 @@ async function routes(app: FastifyInstance) {
       ) {
         return reply.forbidden('You are not allowed to delete this folder.')
       }
-      const removed = await WIKI.models.tree.deleteFolder(req.params.folderId)
+      const removed = await WIKI.models.tree.deleteFolder(req.params.siteId, req.params.folderId)
       // -> The tree entries are gone; these are the rows behind them, which is where a page and an
       //    asset actually live
       await WIKI.models.pages.deleteOrphaned(req.params.siteId, removed.pages, actor)

@@ -126,7 +126,7 @@ async function routes(app: FastifyInstance) {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
       }
-      return { mode: await WIKI.models.navigation.getMode(req.params.navId) }
+      return { mode: await WIKI.models.navigation.getMode(req.params.siteId, req.params.navId) }
     }
   )
 

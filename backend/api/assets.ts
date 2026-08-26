@@ -172,7 +172,7 @@ async function routes(app: FastifyInstance) {
         just by sending `parentPath` with different casing or stray slashes.
       */
       const folder = req.query.folderId
-        ? await WIKI.models.tree.getFolderById(req.query.folderId)
+        ? await WIKI.models.tree.getFolderById(req.params.siteId, req.query.folderId)
         : null
       const folderPath = folder ? (decodeTreePath(folder.folderPath ?? '') ?? '') : ''
       const parentPath = req.query.parentPath ? normalizePagePath(req.query.parentPath) : ''
