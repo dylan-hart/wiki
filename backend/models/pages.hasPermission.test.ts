@@ -7,8 +7,10 @@ import { hasPermission } from './pages.ts'
  * `actor.permissions.includes(permission)` — the group-WIDE permission list built by `actorFrom()`
  * in `api/pages.ts` — but `write:scripts`/`write:styles` are page-rule-scoped permissions (same
  * `PAGE_PERMISSIONS` list `mayBypassPassword()` misused before task 547; see CLAUDE.md's Permissions
- * section). A page-rule grant of either was therefore silently ignored at all four call sites that
- * gate `postProcess()`/`buildScripts()`: `createPage`, `updatePage`, and `queueRerender`.
+ * section). A page-rule grant of either was therefore silently ignored at all three call sites that
+ * gate `postProcess()` — `write:scripts`/`write:styles` decide whether an author's raw `<script>`/
+ * `<style>` HTML survives sanitization, not merely a global toggle: `createPage`, `updatePage`, and
+ * `queueRerender`.
  *
  * `hasPermission()` now takes the page in question and asks `WIKI.models.groups.checkAccess()` — the
  * same per-page decision `mayOnPage()` makes in `api/pages.ts` — via the actor's new `groupIds` field
