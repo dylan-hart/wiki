@@ -88,6 +88,10 @@ jobs:
         working-directory: frontend
         run: npm run emoji:check
 
+      - name: Frontend Locales Check
+        working-directory: frontend
+        run: npm run locales:check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint --deny-warnings

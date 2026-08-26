@@ -98,6 +98,15 @@ jobs:
         working-directory: frontend
         run: npm run emoji:check
 
+      # Same "source scan must stay in step with a side file" shape as the two checks above, but for
+      # backend/locales/en.json: fails if any key has no reader in frontend/src (crediting a dynamic
+      # `t(...)` call's template-literal/concatenation prefix, lookup-table indirection, or
+      # `<i18n-t keypath>` usage -- see check-locales.mjs's own header comment). Pure source-text
+      # scanning, same as the icons/emoji checks -- no network, safe on a cold runner.
+      - name: Frontend Locales Check
+        working-directory: frontend
+        run: npm run locales:check
+
       - name: Frontend Lint
         working-directory: frontend
         run: npx oxlint --deny-warnings
