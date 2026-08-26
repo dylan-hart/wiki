@@ -359,6 +359,71 @@
               </w-item>
             </template>
           </template>
+          <!--
+            Not one of the dynamic `state.strategy.config` props above: `mappableGroups` is a
+            top-level strategy field, same as `autoEnrollGroups`, gated on the module's own
+            `mapGroups` boolean config prop rather than a `configIfCheck` (that check is written
+            against sibling config props, not against another top-level field).
+          -->
+          <template v-if="state.strategy.config?.mapGroups?.value">
+            <w-separator class="my-2" inset />
+            <w-item>
+              <blueprint-icon icon="team" />
+              <w-item-section>
+                <w-item-label>{{ t(`admin.auth.mappableGroups`) }}</w-item-label>
+                <w-item-label caption>{{ t(`admin.auth.mappableGroupsHint`) }}</w-item-label>
+              </w-item-section>
+              <w-item-section>
+                <w-select
+                  outlined
+                  :options="state.groups"
+                  v-model="state.strategy.mappableGroups"
+                  multiple
+                  map-options
+                  emit-value
+                  option-value="id"
+                  option-label="name"
+                  options-dense
+                  dense
+                  hide-bottom-space
+                  :aria-label="t(`admin.auth.mappableGroups`)"
+                  :loading="state.loadingGroups">
+                  <template #selected>
+                    <div class="text-caption" v-if="state.strategy.mappableGroups?.length > 1">
+                      <i18n-t keypath="admin.users.groupsSelected">
+                        <template #count>
+                          <strong>{{ state.strategy.mappableGroups?.length }}</strong>
+                        </template>
+                      </i18n-t>
+                    </div>
+                    <div
+                      class="text-caption"
+                      v-else-if="state.strategy.mappableGroups?.length === 1">
+                      <i18n-t keypath="admin.users.groupSelected">
+                        <template #group
+                          ><strong>{{ selectedMappableGroupName }}</strong></template
+                        >
+                      </i18n-t>
+                    </div>
+                    <span v-else />
+                  </template>
+                  <template #option="{ itemProps, opt, selected, toggleOption }">
+                    <w-item v-bind="itemProps">
+                      <w-item-section side>
+                        <w-checkbox
+                          size="sm"
+                          :model-value="selected"
+                          @update:model-value="toggleOption(opt)" />
+                      </w-item-section>
+                      <w-item-section
+                        ><w-item-label>{{ opt.name }}</w-item-label></w-item-section
+                      >
+                    </w-item>
+                  </template>
+                </w-select>
+              </w-item-section>
+            </w-item>
+          </template>
         </w-card>
         <!-- ----------------------- -->
         <!-- References -->
@@ -513,6 +578,9 @@ const filteredAvailableStrategies = computed(() => {
 const selectedGroupName = computed(() => {
   return state.groups.filter((g) => g.id === state.strategy?.autoEnrollGroups?.[0])[0]?.name
 })
+const selectedMappableGroupName = computed(() => {
+  return state.groups.filter((g) => g.id === state.strategy?.mappableGroups?.[0])[0]?.name
+})
 const strategyRefs = computed(() => {
   if (!state.selectedStrategy) {
     return []
@@ -653,6 +721,7 @@ function payloadFor(str) {
     registration: str.registration,
     allowedEmailRegex: str.allowedEmailRegex ?? '',
     autoEnrollGroups: str.autoEnrollGroups ?? [],
+    mappableGroups: str.mappableGroups ?? [],
     config
   }
 }
@@ -729,6 +798,7 @@ function addStrategy(mod) {
     registration: false,
     allowedEmailRegex: '',
     autoEnrollGroups: [],
+    mappableGroups: [],
     strategy: mod,
     config: buildConfigEditor(mod.props, {})
   }

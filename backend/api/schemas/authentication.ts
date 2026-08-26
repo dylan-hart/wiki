@@ -155,6 +155,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         }
       },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Admin-chosen allow-list of groups a provider login may grant or revoke via `mapGroups`. Empty by default, meaning a login changes no group memberships. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
+      },
       // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
       // declares — a different set of keys per module.
       config: {
@@ -206,6 +215,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         },
         description:
           'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
+      },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Allow-list of groups this strategy is permitted to grant/revoke on login via `mapGroups`. The guests group is refused. Empty by default, meaning no group memberships are changed. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {

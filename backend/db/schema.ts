@@ -228,7 +228,11 @@ export const authentication = pgTable('authentication', {
   config: jsonb().notNull().default({}),
   registration: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
-  autoEnrollGroups: uuid().array().default([])
+  autoEnrollGroups: uuid().array().default([]),
+  // -> Admin-chosen subset of groups a provider login is allowed to grant/revoke via `mapGroups`.
+  //    Empty by default, meaning a login changes no group memberships. See
+  //    `models/users.ts#syncProviderGroups()`.
+  mappableGroups: uuid().array().default([])
 })
 
 // CONTENT SYNC STATE -------------------
