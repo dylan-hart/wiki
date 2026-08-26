@@ -8,6 +8,7 @@ import { registerSchemas as registerApprovalSchemas } from './schemas/approval.t
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { registerSchemas as registerPageImportSchema } from './schemas/pageImport.ts'
 import pagesRoutes from './pages.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * OpenProject #1080: the PATCH route's declassification guardrail (lowering a page's classification
@@ -45,31 +46,11 @@ describe('pages API — classification (OpenProject #1080)', () => {
   let parentClassificationFloor: string | null = null
 
   let app: FastifyInstance
-  let previousTemporal: any
-  let previousToTemporalInstant: any
-
-  /**
-   * Same fake as `api/pages.test.ts`'s own `installFakeTemporal` -- this sandbox's Node lacks native
-   * `Temporal` (see that file's doc comment), and the PATCH handler calls
-   * `page.updatedAt.toTemporalInstant()` for the collab-save notification regardless of whether this
-   * test's own assertions care about the timestamp.
-   */
-  function installFakeTemporal(): void {
-    ;(globalThis as any).Temporal = {
-      Instant: { from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) }) }
-    }
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      const epochMilliseconds = this.getTime()
-      return { epochMilliseconds, toString: () => new Date(epochMilliseconds).toISOString() }
-    }
-  }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    if (typeof previousTemporal === 'undefined') {
-      installFakeTemporal()
-    }
+    // -> The PATCH handler calls `page.updatedAt.toTemporalInstant()` for the collab-save
+    //    notification regardless of whether this test's own assertions care about the timestamp.
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       models: {
         pages: {
@@ -165,8 +146,6 @@ describe('pages API — classification (OpenProject #1080)', () => {
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   })
 
   beforeEach(() => {
