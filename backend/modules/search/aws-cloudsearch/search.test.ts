@@ -179,6 +179,14 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
     assert.equal(id.options.facetEnabled, false)
   })
 
+  test('siteId is a literal field, filterable but never searched, faceted or returned (OpenProject #2108/#2113)', () => {
+    const siteId = fields.find((f) => f.name === 'siteId')!
+    assert.equal(siteId.type, 'literal')
+    assert.equal(siteId.options.searchEnabled, false)
+    assert.equal(siteId.options.facetEnabled, false)
+    assert.equal(siteId.options.returnEnabled, false)
+  })
+
   test('path, locale, title, description and content are text fields referencing the analysis scheme', () => {
     for (const name of ['path', 'locale', 'title', 'description', 'content']) {
       const field = fields.find((f) => f.name === name)!
@@ -513,8 +521,8 @@ describe('aws-cloudsearch module: buildStructuredQuery', () => {
 
 describe('aws-cloudsearch module: buildFilterQuery', () => {
   test('siteId alone (every other filter off, including draft exclusion) is the whole clause', () => {
-    // -> OpenProject #2113: `siteId` is unconditional, unlike every other filter, so this is the
-    //    no-filters floor rather than an empty/undefined result.
+    // -> `siteId` is unconditional, unlike every other filter, so this is the no-filters floor
+    //    rather than an empty/undefined result — a plain term clause, not wrapped in "and".
     assert.equal(
       buildFilterQuery({ siteId: 'site-1', includeDrafts: true }),
       `(term field=siteId 'site-1')`
@@ -530,7 +538,7 @@ describe('aws-cloudsearch module: buildFilterQuery', () => {
     )
   })
 
-  test('path becomes a prefix clause, alongside the unconditional siteId term', () => {
+  test('path becomes a prefix clause, and-joined with siteId', () => {
     assert.equal(
       buildFilterQuery({ siteId: 'site-1', path: 'en/guides', includeDrafts: true }),
       `(and (term field=siteId 'site-1') (prefix field=path 'en/guides'))`
@@ -590,13 +598,27 @@ describe('aws-cloudsearch module: buildFilterQuery', () => {
     )
   })
 
-  test('always scopes to the requesting site — OpenProject #2113, two sites sharing one domain', () => {
+  test('always scopes to the requesting site, two sites sharing one domain', () => {
     const clauseForA = buildFilterQuery({ siteId: 'site-a', includeDrafts: true })
     const clauseForB = buildFilterQuery({ siteId: 'site-b', includeDrafts: true })
     assert.ok(clauseForA.includes(`field=siteId 'site-a'`))
     assert.ok(!clauseForA.includes('site-b'))
     assert.ok(clauseForB.includes(`field=siteId 'site-b'`))
     assert.ok(!clauseForB.includes('site-a'))
+    assert.notEqual(clauseForA, clauseForB)
+  })
+
+  test('always includes a siteId term, for every combination of optional filters', () => {
+    const clause = buildFilterQuery({
+      siteId: 'site-1',
+      path: 'en',
+      locales: ['en'],
+      tags: ['a'],
+      editor: 'markdown',
+      publishState: 'published',
+      hasPassword: true
+    })
+    assert.match(clause, /\(term field=siteId 'site-1'\)/)
   })
 })
 
@@ -1007,9 +1029,11 @@ describe('aws-cloudsearch module: rebuild()', () => {
   /**
    * OpenProject #922: `rebuild()` only ever added/overwrote documents, so a page deleted while this
    * engine was unreachable stayed in the domain forever -- a ghost result. It queries every id
-   * already in the domain *for this site* (OpenProject #2117) and uploads an SDF `delete` entry for
-   * whichever ones were not just re-uploaded -- but only once a backfill-completion check confirms no
-   * document in the domain is still untagged; see the next `describe` block.
+   * belonging to this site already in the domain (OpenProject #2108: `siteId`-scoped, not a bare
+   * `matchall`, now that a shared domain is a real possibility -- see `buildFilterQuery`'s own doc
+   * comment) and uploads an SDF `delete` entry for whichever ones were not just re-uploaded. That
+   * lookup only runs once `hasUnbackfilledDocuments` confirms the whole domain has been backfilled
+   * with a `siteId` value -- see the `gates the purge on a completed siteId backfill` block below.
    *
    * Every `rebuild()` call here issues its backfill check (`hasUnbackfilledDocuments`, `found: 0` ->
    * backfill complete) as `client.searches[0]`, so the ghost-lookup queue entry comes second.
@@ -1017,8 +1041,8 @@ describe('aws-cloudsearch module: rebuild()', () => {
   describe('purges ghost documents', () => {
     test('deletes a domain id that was not re-uploaded, keeps the ones that were', async () => {
       const client = fakeQueryClient([
-        { found: 0, hit: [] },
-        { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] }
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] } // fetchAllIds
       ])
       const source = fakePageSource({ en: [basePage({ id: 'stays' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
@@ -1031,8 +1055,8 @@ describe('aws-cloudsearch module: rebuild()', () => {
 
     test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
       const client = fakeQueryClient([
-        { found: 0, hit: [] },
-        { found: 1, hit: [hit({ id: 'page-1' })] }
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 1, hit: [hit({ id: 'page-1' })] } // fetchAllIds
       ])
       const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
@@ -1043,7 +1067,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
       assert.deepEqual(deleteEntries, [])
     })
 
-    test('the domain-id lookup is scoped to this site by a siteId filterQuery, not a bare matchall (OpenProject #2117)', async () => {
+    test('the domain-id lookup is scoped to this site by a siteId filterQuery, not a bare matchall', async () => {
       const client = fakeQueryClient([
         { found: 0, hit: [] },
         { found: 1, hit: [hit({ id: 'ghost' })] }
@@ -1075,16 +1099,19 @@ describe('aws-cloudsearch module: rebuild()', () => {
   })
 
   /**
-   * OpenProject #2117: documents indexed before this module started stamping a `siteId` (OpenProject
-   * #2113) carry no value for it. Scoping `fetchAllIds()` by `siteId` alone would make those
-   * untagged documents invisible to the purge -- permanently orphaning this site's own real ghosts
-   * -- while purging on an unscoped list would still delete a sibling site's live documents, which
-   * is the exact bug #2117 exists to fix. So the purge only runs once nothing in the domain is left
-   * untagged.
+   * OpenProject #2108: a document indexed before the `siteId` field existed carries no value for it,
+   * so a purge that ran the moment this shipped could not tell such a document apart from another
+   * site's real, live page sharing the same domain -- exactly the neighbour-wiping bug this task
+   * fixes. `rebuild()` checks `hasUnbackfilledDocuments` -- after this site's own reindex loop has
+   * run, so it can purge in the very same pass that finishes backfilling this site's own pages -- and
+   * skips the purge entirely, observably, until it comes back clean.
    */
   describe('gates the purge on a completed siteId backfill', () => {
-    test('the backfill check runs first, as a matchall query filtered to documents missing siteId', async () => {
-      const client = fakeQueryClient([{ found: 0, hit: [] }])
+    test('the backfill check runs a matchall with a missing-siteId filter, then the id lookup a siteId-scoped one', async () => {
+      const client = fakeQueryClient([
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments
+        { found: 1, hit: [hit({ id: 'ghost' })] } // fetchAllIds
+      ])
       const source = fakePageSource({ en: [] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
@@ -1093,9 +1120,11 @@ describe('aws-cloudsearch module: rebuild()', () => {
       assert.equal(client.searches[0]!.query, 'matchall')
       assert.equal(client.searches[0]!.filterQuery, '(not (range field=siteId {,}))')
       assert.equal(client.searches[0]!.size, 1)
+      assert.equal(client.searches[1]!.query, 'matchall')
+      assert.equal(client.searches[1]!.filterQuery, `(term field=siteId 'site-1')`)
     })
 
-    test('issues no delete batch, and looks up no ghost ids at all, while the domain still has untagged documents', async () => {
+    test('skips the purge -- no delete batch, and fetchAllIds is never called -- while unbackfilled documents remain', async () => {
       const client = fakeQueryClient([{ found: 3, hit: [] }])
       const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
@@ -1103,7 +1132,7 @@ describe('aws-cloudsearch module: rebuild()', () => {
       await module.rebuild('site-1')
 
       // -> Only the backfill check itself ran -- `fetchAllIds()` was never called, since there is
-      //    nothing safe to diff against yet.
+      //    nothing safe to diff against yet. This site's own page still gets uploaded normally.
       assert.equal(client.searches.length, 1)
       const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
       assert.deepEqual(deleteEntries, [])
@@ -1124,10 +1153,10 @@ describe('aws-cloudsearch module: rebuild()', () => {
       )
     })
 
-    test('purges normally once no document in the domain is untagged', async () => {
+    test('purges normally, siteId-scoped, once no document in the domain is untagged', async () => {
       const client = fakeQueryClient([
-        { found: 0, hit: [] },
-        { found: 1, hit: [hit({ id: 'ghost' })] }
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 1, hit: [hit({ id: 'ghost' })] } // fetchAllIds
       ])
       const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
