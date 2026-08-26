@@ -179,9 +179,19 @@ function buildComparableState(
  * `alias`/`icon`/`config`/`relations`/`scripts`/`isBrowsable`/`isSearchable` of their own — none of
  * those exist in the 2.x schema at all — so each is set to the same default `createPage()` itself
  * would have used for a page that never specified one, per `db/schema.ts`'s column defaults.
+ *
+ * `extra` is 2.x's own free-form JSON blob (`StagedPageHistoryEntry.extra`, per
+ * `docs/migration/2.5x-to-3.0-mapping.md`'s "merged in" note) — merged into the result last, keyed
+ * by whatever field names 2.x happened to store there. It is spread in only where it doesn't
+ * collide with a key this function already sets: `pageHistory.meta` is a plain jsonb column with no
+ * fixed shape, so there's nowhere else for it to go, but a stray `extra.tags` (or any other
+ * same-named key) must never be allowed to clobber the real, derived value above it.
  */
-function buildMeta(state: ComparableVersionState): Record<string, unknown> {
-  return {
+function buildMeta(
+  state: ComparableVersionState,
+  extra: Record<string, unknown>
+): Record<string, unknown> {
+  const meta: Record<string, unknown> = {
     alias: null,
     description: state.description,
     icon: null,
@@ -197,6 +207,12 @@ function buildMeta(state: ComparableVersionState): Record<string, unknown> {
     isSearchable: true,
     password: null
   }
+  for (const [key, value] of Object.entries(extra)) {
+    if (!(key in meta)) {
+      meta[key] = value
+    }
+  }
+  return meta
 }
 
 /**
@@ -261,7 +277,7 @@ export function buildPageHistoryRowsForPage(
       path: entry.path,
       title: entry.title,
       content: entry.content,
-      meta: buildMeta(state),
+      meta: buildMeta(state, entry.extra),
       reason: null,
       versionDate,
       authorId: entry.authorId

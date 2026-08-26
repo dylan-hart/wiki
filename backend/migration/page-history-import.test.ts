@@ -208,6 +208,32 @@ describe('buildPageHistoryRowsForPage', () => {
     })
   })
 
+  test("merges the 2.x entry's extra blob into meta without clobbering tags, editor or contentType", () => {
+    const page = buildStagedPage({
+      history: [
+        buildHistoryEntry({
+          tags: ['intro'],
+          contentType: 'markdown',
+          editorKey: 'markdown',
+          extra: {
+            customField: 'kept',
+            // -> Same-named as real meta keys record() derives — must not win.
+            tags: ['should-not-appear'],
+            editor: 'should-not-appear',
+            contentType: 'should-not-appear'
+          }
+        })
+      ]
+    })
+    const warnings: string[] = []
+    const [row] = buildPageHistoryRowsForPage(page, 'new-page-1', 'site-1', warnings)
+
+    assert.equal(row.meta.customField, 'kept')
+    assert.deepEqual(row.meta.tags, ['intro'])
+    assert.equal(row.meta.editor, 'markdown')
+    assert.equal(row.meta.contentType, 'markdown')
+  })
+
   test('has no reason column to carry — 2.x pageHistory rows have none', () => {
     const page = buildStagedPage({ history: [buildHistoryEntry()] })
     const warnings: string[] = []
