@@ -154,10 +154,10 @@ const props = defineProps({
 
 const emit = defineEmits(['click'])
 
-/** Quasar's named spacing scale, for the `padding` prop. */
 /** Quasar's button size scale, in px. */
 const FONT_SIZES = { xs: 8, sm: 10, md: 14, lg: 20, xl: 24 }
 
+/** Quasar's named spacing scale, for the `padding` prop. */
 const SIZES = {
   none: '0',
   xs: '4px',

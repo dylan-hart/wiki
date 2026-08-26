@@ -79,7 +79,7 @@
                 OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
                 `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
               -->
-              <div class="text-caption q-mb-xs">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
+              <div class="text-caption mb-1">{{ t(`profile.api.newKeyPermissionScopes`) }}</div>
               <api-key-scope-picker v-model="state.keyScope" />
               <div class="text-caption text-grey mt-1">{{ t(`profile.api.newKeyScopeHint`) }}</div>
             </w-item-section>
@@ -97,7 +97,7 @@
                 agent authenticating with my token can read my password pages too" concern the feature
                 exists for.
               -->
-              <div class="text-caption q-mb-xs">
+              <div class="text-caption mb-1">
                 {{ t(`profile.api.newKeyClassificationLevels`) }}
               </div>
               <!--

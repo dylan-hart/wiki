@@ -44,7 +44,7 @@
         <div class="px-4">
           <sortable
             ref="miscListRef"
-            class="q-list rounded"
+            class="rounded"
             :list="inventoryMisc"
             :options="paletteSortableOptions"
             @start="state.dragStarted = true"
@@ -66,7 +66,7 @@
         <div class="px-4 pb-4">
           <sortable
             ref="kvListRef"
-            class="q-list rounded"
+            class="rounded"
             :list="inventoryKV"
             :options="paletteSortableOptions"
             @start="state.dragStarted = true"
@@ -125,7 +125,7 @@
                 <em>{{ t('editor.pageData.dragDropHint') }}</em>
               </div>
               <sortable
-                class="q-list rounded"
+                class="rounded"
                 :list="state.tmpl.data"
                 :options="fieldListSortableOptions"
                 @end="state.dragStarted = false"

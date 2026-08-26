@@ -1,5 +1,4 @@
 <template>
-  <!-- sized via `size` (inline style): a font-size CLASS is defeated by Quasar's unlayered `.q-icon { font-size: inherit }` -->
   <button
     type="button"
     role="checkbox"

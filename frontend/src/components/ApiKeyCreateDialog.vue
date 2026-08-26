@@ -128,7 +128,7 @@
               OpenProject #1272: a verb-grouped tri-state tree, replacing the earlier flat
               `w-select multiple use-chips` field -- see `ApiKeyScopePicker.vue`.
             -->
-            <div class="text-caption q-mb-xs">{{ t(`admin.api.newKeyPermissionScopes`) }}</div>
+            <div class="text-caption mb-1">{{ t(`admin.api.newKeyPermissionScopes`) }}</div>
             <api-key-scope-picker v-model="state.keyScope" />
             <div class="text-caption text-grey mt-1">{{ t(`admin.api.newKeyScopeHint`) }}</div>
           </w-item-section>
@@ -145,7 +145,7 @@
               be granted a page permission on a page classified at an unchecked level, whatever the
               rules say.
             -->
-            <div class="text-caption q-mb-xs">{{ t(`admin.api.newKeyClassificationLevels`) }}</div>
+            <div class="text-caption mb-1">{{ t(`admin.api.newKeyClassificationLevels`) }}</div>
             <div
               class="classification-grid grid gap-x-4 gap-y-1"
               style="grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr))">
