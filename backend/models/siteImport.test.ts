@@ -111,7 +111,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     }
   }
 
-  test('importSite restores pages, tree, assets and groups into the target site', async () => {
+  test('importSite restores pages, tree, assets, page history and groups into the target site', async () => {
     const page = await pagesModel.createPage(
       fixtures.siteId,
       {
@@ -122,6 +122,26 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
+    // -> A second revision, so the page carries more than the single `created` history row
+    //    `createPage` already recorded.
+    await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { content: '# Hello import, updated' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    // -> The target site already holds page history of its own, unrelated to what is about to be
+    //    imported -- proving the restore replaces it rather than merging with it.
+    const staleTargetPage = await pagesModel.createPage(
+      targetSiteId,
+      { path: 'target-stale', title: 'Target Stale', editor: 'markdown', content: 'pre-existing' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+    const [staleHistoryRow] = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.pageId, staleTargetPage.id))
 
     const assetData = Buffer.from('fake asset bytes')
     const [asset] = await fixtures.db
@@ -145,6 +165,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> The asset was inserted directly rather than through `models/assets.ts`, so it has no tree
     //    entry of its own here — only the page's
     assert.ok(result.tree >= 1)
+    assert.equal(result.pageHistory, 2)
     assert.ok(result.groups >= 1)
     assert.deepEqual(result.unresolvedRuleSites, [])
 
@@ -156,6 +177,28 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> A fresh id, not the source page's own — see the class-level doc comment on `importSite`
     assert.notEqual(importedPage!.id, page.id)
     assert.equal(importedPage!.authorId, fixtures.userId)
+
+    // -> The pre-existing target-site page-history row is gone, not merged with the imported ones
+    assert.ok(staleHistoryRow)
+    const [survivingStaleHistoryRow] = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.id, staleHistoryRow!.id))
+    assert.equal(survivingStaleHistoryRow, undefined)
+
+    // -> Every archived revision is present, and each one's `pageId` resolves to the page that was
+    //    just re-inserted under its fresh id.
+    const importedHistoryRows = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, targetSiteId))
+    assert.equal(importedHistoryRows.length, 2)
+    assert.ok(importedHistoryRows.some((h) => h.action === 'created'))
+    assert.ok(importedHistoryRows.some((h) => h.action === 'updated'))
+    for (const historyRow of importedHistoryRows) {
+      assert.equal(historyRow.pageId, importedPage!.id)
+      assert.equal(historyRow.authorId, fixtures.userId)
+    }
 
     // -> The page's tree entry must have followed it to the exact same new id
     const [pageTreeEntry] = await fixtures.db

@@ -82,6 +82,14 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
+    // -> createPage already recorded one `created` pageHistory row; this adds an `updated` one, so
+    //    the export below has more than one revision to carry for the same page.
+    await pagesModel.updatePage(
+      fixtures.siteId,
+      page.id,
+      { content: '# Hello export, updated' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
 
     const assetData = Buffer.from('fake file bytes')
     const [asset] = await fixtures.db
@@ -114,6 +122,12 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.ok(exportedPages.some((p: any) => p.id === page.id && p.path === 'export-me'))
     // -> Regenerated columns must not have made it into the export
     assert.equal('ts' in exportedPages[0], false)
+
+    const exportedPageHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    const pageHistoryForPage = exportedPageHistory.filter((h: any) => h.pageId === page.id)
+    assert.equal(pageHistoryForPage.length, 2)
+    assert.ok(pageHistoryForPage.some((h: any) => h.action === 'created'))
+    assert.ok(pageHistoryForPage.some((h: any) => h.action === 'updated'))
 
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
