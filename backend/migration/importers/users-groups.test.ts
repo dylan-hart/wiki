@@ -249,7 +249,11 @@ describe('needsProviderFallback', () => {
     assert.equal(needsProviderFallback('local', { local: 'some-uuid' }), false)
   })
 
-  test('an unimplemented 2.x provider (no 3.0 module at all) always falls back', () => {
+  test('any provider with no strategy mapping supplied always falls back, whether or not 3.0 has the module', () => {
+    // -> ldap/saml/auth0 are all real 3.0 modules today (Epic #333's territory since this test was
+    //    written), but `needsProviderFallback` never special-cases which providers are implemented —
+    //    it falls back for anything not named in `strategyMapping`. `providerFallbackReason` is what
+    //    branches on implementedness, tested separately above via `createProviderFallbackUserConverter`.
     assert.equal(needsProviderFallback('ldap'), true)
     assert.equal(needsProviderFallback('saml'), true)
     assert.equal(needsProviderFallback('auth0'), true)
@@ -273,11 +277,36 @@ describe('needsProviderFallback', () => {
 describe('createProviderFallbackUserConverter', () => {
   const LOCAL_STRATEGY_ID = 'local-strategy-uuid'
 
-  test('creates an unsupported-provider (e.g. ldap) account through the local strategy, mustChangePwd forced true', async () => {
+  test('creates an unsupported-provider (e.g. firebase — a confirmed no-destination 2.x provider) account through the local strategy, mustChangePwd forced true', async () => {
     const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
 
     const outcome = await convert({
       id: 1,
+      email: 'Firebase.User@Example.com',
+      name: 'Firebase User',
+      providerKey: 'firebase'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return // -> type narrowing for the assertions below
+    assert.equal(outcome.row.email, 'firebase.user@example.com')
+    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
+    assert.equal(authEntry.mustChangePwd, true)
+    assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
+    assert.ok(outcome.providerFallback)
+    assert.deepEqual(outcome.providerFallback, {
+      email: 'firebase.user@example.com',
+      sourceProvider: 'firebase',
+      reason: outcome.providerFallback!.reason
+    })
+    assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
+  })
+
+  test('creates a 3.0-implemented-but-unmapped provider (e.g. ldap) account through the local strategy, with a mapping-specific reason', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 5,
       email: 'Ldap.User@Example.com',
       name: 'LDAP User',
       providerKey: 'ldap'
@@ -285,17 +314,12 @@ describe('createProviderFallbackUserConverter', () => {
 
     assert.equal(outcome.status, 'created')
     if (outcome.status !== 'created') return // -> type narrowing for the assertions below
-    assert.equal(outcome.row.email, 'ldap.user@example.com')
-    const authEntry = (outcome.row.auth as any)[LOCAL_STRATEGY_ID]
-    assert.equal(authEntry.mustChangePwd, true)
-    assert.ok(authEntry.password.startsWith('$2')) // -> a bcrypt hash, not a plaintext/placeholder string
     assert.ok(outcome.providerFallback)
-    assert.deepEqual(outcome.providerFallback, {
-      email: 'ldap.user@example.com',
-      sourceProvider: 'ldap',
-      reason: outcome.providerFallback!.reason
-    })
-    assert.match(outcome.providerFallback!.reason, /no 3\.0-native implementation/)
+    assert.equal(outcome.providerFallback!.sourceProvider, 'ldap')
+    assert.match(
+      outcome.providerFallback!.reason,
+      /is implemented in 3\.0, but no target-strategy mapping was supplied/
+    )
   })
 
   test('creates a github account via fallback when no strategy mapping is supplied, with a mapping-specific reason', async () => {

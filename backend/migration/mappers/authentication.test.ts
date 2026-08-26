@@ -191,6 +191,48 @@ describe('mapAuthenticationRow', () => {
     assert.equal(result.module, 'google')
   })
 
+  test('unverified module with a non-empty config is flagged, not silently imported enabled with an empty config', async () => {
+    const result = mapAuthenticationRow(
+      baseRow({
+        key: 'saml',
+        strategyKey: 'saml',
+        isEnabled: true,
+        config: { entryPoint: 'https://idp.example.com/sso', cert: 'a-real-certificate' }
+      }),
+      { resolver: await resolver() }
+    )
+    assert.equal(result.status, 'flagged')
+    assert.match(result.message!, /saml/)
+    assert.match(result.message!, /no verified config prop-name mapping/)
+    assert.equal(result.row, undefined)
+  })
+
+  test('unverified module with an empty config still comes back created (nothing to lose in the remap)', async () => {
+    const result = mapAuthenticationRow(
+      baseRow({
+        key: 'saml',
+        strategyKey: 'saml',
+        config: {}
+      }),
+      { resolver: await resolver() }
+    )
+    assert.equal(result.status, 'created')
+    assert.equal(result.row!.module, 'saml')
+  })
+
+  test('a covered transform (google) is unaffected by the unverified-config gate', async () => {
+    const result = mapAuthenticationRow(
+      baseRow({
+        key: 'google',
+        strategyKey: 'google',
+        config: { clientId: 'abc', clientSecret: 'secret' }
+      }),
+      { resolver: await resolver() }
+    )
+    assert.equal(result.status, 'created')
+    assert.equal(result.row!.module, 'google')
+  })
+
   test('malformed config fails validateConfig and is flagged, not written', async () => {
     const result = mapAuthenticationRow(
       baseRow({
