@@ -16,6 +16,7 @@ import { MAX_IMPORT_SIZE } from '../models/import.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { CustomError } from '../helpers/common.ts'
 import type { GroupRule } from '../models/groups.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Task 601: `GET /sites/:siteId/pages/:pageIdOrHash` — the page-read route — must carry a real
@@ -296,33 +297,6 @@ describe('pages API — enforceApiKeySite site-scoping', () => {
 })
 
 describe('pages API — concurrent-edit safety and search rule-permission audit', () => {
-  let previousTemporal: any
-  let previousToTemporalInstant: any
-
-  /**
-   * Minimal stand-in for the subset of `Temporal` the route under test calls: `Temporal.Instant.from()`
-   * plus `.epochMilliseconds` for the concurrency check, and `Date#toTemporalInstant().toString({
-   * smallestUnit })` for the collab-save notification the handler already sends.
-   *
-   * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
-   * older and doesn't expose it (same environment gap noted in `core/scheduler.test.ts` — not a spec
-   * deviation). Installed only when genuinely missing, so a real Node 26 run exercises the native API.
-   */
-  function installFakeTemporal(): void {
-    ;(globalThis as any).Temporal = {
-      Instant: {
-        from: (iso: string) => ({ epochMilliseconds: Date.parse(iso) })
-      }
-    }
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      const epochMilliseconds = this.getTime()
-      return {
-        epochMilliseconds,
-        toString: () => new Date(epochMilliseconds).toISOString()
-      }
-    }
-  }
-
   /**
    * Regression test for the optimistic-concurrency check on `PATCH /sites/:siteId/pages/:pageId`
    * (task 542): the handler already fetches the current row before calling `updatePage()` for the
@@ -371,11 +345,7 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   }
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    if (typeof previousTemporal === 'undefined') {
-      installFakeTemporal()
-    }
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       models: {
         pages: {
@@ -461,8 +431,6 @@ describe('pages API — concurrent-edit safety and search rule-permission audit'
   after(async () => {
     await app.close()
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
   })
 
   beforeEach(() => {

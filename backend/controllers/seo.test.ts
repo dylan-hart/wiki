@@ -1,40 +1,20 @@
-import { after, before, describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildRobotsTxt, buildSitemapXml } from './seo.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Pure content-generation logic only — no `WIKI` global, no database, no Fastify instance. Everything
  * that decides what a request gets (site resolution, the `sitemap` gate, `listPagesForSitemap`'s
  * guest-rule filtering) is exercised where it actually lives: `models/pages.test.ts` for the query,
  * and there is no server-boot harness in this repo to run the route registration itself against.
+ *
+ * `buildSitemapXml` reads `Date.prototype.toTemporalInstant().toZonedDateTimeISO('UTC')
+ * .toPlainDate().toString()` to produce a UTC `YYYY-MM-DD` — `ensureTemporal()` polyfills that chain
+ * for real on this sandbox's Node, which lacks it natively.
  */
-
-let previousToTemporalInstant: any
-
-/**
- * `buildSitemapXml` reads `Date.prototype.toTemporalInstant()`, which CLAUDE.md documents as a native
- * Node 26 feature needing no import or polyfill — but this sandbox's `node` is v25.9.0, which doesn't
- * expose it (same environment gap `core/scheduler.test.ts` documents for `Temporal.Now.instant()`, not
- * a spec deviation in the code under test). Stubbing just enough of the chain
- * (`toTemporalInstant().toZonedDateTimeISO('UTC').toPlainDate().toString()`) to produce a UTC
- * `YYYY-MM-DD` keeps the test independent of that runtime gap.
- */
-before(() => {
-  previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-  if (typeof previousToTemporalInstant !== 'function') {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      const isoDate = this.toISOString().slice(0, 10)
-      return {
-        toZonedDateTimeISO: () => ({
-          toPlainDate: () => ({ toString: () => isoDate })
-        })
-      }
-    }
-  }
-})
-
-after(() => {
-  ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+before(async () => {
+  await ensureTemporal()
 })
 
 describe('buildRobotsTxt', () => {

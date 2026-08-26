@@ -11,6 +11,7 @@ import hooksRoutes from './hooks.ts'
 import { registerSchemas as registerHookSchema } from './schemas/hook.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import { EMITTED_EVENTS, HOOK_EVENTS } from '../models/hooks.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Regression test for task 640: `GET /_api/hooks/events`'s Swagger `description` is a hand-written
@@ -108,28 +109,12 @@ let serverUrl: string
 let lastRequestHeaders: http.IncomingHttpHeaders | null = null
 let lastRequestBody = ''
 let responseStatus = 200
-let previousTemporal: any
 let createHookCalls: any[]
 let updateHookCalls: any[]
 let existingHook: any
 
-/**
- * Minimal stand-in for the subset of `Temporal.Instant` the route touches (`Now.instant()`,
- * `.toString({ smallestUnit })`).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap noted in `core/scheduler.test.ts` and tasks
- * 753/756/757/760/761 — not a spec deviation).
- */
-function installFakeTemporal(): void {
-  ;(globalThis as any).Temporal = {
-    Now: { instant: () => ({ toString: () => new Date().toISOString() }) }
-  }
-}
-
 before(async () => {
-  previousTemporal = (globalThis as any).Temporal
-  installFakeTemporal()
+  await ensureTemporal()
   ;(globalThis as any).WIKI = {
     version: 'test',
     INSTANCE_ID: 'test-instance',
@@ -189,7 +174,6 @@ after(async () => {
   await app.close()
   await new Promise<void>((resolve) => server.close(() => resolve()))
   delete (globalThis as any).WIKI
-  ;(globalThis as any).Temporal = previousTemporal
 })
 
 beforeEach(() => {

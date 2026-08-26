@@ -8,6 +8,7 @@ import ajvFormats from 'ajv-formats'
 import authenticationRoutes from './authentication.ts'
 import { registerSchemas as registerAuthSchema } from './schemas/authentication.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * `POST /auth/:strategyId/callback` is the form-POST counterpart of the existing GET callback, for a
@@ -47,12 +48,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
   })
 
   before(async () => {
-    // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime.
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-    }
+    await ensureTemporal()
     loginCalls = []
     profileCalls = []
     ;(globalThis as any).WIKI = {

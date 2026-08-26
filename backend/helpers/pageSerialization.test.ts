@@ -1,36 +1,18 @@
 import assert from 'node:assert/strict'
-import { after, before, describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
 import {
   extensionForContentType,
   injectFrontMatter,
   parseFrontMatter
 } from './pageSerialization.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
- * `injectFrontMatter` converts a page's `createdAt`/`updatedAt` via `Date#toTemporalInstant()`.
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it — the same environment gap `core/scheduler.test.ts` works around
- * (see its `installFakeTemporal`). `toTemporalInstant` is a `Date.prototype` method rather than a
- * `globalThis.Temporal` member, so it's stubbed directly here instead.
+ * `injectFrontMatter` converts a page's `createdAt`/`updatedAt` via `Date#toTemporalInstant()`, which
+ * `ensureTemporal()` polyfills for real on this sandbox's Node, which lacks it natively.
  */
-let previousToTemporalInstant: any
-
-before(() => {
-  previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const epochMs = this.getTime()
-    return {
-      toString: ({ smallestUnit }: { smallestUnit?: string } = {}) => {
-        const iso = new Date(epochMs).toISOString()
-        return smallestUnit === 'second' ? iso.replace(/\.\d{3}Z$/, 'Z') : iso
-      }
-    }
-  }
-})
-
-after(() => {
-  ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+before(async () => {
+  await ensureTemporal()
 })
 
 describe('extensionForContentType', () => {

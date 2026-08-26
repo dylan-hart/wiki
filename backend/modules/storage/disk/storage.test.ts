@@ -14,6 +14,7 @@ import diskStorageModule, {
   pruneDailyBackups
 } from './storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
+import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * Exercises `validateConfig`, `dump` and `backup` entirely against the real filesystem (temp
@@ -24,18 +25,7 @@ import type { StorageTarget } from '../../../models/storage.ts'
  * `listSiteEntries` builds is enough to drive it.
  */
 before(async () => {
-  // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime. The
-  //    package polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
-  //    `Date.prototype.toTemporalInstant()` -- `pruneDailyBackups()` uses that conversion (this
-  //    codebase's documented convention, see CLAUDE.md), so it is patched on here too.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return polyfill.toTemporalInstant.call(this)
-    }
-  }
+  await ensureTemporal()
 })
 
 async function makeTempDir(): Promise<string> {

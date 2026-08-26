@@ -15,29 +15,14 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 // -> `refreshFromDisk()` compares mtimes via the native `Temporal` API (`Date#toTemporalInstant()` +
-//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns". That is only a runtime global
-//    on Node 26+; this sandbox's Node is 25.9 (a pre-existing, already-documented mismatch — see
-//    feature 410's continuity notes), where both are simply absent and every `stat()` result would
-//    otherwise throw and get misreported as "not found on disk". Feature-detected so this is a no-op
-//    wherever the real thing already exists (Node 26+, i.e. everywhere this actually ships).
-if (typeof Temporal === 'undefined') {
-  class FakeInstant {
-    epochMs: number
-    constructor(epochMs: number) {
-      this.epochMs = epochMs
-    }
-  }
-  ;(globalThis as any).Temporal = {
-    Instant: { compare: (a: FakeInstant, b: FakeInstant) => a.epochMs - b.epochMs }
-  }
-  if (!(Date.prototype as any).toTemporalInstant) {
-    ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-      return new FakeInstant(this.getTime())
-    }
-  }
-}
+//    `Temporal.Instant.compare()`), per CLAUDE.md's "Backend patterns" -- polyfilled for real by
+//    `ensureTemporal()` on this sandbox's Node, which lacks both natively.
+before(async () => {
+  await ensureTemporal()
+})
 
 /**
  * `refreshFromDisk` (see `locales.ts`) logs a `[ SKIPPED ]` warning at boot for every language

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
-import { after, before, describe, test } from 'node:test'
+import { before, describe, test } from 'node:test'
 import type Client from 'ssh2-sftp-client'
 import {
   exportPages,
@@ -10,29 +10,15 @@ import {
   type PageExportRow
 } from './pages.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
+import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * `injectFrontMatter` (called indirectly through `exportPages`) converts `createdAt`/`updatedAt` via
- * `Date#toTemporalInstant()`. This sandbox's Node is v25.9.0, which lacks it natively — same gap
- * `helpers/pageSerialization.test.ts` documents and stubs around.
+ * `Date#toTemporalInstant()`, which `ensureTemporal()` polyfills for real on this sandbox's Node, which
+ * lacks it natively.
  */
-let previousToTemporalInstant: any
-
-before(() => {
-  previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    const epochMs = this.getTime()
-    return {
-      toString: ({ smallestUnit }: { smallestUnit?: string } = {}) => {
-        const iso = new Date(epochMs).toISOString()
-        return smallestUnit === 'second' ? iso.replace(/\.\d{3}Z$/, 'Z') : iso
-      }
-    }
-  }
-})
-
-after(() => {
-  ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
+before(async () => {
+  await ensureTemporal()
 })
 
 const MULTI_LOCALE: PageExportLocaleInfo = { defaultLocale: 'en', namespacingEnabled: true }
