@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { StagedPage } from './content-staging.ts'
+import type { PathAssignmentInput } from './path-normalization.ts'
+import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 import {
   derivePublishState,
   describePrivacyWarning,
   importPages,
   mapEditor,
+  type ImportPagesDeps,
+  type ImportPagesOptions,
+  type PageImportResult,
   type PagesWriteModel
 } from './page-import.ts'
 
@@ -107,6 +112,26 @@ class FakePagesModel implements PagesWriteModel {
 }
 
 const noExistingEntries = () => false
+
+/** `importPages()` (WP #1790 / Task #1818) takes the lightweight `{oldId, path, locale}` locations
+ * separately from the streamed `StagedPage`s themselves — see the module doc comment. Most of this
+ * file's tests don't care about that split at all, so this wrapper reconstructs both from a plain
+ * array the same way the pre-streaming signature used to accept it. */
+function locationsFor(pages: StagedPage[]): PathAssignmentInput[] {
+  return pages.map((p) => ({ oldId: p.oldId, path: p.path, locale: p.locale }))
+}
+
+async function* toAsyncIterable(pages: StagedPage[]): AsyncGenerator<StagedPage> {
+  yield* pages
+}
+
+function runImportPages(
+  pages: StagedPage[],
+  deps: ImportPagesDeps,
+  options: ImportPagesOptions
+): Promise<PageImportResult> {
+  return importPages(locationsFor(pages), toAsyncIterable(pages), deps, options)
+}
 
 describe('derivePublishState', () => {
   test('isPublished false is always draft, regardless of dates', () => {
@@ -264,7 +289,7 @@ describe('importPages', () => {
       isPublished: true
     })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: ['write:scripts', 'write:styles'] }
@@ -301,7 +326,7 @@ describe('importPages', () => {
       updatedAt: '2020-09-15T09:30:00.000Z'
     })
 
-    await importPages(
+    await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -315,7 +340,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ createdAt: 'not-a-date', updatedAt: '' })
 
-    await importPages(
+    await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -329,7 +354,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 1, authorId: 'editor-uuid', creatorId: 'creator-uuid' })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -345,7 +370,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ render: '<p>from 2.x</p>' })
 
-    await importPages(
+    await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -359,7 +384,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ editorKey: 'markdown', render: '<p>stale 2.x render</p>' })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
@@ -379,7 +404,7 @@ describe('importPages', () => {
       render: '<p>from 2.x</p>'
     })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
@@ -394,7 +419,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ isPrivate: true, privateNS: 'secret-team' })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -409,7 +434,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 5, path: 'taken' })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: () => true },
       { siteId: 'site-1', actorPermissions: [] }
@@ -427,7 +452,7 @@ describe('importPages', () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 6, path: '' })
 
-    const result = await importPages(
+    const result = await runImportPages(
       [staged],
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -446,7 +471,7 @@ describe('importPages', () => {
       buildStagedPage({ oldId: 2, path: 'second-page' })
     ]
 
-    const result = await importPages(
+    const result = await runImportPages(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -469,7 +494,7 @@ describe('importPages', () => {
       buildStagedPage({ oldId: 2, path: 'foobar' })
     ]
 
-    const result = await importPages(
+    const result = await runImportPages(
       pages,
       { pagesModel, existingEntry: noExistingEntries },
       { siteId: 'site-1', actorPermissions: [] }
@@ -478,5 +503,122 @@ describe('importPages', () => {
     assert.equal(pagesModel.created.length, 0)
     assert.equal(result.failed.length, 2)
     assert.ok(result.failed.every((f) => f.reason === 'sibling-collision'))
+  })
+
+  test('consumes pages from an AsyncIterable, never materializing them into an array itself', async () => {
+    // -> A plain array satisfies AsyncIterable's *type* trivially; this asserts importPages() actually
+    //    pulls one page at a time from a real generator rather than requiring (or silently relying on)
+    //    array-only behavior like `.map()`/`.length` anywhere in its own body.
+    const pagesModel = new FakePagesModel()
+    const staged = [
+      buildStagedPage({ oldId: 1, path: 'one' }),
+      buildStagedPage({ oldId: 2, path: 'two' })
+    ]
+    let pulled = 0
+    async function* source(): AsyncGenerator<StagedPage> {
+      for (const page of staged) {
+        pulled++
+        yield page
+      }
+    }
+
+    const result = await importPages(
+      locationsFor(staged),
+      source(),
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(result.succeeded.length, 2)
+    assert.equal(pulled, 2)
+  })
+
+  test("with backfillHistory wired, a page's history is backfilled immediately after it is created — before the next page is even staged", async () => {
+    const pagesModel = new FakePagesModel()
+    const order: string[] = []
+    const staged = [
+      buildStagedPage({ oldId: 1, path: 'one' }),
+      buildStagedPage({ oldId: 2, path: 'two' })
+    ]
+
+    async function* source(): AsyncGenerator<StagedPage> {
+      for (const page of staged) {
+        order.push(`staged:${page.oldId}`)
+        yield page
+      }
+    }
+
+    const backfillHistory = async (
+      page: StagedPage,
+      newPageId: string
+    ): Promise<PageHistoryImportResult> => {
+      order.push(`history:${page.oldId}:${newPageId}`)
+      return { inserted: 1, warnings: [], failed: [] }
+    }
+
+    await importPages(
+      locationsFor(staged),
+      source(),
+      { pagesModel, existingEntry: noExistingEntries, backfillHistory },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    // -> Page 1's history landed before page 2 was even pulled off the generator.
+    assert.deepEqual(order, ['staged:1', 'history:1:page-1', 'staged:2', 'history:2:page-2'])
+  })
+
+  test('a history backfill failure for one page is folded into its warnings without aborting the run or losing other pages', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = [
+      buildStagedPage({ oldId: 1, path: 'one' }),
+      buildStagedPage({ oldId: 2, path: 'two' }),
+      buildStagedPage({ oldId: 3, path: 'three' })
+    ]
+
+    const backfillHistory = async (
+      page: StagedPage,
+      _newPageId: string
+    ): Promise<PageHistoryImportResult> => {
+      if (page.oldId === 2) {
+        return { inserted: 0, warnings: [], failed: [{ oldId: 2, message: 'insert failed' }] }
+      }
+      return { inserted: 1, warnings: [], failed: [] }
+    }
+
+    const result = await importPages(
+      locationsFor(staged),
+      toAsyncIterable(staged),
+      { pagesModel, existingEntry: noExistingEntries, backfillHistory },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    // -> All three pages were created — the history failure did not abort the run.
+    assert.equal(result.succeeded.length, 3)
+    assert.equal(result.failed.length, 0)
+    assert.equal(pagesModel.created.length, 3)
+
+    const page2 = result.succeeded.find((s) => s.oldId === 2)!
+    assert.ok(
+      page2.warnings.some((w) => /pageHistory backfill failed/.test(w) && /insert failed/.test(w))
+    )
+    // -> The other two pages carry no such warning.
+    for (const oldId of [1, 3]) {
+      const page = result.succeeded.find((s) => s.oldId === oldId)!
+      assert.ok(!page.warnings.some((w) => /pageHistory backfill failed/.test(w)))
+    }
+  })
+
+  test('without backfillHistory, no history backfill is attempted at all', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = [buildStagedPage({ oldId: 1, path: 'one' })]
+
+    const result = await runImportPages(
+      staged,
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(result.succeeded.length, 1)
+    assert.deepEqual(result.succeeded[0].warnings, [])
   })
 })

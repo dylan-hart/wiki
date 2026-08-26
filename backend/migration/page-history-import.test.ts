@@ -4,6 +4,7 @@ import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
 import { IdMap } from './id-map.ts'
 import {
   backfillPageHistory,
+  backfillPageHistoryForPage,
   buildPageHistoryRowsForPage,
   mapHistoryAction,
   type PageHistoryImportDeps,
@@ -239,6 +240,7 @@ describe('backfillPageHistory', () => {
     const deps = new FakePageHistoryWriteModel()
     return backfillPageHistory([created, failed], pageIdMap, 'site-1', deps).then((result) => {
       assert.equal(result.inserted, 1)
+      assert.deepEqual(result.failed, [])
       assert.equal(deps.inserted.length, 1)
       assert.equal(deps.inserted[0].length, 1)
       assert.equal(deps.inserted[0][0].pageId, 'new-page-1')
@@ -257,7 +259,7 @@ describe('backfillPageHistory', () => {
     assert.equal(deps.inserted.length, 0)
   })
 
-  test("batches every page's rows into a single insertVersions call", async () => {
+  test('calls insertVersions once per page, interleaved rather than batched across the whole run', async () => {
     const pageA = buildStagedPage({
       oldId: 1,
       history: [buildHistoryEntry({ oldId: 100 }), buildHistoryEntry({ oldId: 101 })]
@@ -271,7 +273,99 @@ describe('backfillPageHistory', () => {
     const result = await backfillPageHistory([pageA, pageB], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 3)
-    assert.equal(deps.inserted.length, 1)
-    assert.equal(deps.inserted[0].length, 3)
+    // -> One insertVersions call per page (each well under the chunk size), not one call for the
+    //    whole run — see backfillPageHistoryForPage below for the per-page entry point this delegates
+    //    to, and the chunking test for what happens above the chunk size.
+    assert.equal(deps.inserted.length, 2)
+    assert.equal(deps.inserted[0].length, 2)
+    assert.equal(deps.inserted[1].length, 1)
+  })
+
+  test("one page's insertVersions rejection is reported as a per-page failure while other pages still land", async () => {
+    const okPage = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
+    const badPage = buildStagedPage({ oldId: 2, history: [buildHistoryEntry({ oldId: 200 })] })
+    const alsoOkPage = buildStagedPage({ oldId: 3, history: [buildHistoryEntry({ oldId: 300 })] })
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(1, 'new-page-1')
+    pageIdMap.set(2, 'new-page-2')
+    pageIdMap.set(3, 'new-page-3')
+
+    const deps = new FakePageHistoryWriteModel()
+    const originalInsert = deps.insertVersions.bind(deps)
+    deps.insertVersions = async (rows: PageHistoryInsertRow[]) => {
+      if (rows[0]?.pageId === 'new-page-2') {
+        throw new Error('constraint violation')
+      }
+      return originalInsert(rows)
+    }
+
+    const result = await backfillPageHistory(
+      [okPage, badPage, alsoOkPage],
+      pageIdMap,
+      'site-1',
+      deps
+    )
+
+    assert.equal(result.failed.length, 1)
+    assert.equal(result.failed[0].oldId, 2)
+    assert.match(result.failed[0].message, /constraint violation/)
+    // -> Both the page before and the page after the failing one still landed.
+    assert.equal(result.inserted, 2)
+    assert.equal(deps.inserted.length, 2)
+    assert.deepEqual(
+      deps.inserted.map((rows) => rows[0].pageId),
+      ['new-page-1', 'new-page-3']
+    )
+  })
+})
+
+describe('backfillPageHistoryForPage', () => {
+  test('chunks a single page above HISTORY_INSERT_CHUNK_SIZE into more than one insertVersions call', async () => {
+    const bigHistory = Array.from({ length: 12000 }, (_, i) =>
+      buildHistoryEntry({ oldId: i + 1, versionDate: new Date(2024, 0, 1, 0, 0, i).toISOString() })
+    )
+    const page = buildStagedPage({ oldId: 1, history: bigHistory })
+
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistoryForPage(page, 'new-page-1', 'site-1', deps)
+
+    assert.equal(result.inserted, 12000)
+    assert.deepEqual(result.failed, [])
+    // -> 12000 rows over a 5000-row chunk size is 3 calls (5000 + 5000 + 2000), well under Postgres's
+    //    65535 bind-parameter ceiling per call (12 fields * 5000 = 60000).
+    assert.ok(deps.inserted.length > 1)
+    assert.equal(
+      deps.inserted.reduce((sum, rows) => sum + rows.length, 0),
+      12000
+    )
+    for (const rows of deps.inserted) {
+      assert.ok(rows.length * 12 <= 65535)
+    }
+  })
+
+  test('an insertVersions rejection reports this page as failed without throwing', async () => {
+    const page = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
+    const deps: PageHistoryImportDeps = {
+      insertVersions: async () => {
+        throw new Error('db unavailable')
+      }
+    }
+
+    const result = await backfillPageHistoryForPage(page, 'new-page-1', 'site-1', deps)
+
+    assert.equal(result.inserted, 0)
+    assert.equal(result.failed.length, 1)
+    assert.equal(result.failed[0].oldId, 1)
+    assert.match(result.failed[0].message, /db unavailable/)
+  })
+
+  test('a page with no history calls insertVersions zero times', async () => {
+    const page = buildStagedPage({ oldId: 1, history: [] })
+    const deps = new FakePageHistoryWriteModel()
+
+    const result = await backfillPageHistoryForPage(page, 'new-page-1', 'site-1', deps)
+
+    assert.equal(result.inserted, 0)
+    assert.equal(deps.inserted.length, 0)
   })
 })

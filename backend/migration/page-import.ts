@@ -1,24 +1,30 @@
 import { IdMap } from './id-map.ts'
 import { assignTreePaths } from './path-normalization.ts'
-import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import type {
+  PathAssignmentInput,
+  PathAssignmentOptions,
+  TreePathAssignment
+} from './path-normalization.ts'
 import type { StagedPage } from './content-staging.ts'
+import type { PageHistoryImportResult } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
 /**
- * Page content import via `createPage()` (Feature 416 / Task 738)
+ * Page content import via `createPage()` (Feature 416 / Task 738; streamed per WP #1790 / Task #1818)
  *
- * Turns each `StagedPage` this feature's staging pass (`content-staging.ts`, Task 733) produced into a
- * real 3.0 page, exclusively through `WIKI.models.pages.createPage(siteId, input, actor)`
- * (`backend/models/pages.ts:457`) — never a raw insert, per this task's own description, since
- * `createPage()` is also what writes the matching `tree` row, records the first `pageHistory` row and
- * indexes the page for search; duplicating any of that here would drift the moment `createPage()`
- * changes.
+ * Turns each `StagedPage` this feature's staging pass (`content-staging.ts`'s `extractContentStaging()`
+ * generator, Task 733) produces into a real 3.0 page, exclusively through
+ * `WIKI.models.pages.createPage(siteId, input, actor)` (`backend/models/pages.ts:457`) — never a raw
+ * insert, per this task's own description, since `createPage()` is also what writes the matching
+ * `tree` row, records the first `pageHistory` row and indexes the page for search; duplicating any of
+ * that here would drift the moment `createPage()` changes.
  *
  * Like every module in this feature so far, this one has no db access and is not wired to a CLI yet —
- * `WIKI.models.pages.createPage`/`queueRerender` and the tree existing-entry lookup are injected
- * (`ImportPagesDeps`), so tests exercise the real mapping/orchestration logic with fakes standing in for
- * both, and Task 421's CLI is what will eventually pass the real `WIKI.models.pages` /
- * `WIKI.models.tree` implementations here.
+ * `WIKI.models.pages.createPage`/`queueRerender`, the tree existing-entry lookup, and the per-page
+ * history backfill are all injected (`ImportPagesDeps`), so tests exercise the real
+ * mapping/orchestration logic with fakes standing in for each, and Task 421's CLI is what will
+ * eventually pass the real `WIKI.models.pages` / `WIKI.models.tree` implementations (and
+ * `page-history-import.ts`'s `backfillPageHistoryForPage`) here.
  *
  * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
  * it first) — that module's own doc comment names this task as the wiring point for the real
@@ -99,6 +105,17 @@ export interface ImportPagesDeps {
   /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
    * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
   existingEntry: PathAssignmentOptions['existingEntry']
+  /**
+   * Called immediately after a page is created — before the next page is even pulled off `pages` —
+   * to backfill that page's whole 2.x `pageHistory` chain (WP #1790 / Task #1818). The real
+   * implementation wires this straight to `page-history-import.ts`'s
+   * `backfillPageHistoryForPage(staged, newPageId, siteId, deps)`; a caller that doesn't care about
+   * history at all (or a test exercising something else) can omit it, which skips backfill entirely
+   * — `importPages()` never calls history backfill on its own. Its `PageHistoryImportResult.failed`
+   * is folded into this run's own `warnings`, never aborting the page it belongs to (which already
+   * succeeded by the time this runs) or any other page.
+   */
+  backfillHistory?: (page: StagedPage, newPageId: string) => Promise<PageHistoryImportResult>
 }
 
 export interface ImportPagesOptions {
@@ -335,13 +352,24 @@ function mapStagedPageToInput(
 }
 
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Normalizes
- * every page's tree location first (Task 736's `assignTreePaths`); a page that fails to normalize or
- * collides never reaches `createPage()`. Never throws for one bad or colliding page — each becomes a
- * `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description — streaming
+ * (WP #1790 / Task #1818): `pages` is consumed one page at a time from `content-staging.ts`'s
+ * `extractContentStaging()` generator, so a page's `content`/`render`/`toc` (and its whole history
+ * chain) are only ever resident for as long as this loop is actually working on that one page.
+ *
+ * `locations` is the lightweight `{oldId, path, locale}` triple for *every* page in the run — built
+ * once up front by `content-staging.ts`'s `buildContentStagingIndex()`, the same pre-pass
+ * `extractContentStaging()` itself depends on — because `assignTreePaths` (Task 736) has to see every
+ * page's path before it can detect a sibling collision; unlike `content`/`render`/`toc`, a
+ * `{oldId, path, locale}` triple is cheap enough to keep resident for a whole run without
+ * reintroducing the memory problem this streaming shape exists to fix.
+ *
+ * Never throws for one bad or colliding page — each becomes a `PageImportFailure` instead, so one
+ * page's bad data cannot abort the whole run.
  */
 export async function importPages(
-  pages: StagedPage[],
+  locations: PathAssignmentInput[],
+  pages: AsyncIterable<StagedPage>,
   deps: ImportPagesDeps,
   options: ImportPagesOptions
 ): Promise<PageImportResult> {
@@ -353,10 +381,10 @@ export async function importPages(
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
 
-  const pathResult = await assignTreePaths(
-    pages.map((page) => ({ oldId: page.oldId, path: page.path, locale: page.locale })),
-    { siteId: options.siteId, existingEntry: deps.existingEntry }
-  )
+  const pathResult = await assignTreePaths(locations, {
+    siteId: options.siteId,
+    existingEntry: deps.existingEntry
+  })
 
   for (const failure of pathResult.failures) {
     failed.push({
@@ -370,7 +398,7 @@ export async function importPages(
 
   const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
 
-  for (const staged of pages) {
+  for await (const staged of pages) {
     const assignment = assignmentByOldId.get(staged.oldId)
     // -> No assignment means this page already came back as a path failure above.
     if (!assignment) continue
@@ -407,6 +435,19 @@ export async function importPages(
         pageWarnings.push(
           `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
             `empty render and needs a manual re-render: ${err.message}`
+        )
+      }
+    }
+
+    if (deps.backfillHistory) {
+      // -> Immediately after this page's own createPage() — before the next page is even pulled off
+      //    `pages` — so a large corpus's history lands interleaved with page creation rather than
+      //    buffered until the whole run's pages exist. See ImportPagesDeps.backfillHistory.
+      const historyResult = await deps.backfillHistory(staged, created.id)
+      pageWarnings.push(...historyResult.warnings)
+      for (const historyFailure of historyResult.failed) {
+        pageWarnings.push(
+          `page ${staged.oldId}: pageHistory backfill failed — ${historyFailure.message}`
         )
       }
     }

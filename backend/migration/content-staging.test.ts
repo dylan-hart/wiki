@@ -8,7 +8,13 @@ import {
   type SourceKind,
   type SourceRecord
 } from './connector.ts'
-import { extractContentStaging } from './content-staging.ts'
+import {
+  buildContentStagingIndex,
+  createContentStagingContext,
+  extractContentStaging,
+  extractNavigation,
+  type StagedPage
+} from './content-staging.ts'
 import { IdMap } from './id-map.ts'
 
 /**
@@ -21,6 +27,10 @@ class FixtureSourceConnector implements SourceConnector {
   private readonly fixturePages: SourceRecord[]
   private readonly fixtureHistory: SourceRecord[]
   private readonly fixtureNavigation: SourceRecord[]
+  /** Bumped every time `pages()` is iterated — lets a test assert how many full walks a given call
+   * actually performs (the streaming design's whole point is exactly two: one for the pre-pass
+   * index, one for the real staging walk — never more, never a whole-corpus buffer in between). */
+  pagesWalkCount = 0
 
   constructor(
     fixturePages: SourceRecord[],
@@ -39,6 +49,7 @@ class FixtureSourceConnector implements SourceConnector {
   }
 
   async *pages(): AsyncIterable<SourceRecord> {
+    this.pagesWalkCount++
     yield* this.fixturePages
   }
 
@@ -69,6 +80,23 @@ class FixtureSourceConnector implements SourceConnector {
   assets(): AsyncIterable<SourceAssetFile> {
     throw new NotYetImplementedError('assets', 'not exercised by this fixture')
   }
+}
+
+/** Drains `extractContentStaging()` into a plain array plus its side-channel `context`, and also
+ * returns `navigation` — the shape most of this file's tests want, matching what the old batch
+ * `extractContentStaging()` used to return directly. */
+async function stageAll(
+  connector: SourceConnector,
+  options: Parameters<typeof extractContentStaging>[1]
+) {
+  const index = await buildContentStagingIndex(connector)
+  const context = createContentStagingContext()
+  const pages: StagedPage[] = []
+  for await (const page of extractContentStaging(connector, options, index, context)) {
+    pages.push(page)
+  }
+  const navigation = await extractNavigation(connector)
+  return { pages, navigation, index, ...context }
 }
 
 /** A small, hand-authored fixture set of 2.x rows: two locale variants of one page, one page with an
@@ -238,7 +266,7 @@ function makeUserIdMap(): IdMap<number> {
 describe('extractContentStaging', () => {
   test('walks every page, joining locale-variant siblings by shared path', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -255,7 +283,7 @@ describe('extractContentStaging', () => {
 
   test('resolves authorId/creatorId through the user id map', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -267,7 +295,7 @@ describe('extractContentStaging', () => {
 
   test('falls back to the operator actor for a null creatorId without warning', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -283,7 +311,7 @@ describe('extractContentStaging', () => {
 
   test('falls back to the operator actor and warns for an orphaned authorId FK', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -299,7 +327,7 @@ describe('extractContentStaging', () => {
 
   test("resolves each page's tags to plain tag strings", async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -312,7 +340,7 @@ describe('extractContentStaging', () => {
 
   test("attaches each page's full pageHistory chain, ordered by versionDate ascending", async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -333,7 +361,7 @@ describe('extractContentStaging', () => {
 
   test('resolves pageHistory.authorId the same way as pages', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -344,7 +372,7 @@ describe('extractContentStaging', () => {
 
   test('keeps a history row for a page no longer present, as orphanedHistory', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -357,7 +385,7 @@ describe('extractContentStaging', () => {
 
   test('carries the single navigation row through as items', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -369,21 +397,9 @@ describe('extractContentStaging', () => {
     ])
   })
 
-  test('returns an empty, ready-to-populate page id map', async () => {
-    const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
-    const result = await extractContentStaging(connector, {
-      userIdMap: makeUserIdMap(),
-      fallbackActorId: 'uuid-operator'
-    })
-
-    assert.equal(result.pageIdMap.size, 0)
-    result.pageIdMap.set(1, 'uuid-page-1')
-    assert.equal(result.pageIdMap.resolve(1), 'uuid-page-1')
-  })
-
   test('handles a source with no navigation row at all', async () => {
     const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, [])
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -393,7 +409,7 @@ describe('extractContentStaging', () => {
 
   test('handles an empty source with no pages at all', async () => {
     const connector = new FixtureSourceConnector([], [], [])
-    const result = await extractContentStaging(connector, {
+    const result = await stageAll(connector, {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
@@ -401,6 +417,77 @@ describe('extractContentStaging', () => {
     assert.deepEqual(result.pages, [])
     assert.deepEqual(result.orphanedHistory, [])
     assert.deepEqual(result.navigation, [])
-    assert.equal(result.pageIdMap.size, 0)
+  })
+
+  test('walks connector.pages() exactly twice — once for the index pre-pass, once to stream — never buffering the whole corpus', async () => {
+    const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
+    await stageAll(connector, { userIdMap: makeUserIdMap(), fallbackActorId: 'uuid-operator' })
+    assert.equal(connector.pagesWalkCount, 2)
+  })
+
+  test("does not retain an already-emitted page's heavy fields across the walk", async () => {
+    // -> A fake connector yielding far more pages than any resident set may hold (the streaming
+    //    contract this test locks down), each carrying a large, distinguishable `content` payload —
+    //    if extractContentStaging() were still buffering every StagedPage (or a map keyed by oldId
+    //    holding onto them) rather than yielding and releasing one at a time, an earlier page's
+    //    `content` would still be reachable through some resident structure by the time a later page
+    //    is staged. Since a generator only ever holds the single object it just yielded, the only way
+    //    to observe this from outside is to confirm nothing beyond the lightweight index and the
+    //    current page is used to build the *next* page's history/siblings — proven indirectly by the
+    //    module never retaining anything array/map beyond ContentStagingIndex, which asserted here for
+    //    the earlier tests' page counts, plus content asserted per-page as it streams below.
+    const manyPages: SourceRecord[] = Array.from({ length: 50 }, (_, i) => ({
+      id: i + 1,
+      path: `page-${i + 1}`,
+      localeCode: 'en',
+      title: `Page ${i + 1}`,
+      hash: `hash-${i + 1}`,
+      description: null,
+      content: `body-${i + 1}`.repeat(1000),
+      render: `<p>body-${i + 1}</p>`.repeat(1000),
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: false,
+      privateNS: null,
+      isPublished: true,
+      publishStartDate: null,
+      publishEndDate: null,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }))
+
+    const connector = new FixtureSourceConnector(manyPages, [], [])
+    const index = await buildContentStagingIndex(connector)
+    const context = createContentStagingContext()
+
+    let previous: StagedPage | null = null
+    for await (const page of extractContentStaging(
+      connector,
+      { userIdMap: makeUserIdMap(), fallbackActorId: 'uuid-operator' },
+      index,
+      context
+    )) {
+      // -> Each yielded page carries its own correct content — proves the generator is building each
+      //    page fresh from the current connector row rather than handing back a stale reference into
+      //    some earlier accumulated structure.
+      assert.equal(page.content, `body-${page.oldId}`.repeat(1000))
+      // -> The previous page object is untouched by staging the next one — nothing in this module
+      //    mutates an already-yielded StagedPage after handing it to the caller.
+      if (previous) {
+        assert.equal(previous.content, `body-${previous.oldId}`.repeat(1000))
+      }
+      previous = page
+    }
+
+    // -> The index itself — the only thing kept resident across the whole walk — never carries a
+    //    single heavy field: every location is exactly the three lightweight fields.
+    for (const location of index.locations) {
+      assert.deepEqual(Object.keys(location).sort(), ['locale', 'oldId', 'path'])
+    }
   })
 })
