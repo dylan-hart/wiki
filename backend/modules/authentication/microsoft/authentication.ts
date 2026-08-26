@@ -15,7 +15,7 @@ import { OidcPreset } from '../oidc/preset.ts'
  * their own directory reports. Returning an empty issuer here (rather than defaulting to `common`)
  * makes an unconfigured tenant fail the same way a missing `issuer` already does in the generic
  * module -- `ERR_STRATEGY_MISCONFIGURED` from `OidcAuthentication#configuration()` -- with no
- * separate check needed on this side.
+ * separate check needed on this side. (OpenProject #2112)
  *
  * 2.5.x's `microsoft/authentication.js` used `passport-microsoft` against hardcoded v2.0 endpoints
  * instead of discovery, presumably because at the time this fork's generic `OidcAuthentication` (or
