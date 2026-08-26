@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { GROUP_RULE_MATCH_VALUES } from '../../models/groups.ts'
 
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
@@ -28,7 +29,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       match: {
         type: 'string',
         description: 'How `path` is compared against the page path.',
-        enum: ['START', 'END', 'REGEX', 'TAG', 'TAGALL', 'EXACT']
+        enum: GROUP_RULE_MATCH_VALUES
       },
       mode: {
         type: 'string',
@@ -50,6 +51,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       sites: {
         type: 'array',
         description: 'Site IDs this rule is limited to. Empty means all sites.',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        }
+      },
+      classifications: {
+        type: 'array',
+        description:
+          'Classification level IDs this rule addresses. Only read when `match` is `CLASSIFICATION`.',
         items: {
           type: 'string',
           format: 'uuid'
