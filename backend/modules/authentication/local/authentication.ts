@@ -41,12 +41,11 @@ export default class LocalAuthentication {
       //    "no such account" from "account exists but isn't linked to this strategy" is not worth
       //    handing an unauthenticated caller a one-request oracle for which emails have accounts.
       throw new Error('ERR_LOGIN_FAILED')
-    } else if (!user.isActive) {
-      throw new Error('ERR_INACTIVE_USER')
     } else if (authStrategyData.restrictLogin) {
+      // -> `isActive`/`isVerified` are checked centrally by `models/users.ts#afterLoginChecks()`,
+      //    which every login path (this one included) ends in. `restrictLogin` is a per-strategy
+      //    flag with no other enforcement point, so it stays checked here.
       throw new Error('ERR_LOGIN_RESTRICTED')
-    } else if (!user.isVerified) {
-      throw new Error('ERR_USER_NOT_VERIFIED')
     } else {
       return user
     }

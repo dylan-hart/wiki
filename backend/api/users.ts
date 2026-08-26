@@ -2087,6 +2087,12 @@ async function routes(app: FastifyInstance) {
         if (patch.isActive === false || req.body.groups !== undefined) {
           await WIKI.models.sessions.clearSessionsFromUser(req.params.userId)
         }
+        // -> OpenProject #2094: a `resetPwd` (or other) token minted before deactivation would
+        //    otherwise still be redeemable afterwards -- `afterLoginChecks()` refuses the login it
+        //    would end in, but not before `resetPassword()` has already rewritten the password hash.
+        if (patch.isActive === false) {
+          await WIKI.models.users.clearKeysFromUser(req.params.userId)
+        }
         await WIKI.models.auditLog.record({
           event: 'user.updated',
           actor: actorFromRequest(req),

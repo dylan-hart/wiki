@@ -104,45 +104,17 @@ describe('LocalAuthentication.authenticate', () => {
     )
   })
 
-  test('throws ERR_INACTIVE_USER for a correct password on a deactivated account', async () => {
-    stubGetByEmail(makeUser({ isActive: false }))
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INACTIVE_USER/
-    )
-  })
-
+  // -> `isActive`/`isVerified` are no longer checked here (OpenProject #2094): they moved to
+  //    `models/users.ts#afterLoginChecks()`, the funnel every login path -- including this one --
+  //    ends in, so a coverage for those two now belongs to that method's own test suite
+  //    (`models/users.test.ts`) rather than this module's. `restrictLogin` has no other enforcement
+  //    point and stays checked here.
   test('throws ERR_LOGIN_RESTRICTED when the strategy data marks the login restricted', async () => {
     stubGetByEmail(makeUser({ auth: { local: makeAuthStrategyData({ restrictLogin: true }) } }))
     const local = new LocalAuthentication('local', {})
     await assert.rejects(
       local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
       /ERR_LOGIN_RESTRICTED/
-    )
-  })
-
-  test('throws ERR_USER_NOT_VERIFIED for an unverified account', async () => {
-    stubGetByEmail(makeUser({ isVerified: false }))
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_USER_NOT_VERIFIED/
-    )
-  })
-
-  test('checks isActive/restrictLogin/isVerified in that order (inactive wins over restricted/unverified)', async () => {
-    stubGetByEmail(
-      makeUser({
-        isActive: false,
-        isVerified: false,
-        auth: { local: makeAuthStrategyData({ restrictLogin: true }) }
-      })
-    )
-    const local = new LocalAuthentication('local', {})
-    await assert.rejects(
-      local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INACTIVE_USER/
     )
   })
 })

@@ -924,6 +924,29 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
     })
 
+    test('a deactivated account sends nothing (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'deactivated@example.com' })
+      await fixtures.db.update(usersTable).set({ isActive: false }).where(eq(usersTable.id, userId))
+
+      await users.forgotPassword({ strategyId, email: 'deactivated@example.com' })
+
+      assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
+    })
+
+    test('an account with password login restricted sends nothing (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'restricted@example.com' })
+      const [row] = await fixtures.db.select().from(usersTable).where(eq(usersTable.id, userId))
+      const auth = row!.auth as Record<string, any>
+      auth[strategyId].restrictLogin = true
+      await fixtures.db.update(usersTable).set({ auth }).where(eq(usersTable.id, userId))
+
+      await users.forgotPassword({ strategyId, email: 'restricted@example.com' })
+
+      assert.equal(sendForgotPasswordMock.mock.calls.length, 0)
+    })
+
     test('a strategy that allows resets and a matching account: generates a resetPwd token and emails it', async () => {
       const strategyId = await createStrategy({ allowForgotPassword: true })
       const userId = await createLocalUser(strategyId, {
@@ -1034,6 +1057,45 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.equal(tokenRow, undefined)
     })
 
+    test('afterLoginChecks refuses a deactivated account, even with a still-valid reset token (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'inactive-reset@example.com' })
+      // -> Minted directly rather than via `forgotPassword()`, which now refuses to mint one for a
+      //    deactivated account at all: this proves `afterLoginChecks()` itself enforces the check,
+      //    for a token that existed before deactivation (e.g. one purged too late, or by a path other
+      //    than the admin API's `clearKeysFromUser()` call).
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+      await fixtures.db.update(usersTable).set({ isActive: false }).where(eq(usersTable.id, userId))
+
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_INACTIVE_USER/
+      )
+    })
+
+    test('afterLoginChecks refuses an unverified account, even with a still-valid reset token (OpenProject #2094)', async () => {
+      const strategyId = await createStrategy()
+      registerLiveStrategy(strategyId)
+      const userId = await createLocalUser(strategyId, { email: 'unverified-reset@example.com' })
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+      await fixtures.db
+        .update(usersTable)
+        .set({ isVerified: false })
+        .where(eq(usersTable.id, userId))
+
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_USER_NOT_VERIFIED/
+      )
+    })
+
     test('an account with 2FA active is not logged straight in -- a code is still required first', async () => {
       const strategyId = await createStrategy()
       registerLiveStrategy(strategyId)
@@ -1057,6 +1119,53 @@ describe('users.forgotPassword / resetPassword (DB-backed)', { skip: !hasTestDat
       assert.ok(result.continuationToken)
       assert.equal(result.authenticated, undefined)
       assert.equal(request.session.authenticated, undefined)
+    })
+  })
+
+  /**
+   * `clearKeysFromUser()` is what `api/users.ts`'s deactivation path (`patch.isActive === false`)
+   * calls alongside `sessions.clearSessionsFromUser()` (OpenProject #2094): purging a user's
+   * outstanding `userKeys` rows is what stops a `resetPwd` token minted before deactivation from
+   * still being redeemable afterwards.
+   */
+  describe('clearKeysFromUser', () => {
+    test('deactivating a user with an outstanding resetPwd key leaves no usable key behind', async () => {
+      const strategyId = await createStrategy()
+      const userId = await createLocalUser(strategyId, { email: 'purge-keys@example.com' })
+      const token = await users.generateToken({ kind: 'resetPwd', userId, meta: { strategyId } })
+
+      const [before] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
+      assert.ok(before, 'the token should exist before deactivation')
+
+      await users.clearKeysFromUser(userId)
+
+      const [after] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, token))
+      assert.equal(after, undefined)
+
+      // -> Redeeming it now fails on the token itself, not merely on the account state
+      await assert.rejects(
+        users.resetPassword(
+          { siteId: fixtures.siteId, strategyId, token, newPassword: 'brandnewpwd1' },
+          req()
+        ),
+        /ERR_INVALID_VALIDATION_TOKEN/
+      )
+    })
+
+    test('a key belonging to a different user is left alone', async () => {
+      const strategyId = await createStrategy()
+      const targetUserId = await createLocalUser(strategyId, { email: 'purge-target@example.com' })
+      const otherUserId = await createLocalUser(strategyId, { email: 'purge-other@example.com' })
+      const otherToken = await users.generateToken({
+        kind: 'resetPwd',
+        userId: otherUserId,
+        meta: { strategyId }
+      })
+
+      await users.clearKeysFromUser(targetUserId)
+
+      const [row] = await fixtures.db.select().from(userKeys).where(eq(userKeys.token, otherToken))
+      assert.ok(row)
     })
   })
 })
