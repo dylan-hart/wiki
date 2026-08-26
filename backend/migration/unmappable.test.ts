@@ -42,6 +42,6 @@ describe('COMMENTS_UNMAPPABLE', () => {
   test('is a static no-destination-table entry', () => {
     assert.equal(COMMENTS_UNMAPPABLE.identifier, 'comments')
     assert.equal(COMMENTS_UNMAPPABLE.reason, 'no-destination-table')
-    assert.match(COMMENTS_UNMAPPABLE.detail, /Epic 335/)
+    assert.match(COMMENTS_UNMAPPABLE.detail, /comments\(\) generator/)
   })
 })

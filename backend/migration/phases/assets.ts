@@ -42,9 +42,9 @@ async function classifyAsset(
  * to pages, so the pages they belong to must already exist at the destination.
  *
  * `staticUnmappable` always reports comments as unmappable (see `../unmappable.ts`'s
- * `COMMENTS_UNMAPPABLE`) — 3.0 has no destination table for them yet (blocked on Epic 335), and the
- * `SourceConnector` interface has no `comments()` generator to read through in the first place, so
- * this is a structural note rather than something derived from a count.
+ * `COMMENTS_UNMAPPABLE`) — not because 3.0 lacks a comments table (it doesn't; comments have shipped),
+ * but because the `SourceConnector` interface has no `comments()` generator to read 2.x comments
+ * through in the first place, so this is a structural note rather than something derived from a count.
  */
 export const assetsPhase = definePhase({
   id: 'assets',
