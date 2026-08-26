@@ -1,3 +1,5 @@
+import { svgMimeType } from './images.ts'
+
 /**
  * Helpers turning the security settings an operator edits in the admin area into the shapes the
  * HTTP plugins expect.
@@ -6,6 +8,39 @@
 /** CORS modes offered by the admin area, in the order they appear there. */
 export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
+
+/**
+ * Every route that can serve a browser-executable document back to a requester — the admin-uploaded
+ * site image (`controllers/site.ts`), a stored file addressed by path (`controllers/files.ts`), and
+ * the same file addressed by ID (`api/assets.ts`'s `/content`) — attaches this to exactly those
+ * responses whose declared type is SVG or HTML, and nothing else. A browser never executes script
+ * markup found through an `<img src>`, so this is not what stops such a payload from running
+ * embedded in the app's own UI; nothing needs to, because `<img>` already can't run it. What it
+ * guards against is the request nothing else here controls: the same URL fetched *outside* an
+ * `<img>` context — typed directly into the address bar, or loaded through
+ * `<object>`/`<iframe>`/a same-origin top-level navigation — where a browser would otherwise treat
+ * the response as an HTML-capable document and run whatever the file contains, in this origin, as
+ * whoever is looking at it. (Verified manually against an uploaded SVG carrying a `<script>` payload
+ * in both Chrome and Firefox: rendered via `<img src>` it never runs, matching the reasoning above
+ * regardless of this header; opened directly in a new tab, this header's `sandbox` neutralizes it in
+ * both browsers.)
+ *
+ * Exported as one constant, imported by all three call sites, so the policy cannot drift between
+ * them.
+ */
+export const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+/**
+ * Whether a served MIME type is SVG- or HTML-typed, and therefore needs `SVG_CSP` attached to the
+ * response that serves it. SVG is markup a browser renders and scripts; `text/html` and
+ * `application/xhtml+xml` are what an uploaded `.html`/`.htm`/`.xhtml` file resolves to
+ * (`mime.getType`, `models/assets.ts`) and are exactly as executable as an SVG opened directly.
+ */
+export function needsSvgCsp(mimeType: string): boolean {
+  return (
+    mimeType === svgMimeType || mimeType === 'text/html' || mimeType === 'application/xhtml+xml'
+  )
+}
 
 /**
  * Turn a Content-Security-Policy string into helmet's directives object.

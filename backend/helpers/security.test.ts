@@ -2,7 +2,7 @@ import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { corsOrigin, corsOptions, needsSvgCsp } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
@@ -59,6 +59,27 @@ describe('corsOptions', () => {
   test('origin delegates to corsOrigin', () => {
     assert.equal(corsOptions({ corsMode: 'REFLECT' }).origin, true)
     assert.equal(corsOptions({ corsMode: 'OFF' }).origin, false)
+  })
+})
+
+describe('needsSvgCsp', () => {
+  // -> OpenProject #2157: the three routes that serve stored/uploaded bytes back to a requester
+  //    (`controllers/site.ts`, `controllers/files.ts`, `api/assets.ts`'s `/content`) all decide
+  //    whether to attach `SVG_CSP` through this one predicate, so it is what's actually under test —
+  //    not any one route's wiring of it.
+  test('recognizes SVG', () => {
+    assert.equal(needsSvgCsp('image/svg+xml'), true)
+  })
+
+  test('recognizes HTML and XHTML', () => {
+    assert.equal(needsSvgCsp('text/html'), true)
+    assert.equal(needsSvgCsp('application/xhtml+xml'), true)
+  })
+
+  test('does not flag an ordinary image or binary type', () => {
+    assert.equal(needsSvgCsp('image/png'), false)
+    assert.equal(needsSvgCsp('application/zip'), false)
+    assert.equal(needsSvgCsp('application/octet-stream'), false)
   })
 })
 

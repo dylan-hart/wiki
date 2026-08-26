@@ -8,6 +8,7 @@ import ajvFormats from 'ajv-formats'
 import { registerSchemas } from './schemas/asset.ts'
 import { registerSchemas as registerErrorSchema } from './schemas/error.ts'
 import routes, { mayOnAsset } from './assets.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('download route: byte-serving behavior', () => {
   /**
@@ -38,6 +39,7 @@ describe('download route: byte-serving behavior', () => {
 
   let readContentResult: any
   let readContentCalledWith: any
+  let assetOverride: any
 
   async function buildApp() {
     global.WIKI = {
@@ -51,7 +53,7 @@ describe('download route: byte-serving behavior', () => {
           checkAccess: () => true
         },
         assets: {
-          getAsset: async () => asset,
+          getAsset: async () => assetOverride ?? asset,
           readContent: async (a: any, sId: string) => {
             readContentCalledWith = { a, sId }
             return readContentResult
@@ -131,6 +133,52 @@ describe('download route: byte-serving behavior', () => {
       url: `/sites/${siteId}/assets/${assetId}/content`
     })
     assert.equal(res.statusCode, 404)
+    await app.close()
+  })
+
+  /**
+   * OpenProject #2157: an SVG- or HTML-typed asset is active content that `X-Content-Type-Options:
+   * nosniff` does not blunt, so `/content` must attach the same `SVG_CSP` `controllers/files.ts` and
+   * `controllers/site.ts` do — sourced from one shared constant (`helpers/security.ts`) so the three
+   * cannot drift.
+   */
+  test('attaches SVG_CSP when the served asset is SVG-typed', async () => {
+    assetOverride = { ...asset, fileName: 'diagram.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
+    readContentResult = { body: Buffer.from('<svg></svg>'), size: 11 }
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
+    assetOverride = undefined
+    await app.close()
+  })
+
+  test('attaches SVG_CSP when the served asset is HTML-typed', async () => {
+    assetOverride = { ...asset, fileName: 'snippet.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>evil()</script>'), size: 24 }
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], SVG_CSP)
+    assetOverride = undefined
+    await app.close()
+  })
+
+  test('does not attach a Content-Security-Policy header for a non-SVG/HTML asset', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp()
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${siteId}/assets/${assetId}/content`
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.headers['content-security-policy'], undefined)
     await app.close()
   })
 })

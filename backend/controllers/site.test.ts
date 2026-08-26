@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify'
 import fastifySensible from '@fastify/sensible'
 import siteRoutes from './site.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 
 describe('GET /_site/current/<resource> — hostname resolution', () => {
   /**
@@ -225,10 +226,7 @@ describe('GET /_site/current/<resource> — hostname resolution', () => {
       })
 
       assert.equal(res.statusCode, 200)
-      assert.equal(
-        res.headers['content-security-policy'],
-        "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-      )
+      assert.equal(res.headers['content-security-policy'], SVG_CSP)
       assert.equal(res.headers['cache-control'], 'public, no-cache')
       assert.ok(res.headers.etag)
     })

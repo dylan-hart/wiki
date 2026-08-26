@@ -1,5 +1,6 @@
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import type { SiteAssetKind } from '../models/sites.ts'
@@ -33,20 +34,12 @@ const SITE_ASSET_CACHE = 'public, no-cache'
  * Every current consumer of a site image — `HeaderNav.vue`, `Login.vue`, `AdminGeneral.vue` — loads
  * it inside an `<img>`, and a browser never executes script markup found through `<img src>`
  * regardless of any response header; that holds for an SVG exactly as it would for any other image
- * format. So this header is not what stops a malicious upload from running in the app's own UI —
- * nothing needs to, because `<img>` already can't run it. What it actually guards against is the
- * request nothing here otherwise controls: this same URL fetched *outside* an `<img>` context —
- * typed directly into the address bar, or loaded through `<object>`/`<iframe>`/a same-origin
- * top-level navigation — where a browser would otherwise treat the response as an HTML-capable
- * document and run whatever the file contains, in this origin, as whoever is looking at it. Uploading
- * one takes `manage:sites`, which already allows injecting markup into every page of the site — but
- * that is a reason to keep the blast radius of a stolen admin session small, not to ignore it.
- * Nothing legitimate in a logo needs more than the markup itself, so the response allows nothing
- * else. (Verified manually against an uploaded SVG carrying a `<script>` payload in both Chrome and
- * Firefox: rendered via `<img src>` it never runs, matching the reasoning above regardless of this
- * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
+ * format. So `SVG_CSP` (`helpers/security.ts`) is not what stops a malicious upload from running in
+ * the app's own UI — nothing needs to, because `<img>` already can't run it. Uploading one takes
+ * `manage:sites`, which already allows injecting markup into every page of the site — but that is a
+ * reason to keep the blast radius of a stolen admin session small, not to ignore it. See
+ * `helpers/security.ts` for what the header actually guards against and how it was verified.
  */
-const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 /**
  * _site Routes

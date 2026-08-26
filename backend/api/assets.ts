@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 import { decodeTreePath, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
+import { SVG_CSP, needsSvgCsp } from '../helpers/security.ts'
 import { INLINE_EXTS } from '../models/assets.ts'
 
 const assetIdParam = {
@@ -316,6 +317,11 @@ async function routes(app: FastifyInstance) {
       // -> The bytes came from a user, so the browser must take the type at its word rather than
       //    looking for something more interesting in them
       reply.header('X-Content-Type-Options', 'nosniff')
+      // -> An SVG- or HTML-typed upload is active content a `nosniff` header does not blunt; see
+      //    `helpers/security.ts` for what this actually guards against
+      if (needsSvgCsp(asset.mimeType)) {
+        reply.header('Content-Security-Policy', SVG_CSP)
+      }
       // -> Set by hand because the body may be a stream, which Fastify would otherwise send chunked
       reply.header('Content-Length', content.size)
       return reply.type(asset.mimeType).send(content.body)
