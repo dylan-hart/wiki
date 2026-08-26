@@ -490,7 +490,7 @@ async function routes(app: FastifyInstance) {
               totalHits: {
                 type: 'integer',
                 description:
-                  'How many pages the caller may actually read match, ignoring `limit` and `offset` — never a page the caller has no read access to. Exact up to a large internal scan cap; an undercount past it, never an overcount.'
+                  "How many pages match and are visible to you, ignoring `limit` and `offset`. Counted only from rows you may actually read — a page you have no access to is never included, even at `limit=1`. Exact up to the search engine's own scan cap; beyond that cap it is a floor (at least this many), not a precise total."
               },
               suggestion: {
                 type: ['string', 'null'],
@@ -508,10 +508,12 @@ async function routes(app: FastifyInstance) {
       }
       const actor = actorFrom(req)
       const accessActor = WIKI.models.groups.actorForRequest(req)
-      // -> "May write pages somewhere" and "may read a locked page's text anywhere" are the same
-      //    question here — both amount to holding `write:pages`/`manage:pages` via SOME rule, not the
-      //    (unrelated) group-wide permission list. See `mayHoldPermissionSomewhere()`'s own doc for why
-      //    DENY is ignored and why this can't be asked per page the way `mayOnPage()` is elsewhere.
+      // -> "May write pages somewhere on this site" and "may read a locked page's text anywhere on
+      //    this site" are the same question here — both amount to holding `write:pages`/
+      //    `manage:pages` via SOME rule scoped to this site, not the (unrelated) group-wide
+      //    permission list. See `mayHoldPermissionSomewhere()`'s own doc for why DENY is ignored,
+      //    why the site is threaded through (OpenProject #2146/#2162), and why this can't be asked
+      //    per page the way `mayOnPage()` is elsewhere.
       const maySeeEverything = WIKI.models.groups.mayHoldPermissionSomewhere(
         accessActor,
         PAGE_PASSWORD_BYPASS_ROLES,

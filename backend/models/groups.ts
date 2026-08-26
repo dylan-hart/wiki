@@ -4,7 +4,7 @@ import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError, normalizePagePath } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
-import { resolveSiteRule } from '../helpers/siteRules.ts'
+import { resolveSiteRule, ruleMatchesSite } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
 import type { FastifyRequest } from 'fastify'
 
@@ -430,9 +430,10 @@ class Groups {
   }
 
   /**
-   * Whether this actor holds any of these page permissions ANYWHERE — deliberately coarse and
-   * path-blind, for a caller that spans many pages at once (search is the only one today) and so has
-   * no single page to ask `checkAccess()` about.
+   * Whether this actor holds any of these page permissions ANYWHERE ON A SITE — deliberately coarse
+   * and path-blind, for a caller that spans many pages at once (the search route's
+   * `includeDrafts`/`hideProtectedContent` switches; the icon picker's access gate, `api/icons.ts`)
+   * and so has no single page to ask `checkAccess()` about.
    *
    * Site-scoped, unlike path: `siteId` is filtered the same fail-closed way
    * `helpers/pageRules.ts#ruleMatchesPage` filters a rule against one page's site — a rule whose own
@@ -453,6 +454,15 @@ class Groups {
    * they use it on a particular page" — a rule that denies it under one subtree does not change the
    * answer for the rest of the site.
    *
+   * `siteId`, unlike `path`, is NOT blind by design (OpenProject #2146/#2162): everywhere else
+   * `rule.sites` is a fail-closed match filter (`helpers/pageRules.ts`'s `ruleMatchesPage`,
+   * `helpers/siteRules.ts`'s `ruleMatchesSite`, reused below) — skipping it here let an actor whose
+   * only `write:pages` rule was scoped to one site read as a writer for every other site it could
+   * search at all, unlocking that other site's drafts and password-protected excerpts. Pass `null`
+   * only when the caller genuinely has no site to ask about, the way the icon picker doesn't — icon
+   * sets are instance-wide, not per-site (see CLAUDE.md's Icons section) — which reproduces the old,
+   * always-site-blind behaviour for that one caller rather than silently narrowing it to nothing.
+   *
    * OpenProject #2121: unlike `checkAccess()` (#2119), the `manage:system` short-circuit below is NOT
    * narrowed by `allowedClassifications`, and that is a decision, not an oversight — this method has
    * no page ref to compare the allow-set against (it is path- and page-blind by design, see above), so
@@ -471,6 +481,8 @@ class Groups {
    * all. Refusing here instead would only make a classification-scoped actor's coarse pre-filter more
    * conservative than it needs to be, with no security difference, since the per-row check downstream
    * still holds the real line.
+   *
+   * @param siteId The site to scope the answer to, or `null` for a caller with no site in play at all
    */
   mayHoldPermissionSomewhere(
     actor: AccessActor,
@@ -480,7 +492,6 @@ class Groups {
     if (actor.permissions.includes('manage:system')) {
       return true
     }
-    //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
     //    method is path- and page-blind by design (see the doc comment above), so there is no single
     //    page's classification to compare the allow-set against.
     //
@@ -505,7 +516,9 @@ class Groups {
     if (inScope.length === 0) {
       return false
     }
-    const rules = this.rulesForGroups(actor.groupIds)
+    const rules = this.rulesForGroups(actor.groupIds).filter(
+      (rule) => siteId == null || ruleMatchesSite(rule, siteId)
+    )
     return inScope.some((permission) =>
       rules.some(
         (rule) =>

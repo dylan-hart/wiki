@@ -32,9 +32,10 @@ function mayUseIconPicker(req: FastifyRequest): boolean {
   if (PICKER_GLOBAL_PERMISSIONS.some((permission) => actor.permissions.includes(permission))) {
     return true
   }
-  // -> `null`: none of these routes are site-scoped (no `:siteId` param), so there is no one site to
-  //    filter `rule.sites` against -- see `mayHoldPermissionSomewhere()`'s own doc comment for what
-  //    `null` means there.
+  // -> `null`, not a site id: icon sets are instance-wide (see CLAUDE.md's Icons section), and this
+  //    route carries no `siteId` to narrow by -- genuinely the same site-blind case
+  //    `mayHoldPermissionSomewhere()`'s own doc comment carves out, not an oversight (OpenProject
+  //    #2146/#2162).
   return WIKI.models.groups.mayHoldPermissionSomewhere(actor, PICKER_AUTHOR_ROLES, null)
 }
 

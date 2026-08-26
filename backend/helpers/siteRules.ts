@@ -49,8 +49,14 @@ export const SITE_PERMISSIONS = [
   'site:editors'
 ]
 
-/** Whether a rule addresses this site at all, ignoring what it then says about it. */
-function ruleMatchesSite(rule: GroupRule, siteId: string): boolean {
+/**
+ * Whether a rule addresses this site at all, ignoring what it then says about it.
+ *
+ * Exported for `models/groups.ts`'s `mayHoldPermissionSomewhere()`, which pools rules the same
+ * fail-closed way `resolveSiteRule` below does, just without a single permission-mode winner to
+ * pick — it only needs to know whether a rule is in play for the site being asked about.
+ */
+export function ruleMatchesSite(rule: GroupRule, siteId: string): boolean {
   return !rule.sites || rule.sites.length === 0 || rule.sites.includes(siteId)
 }
 

@@ -57,7 +57,7 @@ before(() => {
         }
       },
       groups: {
-        mayHoldPermissionSomewhere: (actor: any, permissions: string[]) => {
+        mayHoldPermissionSomewhere: (actor: any, permissions: string[], _siteId: string | null) => {
           if (actor.permissions.includes('manage:system')) {
             return true
           }

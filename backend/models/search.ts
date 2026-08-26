@@ -83,13 +83,13 @@ export interface SearchResult {
 export interface SearchPagesResult {
   results: SearchResult[]
   /**
-   * How many matches the actor may actually read, not how many rows matched the text query.
+   * How many pages match AND are visible to the searching actor, ignoring `limit`/`offset`.
    *
-   * Counted only over rows that survived the same `checkAccess` filter `results` did — never a match
-   * the actor could not themselves see. The `db` engine's scan is capped
-   * (`MAX_SCANNED_MATCHES` in `modules/search/db/search.ts`): exact under that cap, an undercount
-   * above it, but never inflated by matches the caller has no `read:pages` access to (OpenProject
-   * #2151).
+   * OpenProject #2146/#2151: derived only from rows that survived `read:pages` filtering, never from
+   * a raw match count computed before permissions are applied — the `db` engine's own
+   * `MAX_SCANNED_ROWS` doc comment (`modules/search/db/search.ts`) has the detail. Exact up to
+   * whatever cap the active engine scans before filtering; beyond that cap it is a floor (at least
+   * this many), not a precise total — an engine that caps should say so at its own cap constant.
    */
   totalHits: number
   /**
