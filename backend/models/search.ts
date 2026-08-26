@@ -82,6 +82,15 @@ export interface SearchResult {
 
 export interface SearchPagesResult {
   results: SearchResult[]
+  /**
+   * How many matches the actor may actually read, not how many rows matched the text query.
+   *
+   * Counted only over rows that survived the same `checkAccess` filter `results` did — never a match
+   * the actor could not themselves see. The `db` engine's scan is capped
+   * (`MAX_SCANNED_MATCHES` in `modules/search/db/search.ts`): exact under that cap, an undercount
+   * above it, but never inflated by matches the caller has no `read:pages` access to (OpenProject
+   * #2151).
+   */
   totalHits: number
   /**
    * The closest page title to a query that matched nothing, for a "did you mean" prompt.

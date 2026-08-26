@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import {
   hasTestDatabase,
@@ -7,6 +8,7 @@ import {
   teardownTestDb,
   type TestFixtures
 } from '../../../test/db.ts'
+import { groups as groupsTable } from '../../../db/schema.ts'
 import type { PageActor, PageInput } from '../../../models/pages.ts'
 
 /**
@@ -243,6 +245,92 @@ describe('db search module (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> Sanity check: the same query against the same page finds it once access is not blocked
     const unfiltered = await searchModel.query({ siteId: fixtures.siteId, query: 'numbat' })
     assert.equal(unfiltered.totalHits, 1)
+  })
+
+  /**
+   * OpenProject #2151: `totalHits` used to be `COUNT(*) OVER()` over the *unfiltered* text query,
+   * adjusted only by what `checkAccess` dropped from the single page already fetched — so a match
+   * outside that page, which the actor could never actually read, still inflated the count. This is
+   * most visible at `limit: 1`: three pages share the term below, but the actor may read only one of
+   * them, so `visible` (what `checkAccess` actually lets them see) is the true readable-matches
+   * count. The old arithmetic reported 2 or 3 there (`windowCount(3) - rows.length(1) +
+   * visible.length(0 or 1)`, depending only on which single row postgres's LIMIT happened to return)
+   * — always more than the one page this actor may see.
+   */
+  test('totalHits never exceeds what the actor may actually read, even at limit: 1', async () => {
+    const readablePath = 'docs/bilby-public'
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: readablePath, title: 'Bilby Public Notes' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/bilby-secret-a', title: 'Bilby Secret Notes A' }),
+      actor
+    )
+    await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/bilby-secret-b', title: 'Bilby Secret Notes B' }),
+      actor
+    )
+
+    // -> A group whose only rule grants `read:pages` on exactly `readablePath` — nothing grants it
+    //    on the other two, and nothing is granted by default (see `helpers/pageRules.ts`), so a
+    //    guest-like actor in only this group can read that one page and none of the others.
+    const [restrictedGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Bilby Readers',
+        permissions: [],
+        rules: [
+          {
+            id: randomUUID(),
+            name: 'Allow the public bilby page',
+            roles: ['read:pages'],
+            match: 'EXACT',
+            mode: 'ALLOW',
+            path: readablePath,
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+    await WIKI.models.groups.reloadCache()
+
+    const restrictedActor: PageActor = {
+      id: fixtures.userId,
+      groupIds: [restrictedGroup!.id],
+      permissions: []
+    }
+
+    const atLimitOne = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor,
+      limit: 1
+    })
+    assert.equal(atLimitOne.totalHits, 1)
+    assert.equal(atLimitOne.results.length, 1)
+    assert.equal(atLimitOne.results[0]!.path, readablePath)
+
+    // -> Same actor, no `limit` narrowing the page fetched — the count must still reflect only the
+    //    one page they may read, not all three matches.
+    const unpaged = await searchModel.query({
+      siteId: fixtures.siteId,
+      query: 'bilby',
+      actor: restrictedActor
+    })
+    assert.equal(unpaged.totalHits, 1)
+    assert.deepEqual(
+      unpaged.results.map((r) => r.path),
+      [readablePath]
+    )
+
+    // -> Sanity check: the unrestricted actor sees all three
+    const unrestricted = await searchModel.query({ siteId: fixtures.siteId, query: 'bilby' })
+    assert.equal(unrestricted.totalHits, 3)
   })
 
   /**
