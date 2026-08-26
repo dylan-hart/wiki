@@ -106,8 +106,53 @@ describe('groups.actorForRequest', () => {
       groupIds: ['key-group'],
       permissions: ['read:pages'],
       scope: ['read:pages'],
-      allowedClassifications: null
+      allowedClassifications: null,
+      siteId: null
     })
+  })
+
+  /**
+   * OpenProject #2199: `actorForRequest` is also where an API key's site pin reaches `AccessActor` --
+   * `checkAccess()`/`checkSiteAccess()` only ever see what this returns.
+   */
+  test("carries a site-pinned API key's siteId through onto the actor", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: 'site-a',
+        scope: null
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, 'site-a')
+  })
+
+  test("an instance-wide API key's null siteId comes through as null", () => {
+    const req = {
+      apiKey: {
+        id: 'key-1',
+        userId: null,
+        permissions: ['read:pages'],
+        groupIds: ['key-group'],
+        siteId: null,
+        scope: null
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, null)
+  })
+
+  test('a session-authenticated request (no API key) always gets a null siteId', () => {
+    const req = {
+      session: {
+        authenticated: true,
+        user: { id: 'user-1' },
+        groups: ['g'],
+        permissions: ['read:pages']
+      }
+    } as unknown as FastifyRequest
+    assert.equal(groups.actorForRequest(req).siteId, null)
   })
 
   test("an unscoped API key's null scope comes through as null, not absent", () => {
@@ -557,6 +602,76 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       )
     }
   })
+
+  /**
+   * OpenProject #2199: an actor built from an API key pinned to one site (`AccessActor.siteId`) must
+   * be refused for a page on any other site -- including a page whose own `siteId` is unknown/null --
+   * even though the matching rule's own `sites` is empty (the default, granting every site). A null
+   * pin (an instance-wide key, or a session) is unaffected: it behaves exactly as it did before the
+   * pin existed.
+   */
+  test('checkAccess refuses a page on a foreign site once the actor carries a site pin (OpenProject #2199)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW', sites: [] })])
+
+    const siteA = fixtures.siteId
+    const siteB = 'a-different-site-id'
+    const pinnedToA = { groupIds: [fixtures.groupId], permissions: [], siteId: siteA }
+    const nullPin = { groupIds: [fixtures.groupId], permissions: [], siteId: null }
+    const absentPin = { groupIds: [fixtures.groupId], permissions: [] }
+
+    // -> Allowed on its own pinned site
+    assert.equal(
+      groupsModel.checkAccess(pinnedToA, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: siteA,
+        classification: null
+      }),
+      true
+    )
+    // -> Refused on a different site, even though the rule itself grants every site
+    assert.equal(
+      groupsModel.checkAccess(pinnedToA, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: siteB,
+        classification: null
+      }),
+      false
+    )
+    // -> Refused on a page whose own site is unknown -- not the pinned site either
+    assert.equal(
+      groupsModel.checkAccess(pinnedToA, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: null,
+        classification: null
+      }),
+      false
+    )
+    // -> A null pin (explicit) is unaffected on either site
+    for (const site of [siteA, siteB]) {
+      assert.equal(
+        groupsModel.checkAccess(nullPin, 'read:pages', {
+          path: 'anything',
+          locale: 'en',
+          siteId: site,
+          classification: null
+        }),
+        true
+      )
+    }
+    // -> An absent pin (the field never set) behaves exactly as a null one
+    assert.equal(
+      groupsModel.checkAccess(absentPin, 'read:pages', {
+        path: 'anything',
+        locale: 'en',
+        siteId: siteB,
+        classification: null
+      }),
+      true
+    )
+  })
 })
 
 /**
@@ -708,6 +823,31 @@ describe('groups.checkSiteAccess (DB-backed)', { skip: !hasTestDatabase() }, () 
 
     const actor = { groupIds: [fixtures.groupId], permissions: [], scope: null }
     assert.equal(groupsModel.checkSiteAccess(actor, 'site:theme', fixtures.siteId), true)
+  })
+
+  /**
+   * OpenProject #2199: the same site-pin boundary `checkAccess()` enforces, for `checkSiteAccess()`.
+   * A rule granting every site (`sites: []`) still may not be used to administer a site outside a
+   * pinned actor's own site; a null pin is unaffected.
+   */
+  test('checkSiteAccess refuses a foreign site once the actor carries a site pin (OpenProject #2199)', async () => {
+    await fixtures.db
+      .update(groupsTable)
+      .set({ rules: [rule({ sites: [] })] })
+      .where(eq(groupsTable.id, fixtures.groupId))
+    await groupsModel.reloadCache()
+
+    const siteA = fixtures.siteId
+    const siteB = 'a-different-site-id'
+    const pinnedToA = { groupIds: [fixtures.groupId], permissions: [], siteId: siteA }
+    const nullPin = { groupIds: [fixtures.groupId], permissions: [], siteId: null }
+    const absentPin = { groupIds: [fixtures.groupId], permissions: [] }
+
+    assert.equal(groupsModel.checkSiteAccess(pinnedToA, 'site:theme', siteA), true)
+    assert.equal(groupsModel.checkSiteAccess(pinnedToA, 'site:theme', siteB), false)
+    assert.equal(groupsModel.checkSiteAccess(nullPin, 'site:theme', siteA), true)
+    assert.equal(groupsModel.checkSiteAccess(nullPin, 'site:theme', siteB), true)
+    assert.equal(groupsModel.checkSiteAccess(absentPin, 'site:theme', siteB), true)
   })
 })
 

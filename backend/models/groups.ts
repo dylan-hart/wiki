@@ -144,12 +144,23 @@ const groupSelection = {
  * say. Checked by `checkAccess()` only: it is page-blind everywhere else
  * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
  * compare the allow-set against.
+ *
+ * `siteId`, when present and non-null, is an API key's own site pin (`ApiKeyIdentity.siteId`,
+ * `models/apiKeys.ts`) — undefined/null means unrestricted (a session, or an instance-wide key).
+ * Unlike `scope`/`allowedClassifications`, this is not a narrowing consulted alongside the pooled
+ * rules: it is a hard boundary `checkAccess()` and `checkSiteAccess()` enforce BEFORE any rule is
+ * resolved, refusing outright a `RulePageRef`/site id that differs from the pin. Where the matching
+ * groups' rules carry an empty `rule.sites` (the default, granting every site), nothing else inside
+ * the engine holds a pinned credential inside its own site — this is what closes that gap centrally,
+ * rather than relying on every route to re-derive and check a `:siteId` path parameter itself
+ * (OpenProject #2199).
  */
 export interface AccessActor {
   groupIds: string[]
   permissions: string[]
   scope?: string[] | null
   allowedClassifications?: string[] | null
+  siteId?: string | null
 }
 
 /**
@@ -271,7 +282,10 @@ class Groups {
       // -> A session has no scope concept at all (null = unrestricted); an API key's own narrowing,
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
-      allowedClassifications: req.apiKey?.allowedClassifications ?? null
+      allowedClassifications: req.apiKey?.allowedClassifications ?? null,
+      // -> A session has no site pin either (null = unrestricted); an API key's own pin, if any -- see
+      //    the `AccessActor.siteId` doc comment for the hard boundary this enforces (OpenProject #2199).
+      siteId: req.apiKey?.siteId ?? null
     }
   }
 
@@ -341,6 +355,17 @@ class Groups {
     //    wiki whose only administrator had denied themselves would have nobody left to fix it
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    /*
+      OpenProject #2199: a site-pinned actor (an API key with a non-null `siteId`) is refused
+      outright on any page whose own `siteId` differs from the pin -- including a page whose site is
+      genuinely unknown (`null`), since that is not the pinned site either. This is a hard boundary
+      checked ahead of the rules themselves: where the matching groups' rules carry an empty
+      `rule.sites` (the default, granting every site), nothing else here would otherwise keep a
+      pinned credential inside its own site.
+    */
+    if (actor.siteId != null && page.siteId !== actor.siteId) {
+      return false
     }
     if (!this.withinScope(actor, permission)) {
       return false
@@ -432,6 +457,10 @@ class Groups {
     // -> Above the rules entirely, same guard as checkAccess()
     if (actor.permissions.includes('manage:system')) {
       return true
+    }
+    // -> Same site-pin boundary as checkAccess() (OpenProject #2199), checked ahead of the rules.
+    if (actor.siteId != null && siteId !== actor.siteId) {
+      return false
     }
     if (!this.withinScope(actor, permission)) {
       return false
