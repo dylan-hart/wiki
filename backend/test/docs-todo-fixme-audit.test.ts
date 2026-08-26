@@ -22,7 +22,7 @@ import assert from 'node:assert/strict'
  * `npm run test` actually runs it.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const globalDts = readFileSync(path.join(REPO_ROOT, 'backend/types/global.d.ts'), 'utf8')
 const schemaTs = readFileSync(path.join(REPO_ROOT, 'backend/db/schema.ts'), 'utf8')
 

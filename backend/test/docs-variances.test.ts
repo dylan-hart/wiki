@@ -24,7 +24,7 @@ import assert from 'node:assert/strict'
  * precedent CLAUDE.md's "Testing (backend)" section documents for doc-content tests.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const filePath = path.join(REPO_ROOT, 'docs', 'variances.md')
 
 describe('docs/variances.md', () => {

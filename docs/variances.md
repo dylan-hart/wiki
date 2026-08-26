@@ -19,6 +19,11 @@ cast, until their real fix lands. This entry is the audit trail so a marker sitt
 as "reviewed and intentional" rather than "forgotten." `backend/docs-todo-fixme-drift.test.ts` re-scans the tree on every `npm run test` and fails if a file
 carrying a marker isn't named here, so this list cannot silently drift out of date.
 
+- **`backend/api/comments.ts`** (`FLAG FOR FOLLOW-UP`) — notes that `emitCommentEvent()`'s three
+  `WIKI.models.hooks.emit()` calls belong inside `models/comments.ts`'s `create`/`update`/`delete` to
+  match the convention `models/pages.ts` and `models/assets.ts` use, but this route is presently the
+  only writer of comments so the two are functionally equivalent for now. Deferred to a dedicated
+  task rather than folded into task 610's merge.
 - **`backend/index.ts`** (FIXME) — `WIKI.config.auth.secret` is read once at plugin registration, not
   re-read per request. A secret rotation only stops working cookies on an instance once that instance
   is later restarted; every other still-running instance keeps signing new cookies with the
@@ -41,9 +46,6 @@ carrying a marker isn't named here, so this list cannot silently drift out of da
 - **`backend/types/global.d.ts`** (TODO) — `WIKI.sites` is typed `Record<string, any>` though `sites`
   has been a real Drizzle table for a while now; tightening it to the row type is a real but
   low-priority cleanup, not a design gap.
-- **`frontend/src/layouts/AdminLayout.vue`** (TODO) — a "Reflect site storage status" indicator the nav
-  doesn't render yet. Cosmetic, deferred, and self-evident from the comment; no tracking item exists
-  for it because no feature currently depends on it.
 - **`frontend/src/helpers/monacoTypes.js`** (TODO, in a commented-out line) — `this._edits =
   coalesce(this._edits)` is dead code left commented out with a bare `TODO`, ported through from
   Monaco's own upstream type-definition source this file adapts. Not this project's own deferred

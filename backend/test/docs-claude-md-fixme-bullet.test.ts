@@ -18,7 +18,7 @@ import assert from 'node:assert/strict'
  * backend/, logic unchanged, so `npm run test` actually runs it.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const claudeMdPath = path.join(REPO_ROOT, 'CLAUDE.md')
 const backendDir = path.join(REPO_ROOT, 'backend')
 
