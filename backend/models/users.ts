@@ -1797,7 +1797,7 @@ class Users {
    * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
    * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
    *
-   * Three kinds of membership are never touched by this, regardless of what was reported:
+   * Four kinds of membership are never touched by this, regardless of what was reported:
    *
    *   - the guests group, which is anonymous access itself rather than something a provider can grant
    *     or take away from a real account;
@@ -1810,7 +1810,13 @@ class Users {
    *     request a login flattens permissions onto the session, mirroring the guard
    *     `api/users.ts`'s membership-change route already applies to a human caller; and a returning
    *     administrator whose IdP simply doesn't mention the group this login must not be silently
-   *     demoted either.
+   *     demoted either. This holds unconditionally, independent of the allow-list below;
+   *   - any group outside the strategy's own `mappableGroups` allow-list — an admin-chosen subset of
+   *     what this strategy may grant OR revoke at all. The column defaults to empty, so a strategy
+   *     nobody has configured with an allow-list changes no memberships on login: a group outside the
+   *     allow-list is not merely excluded from being *granted* (`matchedGroupIds`) — it is added to
+   *     `protectedFromRemoval` too, so it also can't be *revoked*. A sync that could never have
+   *     granted a membership must not be the thing that takes it away either.
    *
    * Group names are matched case-insensitively and trimmed, since that is how directory group names are
    * routinely typed inconsistently.
@@ -1825,6 +1831,7 @@ class Users {
   ): Promise<void> {
     const guestsGroupId = WIKI.data.systemIds.guestsGroupId
     const systemGroupIds = new Set(await WIKI.models.groups.systemGroupIds())
+    const mappable = new Set(strategy.mappableGroups ?? [])
     const protectedFromRemoval = new Set([
       guestsGroupId,
       ...systemGroupIds,
@@ -1841,6 +1848,7 @@ class Users {
           (g: any) =>
             g.id !== guestsGroupId &&
             !systemGroupIds.has(g.id) &&
+            mappable.has(g.id) &&
             reportedNames.has(g.name.trim().toLowerCase())
         )
         .map((g: any) => g.id)
@@ -1850,8 +1858,12 @@ class Users {
     const currentSet = new Set(currentGroupIds)
 
     const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
+    // -> Only an allow-listed group can ever be revoked here: a group the sync could not have
+    //    granted (never mapped, or simply absent from the strategy's own `mappableGroups` allow-list)
+    //    must not be granted OR removed, so `mappable.has(id)` gates removal the same way it gates
+    //    the grant above.
     const toRemove = currentGroupIds.filter(
-      (id) => !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
+      (id) => mappable.has(id) && !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
     )
 
     if (toAdd.length < 1 && toRemove.length < 1) {

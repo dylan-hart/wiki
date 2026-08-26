@@ -778,10 +778,12 @@ describe('users.matchRecoveryCode', () => {
 /**
  * `syncProviderGroups` reconciles a user's wiki group membership with what an identity provider just
  * reported for them — add/remove by difference, mirroring 2.5.x's `passport-ldapauth` /
- * `passport-saml` modules, but never touching the guests group or a group the strategy's own
- * `autoEnrollGroups` still grants. `WIKI.models.groups` and `users.getUserGroupIds` are stubbed rather
- * than run against a real database: what is under test here is the diffing logic, not group
- * persistence, which `models/groups.test.ts`-style DB-backed suites would be the place to cover.
+ * `passport-saml` modules, but never touching the guests group, a group the strategy's own
+ * `autoEnrollGroups` still grants, a `manage:system`/root-admin group, or a group outside the
+ * strategy's own `mappableGroups` allow-list (default empty, so an unconfigured strategy changes no
+ * memberships at all). `WIKI.models.groups` and `users.getUserGroupIds` are stubbed rather than run
+ * against a real database: what is under test here is the diffing logic, not group persistence,
+ * which `models/groups.test.ts`-style DB-backed suites would be the place to cover.
  */
 describe('users.syncProviderGroups', () => {
   const guestsGroupId = 'group-guests'
@@ -799,11 +801,14 @@ describe('users.syncProviderGroups', () => {
     delete (globalThis as any).WIKI
   })
 
+  // `mappableGroups` defaults to empty, same as the real column default — a test exercising a grant
+  // or removal has to opt a group into the allow-list explicitly, same as an administrator would.
   function makeStrategy(overrides: Partial<any> = {}): any {
     return {
       id: 'strategy-1',
       module: 'ldap',
       autoEnrollGroups: [],
+      mappableGroups: [],
       ...overrides
     }
   }
@@ -831,7 +836,11 @@ describe('users.syncProviderGroups', () => {
     ])
     t.mock.method(users, 'getUserGroupIds', async () => [])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors'] }),
+      ['editors']
+    )
 
     assert.equal(assignUserToGroup.mock.calls.length, 1)
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
@@ -845,7 +854,11 @@ describe('users.syncProviderGroups', () => {
     ])
     t.mock.method(users, 'getUserGroupIds', async () => ['group-editors', 'group-other'])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors', 'group-other'] }),
+      ['Editors']
+    )
 
     assert.equal(assignUserToGroup.mock.calls.length, 0)
     assert.equal(unassignUserFromGroup.mock.calls.length, 1)
@@ -887,10 +900,62 @@ describe('users.syncProviderGroups', () => {
     ])
     t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
 
-    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors'])
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-editors', 'group-reviewers'] }),
+      ['Editors']
+    )
 
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
     assert.deepEqual(unassignUserFromGroup.mock.calls[0].arguments, ['group-reviewers', 'user-1'])
+  })
+
+  test('does not grant a group outside the strategy mappableGroups allow-list, even if reported by name', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-editors', name: 'Editors' }
+    ])
+    t.mock.method(users, 'getUserGroupIds', async () => [])
+
+    // mappableGroups omits group-editors entirely — the allow-list, not just name-matching, gates
+    // the grant.
+    await users.syncProviderGroups(
+      { id: 'user-1' },
+      makeStrategy({ mappableGroups: ['group-some-other-group'] }),
+      ['editors']
+    )
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('does not remove a group outside the mappableGroups allow-list, even though it is no longer reported', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-editors', name: 'Editors' }
+    ])
+    // The user currently holds group-editors, but it was never on this strategy's allow-list — a
+    // sync that could not have granted it must not revoke it either.
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-editors'])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy({ mappableGroups: [] }), [])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('the default empty mappableGroups allow-list makes a provider login a no-op for memberships', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(t, [
+      { id: 'group-editors', name: 'Editors' },
+      { id: 'group-reviewers', name: 'Reviewers' }
+    ])
+    // The user holds group-reviewers (which the login no longer reports) and the login reports
+    // "Editors" (which the user does not yet hold) — with no allow-list configured, neither side of
+    // that diff should touch membership.
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-reviewers'])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['Editors'])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
   })
 
   test('never grants a group carrying manage:system, even if reported by name', async (t) => {

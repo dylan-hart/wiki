@@ -96,7 +96,7 @@ props:
   mapGroups:
     type: Boolean
     title: Map Groups
-    hint: Reconcile a user's wiki groups with the directory groups reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups).
+    hint: Reconcile a user's wiki groups with the directory groups reported below on every login — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, never a privileged manage:system or root administrators group, and never a group outside this strategy's Mappable Groups allow-list — an empty allow-list means this changes no memberships at all).
     icon: user-groups
     default: false
     order: 24
