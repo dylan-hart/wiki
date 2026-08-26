@@ -192,22 +192,11 @@
           <w-item tag="label">
             <blueprint-icon icon="register" />
             <w-item-section>
-              <w-item-label>{{ t(`admin.auth.registration`) }}</w-item-label>
-              <w-item-label caption>{{
-                state.strategy.strategy.key === `local`
-                  ? t(`admin.auth.registrationLocalHint`)
-                  : t(`admin.auth.registrationHint`)
-              }}</w-item-label>
-              <!-- Saved, but there is no self-registration path in the server yet — say so rather than -->
-              <!-- let the toggle read as a working setting -->
-              <w-item-label class="text-orange" caption>{{
-                t(`admin.auth.registrationNotEnforced`)
-              }}</w-item-label>
+              <w-item-label>{{ registrationLabel }}</w-item-label>
+              <w-item-label caption>{{ registrationHint }}</w-item-label>
             </w-item-section>
             <w-item-section avatar>
-              <w-toggle
-                v-model="state.strategy.registration"
-                :aria-label="t(`admin.auth.registration`)" />
+              <w-toggle v-model="state.strategy.registration" :aria-label="registrationLabel" />
             </w-item-section>
           </w-item>
           <template v-if="state.strategy.registration">
@@ -498,6 +487,29 @@ const addStrategyMenuRef = ref(null)
 
 const isBuiltInLocal = computed(() => {
   return state.strategy.id === BUILTIN_LOCAL_STRATEGY_ID
+})
+/*
+  A form-based module (local, LDAP, ...) collects credentials through the wiki's own login form, so
+  its `registration` flag gates self-registration through that form. A redirect module (SAML, OIDC,
+  OAuth2, ...) never shows a form -- its `registration` flag instead gates whether a user who
+  successfully authenticates with the provider is auto-provisioned a wiki account. `useForm` is
+  absent (not `false`) while no module has resolved yet, so this defaults to the form-based label.
+*/
+const isFormBasedModule = computed(() => {
+  return state.strategy.strategy?.useForm !== false
+})
+const registrationLabel = computed(() => {
+  return isFormBasedModule.value
+    ? t('admin.auth.selfRegistration')
+    : t('admin.auth.autoProvisioning')
+})
+const registrationHint = computed(() => {
+  if (state.strategy.strategy?.key === 'local') {
+    return t('admin.auth.selfRegistrationLocalHint')
+  }
+  return isFormBasedModule.value
+    ? t('admin.auth.selfRegistrationHint')
+    : t('admin.auth.autoProvisioningHint')
 })
 const availableStrategies = computed(() => {
   return state.strategies.filter((str) => str.key !== 'local')

@@ -20,7 +20,12 @@ const MESSAGES = {
         addStrategy: 'Add Strategy',
         filterModules: 'Filter modules...',
         noModulesToAdd: 'No other authentication module is installed on this server.',
-        noModulesMatchFilter: 'No installed module matches your filter.'
+        noModulesMatchFilter: 'No installed module matches your filter.',
+        selfRegistration: 'Self-Registration',
+        selfRegistrationHint: 'form-based hint',
+        selfRegistrationLocalHint: 'local hint',
+        autoProvisioning: 'Auto-Provisioning',
+        autoProvisioningHint: 'redirect-based hint'
       }
     }
   }
@@ -28,38 +33,90 @@ const MESSAGES = {
 
 /** The generic modules plus every branded preset Feature 355 is adding -- 12 entries total. */
 const MODULES = [
-  { key: 'local', title: 'Local', icon: 'ultraviolet-local.svg', description: 'Built-in.' },
+  {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  },
   {
     key: 'oidc',
     title: 'Generic OIDC',
     icon: 'ultraviolet-oidc.svg',
-    description: 'Generic OIDC.'
+    description: 'Generic OIDC.',
+    useForm: false
   },
   {
     key: 'oauth2',
     title: 'Generic OAuth2',
     icon: 'ultraviolet-oauth2.svg',
-    description: 'Generic OAuth2.'
+    description: 'Generic OAuth2.',
+    useForm: false
   },
-  { key: 'auth0', title: 'Auth0', icon: 'ultraviolet-auth0.svg', description: 'Auth0 OIDC.' },
-  { key: 'okta', title: 'Okta', icon: 'ultraviolet-okta.svg', description: 'Okta OIDC.' },
+  {
+    key: 'auth0',
+    title: 'Auth0',
+    icon: 'ultraviolet-auth0.svg',
+    description: 'Auth0 OIDC.',
+    useForm: false
+  },
+  {
+    key: 'okta',
+    title: 'Okta',
+    icon: 'ultraviolet-okta.svg',
+    description: 'Okta OIDC.',
+    useForm: false
+  },
   {
     key: 'microsoft',
     title: 'Microsoft',
     icon: 'ultraviolet-microsoft.svg',
-    description: 'Microsoft Entra ID.'
+    description: 'Microsoft Entra ID.',
+    useForm: false
   },
   {
     key: 'keycloak',
     title: 'Keycloak',
     icon: 'ultraviolet-keycloak.svg',
-    description: 'Self-hosted Keycloak.'
+    description: 'Self-hosted Keycloak.',
+    useForm: false
   },
-  { key: 'gitlab', title: 'GitLab', icon: 'ultraviolet-gitlab.svg', description: 'GitLab OIDC.' },
-  { key: 'twitch', title: 'Twitch', icon: 'ultraviolet-twitch.svg', description: 'Twitch OIDC.' },
-  { key: 'discord', title: 'Discord', icon: 'ultraviolet-discord.svg', description: 'Discord.' },
-  { key: 'slack', title: 'Slack', icon: 'ultraviolet-slack.svg', description: 'Slack OIDC.' },
-  { key: 'github', title: 'GitHub', icon: 'ultraviolet-github.svg', description: 'GitHub.' }
+  {
+    key: 'gitlab',
+    title: 'GitLab',
+    icon: 'ultraviolet-gitlab.svg',
+    description: 'GitLab OIDC.',
+    useForm: false
+  },
+  {
+    key: 'twitch',
+    title: 'Twitch',
+    icon: 'ultraviolet-twitch.svg',
+    description: 'Twitch OIDC.',
+    useForm: false
+  },
+  {
+    key: 'discord',
+    title: 'Discord',
+    icon: 'ultraviolet-discord.svg',
+    description: 'Discord.',
+    useForm: false
+  },
+  {
+    key: 'slack',
+    title: 'Slack',
+    icon: 'ultraviolet-slack.svg',
+    description: 'Slack OIDC.',
+    useForm: false
+  },
+  {
+    key: 'github',
+    title: 'GitHub',
+    icon: 'ultraviolet-github.svg',
+    description: 'GitHub.',
+    useForm: false
+  }
 ]
 
 async function mountPage({ strategies = [] } = {}) {
@@ -197,6 +254,76 @@ describe('AdminAuth add-strategy picker', () => {
       const img = icon.querySelector('img')
       expect(img?.getAttribute('src')).toBe(icon.dataset.icon.slice(4))
     }
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * Coverage for Task 2136: the strategy editor's single registration toggle is now labelled for what
+ * it actually does per module -- self-registration through the wiki's own form for a form-based
+ * module (`useForm: true`, e.g. local), auto-provisioning from the identity provider for a redirect
+ * module (`useForm: false`, e.g. every OAuth2/OIDC/SAML preset) -- and the
+ * `admin.auth.registrationNotEnforced` caption is gone.
+ */
+describe('AdminAuth registration control', () => {
+  it('labels the toggle for self-registration on a form-based module, using its local-specific hint', async () => {
+    const wrapper = await mountPage({
+      strategies: [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          registration: false
+        }
+      ]
+    })
+
+    expect(wrapper.text()).toContain('Self-Registration')
+    expect(wrapper.text()).toContain('local hint')
+    expect(wrapper.text()).not.toContain('Auto-Provisioning')
+
+    wrapper.unmount()
+  })
+
+  it('labels the toggle for auto-provisioning on a redirect module', async () => {
+    const wrapper = await mountPage({
+      strategies: [
+        {
+          id: 's-auth0',
+          module: 'auth0',
+          displayName: 'Auth0 login',
+          isEnabled: true,
+          isNew: false,
+          registration: false
+        }
+      ]
+    })
+
+    expect(wrapper.text()).toContain('Auto-Provisioning')
+    expect(wrapper.text()).toContain('redirect-based hint')
+    expect(wrapper.text()).not.toContain('Self-Registration')
+
+    wrapper.unmount()
+  })
+
+  it('never renders the deleted "not enforced" caption for either module kind', async () => {
+    const wrapper = await mountPage({
+      strategies: [
+        {
+          id: 's-local',
+          module: 'local',
+          displayName: 'Local login',
+          isEnabled: true,
+          isNew: false,
+          registration: true
+        }
+      ]
+    })
+
+    expect(wrapper.text()).not.toContain('not enforced')
 
     wrapper.unmount()
   })
