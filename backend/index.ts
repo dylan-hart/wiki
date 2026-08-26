@@ -35,6 +35,7 @@ import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
+  isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   resolveRequestSite,
@@ -341,8 +342,30 @@ async function initHTTPServer() {
 
     `maxPayload` bounds a single frame: these carry keystrokes and cursor positions, and the largest
     legitimate one is a client handing over a document it edited while offline.
+
+    `verifyClient` is the cross-origin gate for every current and future `websocket: true` route: a
+    WebSocket handshake is not subject to the same-origin policy and is not preflighted, so CORS
+    governs neither it nor the frames that follow — unlike a form POST, the response is fully readable
+    by whichever origin opened the socket, and each route's own session/permission check runs against
+    whatever cookie the browser attached regardless of which page attached it. One `verifyClient` here
+    closes that for both current routes (and any future one) rather than each handler re-deriving its
+    own origin check. See `helpers/common.ts#isSameOriginWebSocketHandshake`.
   */
-  app.register(fastifyWebsocket, { options: { maxPayload: 5242880 } })
+  app.register(fastifyWebsocket, {
+    options: {
+      maxPayload: 5242880,
+      verifyClient: (info: {
+        origin: string
+        secure: boolean
+        req: import('node:http').IncomingMessage
+      }) =>
+        isSameOriginWebSocketHandshake(
+          info.origin,
+          info.req.headers.host,
+          Object.keys(WIKI.sitesMappings)
+        )
+    }
+  })
 
   // ----------------------------------------
   // Handle graceful server shutdown

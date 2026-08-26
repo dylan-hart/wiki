@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   defaultLocale,
   guardSiteEnabled,
+  isSameOriginWebSocketHandshake,
   localePrefixRedirectTarget,
   localePrefixStripTarget,
   localizedPagePath,
@@ -158,6 +159,69 @@ describe('requestOrigin', () => {
   test('never inserts a port of its own — whatever the hostname carries is what is used', () => {
     assert.equal(requestOrigin('https', 'wiki.example.com'), 'https://wiki.example.com')
     assert.ok(!requestOrigin('https', 'wiki.example.com').includes(':443'))
+  })
+})
+
+describe('isSameOriginWebSocketHandshake', () => {
+  test('accepts a same-origin handshake', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://wiki.example.com', 'wiki.example.com'),
+      true
+    )
+  })
+
+  test('accepts a same-origin handshake with a matching non-default port', () => {
+    assert.equal(isSameOriginWebSocketHandshake('http://localhost:3001', 'localhost:3001'), true)
+  })
+
+  test('rejects a foreign origin', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://evil.example.com', 'wiki.example.com'),
+      false
+    )
+  })
+
+  test('rejects a same hostname on a different port', () => {
+    // -> The origin's `host` carries the port; a page served on :8080 is not this handshake's origin
+    //    just because the hostname matches.
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://wiki.example.com:8080', 'wiki.example.com'),
+      false
+    )
+  })
+
+  test('rejects a missing Origin header', () => {
+    // -> Unlike `resolveOrigin` in `models/passkeys.ts`, a WebSocket handshake has no legitimate
+    //    non-browser caller that would omit it — every real one is a browser upgrade request.
+    assert.equal(isSameOriginWebSocketHandshake(undefined, 'wiki.example.com'), false)
+  })
+
+  test('rejects an Origin header that fails to parse as a URL', () => {
+    assert.equal(isSameOriginWebSocketHandshake('not a url', 'wiki.example.com'), false)
+  })
+
+  test('rejects a missing Host header even with a well-formed Origin', () => {
+    assert.equal(isSameOriginWebSocketHandshake('https://wiki.example.com', undefined), false)
+  })
+
+  test("accepts a foreign-looking origin whose hostname is one of this instance's own other sites", () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://second-site.example.com', 'wiki.example.com', [
+        'wiki.example.com',
+        'second-site.example.com'
+      ]),
+      true
+    )
+  })
+
+  test('still rejects a hostname absent from the site list', () => {
+    assert.equal(
+      isSameOriginWebSocketHandshake('https://evil.example.com', 'wiki.example.com', [
+        'wiki.example.com',
+        'second-site.example.com'
+      ]),
+      false
+    )
   })
 })
 

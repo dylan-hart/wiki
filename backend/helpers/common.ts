@@ -158,6 +158,57 @@ export function requestOrigin(protocol: string, hostname: string): string {
   return `${protocol}://${hostname}`
 }
 
+/**
+ * Whether a WebSocket handshake's `Origin` header agrees with the host it was addressed to.
+ *
+ * A WebSocket handshake is not subject to the same-origin policy and is not preflighted, so CORS
+ * governs neither the handshake nor the frames that follow it — and unlike a form POST, the response
+ * is fully readable by whichever origin opened the socket. This is the `verifyClient` check on the
+ * single `@fastify/websocket` registration in `index.ts`, so every present and future `websocket:
+ * true` route (`controllers/terminal.ts`, `controllers/collab.ts`) inherits it, rather than each
+ * handler re-deriving its own gate — the permission checks those two already do are correct on their
+ * own terms, but neither one is a substitute for this: a permission check runs the handler's own
+ * logic against whatever session cookie the browser attached, and a foreign origin's page gets that
+ * cookie attached by the browser exactly as a same-origin one would.
+ *
+ * Mirrors `models/passkeys.ts#resolveOrigin`'s host-equality pattern, with one deliberate difference:
+ * that function treats a *missing* `Origin` as a legitimate non-browser API client and assumes the
+ * canonical origin, because a WebAuthn ceremony genuinely has such callers. A WebSocket handshake does
+ * not — every real one is a browser upgrade request, which always carries `Origin` — so here a missing
+ * header is rejected rather than assumed same-origin.
+ *
+ * @param origin The raw `Origin` header off the upgrade request, if the client sent one
+ * @param host The raw `Host` header off the upgrade request (what `req.host` reads)
+ * @param siteHostnames Every hostname a site on this instance answers to (`WIKI.sitesMappings`'
+ *   keys), so a handshake from one of the instance's own other sites is not rejected as foreign
+ */
+export function isSameOriginWebSocketHandshake(
+  origin: string | undefined,
+  host: string | undefined,
+  siteHostnames?: Iterable<string>
+): boolean {
+  if (!origin || !host) {
+    return false
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(origin)
+  } catch {
+    return false
+  }
+  if (parsed.host === host) {
+    return true
+  }
+  if (siteHostnames) {
+    for (const hostname of siteHostnames) {
+      if (parsed.hostname === hostname) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 /** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
