@@ -67,6 +67,8 @@ export async function handleGetPage(
     hash: generatePathHash(path || 'home'),
     locale: args.locale,
     withContent: Boolean(args.includeSource),
+    // -> Mirrors `actorFrom(req)` on the REST route: no attributable user behind the key means an
+    //    anonymous reader, restricted to published pages, on both transports alike.
     publicOnly: !pageActorFor(ctx),
     // -> Whoever may write or manage the page is not stopped by its own password
     unlocked: (unlockRef) =>
