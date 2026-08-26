@@ -211,8 +211,10 @@ async function routes(app: FastifyInstance) {
                     displayName: {
                       type: 'string'
                     },
-                    registration: {
-                      type: 'boolean'
+                    selfRegistration: {
+                      type: 'boolean',
+                      description:
+                        'Present only for a form-based strategy — whether it accepts a new self-registered account. Omitted for a redirect-based strategy: that kind is provisioned automatically or not at all, never through this public self-registration flag.'
                     },
                     allowForgotPassword: {
                       type: 'boolean',
@@ -276,11 +278,17 @@ async function routes(app: FastifyInstance) {
             isVisible: siteStr.isVisible ?? false,
             activeStrategy: {
               displayName: str.displayName,
-              registration: str.registration,
               /*
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.
 
+                Only ever present for a form-based module: a redirect-based strategy's new-account path
+                is `autoProvision`, which is never the public login screen's business to know about --
+                publishing it unauthenticated is exactly what told an attacker which provider currently
+                accepts a self-registration POST (see `models/users.ts#register()`'s `useForm` check).
+              */
+              ...(authModule?.useForm && { selfRegistration: str.selfRegistration }),
+              /*
                 A module that declares no such prop reads as false, which is correct rather than a
                 default -- a strategy with no password of its own has no password to reset.
               */
@@ -1553,7 +1561,8 @@ async function routes(app: FastifyInstance) {
       for (const field of [
         'displayName',
         'isEnabled',
-        'registration',
+        'selfRegistration',
+        'autoProvision',
         'allowedEmailRegex',
         'autoEnrollGroups',
         'trustEmailForLinking',

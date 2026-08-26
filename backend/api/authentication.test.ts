@@ -62,9 +62,9 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         authentication: {
           getStrategyById: async (id: string) =>
             id === STRATEGY_ID
-              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, registration: true }
+              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, autoProvision: true }
               : id === CAS_STRATEGY_ID
-                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, registration: true }
+                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, autoProvision: true }
                 : null
         },
         users: {
@@ -593,5 +593,111 @@ describe('local account lifecycle (register/verify/forgotPassword/resetPassword)
 
     assert.equal(res.statusCode, 400)
     assert.equal(res.json().message, 'ERR_RESET_PASSWORD_FAILED')
+  })
+})
+
+/**
+ * `GET /sites/:siteId/auth/strategies` is public and unauthenticated, so it must never publish more
+ * than the login screen can act on. `selfRegistration` is only ever included for a form-based
+ * strategy — a redirect-based provider's new-account path is `autoProvision`, which the public login
+ * screen has no use for and which used to leak (as `registration`) which provider currently accepted
+ * a self-registration POST, the vulnerability WP #2126 closed.
+ */
+describe('GET /sites/:siteId/auth/strategies', () => {
+  const SITE_ID = 'b1111111-1111-1111-1111-111111111111'
+  const LOCAL_STRATEGY_ID = 'b2222222-2222-2222-2222-222222222222'
+  const SAML_STRATEGY_ID = 'b3333333-3333-3333-3333-333333333333'
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      data: {
+        authentication: [
+          {
+            key: 'local',
+            title: 'Local',
+            useForm: true,
+            icon: '',
+            color: 'primary',
+            usernameType: 'email'
+          },
+          {
+            key: 'saml',
+            title: 'SAML',
+            useForm: false,
+            icon: '',
+            color: 'primary',
+            usernameType: 'email'
+          }
+        ]
+      },
+      models: {
+        sites: {
+          getSiteById: async () => ({
+            id: SITE_ID,
+            config: {
+              authStrategies: [
+                { id: LOCAL_STRATEGY_ID, order: 0, isVisible: true },
+                { id: SAML_STRATEGY_ID, order: 1, isVisible: true }
+              ]
+            }
+          })
+        },
+        authentication: {
+          getActiveStrategies: async () => [
+            {
+              id: LOCAL_STRATEGY_ID,
+              module: 'local',
+              displayName: 'Local',
+              isEnabled: true,
+              selfRegistration: true,
+              autoProvision: false,
+              config: {}
+            },
+            {
+              id: SAML_STRATEGY_ID,
+              module: 'saml',
+              displayName: 'SAML',
+              isEnabled: true,
+              selfRegistration: false,
+              autoProvision: true,
+              config: {}
+            }
+          ]
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('carries selfRegistration for a form-based strategy but omits it entirely for a redirect-based one', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/auth/strategies`
+    })
+
+    assert.equal(res.statusCode, 200)
+    const body = res.json() as any[]
+    const local = body.find((s) => s.id === LOCAL_STRATEGY_ID)
+    const saml = body.find((s) => s.id === SAML_STRATEGY_ID)
+
+    assert.equal(local.activeStrategy.selfRegistration, true)
+    assert.equal('selfRegistration' in saml.activeStrategy, false)
   })
 })

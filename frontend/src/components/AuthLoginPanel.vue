@@ -105,7 +105,7 @@
         <w-separator class="my-4" />
         <w-btn
           class="acrylic-btn w-full mb-2"
-          v-if="selectedStrategy.activeStrategy.registration"
+          v-if="selectedStrategy.activeStrategy.selfRegistration"
           flat
           color="primary"
           :label="t(`auth.switchToRegister.link`)"

@@ -136,7 +136,13 @@ export interface AuthStrategy {
   module: string
   displayName: string
   isEnabled: boolean
-  registration: boolean
+  /** Whether a visitor may create their own account through this strategy's own form. Only ever
+   *  enforced for a form-based module -- see `models/users.ts#register()`. */
+  selfRegistration: boolean
+  /** Whether an account is created automatically for somebody a redirect-based provider signs in for
+   *  the first time. Only ever enforced for a redirect-based module -- see
+   *  `models/users.ts#findOrCreateProviderUser()`. */
+  autoProvision: boolean
   allowedEmailRegex: string
   autoEnrollGroups: string[]
   /**
@@ -351,7 +357,8 @@ class Authentication {
     module: string
     displayName?: string
     isEnabled?: boolean
-    registration?: boolean
+    selfRegistration?: boolean
+    autoProvision?: boolean
     allowedEmailRegex?: string
     autoEnrollGroups?: string[]
     trustEmailForLinking?: boolean
@@ -365,7 +372,8 @@ class Authentication {
         module: values.module,
         displayName: values.displayName?.trim() || mod.title,
         isEnabled: values.isEnabled ?? true,
-        registration: values.registration ?? false,
+        selfRegistration: values.selfRegistration ?? false,
+        autoProvision: values.autoProvision ?? false,
         allowedEmailRegex: values.allowedEmailRegex ?? '',
         autoEnrollGroups: values.autoEnrollGroups ?? [],
         trustEmailForLinking: values.trustEmailForLinking ?? false,
@@ -391,7 +399,8 @@ class Authentication {
     patch: {
       displayName?: string
       isEnabled?: boolean
-      registration?: boolean
+      selfRegistration?: boolean
+      autoProvision?: boolean
       allowedEmailRegex?: string
       autoEnrollGroups?: string[]
       trustEmailForLinking?: boolean
@@ -411,8 +420,11 @@ class Authentication {
     if (patch.isEnabled !== undefined) {
       values.isEnabled = patch.isEnabled
     }
-    if (patch.registration !== undefined) {
-      values.registration = patch.registration
+    if (patch.selfRegistration !== undefined) {
+      values.selfRegistration = patch.selfRegistration
+    }
+    if (patch.autoProvision !== undefined) {
+      values.autoProvision = patch.autoProvision
     }
     if (patch.allowedEmailRegex !== undefined) {
       values.allowedEmailRegex = patch.allowedEmailRegex

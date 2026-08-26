@@ -167,7 +167,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database',
-        registration: true,
+        selfRegistration: true,
+        autoProvision: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -183,7 +184,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'github',
         isEnabled: true,
         displayName: 'GitHub (Acme)',
-        registration: false,
+        selfRegistration: false,
+        autoProvision: false,
         allowedEmailRegex: '^[^@]+@(acme\\.com|acme\\.org)$',
         autoEnrollGroups: ['grp-uuid-1', 'grp-uuid-2'],
         config: {
@@ -215,7 +217,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database (2)',
-        registration: false,
+        selfRegistration: false,
+        autoProvision: false,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -231,7 +234,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'oidc',
         isEnabled: true,
         displayName: 'Beta SSO',
-        registration: true,
+        selfRegistration: true,
+        autoProvision: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: {
@@ -245,6 +249,7 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
           jwksURL: '',
           scopes: 'openid profile email',
           emailClaim: 'email',
+          allowUnverifiedEmail: false,
           displayNameClaim: 'name',
           logoutURL: '',
           // -> Not part of the 2.x source row at all (OpenProject #826 added these props after this

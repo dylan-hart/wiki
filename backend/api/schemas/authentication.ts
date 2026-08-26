@@ -142,8 +142,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
-        type: 'boolean'
+      selfRegistration: {
+        type: 'boolean',
+        description:
+          'Whether a visitor may create their own account through this form-based module.'
+      },
+      autoProvision: {
+        type: 'boolean',
+        description:
+          'Whether an account is created automatically for somebody this redirect-based provider signs in for the first time.'
       },
       allowedEmailRegex: {
         type: 'string'
@@ -201,16 +208,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
+      selfRegistration: {
         type: 'boolean',
         description:
-          'Whether an account is created for somebody signing in for the first time. Enforced for the providers that sign users in elsewhere (OpenID Connect, Google, GitHub); the local module has a registration flow of its own.'
+          "Whether a visitor may create their own account through this strategy's form. Enforced only for a form-based module (e.g. Local, LDAP) — refused for any other module regardless of this flag, since only a form-based module verifies the credentials it registers."
+      },
+      autoProvision: {
+        type: 'boolean',
+        description:
+          'Whether an account is created automatically for somebody signing in for the first time. Enforced only for a redirect-based provider (OpenID Connect, Google, GitHub, ...) — a form-based module has `selfRegistration` instead.'
       },
       allowedEmailRegex: {
         type: 'string',
         maxLength: 255,
         description:
-          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies where registration does — a pattern that will not compile allows nobody.'
+          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies wherever `selfRegistration` or `autoProvision` does — a pattern that will not compile allows nobody.'
       },
       autoEnrollGroups: {
         type: 'array',
@@ -219,7 +231,7 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         },
         description:
-          'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
+          'Groups a new self-registered or auto-provisioned user would join. The guests group is refused.'
       },
       trustEmailForLinking: {
         type: 'boolean',

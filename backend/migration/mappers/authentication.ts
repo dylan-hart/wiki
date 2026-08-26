@@ -408,11 +408,19 @@ export function mapAuthenticationRow(
       ? disambiguateDisplayName(baseDisplayName, state.usedDisplayNames)
       : baseDisplayName
 
+  // -> 2.5.x carried one combined flag (`selfRegistration`, source-side); 3.0 splits its target into
+  //    `selfRegistration` (enforced only for a form-based module) and `autoProvision` (enforced only
+  //    for a redirect-based one) -- see OpenProject WP #2130. Mirroring the source value onto
+  //    both is what preserves whichever behavior the source row's module actually relied on, since
+  //    the source has no way to say which of the two it meant and 3.0 only ever enforces the one that
+  //    applies to the module the row lands on; the other stays a stored, inert value.
+  const acceptsNewUsers = !!row.selfRegistration
   const newRow: NewAuthenticationRow = {
     module,
     isEnabled: !!row.isEnabled,
     displayName,
-    registration: !!row.selfRegistration,
+    selfRegistration: acceptsNewUsers,
+    autoProvision: acceptsNewUsers,
     allowedEmailRegex: buildAllowedEmailRegex(row.domainWhitelist),
     autoEnrollGroups: remapAutoEnrollGroups(row.autoEnrollGroups, groupIdMap),
     config: resolver.buildConfig(module, incoming, {})
