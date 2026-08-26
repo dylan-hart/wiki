@@ -408,12 +408,27 @@ class Rendering {
     const enabledBlocks = await WIKI.models.blocks.getEnabledKeys(siteId)
     const clean = this.sanitize(html ?? '', permissions, enabledBlocks)
 
-    const $ = cheerio.load(clean, null, false)
+    let $ = cheerio.load(clean, null, false)
 
     this.stripEditorArtifacts($)
     this.unwrapOrphanedChildBlocks($)
     this.liftIconChildren($)
     await this.inlineIcons($)
+
+    /*
+      inlineIcons() is the last step that inserts markup sourced from outside the author's own
+      submission — an icon body only a denylist (`isSafeIconBody` in `models/icons.ts`) has screened,
+      not the allowlist above. Sanitizing again over its output, built from the very same
+      `sanitizeOptions()`, is what keeps that markup honest without giving it a policy of its own to
+      drift from this one: an icon can only ever end up contributing what an author could already have
+      written by hand.
+    */
+    $ = cheerio.load(
+      sanitizeHtml($.html(), this.sanitizeOptions(permissions, enabledBlocks)),
+      null,
+      false
+    )
+
     const toc = this.anchorHeadings($)
     const links = this.extractInternalLinks($, pagePath)
 
@@ -520,6 +535,21 @@ class Rendering {
     permissions: RenderPermissions,
     enabledBlocks: Set<string>
   ): string {
+    return sanitizeHtml(html, this.sanitizeOptions(permissions, enabledBlocks))
+  }
+
+  /**
+   * The `sanitize-html` options for what an author with these permissions may embed.
+   *
+   * Pulled out from the actual `sanitizeHtml()` call so `postProcess` can run the very same options
+   * a second time, after `inlineIcons()` has had its turn — see the comment there for why a second
+   * pass exists at all. Deriving both calls from this one function is what keeps them from ever
+   * drifting apart the way two separately-written option literals could.
+   */
+  private sanitizeOptions(
+    permissions: RenderPermissions,
+    enabledBlocks: Set<string>
+  ): sanitizeHtml.IOptions {
     const blocks = this.blockAllowances(enabledBlocks)
     const allowedTags = [...BASE_ALLOWED_TAGS, ...blocks.tags]
     const allowedAttributes: Record<string, string[]> = {
@@ -551,7 +581,7 @@ class Rendering {
       ]
     }
 
-    return sanitizeHtml(html, {
+    return {
       allowedTags,
       allowedAttributes,
       // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
@@ -573,7 +603,7 @@ class Rendering {
         //    matched and dropped.
         lowerCaseAttributeNames: false
       }
-    })
+    }
   }
 
   /**

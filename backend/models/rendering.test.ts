@@ -356,3 +356,77 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
 })
+
+/*
+ * `inlineIcons()` draws an `<iconify-icon>` into a real `<svg>` after `sanitize()` has already had
+ * its one pass -- the icon body itself is screened only by `isSafeIconBody`'s denylist regex
+ * (`models/icons.ts`), not by the allowlist above, so an entity-encoded `javascript:` scheme buried
+ * in the body reaches `postProcess`'s output untouched unless something sanitizes a second time.
+ * `WIKI.models.icons` is stubbed per test with a `renderInlineSvg` that hands back exactly the markup
+ * being tested for, since the real resolution pipeline (Iconify API, disk cache, the `icons` table)
+ * is not what this file is proving -- only what `postProcess` does with whatever that pipeline
+ * returns.
+ */
+describe('rendering.postProcess: re-sanitizes after inlineIcons (OpenProject #2139)', () => {
+  test('strips an entity-encoded javascript: href smuggled in through an icon body', async () => {
+    ;(WIKI as any).models.icons = {
+      parseRef(ref: string) {
+        const [prefix, name] = ref.split(':')
+        return prefix && name ? { prefix, name } : null
+      },
+      async resolveIcons(_prefix: string, names: string[]) {
+        const icons: Record<string, unknown> = {}
+        for (const name of names) {
+          icons[name] = {}
+        }
+        return { icons }
+      },
+      renderInlineSvg() {
+        return (
+          '<svg viewBox="0 0 24 24"><a href="&#106;avascript:alert(1)">click</a>' +
+          '<path d="M4 4h16v16H4z"/></svg>'
+        )
+      }
+    }
+
+    const html = '<p><iconify-icon icon="mdi:evil"></iconify-icon></p>'
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.ok(
+      !/javascript/i.test(result.render),
+      `the javascript: scheme should not survive: ${result.render}`
+    )
+    assert.ok(result.render.includes('<path'), 'the icon shape should still be inlined')
+    assert.ok(result.render.includes('d="M4 4h16v16H4z"'), 'the path data should survive')
+  })
+
+  test('an ordinary icon still inlines with its shape primitives and attributes intact', async () => {
+    ;(WIKI as any).models.icons = {
+      parseRef(ref: string) {
+        const [prefix, name] = ref.split(':')
+        return prefix && name ? { prefix, name } : null
+      },
+      async resolveIcons(_prefix: string, names: string[]) {
+        const icons: Record<string, unknown> = {}
+        for (const name of names) {
+          icons[name] = {}
+        }
+        return { icons }
+      },
+      renderInlineSvg() {
+        return '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>'
+      }
+    }
+
+    const html = '<p><iconify-icon icon="mdi:home"></iconify-icon></p>'
+    const result = await rendering.postProcess('site-1', html, { scripts: false, styles: false })
+
+    assert.ok(result.render.includes('<svg'), 'the svg should still be inlined')
+    assert.ok(result.render.includes('viewBox="0 0 24 24"'), 'viewBox should survive')
+    assert.ok(result.render.includes('fill="currentColor"'), 'fill should survive')
+    assert.ok(
+      result.render.includes('d="M12 2L2 7l10 5 10-5-10-5z"'),
+      'the path data should survive'
+    )
+  })
+})
