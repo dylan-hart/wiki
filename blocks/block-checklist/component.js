@@ -1,5 +1,6 @@
 import { LitElement, html, css } from 'lit'
 import { DarkMode } from '../shared/theme.js'
+import { getCurrentPageAccess } from '../shared/site.js'
 
 /**
  * Renders an ISO timestamp the way a reader wants to see it. Plain `Date`/`Intl`, not `Temporal`:
@@ -181,7 +182,8 @@ export class BlockChecklistElement extends LitElement {
       _pending: { state: true },
       _historyOpen: { state: true },
       _history: { state: true },
-      _historyLoading: { state: true }
+      _historyLoading: { state: true },
+      _canCheck: { state: true }
     }
   }
 
@@ -198,6 +200,12 @@ export class BlockChecklistElement extends LitElement {
     // -> `null` means "not fetched yet", told apart from an empty array (fetched, no runs at all).
     this._history = null
     this._historyLoading = false
+    // -> Resolved by `_load()`, off the same public route the page view itself loads a page
+    //    through -- see `../shared/site.js`'s header. False until then, same fail-closed default a
+    //    missing `WIKI_STATE` used to leave this in.
+    this._canCheck = false
+    this._siteId = null
+    this._pageId = null
     // -> Puts `dark` on this element for the styles above to key off
     this._darkMode = new DarkMode(this)
   }
@@ -216,14 +224,8 @@ export class BlockChecklistElement extends LitElement {
    * POST, which runs regardless of what this returns. Hiding a control this can't back up would be
    * worse than showing one the request then refuses.
    */
-  get _canCheck() {
-    return Boolean(globalThis.WIKI_STATE?.user?.can?.('write:pages'))
-  }
-
   get _basePath() {
-    const siteId = globalThis.WIKI_STATE?.site?.id
-    const pageId = globalThis.WIKI_STATE?.page?.id
-    return `sites/${siteId}/pages/${pageId}/checklist/${encodeURIComponent(this.runKey)}`
+    return `/_api/sites/${this._siteId}/pages/${this._pageId}/checklist/${encodeURIComponent(this.runKey)}`
   }
 
   async _load() {
@@ -238,10 +240,24 @@ export class BlockChecklistElement extends LitElement {
       this._loading = false
       return
     }
+    // -> No siteId/pageId threaded down to this block -- see `../shared/site.js`'s header for the
+    //    convention (`getCurrentPageAccess`) that resolves both, plus this reader's own page-rule
+    //    permissions on this page, off the public route the page view itself loads a page through.
+    const { siteId, pageId, permissions } = await getCurrentPageAccess()
+    this._siteId = siteId
+    this._pageId = pageId
+    this._canCheck = permissions.includes('write:pages')
+    if (!siteId || !pageId) {
+      this._error = 'This checklist’s run log could not be loaded.'
+      this._loading = false
+      return
+    }
     try {
-      this._execution = await globalThis.API_CLIENT.get(
-        `${this._basePath}/executions/latest`
-      ).json()
+      const resp = await fetch(`${this._basePath}/executions/latest`)
+      if (!resp.ok) {
+        throw new Error(`Request failed (${resp.status}).`)
+      }
+      this._execution = await resp.json()
     } catch {
       this._error = 'This checklist’s run log could not be loaded.'
     }
@@ -264,9 +280,15 @@ export class BlockChecklistElement extends LitElement {
     }
     this._pending = new Set(this._pending).add(key)
     try {
-      this._execution = await globalThis.API_CLIENT.post(`${this._basePath}/items`, {
-        json: { itemKey: key, itemCount: this._items.length }
-      }).json()
+      const resp = await fetch(`${this._basePath}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemKey: key, itemCount: this._items.length })
+      })
+      if (!resp.ok) {
+        throw new Error(`Request failed (${resp.status}).`)
+      }
+      this._execution = await resp.json()
       this._error = ''
     } catch {
       this._error = 'Could not record this check — try again.'
@@ -290,7 +312,11 @@ export class BlockChecklistElement extends LitElement {
     }
     this._historyLoading = true
     try {
-      this._history = await globalThis.API_CLIENT.get(`${this._basePath}/executions`).json()
+      const resp = await fetch(`${this._basePath}/executions`)
+      if (!resp.ok) {
+        throw new Error(`Request failed (${resp.status}).`)
+      }
+      this._history = await resp.json()
     } catch {
       this._history = []
       this._error = 'The run history could not be loaded.'
