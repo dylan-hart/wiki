@@ -338,3 +338,28 @@ test('update rejects a siteId that names no known site', async () => {
   assert.equal(res.statusCode, 400)
   assert.equal(updateHookCalls.length, 0)
 })
+
+/**
+ * Task 1940: `invalidReason()`'s `body.url` check must reject everything
+ * `WebhookEditDialog.vue`'s `hookUrlValidation` rejects, and vice versa, so a webhook accepted by
+ * one side is never refused by the other.
+ */
+test('create rejects a URL containing disallowed characters, matching the admin form', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { name: 'My Hook', events: ['page:create'], url: 'https://example.com/<script>' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createHookCalls.length, 0)
+})
+
+test('create rejects a URL with a non-http(s) protocol, matching the admin form', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/',
+    payload: { name: 'My Hook', events: ['page:create'], url: 'httpfoo://x' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(createHookCalls.length, 0)
+})

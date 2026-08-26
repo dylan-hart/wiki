@@ -26,6 +26,9 @@ function invalidReason(body: HookBody, { partial }: { partial: boolean }): strin
     return 'The webhook name contains invalid characters.'
   }
   if (body.url !== undefined) {
+    if (!/^[^<>"]+$/.test(body.url)) {
+      return 'The URL contains invalid characters.'
+    }
     let parsed: URL
     try {
       parsed = new URL(body.url)

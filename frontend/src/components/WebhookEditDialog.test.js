@@ -151,6 +151,26 @@ describe('WebhookEditDialog - send test event', () => {
 })
 
 /**
+ * Task 1940: `hookUrlValidation` must reject everything `invalidReason()` (`backend/api/hooks.ts`)
+ * rejects, so a URL the form accepts is never refused by the API with a 400 the admin sees as a
+ * server error.
+ */
+describe('WebhookEditDialog - url validation', () => {
+  it('rejects a URL with a non-http(s) protocol, matching the API', async () => {
+    mountDialog(null)
+    await flushPromises()
+
+    const urlInput = document.body.querySelector('input[placeholder="https://"]')
+    urlInput.value = 'httpfoo://x'
+    urlInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    const btn = testButton()
+    expect(btn.disabled).toBe(true)
+  })
+})
+
+/**
  * The site picker (task 651) -- sourced off `adminStore.sites` the same way `AdminLayout.vue`'s own
  * site picker and `UserCreateDialog.vue`'s per-site fields are, defaulting to "All sites" (`siteId:
  * null`) so a webhook created without touching the field keeps today's fires-for-every-site
