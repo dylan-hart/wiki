@@ -262,4 +262,64 @@ describe('WSelect', () => {
 
     expect(wrapper.text()).toContain('*')
   })
+
+  describe('autofocus', () => {
+    it('focuses the real control (the button) on mount when set', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
+
+    it('focuses the filter input on mount when set, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: {
+          modelValue: null,
+          options: ['a'],
+          ariaLabel: 'Pick one',
+          useInput: true,
+          autofocus: true
+        },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('leaves focus alone when unset', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(control(wrapper).element)
+      wrapper.unmount()
+    })
+  })
+
+  describe('attribute forwarding', () => {
+    it('forwards a plain attribute like name to the real control (the button) rather than the wrapper', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one' },
+        attrs: { name: 'group' }
+      })
+
+      expect(control(wrapper).attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
+    })
+
+    it('forwards a plain attribute to the filter input, for the useInput variant', () => {
+      const wrapper = mount(WSelect, {
+        props: { modelValue: null, options: ['a'], ariaLabel: 'Pick one', useInput: true },
+        attrs: { name: 'group' }
+      })
+
+      expect(wrapper.find('input').attributes('name')).toBe('group')
+      expect(wrapper.element.getAttribute('name')).toBeNull()
+    })
+  })
 })

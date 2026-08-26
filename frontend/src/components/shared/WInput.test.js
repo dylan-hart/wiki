@@ -153,4 +153,62 @@ describe('WInput', () => {
       wrapper.unmount()
     })
   })
+
+  describe('autofocus', () => {
+    it('focuses the real input on mount when set', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('does nothing for a hidden field', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '', autofocus: true, type: 'hidden' },
+        attachTo: document.body
+      })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+
+    it('leaves focus alone when unset', () => {
+      const wrapper = mount(WInput, { props: { modelValue: '' }, attachTo: document.body })
+
+      expect(document.activeElement).not.toBe(wrapper.find('input').element)
+      wrapper.unmount()
+    })
+  })
+
+  describe('attribute forwarding', () => {
+    it('forwards name, inputmode and maxlength to the real control rather than the wrapper', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { name: 'username', inputmode: 'numeric', maxlength: '10' }
+      })
+
+      const input = wrapper.find('input')
+      expect(input.attributes('name')).toBe('username')
+      expect(input.attributes('inputmode')).toBe('numeric')
+      expect(input.attributes('maxlength')).toBe('10')
+
+      const root = wrapper.element
+      expect(root.getAttribute('name')).toBeNull()
+      expect(root.getAttribute('inputmode')).toBeNull()
+      expect(root.getAttribute('maxlength')).toBeNull()
+    })
+
+    it('forwards an aria-label attribute to the real control', () => {
+      const wrapper = mount(WInput, {
+        props: { modelValue: '' },
+        attrs: { 'aria-label': 'Search' }
+      })
+
+      expect(wrapper.find('input').attributes('aria-label')).toBe('Search')
+      expect(wrapper.element.getAttribute('aria-label')).toBeNull()
+    })
+  })
 })

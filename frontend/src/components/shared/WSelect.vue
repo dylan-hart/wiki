@@ -25,6 +25,8 @@
     -->
     <component
       :is="useInput ? 'div' : 'button'"
+      ref="controlEl"
+      v-bind="useInput ? {} : $attrs"
       :id="useInput ? undefined : selectId"
       :type="useInput ? undefined : 'button'"
       :role="useInput ? undefined : 'combobox'"
@@ -100,6 +102,7 @@
       -->
       <input
         v-if="useInput"
+        v-bind="$attrs"
         :id="selectId"
         ref="input"
         v-model="query"
@@ -222,7 +225,7 @@
 </template>
 
 <script setup>
-import { computed, inject, nextTick, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, ref, useId, useSlots, watch } from 'vue'
 import WChip from './WChip.vue'
 import WMenu from './WMenu.vue'
 import WSpinner from './WSpinner.vue'
@@ -237,6 +240,15 @@ import WSpinner from './WSpinner.vue'
  * Simplification: no free-text filtering or async search. Every current usage picks from a fixed,
  * short list.
  */
+
+/*
+ * Same wrapper-root shape as WInput, and the same fix -- see the note there. The real control is
+ * the `<button>` for a plain select or the nested `<input>` for the filtering (`useInput`) variant;
+ * `$attrs` is bound onto whichever one is actually rendered, never onto the outer `<div>`/`<button>`
+ * `<component>` when it is only standing in for the popup's anchor.
+ */
+defineOptions({ inheritAttrs: false })
+
 const slots = useSlots()
 
 const props = defineProps({
@@ -330,6 +342,15 @@ const props = defineProps({
     default: false
   },
   disabled: {
+    type: Boolean,
+    default: false
+  },
+  /**
+   * Focuses the real control once it is mounted -- the button, or the filter input for the
+   * `useInput` variant. See the matching prop on `WInput` for why this has to be a declared prop
+   * rather than a plain attribute left to fall through to the wrapper root.
+   */
+  autofocus: {
     type: Boolean,
     default: false
   },
@@ -433,6 +454,8 @@ const errorMessage = ref(null)
 /** What has been typed into the filter, when `useInput`. */
 const query = ref('')
 const input = ref(null)
+/** The outer `<component>` -- the real control for the plain (button) variant. */
+const controlEl = ref(null)
 
 // -> A stale filter would otherwise still be narrowing the list the next time the popup opens
 watch(isOpen, (open) => {
@@ -554,7 +577,17 @@ function validate(value = props.modelValue) {
 const registerWithForm = inject('wFormRegister', null)
 registerWithForm?.({ validate })
 
-defineExpose({ validate })
+function focus() {
+  ;(props.useInput ? input.value : controlEl.value)?.focus()
+}
+
+onMounted(() => {
+  if (props.autofocus) {
+    focus()
+  }
+})
+
+defineExpose({ validate, focus })
 
 /** Display text for a bound value, resolved back through the options where possible. */
 function labelFor(value) {

@@ -72,6 +72,7 @@
 
       <component
         :is="type === 'textarea' ? 'textarea' : 'input'"
+        v-bind="$attrs"
         :id="inputId"
         ref="inputEl"
         :type="type === 'textarea' ? undefined : effectiveType"
@@ -154,7 +155,7 @@
 </template>
 
 <script setup>
-import { computed, inject, ref, useId, useSlots, watch } from 'vue'
+import { computed, inject, onMounted, ref, useId, useSlots, watch } from 'vue'
 
 /**
  * Text input.
@@ -162,6 +163,16 @@ import { computed, inject, ref, useId, useSlots, watch } from 'vue'
  * Validation follows the `rules` convention already in the codebase: an array of functions taking
  * the value and returning `true` when valid, or a message string when not.
  */
+
+/*
+ * The single root is the wrapper `<div>`, not the real control -- an attribute Vue would otherwise
+ * land there by default (`name`, `inputmode`, `maxlength`, an `aria-label` a caller passes) does
+ * nothing on a `<div>`. `$attrs` is bound explicitly onto the real `<input>`/`<textarea>` below
+ * instead. `autofocus` is one of the attributes this rescues, and is worth special handling beyond
+ * plain forwarding -- see the prop.
+ */
+defineOptions({ inheritAttrs: false })
+
 const props = defineProps({
   modelValue: {
     type: [String, Number],
@@ -243,6 +254,22 @@ const props = defineProps({
   autocomplete: {
     type: String,
     default: null
+  },
+  /**
+   * Focuses the real control once it is mounted.
+   *
+   * Declared as a prop (rather than left to fall through as a plain attribute) because the wrapper
+   * `<div>` -- the component's single root -- is not focusable at all: a native `autofocus`
+   * attribute landing there is silently inert. Does nothing for a `type="hidden"` field, which
+   * cannot take focus either.
+   *
+   * A field that mounts after the page has already loaded -- inside a dialog, say -- needs a
+   * different trigger than `onMounted`, since the dialog's own content is not in the DOM yet at that
+   * point; see `composables/dialog.js`'s `useDialogComponent({ autofocus })` for that case.
+   */
+  autofocus: {
+    type: Boolean,
+    default: false
   },
   /** Rows for `type="textarea"`. */
   rows: {
@@ -485,6 +512,18 @@ function onInput(ev) {
   emit('update:modelValue', ev.target.value)
 }
 
+function focus() {
+  inputEl.value?.focus()
+}
+
+// -> `type="hidden"` cannot take focus at all, so the prop is a deliberate no-op there rather than
+//    a call that would silently fail on `focus()`
+onMounted(() => {
+  if (props.autofocus && props.type !== 'hidden') {
+    focus()
+  }
+})
+
 function onFocus(ev) {
   hasFocus.value = true
   emit('focus', ev)
@@ -522,7 +561,7 @@ registerWithForm?.({ validate })
 
 defineExpose({
   validate,
-  focus: () => inputEl.value?.focus(),
+  focus,
   /**
    * Show the value of a `revealable` password field, as if the eye had been clicked.
    *
