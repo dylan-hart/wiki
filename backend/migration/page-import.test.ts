@@ -370,7 +370,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, provenanceStore: fakeProvenanceStore() },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -393,7 +393,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, provenanceStore: fakeProvenanceStore() },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -414,7 +414,7 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, provenanceStore: fakeProvenanceStore() },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
