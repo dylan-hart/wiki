@@ -1348,11 +1348,16 @@ before.
 
 ### `@js-temporal/polyfill` (backend, dev-only)
 
-A devDependency, dynamically imported at runtime by `index.ts`/`worker.ts` only when the `Temporal`
-global is missing. `engines` requires Node ≥26, which has `Temporal` natively, so production code
-never reaches that import — it exists solely to keep backend dev/test working on an older local Node.
-Recorded so a future pass doesn't try to either remove it (breaks pre-26 dev sandboxes) or promote it
-to a regular dependency (production never needs it).
+A devDependency only — `index.ts`/`worker.ts` install no polyfill at all on the real boot path.
+`engines` requires Node ≥26, and Node's own v26.0.0 release notes confirm `Temporal` shipped as a
+real, unflagged native global in that release (no `--harmony-temporal`/`--experimental-temporal`
+flag needed) — the official `node:26` image `dev/build/Dockerfile:1` builds from is that same
+release line, so production code never needs this package. It stays a devDependency solely so a
+handful of unit tests can self-install it when run under an older local Node below that floor (e.g.
+this sandbox's Node 25.9) — each such test guards its own import individually (see
+`models/security.test.ts`), independent of anything in `index.ts`/`worker.ts`. Recorded so a future
+pass doesn't try to either remove it (breaks those pre-26 dev sandboxes) or promote it to a regular
+dependency (production never needs it).
 
 ### Stale-but-functionally-complete libraries kept as-is
 
