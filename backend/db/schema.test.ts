@@ -87,6 +87,66 @@ describe('comments table', () => {
 })
 
 /**
+ * OpenProject #2012 -- eight indexes were strict column prefixes of another non-partial btree
+ * index on the same table (or, for `userGroups`, of the table's own primary key), so they cost a
+ * write on every insert/update/delete for no lookup they uniquely served. Guards both that the
+ * redundant declarations stay gone and that the covering index each one leaned on is still there
+ * to actually cover the lookup.
+ */
+describe('prefix-redundant indexes (OpenProject #2012)', () => {
+  const indexNames = (table: PgTable) => getTableConfig(table).indexes.map((idx) => idx.config.name)
+
+  it('drops glossaryTerms_siteId_idx, keeping the covering composite index', () => {
+    const names = indexNames(schema.glossaryTerms)
+    assert.ok(!names.includes('glossaryTerms_siteId_idx'))
+    assert.ok(names.includes('glossaryTerms_composite_idx'))
+  })
+
+  it('drops glossaryVersions_siteId_idx, keeping the covering siteId+createdAt index', () => {
+    const names = indexNames(schema.glossaryVersions)
+    assert.ok(!names.includes('glossaryVersions_siteId_idx'))
+    assert.ok(names.includes('glossaryVersions_siteId_createdAt_idx'))
+  })
+
+  it('drops navigation_siteId_idx, keeping the covering siteId+locale index', () => {
+    const names = indexNames(schema.navigation)
+    assert.ok(!names.includes('navigation_siteId_idx'))
+    assert.ok(names.includes('navigation_siteId_locale_idx'))
+  })
+
+  it('drops pages_siteId_idx, keeping the covering siteId+locale+path and +hash indexes', () => {
+    const names = indexNames(schema.pages)
+    assert.ok(!names.includes('pages_siteId_idx'))
+    assert.ok(names.includes('pages_siteId_locale_path_idx'))
+    assert.ok(names.includes('pages_siteId_locale_hash_idx'))
+  })
+
+  it('drops tags_siteId_idx, keeping the covering composite index', () => {
+    const names = indexNames(schema.tags)
+    assert.ok(!names.includes('tags_siteId_idx'))
+    assert.ok(names.includes('tags_composite_idx'))
+  })
+
+  it('drops pageEditSubmissionApprovals_submissionId_idx, keeping the covering submission+reviewer index', () => {
+    const names = indexNames(schema.pageEditSubmissionApprovals)
+    assert.ok(!names.includes('pageEditSubmissionApprovals_submissionId_idx'))
+    assert.ok(names.includes('pageEditSubmissionApprovals_submission_reviewer_idx'))
+  })
+
+  it('drops userGroups_userId_idx and userGroups_composite_idx, keeping only groupId_idx plus the PK', () => {
+    const config = getTableConfig(schema.userGroups)
+    const names = config.indexes.map((idx) => idx.config.name)
+    assert.ok(!names.includes('userGroups_userId_idx'))
+    assert.ok(!names.includes('userGroups_composite_idx'))
+    assert.ok(names.includes('userGroups_groupId_idx'))
+
+    assert.equal(config.primaryKeys.length, 1)
+    const pkColumns = config.primaryKeys[0].columns.map((c) => c.name)
+    assert.deepEqual(pkColumns, ['userId', 'groupId'])
+  })
+})
+
+/**
  * Guards `docs/site-scoping-audit.md` against drift: every table in `schema.ts` that has no
  * `siteId` column (the `sites` table itself aside) must be named somewhere in the audit doc. A
  * table added later without updating the doc — the scenario the audit exists to prevent for
