@@ -77,8 +77,23 @@ export interface TargetSyncSummary {
  * `(contentType, contentId, targetId)` rather than a jsonb column on `pages`/`assets` -- a single blob
  * per row cannot be keyed by target without hand-rolled merge logic on every write.
  *
- * Nothing calls `recordSuccess`/`recordFailure` yet: no storage module dispatches content to a target
- * (see `models/storage.ts`), so this is the state a dispatcher will read and write once one exists.
+ * `recordSuccess`/`recordFailure` are called by `tasks/simple/dispatch-storage.ts` -- queued by
+ * `models/storage.ts#dispatch()` for every enabled non-pull target whose module has
+ * `supportsContentSync`, one job per (content item, target) pairing. `recordSuccess` stamps
+ * `lastSyncedAt`/`lastDirection`/`targetRef` and clears any previous error; `recordFailure` leaves
+ * those success fields untouched and stores `lastError` instead. Both upsert on the
+ * `(targetId, contentType, contentId)` unique index, so the first attempt for a pairing creates its
+ * row and every one after updates it in place. Only content-level dispatches (`contentType` and
+ * `contentId` both present) touch this table at all -- a whole-target action such as `sync` has no
+ * single content item to record state against and skips this step entirely (see
+ * `DispatchStoragePayload`).
+ *
+ * `contentId` carries no foreign key -- it addresses either `pages` or `assets` depending on
+ * `contentType`, and a single uuid column can't reference two tables. That means a row is never
+ * reclaimed when the page or asset it describes is deleted: `getOutOfDatePages`/`getOutOfDateAssets`
+ * join outward from `pages`/`assets`, so a deleted content item's orphaned row simply drops out of
+ * those results, but `getTargetSummary`'s error-lookup query does not join through content at all --
+ * it can surface a stale row's `lastError` for a page or asset that no longer exists.
  */
 class ContentSync {
   /**

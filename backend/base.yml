@@ -170,7 +170,8 @@ editors:
       linkify: true
       lineBreaks: true
       typographer: false
-      underline: false
+      underline: true
+      quotes: 'english'
       tabWidth: 2
       # `kroki` and `plantuml` toggles used to live here, but nothing has read them since diagram
       # rendering moved to the Blocks system: block-kroki and block-plantuml take their server/
