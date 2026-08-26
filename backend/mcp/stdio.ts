@@ -19,11 +19,14 @@
  *
  * Auth: reads a single bearer token from `WIKI_MCP_API_KEY` (mint one via the existing API Keys admin
  * screen, or `POST /_api/system/api-keys`) and verifies it once at startup — refusing to start at all
- * on an invalid/revoked/expired key, rather than failing the first tool call. Every tool call for the
- * lifetime of this process then acts as that one key's identity. See `mcp/auth.ts`'s `McpAuthContext`
- * doc comment for exactly what that resolves to — a personal access token here grants the same
- * per-user page-rule authorization as it does over `mcp/http.ts`, just fixed to one caller for the
- * life of the process instead of re-verified per request.
+ * on an invalid/revoked/expired key, rather than failing the first tool call. Every tool call acts as
+ * that one key's identity, but the identity itself is NOT frozen at boot the way it once was: a
+ * background timer (`mcp/stdioReverify.ts`) re-runs `authenticateApiKey()` roughly every 30 seconds and
+ * refreshes it, so a key revoked, expired, regrouped or deactivated after this process started stops
+ * being honored on the next tick, not only when the process itself is restarted. See `mcp/auth.ts`'s
+ * `McpAuthContext` doc comment for exactly what the identity resolves to — a personal access token here
+ * grants the same per-user page-rule authorization as it does over `mcp/http.ts`, just re-verified on a
+ * short timer instead of on every single request the way the HTTP transport can afford to.
  */
 
 // -> MUST run before anything below logs a single line: `core/logger.ts` and various boot-path
@@ -38,6 +41,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { bootstrapMcpRuntime } from './bootstrap.ts'
 import { auditActorFor, authenticateApiKey } from './auth.ts'
 import { createMcpServer } from './server.ts'
+import { createReverifyingContext } from './stdioReverify.ts'
 import { registerAllTools } from './tools/index.ts'
 
 /**
@@ -94,14 +98,21 @@ async function main(): Promise<void> {
   })
 
   const server = createMcpServer(WIKI.version)
-  // -> Fixed for the process's whole lifetime, unlike `mcp/http.ts`'s per-request-refreshed getter —
-  //    see `McpAuthContextGetter`'s doc comment in `mcp/auth.ts`.
-  registerAllTools(server, () => ctx)
+  // -> Re-verified on a short timer rather than fixed for the process's whole lifetime — see
+  //    `mcp/stdioReverify.ts`'s doc comment and `McpAuthContextGetter`'s in `mcp/auth.ts`. A key that
+  //    stops verifying (revoked, expired, or the model call itself errors) shuts this process down
+  //    through the same `shutdown()` path a startup failure uses.
+  const reverifying = createReverifyingContext(token, ctx, async (err: any) => {
+    console.error(`The MCP API key stopped verifying: ${err.message}`)
+    await shutdown(1)
+  })
+  registerAllTools(server, reverifying.getCtx)
 
   const transport = new StdioServerTransport()
   // -> The client closes stdin when it disconnects; the SDK's transport surfaces that as `onclose`
   //    rather than the process exiting on its own, so this is what actually ends the process.
   transport.onclose = () => {
+    reverifying.stop()
     void shutdown(0)
   }
   await server.connect(transport)
