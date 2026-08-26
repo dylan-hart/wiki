@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit'
 import { unsafeSVG } from 'lit/directives/unsafe-svg.js'
 import { fetchIcon, iconImageUrl } from '../shared/icons.js'
+import { currentPageLocation, getSiteId } from '../shared/site.js'
 import { DarkMode } from '../shared/theme.js'
 
 /**
@@ -370,25 +371,39 @@ export class BlockIndexElement extends LitElement {
   async connectedCallback() {
     super.connectedCallback()
     try {
-      // -> The app's own HTTP client, so a signed-in reader's token comes along and the listing is
-      //    the one they would get anywhere else. Only pages they may open come back.
-      const pages = await API_CLIENT.get(`sites/${WIKI_STATE.site.id}/tree/pages`, {
-        searchParams: {
-          locale: WIKI_STATE.page.locale,
-          path: this.path,
-          limit: this.limit,
-          orderBy: this.orderBy,
-          orderByDirection: this.orderByDirection,
-          depth: this.depth,
-          tags: this.tags
-        }
-      }).json()
-      // -> `WIKI_STATE.site` is the live site store (not a plain snapshot), so its `locales` state --
-      //    `primary`/`forcePrefix`/`active` -- is already here to read; a block cannot import the
-      //    frontend's own `localizedPagePath` helper (separate workspace), so the same rule it applies
-      //    is composed locally instead.
-      const locales = WIKI_STATE.site?.locales
-      const pageLocale = WIKI_STATE.page?.locale
+      const siteId = await getSiteId()
+      if (!siteId) {
+        throw new Error('Could not determine the current site.')
+      }
+      // -> The site's `locales` config -- `primary`/`forcePrefix`/`active` -- is public info served on
+      //    the same `GET /_api/sites/current` `getSiteId()` above already reads; a block cannot import
+      //    the frontend's own `localizedPagePath` helper (separate workspace), so the same rule it
+      //    applies is composed locally instead, off `currentPageLocation`'s read of the browser's URL.
+      const site = await fetch('/_api/sites/current')
+        .then((resp) => (resp.ok ? resp.json() : null))
+        .catch(() => null)
+      const locales = site?.locales
+      const { locale: urlLocale } = currentPageLocation(locales?.active)
+      const pageLocale = urlLocale ?? locales?.primary
+
+      const params = new URLSearchParams({
+        path: this.path,
+        limit: this.limit,
+        orderBy: this.orderBy,
+        orderByDirection: this.orderByDirection,
+        depth: this.depth
+      })
+      if (pageLocale) {
+        params.set('locale', pageLocale)
+      }
+      if (this.tags) {
+        params.set('tags', this.tags)
+      }
+      // -> A plain, cookie-authenticated fetch, so a signed-in reader's session comes along and the
+      //    listing is the one they would get anywhere else. Only pages they may open come back.
+      const pages = await fetch(`/_api/sites/${siteId}/tree/pages?${params}`).then((resp) =>
+        resp.json()
+      )
       const prefix =
         locales?.active?.length > 1 &&
         pageLocale &&

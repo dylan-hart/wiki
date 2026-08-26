@@ -14,8 +14,10 @@ vi.mock('../shared/config.js', () => ({
 
 import './component.js'
 import { getBlockImportUrl } from '../shared/config.js'
+import { _resetSiteIdCache } from '../shared/site.js'
 
 const SITE_ID = 'site-1'
+const DEFAULT_LOCALES = { primary: 'en', forcePrefix: false, active: ['en'] }
 
 function stubPage(overrides = {}) {
   return {
@@ -27,11 +29,50 @@ function stubPage(overrides = {}) {
 }
 
 /**
- * Appends a `<block-include>` and waits for the fetch `connectedCallback` always kicks off.
- * `parent`, if given, is an already-mounted `<block-include>` this one nests inside -- the shape
- * `_ancestorPaths()` climbs to find a cycle.
+ * Stubs `fetch` for every request `connectedCallback` can make: the site-info lookup `getSiteId()`
+ * (and this block itself, for `locales`) reads, and the page-include request. `pageFetchImpl`, when
+ * given, replaces the include response entirely -- for a rejection or an error-status response.
  */
-async function mountInclude({ path = 'target-page', locale = '', showTitle = false, parent } = {}) {
+function stubFetch({
+  locales = DEFAULT_LOCALES,
+  page = stubPage(),
+  pageOk = true,
+  pageStatus = 200,
+  pageFetchImpl
+} = {}) {
+  const fetchMock = vi.fn(async (url) => {
+    if (url === '/_api/sites/current') {
+      return { ok: true, json: async () => ({ id: SITE_ID, locales }) }
+    }
+    if (pageFetchImpl) {
+      return pageFetchImpl(url)
+    }
+    return { ok: pageOk, status: pageStatus, json: async () => page }
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+function includeRequest(fetchMock) {
+  const call = fetchMock.mock.calls.find(([url]) => url !== '/_api/sites/current')
+  return call?.[0]
+}
+
+/**
+ * Appends a `<block-include>` and waits for the fetches `connectedCallback` always kicks off.
+ * `parent`, if given, is an already-mounted `<block-include>` this one nests inside -- the shape
+ * `_ancestorPaths()` climbs to find a cycle. `currentPagePath` stands in for the page this block is
+ * actually sitting on -- read back, post-conversion, off `window.location.pathname` rather than a
+ * live page store.
+ */
+async function mountInclude({
+  path = 'target-page',
+  locale = '',
+  showTitle = false,
+  parent,
+  currentPagePath = 'current-page'
+} = {}) {
+  history.pushState(null, '', `/${currentPagePath}`)
   const el = document.createElement('block-include')
   // -> `path` as a real HTML attribute, not just a JS property: `_ancestorPaths()` reads a nested
   //    include's OWN `path` off its ancestor elements via `getAttribute`, the same shape the
@@ -41,48 +82,51 @@ async function mountInclude({ path = 'target-page', locale = '', showTitle = fal
   el.showTitle = showTitle
   ;(parent ?? document.body).appendChild(el)
   await el.updateComplete
-  // -> connectedCallback's API_CLIENT.get is awaited but not blocking connectedCallback itself
-  await new Promise((resolve) => queueMicrotask(resolve))
+  // -> connectedCallback's fetches are awaited but not blocking connectedCallback itself; each of the
+  //    three chained requests (getSiteId, the site-info read, the include read) needs its own turn.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await new Promise((resolve) => setTimeout(resolve, 0))
   await el.updateComplete
   return el
 }
 
 describe('block-include', () => {
   beforeEach(() => {
-    globalThis.WIKI_STATE = {
-      site: { id: SITE_ID },
-      page: { path: 'current-page', locale: 'en' }
-    }
-    globalThis.API_CLIENT = {
-      get: vi.fn(() => ({ json: () => Promise.resolve(stubPage()) }))
-    }
+    _resetSiteIdCache()
   })
 
   afterEach(() => {
     document.body.replaceChildren()
-    delete globalThis.WIKI_STATE
     delete globalThis.API_CLIENT
+    delete globalThis.WIKI_STATE
+    vi.unstubAllGlobals()
+    history.pushState(null, '', '/')
   })
 
-  it('fetches the requested path/locale and renders the included page', async () => {
+  it('fetches the requested path/locale with neither globalThis.API_CLIENT nor globalThis.WIKI_STATE defined', async () => {
+    expect(globalThis.API_CLIENT).toBeUndefined()
+    expect(globalThis.WIKI_STATE).toBeUndefined()
+
+    const fetchMock = stubFetch()
     const el = await mountInclude({ path: 'target-page', locale: 'fr' })
 
-    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith(`sites/${SITE_ID}/pages/include`, {
-      searchParams: { path: 'target-page', locale: 'fr' }
-    })
+    const url = new URL(includeRequest(fetchMock), 'http://localhost')
+    expect(url.pathname).toBe(`/_api/sites/${SITE_ID}/pages/include`)
+    expect(Object.fromEntries(url.searchParams)).toEqual({ path: 'target-page', locale: 'fr' })
     expect(el.textContent).toContain('Included content')
   })
 
   it("defaults locale to the current page's own locale when none is given", async () => {
+    const fetchMock = stubFetch()
     await mountInclude({ path: 'target-page', locale: '' })
 
-    expect(globalThis.API_CLIENT.get).toHaveBeenCalledWith(
-      `sites/${SITE_ID}/pages/include`,
-      expect.objectContaining({ searchParams: { path: 'target-page', locale: 'en' } })
-    )
+    const url = new URL(includeRequest(fetchMock), 'http://localhost')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ path: 'target-page', locale: 'en' })
   })
 
   it('shows the included title only when showTitle is on', async () => {
+    stubFetch()
     const withTitle = await mountInclude({ path: 'target-page', showTitle: true })
     const withoutTitle = await mountInclude({ path: 'target-page-2', showTitle: false })
 
@@ -98,12 +142,15 @@ describe('block-include', () => {
     attribute literally present with the string "false".
   */
   it('treats the literal attribute showTitle="false" as false', async () => {
+    stubFetch()
     const el = document.createElement('block-include')
     el.setAttribute('path', 'target-page')
     el.setAttribute('showtitle', 'false')
     document.body.appendChild(el)
     await el.updateComplete
-    await new Promise((resolve) => queueMicrotask(resolve))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
     await el.updateComplete
 
     expect(el.showTitle).toBe(false)
@@ -111,36 +158,39 @@ describe('block-include', () => {
   })
 
   it('renders into the light DOM, not a shadow root, so the article stylesheet reaches it', async () => {
+    stubFetch()
     const el = await mountInclude()
     expect(el.shadowRoot).toBeNull()
   })
 
   it('refuses a page naming itself, before any request goes out', async () => {
-    globalThis.WIKI_STATE.page.path = 'same-page'
-    const el = await mountInclude({ path: 'same-page' })
+    const fetchMock = stubFetch()
+    const el = await mountInclude({ path: 'same-page', currentPagePath: 'same-page' })
 
     expect(el.textContent).toContain('This page includes itself')
-    expect(globalThis.API_CLIENT.get).not.toHaveBeenCalled()
+    expect(includeRequest(fetchMock)).toBeUndefined()
   })
 
   it('refuses a cycle through a currently-open ancestor include, case/slash-insensitively', async () => {
+    const fetchMock = stubFetch()
     const outer = await mountInclude({ path: '/Ancestor-Page/' })
     // -> The nested include is appended as a child of the outer one's rendered content
     const inner = await mountInclude({ path: 'ancestor-page', parent: outer })
 
     expect(inner.textContent).toContain('would loop')
-    expect(globalThis.API_CLIENT.get).toHaveBeenCalledTimes(1) // only the outer include fetched
+    expect(fetchMock.mock.calls.filter(([url]) => url !== '/_api/sites/current')).toHaveLength(1) // only the outer include fetched
   })
 
   it('refuses nesting deeper than MAX_DEPTH (3)', async () => {
-    globalThis.WIKI_STATE.page.path = 'root'
+    stubFetch()
+    history.pushState(null, '', '/root')
     let current = document.body
     for (let i = 0; i < 3; i++) {
       const el = document.createElement('block-include')
       el.setAttribute('path', `level-${i}`)
       current.appendChild(el)
       await el.updateComplete
-      await new Promise((resolve) => queueMicrotask(resolve))
+      await new Promise((resolve) => setTimeout(resolve, 0))
       current = el
     }
     // -> A 4th level: root page + 3 already-open includes = chain length 4, over MAX_DEPTH (3)
@@ -148,24 +198,24 @@ describe('block-include', () => {
     tooDeep.setAttribute('path', 'level-3')
     current.appendChild(tooDeep)
     await tooDeep.updateComplete
-    await new Promise((resolve) => queueMicrotask(resolve))
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(tooDeep.textContent).toContain('nested more than 3 pages deep')
   })
 
   it('shows a not-found message for a 404 response', async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () => Promise.reject({ response: { status: 404 } })
-    }))
+    stubFetch({ pageFetchImpl: () => ({ ok: false, status: 404, json: async () => null }) })
     const el = await mountInclude({ path: 'missing-page' })
 
     expect(el.textContent).toContain('There is no page at "missing-page"')
   })
 
   it('shows a generic failure message for a non-404 error', async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () => Promise.reject(new Error('network down'))
-    }))
+    stubFetch({
+      pageFetchImpl: () => {
+        throw new Error('network down')
+      }
+    })
     const el = await mountInclude({ path: 'broken-page' })
 
     expect(el.textContent).toContain('could not be included')
@@ -179,9 +229,9 @@ describe('block-include', () => {
    * `getBlockImportUrl()` instead of guessing a URL itself.
    */
   it("resolves a nested block's import URL through getBlockImportUrl(), not a hardcoded flat path", async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () => Promise.resolve(stubPage({ render: '<p>Text</p><block-widget></block-widget>' }))
-    }))
+    stubFetch({
+      page: stubPage({ render: '<p>Text</p><block-widget></block-widget>' })
+    })
 
     await mountInclude({ path: 'page-with-nested-block' })
     // -> `_loadNestedBlocks()`'s own `import()` attempt needs a further turn past `mountInclude`'s
@@ -192,9 +242,7 @@ describe('block-include', () => {
   })
 
   it('points at the unlock prompt rather than asking for a password itself, for a locked page', async () => {
-    globalThis.API_CLIENT.get = vi.fn(() => ({
-      json: () => Promise.resolve(stubPage({ isLocked: true }))
-    }))
+    stubFetch({ page: stubPage({ isLocked: true }) })
     const el = await mountInclude({ path: 'locked-page' })
 
     expect(el.textContent).toContain('password protected')

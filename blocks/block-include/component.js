@@ -1,6 +1,7 @@
 import { LitElement, html } from 'lit'
 import { unsafeHTML } from 'lit/directives/unsafe-html.js'
 import { getBlockImportUrl } from '../shared/config.js'
+import { currentPageLocation, getSiteId } from '../shared/site.js'
 
 /** How many includes may nest before the chain is treated as a mistake. */
 const MAX_DEPTH = 3
@@ -132,14 +133,14 @@ export class BlockIncludeElement extends LitElement {
    * of each page. With it, the loop is refused at the exact point it would close, before a request
    * goes out.
    */
-  _ancestorPaths() {
+  _ancestorPaths(currentPagePath) {
     const paths = []
     let parent = this.parentElement?.closest('block-include')
     while (parent) {
       paths.push(normalizePath(parent.getAttribute('path')))
       parent = parent.parentElement?.closest('block-include')
     }
-    paths.push(normalizePath(WIKI_STATE.page.path))
+    paths.push(normalizePath(currentPagePath))
     return paths
   }
 
@@ -171,7 +172,24 @@ export class BlockIncludeElement extends LitElement {
     super.connectedCallback()
 
     const path = normalizePath(this.path)
-    const chain = this._ancestorPaths()
+
+    const siteId = await getSiteId()
+    if (!siteId) {
+      this._error = 'Could not determine the current site.'
+      this._loading = false
+      return
+    }
+    // -> The site's `locales` config is public info served on the same `GET /_api/sites/current`
+    //    `getSiteId()` above already reads; the reader's own locale and page path have no live store
+    //    to ask (separate workspace), so both are read back off the browser's own URL instead -- see
+    //    `currentPageLocation`'s own doc comment.
+    const site = await fetch('/_api/sites/current')
+      .then((resp) => (resp.ok ? resp.json() : null))
+      .catch(() => null)
+    const { locale: urlLocale, path: currentPagePath } = currentPageLocation(site?.locales?.active)
+    const pageLocale = urlLocale ?? site?.locales?.primary
+
+    const chain = this._ancestorPaths(currentPagePath)
     if (chain.includes(path)) {
       // -> A page naming itself is its author's own doing; anything longer went round other pages,
       //    and saying which one closes the loop is the part that helps
@@ -183,12 +201,20 @@ export class BlockIncludeElement extends LitElement {
       this._error = `Includes are nested more than ${MAX_DEPTH} pages deep.`
     } else {
       try {
-        const page = await API_CLIENT.get(`sites/${WIKI_STATE.site.id}/pages/include`, {
-          searchParams: {
-            path,
-            locale: this.locale || WIKI_STATE.page.locale
-          }
-        }).json()
+        const params = new URLSearchParams({ path })
+        const includeLocale = this.locale || pageLocale
+        if (includeLocale) {
+          params.set('locale', includeLocale)
+        }
+        // -> A plain, cookie-authenticated fetch, so a signed-in reader's session comes along and the
+        //    same access check the server applies when they open the page directly still applies here.
+        const resp = await fetch(`/_api/sites/${siteId}/pages/include?${params}`)
+        if (!resp.ok) {
+          const err = new Error(`Request failed (${resp.status}).`)
+          err.status = resp.status
+          throw err
+        }
+        const page = await resp.json()
         if (page.isLocked) {
           // -> Withheld by the server, which is the same answer this reader gets by opening the page.
           //    The unlock prompt lives there, so this points at it rather than asking for a password.
@@ -199,7 +225,7 @@ export class BlockIncludeElement extends LitElement {
         }
       } catch (err) {
         this._error =
-          err.response?.status === 404
+          err.status === 404
             ? `There is no page at "${path}".`
             : `The page "${path}" could not be included.`
       }
