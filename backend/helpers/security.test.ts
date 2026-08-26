@@ -1,12 +1,73 @@
 import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
+import { readFileSync } from 'node:fs'
+import { load } from 'js-yaml'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { corsOrigin, corsOptions, parseCspDirectives } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
 ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+
+describe('parseCspDirectives', () => {
+  test('parses a basic policy string into helmet directive lists', () => {
+    assert.deepEqual(parseCspDirectives("default-src 'self'; img-src * data:"), {
+      'default-src': ["'self'"],
+      'img-src': ['*', 'data:']
+    })
+  })
+
+  test('a directive with no value maps to an empty list', () => {
+    assert.deepEqual(parseCspDirectives('upgrade-insecure-requests'), {
+      'upgrade-insecure-requests': []
+    })
+  })
+
+  /**
+   * OpenProject #2158: `base.yml` ships `cspDirectives: ''` alongside `enforceCsp: false`, so a
+   * fresh instance sends no CSP header at all -- there was no suggested, let alone tested, policy
+   * anywhere to start from. This reads the real shipped default straight out of `base.yml` (rather
+   * than a copy hardcoded here, which could silently drift from it) and asserts it actually parses
+   * into a directive map covering what the core app needs: a locked-down `default-src`, and
+   * `worker-src`/`script-src`/`style-src`/`img-src`/`connect-src` allowances for Monaco, same-origin
+   * blocks, and blocks (like `block-kroki`/`block-plantuml`) that call out to a configurable
+   * external server by design.
+   */
+  test('the shipped base.yml default parses into a known-good directive map', () => {
+    const baseYml = load(
+      readFileSync(path.join(import.meta.dirname, '..', 'base.yml'), 'utf8')
+    ) as any
+    const defaultValue = baseYml.defaults.config.security.cspDirectives
+
+    assert.equal(typeof defaultValue, 'string')
+    assert.notEqual(defaultValue, '', 'a known-good default must not be empty')
+
+    const directives = parseCspDirectives(defaultValue)
+
+    assert.deepEqual(directives['default-src'], ["'self'"])
+    assert.deepEqual(directives['object-src'], ["'none'"])
+    assert.deepEqual(directives['base-uri'], ["'self'"])
+    assert.deepEqual(directives['frame-ancestors'], ["'none'"])
+    assert.deepEqual(directives['script-src'], ["'self'"])
+    assert.ok(
+      directives['worker-src']?.includes("'self'"),
+      'worker-src must allow same-origin (Monaco)'
+    )
+    assert.ok(directives['worker-src']?.includes('blob:'), 'worker-src must allow blob: (Monaco)')
+    assert.ok(directives['style-src']?.includes("'self'"))
+    assert.ok(directives['img-src']?.includes("'self'"))
+    assert.ok(
+      directives['img-src']?.includes('https:'),
+      'img-src must allow https: for externally-configurable diagram servers and embedded content images'
+    )
+    assert.ok(
+      directives['connect-src']?.includes('https:'),
+      'connect-src must allow https: for externally-configurable diagram servers (block-kroki, block-plantuml)'
+    )
+  })
+})
 
 describe('corsOrigin', () => {
   test('OFF (and unrecognized) modes deny cross-origin', () => {

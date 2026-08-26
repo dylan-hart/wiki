@@ -86,7 +86,22 @@ defaults:
       trustProxy: false
       enforceHsts: false
       hstsDuration: 0
-      cspDirectives: ''
+      # A known-good starting policy for when `enforceCsp` is turned on -- shipped, but not applied
+      # by default, so turning that toggle on is one click rather than a research project. Covers
+      # what the core app itself needs:
+      #  - `worker-src 'self' blob:` for Monaco's bundled language workers (`boot/monaco.js`)
+      #  - `script-src 'self'` for same-origin custom/built-in blocks, loaded as dynamic ES module
+      #    imports from `/_blocks/...` (`stores/common.js#blockImportUrl`)
+      #  - `style-src 'self' 'unsafe-inline'` and `font-src 'self' data:` for Vue's `:style`
+      #    bindings and bundled block fonts (e.g. KaTeX)
+      #  - `img-src` and `connect-src` allowing `https:` for blocks that call out to a configurable
+      #    external server by design (`block-kroki`, `block-plantuml` default to kroki.io /
+      #    plantuml.com, but an admin may point them anywhere), and wiki content routinely embedding
+      #    externally-hosted images
+      # NOT covered, because they are admin-authored and instance-specific: theme HTML/CSS injection
+      # (`AdminTheme.vue`'s injectHead/injectBody/injectCSS) and analytics providers (Google
+      # Analytics, GTM, Matomo) each need their own allowances added here -- see the hint above.
+      cspDirectives: "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https:"
       uploadScanSVG: true
       disallowIframe: true
       uploadMaxFiles: 20

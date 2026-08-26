@@ -955,7 +955,7 @@
   "admin.security.corsRegexHint": "Pattern against which the request hostname is matched.",
   "admin.security.csp": "CSP (Content-Security-Policy)",
   "admin.security.cspDirectives": "CSP Directives",
-  "admin.security.cspDirectivesHint": "Semicolon-separated directives, e.g. \"default-src 'self'; img-src * data:\". At least one directive is required while enforcement is on.",
+  "admin.security.cspDirectivesHint": "Semicolon-separated directives, e.g. \"default-src 'self'; img-src * data:\". At least one directive is required while enforcement is on. The shipped default covers the core app (Monaco, blocks, KaTeX); it does NOT allow theme HTML/CSS injection (Appearance's Custom CSS/HTML fields) or analytics providers (Google Analytics, GTM, Matomo) -- add explicit allowances here for those before enabling this if you use them.",
   "admin.security.cspDirectivesPlaceholder": "default-src 'self'; img-src * data:",
   "admin.security.disallowIframe": "Disallow iFrame Embedding",
   "admin.security.disallowIframeHint": "Prevents other websites from embedding your wiki in an iframe. This provides clickjacking protection.",
