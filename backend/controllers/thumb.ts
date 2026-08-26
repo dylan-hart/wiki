@@ -1,20 +1,28 @@
 import crypto from 'node:crypto'
-import { isValidUuid } from '../helpers/common.ts'
+import { guardSiteEnabled, isValidUuid } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
- * A thumbnail is generated once, at upload time, and an asset that changes gets a new ID — so the
- * bytes behind a given URL never change.
+ * How long a browser may keep a thumbnail before asking again.
+ *
+ * Short, and revalidated: unlike the old `public, immutable` directive this replaced, the reply now
+ * depends on who asked and which site's rules apply — a shared cache holding one reader's copy of a
+ * private site's thumbnail would hand it to the next reader along, the same reasoning `files.ts`'s
+ * `FILE_CACHE` documents for `/_files/`. The bytes themselves are still fixed once generated (an
+ * asset that changes gets a new ID), so `must-revalidate` costs a 304 round trip, not a re-fetch.
  */
-const THUMB_CACHE = 'public, max-age=31536000, immutable'
+const THUMB_CACHE = 'private, max-age=600, must-revalidate'
 
 /**
  * _thumb Routes
  *
- * Public, like `_site` and `_user`: a thumbnail is a shrunken copy of an asset already served on the
- * pages that embed it, and the URL has to be known to be asked for. Only assets that have a preview
- * answer here — everything else, including every non-image, is a 404 the file manager draws a file
- * type icon for.
+ * A thumbnail is a shrunken copy of an asset served the same access-controlled way `/_files/` serves
+ * the original — so an asset UUID is treated as no more protective than knowing a `/_files/` path:
+ * either can survive in a shared link, browser history, a screenshot, or a page that legitimately
+ * embedded it before the rules changed. Every request is resolved to the site behind the requesting
+ * hostname, refused if the id belongs to a different site, and judged against `read:assets` for the
+ * path it names — matching `controllers/files.ts` exactly. A denial answers the same 404 as "no such
+ * asset" or "no thumbnail", so the endpoint cannot be probed for existence either way.
  */
 async function routes(app: FastifyInstance) {
   app.get<{ Params: { fileName: string } }>('/:fileName', async (req, reply) => {
@@ -25,12 +33,36 @@ async function routes(app: FastifyInstance) {
       return reply.notFound('Thumbnail not found')
     }
 
-    const preview = await WIKI.models.assets.getThumbnail(assetId)
-    if (!preview) {
+    const thumbnail = await WIKI.models.assets.getThumbnail(assetId)
+    if (!thumbnail) {
       return reply.notFound('Thumbnail not found')
     }
 
-    const etag = `"${crypto.createHash('sha1').update(preview).digest('hex')}"`
+    const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
+    // -> Not found rather than forbidden: a mismatched site is indistinguishable from no asset at all
+    if (!site || thumbnail.siteId !== site.id) {
+      return reply.notFound('Thumbnail not found')
+    }
+    if (guardSiteEnabled(site, reply)) {
+      return
+    }
+
+    if (
+      !WIKI.models.groups.checkAccess(WIKI.models.groups.actorForRequest(req), 'read:assets', {
+        path: thumbnail.folderPath
+          ? `${thumbnail.folderPath}/${thumbnail.fileName}`
+          : thumbnail.fileName,
+        siteId: site.id,
+        locale: thumbnail.locale,
+        // -> An asset carries no classification of its own — same treatment as `mayOnAsset` in
+        //    `api/assets.ts` and the `/_files/` route above it.
+        classification: null
+      })
+    ) {
+      return reply.notFound('Thumbnail not found')
+    }
+
+    const etag = `"${crypto.createHash('sha1').update(thumbnail.preview).digest('hex')}"`
     reply.header('ETag', etag)
     reply.header('Cache-Control', THUMB_CACHE)
     reply.header('X-Content-Type-Options', 'nosniff')
@@ -38,7 +70,7 @@ async function routes(app: FastifyInstance) {
       return reply.code(304).send()
     }
 
-    return reply.type('image/webp').send(preview)
+    return reply.type('image/webp').send(thumbnail.preview)
   })
 }
 
