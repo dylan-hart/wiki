@@ -38,7 +38,12 @@ function fetchSite() {
   if (!sitePromise) {
     sitePromise = fetch('/_api/sites/current')
       .then((resp) => (resp.ok ? resp.json() : null))
-      .catch(() => null)
+      .catch(() => {
+        // Don't let a transient failure (offline, a dropped connection) poison every later
+        // caller on the page for good -- clear the cache so the next call gets a fresh fetch.
+        sitePromise = null
+        return null
+      })
   }
   return sitePromise
 }
