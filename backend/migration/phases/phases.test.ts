@@ -115,31 +115,34 @@ describe('migration phases', () => {
     assert.equal(result.phase, 'settings')
   })
 
-  test('usersPhase counts records from a working connector', async () => {
+  test('usersPhase counts records from a working connector, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 3, groups: 2 })))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 3, groups: 2 })
+    assert.deepEqual(result.notImplemented, ['users', 'groups'])
   })
 
-  test('usersPhase is partially not_implemented when only one entity generator works', async () => {
+  test('usersPhase is not_implemented when only one entity generator works, listing both entities (the other via its own stub, this one via the no-write-path reclassification)', async () => {
     const result = await usersPhase.run(contextWith(workingConnector({ users: 5 })))
     assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { users: 5 })
-    assert.deepEqual(result.notImplemented, ['groups'])
+    assert.deepEqual(result.notImplemented, ['groups', 'users'])
   })
 
-  test('contentPhase counts pages, pageHistory and tags', async () => {
+  test('contentPhase counts pages, pageHistory and tags, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await contentPhase.run(
       contextWith(workingConnector({ pages: 4, pageHistory: 7, tags: 1 }))
     )
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { pages: 4, pageHistory: 7, tags: 1 })
+    assert.deepEqual(result.notImplemented, ['pages', 'pageHistory', 'tags'])
   })
 
-  test('assetsPhase counts assets', async () => {
+  test('assetsPhase counts assets, but reports not_implemented — no phase has a write path yet', async () => {
     const result = await assetsPhase.run(contextWith(workingConnector({ assets: 9 })))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.deepEqual(result.counts, { assets: 9 })
+    assert.deepEqual(result.notImplemented, ['assets'])
   })
 
   test('a real (non-stub) error surfaces as status "error" rather than not_implemented', async () => {
@@ -174,7 +177,7 @@ describe('migration phases', () => {
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
-    assert.equal(result.status, 'ok')
+    assert.equal(result.status, 'not_implemented')
     assert.ok(result.report)
     assert.equal(result.report!.found, 2)
     assert.equal(result.report!.wouldCreate, 1)
@@ -249,7 +252,7 @@ describe('migration phases', () => {
       })
       const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
       const result = await usersPhase.run(contextWith(connector, store))
-      assert.equal(result.status, 'ok')
+      assert.equal(result.status, 'not_implemented')
       assert.equal(result.report!.wouldCreate, 0)
       assert.equal(result.report!.wouldSkipExisting, 1)
     })
