@@ -160,6 +160,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Off by default. When on, a provider login for an address matching an existing, still-unlinked account is bound to it automatically; when off, that login is refused with ERR_ACCOUNT_NOT_LINKED instead.'
       },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Admin-chosen allow-list of groups a provider login may grant or revoke via `mapGroups`. Empty by default, meaning a login changes no group memberships. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
+      },
       // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
       // declares — a different set of keys per module.
       config: {
@@ -216,6 +225,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         type: 'boolean',
         description:
           "Off by default. Turning it on tells this strategy that an address it reports may be trusted to claim an existing, unlinked account by email match alone — appropriate only for a provider whose email is verified. Leave off for a provider that will assert any address it's told to."
+      },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Allow-list of groups this strategy is permitted to grant/revoke on login via `mapGroups`. The guests group is refused. Empty by default, meaning no group memberships are changed. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {

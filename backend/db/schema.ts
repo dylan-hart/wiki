@@ -232,7 +232,11 @@ export const authentication = pgTable('authentication', {
   // -> Off by default: an existing account is only ever claimed by a provider login once this
   //    strategy is explicitly told to trust the address it reports. See
   //    `models/users.ts#findOrCreateProviderUser()`.
-  trustEmailForLinking: boolean().notNull().default(false)
+  trustEmailForLinking: boolean().notNull().default(false),
+  // -> Admin-chosen subset of groups a provider login is allowed to grant/revoke via `mapGroups`.
+  //    Empty by default, meaning a login changes no group memberships. See
+  //    `models/users.ts#syncProviderGroups()`.
+  mappableGroups: uuid().array().default([])
 })
 
 // CONTENT SYNC STATE -------------------

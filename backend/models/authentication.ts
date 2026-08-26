@@ -135,6 +135,8 @@ export interface AuthStrategy {
    * silently bound. See `models/users.ts#findOrCreateProviderUser()`.
    */
   trustEmailForLinking: boolean
+  /** Admin-chosen subset of groups `syncProviderGroups()` is allowed to grant/revoke. Empty means none. */
+  mappableGroups: string[]
   config: Record<string, any>
 }
 
@@ -198,6 +200,7 @@ class Authentication {
       .map((stg) => ({
         ...stg,
         autoEnrollGroups: stg.autoEnrollGroups ?? [],
+        mappableGroups: stg.mappableGroups ?? [],
         config: this.buildConfig(stg.module, {}, stg.config as Record<string, any>)
       }))
       .sort((a, b) => (isBuiltInLocal(a.id) ? -1 : isBuiltInLocal(b.id) ? 1 : 0))
@@ -289,6 +292,7 @@ class Authentication {
     isEnabled?: boolean
     allowedEmailRegex?: string
     autoEnrollGroups?: string[]
+    mappableGroups?: string[]
   }): Promise<string | null> {
     if (strategy.displayName !== undefined && strategy.displayName.trim().length < 1) {
       return 'The display name cannot be empty.'
@@ -314,6 +318,17 @@ class Authentication {
         return `Group ${unknown} does not exist.`
       }
     }
+    if (strategy.mappableGroups && strategy.mappableGroups.length > 0) {
+      if (strategy.mappableGroups.includes(WIKI.data.systemIds.guestsGroupId)) {
+        return 'The guests group cannot be mapped from a provider.'
+      }
+      const existing = await WIKI.db.select({ id: groupsTable.id }).from(groupsTable)
+      const existingIds = existing.map((g) => g.id)
+      const unknown = strategy.mappableGroups.find((id) => !existingIds.includes(id))
+      if (unknown) {
+        return `Group ${unknown} does not exist.`
+      }
+    }
     return null
   }
 
@@ -330,6 +345,7 @@ class Authentication {
     allowedEmailRegex?: string
     autoEnrollGroups?: string[]
     trustEmailForLinking?: boolean
+    mappableGroups?: string[]
     config?: Record<string, any>
   }): Promise<string> {
     const mod = this.getModule(values.module)!
@@ -343,6 +359,7 @@ class Authentication {
         allowedEmailRegex: values.allowedEmailRegex ?? '',
         autoEnrollGroups: values.autoEnrollGroups ?? [],
         trustEmailForLinking: values.trustEmailForLinking ?? false,
+        mappableGroups: values.mappableGroups ?? [],
         config: this.buildConfig(values.module, values.config)
       })
       .returning({ id: authenticationTable.id })
@@ -368,6 +385,7 @@ class Authentication {
       allowedEmailRegex?: string
       autoEnrollGroups?: string[]
       trustEmailForLinking?: boolean
+      mappableGroups?: string[]
       config?: Record<string, any>
     }
   ): Promise<boolean> {
@@ -394,6 +412,9 @@ class Authentication {
     }
     if (patch.trustEmailForLinking !== undefined) {
       values.trustEmailForLinking = patch.trustEmailForLinking
+    }
+    if (patch.mappableGroups !== undefined) {
+      values.mappableGroups = patch.mappableGroups
     }
     if (patch.config !== undefined) {
       values.config = this.buildConfig(current.module, patch.config, current.config)

@@ -1951,13 +1951,21 @@ class Users {
    * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
    * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
    *
-   * Two memberships are never touched by this, regardless of what was reported:
+   * Several memberships are never touched by this, regardless of what was reported:
    *
    *   - the guests group, which is anonymous access itself rather than something a provider can grant
    *     or take away from a real account;
    *   - any group still named in the strategy's own `autoEnrollGroups` — an administrator put that
    *     grant there directly, and a provider that has simply stopped mentioning the group should not
-   *     silently undo it.
+   *     silently undo it;
+   *   - every group carrying `manage:system` (`groups.systemGroupIds()`) and the configured root
+   *     administrators group (`WIKI.config.auth.rootAdminGroupId`) — an IdP can never grant or revoke
+   *     wiki-level administrative access, mirroring the same invariant `api/users.ts` enforces for a
+   *     human editing group membership directly. This holds unconditionally, independent of the
+   *     allow-list below;
+   *   - any group outside the strategy's own `mappableGroups` allow-list — an admin-chosen subset of
+   *     what this strategy may grant/revoke at all. The default is empty, so a strategy that has not
+   *     been configured with an allow-list changes no memberships on login.
    *
    * Group names are matched case-insensitively and trimmed, since that is how directory group names are
    * routinely typed inconsistently.
@@ -1971,7 +1979,16 @@ class Users {
     reportedGroups: string[]
   ): Promise<void> {
     const guestsGroupId = WIKI.data.systemIds.guestsGroupId
-    const protectedFromRemoval = new Set([guestsGroupId, ...(strategy.autoEnrollGroups ?? [])])
+    const rootAdminGroupId = WIKI.config.auth.rootAdminGroupId
+    const systemGroupIds = await WIKI.models.groups.systemGroupIds()
+    const neverMapped = new Set([guestsGroupId, rootAdminGroupId, ...systemGroupIds])
+    const mappable = new Set(strategy.mappableGroups ?? [])
+
+    const protectedFromRemoval = new Set([
+      guestsGroupId,
+      ...(strategy.autoEnrollGroups ?? []),
+      ...neverMapped
+    ])
 
     const reportedNames = new Set(
       reportedGroups.map((name) => name.trim().toLowerCase()).filter(Boolean)
@@ -1980,7 +1997,10 @@ class Users {
     const matchedGroupIds = new Set(
       allGroups
         .filter(
-          (g: any) => g.id !== guestsGroupId && reportedNames.has(g.name.trim().toLowerCase())
+          (g: any) =>
+            !neverMapped.has(g.id) &&
+            mappable.has(g.id) &&
+            reportedNames.has(g.name.trim().toLowerCase())
         )
         .map((g: any) => g.id)
     )
@@ -1989,8 +2009,11 @@ class Users {
     const currentSet = new Set(currentGroupIds)
 
     const toAdd = [...matchedGroupIds].filter((id) => !currentSet.has(id))
+    // -> Only an allow-listed group can ever be revoked: a group the sync could not have granted
+    //    (never mapped, or simply absent from the strategy's own allow-list) must not be granted OR
+    //    removed, so `mappable.has(id)` gates removal the same way it gates the grant above.
     const toRemove = currentGroupIds.filter(
-      (id) => !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
+      (id) => mappable.has(id) && !matchedGroupIds.has(id) && !protectedFromRemoval.has(id)
     )
 
     if (toAdd.length < 1 && toRemove.length < 1) {
