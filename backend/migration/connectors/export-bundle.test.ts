@@ -291,7 +291,7 @@ describe('ExportBundleSourceConnector', () => {
       assert.deepEqual(tags, ['draft', 'intro'])
     })
 
-    test('tags() issues no additional read of pages.json.gz/pages-history.json.gz once both have already been walked (Task 1786)', async () => {
+    test('tags() reuses tags collected by a prior pages()/pageHistory() walk, issuing no additional read of either file (Task 1786)', async () => {
       const dir = await makeBundle({
         'pages.json.gz': gzipJsonArray([pageRow]),
         'pages-history.json.gz': gzipJsonArray([historyRow])
@@ -319,7 +319,7 @@ describe('ExportBundleSourceConnector', () => {
       assert.equal(readCalls, 0)
     })
 
-    test('tags() still derives the correct tag set when called with no prior pages()/pageHistory() walk', async () => {
+    test('tags() still falls back to reading the files itself when called without a prior pages()/pageHistory() walk', async () => {
       const dir = await makeBundle({
         'pages.json.gz': gzipJsonArray([pageRow]),
         'pages-history.json.gz': gzipJsonArray([historyRow])

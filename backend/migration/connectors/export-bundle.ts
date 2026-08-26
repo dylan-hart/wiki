@@ -186,15 +186,6 @@ const ENTITY_FILES: Record<string, string> = {
   assets: 'assets'
 }
 
-/** Drains an async iterable purely for its side effects, ignoring the values it yields. Used to walk
- * `pages()`/`pageHistory()` for their `collectTags` side effect without keeping the rows around. */
-async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
-  const iterator = iterable[Symbol.asyncIterator]()
-  while (!(await iterator.next()).done) {
-    // No-op: the generator's own side effect (collectTags, in this module's use of it) already ran.
-  }
-}
-
 /**
  * ExportBundleSourceConnector
  *
@@ -220,10 +211,18 @@ export class ExportBundleSourceConnector implements SourceConnector {
   private detectedVersion: string | undefined
   private connected = false
 
-  /** Tags collected as a side effect of walking `pages()`/`pageHistory()` — see `tagsImpl()`. */
-  private readonly tagsSeen: Map<string, SourceRecord> = new Map()
-  private pagesTagsCollected = false
-  private pageHistoryTagsCollected = false
+  /**
+   * Tags collected as a side effect of a `pages()`/`pageHistory()` walk reaching its end (each is
+   * `null` until then — see `tagsImpl()` below). `tagsImpl()` reuses these instead of re-reading and
+   * re-parsing `pages.json.gz`/`pages-history.json.gz`, which is the whole point: the content phase
+   * (`phases/content.ts`) already walks both entities before it ever calls `tags()`, so a second
+   * decompress-and-parse pass over the bundle's two largest files bought nothing. Populated only once
+   * the corresponding generator's loop actually finishes — a caller that abandons `pages()`/
+   * `pageHistory()` partway through (e.g. via an early `break`) leaves the field `null`, and `tagsImpl()`
+   * falls back to reading that file directly, exactly as it always did.
+   */
+  private tagsFromPages: Map<string, SourceRecord> | null = null
+  private tagsFromPageHistory: Map<string, SourceRecord> | null = null
 
   constructor(bundlePath: string) {
     this.bundlePath = bundlePath
@@ -378,14 +377,34 @@ export class ExportBundleSourceConnector implements SourceConnector {
     }
   }
 
+  /**
+   * Streams `pages.json.gz` while also collecting its rows' tags into `tagsFromPages` — so a `tags()`
+   * call that follows a full walk of this generator can reuse them instead of re-reading the file. The
+   * cache is only committed after the underlying generator runs out of rows; a caller that stops
+   * iterating early never sees `tagsFromPages` populated, and `tagsImpl()` reads the file itself in
+   * that case exactly as before.
+   */
   private async *pagesImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
     for await (const row of this.readGzipJsonArray(
       path.join(this.bundlePath, ENTITY_FILES.pages)
     )) {
-      collectTags(row.tags, this.tagsSeen)
+      collectTags(row.tags, seen)
       yield row
     }
-    this.pagesTagsCollected = true
+    this.tagsFromPages = seen
+  }
+
+  /** `pageHistory()`'s counterpart to `pagesImpl()` above — see its docblock. */
+  private async *pageHistoryImpl(): AsyncGenerator<SourceRecord> {
+    const seen = new Map<string, SourceRecord>()
+    for await (const row of this.readGzipJsonArray(
+      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+    )) {
+      collectTags(row.tags, seen)
+      yield row
+    }
+    this.tagsFromPageHistory = seen
   }
 
   pages(): AsyncIterable<SourceRecord> {
@@ -393,16 +412,6 @@ export class ExportBundleSourceConnector implements SourceConnector {
       throw new Error('pages() called before a successful connect().')
     }
     return this.pagesImpl()
-  }
-
-  private async *pageHistoryImpl(): AsyncGenerator<SourceRecord> {
-    for await (const row of this.readGzipJsonArray(
-      path.join(this.bundlePath, ENTITY_FILES.pageHistory)
-    )) {
-      collectTags(row.tags, this.tagsSeen)
-      yield row
-    }
-    this.pageHistoryTagsCollected = true
   }
 
   pageHistory(): AsyncIterable<SourceRecord> {
@@ -416,25 +425,44 @@ export class ExportBundleSourceConnector implements SourceConnector {
    * There is no dedicated `tags.json`/`tags.json.gz` file in the export-bundle format at all (see
    * `ENTITY_FILES` above, and `2.5x-export-bundle-format.md`'s `pages`/`history` sections) — 2.x's
    * `tags`/`pageTags`/`pageHistoryTags` join is already denormalized inline as each page/history row's
-   * own `tags: [{tag, title}]`. This derives a deduplicated tag list from that denormalized data —
-   * but, unlike a plain second read, it does so via `this.tagsSeen`, which `pagesImpl()` and
-   * `pageHistoryImpl()` above populate as a side effect of their own walk. A `tags()` call that
-   * follows an already-completed `pages()`/`pageHistory()` walk (the order `phases/content.ts`'s
-   * `contentPhase` drives them in) therefore reads neither file again; only a `tags()` call with no
-   * prior walk of one (or both) of those files falls back to walking it here, for exactly the entity
-   * that hasn't already been collected. Content-staging (Task 733's own `extractContentStaging`) does
-   * not actually need to call this — it reads `tags` straight off each page/history row — but the
-   * `SourceConnector` interface promises the generator, so it is implemented for real rather than left
-   * throwing for a table this connector kind genuinely has no separate file for.
+   * own `tags: [{tag, title}]`. This derives a deduplicated tag list from that denormalized data.
+   * Content-staging (Task 733's own `extractContentStaging`) does not actually need to call this — it
+   * reads `tags` straight off each page/history row — but the `SourceConnector` interface promises the
+   * generator, so it is implemented for real rather than left throwing for a table this connector kind
+   * genuinely has no separate file for.
+   *
+   * Reuses `tagsFromPages`/`tagsFromPageHistory` when a full `pages()`/`pageHistory()` walk already
+   * populated them (the phase that wires this in, `phases/content.ts`, always walks both before calling
+   * `tags()`) rather than decompressing and re-parsing `pages.json.gz`/`pages-history.json.gz` a second
+   * time — those are the two largest files in the bundle. A caller that goes straight to `tags()`
+   * without walking the other two generators first still gets a correct answer: each half falls back to
+   * reading its file directly when its cache is unset. Merge order matters — pages' entries (and their
+   * titles) win over history's for a tag seen in both, matching the un-cached scan's own "seen" ordering
+   * (pages read to completion, then history, only adding what wasn't already there).
    */
   private async *tagsImpl(): AsyncGenerator<SourceRecord> {
-    if (!this.pagesTagsCollected) {
-      await drain(this.pagesImpl())
+    const seen = new Map<string, SourceRecord>()
+    if (this.tagsFromPages) {
+      for (const [tag, record] of this.tagsFromPages) seen.set(tag, record)
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pages)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
-    if (!this.pageHistoryTagsCollected) {
-      await drain(this.pageHistoryImpl())
+    if (this.tagsFromPageHistory) {
+      for (const [tag, record] of this.tagsFromPageHistory) {
+        if (!seen.has(tag)) seen.set(tag, record)
+      }
+    } else {
+      for await (const row of this.readGzipJsonArray(
+        path.join(this.bundlePath, ENTITY_FILES.pageHistory)
+      )) {
+        collectTags(row.tags, seen)
+      }
     }
-    yield* this.tagsSeen.values()
+    yield* seen.values()
   }
 
   tags(): AsyncIterable<SourceRecord> {
