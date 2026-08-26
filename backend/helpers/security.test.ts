@@ -2,11 +2,38 @@ import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { corsOrigin, corsOptions, parseCspDirectives } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
 ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+
+describe('parseCspDirectives', () => {
+  test('the shipped default (empty string) parses to no directives', () => {
+    assert.deepEqual(parseCspDirectives(''), {})
+  })
+
+  test('parses a valid operator-authored policy, lowercasing directive names', () => {
+    assert.deepEqual(parseCspDirectives("Default-Src 'self'; img-src * data:"), {
+      'default-src': ["'self'"],
+      'img-src': ['*', 'data:']
+    })
+  })
+
+  test('a directive with no value maps to an empty list', () => {
+    assert.deepEqual(parseCspDirectives('upgrade-insecure-requests'), {
+      'upgrade-insecure-requests': []
+    })
+  })
+
+  test('rejects an unknown directive name, naming the offending token', () => {
+    assert.throws(() => parseCspDirectives("default-src 'self'; scirpt-src 'self'"), /"scirpt-src"/)
+  })
+
+  test('rejects an unknown directive name even when it is the only one', () => {
+    assert.throws(() => parseCspDirectives('not-a-real-directive foo'), /"not-a-real-directive"/)
+  })
+})
 
 describe('corsOrigin', () => {
   test('OFF (and unrecognized) modes deny cross-origin', () => {

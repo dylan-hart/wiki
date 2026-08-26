@@ -84,3 +84,60 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     assert.equal(security.getInsecureCookieRiskAt(), firstSeenAt)
   })
 })
+
+/**
+ * Unit test for task 2161: `Security#validate` must refuse to store a `cspDirectives` string
+ * containing an unknown directive name, naming the offending token in the returned message --
+ * rather than silently storing a policy that reads like it does more than it will actually do
+ * once `parseCspDirectives` builds helmet's directives object from it at server start (see
+ * `index.ts`'s `Security` section).
+ */
+describe('Security#validate — CSP directives', () => {
+  let security: typeof import('./security.ts').security
+
+  // -> A complete, otherwise-valid baseline so each test's `patch` only has to vary the CSP fields
+  //    under test, without tripping the unrelated CORS/HSTS/rate-limit checks `validate` also runs.
+  const baseConfig = {
+    corsMode: 'OFF',
+    corsConfig: '',
+    cspDirectives: '',
+    enforceCsp: false,
+    enforceHsts: false,
+    hstsDuration: 0,
+    authRateLimitEnabled: false,
+    apiRateLimitEnabled: false
+  }
+
+  beforeEach(async () => {
+    ;(globalThis as any).WIKI = { config: { security: { ...baseConfig } } }
+    // -> Fresh module instance per test, same cache-busting reason as the describe block above.
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('the shipped default (CSP off, no directives) is valid', () => {
+    assert.equal(security.validate({}), null)
+  })
+
+  test('a valid operator-authored policy is accepted', () => {
+    assert.equal(
+      security.validate({
+        enforceCsp: true,
+        cspDirectives: "default-src 'self'; img-src * data:; upgrade-insecure-requests"
+      }),
+      null
+    )
+  })
+
+  test('rejects an unknown directive name while CSP enforcement is on, naming it', () => {
+    const result = security.validate({
+      enforceCsp: true,
+      cspDirectives: "default-src 'self'; scirpt-src 'self'"
+    })
+    assert.match(result ?? '', /"scirpt-src"/)
+  })
+
+  test('rejects an unknown directive name even while enforcement is off, so it cannot be stored and resurface later', () => {
+    const result = security.validate({ cspDirectives: 'not-a-real-directive foo' })
+    assert.match(result ?? '', /"not-a-real-directive"/)
+  })
+})
