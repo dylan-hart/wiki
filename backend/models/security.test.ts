@@ -94,52 +94,102 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
 })
 
 /**
- * Task 2085: `trustProxy` widened from a boolean-only setting to also accept a comma-separated
+ * Task 2085 widened `trustProxy` from a boolean-only setting to also accept a comma-separated
  * address/CIDR list (`@fastify/proxy-addr`'s `compile()` form) -- the same string `index.ts` passes
  * straight through as Fastify's own `trustProxy` option. Round-tripping an admin-supplied string
  * through `compile()` here is what keeps a value that would throw the moment the next request hit
  * `fastify(...)` from ever reaching `updateConfig()` in the first place.
+ *
+ * Unit test for task 2080: `security.trustProxy` was widened from a plain boolean to also accept
+ * a `proxy-addr`-`compile()`-form address/CIDR list string, so that `index.ts`'s
+ * `trustProxy: WIKI.config.security.trustProxy` (passed to Fastify verbatim) can name specific
+ * trusted proxies instead of only ever trusting everyone (`true`) or no one (`false`). `validate()`
+ * is what stands between an admin-supplied string and that Fastify option, so it has to reject
+ * anything `proxyAddr.compile` -- the same package/shape Fastify's own `getTrustProxyFn` hands a
+ * string `trustProxy` to -- would itself throw on.
  */
-describe('Security#validate trustProxy', () => {
+describe('Security#validate -- trustProxy', () => {
   let security: typeof import('./security.ts').security
 
-  // -> Every other `validate()` branch runs against whatever this merges with, so a trustProxy-only
-  //    patch needs the rest of the fields already valid or an unrelated branch (CORS mode, HSTS
-  //    duration, ...) fails first and the assertion below would be testing the wrong thing.
-  const validBaseConfig = {
-    corsMode: 'OFF',
-    enforceCsp: false,
-    enforceHsts: false,
-    authRateLimitEnabled: false,
-    apiRateLimitEnabled: false,
-    trustProxy: false
-  }
-
   beforeEach(async () => {
-    ;(globalThis as any).WIKI = { config: { security: { ...validBaseConfig } } }
+    // -> A minimal but otherwise-valid base config: every other `validate()` branch (CORS, CSP,
+    //    HSTS, rate limits) is off, so only the `trustProxy` branch under test can fail a case.
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          corsMode: 'OFF',
+          enforceCsp: false,
+          enforceHsts: false,
+          authRateLimitEnabled: false,
+          apiRateLimitEnabled: false,
+          trustProxy: false
+        }
+      }
+    }
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
 
-  test('still accepts the boolean form, on and off', () => {
+  test('accepts trustProxy: true', () => {
     assert.equal(security.validate({ trustProxy: true }), null)
+  })
+
+  test('accepts trustProxy: false', () => {
     assert.equal(security.validate({ trustProxy: false }), null)
   })
 
-  test('accepts a single trusted CIDR', () => {
+  test('accepts a single CIDR range', () => {
     assert.equal(security.validate({ trustProxy: '10.0.0.0/8' }), null)
   })
 
-  test('accepts a comma-separated address/CIDR list, including proxy-addr presets', () => {
-    assert.equal(security.validate({ trustProxy: '10.0.0.1, 192.168.1.0/24, loopback' }), null)
+  test('accepts a single address', () => {
+    assert.equal(security.validate({ trustProxy: '192.168.1.1' }), null)
   })
 
-  test('accepts an empty string the same as no trusted peers', () => {
-    assert.equal(security.validate({ trustProxy: '' }), null)
+  test('accepts a comma-separated mix of addresses and CIDR ranges, trimming whitespace', () => {
+    assert.equal(security.validate({ trustProxy: '10.0.0.0/8, 192.168.1.1 ,  ::1' }), null)
   })
 
-  test('rejects a value @fastify/proxy-addr cannot compile', () => {
-    const result = security.validate({ trustProxy: 'not-an-address-or-cidr!!' })
-    assert.ok(result, 'expected a validation error')
-    assert.match(result!, /trusted proxy address list is invalid/i)
+  test('accepts an IPv6 CIDR range', () => {
+    assert.equal(security.validate({ trustProxy: 'fe80::/10' }), null)
+  })
+
+  test('accepts the proxy-addr pre-defined range keywords', () => {
+    assert.equal(security.validate({ trustProxy: 'loopback, linklocal, uniquelocal' }), null)
+  })
+
+  test('rejects a garbage address', () => {
+    const reason = security.validate({ trustProxy: 'not-an-address' })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /trusted proxy list is invalid/)
+  })
+
+  test('rejects an out-of-range CIDR prefix', () => {
+    const reason = security.validate({ trustProxy: '10.0.0.0/99' })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /trusted proxy list is invalid/)
+  })
+
+  test('rejects one bad entry among otherwise-valid ones', () => {
+    const reason = security.validate({ trustProxy: '10.0.0.0/8, garbage' })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /trusted proxy list is invalid/)
+  })
+
+  test('rejects an empty string', () => {
+    const reason = security.validate({ trustProxy: '' })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /needs at least one address/)
+  })
+
+  test('rejects a string of only commas and whitespace', () => {
+    const reason = security.validate({ trustProxy: ' , , ' })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /needs at least one address/)
+  })
+
+  test('rejects a non-boolean, non-string value', () => {
+    const reason = security.validate({ trustProxy: 42 })
+    assert.ok(reason, 'expected a rejection reason')
+    assert.match(reason!, /must be either on\/off or a comma-separated list/)
   })
 })

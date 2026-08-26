@@ -1,4 +1,4 @@
-import { compile as compileTrustedProxySpec } from '@fastify/proxy-addr'
+import proxyAddr from '@fastify/proxy-addr'
 import { CORS_MODES, parseCspDirectives } from '../helpers/security.ts'
 
 /** Fields stored in the `security` settings blob. */
@@ -145,29 +145,6 @@ class Security {
       }
     }
 
-    // -> `trustProxy` accepts a boolean (trust every/no peer, unchanged legacy behavior) or a
-    //    comma-separated address/CIDR list -- the form `index.ts` passes straight through to
-    //    Fastify's own `trustProxy` option, whose vendored `request.js` already refuses to read
-    //    `X-Forwarded-Host`/`-For`/`-Proto` from a peer address the list doesn't cover, falling
-    //    back to the raw socket's own `Host` header instead. That is what closes the tenancy-
-    //    isolation gap where any client could steer `req.hostname` (and therefore site
-    //    resolution) by sending its own `X-Forwarded-Host` while the setting was a bare `true` --
-    //    see `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6. Round-trip a string
-    //    value through `@fastify/proxy-addr#compile` (the same parser Fastify's own
-    //    `getTrustProxyFn` uses) and reject whatever it rejects, rather than storing a spec that
-    //    would throw the moment the next request hit `index.ts`'s `fastify(...)` call.
-    if (typeof merged.trustProxy === 'string') {
-      const entries = merged.trustProxy
-        .split(',')
-        .map((entry: string) => entry.trim())
-        .filter(Boolean)
-      try {
-        compileTrustedProxySpec(entries)
-      } catch (err: any) {
-        return `The trusted proxy address list is invalid: ${err.message}`
-      }
-    }
-
     if (merged.enforceCsp) {
       if (Object.keys(parseCspDirectives(merged.cspDirectives ?? '')).length < 1) {
         return 'Enforcing a Content-Security-Policy needs at least one directive.'
@@ -204,6 +181,36 @@ class Security {
           return `The ${label} must be a duration such as 30s, 15m, 2h or 1d.`
         }
       }
+    }
+
+    // -> `trustProxy` accepts a boolean (trust every/no peer, unchanged legacy behavior) or a
+    //    comma-separated address/CIDR list -- the form `index.ts` passes straight through to
+    //    Fastify's own `trustProxy` option, whose vendored `request.js` already refuses to read
+    //    `X-Forwarded-Host`/`-For`/`-Proto` from a peer address the list doesn't cover, falling
+    //    back to the raw socket's own `Host` header instead. That is what closes the tenancy-
+    //    isolation gap where any client could steer `req.hostname` (and therefore site
+    //    resolution) by sending its own `X-Forwarded-Host` while the setting was a bare `true` --
+    //    see `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6. Same comma-splitting
+    //    Fastify's own `getTrustProxyFn` does before handing a string `trustProxy` option to
+    //    `proxyAddr.compile` (`fastify/lib/request.js`) -- validating with the identical
+    //    package and shape this ultimately gets passed to verbatim (`index.ts`'s
+    //    `trustProxy: WIKI.config.security.trustProxy`) is what makes "accepted here" mean
+    //    "accepted there".
+    if (typeof merged.trustProxy === 'string') {
+      const addresses = merged.trustProxy
+        .split(',')
+        .map((entry: string) => entry.trim())
+        .filter(Boolean)
+      if (addresses.length < 1) {
+        return 'The trusted proxy list needs at least one address or CIDR range.'
+      }
+      try {
+        proxyAddr.compile(addresses)
+      } catch (err: any) {
+        return `The trusted proxy list is invalid: ${err.message}`
+      }
+    } else if (typeof merged.trustProxy !== 'boolean') {
+      return 'Trust Proxy must be either on/off or a comma-separated list of trusted addresses/CIDR ranges.'
     }
 
     return null

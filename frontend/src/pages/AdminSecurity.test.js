@@ -275,6 +275,122 @@ describe('AdminSecurity insecure cookie risk warning', () => {
   })
 })
 
+/**
+ * Task 2080: `trustProxy` was widened from a plain boolean to also accept a `proxy-addr` address/
+ * CIDR list string, so the admin view now has a text field beside the existing toggle for entering
+ * that list -- following the same toggle + conditional-detail pattern as `enforceCsp`/
+ * `cspDirectives`, except here both controls edit the SAME underlying `state.config.trustProxy`
+ * field rather than two independent ones (see the `trustProxyEnabled`/`trustProxyAddresses`
+ * computed pair in the component).
+ */
+describe('AdminSecurity trustProxy controls', () => {
+  it('hides the trusted-proxy address field while the toggle is off', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="admin.security.trustProxyAddresses"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('shows the address field, empty, once the toggle is turned on with no prior list', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    expect(addressField.exists()).toBe(true)
+    expect(addressField.element.value).toBe('')
+
+    wrapper.unmount()
+  })
+
+  it('loads an existing address list, shows the toggle on and the field pre-filled', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: '10.0.0.0/8, 192.168.1.1', insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    expect(addressField.exists()).toBe(true)
+    expect(addressField.element.value).toBe('10.0.0.0/8, 192.168.1.1')
+
+    wrapper.unmount()
+  })
+
+  it('saves the typed address list as the trustProxy string', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null, uploadMaxFileSize: 1024 })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: '10.0.0.0/8', insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    await wrapper.find('button[aria-label="admin.security.trustProxy"]').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    const addressField = wrapper.find('[aria-label="admin.security.trustProxyAddresses"] input')
+    await addressField.setValue('10.0.0.0/8')
+
+    await wrapper.vm.save()
+
+    const [, opts] = API_CLIENT.put.mock.calls[0]
+    expect(opts.json.trustProxy).toBe('10.0.0.0/8')
+
+    wrapper.unmount()
+  })
+
+  it('sends trustProxy: false when the toggle is turned off, even after typing a list', async () => {
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () =>
+        Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null, uploadMaxFileSize: 1024 })
+    })
+    API_CLIENT.put.mockReturnValueOnce({ json: () => Promise.resolve({ ok: true }) })
+    API_CLIENT.get.mockReturnValueOnce({
+      json: () => Promise.resolve({ trustProxy: false, insecureCookieRiskAt: null })
+    })
+
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const toggle = wrapper.find('button[aria-label="admin.security.trustProxy"]')
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
+    await wrapper
+      .find('[aria-label="admin.security.trustProxyAddresses"] input')
+      .setValue('10.0.0.0/8')
+    await toggle.trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('[aria-label="admin.security.trustProxyAddresses"]').exists()).toBe(false)
+
+    await wrapper.vm.save()
+
+    const [, opts] = API_CLIENT.put.mock.calls[0]
+    expect(opts.json.trustProxy).toBe(false)
+
+    wrapper.unmount()
+  })
+})
+
 describe('AdminSecurity uploads info banner (task 605)', () => {
   it('no longer claims uploading is unimplemented, now that an upload endpoint exists', () => {
     const wrapper = mountPage()
