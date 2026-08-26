@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import type { StagedPage } from './content-staging.ts'
+import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type { PageHistoryImportDeps, PageHistoryInsertRow } from './page-history-import.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 import {
   derivePublishState,
@@ -40,6 +41,39 @@ function buildStagedPage(overrides: Partial<StagedPage> = {}): StagedPage {
     history: [],
     ...overrides
   }
+}
+
+function buildHistoryEntry(
+  overrides: Partial<StagedPageHistoryEntry> = {}
+): StagedPageHistoryEntry {
+  return {
+    oldId: 101,
+    action: 'updated',
+    path: 'welcome',
+    locale: 'en',
+    title: 'Welcome',
+    description: null,
+    content: '# Welcome (old)',
+    contentType: 'markdown',
+    isPrivate: false,
+    isPublished: true,
+    publishStartDate: null,
+    publishEndDate: null,
+    editorKey: 'markdown',
+    versionDate: '2023-06-01T00:00:00.000Z',
+    createdAt: '2023-06-01T00:00:00.000Z',
+    extra: {},
+    tags: [],
+    authorId: 'actor-1',
+    sourceAuthorId: null,
+    ...overrides
+  }
+}
+
+/** Never invoked by any test whose staged pages carry no `history` — a required field on
+ * `ImportPagesDeps` since #1818 wired `importPages()` straight to `backfillPageHistory()`. */
+const noHistoryDeps: PageHistoryImportDeps = {
+  async insertVersions() {}
 }
 
 /** In-memory fake standing in for `WIKI.models.pages` — records every call so tests can assert on
@@ -266,7 +300,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: ['write:scripts', 'write:styles'] }
     )
 
@@ -303,7 +337,7 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -317,7 +351,7 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -331,7 +365,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -347,7 +381,7 @@ describe('importPages', () => {
 
     await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -361,7 +395,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
     )
 
@@ -381,7 +415,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [], renderBootstrap: 'queue' }
     )
 
@@ -396,7 +430,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -411,7 +445,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: () => true },
+      { pagesModel, existingEntry: () => true, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -429,7 +463,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       [staged],
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -448,7 +482,7 @@ describe('importPages', () => {
 
     const result = await importPages(
       pages,
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
@@ -462,7 +496,11 @@ describe('importPages', () => {
     assert.equal(pagesModel.created.length, 1)
   })
 
-  test('sibling-collision pages are both reported as failures and neither is created', async () => {
+  test('sibling-collision: streaming is single-pass, so the earlier page is already created by the time the later, colliding one is discovered — only the later one fails', async () => {
+    // -> Before #1818, both sides of a sibling collision failed together, because assignTreePaths()
+    //    saw the whole batch up front and could refuse both. A one-pass stream can't do that: by the
+    //    time "foobar" is seen to collide with "FooBar", "FooBar" has already been created. See the
+    //    module doc comment's "Streaming input and per-page sibling-collision detection".
     const pagesModel = new FakePagesModel()
     const pages = [
       buildStagedPage({ oldId: 1, path: 'FooBar' }),
@@ -471,12 +509,93 @@ describe('importPages', () => {
 
     const result = await importPages(
       pages,
-      { pagesModel, existingEntry: noExistingEntries },
+      { pagesModel, existingEntry: noExistingEntries, historyDeps: noHistoryDeps },
       { siteId: 'site-1', actorPermissions: [] }
     )
 
-    assert.equal(pagesModel.created.length, 0)
-    assert.equal(result.failed.length, 2)
-    assert.ok(result.failed.every((f) => f.reason === 'sibling-collision'))
+    assert.equal(pagesModel.created.length, 1)
+    assert.equal(result.succeeded.length, 1)
+    assert.equal(result.succeeded[0].oldId, 1)
+    assert.equal(result.failed.length, 1)
+    assert.equal(result.failed[0].oldId, 2)
+    assert.equal(result.failed[0].reason, 'sibling-collision')
+  })
+
+  test('pages and their history are written interleaved: page 1 is fully imported before page 2 is even staged', async () => {
+    const pagesModel = new FakePagesModel()
+    const events: string[] = []
+
+    async function* streamPages(): AsyncGenerator<StagedPage> {
+      const page1 = buildStagedPage({
+        oldId: 1,
+        path: 'first',
+        history: [buildHistoryEntry({ oldId: 101 })]
+      })
+      events.push('staged:1')
+      yield page1
+
+      const page2 = buildStagedPage({
+        oldId: 2,
+        path: 'second',
+        history: [buildHistoryEntry({ oldId: 201 })]
+      })
+      events.push('staged:2')
+      yield page2
+    }
+
+    const historyDeps: PageHistoryImportDeps = {
+      async insertVersions(rows: PageHistoryInsertRow[]) {
+        events.push(`history-inserted:${rows[0]?.pageId}`)
+      }
+    }
+
+    const result = await importPages(
+      streamPages(),
+      { pagesModel, existingEntry: noExistingEntries, historyDeps },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.deepEqual(events, [
+      'staged:1',
+      'history-inserted:page-1',
+      'staged:2',
+      'history-inserted:page-2'
+    ])
+    assert.equal(result.succeeded.length, 2)
+    assert.equal(result.failed.length, 0)
+  })
+
+  test('a failure backfilling one page history neither aborts the run nor loses the other pages', async () => {
+    const pagesModel = new FakePagesModel()
+    const pages = [
+      buildStagedPage({ oldId: 1, path: 'first', history: [buildHistoryEntry({ oldId: 101 })] }),
+      buildStagedPage({ oldId: 2, path: 'second', history: [buildHistoryEntry({ oldId: 201 })] })
+    ]
+
+    let calls = 0
+    const historyDeps: PageHistoryImportDeps = {
+      async insertVersions() {
+        calls++
+        if (calls === 1) {
+          throw new Error('insert failed: constraint violation')
+        }
+      }
+    }
+
+    const result = await importPages(
+      pages,
+      { pagesModel, existingEntry: noExistingEntries, historyDeps },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    // -> Both pages were still created — a history-insert failure is not a page-import failure.
+    assert.equal(pagesModel.created.length, 2)
+    assert.equal(result.succeeded.length, 2)
+    assert.equal(result.failed.length, 0)
+
+    assert.ok(result.succeeded[0].warnings.some((w) => /history backfill failed/.test(w)))
+    assert.ok(result.warnings.some((w) => /history backfill failed/.test(w)))
+    // -> Page 2's history insert was never told to fail — its own warnings stay clean.
+    assert.equal(result.succeeded[1].warnings.length, 0)
   })
 })

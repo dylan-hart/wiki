@@ -1,6 +1,8 @@
 import { IdMap } from './id-map.ts'
-import { assignTreePaths } from './path-normalization.ts'
+import { normalizeMigratedPath } from './path-normalization.ts'
 import type { PathAssignmentOptions, TreePathAssignment } from './path-normalization.ts'
+import { backfillPageHistory } from './page-history-import.ts'
+import type { PageHistoryImportDeps } from './page-history-import.ts'
 import type { StagedPage } from './content-staging.ts'
 import type { Page, PageActor, PageInput } from '../models/pages.ts'
 
@@ -20,12 +22,48 @@ import type { Page, PageActor, PageInput } from '../models/pages.ts'
  * both, and Task 421's CLI is what will eventually pass the real `WIKI.models.pages` /
  * `WIKI.models.tree` implementations here.
  *
- * `importPages()` calls Task 736's `assignTreePaths()` itself (rather than requiring the caller to run
- * it first) — that module's own doc comment names this task as the wiring point for the real
- * `WIKI.models.tree` lookup its `existingEntry` callback needs, so it is threaded straight through as
- * `ImportPagesDeps.existingEntry` rather than re-implemented here. A page whose path fails to normalize
- * or collides never reaches `createPage()` at all; it comes back as a `PageImportFailure` with the same
- * `reason` `assignTreePaths` gave it.
+ * `importPages()` normalizes and collision-checks each page's tree location itself, via `./path-normalization.ts`'s
+ * `normalizeMigratedPath()`, rather than requiring the caller to run it first. That module's own doc
+ * comment names this task as the wiring point for the real `WIKI.models.tree` lookup its
+ * `existingEntry` callback needs, so it is threaded straight through as `ImportPagesDeps.existingEntry`
+ * rather than re-implemented here. A page whose path fails to normalize or collides never reaches
+ * `createPage()` at all; it comes back as a `PageImportFailure` with the same `reason`
+ * `normalizeMigratedPath()`/the collision check below gave it.
+ *
+ * ## Streaming input and per-page sibling-collision detection (OpenProject #1818)
+ *
+ * `pages` is consumed as an `AsyncIterable` (an ordinary array works too — `for await` accepts both),
+ * one page at a time, rather than materialized into a `StagedPage[]` up front — this is what lets
+ * `extractContentStaging()`'s streaming generator (#1798) hand pages to `importPages()` one at a time
+ * instead of buffering the whole corpus, per the parent epic #1790. Each page is fully processed
+ * (path-assigned, created, its history backfilled — see below) before the next one is even pulled from
+ * the iterable, so at most one page's heavy fields (`content`/`render`/`toc`/history `content`) are
+ * resident at a time.
+ *
+ * That single-pass shape changes sibling-collision semantics from the previous batch behavior: `path-normalization.ts`'s
+ * `assignTreePaths()` sees every page up front and fails *both* sides of a collision, since which of
+ * two arbitrarily-cased paths "should" win isn't its call to make. A true one-pass stream cannot do
+ * that — by the time a later page is discovered to collide with an earlier one, the earlier page has
+ * already been created; there is no "both fail" available any more. `importPages()` therefore tracks
+ * each `(locale, parentPath, fileName)` it has already claimed in a `Map` as it goes, and a later page
+ * that lands on an already-claimed location fails alone (`'sibling-collision'`), while the earlier,
+ * already-created page is kept. First-in-the-stream wins.
+ *
+ * ## History backfill, interleaved (OpenProject #1818)
+ *
+ * Immediately after a page is created (and any `queueRerender()` call resolves), `importPages()` calls
+ * `page-history-import.ts`'s `backfillPageHistory()` for that one page's `history` chain alone —
+ * resolving `pageIdMap` for a single freshly-created page rather than waiting for the whole run,
+ * against `ImportPagesDeps.historyDeps` (the same `PageHistoryImportDeps` that module itself takes).
+ * This is what "page 1's history lands before page 2 is even staged" means in practice: nothing about
+ * page 2 is pulled from the input iterable until page 1's create-and-backfill has already finished.
+ * A history-insert failure for one page is folded into that page's own warnings (and the flat
+ * `PageImportResult.warnings`) rather than turned into a `PageImportFailure` — the page itself was
+ * created successfully; only some of its past revisions may be missing, the same "non-fatal, reported
+ * as a warning" treatment already given to an editor fallback or a render-bootstrap downgrade. This
+ * keeps every source page accounted for exactly once, in exactly one of `succeeded`/`failed`, per this
+ * task's own description, and means one page's history failure neither aborts the run nor loses any
+ * other page's rows.
  *
  * ## The synthetic per-page actor
  *
@@ -97,8 +135,14 @@ export interface PagesWriteModel {
 export interface ImportPagesDeps {
   pagesModel: PagesWriteModel
   /** Same contract as `PathAssignmentOptions.existingEntry` in `./path-normalization.ts` — threaded
-   * straight through to `assignTreePaths`, which this module calls itself (see module doc comment). */
+   * straight through to the per-page collision check this module runs itself (see module doc
+   * comment's "Streaming input and per-page sibling-collision detection"). */
   existingEntry: PathAssignmentOptions['existingEntry']
+  /** Backfills one page's revision history immediately after that page is created — see the module
+   * doc comment's "History backfill, interleaved". `importPages()` calls `backfillPageHistory()`
+   * (`./page-history-import.ts`) directly, per page, passing this through unchanged rather than
+   * re-implementing history insertion here. */
+  historyDeps: PageHistoryImportDeps
 }
 
 export interface ImportPagesOptions {
@@ -334,14 +378,24 @@ function mapStagedPageToInput(
   }
 }
 
+/** Builds the `Map` key one `(locale, parentPath, fileName)` tree location collapses to for the
+ * per-page sibling-collision check — see the module doc comment. ` `-joined rather than
+ * space-joined (as `path-normalization.ts`'s own private `locationKey` does) purely so a value
+ * containing a literal space can never coincide with the separator; the two are otherwise equivalent
+ * and never compared against each other. */
+function streamedLocationKey(locale: string, parentPath: string, fileName: string): string {
+  return `${locale} ${parentPath} ${fileName}`
+}
+
 /**
- * Imports every staged page into `siteId` via `createPage()`, per this task's description. Normalizes
- * every page's tree location first (Task 736's `assignTreePaths`); a page that fails to normalize or
- * collides never reaches `createPage()`. Never throws for one bad or colliding page — each becomes a
- * `PageImportFailure` instead, so one page's bad data cannot abort the whole run.
+ * Imports every staged page into `siteId` via `createPage()`, per this task's description, streaming
+ * `pages` one at a time rather than requiring the whole corpus up front — see the module doc comment's
+ * "Streaming input and per-page sibling-collision detection" and "History backfill, interleaved".
+ * Never throws for one bad, colliding, or history-failing page — each becomes a `PageImportFailure` (or
+ * a warning on an otherwise-successful page) instead, so one page's bad data cannot abort the whole run.
  */
 export async function importPages(
-  pages: StagedPage[],
+  pages: AsyncIterable<StagedPage> | Iterable<StagedPage>,
   deps: ImportPagesDeps,
   options: ImportPagesOptions
 ): Promise<PageImportResult> {
@@ -352,28 +406,70 @@ export async function importPages(
   const pageIdMap = new IdMap<number>()
   const succeeded: PageImportSuccess[] = []
   const failed: PageImportFailure[] = []
+  // -> Every tree location already claimed by an earlier page in this stream, oldId → key. Lightweight
+  //    by construction (three short strings per page) — safe to keep resident for the whole run, unlike
+  //    the heavy StagedPage fields this streaming shape exists to avoid holding onto.
+  const claimedLocations = new Map<string, number>()
 
-  const pathResult = await assignTreePaths(
-    pages.map((page) => ({ oldId: page.oldId, path: page.path, locale: page.locale })),
-    { siteId: options.siteId, existingEntry: deps.existingEntry }
-  )
+  for await (const staged of pages) {
+    const normalized = normalizeMigratedPath(staged.path)
+    if ('reason' in normalized) {
+      failed.push({
+        oldId: staged.oldId,
+        path: staged.path,
+        locale: staged.locale,
+        reason: normalized.reason,
+        message: normalized.message
+      })
+      continue
+    }
 
-  for (const failure of pathResult.failures) {
-    failed.push({
-      oldId: failure.oldId,
-      path: failure.path,
-      locale: failure.locale,
-      reason: failure.reason,
-      message: failure.message
-    })
-  }
+    const locationKey = streamedLocationKey(
+      staged.locale,
+      normalized.parentPath,
+      normalized.fileName
+    )
+    const claimedByOldId = claimedLocations.get(locationKey)
+    if (claimedByOldId !== undefined) {
+      failed.push({
+        oldId: staged.oldId,
+        path: normalized.path,
+        locale: staged.locale,
+        reason: 'sibling-collision',
+        message:
+          `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") normalizes to the ` +
+          `same tree location as page ${claimedByOldId}, already imported earlier in this streaming run ` +
+          '— the earlier page was kept, this one was not.'
+      })
+      continue
+    }
 
-  const assignmentByOldId = new Map(pathResult.assignments.map((a) => [a.oldId, a]))
+    const exists = await deps.existingEntry(
+      options.siteId,
+      staged.locale,
+      normalized.parentPath,
+      normalized.fileName
+    )
+    if (exists) {
+      failed.push({
+        oldId: staged.oldId,
+        path: normalized.path,
+        locale: staged.locale,
+        reason: 'existing-entry-collision',
+        message: `page ${staged.oldId} at "${normalized.path}" (locale "${staged.locale}") already exists in the target site's tree — import failed for this page.`
+      })
+      continue
+    }
 
-  for (const staged of pages) {
-    const assignment = assignmentByOldId.get(staged.oldId)
-    // -> No assignment means this page already came back as a path failure above.
-    if (!assignment) continue
+    claimedLocations.set(locationKey, staged.oldId)
+
+    const assignment: TreePathAssignment = {
+      oldId: staged.oldId,
+      locale: staged.locale,
+      parentPath: normalized.parentPath,
+      fileName: normalized.fileName,
+      path: normalized.path
+    }
 
     const mapped = mapStagedPageToInput(
       staged,
@@ -407,6 +503,23 @@ export async function importPages(
         pageWarnings.push(
           `page ${staged.oldId}: queueRerender() failed after creation — the page was created with an ` +
             `empty render and needs a manual re-render: ${err.message}`
+        )
+      }
+    }
+
+    if (staged.history.length > 0) {
+      try {
+        const historyResult = await backfillPageHistory(
+          [staged],
+          pageIdMap,
+          options.siteId,
+          deps.historyDeps
+        )
+        pageWarnings.push(...historyResult.warnings)
+      } catch (err: any) {
+        pageWarnings.push(
+          `page ${staged.oldId}: history backfill failed — ${err.message}. The page itself was ` +
+            'imported successfully; its revision history may be incomplete.'
         )
       }
     }
