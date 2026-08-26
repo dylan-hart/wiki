@@ -525,3 +525,49 @@ describe('resolvePageRule / rulesAllow', () => {
     })
   })
 })
+
+/**
+ * OpenProject #2102: a folder rename authorized only against the folder's own current path, then
+ * moved every descendant with it. A group holding ALLOW at the site root plus a narrower DENY on one
+ * branch passes the folder-level check and, before this fix, had that branch moved to a path the
+ * DENY no longer addressed -- because the rule was written against the OLD path, not the page.
+ * Pinned directly against `rulesAllow`, independent of the route/model change: the same rule set
+ * must deny `docs/hr/salaries` before the rename and allow it after, which is the escalation a
+ * destination-side check exists to catch.
+ */
+describe('rename escalation (OpenProject #2102): root ALLOW plus a narrower DENY, path rewritten', () => {
+  const rootAllow = makeRule({
+    id: 'root-allow',
+    match: 'START',
+    path: '',
+    mode: 'ALLOW',
+    roles: ['manage:pages', 'write:pages']
+  })
+  const branchDeny = makeRule({
+    id: 'branch-deny',
+    match: 'START',
+    path: 'docs/hr',
+    mode: 'DENY',
+    roles: ['manage:pages', 'write:pages']
+  })
+  const rules = [rootAllow, branchDeny]
+
+  test('before the rename: the DENY on docs/hr is more specific than the root ALLOW and wins', () => {
+    const before = page({ path: 'docs/hr/salaries' })
+    const winner = resolvePageRule(rules, 'manage:pages', before)
+    assert.equal(winner?.id, 'branch-deny')
+    assert.equal(rulesAllow(rules, 'manage:pages', before), false)
+  })
+
+  test('after the path is rewritten to docs2/hr/salaries, the DENY no longer matches and the root ALLOW decides', () => {
+    // -> Exactly what `refreshDescendantPaths` would have written for this page had the rename gone
+    //    through unchecked: `docs` renamed to `docs2` carries `docs/hr/salaries` to `docs2/hr/salaries`.
+    const after = page({ path: 'docs2/hr/salaries' })
+    const winner = resolvePageRule(rules, 'manage:pages', after)
+    assert.equal(winner?.id, 'root-allow')
+    // -> The escalation itself: the same rule set that denied this page a moment ago now allows it,
+    //    purely because its path changed -- which is why the destination has to be checked BEFORE
+    //    the rename runs, not decided by whatever the folder-level check already approved.
+    assert.equal(rulesAllow(rules, 'manage:pages', after), true)
+  })
+})
