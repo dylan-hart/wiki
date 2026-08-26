@@ -434,12 +434,17 @@ async function initHTTPServer() {
   // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
   // only stops working cookies on an instance once that instance is later restarted; every other
   // still-running instance keeps signing *new* cookies with the secret that was just invalidated, for
-  // as long as it stays up. If the secret was rotated because it leaked, that gap is the whole point
-  // of the action failing to close on a live instance. `WIKI.events.inbound` already carries
-  // `reloadConfig` to every instance the moment the row saves — the missing piece is handing
-  // @fastify/cookie / @fastify/session a secret they re-read (or re-registering the plugin) instead of
-  // one captured by value here, and there is no instance registry (see `core/maintenance.ts`'s file
-  // header) to prompt an operator to restart the others in the meantime.
+  // as long as it stays up. That is an operability gap, not a live hijacking one: @fastify/session's
+  // cookie value is `<sessionId>.<signature>`, so the old secret only lets someone forge a signature
+  // over a session id of their own choosing, and `rotateSecret()` deletes every `sessions` row in the
+  // same call — there is no id left for a forged signature to match, and `decryptSession` discards a
+  // store-miss id rather than trusting it. What the gap actually costs is completing the rotation
+  // itself: a still-running instance keeps minting cookies signed with the secret that was supposed
+  // to be retired, for as long as it stays up. `WIKI.events.inbound` already carries `reloadConfig` to
+  // every instance the moment the row saves — the missing piece is handing @fastify/cookie /
+  // @fastify/session a secret they re-read (or re-registering the plugin) instead of one captured by
+  // value here, and there is no instance registry (see `core/maintenance.ts`'s file header) to prompt
+  // an operator to restart the others in the meantime.
   app.register(fastifyCookie, {
     secret: WIKI.config.auth.secret,
     hook: 'onRequest'

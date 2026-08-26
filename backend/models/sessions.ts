@@ -120,13 +120,14 @@ class Sessions {
    *
    * The two halves do different work, and both are needed. Dropping the rows is what logs everybody
    * out **now**: a cookie whose session is gone identifies nothing, so the next request from every
-   * browser — on every instance, since the rows are shared — starts a new, anonymous one. Rotating
-   * the secret is what makes the cookies themselves worthless, and that one waits: @fastify/session
-   * and @fastify/cookie are handed the secret when the HTTP server starts (`index.ts`), so this
-   * server goes on validating signatures with the old one until it is restarted. Verified under a
-   * real two-instance HA setup for task 589: a still-running instance does not just keep validating
-   * old-secret-signed cookies past this call, it keeps issuing new ones signed with the
-   * now-invalidated secret too, until it restarts — see the FIXME at the plugin registration in
+   * browser — on every instance, since the rows are shared — starts a new, anonymous one, and it
+   * already leaves nothing for the old secret to forge a valid signature over. Retiring the secret is
+   * what waits: @fastify/session and @fastify/cookie are handed it when the HTTP server starts
+   * (`index.ts`), so this server goes on signing with the old one until it is restarted — a
+   * completeness gap for the rotation, not a live one for a session. Verified under a real
+   * two-instance HA setup for task 589: a still-running instance does not just keep validating
+   * old-secret-signed cookies past this call, it keeps issuing new ones signed with the same,
+   * supposedly-retired secret too, until it restarts — see the FIXME at the plugin registration in
    * `index.ts`.
    *
    * The API key keypair is untouched: it carries its own passphrase (`models/apiKeys.ts`), so keys
