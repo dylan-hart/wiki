@@ -146,6 +146,22 @@ jobs:
         working-directory: backend
         run: npx oxlint --deny-warnings
 
+      # git-cliff is a standalone binary, not an npm dependency of any workspace (see
+      # backend/test/changelog.test.ts's header comment and docs/versioning.md) -- pinned to a
+      # concrete release rather than a floating tag, per this project's Currency standard.
+      # release.yml's own generation step uses orhun/git-cliff-action@v4 instead, which runs in
+      # that action's own container and never executes this unit suite.
+      - name: Install git-cliff
+        run: |
+          curl -sL https://github.com/orhun/git-cliff/releases/download/v2.13.1/git-cliff-2.13.1-x86_64-unknown-linux-gnu.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local/bin git-cliff-2.13.1/git-cliff
+          git-cliff --version
+
+      # backend/models/import.test.ts's real-pandoc test (gated on `pandocAvailable`) is the only
+      # thing in the unit suites that needs the actual binary -- everything else mocks `runPandoc`.
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
       - name: Backend Tests
         working-directory: backend
         run: npm run test
