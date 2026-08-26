@@ -1,5 +1,6 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -270,5 +271,145 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pagesTable)
       .where(eq(pagesTable.id, stalePage.id))
     assert.ok(found)
+  })
+
+  test('importSite chunks page/tree inserts past one bind-parameter batch, and still rolls back atomically when a later chunk fails', async () => {
+    // -> A dedicated source site rather than `fixtures.siteId`, so this test's synthetic bulk content
+    //    -- built specifically to overrun both `pages`' and `tree`'s per-statement chunk size (see
+    //    `PAGE_INSERT_CHUNK_SIZE`/`TREE_INSERT_CHUNK_SIZE` in `siteImport.ts`) -- never leaks into any
+    //    other test in this file's shared fixture site.
+    const [bulkSourceSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-source.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const bulkSourceSiteId = bulkSourceSite!.id
+    WIKI.sites[bulkSourceSiteId] = { id: bulkSourceSiteId, config: { locales: { primary: 'en' } } }
+
+    // -> One real page, created through the model so its row has every column a genuine export would
+    //    produce -- then exported and used as a template. `ROW_COUNT` synthetic pages/tree entries are
+    //    cloned from it below rather than created one at a time through `pagesModel`, which is what
+    //    keeps this test fast despite the row count.
+    await pagesModel.createPage(
+      bulkSourceSiteId,
+      { path: 'template', title: 'Template', editor: 'markdown', content: 'template content' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+    const { filePath: templateArchivePath } = await exportModel.exportSite(bulkSourceSiteId)
+    const templateEntries = await readArchiveEntries(templateArchivePath)
+    const [templatePageRow] = JSON.parse(templateEntries['pages.json']!.toString('utf8'))
+    const [templateTreeRow] = JSON.parse(templateEntries['tree.json']!.toString('utf8'))
+
+    // -> One row more than a full `pages` chunk (1927) *and* more than a full `tree` chunk (4681) at
+    //    once: with exactly one tree entry per page and no folders, both tables end up with this same
+    //    row count, so a single archive exercises multi-statement chunking on both tables together.
+    const ROW_COUNT = 4682
+
+    /**
+     * Clones the template page/tree rows into `rowCount` pairs, each with its own fresh id and a
+     * unique path/fileName (both tables enforce siteId+locale+path/fileName uniqueness). When
+     * `duplicateFirstIdAtEnd` is set, the very last pair reuses the first pair's id instead of a
+     * fresh one -- landing a primary-key collision in the last (and only the last) insert chunk, so
+     * every earlier chunk has already been applied inside the transaction before the failure hits.
+     */
+    function buildBulkRows(rowCount: number, { duplicateFirstIdAtEnd = false } = {}) {
+      const pageRows: Record<string, any>[] = []
+      const treeRows: Record<string, any>[] = []
+      let firstId: string | undefined
+      for (let i = 0; i < rowCount; i++) {
+        const id = duplicateFirstIdAtEnd && i === rowCount - 1 ? firstId! : crypto.randomUUID()
+        firstId ??= id
+        pageRows.push({ ...templatePageRow, id, path: `bulk-${i}` })
+        treeRows.push({ ...templateTreeRow, id, fileName: `bulk-${i}` })
+      }
+      return { pageRows, treeRows }
+    }
+
+    async function writeBulkArchive(
+      fileName: string,
+      rowCount: number,
+      opts?: { duplicateFirstIdAtEnd?: boolean }
+    ): Promise<string> {
+      const { pageRows, treeRows } = buildBulkRows(rowCount, opts)
+      const archivePath = path.join(dataPath, fileName)
+      await writeArchive(archivePath, {
+        ...templateEntries,
+        'pages.json': Buffer.from(JSON.stringify(pageRows)),
+        'tree.json': Buffer.from(JSON.stringify(treeRows))
+      })
+      return archivePath
+    }
+
+    // -> Every row lands: the archive's page/tree counts are each larger than one chunk, so this only
+    //    passes if `importSite` actually loops over every chunk rather than stopping after the first.
+    const [okTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-target-ok.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const okTargetSiteId = okTargetSite!.id
+
+    const okArchivePath = await writeBulkArchive('bulk-ok.tar.gz', ROW_COUNT)
+    const okResult = await importModel.importSite(okArchivePath, okTargetSiteId, fixtures.userId)
+    assert.equal(okResult.pages, ROW_COUNT)
+    assert.equal(okResult.tree, ROW_COUNT)
+
+    const insertedPages = await fixtures.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(eq(pagesTable.siteId, okTargetSiteId))
+    assert.equal(insertedPages.length, ROW_COUNT)
+
+    const insertedTree = await fixtures.db
+      .select({ id: treeTable.id })
+      .from(treeTable)
+      .where(eq(treeTable.siteId, okTargetSiteId))
+    assert.equal(insertedTree.length, ROW_COUNT)
+
+    // -> Rolls back as a unit even when the failure lands in a later chunk: with `ROW_COUNT` = 4682,
+    //    the page insert splits into chunks of 1927/1927/828 -- the duplicated id falls in that last,
+    //    828-row chunk, so the first two chunks (3854 rows) are already applied inside the transaction
+    //    by the time the third one's primary-key violation aborts it. If those earlier chunks weren't
+    //    rolled back along with the failing one, the target site would be left with 3854 stray pages
+    //    instead of just the one that was there before the attempt.
+    const [failTargetSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({
+        hostname: 'import-bulk-target-fail.localhost',
+        isEnabled: true,
+        config: { locales: { primary: 'en' } }
+      })
+      .returning({ id: sitesTable.id })
+    const failTargetSiteId = failTargetSite!.id
+    WIKI.sites[failTargetSiteId] = { id: failTargetSiteId, config: { locales: { primary: 'en' } } }
+
+    const preExistingPage = await pagesModel.createPage(
+      failTargetSiteId,
+      { path: 'must-survive', title: 'Must Survive', editor: 'markdown', content: 'must survive' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    const failArchivePath = await writeBulkArchive('bulk-fail.tar.gz', ROW_COUNT, {
+      duplicateFirstIdAtEnd: true
+    })
+    await assert.rejects(importModel.importSite(failArchivePath, failTargetSiteId, fixtures.userId))
+
+    const [survivor] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(eq(pagesTable.id, preExistingPage.id))
+    assert.ok(survivor)
+
+    const leftoverPages = await fixtures.db
+      .select({ id: pagesTable.id })
+      .from(pagesTable)
+      .where(eq(pagesTable.siteId, failTargetSiteId))
+    assert.equal(leftoverPages.length, 1)
   })
 })

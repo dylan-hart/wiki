@@ -3,6 +3,7 @@ import path from 'node:path'
 import { list as listTarball } from 'tar'
 import crypto from 'node:crypto'
 import { eq } from 'drizzle-orm'
+import { chunk } from 'es-toolkit/array'
 import {
   assets as assetsTable,
   groups as groupsTable,
@@ -14,6 +15,30 @@ import { EXPORT_FORMAT_VERSION } from './export.ts'
 
 /** How long an uploaded import sits on disk before `purgeExpired` sweeps it, in seconds. */
 const IMPORT_TTL_SECONDS = 24 * 60 * 60
+
+/**
+ * Postgres's extended-query protocol packs each bound parameter into an Int16 slot in the Bind
+ * message, capping any single statement at 65535 total parameters. Drizzle's `.insert(...).values(rows)`
+ * flattens into one bind array of `rows.length * columnCount` parameters, and nothing upstream of
+ * `importSite` caps how many pages/tree entries/assets an archive can contain (see the class-level doc
+ * comment) — so a large-enough site trips this ceiling and the whole restore aborts with an opaque
+ * driver-level bind error instead of a readable "too many rows" message.
+ *
+ * Each table below gets its own chunk size, `floor(MAX_BIND_PARAMETERS / boundColumnCount)`: `pages`
+ * (`db/schema.ts`) declares 37 columns and `stripDerived` (`models/export.ts`) drops exactly three
+ * (`ts`, `isSearchableComputed`, `searchContent`) before a row ever reaches export/import, leaving 34
+ * bound per row. `tree` and `assets` each declare 14.
+ */
+const MAX_BIND_PARAMETERS = 65535
+const PAGE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 34)
+const TREE_INSERT_CHUNK_SIZE = Math.floor(MAX_BIND_PARAMETERS / 14)
+/**
+ * Assets get a chunk size far smaller than their column count alone would call for: unlike pages and
+ * tree rows, each asset row also carries the full `data`/`preview` bytea buffers as bind parameter
+ * *values* (see `mappedAssetRows` in `importSite`), so a batch of assets blows up the Bind message's
+ * byte size long before it comes anywhere near the parameter-count ceiling that governs pages/tree.
+ */
+const ASSET_INSERT_CHUNK_SIZE = 50
 
 export interface ImportResult {
   pages: number
@@ -261,16 +286,20 @@ class ImportModel {
           .onConflictDoUpdate({ target: groupsTable.id, set: group as any })
       }
 
-      if (mappedPageRows.length > 0) {
-        await tx.insert(pagesTable).values(mappedPageRows as any)
+      // -> Chunked under the bind-parameter limit (see the constants above) rather than one
+      //    `.values(array)` call per table -- all three loops still run inside this same
+      //    transaction, so a mid-import failure on any chunk rolls back everything, not just the
+      //    chunk it was on.
+      for (const batch of chunk(mappedPageRows, PAGE_INSERT_CHUNK_SIZE)) {
+        await tx.insert(pagesTable).values(batch as any)
       }
 
-      if (mappedTreeRows.length > 0) {
-        await tx.insert(treeTable).values(mappedTreeRows as any)
+      for (const batch of chunk(mappedTreeRows, TREE_INSERT_CHUNK_SIZE)) {
+        await tx.insert(treeTable).values(batch as any)
       }
 
-      if (mappedAssetRows.length > 0) {
-        await tx.insert(assetsTable).values(mappedAssetRows as any)
+      for (const batch of chunk(mappedAssetRows, ASSET_INSERT_CHUNK_SIZE)) {
+        await tx.insert(assetsTable).values(batch as any)
       }
     })
 
