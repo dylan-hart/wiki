@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createCacheStub } from '../test/mocks.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { liveData } from './liveData.ts'
 
 function jsonResponse(body: unknown, init: { status?: number; ok?: boolean } = {}): Response {
@@ -16,13 +17,7 @@ describe('LiveData.resolve', () => {
   let getCredentialForResolve: ReturnType<typeof mock.fn>
 
   before(async () => {
-    // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime —
-    //    same pattern as `models/storage.test.ts`'s own `before()`.
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-    }
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       cache: createCacheStub(),
       models: {

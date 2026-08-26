@@ -10,16 +10,11 @@ import {
   type TestFixtures
 } from '../test/db.ts'
 import { pages as pagesTable, tree as treeTable } from '../db/schema.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
-// `scan()` (in pageProblems.ts) calls `Temporal.Now.instant()` unconditionally to stamp `scannedAt`.
-// Node ships `Temporal` as a global from v26 -- but not every environment running this test has that
-// landed yet, and `@js-temporal/polyfill` (already pulled in transitively by drizzle-kit) is a
-// faithful ponyfill, so install it as the global only when it is genuinely missing. On a runtime that
-// already has native `Temporal` this import is inert.
-if (typeof Temporal === 'undefined') {
-  const { Temporal: TemporalPolyfill } = await import('@js-temporal/polyfill')
-  ;(globalThis as any).Temporal = TemporalPolyfill
-}
+// `scan()` (in pageProblems.ts) calls `Temporal.Now.instant()` unconditionally to stamp `scannedAt` --
+// see `test/temporal.ts` for why this is needed at all.
+await ensureTemporal()
 
 /**
  * `scan` is five independent SQL-backed checks over `pages`/`tree`, each of which needs data that

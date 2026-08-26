@@ -13,6 +13,7 @@ import {
   users as usersTable
 } from '../db/schema.ts'
 import { contentSync } from './contentSync.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * Exercises the model against a real Postgres instance, because the whole point of this model is SQL
@@ -39,12 +40,7 @@ before(async () => {
   if (!DATABASE_URL) {
     return
   }
-  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-  }
+  await ensureTemporal()
 
   pool = new Pool({ connectionString: DATABASE_URL })
   const db = drizzle({ client: pool, relations })

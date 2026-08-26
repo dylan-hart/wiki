@@ -9,6 +9,7 @@ import {
   type SourceAuthenticationRow
 } from './authentication.ts'
 import { mapStorageRow, type SourceStorageRow } from './storage.ts'
+import { ensureTemporal } from '../../test/temporal.ts'
 
 /**
  * Task 768 — "Fixture tests and docs/variances.md entries for the confirmed gaps".
@@ -46,14 +47,7 @@ async function loadFixture<T>(name: string): Promise<T> {
 }
 
 before(async () => {
-  // -> Node 25 (this sandbox) has no native `Temporal` yet — Node 26 does, per this repo's engine
-  //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime — see
-  //    `models/storage.test.ts`'s own `before()`. `storage.ts`'s `convertSyncInterval` parses with
-  //    `Temporal.Duration.from()`, which the git fixture row below exercises.
-  if (typeof Temporal === 'undefined') {
-    const polyfill = await import('@js-temporal/polyfill')
-    ;(globalThis as any).Temporal = polyfill.Temporal
-  }
+  await ensureTemporal()
   ;(globalThis as any).WIKI = {
     SERVERPATH: path.join(import.meta.dirname, '..', '..'),
     data: {},
