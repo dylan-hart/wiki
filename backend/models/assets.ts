@@ -4,7 +4,7 @@ import mime from 'mime'
 import { and, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { assets as assetsTable, tree as treeTable } from '../db/schema.ts'
 import { CustomError, decodeTreePath, encodeTreePath } from '../helpers/common.ts'
-import { makeImageThumbnail } from '../helpers/images.ts'
+import { makeImageThumbnail, sanitizeSvg, svgMimeType } from '../helpers/images.ts'
 import { belongsInTarget } from '../helpers/blobTarget.ts'
 import { DB_MODULE } from './storage.ts'
 import type { Readable } from 'node:stream'
@@ -246,9 +246,14 @@ class Assets {
     const resolvedMime = mime.getType(safeName) ?? mimeType ?? 'application/octet-stream'
     const kind = kindOf(resolvedMime, fileExt)
 
+    // -> Only reached when the flag is on: a disabled `security.uploadScanSVG` stores the bytes
+    //    exactly as uploaded, same as before this existed.
+    const fileData =
+      resolvedMime === svgMimeType && WIKI.config.security?.uploadScanSVG ? sanitizeSvg(data) : data
+
     const preview =
       kind === 'image'
-        ? await makeImageThumbnail(data, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
+        ? await makeImageThumbnail(fileData, THUMBNAIL_SIZE.width, THUMBNAIL_SIZE.height)
         : null
 
     // -> What is already at this name, if anything, and what the site says to do about it. Asked
@@ -290,7 +295,7 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        data,
+        data: fileData,
         preview,
         authorId
       })
@@ -306,7 +311,7 @@ class Assets {
       locale,
       siteId,
       meta: {
-        fileSize: data.length,
+        fileSize: fileData.length,
         fileExt,
         mimeType: resolvedMime
       }
@@ -320,8 +325,8 @@ class Assets {
         fileExt,
         kind,
         mimeType: resolvedMime,
-        fileSize: data.length,
-        data,
+        fileSize: fileData.length,
+        data: fileData,
         preview,
         authorId,
         siteId
@@ -338,7 +343,7 @@ class Assets {
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       siteId,
       authorId,
-      metadata: { fileSize: data.length, mimeType: resolvedMime, kind }
+      metadata: { fileSize: fileData.length, mimeType: resolvedMime, kind }
     })
     WIKI.models.storage.dispatch('asset:upload', {
       id: entry.id,
@@ -347,7 +352,7 @@ class Assets {
       siteId,
       authorId,
       kind,
-      fileSize: data.length
+      fileSize: fileData.length
     })
 
     return {
@@ -356,7 +361,7 @@ class Assets {
       fileExt,
       kind,
       mimeType: resolvedMime,
-      fileSize: data.length,
+      fileSize: fileData.length,
       folderPath: decodeTreePath(entry.folderPath ?? '') ?? '',
       title: entry.title,
       hasPreview: Boolean(preview),

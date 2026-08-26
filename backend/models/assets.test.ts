@@ -398,3 +398,83 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubDb(undefined)
   assert.equal(await assets.readContent(testAsset, 'site-1'), null)
 })
+
+// ---------------------------------------------------------------------------------------------
+// upload() — the security.uploadScanSVG gate
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Stubs everything `upload()` touches on a fresh-name (no conflict) path: no existing tree entry,
+ * `addAsset` echoing back a synthesized row, and no-op hooks/dispatch/extensions. `WIKI.db.insert`
+ * captures what was actually handed to it, which is what these tests assert against.
+ */
+function stubUploadPath(uploadScanSVG: boolean) {
+  let inserted: any
+  global.WIKI = {
+    ...global.WIKI,
+    config: { security: { uploadScanSVG } },
+    sites: {},
+    models: {
+      ...(global.WIKI as any).models,
+      tree: {
+        getEntryAt: async () => null,
+        addAsset: async ({ fileName, siteId }: any) => ({
+          id: 'asset-svg-1',
+          fileName,
+          folderPath: '',
+          title: fileName,
+          siteId,
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          updatedAt: new Date('2024-01-01T00:00:00Z')
+        })
+      },
+      hooks: { emit: () => {} },
+      storage: { dispatch: () => {} },
+      extensions: { getDefinition: () => null, isInstalled: async () => false }
+    },
+    db: {
+      insert: () => ({
+        values: async (row: any) => {
+          inserted = row
+        }
+      }),
+      delete: () => ({ where: async () => {} })
+    }
+  } as unknown as WikiGlobal
+  return {
+    getInserted: () => inserted
+  }
+}
+
+test('upload sanitizes an SVG when security.uploadScanSVG is on, stripping a script tag', async () => {
+  const { getInserted } = stubUploadPath(true)
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><circle cx="1" cy="1" r="1"/></svg>'
+  )
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'malicious.svg',
+    data: svg,
+    authorId: 'user-1'
+  })
+  const stored: Buffer = getInserted().data
+  const storedText = stored.toString('utf8')
+  assert.ok(!storedText.includes('<script'))
+  assert.ok(!storedText.includes('alert(1)'))
+  assert.ok(storedText.includes('<circle'))
+})
+
+test('upload stores an SVG untouched when security.uploadScanSVG is off', async () => {
+  const { getInserted } = stubUploadPath(false)
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
+  await assets.upload({
+    siteId: 'site-1',
+    locale: 'en',
+    fileName: 'untouched.svg',
+    data: svg,
+    authorId: 'user-1'
+  })
+  const stored: Buffer = getInserted().data
+  assert.deepEqual(stored, svg)
+})
