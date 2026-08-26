@@ -968,6 +968,14 @@ const rules = [
     restrictedForSystem: true,
     disabled: false
   },
+  {
+    permission: 'manage:classification',
+    title: 'Manage Classification',
+    hint: "Can lower a page's classification level, making it more open. Raising it only needs write access.",
+    warning: false,
+    restrictedForSystem: true,
+    disabled: false
+  },
   /*
     Task #684: the eight `site:*` site-admin permissions (see `backend/helpers/siteRules.ts`'s
     `SITE_PERMISSIONS`, the closed vocabulary this list must stay in step with -- do not add to
