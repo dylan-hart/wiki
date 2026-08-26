@@ -694,8 +694,8 @@ async function routes(app: FastifyInstance) {
         }
       }
       const folder = await WIKI.models.tree.renameFolder({
-        folderId: req.params.folderId,
         siteId: req.params.siteId,
+        folderId: req.params.folderId,
         pathName: req.body.pathName,
         title: req.body.title
       })

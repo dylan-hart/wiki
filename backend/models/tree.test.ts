@@ -284,6 +284,38 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.equal(child.fileName, 'fr')
   })
 
+  /**
+   * OpenProject #2131: `getFolderById()` used to select on `id` alone, so `createFolder({ parentId })`
+   * (and the `POST /sites/:siteId/tree/folders` route on top of it) would resolve a `parentId`
+   * belonging to a DIFFERENT site, deriving the new folder's ltree path and locale from a foreign row
+   * it had no business reading. `getFolderById()` now pairs `id` with `siteId`, so a foreign `parentId`
+   * simply never matches and the create is refused rather than leaking the other site's folder path or
+   * locale.
+   */
+  test('createFolder refuses a parentId belonging to another site', async () => {
+    const [otherSite] = await fixtures.db
+      .insert(sitesTable)
+      .values({ hostname: 'other-createfolder.localhost', isEnabled: true, config: {} })
+      .returning({ id: sitesTable.id })
+    const foreignParent = await treeModel.createFolder({
+      pathName: 'foreign-secret',
+      title: 'Foreign Secret',
+      locale: 'en',
+      siteId: otherSite!.id
+    })
+
+    await assert.rejects(
+      treeModel.createFolder({
+        parentId: foreignParent.id,
+        pathName: 'child',
+        title: 'Child',
+        locale: 'en',
+        siteId: fixtures.siteId
+      }),
+      (err: any) => err.name === 'treeInvalidParent'
+    )
+  })
+
   test('renameFolder refuses renaming a root folder to an installed locale code', async () => {
     const folder = await treeModel.createFolder({
       pathName: 'renameable',
