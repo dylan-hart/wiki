@@ -25,6 +25,12 @@ export function mapOidcProfile(
   if (!email || typeof email !== 'string') {
     throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
   }
+  // -> An account here is matched by email address, so an unverified one says nothing about who
+  //    holds the mailbox. Mirrors `google/authentication.ts`'s own gate: absent entirely (a
+  //    provider that doesn't report the claim at all) is accepted, only an explicit `false` throws.
+  if (info.email_verified === false && conf.allowUnverifiedEmail !== true) {
+    throw new Error('ERR_EMAIL_NOT_VERIFIED')
+  }
   return {
     id: subject,
     email,

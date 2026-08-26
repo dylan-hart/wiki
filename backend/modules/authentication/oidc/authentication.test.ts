@@ -150,6 +150,44 @@ describe('mapOidcProfile', () => {
       /ERR_NO_EMAIL_FROM_PROVIDER/
     )
   })
+
+  test('throws ERR_EMAIL_NOT_VERIFIED when email_verified is explicitly false', () => {
+    assert.throws(
+      () =>
+        mapOidcProfile(conf, 'sub-1', {
+          email: 'person@example.com',
+          name: 'A Person',
+          email_verified: false
+        }),
+      /ERR_EMAIL_NOT_VERIFIED/
+    )
+  })
+
+  test('accepts a profile with no email_verified claim at all (provider does not report it)', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person'
+    })
+    assert.equal(profile.email, 'person@example.com')
+  })
+
+  test('accepts a profile with email_verified explicitly true', () => {
+    const profile = mapOidcProfile(conf, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      email_verified: true
+    })
+    assert.equal(profile.email, 'person@example.com')
+  })
+
+  test('allowUnverifiedEmail re-permits an explicitly-false email_verified claim', () => {
+    const profile = mapOidcProfile({ ...conf, allowUnverifiedEmail: true }, 'sub-1', {
+      email: 'person@example.com',
+      name: 'A Person',
+      email_verified: false
+    })
+    assert.equal(profile.email, 'person@example.com')
+  })
 })
 
 describe('oidc/definition.yml', () => {
@@ -164,5 +202,10 @@ describe('oidc/definition.yml', () => {
     assert.ok(def.props.groupsScope, 'expected a groupsScope prop')
     assert.equal(def.props.mapGroups.default, false)
     assert.equal(def.props.groupsClaim.default, 'groups')
+  })
+
+  test('declares allowUnverifiedEmail, off by default, mirroring google/definition.yml', () => {
+    assert.ok(def.props.allowUnverifiedEmail, 'expected an allowUnverifiedEmail prop')
+    assert.equal(def.props.allowUnverifiedEmail.default, false)
   })
 })
