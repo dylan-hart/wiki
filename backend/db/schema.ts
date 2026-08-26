@@ -434,10 +434,10 @@ export const glossaryTerms = pgTable(
     pageId: uuid().references(() => pages.id, { onDelete: 'set null' })
   },
   (table) => [
-    index('glossaryTerms_siteId_idx').on(table.siteId),
     // -> One definition covers every casing variant of a term (OpenProject #870), so two rows that
     //    differ only by case are a duplicate, not two distinct terms. This only guards `term` itself --
     //    alias collisions (with another row's term OR aliases) are checked in `models/glossary.ts`.
+    //    Covers lookups by site alone as well, being the leading column.
     uniqueIndex('glossaryTerms_composite_idx').on(table.siteId, sql`lower(${table.term})`)
   ]
 )
@@ -470,10 +470,8 @@ export const glossaryVersions = pgTable(
     actorName: varchar({ length: 255 }).notNull().default(''),
     createdAt: timestamp().notNull().defaultNow()
   },
-  (table) => [
-    index('glossaryVersions_siteId_idx').on(table.siteId),
-    index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)
-  ]
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [index('glossaryVersions_siteId_createdAt_idx').on(table.siteId, table.createdAt)]
 )
 
 // HOOKS -------------------------------
@@ -718,10 +716,8 @@ export const navigation = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [
-    index('navigation_siteId_idx').on(table.siteId),
-    uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)
-  ]
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('navigation_siteId_locale_idx').on(table.siteId, table.locale)]
 )
 
 // PAGES ------------------------------
@@ -805,7 +801,6 @@ export const pages = pgTable(
     index('pages_authorId_idx').on(table.authorId),
     index('pages_creatorId_idx').on(table.creatorId),
     index('pages_ownerId_idx').on(table.ownerId),
-    index('pages_siteId_idx').on(table.siteId),
     index('pages_classification_idx').on(table.classification),
     index('pages_ts_idx').using('gin', table.ts),
     index('pages_tags_idx').using('gin', table.tags),
@@ -816,7 +811,8 @@ export const pages = pgTable(
     index('pages_title_trgm_idx').using('gin', table.title.op('gin_trgm_ops')),
     // -> The invariant every probe in models/pages.ts assumes ("path unique within (site, locale)"),
     //    finally held by the database itself. On path, not hash: the hash is cyrb53 (53-bit,
-    //    non-cryptographic), so two distinct paths may legitimately collide.
+    //    non-cryptographic), so two distinct paths may legitimately collide. Covers lookups by site
+    //    alone as well, being the leading column -- no separate pages_siteId_idx is needed.
     uniqueIndex('pages_siteId_locale_path_idx').on(table.siteId, table.locale, table.path),
     // -> Backs getPage's hottest read (siteId + hash + locale equality). Plain, not unique — see above.
     index('pages_siteId_locale_hash_idx').on(table.siteId, table.locale, table.hash)
@@ -1109,8 +1105,8 @@ export const pageEditSubmissionApprovals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' })
   },
+  // -> Covers lookups by submissionId alone as well, being the leading column
   (table) => [
-    index('pageEditSubmissionApprovals_submissionId_idx').on(table.submissionId),
     uniqueIndex('pageEditSubmissionApprovals_submission_reviewer_idx').on(
       table.submissionId,
       table.reviewerId
@@ -1472,10 +1468,8 @@ export const tags = pgTable(
       .notNull()
       .references(() => sites.id)
   },
-  (table) => [
-    index('tags_siteId_idx').on(table.siteId),
-    uniqueIndex('tags_composite_idx').on(table.siteId, table.tag)
-  ]
+  // -> Covers lookups by site as well, being the leading column
+  (table) => [uniqueIndex('tags_composite_idx').on(table.siteId, table.tag)]
 )
 
 // TREE --------------------------------
@@ -1597,9 +1591,10 @@ export const userGroups = pgTable(
       .references(() => groups.id, { onDelete: 'cascade' })
   },
   (table) => [
+    // -> Covers lookups by userId alone as well, being the leading column of the PK itself
     primaryKey({ columns: [table.userId, table.groupId] }),
-    index('userGroups_userId_idx').on(table.userId),
-    index('userGroups_groupId_idx').on(table.groupId),
-    index('userGroups_composite_idx').on(table.userId, table.groupId)
+    // -> The non-leading PK column, genuinely needed by sessions.clearSessionsForGroup's
+    //    `WHERE groupId = ?`.
+    index('userGroups_groupId_idx').on(table.groupId)
   ]
 )
