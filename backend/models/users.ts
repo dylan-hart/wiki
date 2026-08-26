@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
+import { limitAuthAttemptsForAccount } from '../helpers/rateLimit.ts'
 import {
   generateRecoveryCodes,
   isRecoveryCodeShape,
@@ -1603,6 +1604,13 @@ class Users {
       // Authenticate
       let user
       try {
+        // -> Account-keyed bound, independent of the IP-keyed one `limitAuthAttempts` already
+        //    applied at the route: guessing against one account is bounded even when it is spread
+        //    across many addresses. Only for form-based strategies -- a redirect-based provider
+        //    never hands this endpoint a password to guess, so there is nothing to bound here.
+        if (strInfo.useForm && username) {
+          await limitAuthAttemptsForAccount(username)
+        }
         user = await str.authenticate(context)
       } catch (err: any) {
         /*
@@ -2186,6 +2194,11 @@ class Users {
     if (!user) {
       throw new Error('ERR_INVALID_USER')
     }
+    // -> Account-keyed bound on the second factor itself: a continuation token proves the password
+    //    was already right, so what is left to guess is the TOTP code or a recovery code, and
+    //    either is guessable enough on its own to be worth bounding per account (see `login()`'s
+    //    own call for the reasoning shared with the password step).
+    await limitAuthAttemptsForAccount(user.email)
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }

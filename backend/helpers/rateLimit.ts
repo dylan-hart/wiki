@@ -100,6 +100,51 @@ export async function limitAuthAttempts(req: FastifyRequest, reply: FastifyReply
 }
 
 /**
+ * Refuse further attempts against one account once too many have been made, independent of the
+ * address they arrive from.
+ *
+ * `limitAuthAttempts` above is a per-route hook keyed on `req.ip`, which is what the network
+ * identifier can be trusted to mean — nothing, once an attacker spreads guesses across many
+ * addresses (see `security.trustProxy`, and the epic this task is part of). This is the second,
+ * independent bound: a counter keyed on the account itself, so that password, TOTP-code and
+ * recovery-code guessing against one account is bounded no matter how many addresses it is spread
+ * across. Neither counter replaces the other — an attacker has to stay under both at once.
+ *
+ * Called directly from `models/users.ts#login` and `#loginTFA`, not wired as a route hook: unlike
+ * the IP, the account identifier is only known once the request body (or, for `loginTFA`, the
+ * continuation token) has been read, which is after `limitAuthAttempts` has already run.
+ *
+ * Same policy as the IP-keyed counter ({@link authPolicy}) and the same `authRateLimitEnabled`
+ * toggle — one admin-configured limit governs both, just applied to two different keys.
+ *
+ * Throws rather than returning a verdict: every call site is inside a login flow that already
+ * throws `ERR_`-prefixed errors on refusal, which the API layer turns into a generic 400 the same
+ * way it does for a wrong password — an attacker gets no signal that distinguishes "too many
+ * attempts" from "wrong credentials", and the account itself is never locked, only slowed.
+ *
+ * @param identifier The account identifier as submitted or stored — an email address for every
+ *                    strategy this repo ships. Normalized (trimmed, lower-cased) before keying, the
+ *                    same normalization `models/users.ts` applies before looking an account up, so
+ *                    that varying the case or padding an attempt with whitespace does not buy a
+ *                    fresh counter.
+ * @throws `ERR_TOO_MANY_ATTEMPTS` once the account's limit is reached
+ */
+export async function limitAuthAttemptsForAccount(identifier: string): Promise<void> {
+  if (WIKI.config.security?.authRateLimitEnabled === false) {
+    return
+  }
+  const key = `auth:user:${identifier.trim().toLowerCase()}`
+  const verdict = await WIKI.models.rateLimits.consume(key, authPolicy())
+  if (verdict.allowed) {
+    return
+  }
+  WIKI.models.flags.authDebug(
+    `Rate limit: refused a login attempt for account ${identifier}, ${verdict.retryAfter}s left of its ban.`
+  )
+  throw new Error('ERR_TOO_MANY_ATTEMPTS')
+}
+
+/**
  * The configured policy for the general API limit. See {@link authPolicy} — same fallback shape,
  * different fields.
  */

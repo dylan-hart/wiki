@@ -3,7 +3,7 @@ import { after, afterEach, before, beforeEach, describe, mock, test } from 'node
 import fastify from 'fastify'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fastifySensible from '@fastify/sensible'
-import { limitApiKey, limitApiRequests } from './rateLimit.ts'
+import { limitApiKey, limitApiRequests, limitAuthAttemptsForAccount } from './rateLimit.ts'
 
 /**
  * `limitApiKey` is the global per-key limiter wired into the onRequest API-key-auth hook in
@@ -361,5 +361,106 @@ describe('limitApiRequests', () => {
     const key = consume.mock.calls[0].arguments[0]
     assert.notEqual(key, `auth:203.0.113.9`)
     assert.equal(key, 'api:ip:203.0.113.9')
+  })
+})
+
+/**
+ * Unit tests for `limitAuthAttemptsForAccount` (task 2083, epic 2075): the account-keyed brute-force
+ * counter called directly from `models/users.ts#login` and `#loginTFA`, alongside the IP-keyed
+ * `limitAuthAttempts` above.
+ *
+ * `WIKI.models.rateLimits.consume` is stubbed with a real per-key counter (not just a fixed verdict),
+ * the same stateful-stub pattern `limitApiRequests`'s "independent counters" tests above use, so this
+ * exercises the actual thing the task asks for: one account's attempts are bounded regardless of
+ * which address they come from, and a different account is on its own counter.
+ */
+describe('limitAuthAttemptsForAccount', () => {
+  let hits: Map<string, number>
+  let consume: ReturnType<typeof mock.fn>
+
+  beforeEach(() => {
+    hits = new Map()
+    consume = mock.fn(async (key: string, policy: any) => {
+      const n = (hits.get(key) ?? 0) + 1
+      hits.set(key, n)
+      return { allowed: n <= policy.max, hits: n, retryAfter: n <= policy.max ? 0 : 60 }
+    })
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          authRateLimitEnabled: true,
+          authRateLimitMax: 3,
+          authRateLimitWindow: '5m',
+          authRateLimitBan: '15m'
+        }
+      },
+      models: {
+        rateLimits: { consume },
+        flags: { authDebug: mock.fn() }
+      },
+      logger: { debug: mock.fn() }
+    }
+  })
+
+  afterEach(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('allows attempts under the limit', async () => {
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    assert.equal(consume.mock.calls.length, 3)
+  })
+
+  test('refuses one email once its limit is reached, even from a different req.ip each time', async () => {
+    // -> The function itself takes no `req`/IP at all -- it is called from inside the login model,
+    //    not as a route hook -- so "a different IP each time" here means what the task asks for:
+    //    nothing about the address the attempt claims to come from affects this counter. Each call
+    //    below stands in for a request from a different `req.ip`.
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await assert.rejects(
+      () => limitAuthAttemptsForAccount('alice@example.com'),
+      /ERR_TOO_MANY_ATTEMPTS/
+    )
+    assert.equal(consume.mock.calls.length, 4)
+    assert.equal(consume.mock.calls[0].arguments[0], 'auth:user:alice@example.com')
+  })
+
+  test("a second email's attempts are unaffected by the first being refused", async () => {
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await limitAuthAttemptsForAccount('alice@example.com')
+    await assert.rejects(
+      () => limitAuthAttemptsForAccount('alice@example.com'),
+      /ERR_TOO_MANY_ATTEMPTS/
+    )
+
+    // Bob's first attempt right after Alice was refused is unaffected.
+    await limitAuthAttemptsForAccount('bob@example.com')
+    assert.equal(consume.mock.calls.at(-1)?.arguments[0], 'auth:user:bob@example.com')
+  })
+
+  test('normalizes case and surrounding whitespace onto the same counter', async () => {
+    await limitAuthAttemptsForAccount('Alice@Example.com')
+    await limitAuthAttemptsForAccount('  alice@example.com  ')
+    await limitAuthAttemptsForAccount('ALICE@EXAMPLE.COM')
+    await assert.rejects(
+      () => limitAuthAttemptsForAccount('alice@example.com'),
+      /ERR_TOO_MANY_ATTEMPTS/
+    )
+    for (const call of consume.mock.calls) {
+      assert.equal(call.arguments[0], 'auth:user:alice@example.com')
+    }
+  })
+
+  test('does nothing while authRateLimitEnabled is false', async () => {
+    ;(globalThis as any).WIKI.config.security.authRateLimitEnabled = false
+    for (let i = 0; i < 10; i++) {
+      await limitAuthAttemptsForAccount('alice@example.com')
+    }
+    assert.equal(consume.mock.calls.length, 0)
   })
 })
