@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { after, describe, test } from 'node:test'
+import { after, describe, mock, test } from 'node:test'
 import zlib from 'node:zlib'
 import { NotYetImplementedError, type SourceRecord } from '../connector.ts'
-import { ExportBundleSourceConnector } from './export-bundle.ts'
+import { ExportBundleSourceConnector, JsonArrayStreamParser } from './export-bundle.ts'
 
 /**
  * Smoke coverage for `ExportBundleSourceConnector`, scoped to exactly what this task builds: the
@@ -47,6 +47,51 @@ const validSettings = JSON.stringify({ title: 'Test Wiki', modules: { storage: [
 const validNavigation = JSON.stringify({ site: [{ id: 'home', label: 'Home' }] })
 const groupsAtFloor = JSON.stringify([{ id: 1, name: 'Administrators', redirectOnLogin: '/' }])
 const groupsBelowFloor = JSON.stringify([{ id: 1, name: 'Administrators' }])
+
+describe('JsonArrayStreamParser (Task 1783 — streaming boundary walker behind readGzipJsonArray)', () => {
+  test('yields a completed row as soon as its own chunk arrives, before any later row has been fed', () => {
+    const parser = new JsonArrayStreamParser('fixture.json')
+    const firstRow = { id: 1, note: 'first' }
+    const secondRow = { id: 2, note: 'second' }
+
+    // The first chunk carries the whole first row plus only the *start* of the second row's text —
+    // proving the parser doesn't need the rest of the array's text to hand back a completed row.
+    const firstChunk = `[${JSON.stringify(firstRow)},${JSON.stringify(secondRow).slice(0, 5)}`
+    const firstYield = [...parser.push(firstChunk)]
+    assert.deepEqual(firstYield, [firstRow])
+
+    const secondChunk = JSON.stringify(secondRow).slice(5) + ']'
+    const secondYield = [...parser.push(secondChunk)]
+    assert.deepEqual(secondYield, [secondRow])
+
+    assert.doesNotThrow(() => parser.finish())
+  })
+
+  test('does not mistake structural characters inside a string value for object boundaries', () => {
+    const parser = new JsonArrayStreamParser('fixture.json')
+    const row = { title: 'a {tricky}, [odd] value', tags: [{ tag: 'x', title: null }] }
+    const yielded = [...parser.push(`[${JSON.stringify(row)}]`)]
+    assert.deepEqual(yielded, [row])
+    assert.doesNotThrow(() => parser.finish())
+  })
+
+  test('yields nothing for an empty array and finish() does not throw', () => {
+    const parser = new JsonArrayStreamParser('fixture.json')
+    assert.deepEqual([...parser.push('[]')], [])
+    assert.doesNotThrow(() => parser.finish())
+  })
+
+  test('finish() throws when the array never closed (truncated stream)', () => {
+    const parser = new JsonArrayStreamParser('fixture.json')
+    assert.deepEqual([...parser.push('[{"id":1}')], [{ id: 1 }])
+    assert.throws(() => parser.finish(), /does not contain a JSON array/)
+  })
+
+  test('push() throws immediately when the top-level value is not an array', () => {
+    const parser = new JsonArrayStreamParser('fixture.json')
+    assert.throws(() => [...parser.push('{"notAnArray":true}')], /does not contain a JSON array/)
+  })
+})
 
 describe('ExportBundleSourceConnector', () => {
   test('rejects a nonexistent path', async () => {
@@ -173,6 +218,34 @@ describe('ExportBundleSourceConnector', () => {
       assert.equal(rows[0].path, 'welcome')
     })
 
+    test('pages() yields every row across a many-row file, in order (Task 1783 streaming round trip)', async () => {
+      const rows: SourceRecord[] = Array.from({ length: 500 }, (_, n) => ({
+        id: n,
+        path: `page-${n}`,
+        localeCode: 'en',
+        title: `Page ${n}`,
+        tags: [{ tag: `tag-${n % 7}`, title: null }]
+      }))
+      const dir = await makeBundle({ 'pages.json.gz': gzipJsonArray(rows) })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      const collected = await collect(connector.pages())
+      assert.equal(collected.length, 500)
+      assert.deepEqual(
+        collected.map((r) => r.id),
+        rows.map((r) => r.id)
+      )
+    })
+
+    test('pages() rejects a pages.json.gz whose decompressed content is not a JSON array', async () => {
+      const dir = await makeBundle({
+        'pages.json.gz': zlib.gzipSync(JSON.stringify({ notAnArray: true }))
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      await assert.rejects(() => collect(connector.pages()), /does not contain a JSON array/)
+    })
+
     test('pages() yields nothing when pages.json.gz is absent (entity was not exported)', async () => {
       const dir = await makeBundle({ 'groups.json': groupsAtFloor })
       const connector = new ExportBundleSourceConnector(dir)
@@ -207,6 +280,46 @@ describe('ExportBundleSourceConnector', () => {
     })
 
     test('tags() derives a deduplicated tag list from pages() and pageHistory(), since the bundle has no dedicated tags file', async () => {
+      const dir = await makeBundle({
+        'pages.json.gz': gzipJsonArray([pageRow]),
+        'pages-history.json.gz': gzipJsonArray([historyRow])
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+      const rows = await collect(connector.tags())
+      const tags = rows.map((r) => r.tag).sort()
+      assert.deepEqual(tags, ['draft', 'intro'])
+    })
+
+    test('tags() issues no additional read of pages.json.gz/pages-history.json.gz once both have already been walked (Task 1786)', async () => {
+      const dir = await makeBundle({
+        'pages.json.gz': gzipJsonArray([pageRow]),
+        'pages-history.json.gz': gzipJsonArray([historyRow])
+      })
+      const connector = new ExportBundleSourceConnector(dir)
+      await connector.connect()
+
+      // Fully drain pages() and pageHistory() first, the same order phases/content.ts's contentPhase
+      // drives its entities in.
+      await collect(connector.pages())
+      await collect(connector.pageHistory())
+
+      // From here, readGzipJsonArray (the method that actually opens and decompresses an entity file)
+      // must not be called again for a subsequent tags() call.
+      let readCalls = 0
+      const original = (connector as any).readGzipJsonArray.bind(connector)
+      mock.method(connector as any, 'readGzipJsonArray', function (filePath: string) {
+        readCalls++
+        return original(filePath)
+      })
+
+      const rows = await collect(connector.tags())
+      const tags = rows.map((r) => r.tag).sort()
+      assert.deepEqual(tags, ['draft', 'intro'])
+      assert.equal(readCalls, 0)
+    })
+
+    test('tags() still derives the correct tag set when called with no prior pages()/pageHistory() walk', async () => {
       const dir = await makeBundle({
         'pages.json.gz': gzipJsonArray([pageRow]),
         'pages-history.json.gz': gzipJsonArray([historyRow])
