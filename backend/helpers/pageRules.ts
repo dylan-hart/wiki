@@ -177,15 +177,22 @@ export function ruleMatchesPage(rule: GroupRule, page: RulePageRef): boolean {
 
   const pagePath = normalizePath(page.path)
   const rulePath = normalizePath(rule.path)
+  // -> Page paths are always stored lowercased (`normalizePagePath`), so START/EXACT/END compare
+  //    lowercased on both sides -- matching the case-insensitivity locale and tag comparisons
+  //    already have (OpenProject #2182). REGEX is deliberately excluded from this fold: it addresses
+  //    a pattern, not a literal path, and lowercasing it would silently rewrite an author's
+  //    intentional character class (`[A-Z]`).
+  const pagePathLower = pagePath.toLowerCase()
+  const rulePathLower = rulePath.toLowerCase()
   const pageTags = (page.tags ?? []).map((tag) => tag.toLowerCase())
 
   switch (rule.match) {
     case 'START':
-      return pagePath.startsWith(rulePath)
+      return pagePathLower.startsWith(rulePathLower)
     case 'EXACT':
-      return pagePath === rulePath
+      return pagePathLower === rulePathLower
     case 'END':
-      return pagePath.endsWith(rulePath)
+      return pagePathLower.endsWith(rulePathLower)
     case 'REGEX':
       try {
         return new RegExp(rulePath).test(pagePath)
