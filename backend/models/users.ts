@@ -14,6 +14,7 @@ import {
 import { and, count, desc, eq, ilike, inArray, isNotNull, notExists, or, sql } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
 import {
@@ -973,39 +974,51 @@ class Users {
    * Update the local-strategy behaviour flags for a user, leaving secrets and any other linked
    * provider untouched.
    *
+   * The read, mutate and write all happen inside a `user-auth:<id>` advisory lock (see #2149): the
+   * whole `auth` JSONB column is read, merged and written back as one blob, so a fetch made before
+   * the lock was held could be stale by the time this writes -- serializing on the row is what stops
+   * this call from clobbering a concurrent whole-blob `auth` write elsewhere in this file (or the
+   * reverse), rather than silently losing whichever one lands second.
+   *
    * @param flags Any of `mustChangePwd`, `restrictLogin`, `tfaRequired`
    * @returns False if the user does not exist
    */
   async setUserAuthFlags(id: string, flags: Record<string, any>): Promise<boolean> {
-    const user = await this.getById(id)
-    if (!user) {
-      return false
-    }
-
-    const localStrategyId = WIKI.data.systemIds.localAuthId
-    const auth = (user.auth ?? {}) as Record<string, any>
-    const current = auth[localStrategyId]
-    if (!current) {
-      // -> The user does not use local authentication, so there are no local flags to set
-      return false
-    }
-
-    for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
-      if (flags[key] !== undefined) {
-        current[key] = Boolean(flags[key])
+    return withAdvisoryLock(`user-auth:${id}`, async () => {
+      const user = await this.getById(id)
+      if (!user) {
+        return false
       }
-    }
-    auth[localStrategyId] = current
 
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, id))
-    return true
+      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const auth = (user.auth ?? {}) as Record<string, any>
+      const current = auth[localStrategyId]
+      if (!current) {
+        // -> The user does not use local authentication, so there are no local flags to set
+        return false
+      }
+
+      for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
+        if (flags[key] !== undefined) {
+          current[key] = Boolean(flags[key])
+        }
+      }
+      auth[localStrategyId] = current
+
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, id))
+      return true
+    })
   }
 
   /**
    * Set a user's local-strategy password, leaving any other linked provider untouched.
+   *
+   * Serialized on a `user-auth:<id>` advisory lock (see #2149) -- the fetch happens after the lock
+   * is held, not before, so this always merges onto whatever the row actually holds rather than a
+   * copy some other concurrent `auth` write may have already superseded.
    *
    * @returns False if the user does not exist
    */
@@ -1018,24 +1031,26 @@ class Users {
     newPassword: string
     mustChangePassword?: boolean
   }): Promise<boolean> {
-    const user = await this.getById(id)
-    if (!user) {
-      return false
-    }
+    return withAdvisoryLock(`user-auth:${id}`, async () => {
+      const user = await this.getById(id)
+      if (!user) {
+        return false
+      }
 
-    const localStrategyId = WIKI.data.systemIds.localAuthId
-    const auth = (user.auth ?? {}) as Record<string, any>
-    auth[localStrategyId] = {
-      ...auth[localStrategyId],
-      password: await bcrypt.hash(newPassword, 12),
-      mustChangePwd: mustChangePassword
-    }
+      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const auth = (user.auth ?? {}) as Record<string, any>
+      auth[localStrategyId] = {
+        ...auth[localStrategyId],
+        password: await bcrypt.hash(newPassword, 12),
+        mustChangePwd: mustChangePassword
+      }
 
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, id))
-    return true
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, id))
+      return true
+    })
   }
 
   /**
@@ -1089,6 +1104,10 @@ class Users {
    * know. This also clears `mustChangePwd`: a user who has just chosen a password satisfies the
    * requirement to choose one.
    *
+   * Serialized on a `user-auth:<userId>` advisory lock (see #2149), read-through-write: the current
+   * password is re-fetched and re-checked once the lock is held, so this can't act on a copy of the
+   * blob a concurrent `auth` write elsewhere has already superseded.
+   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_PASSWORD_TOO_SHORT` or
    *         `ERR_INCORRECT_CURRENT_PASSWORD`
    */
@@ -1103,36 +1122,38 @@ class Users {
     currentPassword: string
     newPassword: string
   }): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
     if (!newPassword || newPassword.length < 8) {
       throw new Error('ERR_PASSWORD_TOO_SHORT')
     }
+    return withAdvisoryLock(`user-auth:${userId}`, async () => {
+      const user = await this.getById(userId)
+      if (!user) {
+        throw new Error('ERR_INVALID_USER')
+      }
 
-    const auth = (user.auth ?? {}) as Record<string, any>
-    // -> Only a provider that stores a password here has one to change; an external identity provider
-    //    holds it somewhere this instance cannot reach
-    if (!auth[strategyId]?.password) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if ((await bcrypt.compare(currentPassword, auth[strategyId].password)) !== true) {
-      WIKI.models.flags.authDebug(
-        `Password change for user ${userId} rejected: the current password did not match`
-      )
-      throw new Error('ERR_INCORRECT_CURRENT_PASSWORD')
-    }
+      const auth = (user.auth ?? {}) as Record<string, any>
+      // -> Only a provider that stores a password here has one to change; an external identity provider
+      //    holds it somewhere this instance cannot reach
+      if (!auth[strategyId]?.password) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
+      if ((await bcrypt.compare(currentPassword, auth[strategyId].password)) !== true) {
+        WIKI.models.flags.authDebug(
+          `Password change for user ${userId} rejected: the current password did not match`
+        )
+        throw new Error('ERR_INCORRECT_CURRENT_PASSWORD')
+      }
 
-    auth[strategyId] = {
-      ...auth[strategyId],
-      password: await bcrypt.hash(newPassword, 12),
-      mustChangePwd: false
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+      auth[strategyId] = {
+        ...auth[strategyId],
+        password: await bcrypt.hash(newPassword, 12),
+        mustChangePwd: false
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
   }
 
   /**
@@ -1143,6 +1164,10 @@ class Users {
    * another linked provider — because the alternative is a user locking themselves out of their own
    * account with one click. Turning it back on needs no such check, and the password itself is neither
    * cleared nor asked for: a session that got this far has already been authenticated.
+   *
+   * Serialized on a `user-auth:<userId>` advisory lock (see #2149): the row is re-fetched once the
+   * lock is held, so `countAlternativeLogins()`'s lockout check runs against current state rather
+   * than a copy some other concurrent `auth` write may have already superseded.
    *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_PASSWORD_LOGIN_NOT_APPLICABLE` or
    *         `ERR_NO_OTHER_LOGIN_METHOD`
@@ -1156,35 +1181,37 @@ class Users {
     strategyId: string
     isEnabled: boolean
   }): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
+    return withAdvisoryLock(`user-auth:${userId}`, async () => {
+      const user = await this.getById(userId)
+      if (!user) {
+        throw new Error('ERR_INVALID_USER')
+      }
+      const auth = (user.auth ?? {}) as Record<string, any>
+      if (!auth[strategyId]) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
 
-    // -> The flag is only ever read by the local module's `authenticate()`, so setting it on a provider
-    //    that authenticates elsewhere would be a switch connected to nothing
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
-    if (strategy?.module !== 'local' || !auth[strategyId].password) {
-      throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
-    }
+      // -> The flag is only ever read by the local module's `authenticate()`, so setting it on a provider
+      //    that authenticates elsewhere would be a switch connected to nothing
+      const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+      if (strategy?.module !== 'local' || !auth[strategyId].password) {
+        throw new Error('ERR_PASSWORD_LOGIN_NOT_APPLICABLE')
+      }
 
-    if (!isEnabled && countAlternativeLogins(user, strategyId) < 1) {
-      throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
-    }
+      if (!isEnabled && countAlternativeLogins(user, strategyId) < 1) {
+        throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
+      }
 
-    auth[strategyId] = { ...auth[strategyId], restrictLogin: !isEnabled }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+      auth[strategyId] = { ...auth[strategyId], restrictLogin: !isEnabled }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
 
-    WIKI.models.flags.authDebug(
-      `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
-    )
+      WIKI.models.flags.authDebug(
+        `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
+      )
+    })
   }
 
   /**
@@ -1194,7 +1221,12 @@ class Users {
    * come back with a code generated from it. It counts for nothing until `enableTfa()` marks it
    * active, and starting the setup again simply replaces it.
    *
-   * @param user The user row, whose `auth` blob is updated in place as well as saved
+   * @param user The user row. `user.id`/`user.email` are read from it, but the `auth` blob itself is
+   *             re-fetched fresh once the advisory lock below is held (see #2149) rather than trusted
+   *             from whatever was already in hand -- the caller may have loaded `user` well before
+   *             this ran, plenty of time for another `auth` write to have landed in between. `user.auth`
+   *             is updated in place with the merged result once the write succeeds, so a caller that
+   *             keeps using `user` afterwards sees current state too.
    * @param siteId The site being logged into, which names the entry in the authenticator app
    * @returns The QR code as an SVG document, and the secret it encodes — which is shown as text too,
    *          for a user who would rather type it into an authenticator app than scan anything
@@ -1212,16 +1244,20 @@ class Users {
     const issuer = (site as any)?.config?.title || 'Wiki'
 
     const secret = generateTotpSecret()
-    user.auth = (user.auth ?? {}) as Record<string, any>
-    user.auth[strategyId] = {
-      ...user.auth[strategyId],
-      tfaSecret: secret,
-      tfaIsActive: false
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    user.auth = await withAdvisoryLock(`user-auth:${user.id}`, async () => {
+      const fresh = await this.getById(user.id)
+      const auth = (fresh?.auth ?? {}) as Record<string, any>
+      auth[strategyId] = {
+        ...auth[strategyId],
+        tfaSecret: secret,
+        tfaIsActive: false
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      return auth
+    })
 
     return {
       secret,
@@ -1244,15 +1280,23 @@ class Users {
    */
   async enableTfa(user: any, strategyId: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
-    user.auth[strategyId] = {
-      ...user.auth[strategyId],
-      tfaIsActive: true,
-      recoveryCodes: entries
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    // -> Serialized on a `user-auth:<id>` advisory lock (see #2149): the blob is re-fetched once the
+    //    lock is held rather than trusting whatever `user.auth` the caller already has, since a
+    //    concurrent `auth` write elsewhere could have landed in the meantime.
+    user.auth = await withAdvisoryLock(`user-auth:${user.id}`, async () => {
+      const fresh = await this.getById(user.id)
+      const auth = (fresh?.auth ?? {}) as Record<string, any>
+      auth[strategyId] = {
+        ...auth[strategyId],
+        tfaIsActive: true,
+        recoveryCodes: entries
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      return auth
+    })
     WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
     return plaintext
   }
@@ -1260,34 +1304,45 @@ class Users {
   /**
    * Turn 2FA off for a user and forget the secret, so that setting it up again starts from a new one.
    *
+   * Serialized on a `user-auth:<userId>` advisory lock (see #2149): the row is re-fetched once the
+   * lock is held, so the `tfaIsActive`/`tfaRequired` checks below run against current state rather
+   * than a copy some other concurrent `auth` write may have already superseded.
+   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY`, `ERR_TFA_NOT_ACTIVE` or `ERR_TFA_ENFORCED`
    */
   async disableTfa(userId: string, strategyId: string): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    return withAdvisoryLock(`user-auth:${userId}`, async () => {
+      const user = await this.getById(userId)
+      if (!user) {
+        throw new Error('ERR_INVALID_USER')
+      }
+      const auth = (user.auth ?? {}) as Record<string, any>
+      if (!auth[strategyId]) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
+      if (!auth[strategyId].tfaIsActive) {
+        throw new Error('ERR_TFA_NOT_ACTIVE')
+      }
 
-    // -> Turning it off would be undone at the next login, which is worth an error rather than a
-    //    confusing round trip. The client greys the button out, but that is a client.
-    const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
-    if (auth[strategyId].tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa) {
-      throw new Error('ERR_TFA_ENFORCED')
-    }
+      // -> Turning it off would be undone at the next login, which is worth an error rather than a
+      //    confusing round trip. The client greys the button out, but that is a client.
+      const strategy = await WIKI.models.authentication.getStrategyById(strategyId)
+      if (auth[strategyId].tfaRequired || (strategy?.config as Record<string, any>)?.enforceTfa) {
+        throw new Error('ERR_TFA_ENFORCED')
+      }
 
-    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
-    WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+      auth[strategyId] = {
+        ...auth[strategyId],
+        tfaIsActive: false,
+        tfaSecret: '',
+        recoveryCodes: []
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+      WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
+    })
   }
 
   /**
@@ -1302,29 +1357,41 @@ class Users {
    * device, where waiting for them to satisfy the requirement they are asking to be freed from isn't
    * an option.
    *
+   * Serialized on the same `user-auth:<userId>` advisory lock (see #2149) every other whole-blob
+   * `auth` write in this file takes, and re-fetches the row once it is held: this is the one an
+   * in-flight `changeOwnPassword` or `verifyAndConsumeRecoveryCode` must not be able to clobber back
+   * to its own stale, still-active copy after this has already blanked it.
+   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
   async adminInvalidateTfa(userId: string, strategyId: string): Promise<void> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    return withAdvisoryLock(`user-auth:${userId}`, async () => {
+      const user = await this.getById(userId)
+      if (!user) {
+        throw new Error('ERR_INVALID_USER')
+      }
+      const auth = (user.auth ?? {}) as Record<string, any>
+      if (!auth[strategyId]) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
+      if (!auth[strategyId].tfaIsActive) {
+        throw new Error('ERR_TFA_NOT_ACTIVE')
+      }
 
-    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
-    WIKI.models.flags.authDebug(
-      `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
-    )
+      auth[strategyId] = {
+        ...auth[strategyId],
+        tfaIsActive: false,
+        tfaSecret: '',
+        recoveryCodes: []
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+      WIKI.models.flags.authDebug(
+        `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
+      )
+    })
   }
 
   /**
@@ -1406,37 +1473,43 @@ class Users {
    * @returns The new codes in plaintext, and whether the set being replaced still had unused codes in
    *          it — the caller's cue to warn the user that codes they saved are being thrown away, not
    *          just supplemented
+   * Serialized on a `user-auth:<userId>` advisory lock (see #2149): the row is re-fetched once the
+   * lock is held, so `hadUnusedCodes` and the write below both reflect current state rather than a
+   * copy some other concurrent `auth` write may have already superseded.
+   *
    * @throws `ERR_INVALID_USER`, `ERR_INVALID_STRATEGY` or `ERR_TFA_NOT_ACTIVE`
    */
   async regenerateRecoveryCodes(
     userId: string,
     strategyId: string
   ): Promise<{ recoveryCodes: string[]; hadUnusedCodes: boolean }> {
-    const user = await this.getById(userId)
-    if (!user) {
-      throw new Error('ERR_INVALID_USER')
-    }
-    const auth = (user.auth ?? {}) as Record<string, any>
-    if (!auth[strategyId]) {
-      throw new Error('ERR_INVALID_STRATEGY')
-    }
-    if (!auth[strategyId].tfaIsActive) {
-      throw new Error('ERR_TFA_NOT_ACTIVE')
-    }
+    return withAdvisoryLock(`user-auth:${userId}`, async () => {
+      const user = await this.getById(userId)
+      if (!user) {
+        throw new Error('ERR_INVALID_USER')
+      }
+      const auth = (user.auth ?? {}) as Record<string, any>
+      if (!auth[strategyId]) {
+        throw new Error('ERR_INVALID_STRATEGY')
+      }
+      if (!auth[strategyId].tfaIsActive) {
+        throw new Error('ERR_TFA_NOT_ACTIVE')
+      }
 
-    const previousEntries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
-    const hadUnusedCodes = previousEntries.some((entry) => !entry.usedAt)
+      const previousEntries = (auth[strategyId].recoveryCodes ?? []) as RecoveryCodeEntry[]
+      const hadUnusedCodes = previousEntries.some((entry) => !entry.usedAt)
 
-    const { plaintext, entries } = await issueRecoveryCodes()
-    auth[strategyId] = { ...auth[strategyId], recoveryCodes: entries }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
-    WIKI.models.flags.authDebug(
-      `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
-    )
-    return { recoveryCodes: plaintext, hadUnusedCodes }
+      const { plaintext, entries } = await issueRecoveryCodes()
+      auth[strategyId] = { ...auth[strategyId], recoveryCodes: entries }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+      WIKI.models.flags.authDebug(
+        `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
+      )
+      return { recoveryCodes: plaintext, hadUnusedCodes }
+    })
   }
 
   /**
@@ -1770,18 +1843,26 @@ class Users {
       The link between this account and the provider's, written on every login: it records which
       account at the provider this is, and it is what tells the profile page that this user signs in
       through this strategy.
+
+      Serialized on a `user-auth:<id>` advisory lock (see #2149) and re-fetched once it is held,
+      rather than merging onto the `user` loaded a few statements up: two logins through two
+      different providers can land here for the same account close enough together that the earlier
+      read is already stale by the time this writes.
     */
-    const auth = (user.auth ?? {}) as Record<string, any>
-    auth[strategy.id] = {
-      ...auth[strategy.id],
-      id: profile.id,
-      email
-    }
-    user.auth = auth
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    user.auth = await withAdvisoryLock(`user-auth:${user.id}`, async () => {
+      const fresh = await this.getById(user.id)
+      const auth = (fresh?.auth ?? {}) as Record<string, any>
+      auth[strategy.id] = {
+        ...auth[strategy.id],
+        id: profile.id,
+        email
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      return auth
+    })
 
     // -> Every login, not only the one that created the account: a group added or removed at the
     //    provider since the last login has to show up here too.
@@ -2382,9 +2463,20 @@ class Users {
     }
 
     if (user) {
-      user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
-      user.auth[strategyId].mustChangePwd = false
-      await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+      // -> Serialized on a `user-auth:<id>` advisory lock (see #2149) and re-fetched once it is
+      //    held, rather than mutated onto the copy `validateToken()` loaded above: that read has no
+      //    lock behind it, so it can already be stale by the time the hash finishes computing.
+      user.auth = await withAdvisoryLock(`user-auth:${user.id}`, async () => {
+        const fresh = await this.getById(user.id)
+        const auth = (fresh?.auth ?? {}) as Record<string, any>
+        auth[strategyId] = {
+          ...auth[strategyId],
+          password: await bcrypt.hash(newPassword, 12),
+          mustChangePwd: false
+        }
+        await WIKI.db.update(usersTable).set({ auth }).where(eq(usersTable.id, user.id))
+        return auth
+      })
 
       return this.afterLoginChecks(
         user,
@@ -2489,9 +2581,20 @@ class Users {
       throw new Error('ERR_INVALID_USER')
     }
 
-    user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
-    user.auth[strategyId].mustChangePwd = false
-    await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+    // -> Serialized on a `user-auth:<id>` advisory lock (see #2149) and re-fetched once it is held,
+    //    rather than mutated onto the copy `validateToken()` loaded above: that read has no lock
+    //    behind it, so it can already be stale by the time the hash finishes computing.
+    user.auth = await withAdvisoryLock(`user-auth:${user.id}`, async () => {
+      const fresh = await this.getById(user.id)
+      const auth = (fresh?.auth ?? {}) as Record<string, any>
+      auth[strategyId] = {
+        ...auth[strategyId],
+        password: await bcrypt.hash(newPassword, 12),
+        mustChangePwd: false
+      }
+      await WIKI.db.update(usersTable).set({ auth }).where(eq(usersTable.id, user.id))
+      return auth
+    })
 
     try {
       await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })

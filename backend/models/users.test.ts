@@ -1332,6 +1332,85 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
 })
 
 /**
+ * The lost-update case #2149 closes: every whole-blob `auth` write in `models/users.ts` now reads,
+ * mutates and writes while holding a `user-auth:<id>` advisory lock (`helpers/advisoryLock.ts`), so
+ * two of these calls racing the same user's row can no longer have the second writer's stale copy of
+ * the blob clobber the first writer's change. Before this, `adminInvalidateTfa()` blanking
+ * `tfaSecret`/`tfaIsActive`/`recoveryCodes` was observed being undone by a concurrent
+ * `changeOwnPassword()` that had already read the (still-active) blob and later wrote its own copy of
+ * it back, with the password change alone surviving -- silently restoring 2FA the admin had just
+ * turned off.
+ *
+ * This runs both calls concurrently via a real advisory lock against Postgres (not a mock), which is
+ * the only way to actually exercise the serialization rather than merely asserting the source calls
+ * `withAdvisoryLock`.
+ */
+describe('users auth-write serialization (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+  let usersModel: typeof import('./users.ts').users
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    ;({ users: usersModel } = await import('./users.ts'))
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  function freshStrategyId(): string {
+    return `strategy-${Math.random().toString(36).slice(2)}`
+  }
+
+  test('an adminInvalidateTfa concurrent with a changeOwnPassword leaves 2FA blanked, not restored', async () => {
+    const strategyId = freshStrategyId()
+    const currentPassword = 'the-old-password'
+
+    // -> Seed a strategy entry with both a password (changeOwnPassword's target) and active 2FA
+    //    (adminInvalidateTfa's target) so the two operations' writes genuinely overlap on the same
+    //    `auth[strategyId]` object rather than touching disjoint strategies.
+    const seeded = (await usersModel.getById(fixtures.userId)) as any
+    await fixtures.db
+      .update(usersTable)
+      .set({
+        auth: {
+          ...seeded.auth,
+          [strategyId]: {
+            password: await bcrypt.hash(currentPassword, 12),
+            mustChangePwd: false,
+            tfaIsActive: true,
+            tfaSecret: 'existing-secret',
+            recoveryCodes: [{ hash: 'x', usedAt: null }]
+          }
+        }
+      })
+      .where(eq(usersTable.id, fixtures.userId))
+
+    await Promise.all([
+      usersModel.adminInvalidateTfa(fixtures.userId, strategyId),
+      usersModel.changeOwnPassword({
+        userId: fixtures.userId,
+        strategyId,
+        currentPassword,
+        newPassword: 'a-brand-new-password'
+      })
+    ])
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    const strategyAuth = reloaded.auth[strategyId]
+
+    // -> The admin's action must have stuck, regardless of which write happened to land second.
+    assert.equal(strategyAuth.tfaIsActive, false)
+    assert.equal(strategyAuth.tfaSecret, '')
+    assert.deepEqual(strategyAuth.recoveryCodes, [])
+
+    // -> The password change must have stuck too -- neither write may be the one that gets lost.
+    assert.equal(strategyAuth.mustChangePwd, false)
+    assert.equal(await bcrypt.compare('a-brand-new-password', strategyAuth.password), true)
+  })
+})
+
+/**
  * `login()`'s form-based auto-provisioning branch: a module like LDAP verifies the person itself and,
  * rather than resolving a local user, always signals "this person is real" by throwing
  * `ProvisionableLoginError` — whether or not an account already exists for them (see that class's own
