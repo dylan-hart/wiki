@@ -241,6 +241,19 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     ;(WIKI.auth.strategies as any)[strategyId] = { config }
   }
 
+  /**
+   * `register()` reads the site's attached-strategies list off `WIKI.sites[siteId].config`, the same
+   * in-memory cache `getSiteById()` reads without `forceReload` -- `setupTestDb()` seeds that cache
+   * once with no `authStrategies` key, so a strategy created by `createStrategy()` starts out
+   * unattached to `fixtures.siteId` and every test that expects a strategy to actually work has to
+   * attach it here first.
+   */
+  function attachStrategyToSite(strategyId: string): void {
+    ;(WIKI.sites[fixtures.siteId].config as Record<string, any>).authStrategies = [
+      { id: strategyId, order: 0, isVisible: true }
+    ]
+  }
+
   before(async () => {
     previousTemporal = (globalThis as any).Temporal
     installFakeTemporal()
@@ -401,6 +414,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   test('refuses an address outside allowedEmailRegex', async () => {
     const strategyId = await createStrategy({ allowedEmailRegex: '^[^@]+@allowed\\.example$' })
+    attachStrategyToSite(strategyId)
 
     await assert.rejects(
       users.register(
@@ -482,6 +496,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     const request = req()
 
     const result = await users.register(
@@ -520,6 +535,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('emailValidation off: logs the new account straight in, like every other successful auth path', async () => {
     const strategyId = await createStrategy({ emailValidation: false })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
     const request = req()
 
@@ -550,6 +566,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
       autoEnrollGroups: [fixtures.groupId]
     })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
     registerLiveStrategy(strategyId)
 
     await users.register(
@@ -571,6 +588,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   test('re-registering a still-unverified address resends the link for the same account instead of creating a duplicate', async () => {
     const strategyId = await createStrategy({ emailValidation: true })
     WIKI.data.systemIds = { localAuthId: strategyId } as any
+    attachStrategyToSite(strategyId)
 
     const first = await users.register(
       {
