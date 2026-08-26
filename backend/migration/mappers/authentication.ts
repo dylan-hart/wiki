@@ -412,7 +412,12 @@ export function mapAuthenticationRow(
     module,
     isEnabled: !!row.isEnabled,
     displayName,
-    registration: !!row.selfRegistration,
+    // -> The 2.5.x source has one flag for both concerns, same as 3.0's `registration` column did
+    //    before it was split (see `db/schema.ts`) -- carried forward onto both new columns so an
+    //    imported strategy keeps working exactly as it did on the source instance, whichever of the
+    //    two gates its module actually reads.
+    selfRegistration: !!row.selfRegistration,
+    autoProvisioning: !!row.selfRegistration,
     allowedEmailRegex: buildAllowedEmailRegex(row.domainWhitelist),
     autoEnrollGroups: remapAutoEnrollGroups(row.autoEnrollGroups, groupIdMap),
     config: resolver.buildConfig(module, incoming, {})

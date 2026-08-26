@@ -142,7 +142,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
+      selfRegistration: {
+        type: 'boolean'
+      },
+      autoProvisioning: {
         type: 'boolean'
       },
       allowedEmailRegex: {
@@ -187,16 +190,21 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       isEnabled: {
         type: 'boolean'
       },
-      registration: {
+      selfRegistration: {
         type: 'boolean',
         description:
-          'Whether an account is created for somebody signing in for the first time. Enforced for the providers that sign users in elsewhere (OpenID Connect, Google, GitHub); the local module has a registration flow of its own.'
+          'Whether an unauthenticated visitor may create an account by submitting credentials directly to this strategy — meaningful for a form-based module (the local module has a registration flow of its own).'
+      },
+      autoProvisioning: {
+        type: 'boolean',
+        description:
+          'Whether a first-time login through this strategy creates an account automatically. Meaningful for a provider that signs users in elsewhere (OpenID Connect, Google, GitHub, SAML, LDAP, …).'
       },
       allowedEmailRegex: {
         type: 'string',
         maxLength: 255,
         description:
-          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies where registration does — a pattern that will not compile allows nobody.'
+          'Must be a valid regular expression. Limits which addresses an account may be created for, and applies where self-registration or auto-provisioning does — a pattern that will not compile allows nobody.'
       },
       autoEnrollGroups: {
         type: 'array',

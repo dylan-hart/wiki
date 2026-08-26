@@ -122,7 +122,8 @@ export interface AuthStrategy {
   module: string
   displayName: string
   isEnabled: boolean
-  registration: boolean
+  selfRegistration: boolean
+  autoProvisioning: boolean
   allowedEmailRegex: string
   autoEnrollGroups: string[]
   config: Record<string, any>
@@ -316,7 +317,8 @@ class Authentication {
     module: string
     displayName?: string
     isEnabled?: boolean
-    registration?: boolean
+    selfRegistration?: boolean
+    autoProvisioning?: boolean
     allowedEmailRegex?: string
     autoEnrollGroups?: string[]
     config?: Record<string, any>
@@ -328,7 +330,8 @@ class Authentication {
         module: values.module,
         displayName: values.displayName?.trim() || mod.title,
         isEnabled: values.isEnabled ?? true,
-        registration: values.registration ?? false,
+        selfRegistration: values.selfRegistration ?? false,
+        autoProvisioning: values.autoProvisioning ?? false,
         allowedEmailRegex: values.allowedEmailRegex ?? '',
         autoEnrollGroups: values.autoEnrollGroups ?? [],
         config: this.buildConfig(values.module, values.config)
@@ -352,7 +355,8 @@ class Authentication {
     patch: {
       displayName?: string
       isEnabled?: boolean
-      registration?: boolean
+      selfRegistration?: boolean
+      autoProvisioning?: boolean
       allowedEmailRegex?: string
       autoEnrollGroups?: string[]
       config?: Record<string, any>
@@ -370,8 +374,11 @@ class Authentication {
     if (patch.isEnabled !== undefined) {
       values.isEnabled = patch.isEnabled
     }
-    if (patch.registration !== undefined) {
-      values.registration = patch.registration
+    if (patch.selfRegistration !== undefined) {
+      values.selfRegistration = patch.selfRegistration
+    }
+    if (patch.autoProvisioning !== undefined) {
+      values.autoProvisioning = patch.autoProvisioning
     }
     if (patch.allowedEmailRegex !== undefined) {
       values.allowedEmailRegex = patch.allowedEmailRegex

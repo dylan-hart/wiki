@@ -1724,9 +1724,9 @@ class Users {
     let user = await this.getByEmail(email)
 
     if (!user) {
-      if (!strategy.registration) {
+      if (!strategy.autoProvisioning) {
         WIKI.models.flags.authDebug(
-          `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
+          `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not auto-provision new users`
         )
         throw new Error('ERR_REGISTRATION_DISABLED')
       }
@@ -1900,9 +1900,9 @@ class Users {
       throw new Error('ERR_INVALID_STRATEGY')
     }
 
-    if (!strategy.registration) {
+    if (!strategy.selfRegistration) {
       WIKI.models.flags.authDebug(
-        `Registration refused: strategy ${strategy.id} does not accept new users`
+        `Registration refused: strategy ${strategy.id} does not accept self-registration`
       )
       throw new Error('ERR_REGISTRATION_DISABLED')
     }

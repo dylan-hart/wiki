@@ -226,7 +226,19 @@ export const authentication = pgTable('authentication', {
   isEnabled: boolean().notNull().default(false),
   displayName: varchar({ length: 255 }).notNull().default(''),
   config: jsonb().notNull().default({}),
-  registration: boolean().notNull().default(false),
+  // -> Whether an unauthenticated visitor may create an account through this strategy's own
+  //    credential form (`register()`, `models/users.ts`) -- meaningful for a form-based (`useForm`)
+  //    module, where the wiki collects the credentials itself.
+  selfRegistration: boolean().notNull().default(false),
+  // -> Whether a first-time login through this strategy provisions a new wiki account
+  //    (`findOrCreateProviderUser()`, `models/users.ts`) -- meaningful for a strategy that
+  //    authenticates the person somewhere else first (a redirect-based provider, or a form-based one
+  //    like LDAP whose `authenticate()` verifies against an external directory).
+  //
+  //    Split from a single `registration` column: that one flag used to gate both concerns at once,
+  //    so enabling auto-provisioning for an identity provider silently also opened public
+  //    self-registration against it.
+  autoProvisioning: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
   autoEnrollGroups: uuid().array().default([])
 })

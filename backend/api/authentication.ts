@@ -210,7 +210,7 @@ async function routes(app: FastifyInstance) {
                     displayName: {
                       type: 'string'
                     },
-                    registration: {
+                    selfRegistration: {
                       type: 'boolean'
                     },
                     allowForgotPassword: {
@@ -275,7 +275,7 @@ async function routes(app: FastifyInstance) {
             isVisible: siteStr.isVisible ?? false,
             activeStrategy: {
               displayName: str.displayName,
-              registration: str.registration,
+              selfRegistration: str.selfRegistration,
               /*
                 Named explicitly, like every other field here: this endpoint is public and a strategy's
                 config is where an OAuth client secret lives, so nothing may reach it by spreading.
@@ -1541,7 +1541,8 @@ async function routes(app: FastifyInstance) {
       for (const field of [
         'displayName',
         'isEnabled',
-        'registration',
+        'selfRegistration',
+        'autoProvisioning',
         'allowedEmailRegex',
         'autoEnrollGroups',
         'config'

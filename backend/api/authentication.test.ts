@@ -62,9 +62,9 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         authentication: {
           getStrategyById: async (id: string) =>
             id === STRATEGY_ID
-              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, registration: true }
+              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, autoProvisioning: true }
               : id === CAS_STRATEGY_ID
-                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, registration: true }
+                ? { id: CAS_STRATEGY_ID, module: 'cas', isEnabled: true, autoProvisioning: true }
                 : null
         },
         users: {

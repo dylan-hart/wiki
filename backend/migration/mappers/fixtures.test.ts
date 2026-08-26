@@ -167,7 +167,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database',
-        registration: true,
+        selfRegistration: true,
+        autoProvisioning: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -183,7 +184,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'github',
         isEnabled: true,
         displayName: 'GitHub (Acme)',
-        registration: false,
+        selfRegistration: false,
+        autoProvisioning: false,
         allowedEmailRegex: '^[^@]+@(acme\\.com|acme\\.org)$',
         autoEnrollGroups: ['grp-uuid-1', 'grp-uuid-2'],
         config: {
@@ -215,7 +217,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'local',
         isEnabled: true,
         displayName: 'Local Database (2)',
-        registration: false,
+        selfRegistration: false,
+        autoProvisioning: false,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: { enforceTfa: false, emailValidation: true, allowForgotPassword: true }
@@ -231,7 +234,8 @@ describe('fixture: 2.5x-authentication-source-{a,b}.json -> mapAuthenticationRow
         module: 'oidc',
         isEnabled: true,
         displayName: 'Beta SSO',
-        registration: true,
+        selfRegistration: true,
+        autoProvisioning: true,
         allowedEmailRegex: '',
         autoEnrollGroups: [],
         config: {
