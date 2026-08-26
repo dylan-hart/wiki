@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
+import v8 from 'node:v8'
+import vm from 'node:vm'
 import {
   NotYetImplementedError,
   type SourceAssetFile,
@@ -8,8 +10,37 @@ import {
   type SourceKind,
   type SourceRecord
 } from './connector.ts'
-import { extractContentStaging } from './content-staging.ts'
+import { extractContentStaging, type StagedPage } from './content-staging.ts'
 import { IdMap } from './id-map.ts'
+
+/** Drains an `extractContentStaging` result's `pages` generator into a plain array — every existing
+ * assertion below was written against the old array-returning shape, and re-materializing it this way
+ * keeps those assertions unchanged while the new streaming test (below) drives the generator directly
+ * to prove pages are not all resident at once. */
+async function collectPages(pages: AsyncGenerator<StagedPage>): Promise<StagedPage[]> {
+  const collected: StagedPage[] = []
+  for await (const page of pages) collected.push(page)
+  return collected
+}
+
+/** Forces a real GC pass without needing the whole test run started under `--expose-gc` — the
+ * documented `v8.setFlagsFromString` + `vm.runInNewContext('gc')` trick, used only by the streaming
+ * test below to make "not retained" an assertion rather than an assumption. A single pass is not
+ * enough to reliably observe a `WeakRef` clear immediately afterwards (V8 defers the actual clear to
+ * between GC cycles rather than doing it synchronously inside the sweep a bare `gc()` call triggers),
+ * so this runs twice with a macrotask tick in between — confirmed against a minimal repro under a
+ * real `node --expose-gc` before relying on it here. */
+async function forceGc(): Promise<void> {
+  const runGc = (): void => {
+    v8.setFlagsFromString('--expose-gc')
+    const gc = vm.runInNewContext('gc') as () => void
+    gc()
+    v8.setFlagsFromString('--no-expose-gc')
+  }
+  runGc()
+  await new Promise((resolve) => setImmediate(resolve))
+  runGc()
+}
 
 /**
  * A minimal in-memory `SourceConnector` built from fixture rows, for exactly the entities this
@@ -243,13 +274,14 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    assert.equal(result.pages.length, 3)
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
-    const welcomeFr = result.pages.find((p) => p.oldId === 2)!
+    const pages = await collectPages(result.pages)
+    assert.equal(pages.length, 3)
+    const welcomeEn = pages.find((p) => p.oldId === 1)!
+    const welcomeFr = pages.find((p) => p.oldId === 2)!
     assert.deepEqual(welcomeEn.localeSiblingOldIds, [2])
     assert.deepEqual(welcomeFr.localeSiblingOldIds, [1])
 
-    const orphanAuthorPage = result.pages.find((p) => p.oldId === 3)!
+    const orphanAuthorPage = pages.find((p) => p.oldId === 3)!
     assert.deepEqual(orphanAuthorPage.localeSiblingOldIds, [])
   })
 
@@ -260,7 +292,8 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
+    const pages = await collectPages(result.pages)
+    const welcomeEn = pages.find((p) => p.oldId === 1)!
     assert.equal(welcomeEn.authorId, 'uuid-user-10')
     assert.equal(welcomeEn.creatorId, 'uuid-user-10')
   })
@@ -272,7 +305,8 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const welcomeFr = result.pages.find((p) => p.oldId === 2)!
+    const pages = await collectPages(result.pages)
+    const welcomeFr = pages.find((p) => p.oldId === 2)!
     assert.equal(welcomeFr.authorId, 'uuid-user-11')
     assert.equal(welcomeFr.creatorId, 'uuid-operator')
     assert.equal(
@@ -288,7 +322,8 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const orphanAuthorPage = result.pages.find((p) => p.oldId === 3)!
+    const pages = await collectPages(result.pages)
+    const orphanAuthorPage = pages.find((p) => p.oldId === 3)!
     assert.equal(orphanAuthorPage.authorId, 'uuid-operator')
     assert.ok(
       result.warnings.some(
@@ -304,9 +339,10 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
+    const pages = await collectPages(result.pages)
+    const welcomeEn = pages.find((p) => p.oldId === 1)!
     assert.deepEqual(welcomeEn.tags, ['intro'])
-    const welcomeFr = result.pages.find((p) => p.oldId === 2)!
+    const welcomeFr = pages.find((p) => p.oldId === 2)!
     assert.deepEqual(welcomeFr.tags, [])
   })
 
@@ -317,7 +353,8 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
+    const pages = await collectPages(result.pages)
+    const welcomeEn = pages.find((p) => p.oldId === 1)!
     assert.equal(welcomeEn.history.length, 2)
     assert.deepEqual(
       welcomeEn.history.map((h) => h.oldId),
@@ -338,7 +375,8 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    const welcomeEn = result.pages.find((p) => p.oldId === 1)!
+    const pages = await collectPages(result.pages)
+    const welcomeEn = pages.find((p) => p.oldId === 1)!
     assert.ok(welcomeEn.history.every((h) => h.authorId === 'uuid-user-10'))
   })
 
@@ -348,6 +386,9 @@ describe('extractContentStaging', () => {
       userIdMap: makeUserIdMap(),
       fallbackActorId: 'uuid-operator'
     })
+
+    // orphanedHistory/warnings are only fully populated once `pages` has been fully drained.
+    await collectPages(result.pages)
 
     assert.equal(result.orphanedHistory.length, 1)
     assert.equal(result.orphanedHistory[0].oldId, 102)
@@ -362,6 +403,7 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
+    // navigation is populated eagerly (it is small), so this is available even before draining pages.
     assert.equal(result.navigation.length, 1)
     assert.equal(result.navigation[0].key, 'site')
     assert.deepEqual(result.navigation[0].items, [
@@ -398,9 +440,95 @@ describe('extractContentStaging', () => {
       fallbackActorId: 'uuid-operator'
     })
 
-    assert.deepEqual(result.pages, [])
+    const pages = await collectPages(result.pages)
+    assert.deepEqual(pages, [])
     assert.deepEqual(result.orphanedHistory, [])
     assert.deepEqual(result.navigation, [])
     assert.equal(result.pageIdMap.size, 0)
+  })
+
+  test('streams pages lazily and does not retain an already-emitted page across a large walk', async () => {
+    const PAGE_COUNT = 500
+    const pages: SourceRecord[] = []
+    for (let i = 1; i <= PAGE_COUNT; i++) {
+      pages.push({
+        id: i,
+        path: `page-${i}`,
+        localeCode: 'en',
+        title: `Page ${i}`,
+        hash: `hash-${i}`,
+        description: null,
+        // Distinct, sizeable strings per page/history row — large enough that a buffering
+        // implementation holding all of them resident at once would be trivially distinguishable
+        // from one that doesn't, once GC has run.
+        content: `content-${i}-`.padEnd(10_000, 'x'),
+        render: `render-${i}-`.padEnd(10_000, 'y'),
+        toc: [],
+        contentType: 'markdown',
+        isPrivate: false,
+        privateNS: null,
+        isPublished: true,
+        publishStartDate: null,
+        publishEndDate: null,
+        createdAt: '2020-01-01T00:00:00.000Z',
+        updatedAt: '2020-01-01T00:00:00.000Z',
+        extra: {},
+        editorKey: 'markdown',
+        authorId: 10,
+        creatorId: 10,
+        tags: []
+      })
+    }
+    const history: SourceRecord[] = []
+    for (let i = 1; i <= PAGE_COUNT; i++) {
+      history.push({
+        id: 1000 + i,
+        pageId: i,
+        action: 'created',
+        path: `page-${i}`,
+        localeCode: 'en',
+        title: `Page ${i}`,
+        description: null,
+        content: `history-content-${i}-`.padEnd(10_000, 'z'),
+        contentType: 'markdown',
+        isPrivate: false,
+        isPublished: true,
+        publishStartDate: null,
+        publishEndDate: null,
+        editorKey: 'markdown',
+        versionDate: '2020-01-01T00:00:00.000Z',
+        createdAt: '2020-01-01T00:00:00.000Z',
+        extra: {},
+        authorId: 10,
+        tags: []
+      })
+    }
+
+    const connector = new FixtureSourceConnector(pages, history, [])
+    const result = await extractContentStaging(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    // Hold WeakRefs to only the first few pages emitted — the ones the walk moves past soonest, and
+    // therefore the ones most telling if the generator (rather than this test) is what's keeping them
+    // alive once it has moved on.
+    const earlyRefs: WeakRef<StagedPage>[] = []
+    let seen = 0
+    for await (const page of result.pages) {
+      if (page.oldId <= 5) earlyRefs.push(new WeakRef(page))
+      seen++
+    }
+    assert.equal(seen, PAGE_COUNT)
+    assert.equal(earlyRefs.length, 5)
+
+    await forceGc()
+
+    const stillAlive = earlyRefs.filter((ref) => ref.deref() !== undefined)
+    assert.deepEqual(
+      stillAlive.length,
+      0,
+      'early-emitted pages (and their content/history) should be collectible once the walk has moved on'
+    )
   })
 })
