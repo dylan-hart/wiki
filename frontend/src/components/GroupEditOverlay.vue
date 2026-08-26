@@ -460,7 +460,8 @@
                         v-else
                         class="mt-2"
                         standout
-                        v-model="rule.path"
+                        :model-value="rule.path"
+                        @update:model-value="onRulePathInput(rule, $event)"
                         dense
                         :prefix="[`START`, `REGEX`, `EXACT`].includes(rule.match) ? `/` : null"
                         :suffix="rule.match === `REGEX` ? `/` : null"
@@ -1129,6 +1130,18 @@ function humanizeDate(val) {
     minute: '2-digit',
     timeZoneName: 'short'
   })
+}
+
+/**
+ * START/END/EXACT compare `path` directly against a page path, which is always stored lowercased
+ * (`backend/helpers/common.ts#normalizePagePath`) -- so typing any uppercase character there would
+ * save a rule that can never match (silently, for a DENY -- OpenProject #2182). Lowercase as the
+ * administrator types rather than only rejecting on save: TAG/TAGALL read `path` as a comma list
+ * (already lowercased at match time) and REGEX as a pattern that may deliberately use a character
+ * class like `[A-Z]`, so neither is folded here.
+ */
+function onRulePathInput(rule, value) {
+  rule.path = ['START', 'END', 'EXACT'].includes(rule.match) ? value.toLowerCase() : value
 }
 
 function getRuleModeColor(mode) {

@@ -3,8 +3,13 @@ import type { FastifyInstance } from 'fastify'
 export async function registerSchemas(app: FastifyInstance): Promise<void> {
   /**
    * GROUP RULE - A single page rule within a group
+   *
+   * Built as a variable, rather than inline in the `addSchema()` call below, purely so the
+   * `if`/`then` JSON-Schema keywords (added via bracket assignment further down) can be attached
+   * without an object literal spelling out a `then` property -- oxlint's `unicorn/no-thenable` flags
+   * that shape on sight, even though this is plain JSON Schema and no `await` ever sees the object.
    */
-  app.addSchema({
+  const groupRuleSchema: Record<string, unknown> = {
     $id: 'GroupRule',
     type: 'object',
     required: ['id', 'name', 'roles', 'match', 'mode', 'path'],
@@ -56,7 +61,31 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         }
       }
     }
-  })
+  }
+  // -> START/END/EXACT compare `path` directly against a page path, which is always stored
+  //    lowercased (`normalizePagePath`) -- so a mixed-case rule could never match, and for a DENY
+  //    rule that failure is silent (OpenProject #2182). Rejected here at write time, on top of the
+  //    lowercasing fold in `models/groups.ts#updateGroup` and the case-insensitive comparison in
+  //    `helpers/pageRules.ts#ruleMatchesPage`. TAG/TAGALL read `path` as a comma list, REGEX as a
+  //    pattern that may deliberately use a character class like `[A-Z]`, and CLASSIFICATION does
+  //    not read `path` at all -- none of those are constrained.
+  groupRuleSchema['if'] = {
+    properties: {
+      match: { enum: ['START', 'END', 'EXACT'] }
+    },
+    required: ['match']
+  }
+  // -> Plain JSON Schema, not a thenable -- this object is only ever handed to `app.addSchema()`,
+  // never awaited.
+  // oxlint-disable-next-line unicorn/no-thenable
+  groupRuleSchema['then'] = {
+    properties: {
+      path: {
+        pattern: '^[^A-Z]*$'
+      }
+    }
+  }
+  app.addSchema(groupRuleSchema)
 
   /**
    * GROUP CORE - Essential fields only

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
-import { CustomError } from '../helpers/common.ts'
+import { CustomError, normalizePagePath } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
 import { resolveSiteRule } from '../helpers/siteRules.ts'
 import type { SystemIds } from './types.ts'
@@ -548,10 +548,32 @@ class Groups {
   async updateGroup(id: string, patch: GroupPatch): Promise<boolean> {
     const result = await WIKI.db
       .update(groupsTable)
-      .set({ ...this.clampGuestPatch(id, patch), updatedAt: sql`now()` })
+      .set({ ...this.clampGuestPatch(id, this.normalizeRulePaths(patch)), updatedAt: sql`now()` })
       .where(eq(groupsTable.id, id))
     await this.broadcastReload()
     return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Belt and braces alongside `helpers/pageRules.ts#ruleMatchesPage`'s own case-fold (OpenProject
+   * #2182): fold a rule's `path` through the same normalization a page's own path is stored under
+   * (`normalizePagePath`), for the match kinds that compare directly against it. TAG/TAGALL already
+   * lowercase their own comma list at match time (`helpers/pageRules.ts#ruleTags`); REGEX addresses a
+   * pattern rather than a literal path, and CLASSIFICATION does not read `path` at all -- both are
+   * left untouched here for the same reason `ruleMatchesPage` leaves REGEX out of its fold.
+   */
+  private normalizeRulePaths(patch: GroupPatch): GroupPatch {
+    if (!patch.rules) {
+      return patch
+    }
+    return {
+      ...patch,
+      rules: patch.rules.map((rule) =>
+        rule.match === 'START' || rule.match === 'END' || rule.match === 'EXACT'
+          ? { ...rule, path: normalizePagePath(rule.path) }
+          : rule
+      )
+    }
   }
 
   /**

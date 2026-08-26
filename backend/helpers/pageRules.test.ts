@@ -44,6 +44,13 @@ describe('ruleMatchesPage', () => {
       const rule = makeRule({ match: 'START', path: '/geography' })
       assert.equal(ruleMatchesPage(rule, page({ path: '/geography/countries' })), true)
     })
+
+    // -> OpenProject #2182: a DENY written with uppercase must still deny the (always-lowercased)
+    //    stored page path -- a mismatch here is fail-open and silent, unlike an ALLOW's visible failure.
+    test('a DENY rule matches case-insensitively (OpenProject #2182)', () => {
+      const rule = makeRule({ match: 'START', mode: 'DENY', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries/2026' })), true)
+    })
   })
 
   describe('END', () => {
@@ -55,6 +62,11 @@ describe('ruleMatchesPage', () => {
     test('does not match a page that does not end with it', () => {
       const rule = makeRule({ match: 'END', path: 'france' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/germany' })), false)
+    })
+
+    test('matches case-insensitively (OpenProject #2182)', () => {
+      const rule = makeRule({ match: 'END', path: 'FRANCE' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), true)
     })
   })
 
@@ -68,6 +80,12 @@ describe('ruleMatchesPage', () => {
       const rule = makeRule({ match: 'EXACT', path: 'geography/countries' })
       assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), false)
       assert.equal(ruleMatchesPage(rule, page({ path: 'geography' })), false)
+    })
+
+    // -> OpenProject #2182: same silent-DENY concern as START above, for the EXACT match kind.
+    test('a DENY rule matches case-insensitively (OpenProject #2182)', () => {
+      const rule = makeRule({ match: 'EXACT', mode: 'DENY', path: 'HR/Salaries' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'hr/salaries' })), true)
     })
   })
 
@@ -87,6 +105,14 @@ describe('ruleMatchesPage', () => {
       const rule = makeRule({ match: 'REGEX', path: '(unclosed' })
       assert.doesNotThrow(() => ruleMatchesPage(rule, page()))
       assert.equal(ruleMatchesPage(rule, page()), false)
+    })
+
+    // -> OpenProject #2182: the case-insensitivity fold applied to START/END/EXACT must not reach
+    //    REGEX -- an author's deliberate character class (`[A-Z]`) is not a case-folding bug to fix.
+    test('is not affected by the START/END/EXACT case-insensitivity fold', () => {
+      const rule = makeRule({ match: 'REGEX', path: '^[A-Z]' })
+      assert.equal(ruleMatchesPage(rule, page({ path: 'geography/countries/france' })), false)
+      assert.equal(ruleMatchesPage(rule, page({ path: 'Geography' })), true)
     })
   })
 
