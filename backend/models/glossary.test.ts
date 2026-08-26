@@ -2,10 +2,10 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import { groups as groupsTable } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 import type { AccessActor } from './groups.ts'
-import { ensureTemporal } from '../test/temporal.ts'
 
 /**
  * `models/glossary.ts` is almost entirely SQL — an insert with a case-insensitive uniqueness

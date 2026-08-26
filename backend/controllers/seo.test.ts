@@ -8,13 +8,10 @@ import { ensureTemporal } from '../test/temporal.ts'
  * that decides what a request gets (site resolution, the `sitemap` gate, `listPagesForSitemap`'s
  * guest-rule filtering) is exercised where it actually lives: `models/pages.test.ts` for the query,
  * and there is no server-boot harness in this repo to run the route registration itself against.
- */
-
-/**
- * `buildSitemapXml` reads `Date.prototype.toTemporalInstant()`, which CLAUDE.md documents as a native
- * Node 26 feature needing no import or polyfill — but this sandbox's `node` is v25.9.0, which doesn't
- * expose it (same environment gap `core/scheduler.test.ts` documents for `Temporal.Now.instant()`, not
- * a spec deviation in the code under test).
+ *
+ * `buildSitemapXml` reads `Date.prototype.toTemporalInstant().toZonedDateTimeISO('UTC')
+ * .toPlainDate().toString()` to produce a UTC `YYYY-MM-DD` — `ensureTemporal()` polyfills that chain
+ * for real on this sandbox's Node, which lacks it natively.
  */
 before(() => ensureTemporal())
 

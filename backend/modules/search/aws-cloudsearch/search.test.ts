@@ -1,6 +1,7 @@
 import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
+import { ensureTemporal } from '../../../test/temporal.ts'
 import {
   AwsCloudSearchModule,
   batchDocuments,
@@ -26,7 +27,6 @@ import {
 } from './search.ts'
 import defaultAwsCloudSearchModule from './search.ts'
 import type { SearchIndexablePage } from '../../../models/search.ts'
-import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`

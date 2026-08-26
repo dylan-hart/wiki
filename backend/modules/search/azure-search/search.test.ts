@@ -1,6 +1,7 @@
 import { before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mock } from 'node:test'
+import { ensureTemporal } from '../../../test/temporal.ts'
 import {
   AzureSearchModule,
   buildFilter,
@@ -16,7 +17,6 @@ import {
 import defaultAzureSearchModule from './search.ts'
 import type { SearchIndex } from '@azure/search-documents'
 import type { SearchIndexablePage } from '../../../models/search.ts'
-import { ensureTemporal } from '../../../test/temporal.ts'
 
 /**
  * `toIndexDocument` calls `Date.prototype.toTemporalInstant()` to build the document's `updatedAt`

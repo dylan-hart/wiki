@@ -6,6 +6,7 @@ import path from 'node:path'
 import { create as createTarball, list as listTarball } from 'tar'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import {
   assets as assetsTable,
   groups as groupsTable,
@@ -31,18 +32,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let targetSiteId: string
 
   before(async () => {
-    // -> Node 25 (this sandbox) has no native `Temporal` yet -- Node 26 does, per this repo's engine
-    //    requirement. Polyfilled only when missing, so this is a no-op on a real Node 26 runtime --
-    //    same pattern as `modules/storage/disk/storage.test.ts`'s own `before()`. The package
-    //    polyfills the `Temporal` global itself but, unlike Node 26, does not also patch
-    //    `Date.prototype.toTemporalInstant()` -- `purgeExpired()` uses that conversion.
-    if (typeof Temporal === 'undefined') {
-      const polyfill = await import('@js-temporal/polyfill')
-      ;(globalThis as any).Temporal = polyfill.Temporal
-      ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-        return polyfill.toTemporalInstant.call(this)
-      }
-    }
+    await ensureTemporal()
 
     fixtures = await setupTestDb()
     ;({ exportModel } = await import('./export.ts'))
