@@ -787,6 +787,7 @@ describe('system-row exclusion (Task 731)', () => {
     assert.equal(result.groups.skipped, 1)
     assert.equal(result.groups.created, 1)
     assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
+    assert.match(result.groups.records[0].message ?? '', /system group/)
   })
 
   test('a source user flagged isSystem is skipped without ever calling convertUser', async () => {
