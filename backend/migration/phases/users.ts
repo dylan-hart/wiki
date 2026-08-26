@@ -17,12 +17,11 @@ import type { WriteRecorder } from '../recorder.ts'
  * `--update-existing` has nothing to act on here either — it only takes effect once a phase has a real
  * `create`/`update` to route through `lookupOrInsert`.
  *
- * A natural-key hit is reported as a skip and left unrecorded — deliberately not backfilled into
- * `migrationRecords` via `reconcileNaturalKeyMatch`. See `../phases/content.ts`'s `classifyPage` doc
- * comment for why: this pass never creates anything, dry run or not, so persisting an **exact**-key
- * mapping here would freeze what might be nothing more than an email coincidence, with no repair path
- * if it later turns out to be wrong. The real write path (Feature 414's user importer, once wired up)
- * is the only thing that should ever persist a mapping, via `lookupOrInsert`.
+ * A natural-key hit is *not* reconciled into `migrationRecords` here (OpenProject #1766): with no real
+ * user-creation write behind this read-only pass, persisting a mapping would freeze an email coincidence
+ * as an exact key with nothing actually imported to back it. `reconcileNaturalKeyMatch` already runs on
+ * every natural-key hit inside `lookupOrInsert` (`../provenance.ts:247-251`) once Feature 414's real
+ * write path exists; that is the only place a mapping should be persisted from.
  */
 async function classifyUser(
   record: unknown,

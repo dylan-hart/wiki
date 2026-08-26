@@ -11,16 +11,11 @@ import type { WriteRecorder } from '../recorder.ts'
  * for why this is the read-only `resolveExisting` half rather than the full `lookupOrInsert` — there is
  * no real page-creation write yet for a genuine miss to call (Feature 416 owns that).
  *
- * A natural-key hit is reported as a skip and nothing more — deliberately not backfilled into
- * `migrationRecords` via `reconcileNaturalKeyMatch`. This classification pass runs read-only (it never
- * creates anything, dry run or not — `cli.ts`'s `dryRun` only gates *this* backfill, not whether the
- * pass writes at all), so persisting an **exact**-key mapping here would freeze what might be nothing
- * more than a path coincidence: `provenance.ts`'s exact-key lookup short-circuits before the
- * natural-key fallback on every later run, so if the destination page this coincidentally matched is
- * later deleted or moved, the mapping is left pointing at a dead id with no repair path. The real write
- * path (Feature 416's `page-import.ts`, once wired up) is the only thing that should ever persist a
- * mapping — it calls `lookupOrInsert`, which performs the identical reconciliation but only once it has
- * actually confirmed (by creating or truly finding the row) that the mapping is real.
+ * A natural-key hit is *not* reconciled into `migrationRecords` here (OpenProject #1766): this phase is
+ * read-only — no page is actually created — so persisting a mapping would freeze a path coincidence as
+ * an exact key with no corresponding destination write behind it. `reconcileNaturalKeyMatch` already
+ * runs on every natural-key hit inside `lookupOrInsert` (`../provenance.ts:247-251`) once Feature 416's
+ * real write path exists; that is the only place a mapping should be persisted from.
  *
  * `pageHistory` and `tags` are not given a `classify` here: a history row's identity is inseparable
  * from the page it revises, and a tag's from the pages that carry it, so both are left as plain "would
