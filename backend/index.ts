@@ -320,6 +320,17 @@ async function initHTTPServer() {
     },
     // -> `securityTrustProxy` was the 2.x name: the setting is `trustProxy`, so this read never
     //    matched and the option was permanently off no matter what the admin area showed
+    //
+    //    Passed straight through rather than coerced to a boolean: `models/security.ts#validate`
+    //    now also accepts a comma-separated address/CIDR string (`@fastify/proxy-addr`'s
+    //    `compile()` form), which is what makes Fastify's own `request.hostname` getter refuse
+    //    `X-Forwarded-Host` from a peer the spec doesn't cover -- falling back to the raw
+    //    socket's `Host` header instead of trusting every client the way a bare `true` does. Every
+    //    hostname-keyed site lookup (this hook's own `resolveRequestSite` call below, the SEO hook
+    //    and app-shell fallback further down, `models/sites.ts#getSiteByHostname`, and the
+    //    hostname reads in `controllers/files.ts`/`seo.ts`/`site.ts` and
+    //    `api/authentication.ts`) reads `req.hostname`, so narrowing this one setting closes the
+    //    cross-site `X-Forwarded-Host` steering gap for all of them (task 2085).
     trustProxy: WIKI.config.security.trustProxy ?? false,
     routerOptions: {
       ignoreTrailingSlash: true

@@ -176,6 +176,15 @@ export type RequestSiteResolution =
  * `exemptSegments` is the caller's list of first path segments that must reach the app shell
  * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
  * survive the very thing it exists to correct.
+ *
+ * `hostname` is trusted as-is here — the refusal of a forwarded host that names a different site than
+ * the socket's own `Host` (task 2085, `docs/audit-2026-08-24/security/13-tenancy-isolation.md` §6)
+ * happens one layer up, in Fastify itself: `index.ts` passes `security.trustProxy` straight through
+ * as Fastify's own `trustProxy` option, and once that is a genuine address/CIDR spec rather than a
+ * bare `true`, Fastify's vendored `request.hostname` getter (`fastify/lib/request.js`) only reads
+ * `X-Forwarded-Host` from a peer address the spec covers, falling back to the raw `Host` header for
+ * everyone else. So by the time `hostname` reaches this function it has already been through that
+ * check — there is nothing left to compare it against.
  */
 export function resolveRequestSite({
   firstSegment,
