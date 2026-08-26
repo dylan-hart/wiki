@@ -125,6 +125,11 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `'stale'` is the one case that boolean could not express -- the page moved since the reviewer's
  * `baseHash` was taken, so nothing was written and the caller has to decide what to do about it,
  * rather than the write silently going ahead over whatever changed in between.
+ * `'forbidden'` is the finalizing approve reaching its threshold for a reviewer who does not hold
+ * `write:pages` on the target page -- approval-rule membership alone is not enough to write a page,
+ * since accepting a suggestion is still a write. The submission is left pending (not deleted) rather
+ * than partially applied; an approval already recorded towards the threshold by this call stays
+ * recorded, since the vote itself is harmless -- only the write is refused.
  *
  * `ok: true` no longer means the page was written: with a `minApprovals` above 1, one reviewer's
  * approve only records their sign-off towards the threshold. `finalized` says which happened --
@@ -134,7 +139,7 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
-  | { ok: false; reason: 'not-found' | 'stale' }
+  | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -1120,6 +1125,25 @@ class Approvals {
           `on page ${page.id}; waiting on more reviewers`
       )
       return { ok: true, finalized: false, approvalsCount, approvalsRequired }
+    }
+
+    // -> Approval-rule membership (checked in `getSubmissionForReview`/`reviewerFor`, upstream of
+    //    this call) is what gates who may REVIEW a submission at all, not what it takes to WRITE a
+    //    page. Accepting a suggestion is still a write, so it takes the same `write:pages` a direct
+    //    save would -- otherwise a reviewer on a broad `match: 'START', path: ''` rule could push
+    //    arbitrary content to any page with a pending suggestion, bypassing `write:pages` and any
+    //    classification DENY. Refusing here leaves the submission pending rather than partially
+    //    applied: the approval already recorded above still counts, only the write is refused.
+    if (
+      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        classification: page.classification ?? null,
+        tags: page.tags ?? []
+      })
+    ) {
+      return { ok: false, reason: 'forbidden' }
     }
 
     /*

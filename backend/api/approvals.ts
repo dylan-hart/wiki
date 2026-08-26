@@ -608,6 +608,7 @@ async function routes(app: FastifyInstance) {
             }
           },
           401: { $ref: 'ApiError#' },
+          403: { $ref: 'ApiError#' },
           404: { $ref: 'ApiError#' }
         }
       }
@@ -643,6 +644,12 @@ async function routes(app: FastifyInstance) {
           return reply.conflict(
             'This page has changed since you loaded this suggestion. Reload it and reconcile the changes before approving.'
           )
+        }
+        // -> Approval-rule membership got this reviewer to the review queue, but writing the page
+        //    still takes `write:pages` on it, the same as any other save. The submission stays
+        //    pending, not partially applied.
+        if (applied.reason === 'forbidden') {
+          return reply.forbidden('You do not have permission to write to this page.')
         }
         return reply.notFound('This edit suggestion does not exist.')
       }
