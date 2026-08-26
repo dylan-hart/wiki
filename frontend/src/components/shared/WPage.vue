@@ -1,11 +1,5 @@
 <template>
-  <!--
-    `id` is the skip link's target (`MainLayout.vue`'s first focusable element) and `tabindex="-1"`
-    is what makes a plain `<main>` programmatically focusable at all -- activating an `href="#..."`
-    link only moves focus into an element that can actually take it, and a landmark element takes no
-    part in the tab order on its own.
-  -->
-  <main id="main-content" class="w-page" tabindex="-1" :class="padding ? 'p-4' : ''">
+  <main id="w-page-main" tabindex="-1" class="w-page" :class="padding ? 'p-4' : ''">
     <slot />
   </main>
 </template>
@@ -19,6 +13,11 @@
  * height -- but the page still has to CLAIM it: as a plain block it is only as tall as its content,
  * so anything inside sized `flex: 1` or `height: 100%` has nothing to grow into. That is what left
  * the page sidebars ending partway down the window.
+ *
+ * The `id` and `tabindex="-1"` are what `MainLayout`'s skip link targets: a `<main>` is not
+ * naturally focusable, and a fragment link only moves the reader's SCROLL position without one --
+ * `tabindex="-1"` makes it a valid focus target while keeping it out of the ordinary tab order (a
+ * reader tabbing through the page has no reason to land on the container itself).
  */
 defineProps({
   padding: {

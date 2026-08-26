@@ -37,6 +37,24 @@ async function mountHeader() {
   })
 }
 
+/**
+ * OpenProject #1630 (task 1633): the title of every wiki page used to render into a plain
+ * `<div class="text-h4 page-header-title">` -- a heading NEITHER role nor level, so a screen
+ * reader's heading navigation (the H key / rotor) found nothing to land a reader on here. Fixed by
+ * changing the element only; the classes (and therefore the visuals) are unchanged.
+ */
+describe('PageHeader heading semantics', () => {
+  it('renders the page title as a real <h1>, carrying the same classes as before', async () => {
+    const wrapper = await mountHeader()
+
+    const heading = wrapper.find('h1.page-header-title')
+    expect(heading.exists()).toBe(true)
+    expect(heading.classes()).toContain('text-h4')
+    // -> No stray `<div class="text-h4 page-header-title">` left behind alongside it
+    expect(wrapper.find('div.page-header-title').exists()).toBe(false)
+  })
+})
+
 describe('PageHeader RTL-safe spacing', () => {
   it('spaces the page icon from the title with a logical (inline-start) padding, not a physical one', async () => {
     const wrapper = await mountHeader()

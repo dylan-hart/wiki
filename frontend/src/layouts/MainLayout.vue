@@ -1,14 +1,16 @@
 <template>
   <w-layout>
     <!--
-      WCAG 2.4.1 Bypass Blocks: the first focusable element in the app, ahead of every sidebar and
-      header control a keyboard user would otherwise have to tab through on every navigation.
-      `position: fixed` (see `.skip-link` below) takes it out of `WLayout`'s CSS grid entirely, so
-      being the first child here -- which is what makes it first in TAB order -- has no effect on
-      where anything else lands visually. It targets `WPage`'s `<main id="main-content">`, the
-      route-level content container every reading page renders into inside this layout.
+      The way past every sidebar link and header control on a keyboard, per WCAG 2.4.1 (Bypass
+      Blocks) -- the first focusable element in the whole layout, ahead of even `header-nav`. Still
+      reachable by a screen reader regardless of the CSS below (nothing here uses `display: none` /
+      `visibility: hidden`, which would pull it out of the accessibility tree along with the visual
+      hiding); the transform only keeps it off a sighted keyboard user's screen until THEY tab to it
+      too. `#w-page-main` is the `<main>` `WPage` renders, given a `tabindex="-1"` there for exactly
+      this -- see its own comment for why a fragment link alone would only move the SCROLL position,
+      not focus.
     -->
-    <a href="#main-content" class="skip-link">{{ t('common.a11y.skipToContent') }}</a>
+    <a href="#w-page-main" class="skip-link">{{ t('common.actions.skipToContent') }}</a>
     <w-header class="site-header-wrap">
       <header-nav />
     </w-header>
@@ -410,28 +412,34 @@ function openSidebar() {
 
 <style lang="scss">
 /*
-  Off-screen (not merely transparent -- `top` moved past the viewport edge, so there is no
-  invisible-but-hoverable strip sitting over the header) until it receives keyboard focus, at which
-  point it slides into view over everything else. `position: fixed` rather than `absolute`: `WLayout`
-  is a CSS grid (`grid-template-areas`), and a `fixed` element takes no part in a parent's layout at
-  all, so this being the first child in the template -- required for it to be first in TAB order --
-  cannot shift any grid area around it.
+  `position: fixed` at all times, not only once focused: `.w-layout` (the parent) is a CSS grid
+  with every one of its ordinary children placed by a named `grid-area` (header/drawer/main/footer)
+  -- an item with none of its own falls to the grid's auto-placement algorithm instead, which is
+  not where a skip link belongs. `position: fixed` takes it out of grid placement entirely in both
+  states, so there is nothing here for the grid to fit it into to get wrong.
+
+  Off-screen via `transform` rather than `sr-only`-style clipping, so this owns its own visibility
+  outright: a class-based visually-hidden utility paired with a `:focus` variant is two rules
+  fighting over `position` on the same element (the utility's `:focus` form necessarily wins that
+  fight on specificity alone), which would undo the fixed positioning above the moment this is
+  focused -- right when it needs to hold its position on screen the most.
 */
 .skip-link {
   position: fixed;
-  top: -3rem;
-  left: 0.5rem;
-  z-index: 1000;
-  padding: 0.75rem 1.25rem;
-  border-radius: 0 0 4px 4px;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 100;
+  padding: 8px 16px;
+  border-radius: 4px;
   background-color: $primary;
   color: #fff;
-  font-weight: 600;
+  font-weight: 500;
   text-decoration: none;
-  transition: top 0.15s ease-in-out;
+  transform: translateY(-150%);
+  transition: transform 0.15s var(--ease-standard, ease);
 
   &:focus {
-    top: 0;
+    transform: translateY(0);
   }
 }
 

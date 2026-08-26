@@ -5,6 +5,18 @@ import { createI18n } from 'vue-i18n'
 import PageToc from './PageToc.vue'
 
 /**
+ * `useI18n()` (added for OpenProject #1630 -- the hardcoded `aria-label="Table of contents"` is now
+ * `t('common.page.toc')`) needs an installed i18n instance to resolve at all, so every mount below
+ * carries one -- matching `PageHeader.test.js`'s own `mountHeader()` helper, which the same task
+ * introduced this component to.
+ */
+const i18n = createI18n({
+  legacy: false,
+  locale: 'en',
+  messages: { en: { 'common.page.toc': 'Table of Contents' } }
+})
+
+/**
  * `PageToc.vue`'s `<style lang="scss">` reaches for bare `$grey-9` / `$grey-7` / ... (see the file),
  * relying on the `@use '@/css/_theme.scss' as *; @use '@/css/_palette.scss' as *;` the app build
  * injects into every SFC style block via `css.preprocessorOptions.scss.additionalData`
@@ -13,14 +25,6 @@ import PageToc from './PageToc.vue'
  * is what makes it a good end-to-end check that the harness's SCSS wiring genuinely works, not just
  * that it is present in the config file.
  */
-
-// -> WP #1610: the nav's aria-label now resolves through t() (`common.page.toc`), the first useI18n()
-//   use in this component -- every mount needs the plugin present or setup() throws.
-const i18n = createI18n({
-  legacy: false,
-  locale: 'en',
-  messages: { en: { common: { page: { toc: 'Table of Contents' } } } }
-})
 
 describe('PageToc', () => {
   const nodes = [
@@ -76,5 +80,20 @@ describe('PageToc', () => {
       wrapper.unmount()
       heading.remove()
     }
+  })
+
+  /**
+   * OpenProject #1630 (task 1640): the landmark used to be a hardcoded English string, so it never
+   * followed the reader's locale even though `NavSidebar`'s own `<nav>` landmark (added by the same
+   * task) does. Localized instead, off the same `common.page.toc` key the page-properties panel's
+   * `H{min} → H{max}` UI already uses to talk about this same feature.
+   */
+  it('localizes its landmark label instead of a hardcoded English string', () => {
+    const wrapper = mount(PageToc, {
+      props: { nodes, selected: null },
+      global: { plugins: [i18n] }
+    })
+
+    expect(wrapper.attributes('aria-label')).toBe('Table of Contents')
   })
 })
