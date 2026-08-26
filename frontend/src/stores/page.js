@@ -5,7 +5,7 @@ import { pick } from 'es-toolkit/object'
 import { useSiteStore } from './site'
 import { useEditorStore } from './editor'
 import { useUserStore } from './user'
-import { isHomePath, localizedPagePath } from '@/helpers/pagePaths'
+import { isHomePath, localizedPagePath, normalizePagePath, pagePathHash } from '@/helpers/pagePaths'
 
 /**
  * The icon a page starts with.
@@ -169,7 +169,7 @@ export const usePageStore = defineStore('page', {
       this.notFound = false
       try {
         const pageData = await API_CLIENT.get(
-          `sites/${siteStore.id}/pages/${id ?? fastHash(normalizePath(path))}`,
+          `sites/${siteStore.id}/pages/${id ?? pagePathHash(normalizePagePath(path) || 'home')}`,
           {
             searchParams: {
               withContent,
@@ -922,40 +922,4 @@ function unwrap(resp) {
     throw new Error(resp.message || 'An unexpected error occured.')
   }
   return resp
-}
-
-/**
- * Reduce a route path to the form the server stores a page under.
- *
- * A page is looked up by the hash of its path, so the two sides have to agree on what the path *is*
- * before hashing it: the router hands over `/docs/intro`, the server holds `docs/intro`, and the site
- * root is the `home` page rather than an empty path.
- */
-function normalizePath(path) {
-  const clean = (path ?? '').replace(/^\/+/, '').replace(/\/+$/, '').toLowerCase()
-  return clean || 'home'
-}
-
-/**
- * Fast, non-cryptographic 53-bit hash to encode page paths.
- * Returns a URL-safe hex string.
- *
- * Mirrored on the server as `generatePathHash` in `backend/helpers/common.ts` — the two have to stay
- * identical, since this is what a page is addressed by.
- */
-function fastHash(str, seed = 0) {
-  let h1 = 0xdeadbeef ^ seed,
-    h2 = 0x41c6ce57 ^ seed
-  for (let i = 0, ch; i < str.length; i++) {
-    ch = str.charCodeAt(i)
-    h1 = Math.imul(h1 ^ ch, 2654435761)
-    h2 = Math.imul(h2 ^ ch, 1597334677)
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507)
-  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909)
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
-  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
-
-  // Convert to a 16-character hexadecimal string
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16)
 }
