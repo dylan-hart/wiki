@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
+import { and, count, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
@@ -283,6 +284,32 @@ class Groups {
    */
   guestActor(): AccessActor {
     return { groupIds: [WIKI.data.systemIds.guestsGroupId], permissions: [] }
+  }
+
+  /**
+   * The actor a specific user speaks for, resolved fresh from the database rather than from a
+   * request's session or API key (OpenProject #2187) — for a caller that has to check what SOMEBODY
+   * ELSE is allowed, not the caller making the request. `approveSubmission` is the motivating case: a
+   * reviewer approving a suggestion has to resolve `write:scripts`/`write:styles` against the
+   * submitter who wrote the markup, not the reviewer whose browser rendered it, and the submitter has
+   * no request of their own for `actorForRequest()` to read.
+   *
+   * No `scope`/`allowedClassifications` narrowing here — those exist only for a session/API-key
+   * caller's own narrowing (see `AccessActor`'s doc comment), and a user resolved by id has neither.
+   */
+  async actorForUserId(userId: string): Promise<AccessActor> {
+    const groupIds = await WIKI.models.users.getUserGroupIds(userId)
+    if (groupIds.length < 1) {
+      return { groupIds: [], permissions: [] }
+    }
+    const rows = await WIKI.db
+      .select({ permissions: groupsTable.permissions })
+      .from(groupsTable)
+      .where(inArray(groupsTable.id, groupIds))
+    return {
+      groupIds,
+      permissions: uniq(rows.flatMap((row) => (row.permissions ?? []) as string[]))
+    }
   }
 
   /**

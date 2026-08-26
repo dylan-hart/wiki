@@ -1598,14 +1598,12 @@ class Pages {
    * What the render may carry is settled here, while there is still an actor to ask, and travels with
    * the queued request.
    *
+   * @param renderPermissions Overrides the `write:scripts`/`write:styles` grant queued with the
+   *   request, instead of deriving it from `actor` — see `updatePage`'s own doc comment on the same
+   *   parameter (OpenProject #2187) for why a caller acting on somebody else's content needs this.
    * @returns False when there is no such page
    * @throws `renderUnsupportedEditor` for a page the server cannot render, or
    *         `renderPuppeteerMissing` when nothing here could drain the queue
-   */
-  /**
-   * @param renderPermissions Same override `updatePage` takes, and for the same reason: a re-render
-   *   queued from `approveSubmission`'s fallback path must post-process the submitter's markup
-   *   against the submitter's grants, not the reviewer `actor` who triggered the queue entry.
    */
   async queueRerender(
     siteId: string,

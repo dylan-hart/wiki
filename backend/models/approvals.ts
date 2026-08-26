@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createPatch } from 'diff'
 import { and, asc, eq, inArray, sql } from 'drizzle-orm'
-import { uniq } from 'es-toolkit/array'
 import {
   approvalRules as approvalRulesTable,
   groups as groupsTable,
@@ -1152,16 +1151,9 @@ class Approvals {
     if (!authorId) {
       return { scripts: false, styles: false }
     }
-    const groupRows = await WIKI.db
-      .select({ groupId: groupsTable.id, permissions: groupsTable.permissions })
-      .from(userGroupsTable)
-      .innerJoin(groupsTable, eq(userGroupsTable.groupId, groupsTable.id))
-      .where(eq(userGroupsTable.userId, authorId))
-    const submitterActor = {
-      id: authorId,
-      permissions: uniq(groupRows.flatMap((row) => (row.permissions as string[] | null) ?? [])),
-      groupIds: groupRows.map((row) => row.groupId)
-    }
+    // -> Resolved fresh from the db, not from a session/API key -- the submitter has no request of
+    //    their own for the reviewer's `approveSubmission` call to read one from.
+    const submitterActor = { id: authorId, ...(await WIKI.models.groups.actorForUserId(authorId)) }
     return {
       scripts: hasPermission(submitterActor, 'write:scripts', pageRef),
       styles: hasPermission(submitterActor, 'write:styles', pageRef)
