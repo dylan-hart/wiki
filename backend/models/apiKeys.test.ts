@@ -9,6 +9,7 @@ import {
 } from '../db/schema.ts'
 import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import type { GroupRule } from './groups.ts'
 
 /**
@@ -46,46 +47,6 @@ describe('apiKeys.narrowToScope', () => {
 })
 
 /**
- * Minimal stand-in for the subset of `Temporal` that `createKey()`/`verify()` touch (`Now.instant()`,
- * `Now.zonedDateTimeISO().add().toInstant()`, `Instant.compare()`, plus a `Date.prototype
- * .toTemporalInstant()` polyfill for the `expiration` column value).
- *
- * CLAUDE.md documents `Temporal` as a Node 26 global needing no import, but this sandbox's `node` is
- * v25.9.0, which doesn't expose it (same environment gap noted in `core/scheduler.test.ts` and tasks
- * 753/756/757/760/761 — not a spec deviation). Stubbing just what this code path touches keeps the
- * test independent of that runtime gap without changing what's actually exercised.
- */
-function installFakeTemporal(): void {
-  const durationToMs = (d: { days?: number; years?: number }) =>
-    (d.days ?? 0) * 86_400_000 + (d.years ?? 0) * 365 * 86_400_000
-  const makeInstant = (epochMs: number): any => ({
-    epochMilliseconds: epochMs,
-    toString: () => new Date(epochMs).toISOString()
-  })
-  const makeZonedDateTime = (epochMs: number): any => ({
-    add: (d: any) => makeZonedDateTime(epochMs + durationToMs(d)),
-    toInstant: () => makeInstant(epochMs)
-  })
-  ;(globalThis as any).Temporal = {
-    Now: {
-      instant: () => makeInstant(Date.now()),
-      zonedDateTimeISO: (_tz: string) => makeZonedDateTime(Date.now())
-    },
-    Instant: {
-      compare: (a: any, b: any) =>
-        a.epochMilliseconds < b.epochMilliseconds
-          ? -1
-          : a.epochMilliseconds > b.epochMilliseconds
-            ? 1
-            : 0
-    }
-  }
-  ;(Date.prototype as any).toTemporalInstant = function (this: Date) {
-    return makeInstant(this.getTime())
-  }
-}
-
-/**
  * `siteId` propagation: `createKey()` signs the given site (or `null`, for instance-wide) into the
  * token's `site` claim, and `verify()` reads it back onto `ApiKeyIdentity` so a route handler can read
  * `req.apiKey.siteId`. `WIKI.db` is a minimal in-memory stub (no Postgres) — just enough of
@@ -97,13 +58,9 @@ describe('apiKeys siteId propagation through JWT claims', () => {
   const SITE_ID = '33333333-3333-4333-8333-333333333333'
   const GROUP_ID = '44444444-4444-4444-8444-444444444444'
   let insertedRows: any[] = []
-  let previousTemporal: any
-  let previousToTemporalInstant: any
 
-  before(() => {
-    previousTemporal = (globalThis as any).Temporal
-    previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-    installFakeTemporal()
+  before(async () => {
+    await ensureTemporal()
     ;(globalThis as any).WIKI = {
       config: {
         api: { isEnabled: true },
@@ -144,12 +101,6 @@ describe('apiKeys siteId propagation through JWT claims', () => {
 
   after(() => {
     delete (globalThis as any).WIKI
-    ;(globalThis as any).Temporal = previousTemporal
-    if (previousToTemporalInstant === undefined) {
-      delete (Date.prototype as any).toTemporalInstant
-    } else {
-      ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
-    }
   })
 
   test('createKey signs the given siteId into the token, and verify() returns it on the identity', async () => {
@@ -188,11 +139,9 @@ describe('apiKeys siteId propagation through JWT claims', () => {
  */
 describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
-  let previousTemporal: any
 
   before(async () => {
-    previousTemporal = (globalThis as any).Temporal
-    installFakeTemporal()
+    await ensureTemporal()
     fixtures = await setupTestDb()
     WIKI.config.api = { isEnabled: true }
     WIKI.config.auth = { certs: generateSigningCertificates() }
@@ -200,7 +149,6 @@ describe('apiKeys personal access tokens (DB-backed)', { skip: !hasTestDatabase(
 
   after(async () => {
     await teardownTestDb()
-    ;(globalThis as any).Temporal = previousTemporal
   })
 
   // -> `fixtures` (and its one seeded user/group) are shared across every test in this describe, so
@@ -353,13 +301,9 @@ describe(
   () => {
     let fixtures: TestFixtures
     let groupsModel: typeof import('./groups.ts').groups
-    let previousTemporal: any
-    let previousToTemporalInstant: any
 
     before(async () => {
-      previousTemporal = (globalThis as any).Temporal
-      previousToTemporalInstant = (Date.prototype as any).toTemporalInstant
-      installFakeTemporal()
+      await ensureTemporal()
 
       fixtures = await setupTestDb()
       ;({ groups: groupsModel } = await import('./groups.ts'))
@@ -375,12 +319,6 @@ describe(
 
     after(async () => {
       await teardownTestDb()
-      ;(globalThis as any).Temporal = previousTemporal
-      if (previousToTemporalInstant === undefined) {
-        delete (Date.prototype as any).toTemporalInstant
-      } else {
-        ;(Date.prototype as any).toTemporalInstant = previousToTemporalInstant
-      }
     })
 
     test('a key issued for a group whose only rule grants read:pages succeeds on a page read, with no elevated permission needed anywhere', async () => {
