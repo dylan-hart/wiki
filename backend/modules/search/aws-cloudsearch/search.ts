@@ -977,18 +977,26 @@ export class AwsCloudSearchModule implements SearchModule {
   }
 
   /**
-   * Every document id currently in a site's domain, `matchall`-queried in pages so a large domain is
-   * never pulled through in one request. No `filterQuery`/`siteId` clause is needed -- unlike
-   * `azure-search`, this module's domain is already scoped to one site (`buildFilterQuery`'s own doc
-   * comment explains why). `rebuild()`'s purge step (OpenProject #922) diffs this against what it just
-   * re-uploaded to find what should no longer be there.
+   * Every document id currently in the domain that belongs to this site, `matchall`-queried in pages
+   * so a large domain is never pulled through in one request, scoped by a `siteId` `filterQuery`
+   * clause (OpenProject #2117) -- mirroring `azure-search`'s own `fetchAllIds(client, siteId)`. An
+   * unscoped `matchall` was this module's earlier assumption that a domain is always single-site
+   * (refuted by OpenProject #2108: nothing stops two sites configuring the same domain), and fed
+   * `rebuild()`'s purge step every other site's ids too. `rebuild()` diffs this against what it just
+   * re-uploaded for this site to find what should no longer be there.
    */
-  private async fetchAllIds(client: CloudSearchQueryClient): Promise<string[]> {
+  private async fetchAllIds(client: CloudSearchQueryClient, siteId: string): Promise<string[]> {
     const PAGE_SIZE = 1000
     const ids: string[] = []
+    const filterQuery = termClause('siteId', siteId)
     let start = 0
     for (;;) {
-      const { rows } = await this.runQuery(client, { query: 'matchall', start, size: PAGE_SIZE })
+      const { rows } = await this.runQuery(client, {
+        query: 'matchall',
+        filterQuery,
+        start,
+        size: PAGE_SIZE
+      })
       if (rows.length === 0) {
         break
       }
@@ -999,6 +1007,29 @@ export class AwsCloudSearchModule implements SearchModule {
       }
     }
     return ids
+  }
+
+  /**
+   * True when the domain still holds at least one document with no `siteId` value at all -- i.e. a
+   * document indexed before this module started stamping documents with their site (OpenProject
+   * #2113). A `siteId`-scoped `fetchAllIds()` can only be trusted as the *complete* list of what
+   * belongs to this site once every document in the domain -- this site's and any sibling site's
+   * sharing it -- carries the field: until then, an untagged document might be this site's own
+   * now-deleted page (a real ghost, invisible to the scoped list) or a sibling site's still-live page
+   * (which an unscoped list would wrongly purge), and there is no way to tell the two apart from the
+   * domain alone. `rebuild()` gates its purge step on this being `false` rather than guess.
+   *
+   * `(range field=siteId {,})` is CloudSearch's idiom for "this field has any value" (an unbounded
+   * range matches every document that set it); negating it finds the ones that didn't.
+   */
+  private async hasUnbackfilledDocuments(client: CloudSearchQueryClient): Promise<boolean> {
+    const { count } = await this.runQuery(client, {
+      query: 'matchall',
+      filterQuery: '(not (range field=siteId {,}))',
+      start: 0,
+      size: 1
+    })
+    return count > 0
   }
 
   /**
@@ -1206,14 +1237,19 @@ export class AwsCloudSearchModule implements SearchModule {
    * Purges ghost documents afterwards (OpenProject #922): `uploadBatch` only ever adds/overwrites, so a
    * page deleted while this engine was unreachable -- the exact scenario `indexPage`'s own doc comment
    * names as what a later rebuild is supposed to put right -- stayed in the domain forever. Every id
-   * currently in the domain (`fetchAllIds`) that was not just re-uploaded is stale and gets removed with
-   * an SDF `delete` entry.
+   * currently in the domain for this site (`fetchAllIds`, `siteId`-scoped) that was not just
+   * re-uploaded is stale and gets removed with an SDF `delete` entry -- but only once
+   * `hasUnbackfilledDocuments` confirms every document in the domain already carries a `siteId`
+   * (OpenProject #2117): while any are still untagged, an unscoped purge could delete a sibling
+   * site's live documents and a scoped one can't yet tell a real ghost from a not-yet-reindexed
+   * sibling, so the purge is skipped and logged rather than guess.
    */
   async rebuild(siteId: string): Promise<RebuildResult> {
     const locales = await this.pageSource.locales(siteId)
     WIKI.logger.info(`Rebuilding the AWS CloudSearch domain for ${locales.length} locale(s)...`)
     const client = this.queryClientFor(siteId, this.configFor(siteId))
-    const existingIds = await this.fetchAllIds(client)
+    const backfillComplete = !(await this.hasUnbackfilledDocuments(client))
+    const existingIds = backfillComplete ? await this.fetchAllIds(client, siteId) : []
     const uploadedIds = new Set<string>()
     const result: RebuildResult = { pages: 0, locales: [] }
 
@@ -1238,15 +1274,23 @@ export class AwsCloudSearchModule implements SearchModule {
       WIKI.logger.info(`Reindexed ${localePages} page(s) in ${locale}.`)
     }
 
-    const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
-    if (staleIds.length > 0) {
-      await this.uploadBatch(
-        siteId,
-        staleIds.map((id) => ({ type: 'delete' as const, id }))
-      )
+    if (!backfillComplete) {
       WIKI.logger.info(
-        `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+        'Skipping stale-document purge for the AWS CloudSearch domain: not every document is tagged ' +
+          'with a site id yet -- rebuild every site sharing this domain once before ghost documents ' +
+          'can be purged safely.'
       )
+    } else {
+      const staleIds = existingIds.filter((id) => !uploadedIds.has(id))
+      if (staleIds.length > 0) {
+        await this.uploadBatch(
+          siteId,
+          staleIds.map((id) => ({ type: 'delete' as const, id }))
+        )
+        WIKI.logger.info(
+          `Purged ${staleIds.length} stale document(s) from the AWS CloudSearch domain.`
+        )
+      }
     }
 
     WIKI.logger.info(`AWS CloudSearch domain rebuild completed: ${result.pages} page(s) [ OK ]`)
