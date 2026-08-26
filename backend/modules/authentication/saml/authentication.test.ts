@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
+import { inflateRawSync as zlibInflateRawSync } from 'node:zlib'
 import SamlAuthentication from './authentication.ts'
 // -> A deep import into `@node-saml/node-saml`'s own compiled output, not the package's public entry
 //    point: `signXml` is the low-level XML-signing primitive its own test suite uses to build signed
@@ -60,6 +61,14 @@ function iso(d: Date): string {
   return d.toISOString().replace(/\.\d+Z$/, 'Z')
 }
 
+/**
+ * The AuthnRequest id every fixture response answers, by default — stands in for what a real
+ * `authorizationUrl()` call would have generated and `req.session.authFlow.requestId` would have
+ * carried over. Tests that mean to exercise the mismatch/replay paths pass a different `requestId` to
+ * `profile()`, or a different `inResponseTo` to `buildResponseXml()`, rather than changing this.
+ */
+const REQUEST_ID = '_test-authn-request-id'
+
 /** A hand-built, unsigned SAMLResponse, with a full attribute statement and a controllable validity window. */
 function buildResponseXml({
   notBefore,
@@ -67,7 +76,8 @@ function buildResponseXml({
   issueInstant,
   audience = AUDIENCE,
   nameId = 'alice@example.com',
-  groups = ['editors', 'admins']
+  groups = ['editors', 'admins'],
+  inResponseTo = REQUEST_ID
 }: {
   notBefore: string
   notOnOrAfter: string
@@ -75,10 +85,11 @@ function buildResponseXml({
   audience?: string
   nameId?: string
   groups?: string[]
+  inResponseTo?: string
 }): string {
   const groupValues = groups.map((g) => `<saml:AttributeValue>${g}</saml:AttributeValue>`).join('')
   return `<?xml version="1.0"?>
-<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="${issueInstant}" Destination="https://wiki.example.com/_api/auth/strategy1/callback">
+<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="${issueInstant}" InResponseTo="${inResponseTo}" Destination="https://wiki.example.com/_api/auth/strategy1/callback">
 <saml:Issuer>https://idp.example.com/saml</saml:Issuer>
 <samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>
 <saml:Assertion Version="2.0" ID="_assertion1" IssueInstant="${issueInstant}">
@@ -157,11 +168,15 @@ test('authorizationUrl: HTTP-Redirect binding produces a redirect URL carrying R
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'string')
-  const url = new URL(result as string)
+  assert.ok('url' in result)
+  const url = new URL(result.url)
   assert.equal(url.origin + url.pathname, 'https://idp.example.com/sso')
   assert.ok(url.searchParams.get('SAMLRequest'))
   assert.equal(url.searchParams.get('RelayState'), 'my-state-value')
+  // -> The `ID` node-saml actually put on the AuthnRequest, decompressed straight out of the URL it
+  //    just built — not merely present, but the *same* value `profile()` will later check against.
+  const inflated = zlibInflateRawSync(Buffer.from(url.searchParams.get('SAMLRequest')!, 'base64'))
+  assert.match(inflated.toString('utf8'), new RegExp(`ID="${result.requestId}"`))
 })
 
 test('authorizationUrl: HTTP-POST binding (the default) produces a self-submitting form carrying RelayState', async () => {
@@ -175,11 +190,11 @@ test('authorizationUrl: HTTP-POST binding (the default) produces a self-submitti
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'object')
-  const html = (result as { html: string }).html
-  assert.match(html, /<form method="post" action="https:\/\/idp\.example\.com\/sso">/)
-  assert.match(html, /name="SAMLRequest"/)
-  assert.match(html, /name="RelayState" value="my-state-value"/)
+  assert.ok('html' in result)
+  assert.match(result.html, /<form method="post" action="https:\/\/idp\.example\.com\/sso">/)
+  assert.match(result.html, /name="SAMLRequest"/)
+  assert.match(result.html, /name="RelayState" value="my-state-value"/)
+  assert.ok(result.requestId)
 })
 
 test('authorizationUrl: defaults to HTTP-POST when unconfigured', async () => {
@@ -190,7 +205,7 @@ test('authorizationUrl: defaults to HTTP-POST when unconfigured', async () => {
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'object')
+  assert.ok('html' in result)
 })
 
 test('authorizationUrl: refuses a strategy with no entryPoint/issuer/cert configured', async () => {
@@ -234,6 +249,7 @@ test('profile: refuses to validate a response against a strategy with entryPoint
       state: 's',
       nonce: '',
       codeVerifier: '',
+      requestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
     }),
@@ -248,6 +264,7 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
     state: 's',
     nonce: '',
     codeVerifier: '',
+    requestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -257,6 +274,71 @@ test('profile: validates a genuinely signed assertion and extracts the mapped cl
   assert.deepEqual(profile.groups, ['editors', 'admins'])
 })
 
+/*
+  `validateInResponseTo` is the fix for the attack `docs/audit-2026-08-24/security/10-auth-modules.md`
+  §4 describes: an unsolicited or replayed `SAMLResponse` for the victim, POSTed into a flow the
+  attacker started themselves. `matchCallbackFlow()` in `api/authentication.ts` can't catch this — it
+  only compares `RelayState`/`state` against the attacker's *own* session, which is satisfied by
+  construction — so `InResponseTo` against this session's own `requestId` (see `AuthFlow.requestId`)
+  is the only thing left standing between a genuine callback and one of these.
+*/
+test("profile: rejects a response whose InResponseTo does not match the flow's requestId", async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      // -> This session's own flow asked for REQUEST_ID — the response below answers a different one
+      requestId: REQUEST_ID,
+      currentUrl: REDIRECT_URI,
+      body: {
+        SAMLResponse: validResponseBase64({ inResponseTo: '_someone-elses-request' }),
+        RelayState: 's'
+      }
+    }),
+    /InResponseTo/
+  )
+})
+
+test('profile: rejects a second presentation of the same response, once this session has already consumed its requestId', async () => {
+  const auth = new SamlAuthentication('strategy1', BASE_CONF)
+  const body = { SAMLResponse: validResponseBase64(), RelayState: 's' }
+
+  // -> First presentation: this session's flow still has its requestId, so it validates normally
+  const profile = await auth.profile({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: '',
+    requestId: REQUEST_ID,
+    currentUrl: REDIRECT_URI,
+    body
+  })
+  assert.equal(profile.email, 'alice@example.com')
+
+  /*
+    Second presentation of the exact same response. In the real route, this can never reach `profile()`
+    at all: `matchCallbackFlow()` clears `req.session.authFlow` the instant the first callback is
+    matched (`api/authentication.ts`'s "one callback per login" comment), so a repeat POST is refused
+    before this module is even asked. `flowCallback.requestId` being absent here is what that consumed
+    session looks like by the time anything downstream could see it — nothing is left to check the
+    response's `InResponseTo` against, so it is refused rather than silently accepted.
+  */
+  await assert.rejects(
+    auth.profile({
+      redirectUri: REDIRECT_URI,
+      state: 's',
+      nonce: '',
+      codeVerifier: '',
+      currentUrl: REDIRECT_URI,
+      body
+    }),
+    /InResponseTo/
+  )
+})
+
 test('profile: mapGroups off leaves groups undefined rather than empty', async () => {
   const auth = new SamlAuthentication('strategy1', { ...BASE_CONF, mapGroups: false })
   const profile = await auth.profile({
@@ -264,6 +346,7 @@ test('profile: mapGroups off leaves groups undefined rather than empty', async (
     state: 's',
     nonce: '',
     codeVerifier: '',
+    requestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -290,6 +373,7 @@ test('profile: rejects a tampered assertion (signature no longer verifies)', asy
       state: 's',
       nonce: '',
       codeVerifier: '',
+      requestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: tamperedBody, RelayState: 's' }
     })
@@ -305,16 +389,25 @@ test('profile: rejects an assertion whose validity window has passed outside acc
     issueInstant: iso(new Date(now.getTime() - 20 * 60_000))
   })
 
+  /*
+    With `validateInResponseTo: 'always'` on, node-saml rejects this one step earlier than it used to:
+    an expired `SubjectConfirmationData` means no candidate `SubjectConfirmation` survives its own
+    window check, so the `InResponseTo`-matching block (only reached at all once `validateInResponseTo`
+    is enabled) finds none to compare and throws "No valid subject confirmation found" — rather than
+    falling through to the assertion-level `Conditions` check that used to produce an "expired" message
+    for this same fixture. Either message is a correct refusal of an expired assertion.
+  */
   await assert.rejects(
     auth.profile({
       redirectUri: REDIRECT_URI,
       state: 's',
       nonce: '',
       codeVerifier: '',
+      requestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: body, RelayState: 's' }
     }),
-    /expired/
+    /subject confirmation/i
   )
 })
 
@@ -336,6 +429,7 @@ test('profile: an assertion just inside acceptedClockSkewMs is accepted', async 
     state: 's',
     nonce: '',
     codeVerifier: '',
+    requestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: body, RelayState: 's' }
   })
@@ -357,6 +451,7 @@ test('profile: rejects an assertion whose audience does not match', async () => 
       state: 's',
       nonce: '',
       codeVerifier: '',
+      requestId: REQUEST_ID,
       currentUrl: REDIRECT_URI,
       body: { SAMLResponse: body, RelayState: 's' }
     }),
@@ -396,6 +491,7 @@ test('profile: cert config with a pipe-joined pair of certificates still validat
     state: 's',
     nonce: '',
     codeVerifier: '',
+    requestId: REQUEST_ID,
     currentUrl: REDIRECT_URI,
     body: { SAMLResponse: validResponseBase64(), RelayState: 's' }
   })
@@ -410,6 +506,7 @@ test('profile: rejects a callback with no SAMLResponse at all (the GET login cal
       state: 's',
       nonce: '',
       codeVerifier: '',
+      requestId: REQUEST_ID,
       currentUrl: REDIRECT_URI
     }),
     { message: 'ERR_NO_SAML_RESPONSE' }

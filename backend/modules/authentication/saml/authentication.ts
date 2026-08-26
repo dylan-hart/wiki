@@ -1,14 +1,63 @@
-import { SAML } from '@node-saml/node-saml'
+import { SAML, ValidateInResponseTo } from '@node-saml/node-saml'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
+import type { CacheProvider } from '@node-saml/node-saml'
 
 /**
- * What `authorizationUrl()` hands back to the `/auth/:strategyId/authorize` route: a plain string for
- * the HTTP-Redirect binding (the browser is redirected straight to it), or a self-submitting HTML page
- * for the HTTP-POST binding — the AuthnRequest travels as a form POST to the identity provider instead
- * of a query string, which is what `authnRequestBinding` chooses between. Every other module answers
- * with a URL only; this is the one place the route branches on the shape of what came back.
+ * What `authorizationUrl()` hands back to the `/auth/:strategyId/authorize` route: `url` for the
+ * HTTP-Redirect binding (the browser is redirected straight to it), or `html` for a self-submitting
+ * form for the HTTP-POST binding — the AuthnRequest travels as a form POST to the identity provider
+ * instead of a query string, which is what `authnRequestBinding` chooses between. Every other module
+ * answers with a plain URL string; this is the one place the route branches on the shape of what came
+ * back. `requestId` is the `ID` node-saml put on the AuthnRequest it just built — the route writes it
+ * onto `req.session.authFlow.requestId` so `profile()` can check the callback's `InResponseTo` against
+ * it (see `SessionCacheProvider` below).
  */
-export type SamlAuthorizationResult = string | { html: string }
+export type SamlAuthorizationResult = ({ url: string } | { html: string }) & { requestId: string }
+
+/**
+ * Bridges node-saml's replay-cache expectation (`CacheProvider`, normally an in-memory dictionary kept
+ * alive across the authorize/callback pair by a long-lived `SAML` instance) onto this module's actual
+ * shape: a fresh `SAML` instance per request (see the class header comment for why), with the one id
+ * that ties the two requests together carried on the session instead — `AuthFlow.requestId`.
+ *
+ * On the authorize leg, `expectedId` is left unset: node-saml calls `saveAsync(id, instant)` itself,
+ * right after generating the AuthnRequest's `ID` (because `validateInResponseTo: 'always'` makes
+ * `mustValidateInResponseTo()` true), so `saveAsync` here does nothing but *record* that id for
+ * `authorizationUrl()` to read back and hand to the route — there is nothing to persist server-side,
+ * the browser is the courier via the session.
+ *
+ * On the callback leg, `expectedId` is `flowCallback.requestId` — the id `req.session.authFlow` carried
+ * over. `getAsync` answers node-saml's lookup with a fresh timestamp only when asked for *that* id, so
+ * a `SAMLResponse` whose `InResponseTo` is anything else (unsolicited, or captured from a different
+ * login) finds nothing and is refused. `removeAsync` is a no-op: this cache provider is never reused
+ * across requests, so there is no local "consumed" state to clear — replaying the *same* response
+ * against the *same* session is what `matchCallbackFlow()` already refuses, by clearing
+ * `req.session.authFlow` the moment a callback is matched, before `profile()` ever runs again for it.
+ */
+class SessionCacheProvider implements CacheProvider {
+  /** Set by `saveAsync` on the authorize leg — read back by `authorizationUrl()` once it resolves. */
+  savedId?: string
+  private readonly expectedId?: string
+
+  constructor(expectedId?: string) {
+    this.expectedId = expectedId
+  }
+
+  async saveAsync(key: string, value: string) {
+    this.savedId = key
+    return { value, createdAt: Date.now() }
+  }
+
+  async getAsync(key: string): Promise<string | null> {
+    return this.expectedId !== undefined && key === this.expectedId
+      ? new Date().toISOString()
+      : null
+  }
+
+  async removeAsync(key: string | null): Promise<string | null> {
+    return key
+  }
+}
 
 /** A SAML attribute value as `@node-saml/node-saml` hands it back: a bare value, or several of them. */
 function firstOf(value: unknown): unknown {
@@ -35,7 +84,10 @@ function asStringArray(value: unknown): string[] {
  * Every login builds a fresh `SAML` instance from the strategy's stored config rather than keeping one
  * around: unlike OIDC there is no discovery round trip to amortize, and a `NodeSAML` instance is cheap
  * — this way a config change (a rotated certificate, say) takes effect on the very next login with no
- * cache to invalidate.
+ * cache to invalidate. `validateInResponseTo: 'always'` needs somewhere to remember the outbound
+ * AuthnRequest id between that fresh instance's own two, otherwise-unconnected calls — see
+ * `SessionCacheProvider` above for how that's bridged through the session instead of an instance kept
+ * around just for its cache.
  */
 export default class SamlAuthentication {
   strategyId: string
@@ -62,7 +114,7 @@ export default class SamlAuthentication {
     return parts.length > 1 ? parts : raw
   }
 
-  private buildSaml(redirectUri: string): SAML {
+  private buildSaml(redirectUri: string, cacheProvider: CacheProvider): SAML {
     const {
       entryPoint,
       issuer,
@@ -122,7 +174,15 @@ export default class SamlAuthentication {
       passive: !!passive,
       providerName: providerName || undefined,
       skipRequestCompression: !!skipRequestCompression,
-      authnRequestBinding: authnRequestBinding || 'HTTP-POST'
+      authnRequestBinding: authnRequestBinding || 'HTTP-POST',
+      /*
+        Off by node-saml's own default, which would accept any well-formed `SAMLResponse` regardless of
+        whether this SP ever asked for it — the gap `SessionCacheProvider` above exists to close.
+        `cacheProvider` is what makes turning this on actually enforce something: node-saml consults it
+        via `getAsync`/`saveAsync` rather than an assertion field it can check unaided.
+      */
+      validateInResponseTo: ValidateInResponseTo.always,
+      cacheProvider
     })
   }
 
@@ -135,11 +195,17 @@ export default class SamlAuthentication {
    * same way 2.5.x's `passport-saml` strategy made it.
    */
   async authorizationUrl({ redirectUri, state }: AuthFlow): Promise<SamlAuthorizationResult> {
-    const saml = this.buildSaml(redirectUri)
-    if (this.conf.authnRequestBinding === 'HTTP-Redirect') {
-      return saml.getAuthorizeUrlAsync(state, undefined, {})
-    }
-    return { html: await saml.getAuthorizeFormAsync(state, undefined, {}) }
+    const cacheProvider = new SessionCacheProvider()
+    const saml = this.buildSaml(redirectUri, cacheProvider)
+    const result =
+      this.conf.authnRequestBinding === 'HTTP-Redirect'
+        ? { url: await saml.getAuthorizeUrlAsync(state, undefined, {}) }
+        : { html: await saml.getAuthorizeFormAsync(state, undefined, {}) }
+    // -> `validateInResponseTo: 'always'` (see `buildSaml()`) is what makes node-saml call
+    //    `cacheProvider.saveAsync(id, …)` with the AuthnRequest's own `ID` as soon as it generates one,
+    //    which is where `SessionCacheProvider.savedId` comes from — never unset once either call above
+    //    has returned.
+    return { ...result, requestId: cacheProvider.savedId! }
   }
 
   /**
@@ -152,16 +218,21 @@ export default class SamlAuthentication {
    * governs the outbound AuthnRequest only. A callback with no `SAMLResponse` at all — the GET login
    * callback route, which this module has no use for — is refused rather than silently accepted.
    *
-   * `validatePostResponseAsync` is where the real checking happens: signature, `audience`, and the
-   * clock-skew-bounded validity window (`acceptedClockSkewMs`) are all enforced inside `node-saml`
-   * itself before a profile is ever handed back — a tampered assertion, or one whose signature does not
-   * chain to `cert`, throws here rather than returning a profile to trust.
+   * `validatePostResponseAsync` is where the real checking happens: signature, `audience`, the
+   * clock-skew-bounded validity window (`acceptedClockSkewMs`), and — via `SessionCacheProvider`, built
+   * from `flowCallback.requestId` — that `InResponseTo` is the outbound AuthnRequest this session's own
+   * `authorizationUrl()` call generated, are all enforced inside `node-saml` itself before a profile is
+   * ever handed back. An unsolicited response, one whose `InResponseTo` belongs to a different login, a
+   * tampered assertion, or one whose signature does not chain to `cert`, all throw here rather than
+   * returning a profile to trust — a login failure, for `finishProviderLogin()` in `api/authentication.ts`
+   * to turn into a redirect, never a 500.
    */
   async profile(flowCallback: AuthFlowCallback): Promise<ProviderProfile> {
     if (!flowCallback.body?.SAMLResponse) {
       throw new Error('ERR_NO_SAML_RESPONSE')
     }
-    const saml = this.buildSaml(flowCallback.redirectUri)
+    const cacheProvider = new SessionCacheProvider(flowCallback.requestId)
+    const saml = this.buildSaml(flowCallback.redirectUri, cacheProvider)
     const { profile } = await saml.validatePostResponseAsync({
       SAMLResponse: flowCallback.body.SAMLResponse,
       RelayState: flowCallback.body.RelayState

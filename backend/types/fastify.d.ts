@@ -72,6 +72,13 @@ declare module 'fastify' {
       state: string
       nonce: string
       codeVerifier: string
+      /**
+       * The `ID` of the AuthnRequest a SAML module sent, surfaced by `authorizationUrl()`'s result and
+       * written here right after — absent for every other protocol. Read back by that same module's
+       * `profile()` on the callback leg (see `AuthFlow.requestId` in `models/authentication.ts`) so a
+       * `SAMLResponse` is only accepted if its `InResponseTo` is the one this session actually sent.
+       */
+      requestId?: string
       /** Where to send the browser once it is logged in. */
       redirect: string
       /** When this flow was started, as an ISO instant, so that a stale one can be refused. */

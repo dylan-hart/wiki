@@ -132,6 +132,7 @@ async function finishProviderLogin(
       state: flow.state,
       nonce: flow.nonce,
       codeVerifier: flow.codeVerifier,
+      requestId: flow.requestId,
       currentUrl: extra.currentUrl,
       code: extra.code,
       ticket: extra.ticket,
@@ -1025,7 +1026,7 @@ async function routes(app: FastifyInstance) {
       }
 
       const siteId = req.query.siteId ?? WIKI.sitesMappings[req.hostname] ?? ''
-      const flow = {
+      const flow: NonNullable<FastifyRequest['session']['authFlow']> = {
         strategyId: strategy.id,
         siteId,
         state: nanoid(32),
@@ -1047,11 +1048,19 @@ async function routes(app: FastifyInstance) {
         WIKI.models.flags.authDebug(
           `Redirecting to ${strategy.module} provider for strategy ${strategy.id} from ${req.ip}`
         )
-        // -> A module answers with a URL to redirect to, or — see `SamlAuthorizationResult` — an HTML
-        //    page with a form that submits itself, for a provider whose request has to travel as a POST
-        return typeof authorization === 'string'
-          ? reply.redirect(authorization)
-          : reply.type('text/html').send(authorization.html)
+        // -> A module answers with a plain URL string, or — see `SamlAuthorizationResult` — an object
+        //    carrying either `url` or `html` (a self-submitting form, for a provider whose request has
+        //    to travel as a POST) alongside `requestId`: the id `profile()` will check the callback's
+        //    `InResponseTo` against, which only a SAML module produces and only this leg can capture.
+        if (typeof authorization === 'string') {
+          return reply.redirect(authorization)
+        }
+        if ('requestId' in authorization) {
+          flow.requestId = authorization.requestId
+        }
+        return 'html' in authorization
+          ? reply.type('text/html').send(authorization.html)
+          : reply.redirect(authorization.url)
       } catch (err: any) {
         WIKI.logger.warn(`Could not start a login at ${strategy.module}: ${err.message}`)
         return reply.redirect(loginErrorUrl(flow.redirect, err.message))
