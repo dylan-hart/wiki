@@ -1973,6 +1973,70 @@ describe('users.login (form-based provider auto-provisioning)', () => {
 })
 
 /**
+ * `login()`'s own defense-in-depth guard against an empty/missing password on a `useForm` strategy
+ * (LDAP being the one this actually protects, since its module-level check is the other half of the
+ * same fix) — the route schema requiring `password` is the first guard, this is the second, and
+ * neither is allowed to depend on the other alone.
+ */
+describe('users.login (empty/missing password guard)', () => {
+  const strategyId = 'strategy-1'
+
+  function installWiki(authenticate: () => Promise<any>) {
+    ;(globalThis as any).WIKI = {
+      data: { authentication: [{ key: 'ldap', useForm: true }] },
+      auth: {
+        strategies: {
+          [strategyId]: {
+            module: 'ldap',
+            authenticate
+          }
+        }
+      },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: { getStrategyById: async () => null }
+      }
+    }
+  }
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('an empty-string password is refused as ERR_LOGIN_FAILED without ever calling the strategy', async (t) => {
+    const authenticate = t.mock.fn(async () => {
+      throw new Error('should not be called')
+    })
+    installWiki(authenticate)
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', password: '', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_LOGIN_FAILED/
+    )
+    assert.equal(authenticate.mock.calls.length, 0)
+  })
+
+  test('an omitted (undefined) password is refused as ERR_LOGIN_FAILED without ever calling the strategy', async (t) => {
+    const authenticate = t.mock.fn(async () => {
+      throw new Error('should not be called')
+    })
+    installWiki(authenticate)
+
+    await assert.rejects(
+      users.login(
+        { siteId: 'site-1', strategyId, username: 'ada', ip: '127.0.0.1' },
+        { session: {} }
+      ),
+      /ERR_LOGIN_FAILED/
+    )
+    assert.equal(authenticate.mock.calls.length, 0)
+  })
+})
+
+/**
  * `reassignContent`'s three refusals (same user, unknown target, target is a system account) all run
  * before the method ever opens its transaction, off nothing but `getById()`'s return value — so they
  * are tested by mocking that one collaborator, the same way `users.loginTFA`'s suite above mocks its

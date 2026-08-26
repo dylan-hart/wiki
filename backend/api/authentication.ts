@@ -337,7 +337,11 @@ async function routes(app: FastifyInstance) {
         },
         body: {
           type: 'object',
-          required: ['strategyId'],
+          // -> `password` is required here too, not just checked deeper in `users.login()`: an
+          //    omitted key skips `minLength`'s check entirely (it only constrains a *present*
+          //    value), so without this a body of `{ strategyId, username }` validated and reached
+          //    the LDAP strategy with `password: undefined`.
+          required: ['strategyId', 'password'],
           properties: {
             strategyId: {
               type: 'string',

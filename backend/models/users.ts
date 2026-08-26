@@ -1695,6 +1695,18 @@ class Users {
     if (strategyId in WIKI.auth.strategies) {
       const str = WIKI.auth.strategies[strategyId] as any
       const strInfo = WIKI.data.authentication.find((a: any) => a.key === str.module)
+
+      // -> Defense in depth, not the only guard: the route schema already requires `password` on
+      //    the request body, but a form-based module's own verification bind must not depend on
+      //    that alone — refuse an empty/missing password here too, before `str.authenticate()` ever
+      //    runs, rather than trusting every present and future `useForm` module to check it itself.
+      if (strInfo.useForm && !password) {
+        WIKI.models.flags.authDebug(
+          `Login attempt on site ${siteId} using ${str.module} strategy ${strategyId} rejected: no password provided`
+        )
+        throw new Error('ERR_LOGIN_FAILED')
+      }
+
       const context = {
         ip,
         siteId,
