@@ -417,7 +417,7 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
       permissions: ['manage:system'],
       allowedClassifications: [fixtures.classificationId]
     }
-    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages'], null), true)
   })
 
   test('mayHoldPermissionSomewhere ignores a DENY rule elsewhere: it answers "holds it somewhere", not "may use it here"', async () => {
