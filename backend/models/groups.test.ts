@@ -493,6 +493,65 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
     await levelsModel.delete(restricted.id)
   })
 
+  /**
+   * OpenProject #2119: the `allowedClassifications` allow-set now sits ABOVE the `manage:system`
+   * short-circuit — an administrator's credential opted into a classification-scoped allow-set is
+   * still held to it, unlike every other rule `manage:system` bypasses. The untested combination the
+   * task calls out: an actor holding BOTH `manage:system` AND a non-null allow-set.
+   */
+  test('an actor holding manage:system AND a non-null allowedClassifications is refused a page outside its allow-set, and still allowed one inside it (OpenProject #2119)', async () => {
+    await setGroupRules([])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted 2119', sortOrder: 99 })
+
+    const capped = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    const publicPage = {
+      path: 'public-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+    const restrictedPage = {
+      path: 'restricted-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+
+    // -> No rule at all grants read:pages here — the only reason either of these could pass is the
+    //    manage:system bypass, which is exactly what's being narrowed.
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', publicPage), true)
+    assert.equal(groupsModel.checkAccess(capped, 'read:pages', restrictedPage), false)
+
+    // -> A manage:system actor with a null/absent allow-set is unaffected — the existing
+    //    "manage:system bypasses every rule" case above must still pass.
+    const uncappedAdmin = { groupIds: [fixtures.groupId], permissions: ['manage:system'] }
+    assert.equal(groupsModel.checkAccess(uncappedAdmin, 'read:pages', restrictedPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  /**
+   * OpenProject #2121: `mayHoldPermissionSomewhere()` has no page ref to narrow by classification, so
+   * the decision recorded on its doc comment is to widen (answer as if unrestricted) rather than
+   * refuse for a `manage:system` actor carrying a non-null allow-set — every real caller re-checks
+   * per row with `checkAccess()` before any classified content is exposed. This pins that choice so a
+   * future edit can't silently flip it.
+   */
+  test('mayHoldPermissionSomewhere still answers true for manage:system with a non-null allowedClassifications (OpenProject #2121)', async () => {
+    await setGroupRules([])
+    const actor = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    assert.equal(groupsModel.mayHoldPermissionSomewhere(actor, ['write:pages']), true)
+  })
+
   test('allowedClassifications does not gate a page whose own classification is unknown (null)', async () => {
     await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'ALLOW' })])
     const capped = {

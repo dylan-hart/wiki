@@ -131,6 +131,93 @@ describe(
 )
 
 /**
+ * OpenProject #2116: `GroupRule#`'s `match` enum used to omit `CLASSIFICATION` entirely
+ * (`api/schemas/group.ts` restated `GroupRuleMatch` by hand and drifted from it), so any request
+ * whose `rules` array contained a `CLASSIFICATION` rule failed schema validation with a 400 before it
+ * ever reached the model — this round-trips one through the real route and reads it back with its
+ * `classifications` array intact, proving the schema now accepts the shape `GroupEditOverlay.vue`
+ * sends.
+ */
+describe(
+  'PUT /:groupId — CLASSIFICATION rule round-trip (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('../models/groups.ts').groups
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('../models/groups.ts'))
+      // -> Not the guests group: `clampGuestPatch` only clamps roles for that one group, and this test
+      //    is about the `match`/`classifications` shape surviving validation, not the guest clamp.
+      ;(globalThis as any).WIKI.data.systemIds = { guestsGroupId: 'not-this-group' }
+
+      app = fastify({
+        ajv: {
+          plugins: [[ajvFormats.default, {}] as any]
+        }
+      })
+      await app.register(fastifySensible)
+      await registerUserSchema(app)
+      await registerGroupSchema(app)
+      await app.register(groupsRoutes)
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    test('accepts a CLASSIFICATION rule and reads its classifications array back intact', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: {
+          rules: [
+            {
+              id: 'classification-rule',
+              name: 'Restricted classification',
+              roles: ['read:pages'],
+              match: 'CLASSIFICATION',
+              mode: 'DENY',
+              path: '',
+              locales: [],
+              sites: [],
+              classifications: [fixtures.classificationId]
+            }
+          ]
+        }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().ok, true)
+
+      const saved = await groupsModel.getGroupById(fixtures.groupId)
+      assert.equal(saved?.rules[0]!.match, 'CLASSIFICATION')
+      assert.deepEqual(saved?.rules[0]!.classifications, [fixtures.classificationId])
+    })
+  }
+)
+
+/**
+ * OpenProject #2116: the schema's `match` enum is generated from `GROUP_RULE_MATCH_KINDS`
+ * (`models/groups.ts`) rather than restating it by hand — this pins the two staying equal
+ * member-for-member so the next match kind added to one cannot silently drift from the other the way
+ * `CLASSIFICATION` did.
+ */
+describe('GroupRule schema match enum agrees with GroupRuleMatch', () => {
+  test('registered GroupRule# schema enum matches GROUP_RULE_MATCH_KINDS exactly', async () => {
+    const { GROUP_RULE_MATCH_KINDS } = await import('../models/groups.ts')
+    const app = fastify()
+    await registerGroupSchema(app)
+    const schema = app.getSchema('GroupRule') as any
+    assert.deepEqual([...schema.properties.match.enum].sort(), [...GROUP_RULE_MATCH_KINDS].sort())
+  })
+})
+
+/**
  * Task 472: verifies `manage:navigation`'s presence on `GET /groups` (line ~58) is exactly as broad as
  * the comment above it claims -- enough to let the navigation editor's group picker name groups by id
  * and name, but NOT enough to read a group's full permissions/rules (`GET /groups/:groupId`, which

@@ -15,15 +15,25 @@ export const SYSTEM_PERMISSION = 'manage:system'
  * (OpenProject #1079): it does not read `path` at all, and matches page metadata that survives a
  * move/rename rather than the page's address -- see `classifications` on `GroupRule` and
  * `ruleMatchesPage` in `helpers/pageRules.ts`.
+ *
+ * A runtime `as const` array rather than a bare union (no `enum` -- erasable syntax only, see
+ * CLAUDE.md's TypeScript section) so `api/schemas/group.ts`'s `GroupRule#` JSON Schema can import
+ * this instead of restating the member list: the two used to drift (OpenProject #2116 -- the schema's
+ * `match` enum was missing `CLASSIFICATION` entirely, so any request creating such a rule failed
+ * validation with a 400), and `models/groups.test.ts` pins the two lists staying equal so that can't
+ * happen silently again the next time a match kind is added.
  */
-export type GroupRuleMatch =
-  | 'START'
-  | 'END'
-  | 'REGEX'
-  | 'TAG'
-  | 'TAGALL'
-  | 'EXACT'
-  | 'CLASSIFICATION'
+export const GROUP_RULE_MATCH_KINDS = [
+  'START',
+  'END',
+  'REGEX',
+  'TAG',
+  'TAGALL',
+  'EXACT',
+  'CLASSIFICATION'
+] as const
+
+export type GroupRuleMatch = (typeof GROUP_RULE_MATCH_KINDS)[number]
 
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
@@ -140,9 +150,12 @@ const groupSelection = {
  * `allowedClassifications`, when present, is the same key's per-level classification allow-set
  * (OpenProject #1205, replacing the earlier #1055 single-value ceiling) — a page permission is never
  * granted on a page whose classification is not in this set, regardless of what the groups' rules
- * say. Checked by `checkAccess()` only: it is page-blind everywhere else
- * (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no single page's classification to
- * compare the allow-set against.
+ * say, and regardless of `manage:system` (OpenProject #2119: checked ABOVE that bypass, not below
+ * it — a credential narrowing is not a page rule, and an administrator opting a token into this is
+ * asking for it to hold even over their own admin rights). Checked by `checkAccess()` only: it is
+ * page-blind everywhere else (`mayHoldPermissionSomewhere()`, `checkSiteAccess()`) so there is no
+ * single page's classification to compare the allow-set against — see `mayHoldPermissionSomewhere()`'s
+ * own doc comment for why widening there is safe rather than an oversight.
  */
 export interface AccessActor {
   groupIds: string[]
@@ -307,29 +320,33 @@ class Groups {
    * @param permission A single page permission, e.g. `read:pages` or `read:history`
    */
   checkAccess(actor: AccessActor, permission: string, page: RulePageRef): boolean {
-    // -> Above the rules entirely: an administrator is not something a rule can lock out, and a
-    //    wiki whose only administrator had denied themselves would have nobody left to fix it
-    if (actor.permissions.includes('manage:system')) {
-      return true
-    }
-    if (!this.withinScope(actor, permission)) {
-      return false
-    }
     /*
-      OpenProject #1205 (replacing the earlier #1055 single-value ceiling): a classification-scoped
-      key/token may never be granted a page permission on a page whose classification is not in its
-      `allowedClassifications` allow-set, regardless of what its groups' rules say -- checked the same
-      way `scope` is, before any rule is resolved. Skipped when the page's own classification is
-      unknown (`null` — an asset, a folder, a not-yet-existing page) rather than treated as a denial:
-      there is nothing to compare the allow-set against, and this is a narrowing on top of the rules,
-      not a rule itself, so it has no fail-closed obligation of its own the way a CLASSIFICATION rule
-      match does in `helpers/pageRules.ts`.
+      OpenProject #2119 (originally #1205, replacing the earlier #1055 single-value ceiling): checked
+      ABOVE the `manage:system` bypass below, deliberately -- a classification-scoped key/token may
+      never be granted a page permission on a page whose classification is not in its
+      `allowedClassifications` allow-set, regardless of what its groups' rules say, AND regardless of
+      whether the holder is an administrator. This is a narrowing an administrator opted a credential
+      into, not a page rule an administrator can be locked out by, so `manage:system` does not get to
+      override it the way it overrides everything else here. Skipped when the page's own
+      classification is unknown (`null` — an asset, a folder, a not-yet-existing page) rather than
+      treated as a denial: there is nothing to compare the allow-set against, and this is a narrowing
+      on top of the rules, not a rule itself, so it has no fail-closed obligation of its own the way a
+      CLASSIFICATION rule match does in `helpers/pageRules.ts`.
     */
     if (
       actor.allowedClassifications != null &&
       page.classification != null &&
       !WIKI.models.classificationLevels.isAllowed(page.classification, actor.allowedClassifications)
     ) {
+      return false
+    }
+    // -> Above the rules (but below the classification allow-set above): an administrator is not
+    //    something a rule can lock out, and a wiki whose only administrator had denied themselves
+    //    would have nobody left to fix it
+    if (actor.permissions.includes('manage:system')) {
+      return true
+    }
+    if (!this.withinScope(actor, permission)) {
       return false
     }
     const rule = resolvePageRule(this.rulesForGroups(actor.groupIds), permission, page)
@@ -350,6 +367,25 @@ class Groups {
    * question here is "is this actor generally the kind of person who holds `permission`", not "may
    * they use it on a particular page" — a rule that denies it under one subtree does not change the
    * answer for the rest of the site.
+   *
+   * OpenProject #2121: unlike `checkAccess()` (#2119), the `manage:system` short-circuit below is NOT
+   * narrowed by `allowedClassifications`, and that is a decision, not an oversight — this method has
+   * no page ref to compare the allow-set against (it is path- and page-blind by design, see above), so
+   * the only options were widen (answer as if unrestricted) or refuse outright for any actor carrying
+   * a non-null allow-set. Widening was chosen because every caller re-checks per row against a real
+   * page with `checkAccess()` before that page's content is ever exposed, making this method's answer
+   * a cheap upstream hint rather than the actual gate: `api/pages.ts`'s search route uses it only to
+   * decide the coarse `includeDrafts`/`hideProtectedContent` flags, while the page-by-page visibility
+   * filter every search backend applies (each `modules/search/<engine>/search.ts`'s own `visible`
+   * filter) already calls `checkAccess(actor, 'read:pages', ...)` per candidate — so a
+   * classification-restricted actor
+   * still never sees a page outside its allow-set in a result, regardless of what this method answered
+   * upstream. `mcp/auth.ts`'s `maySeeEverything()` mirrors that same search route. `api/icons.ts`'s
+   * `mayUseIconPicker()` is the other caller, and gates something un-classified in the first place (an
+   * icon search/materialize call, not a page read) — there is no page for the allow-set to narrow at
+   * all. Refusing here instead would only make a classification-scoped actor's coarse pre-filter more
+   * conservative than it needs to be, with no security difference, since the per-row check downstream
+   * still holds the real line.
    */
   mayHoldPermissionSomewhere(actor: AccessActor, permissions: string[]): boolean {
     if (actor.permissions.includes('manage:system')) {
@@ -357,9 +393,7 @@ class Groups {
     }
     // -> Same scope narrowing as `checkAccess()`, applied before any rule is read rather than after —
     //    a scoped key must not read as "generally holds `permission`" for a name outside its own
-    //    scope, whatever its groups' rules say. `allowedClassifications` has no equivalent here: this
-    //    method is path- and page-blind by design (see the doc comment above), so there is no single
-    //    page's classification to compare the allow-set against.
+    //    scope, whatever its groups' rules say.
     const inScope = permissions.filter((permission) => this.withinScope(actor, permission))
     if (inScope.length === 0) {
       return false
