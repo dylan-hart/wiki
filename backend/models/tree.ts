@@ -117,6 +117,33 @@ export interface DeletedEntry {
   locale: string
 }
 
+/**
+ * A descendant page, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
+ */
+export interface DescendantPage {
+  id: string
+  /** Slash-separated path of the page. */
+  path: string
+  locale: string
+  tags: string[]
+  /** Classification level id (OpenProject #1079), joined from `pages` -- `tree` carries none of its
+   *  own (the same gap as OpenProject #1128). */
+  classification: string | null
+}
+
+/**
+ * A descendant asset, as returned by `listDescendants` for a caller to authorize before it mutates
+ * (OpenProject #2098).
+ */
+export interface DescendantAsset {
+  id: string
+  /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
+   *  asset `read:assets`/`manage:assets` ref is built from. */
+  path: string
+  locale: string
+}
+
 /** A raw `tree` row, as the model passes it around internally. */
 export interface TreeRow {
   id: string
@@ -1116,6 +1143,75 @@ class Tree {
         `Refreshed the path of ${rows.length} moved entrie(s), ${pageCount} of them page(s).`
       )
     }
+  }
+
+  /**
+   * List every page and asset at or below a folder, without mutating anything.
+   *
+   * The same set `deleteFolder` deletes and `renameFolder` moves under it -- `<@` is "at or below",
+   * scoped by `siteId` and the folder's own `locale` the same way (bug #932) -- so `deleteFolder` and
+   * `renameFolder`'s callers (`api/tree.ts`'s DELETE/PATCH folder handlers) can authorize every
+   * descendant before committing to the mutation (OpenProject #2098). `classification` is joined from
+   * `pages`, since `tree` carries no classification column of its own (the same root cause as
+   * OpenProject #1128).
+   *
+   * @param folderId UUID of the folder whose descendants to list.
+   * @param db Runs against this instead of the ambient `WIKI.db`, so a caller can authorize inside the
+   *           same transaction that will go on to mutate.
+   */
+  async listDescendants(
+    folderId: string,
+    db: WikiDbOrTx = WIKI.db
+  ): Promise<{ pages: DescendantPage[]; assets: DescendantAsset[] }> {
+    const folder = await this.getFolderById(folderId, db)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await db
+      .select({
+        id: treeTable.id,
+        type: treeTable.type,
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        locale: treeTable.locale,
+        tags: treeTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    const pages: DescendantPage[] = []
+    const assets: DescendantAsset[] = []
+    for (const row of rows) {
+      const folderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      const fullPath = folderPath ? `${folderPath}/${row.fileName}` : row.fileName
+      if (row.type === 'page') {
+        pages.push({
+          id: row.id,
+          path: fullPath,
+          locale: row.locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      } else if (row.type === 'asset') {
+        assets.push({
+          id: row.id,
+          path: fullPath,
+          locale: row.locale
+        })
+      }
+    }
+
+    return { pages, assets }
   }
 
   /**

@@ -375,4 +375,100 @@ describe('tree cascades (DB-backed)', { skip: !hasTestDatabase() }, () => {
       assert.equal(pages[0]!.classification, fixtures.classificationId)
     })
   })
+
+  /**
+   * OpenProject #2098: `deleteFolder`/`renameFolder`'s callers need to authorize every descendant
+   * before committing to the cascade -- `listDescendants` resolves that same at-or-below set without
+   * mutating anything, carrying each page's real tags and classification (the same join #1128 added
+   * to the read-side listings above) plus each asset's path.
+   */
+  describe('listDescendants (OpenProject #2098)', () => {
+    test('lists every descendant at any depth, with real tags/classification, and mutates nothing', async () => {
+      const root = await treeModel.createFolder({
+        pathName: 'descendants-root',
+        title: 'Descendants Root',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const nested = await treeModel.createFolder({
+        parentId: root.id,
+        pathName: 'nested',
+        title: 'Nested',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      const topPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'descendants-root/top',
+          title: 'Top',
+          locale: 'en',
+          tags: ['alpha', 'beta']
+        }),
+        actor
+      )
+      const deepPage = await pagesModel.createPage(
+        fixtures.siteId,
+        pageInput({
+          path: 'descendants-root/nested/deep',
+          title: 'Deep',
+          locale: 'en',
+          tags: ['gamma']
+        }),
+        actor
+      )
+      const asset = await treeModel.addAsset({
+        parentId: nested.id,
+        fileName: 'diagram.png',
+        title: 'diagram.png',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+
+      const result = await treeModel.listDescendants(root.id)
+
+      assert.equal(result.pages.length, 2, 'both pages at any depth should be returned')
+      const top = result.pages.find((p) => p.id === topPage.id)
+      const deep = result.pages.find((p) => p.id === deepPage.id)
+      assert.ok(top, 'the top-level page must be listed')
+      assert.ok(deep, 'the deeply-nested page must be listed')
+      assert.equal(top!.path, 'descendants-root/top')
+      assert.deepEqual(top!.tags.sort(), ['alpha', 'beta'])
+      assert.equal(top!.classification, fixtures.classificationId)
+      assert.equal(deep!.path, 'descendants-root/nested/deep')
+      assert.deepEqual(deep!.tags, ['gamma'])
+      assert.equal(deep!.classification, fixtures.classificationId)
+
+      assert.equal(result.assets.length, 1, 'the one asset at any depth should be returned')
+      assert.equal(result.assets[0]!.id, asset.id)
+      assert.equal(result.assets[0]!.path, 'descendants-root/nested/diagram.png')
+
+      // -> Nothing was deleted or renamed by the call: every row this fixture created is still exactly
+      //    where it was.
+      const rootAfter = await treeModel.getFolderById(root.id)
+      const nestedAfter = await treeModel.getFolderById(nested.id)
+      const topPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: topPage.id })
+      const deepPageAfter = await pagesModel.getPage({ siteId: fixtures.siteId, id: deepPage.id })
+      const assetAfter = await treeModel.getById(asset.id)
+      assert.ok(rootAfter, 'the root folder must still exist')
+      assert.ok(nestedAfter, 'the nested folder must still exist')
+      assert.ok(topPageAfter, 'the top page must still exist')
+      assert.equal(topPageAfter!.path, 'descendants-root/top', 'the top page must not have moved')
+      assert.ok(deepPageAfter, 'the deep page must still exist')
+      assert.equal(
+        deepPageAfter!.path,
+        'descendants-root/nested/deep',
+        'the deep page must not have moved'
+      )
+      assert.ok(assetAfter, 'the asset must still exist')
+      assert.equal(assetAfter!.fileName, 'diagram.png', 'the asset must not have been renamed')
+    })
+
+    test('throws for a folder id that does not exist', async () => {
+      await assert.rejects(
+        treeModel.listDescendants('00000000-0000-0000-0000-000000000000'),
+        (err: any) => err.name === 'treeInvalidFolder'
+      )
+    })
+  })
 })
