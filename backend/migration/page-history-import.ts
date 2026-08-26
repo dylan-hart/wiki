@@ -1,6 +1,10 @@
 import { isEqual } from 'es-toolkit/predicate'
 import type { PageHistoryAction } from '../models/pageHistory.ts'
-import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type {
+  OrphanedPageHistoryEntry,
+  StagedPage,
+  StagedPageHistoryEntry
+} from './content-staging.ts'
 import { derivePublishState, mapEditor } from './page-import.ts'
 import type { IdMap } from './id-map.ts'
 
@@ -48,6 +52,31 @@ import type { IdMap } from './id-map.ts'
  * anything but `'created'`/`'updated'`/`'moved'`/`'deleted'`. `mapHistoryAction` folds 2.x's
  * `'restored'` onto 3.0's `'updated'` accordingly, and falls back to `'updated'` (with a warning) for
  * any other free-text value the column allows but no known writer ever produced.
+ *
+ * ## Orphaned history (a `pageId` naming no current 2.x page)
+ *
+ * `content-staging.ts`'s `extractContentStaging()` splits `pageHistory` rows into each page's own
+ * `StagedPage.history` and a separate `orphanedHistory: OrphanedPageHistoryEntry[]` list, for rows
+ * whose `pageId` matched no page among the source's current `pages` (almost always a 2.x page that
+ * was deleted and never recreated). `pageHistory.pageId` is a non-FK plain column on both 2.x and
+ * 3.0 *by design* (`db/schema.ts`'s comment on the column, `docs/migration/2.5x-to-3.0-mapping.md`)
+ * specifically so history outlives the page it belonged to — every `WIKI.models.pageHistory` reader
+ * (`list`, `getVersion`, `listRecoverable`, `getDeletedVersion`, `recoverDeletedPage`) keys off
+ * `siteId`+`pageId` or `siteId`+`locale`+`path`, never a join back to `pages`, so a `pageId` that
+ * names no live page is exactly the shape `listRecoverable`'s "recoverable" query already expects
+ * for any deleted page. `backfillPageHistory` inserts orphaned rows too, grouped by
+ * `sourcePageOldId` and given one freshly synthesized UUID per group (not one per row, so a deleted
+ * page's whole chain — including the `deleted` row itself — shares a single `pageId`, the same way
+ * a live page's history rows all share its real new `pages.id`). See
+ * `docs/migration/2.5x-to-3.0-mapping.md`'s `pageId` row for the full reasoning.
+ *
+ * ## `extra` merges into `meta`, underneath the computed keys
+ *
+ * 2.x's `pageHistory.extra` catch-all JSON blob (`content-staging.ts`'s `StagedPageHistoryEntry.extra`)
+ * is spread into `buildMeta`'s result, but *underneath* the 14 keys `buildMeta` itself computes —
+ * `Object.assign({}, entry.extra, computed)` order, not the reverse — so a same-named stray key
+ * inside an old `extra` blob (e.g. a leftover `extra.tags`) can never clobber the real derived
+ * value. See `docs/migration/2.5x-to-3.0-mapping.md`'s `extra` row.
  */
 
 /** One `pageHistory` row this module has finished building, ready to be inserted verbatim — column
@@ -134,6 +163,10 @@ interface ComparableVersionState {
   publishState: string
   publishStartDate: string | null
   publishEndDate: string | null
+  /** The 2.x row's own `extra` catch-all blob, carried through so `buildMeta` can merge it — not
+   * itself part of the changed-fields diff (see `diffComparableStates`'s exclusion below), since
+   * `extra` was never a tracked 3.0 `pages` field to begin with. */
+  extra: Record<string, unknown>
 }
 
 function parseVersionDate(entry: StagedPageHistoryEntry): Date {
@@ -168,7 +201,8 @@ function buildComparableState(
     contentType: entry.contentType,
     publishState,
     publishStartDate: entry.publishStartDate,
-    publishEndDate: entry.publishEndDate
+    publishEndDate: entry.publishEndDate,
+    extra: entry.extra
   }
 }
 
@@ -179,9 +213,14 @@ function buildComparableState(
  * `alias`/`icon`/`config`/`relations`/`scripts`/`isBrowsable`/`isSearchable` of their own — none of
  * those exist in the 2.x schema at all — so each is set to the same default `createPage()` itself
  * would have used for a page that never specified one, per `db/schema.ts`'s column defaults.
+ *
+ * `state.extra` — 2.x's own `pageHistory.extra` catch-all blob — is spread in FIRST, so every key
+ * below it overrides a same-named key `extra` might carry (a stray old `extra.tags`, most plausibly).
+ * Only genuine extra keys with no computed counterpart survive into the result untouched.
  */
 function buildMeta(state: ComparableVersionState): Record<string, unknown> {
   return {
+    ...state.extra,
     alias: null,
     description: state.description,
     icon: null,
@@ -199,12 +238,18 @@ function buildMeta(state: ComparableVersionState): Record<string, unknown> {
   }
 }
 
+/** Every `ComparableVersionState` key that is not itself a `changedFields()`-comparable page field —
+ * `extra` is carried on the state purely so `buildMeta` can merge it (see above), it was never a
+ * tracked 3.0 `pages` column to diff. */
+const NOT_DIFFED: ReadonlySet<keyof ComparableVersionState> = new Set(['extra'])
+
 /**
  * Diffs two consecutive versions over the same field set `changedFields()` in
  * `backend/models/pageHistory.ts` compares, restricted to what `ComparableVersionState` actually
  * tracks. `NOT_REPORTED_AS_CHANGED` excludes bookkeeping (`render`/`toc`/`searchContent`/`ts`/`hash`/
  * `authorId`/`updatedAt`/rating/`historyData`/`isSearchableComputed`) — none of which is a field this
- * module diffs to begin with, so every key here is compared; nothing needs excluding a second time.
+ * module diffs to begin with, so every key here (besides `NOT_DIFFED`) is compared; nothing needs
+ * excluding a second time.
  */
 function diffComparableStates(
   previous: ComparableVersionState,
@@ -212,6 +257,7 @@ function diffComparableStates(
 ): string[] {
   const changed: string[] = []
   for (const key of Object.keys(current) as (keyof ComparableVersionState)[]) {
+    if (NOT_DIFFED.has(key)) continue
     if (!isEqual(previous[key], current[key])) {
       changed.push(key)
     }
@@ -232,9 +278,14 @@ function diffComparableStates(
  * already ran every entry's 2.x `authorId` through `resolveActorId()` with the same orphaned-author
  * operator fallback `StagedPage.authorId`/`creatorId` use, so `entry.authorId` is already the
  * resolved 3.0 UUID this row needs.
+ *
+ * `page` only needs `oldId` (used solely for warning context via `mapEditor`) and `history` — narrowed
+ * to that pair rather than the full `StagedPage` so `backfillPageHistory` can reuse this for an
+ * orphaned-history group too, which has no real `StagedPage` to hand in (see the module doc comment's
+ * "Orphaned history" section).
  */
 export function buildPageHistoryRowsForPage(
-  page: StagedPage,
+  page: Pick<StagedPage, 'oldId' | 'history'>,
   newPageId: string,
   siteId: string,
   warnings: string[]
@@ -273,6 +324,25 @@ export function buildPageHistoryRowsForPage(
   return rows
 }
 
+/** Groups `orphanedHistory` by `sourcePageOldId`, preserving each group's relative order — the list
+ * arrives already sorted by `versionDate` ascending (`content-staging.ts`'s `extractContentStaging`),
+ * so filtering into groups keeps every group internally sorted too, exactly what
+ * `buildPageHistoryRowsForPage` expects. */
+function groupOrphanedHistoryBySourcePage(
+  orphanedHistory: OrphanedPageHistoryEntry[]
+): Map<number, OrphanedPageHistoryEntry[]> {
+  const groups = new Map<number, OrphanedPageHistoryEntry[]>()
+  for (const entry of orphanedHistory) {
+    const group = groups.get(entry.sourcePageOldId)
+    if (group) {
+      group.push(entry)
+    } else {
+      groups.set(entry.sourcePageOldId, [entry])
+    }
+  }
+  return groups
+}
+
 /**
  * Backfills `pageHistory` for every successfully-imported page in `pages`, per this task's
  * description: immediately after `importPages()`'s own `createPage()` call for a page (resolved here
@@ -282,9 +352,16 @@ export function buildPageHistoryRowsForPage(
  * A page absent from `pageIdMap` (one of `PageImportResult.failed`, per `page-import.ts`) is skipped
  * silently — there is no 3.0 page for its history to attach to, and `importPages()` already reported
  * why it failed.
+ *
+ * `orphanedHistory` — `pageHistory` rows whose `pageId` named no current 2.x page, staged separately
+ * by `content-staging.ts` — is backfilled too, per the module doc comment's "Orphaned history"
+ * section: grouped by `sourcePageOldId`, each group gets one freshly synthesized `pageId`
+ * (`crypto.randomUUID()`) shared by every row in that group, and is otherwise built through the exact
+ * same `buildPageHistoryRowsForPage` a real page's history goes through.
  */
 export async function backfillPageHistory(
   pages: StagedPage[],
+  orphanedHistory: OrphanedPageHistoryEntry[],
   pageIdMap: IdMap<number>,
   siteId: string,
   deps: PageHistoryImportDeps
@@ -297,6 +374,18 @@ export async function backfillPageHistory(
     const newPageId = pageIdMap.get(page.oldId)
     if (!newPageId) continue
     rows.push(...buildPageHistoryRowsForPage(page, newPageId, siteId, warnings))
+  }
+
+  for (const [sourcePageOldId, entries] of groupOrphanedHistoryBySourcePage(orphanedHistory)) {
+    const synthesizedPageId = crypto.randomUUID()
+    rows.push(
+      ...buildPageHistoryRowsForPage(
+        { oldId: sourcePageOldId, history: entries },
+        synthesizedPageId,
+        siteId,
+        warnings
+      )
+    )
   }
 
   if (rows.length > 0) {
