@@ -8,6 +8,7 @@ import {
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
+import type { AccessActor } from './groups.ts'
 
 export const NAVIGATION_MODES = [
   'inherit',
@@ -164,15 +165,26 @@ class Navigation {
    *               `setNavItems`/`copyNav`'s writes already do — a row belonging to another site
    *               answers as not-found rather than being handed back (OpenProject #941).
    * @param id Menu id — a tree entry id, or a site-wide menu's own row id (see `ensureSiteNav`)
+   * @param actor Who is asking (OpenProject #2155) — required so an `auto`/`mixed` menu's generated
+   *              entries can each be checked against `read:pages` the same way a direct tree browse
+   *              would be, rather than trusting `pageIsVisible`'s browsable/published gate alone. Every
+   *              caller must supply one, even a purely internal test exercising only a `static` menu
+   *              (where it goes unused) — there is no safe default to fall back to silently.
    * @param userGroups Groups the viewer belongs to. Items limited to other groups are dropped, at both
    *                   levels, unless `unfiltered` is set.
    * @param unfiltered Return every item regardless of visibility, which is what editing one needs —
-   *                   an editor that could not see an item would drop it on the next save.
+   *                   an editor previewing an `auto`/`mixed` menu needs to see the full generated
+   *                   structure to edit it, the same reasoning `visibilityGroups` filtering already
+   *                   used here, so this also skips the per-entry `read:pages` check below.
    */
   async getNav(
     siteId: string,
     id: string,
-    { userGroups = [], unfiltered = false }: { userGroups?: string[]; unfiltered?: boolean } = {}
+    {
+      actor,
+      userGroups = [],
+      unfiltered = false
+    }: { actor: AccessActor; userGroups?: string[]; unfiltered?: boolean }
   ): Promise<NavigationItem[]> {
     const rows = await WIKI.db
       .select({
@@ -194,7 +206,7 @@ class Navigation {
     } else {
       const { rootFolderPath, locale } = await this.resolveGeneratorRoot(row.siteId, id, row.locale)
       const generated = markGenerated(
-        await this.generateFromTree(row.siteId, rootFolderPath, locale)
+        await this.generateFromTree(row.siteId, rootFolderPath, locale, unfiltered ? null : actor)
       )
       if (row.mode === 'auto') {
         combined = generated
@@ -391,8 +403,22 @@ class Navigation {
    * (edited separately through the normal override/manual-items path), so the walk does not recurse
    * into it.
    *
+   * `actor` (OpenProject #2155): each candidate is also checked against `read:pages` — a page with its
+   * own tags/classification, a folder with neither (same treatment `api/tree.ts#mayOnFolder` gives a
+   * folder) — the same permission a direct tree browse or page read already enforces, which this walk
+   * had never asked before. A denied row is dropped outright rather than merely hidden from its own
+   * subtree, so a DENY over a branch hides the branch without ever querying below it — the recursive
+   * short-circuit `tree.ts` documents for the same rule. A non-boundary folder that recurses to zero
+   * remaining children (every descendant denied individually, even though `holdsVisiblePages` found at
+   * least one browsable/published page down there) is dropped too, mirroring that same dead-end rule
+   * for a folder left with nothing visible under it — `null` skips this entirely, which is what
+   * `getNav`'s `unfiltered` read passes, matching how that read already skips `visibilityGroups`
+   * filtering for the same "the editor needs to see the real generated structure" reason.
+   *
    * @param rootFolderPath Encoded ltree path of the folder whose contents this builds a menu from —
    *                        empty at the site root, exactly what `tree.browse()` calls `encodedPath`.
+   * @param actor Who is asking, or `null` to skip the `read:pages` check entirely (an `unfiltered`
+   *              read).
    * @param depth How many folder levels below `rootFolderPath` this call already is. Callers always
    *              start at 0; recursion stops past the same `MAX_DEPTH` `tree.ts` enforces elsewhere.
    */
@@ -400,6 +426,7 @@ class Navigation {
     siteId: string,
     rootFolderPath: string,
     locale: string,
+    actor: AccessActor | null,
     depth = 0
   ): Promise<NavigationItem[]> {
     if (depth > MAX_DEPTH) {
@@ -436,7 +463,12 @@ class Navigation {
         title: treeTable.title,
         icon: pagesTable.icon,
         navigationMode: treeTable.navigationMode,
-        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean)
+        holdsVisiblePages: sql<boolean>`${holdsVisiblePages}`.mapWith(Boolean),
+        // -> Only ever populated for a page row (the left-join's page-side columns), which is all
+        //    `read:pages`'s tag/classification axes ever need -- a folder carries neither of its own,
+        //    same treatment `api/tree.ts#mayOnFolder` gives it.
+        tags: pagesTable.tags,
+        classification: pagesTable.classification
       })
       .from(treeTable)
       .leftJoin(pagesTable, eq(pagesTable.id, treeTable.id))
@@ -462,6 +494,23 @@ class Navigation {
       // -> Dropped outright, and -- for the recursive `hide` -- everything below it along with it,
       //    since nothing below a row that was never added is ever walked
       .filter((row) => !(['hide', 'hideExact'] as NavigationMode[]).includes(row.navigationMode))
+      // -> OpenProject #2155: the `read:pages` gate itself. `null` (an `unfiltered` read) skips it
+      //    entirely, same as the `visibilityGroups` pass in `getNav` does for that read. A folder
+      //    carries no tags/classification of its own -- same treatment `api/tree.ts#mayOnFolder`
+      //    gives it -- so only a page row's real values narrow a TAG/TAGALL/CLASSIFICATION rule.
+      .filter((row) => {
+        if (!actor) {
+          return true
+        }
+        const path = parentPath ? `${parentPath}/${row.fileName}` : row.fileName
+        return WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path,
+          siteId,
+          locale,
+          tags: row.tags ?? [],
+          classification: row.classification ?? null
+        })
+      })
       .sort((a, b) =>
         compareFoldersFirst(
           { isFolder: a.type === 'folder', title: a.title },
@@ -469,8 +518,8 @@ class Navigation {
         )
       )
 
-    return Promise.all(
-      candidates.map(async (row): Promise<NavigationItem> => {
+    const built = await Promise.all(
+      candidates.map(async (row): Promise<NavigationItem | null> => {
         // -> Only a folder has descendants to walk; a page is always a leaf here regardless of its own
         //    mode, since `override`/`overrideExact` only matters where there is a subtree to stop at
         const isBoundary =
@@ -479,8 +528,17 @@ class Navigation {
         const childFolderPath = rootFolderPath ? `${rootFolderPath}.${row.fileName}` : row.fileName
         const children =
           row.type === 'folder' && !isBoundary
-            ? await this.generateFromTree(siteId, childFolderPath, locale, depth + 1)
+            ? await this.generateFromTree(siteId, childFolderPath, locale, actor, depth + 1)
             : []
+
+        // -> A non-boundary folder that recursed to nothing is a dead end just like an empty folder
+        //    is at the SQL layer above (`holdsVisiblePages`) -- the difference is this one can only
+        //    happen once `actor` is filtering individual descendants out one by one, since
+        //    `holdsVisiblePages` already guarantees at least one browsable/published page exists
+        //    somewhere below. Drop it rather than emit a folder link with nowhere to go.
+        if (row.type === 'folder' && !isBoundary && children.length === 0) {
+          return null
+        }
 
         return {
           id: row.id,
@@ -501,6 +559,8 @@ class Navigation {
         }
       })
     )
+
+    return built.filter((item): item is NavigationItem => item !== null)
   }
 
   /**

@@ -519,6 +519,81 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
   })
 
   /**
+   * RECOVERABLE PAGE ENTRY - One recoverable deletion, as `GET .../pages/deleted` lists them
+   *
+   * Deliberately not `PageHistoryEntry` (OpenProject #2168): that listing spans every deleted path on
+   * the site in one sweep rather than one page's own history, so `author.email` is left out here —
+   * every deleter's email address at once is a wider exposure than this listing needs to serve its
+   * purpose. `tags`/`classification` travel with a version too, unlike `PageHistoryEntry`, since a
+   * caller acting on one of these rows may find them informative the same way the file manager does.
+   */
+  app.addSchema({
+    $id: 'RecoverablePageEntry',
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        format: 'uuid'
+      },
+      action: {
+        type: 'string',
+        enum: [...pageHistoryActions],
+        description: 'What happened to the page. Always `deleted` on this listing.'
+      },
+      via: {
+        type: 'string',
+        enum: [...pageHistoryVia]
+      },
+      changedFields: {
+        type: 'array',
+        items: { type: 'string' }
+      },
+      reason: {
+        type: 'string'
+      },
+      versionDate: {
+        type: 'string',
+        format: 'date-time',
+        description: 'RFC 3339 Date Time'
+      },
+      locale: {
+        type: 'string',
+        description: 'The locale the page was in when it was deleted.'
+      },
+      path: {
+        type: 'string',
+        description: 'Where the page was when it was deleted.'
+      },
+      title: {
+        type: 'string'
+      },
+      tags: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'The tags the deleted version carried.'
+      },
+      classification: {
+        type: ['string', 'null'],
+        format: 'uuid',
+        description: 'The classification level id the deleted version carried.'
+      },
+      author: {
+        type: 'object',
+        description: 'Who deleted it. Null id and empty name once that account is deleted.',
+        properties: {
+          id: {
+            type: ['string', 'null'],
+            format: 'uuid'
+          },
+          name: {
+            type: 'string'
+          }
+        }
+      }
+    }
+  })
+
+  /**
    * PAGE HISTORY VERSION - The same, with the source it held: one side of a diff
    */
   app.addSchema({

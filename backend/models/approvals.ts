@@ -10,6 +10,7 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
+import type { AccessActor } from './groups.ts'
 
 /**
  * How a rule decides which pages it covers. The same set group page rules use, so an administrator
@@ -57,6 +58,19 @@ export interface ReviewerScope {
    * `canReviewPage` never need that answer; omit it and `hasApproved` reads `false` throughout.
    */
   viewerId?: string
+  /**
+   * Who is asking, for `checkAccess()` (OpenProject #2160) -- approval-rule membership alone used to
+   * be the entire gate on both the review queue and the raw-source read, which let a member of a
+   * `match: 'START', path: ''` rule's `reviewerGroups` read any page's source regardless of
+   * `read:pages`/`read:source`, the page password gate, or a classification DENY. Required on every
+   * `ReviewerScope` a caller builds -- `api/approvals.ts#reviewerFor` already resolves an `AccessActor`
+   * for its `reviewsAll` check, so this just carries the same one through rather than adding a second
+   * parameter every call site would have to thread separately. `canReviewPage` does not read it (that
+   * method answers a different question -- see its own doc comment), but the field is still required
+   * so a caller cannot build a scope for `getReviewableSubmissions`/`getSubmissionForReview` and forget
+   * it.
+   */
+  actor: AccessActor
 }
 
 /** Where a submission stands against its rule's minimum-approvals threshold. */
@@ -106,8 +120,13 @@ export interface ReviewableSubmission {
 export interface ReviewableSubmissionDetail extends ReviewableSubmission {
   /** What the suggestion proposes the page should say. */
   content: string
-  /** What it currently says, i.e. the other side of the diff. */
-  pageContent: string
+  /**
+   * What it currently says, i.e. the other side of the diff. Absent (OpenProject #2160), rather than
+   * an empty string, when the reviewer holds `read:pages` on the page (enough to see it in the queue
+   * at all) but not `read:source` there -- the queue entry and its metadata still come back so the
+   * reviewer can act on it, but the raw source itself does not.
+   */
+  pageContent?: string
   /** Unified diff against the page as it stood when the suggestion was made. */
   patch: string
 }
@@ -125,10 +144,15 @@ export interface ReviewableSubmissionDetail extends ReviewableSubmission {
  * `false` is "recorded, still waiting on more approvers", `true` is "threshold reached, page written,
  * submission closed out" -- and `approvalsCount`/`approvalsRequired` are what a caller shows for
  * either one.
+ *
+ * `'forbidden'` (OpenProject #2165) is the threshold-reached case refused for lack of `write:pages` on
+ * the target page -- the vote up to that point still stands (a lower-privilege act than the write
+ * itself), but the page is left untouched and the submission stays open rather than being partially
+ * applied.
  */
 export type ApproveSubmissionResult =
   | { ok: true; finalized: boolean; approvalsCount: number; approvalsRequired: number }
-  | { ok: false; reason: 'not-found' | 'stale' }
+  | { ok: false; reason: 'not-found' | 'stale' | 'forbidden' }
 
 /** An approval rule as the API exposes it. */
 export interface ApprovalRule {
@@ -523,25 +547,23 @@ class Approvals {
       submitRule && actorId && (await this.getOwnSubmission(page.id, actorId))
     )
 
-    const reviewerScope = this.isReviewerSession(req)
+    const requestActor = WIKI.models.groups.actorForRequest(req)
+    const reviewerScope: ReviewerScope = this.isReviewerSession(req)
       ? {
           groupIds,
           reviewsAll:
             (req.session?.permissions ?? []).includes('manage:system') ||
-            WIKI.models.groups.checkAccess(
-              WIKI.models.groups.actorForRequest(req),
-              'review:pages',
-              {
-                path: page.path,
-                siteId,
-                locale: page.locale,
-                classification: page.classification,
-                tags: page.tags
-              }
-            ),
-          viewerId: actorId ?? undefined
+            WIKI.models.groups.checkAccess(requestActor, 'review:pages', {
+              path: page.path,
+              siteId,
+              locale: page.locale,
+              classification: page.classification,
+              tags: page.tags
+            }),
+          viewerId: actorId ?? undefined,
+          actor: requestActor
         }
-      : { groupIds: [], reviewsAll: false }
+      : { groupIds: [], reviewsAll: false, actor: requestActor }
     const canReview = await this.canReviewPage(siteId, page, reviewerScope)
 
     return {
@@ -843,14 +865,17 @@ class Approvals {
    * Every suggestion waiting on this reviewer, oldest first.
    *
    * A suggestion is theirs to review when an enabled rule covers its page and names a group they are
-   * in — the same rules that let it be submitted, read from the other side. Someone holding
-   * `manage:system` sees the site's whole queue, as they do everywhere else.
+   * in — the same rules that let it be submitted, read from the other side — AND they hold `read:pages`
+   * on that page (OpenProject #2160): approval-rule membership alone used to be the entire gate, so a
+   * rule with `match: 'START', path: ''` handed its `reviewerGroups` every page on the site regardless
+   * of a path/tag/classification DENY, the page password gate, or `read:pages` being denied outright.
+   * Someone holding `manage:system` sees the site's whole queue, as they do everywhere else.
    *
    * Ordered oldest first because a queue is worked through in the order things arrived.
    */
   async getReviewableSubmissions(
     siteId: string,
-    { groupIds, reviewsAll = false, viewerId, pageId }: ReviewerScope & { pageId?: string }
+    { groupIds, reviewsAll = false, viewerId, pageId, actor }: ReviewerScope & { pageId?: string }
   ): Promise<ReviewableSubmission[]> {
     if (!reviewsAll && groupIds.length < 1) {
       return []
@@ -877,6 +902,7 @@ class Approvals {
         pageLocale: pagesTable.locale,
         pageTags: pagesTable.tags,
         pageContent: pagesTable.content,
+        pageClassification: pagesTable.classification,
         authorId: usersTable.id,
         authorName: usersTable.name,
         authorEmail: usersTable.email
@@ -905,17 +931,29 @@ class Approvals {
       )
     )
 
+    // -> OpenProject #2160: the `read:pages` gate itself, on top of rule membership -- the real page
+    //    ref, not the approval rule's own (very different) match kinds.
+    const readableRows = matchedRows.filter((row: any) =>
+      WIKI.models.groups.checkAccess(actor, 'read:pages', {
+        path: row.pagePath,
+        locale: row.pageLocale,
+        siteId,
+        tags: row.pageTags ?? [],
+        classification: row.pageClassification ?? null
+      })
+    )
+
     // -> Every enabled rule, not just the ones naming this reviewer's groups: the threshold a
     //    submission has to clear is the strictest rule covering the page, whoever it names as
     //    reviewers -- see `requiredApprovalsForPage`, whose logic is inlined here to share the one
     //    `getRules` read across every row instead of awaiting it per row.
     const allRules = await this.getRules(siteId)
     const approvalCounts = await this.approvalCountsFor(
-      matchedRows.map((row: any) => row.id),
+      readableRows.map((row: any) => row.id),
       viewerId
     )
 
-    return matchedRows.map((row: any) => {
+    return readableRows.map((row: any) => {
       const pageMatch = { path: row.pagePath, tags: row.pageTags ?? [] }
       let approvalsRequired = 1
       for (const rule of allRules) {
@@ -935,18 +973,26 @@ class Approvals {
   /**
    * One submission, if it is this reviewer's to look at, with both sides of the diff.
    *
+   * `pageContent` (OpenProject #2160) additionally requires `read:source` on the page, on top of the
+   * `read:pages` the queue itself already requires to surface the entry at all: the current page body
+   * is exactly what a direct page view withholds without it, and a pending suggestion is not a way
+   * around that. Refused with a missing field, not a 403 -- the reviewer still needs the rest of this
+   * response (the diff's other side, `approvals`, …) to act on the queue entry even without seeing the
+   * page's current source.
+   *
    * @returns The submission, or null when it does not exist or is not theirs to review
    */
   async getSubmissionForReview(
     siteId: string,
     submissionId: string,
-    { groupIds, reviewsAll = false, viewerId }: ReviewerScope
+    { groupIds, reviewsAll = false, viewerId, actor }: ReviewerScope
   ): Promise<ReviewableSubmissionDetail | null> {
     // -> Reuses the queue rather than re-deriving who may see what: one definition of reviewable
     const reviewable = await this.getReviewableSubmissions(siteId, {
       groupIds,
       reviewsAll,
-      viewerId
+      viewerId,
+      actor
     })
     if (!reviewable.some((s) => s.id === submissionId)) {
       return null
@@ -956,7 +1002,11 @@ class Approvals {
       .select({
         content: submissionsTable.content,
         patch: submissionsTable.patch,
-        pageContent: pagesTable.content
+        pageContent: pagesTable.content,
+        pagePath: pagesTable.path,
+        pageLocale: pagesTable.locale,
+        pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification
       })
       .from(submissionsTable)
       .innerJoin(pagesTable, eq(pagesTable.id, submissionsTable.pageId))
@@ -967,10 +1017,18 @@ class Approvals {
       return null
     }
 
+    const maySeeSource = WIKI.models.groups.checkAccess(actor, 'read:source', {
+      path: detail.pagePath,
+      locale: detail.pageLocale,
+      siteId,
+      tags: detail.pageTags ?? [],
+      classification: detail.pageClassification ?? null
+    })
+
     return {
       ...reviewable.find((s) => s.id === submissionId)!,
       content: detail.content,
-      pageContent: detail.pageContent ?? '',
+      ...(maySeeSource && { pageContent: detail.pageContent ?? '' }),
       patch: detail.patch
     }
   }
@@ -1077,6 +1135,27 @@ class Approvals {
           `on page ${page.id}; waiting on more reviewers`
       )
       return { ok: true, finalized: false, approvalsCount, approvalsRequired }
+    }
+
+    /*
+      OpenProject #2165: accepting a suggestion writes the page, so it takes the same permission a
+      direct save would -- approval-rule membership was the entire gate before this, so a member of a
+      `match: 'START', path: ''` rule's `reviewerGroups` could write arbitrary content to any page with
+      a pending suggestion, bypassing `write:pages` and any classification DENY. Checked here rather
+      than earlier: the vote just recorded above stands either way (a lower-privilege act than the
+      write itself), but the page is left untouched and the submission stays open rather than being
+      partially applied.
+    */
+    if (
+      !WIKI.models.groups.checkAccess(actor, 'write:pages', {
+        path: page.path,
+        locale: page.locale,
+        siteId,
+        tags: page.tags ?? [],
+        classification: page.classification
+      })
+    ) {
+      return { ok: false, reason: 'forbidden' }
     }
 
     /*

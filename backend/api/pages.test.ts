@@ -2134,8 +2134,26 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
 
   test('GET /sites/:siteId/pages/deleted only includes rows the actor may read the history of', async () => {
     listRecoverableResult = [
-      { id: 'v1', path: 'visible', locale: 'en', title: 'Visible', action: 'deleted' },
-      { id: 'v2', path: 'hidden', locale: 'en', title: 'Hidden', action: 'deleted' }
+      {
+        id: 'v1',
+        path: 'visible',
+        locale: 'en',
+        title: 'Visible',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u1', name: 'Author One' }
+      },
+      {
+        id: 'v2',
+        path: 'hidden',
+        locale: 'en',
+        title: 'Hidden',
+        action: 'deleted',
+        tags: [],
+        classification: null,
+        author: { id: 'u2', name: 'Author Two' }
+      }
     ]
     checkAccessImpl = (_actor, permission, page) =>
       permission === 'read:history' && page.path === 'visible'
@@ -2149,6 +2167,48 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     const body = res.json()
     assert.equal(body.length, 1)
     assert.equal(body[0].path, 'visible')
+    // -> No authorEmail anywhere in the response (OpenProject #2168)
+    assert.equal(body[0].author.email, undefined)
+    assert.ok(!JSON.stringify(body).includes('email'))
+  })
+
+  test("GET /sites/:siteId/pages/deleted checks read:history with the version's own tags/classification (OpenProject #2168)", async () => {
+    listRecoverableResult = [
+      {
+        id: 'v1',
+        path: 'classified',
+        locale: 'en',
+        title: 'Classified',
+        action: 'deleted',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        author: { id: 'u1', name: 'Author One' }
+      }
+    ]
+    const seenChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:history') {
+        seenChecks.push(page)
+      }
+      return false
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE_ID}/pages/deleted`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().length, 0)
+    assert.deepEqual(seenChecks, [
+      {
+        path: 'classified',
+        locale: 'en',
+        tags: ['secret'],
+        classification: 'restricted-level-id',
+        siteId: SITE_ID
+      }
+    ])
   })
 
   test('POST recover requires a logged in user', async () => {
@@ -2176,13 +2236,24 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
   })
 
   test('POST recover checks write:pages against the target path, not the original', async () => {
-    getDeletedVersionResult = { path: 'original', locale: 'en', title: 'T', content: 'c', meta: {} }
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
     const seenTargets: any[] = []
     checkAccessImpl = (_actor, permission, page) => {
       if (permission === 'write:pages') {
         seenTargets.push(page)
+        return false
       }
-      return false
+      // -> The source-side read:pages/read:source check runs first (OpenProject #2168) -- allowed
+      //    here so the write:pages check below is what this test is actually exercising
+      return permission === 'read:pages' || permission === 'read:source'
     }
 
     const res = await app.inject({
@@ -2196,6 +2267,70 @@ describe('GET/POST /sites/:siteId/pages/deleted — recoverable-page routes', ()
     assert.deepEqual(seenTargets, [
       { path: 'overridden', locale: 'fr', classification: null, siteId: SITE_ID }
     ])
+  })
+
+  test('POST recover refuses when the caller cannot read the deleted path, even though they can write the destination (OpenProject #2168)', async () => {
+    getDeletedVersionResult = {
+      path: 'secret-original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: ['confidential'],
+      classification: 'restricted-level-id'
+    }
+    const seenSourceChecks: any[] = []
+    checkAccessImpl = (_actor, permission, page) => {
+      if (permission === 'read:pages' || permission === 'read:source') {
+        seenSourceChecks.push({ permission, page })
+        // -> Denied at the source, regardless of the destination
+        return false
+      }
+      // -> Freely allowed to write the (different) destination -- proves the refusal below is really
+      //    about the source, not a blanket deny
+      return permission === 'write:pages'
+    }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: { path: 'somewhere-else', locale: 'en' }
+    })
+
+    assert.equal(res.statusCode, 403)
+    // -> Checked against the version's OWN path/tags/classification, not the override target
+    assert.ok(
+      seenSourceChecks.some(
+        (c) =>
+          c.page.path === 'secret-original' &&
+          c.page.classification === 'restricted-level-id' &&
+          c.permission === 'read:pages'
+      )
+    )
+  })
+
+  test('POST recover succeeds when the caller can read the deleted path and write the destination', async () => {
+    getDeletedVersionResult = {
+      path: 'original',
+      locale: 'en',
+      title: 'T',
+      content: 'c',
+      meta: {},
+      tags: [],
+      classification: null
+    }
+    checkAccessImpl = () => true
+    recoverDeletedPageImpl = async () => ({ id: 'p1', path: 'original', locale: 'en', title: 'T' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/pages/deleted/${VERSION_ID}/recover`,
+      headers: withSession({ authenticated: true, user: { id: 'u1' } }),
+      payload: {}
+    })
+
+    assert.equal(res.statusCode, 200)
   })
 
   test('POST recover recreates the page and returns it', async () => {

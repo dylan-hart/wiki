@@ -2150,14 +2150,14 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'List recoverable deletions',
         description:
-          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, granted by a group rule.',
+          'One row per deleted path still recoverable: the most recent `deleted` version at a path with no live page there now. A path that was recovered, or reused by an unrelated new page, drops off this list on its own — there is no flag to set or clear.\n\nEach row needs `read:history` at the path and locale it was deleted from, using the tags and classification the deleted version itself carried — so a TAG/TAGALL/CLASSIFICATION-scoped rule narrows this listing the same way it would a live page — granted by a group rule.',
         tags: ['Pages'],
         params: siteIdParam,
         response: {
           200: {
             description: 'Recoverable deletions, one row per path',
             type: 'array',
-            items: { $ref: 'PageHistoryEntry#' }
+            items: { $ref: 'RecoverablePageEntry#' }
           }
         }
       }
@@ -2165,7 +2165,12 @@ async function routes(app: FastifyInstance) {
     async (req) => {
       const rows = await WIKI.models.pageHistory.listRecoverable(req.params.siteId)
       return rows.filter((row) =>
-        mayOnPage(req, 'read:history', req.params.siteId, { path: row.path, locale: row.locale })
+        mayOnPage(req, 'read:history', req.params.siteId, {
+          path: row.path,
+          locale: row.locale,
+          tags: row.tags,
+          classification: row.classification
+        })
       )
     }
   )
@@ -2221,7 +2226,8 @@ async function routes(app: FastifyInstance) {
           }
         },
         response: {
-          200: { $ref: 'PageHistoryRecoverResponse#' }
+          200: { $ref: 'PageHistoryRecoverResponse#' },
+          403: { $ref: 'ApiError#' }
         }
       }
     },
@@ -2236,6 +2242,32 @@ async function routes(app: FastifyInstance) {
       )
       if (!version) {
         return reply.notFound('No deleted version exists with this id.')
+      }
+      /*
+        OpenProject #2168: the source-side check, ahead of the destination one below. Without this, a
+        caller holding `read:history` at a path (enough to see it in the deleted-pages listing) but
+        denied `read:pages`/`read:source` there could still recover the deletion into any path they
+        hold `write:pages` on -- reading and republishing source they were never allowed to read.
+        Checked against the version's OWN tags/classification, not the target's: what is being read
+        here is the deleted content itself, at the path/locale it actually lived at.
+      */
+      if (
+        !mayOnPage(req, 'read:pages', req.params.siteId, {
+          path: version.path,
+          locale: version.locale,
+          tags: version.tags,
+          classification: version.classification
+        }) ||
+        !mayOnPage(req, 'read:source', req.params.siteId, {
+          path: version.path,
+          locale: version.locale,
+          tags: version.tags,
+          classification: version.classification
+        })
+      ) {
+        return reply.forbidden(
+          'You are not allowed to read the page this version was deleted from.'
+        )
       }
       const overrides = req.body ?? {}
       const target = {

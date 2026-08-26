@@ -132,6 +132,19 @@ export type PageHistoryVersion = PageHistoryEntry & {
 }
 
 /**
+ * A recoverable deletion, as `GET /sites/:siteId/pages/deleted` lists them (OpenProject #2168) —
+ * `PageHistoryEntry` minus the author's email, plus the version's own `tags`/`classification` so the
+ * route can check `read:history` against the real page shape (TAG/TAGALL/CLASSIFICATION rules
+ * included) rather than a bare `{ path, locale }` ref. See `pageHistory.listRecoverable`'s own doc
+ * comment for why the email is dropped here specifically, unlike the per-page history view.
+ */
+export type RecoverablePageEntry = Omit<PageHistoryEntry, 'author'> & {
+  author: { id: string | null; name: string }
+  tags: string[]
+  classification: string | null
+}
+
+/**
  * Unique-contributor counts for one page, split by `via` (OpenProject #1141's edit-volume node
  * sizing) -- `editor`/`mcp` are `pageHistory.via`'s own two buckets, and `all` is the union across
  * both, precomputed here rather than left for a caller to add `editor + mcp` together: a
@@ -462,8 +475,16 @@ class PageHistory {
    * by an unrelated new page, is not something to offer recovery into — a live `pages` row at the
    * same `(siteId, locale, path)` excludes it via `NOT EXISTS`. Between the two, a path drops off this
    * list the moment it stops being an actual gap, with no flag to set or clear anywhere.
+   *
+   * Returns `RecoverablePageEntry`, not `PageHistoryEntry` (OpenProject #2168): `tags`/`classification`
+   * ride along -- lifted out of `meta` the same way `getDeletedVersion` does -- so the route can narrow
+   * its per-row `read:history` check with a TAG/TAGALL/CLASSIFICATION rule instead of the bare
+   * `{ path, locale }` ref it used to build, and `author.email` is dropped: unlike a single page's own
+   * history view (gated by `read:history` at that ONE page), this listing spans every deleted path on
+   * the site in one sweep, and handing back every deleter's email address across the whole site is a
+   * wider exposure than the entry needs to serve its purpose.
    */
-  async listRecoverable(siteId: string): Promise<PageHistoryEntry[]> {
+  async listRecoverable(siteId: string): Promise<RecoverablePageEntry[]> {
     const rows = await WIKI.db
       .selectDistinctOn([pageHistoryTable.locale, pageHistoryTable.path], {
         id: pageHistoryTable.id,
@@ -475,9 +496,9 @@ class PageHistory {
         locale: pageHistoryTable.locale,
         path: pageHistoryTable.path,
         title: pageHistoryTable.title,
+        meta: pageHistoryTable.meta,
         authorId: usersTable.id,
-        authorName: usersTable.name,
-        authorEmail: usersTable.email
+        authorName: usersTable.name
       })
       .from(pageHistoryTable)
       .leftJoin(usersTable, eq(usersTable.id, pageHistoryTable.authorId))
@@ -501,22 +522,26 @@ class PageHistory {
       )
       .orderBy(pageHistoryTable.locale, pageHistoryTable.path, desc(pageHistoryTable.versionDate))
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      action: row.action,
-      via: row.via,
-      changedFields: row.changedFields ?? [],
-      reason: row.reason ?? '',
-      versionDate: row.versionDate,
-      locale: row.locale,
-      path: row.path,
-      title: row.title,
-      author: {
-        id: row.authorId ?? null,
-        name: row.authorName ?? '',
-        email: row.authorEmail ?? ''
+    return rows.map((row: any) => {
+      const meta = (row.meta ?? {}) as Record<string, any>
+      return {
+        id: row.id,
+        action: row.action,
+        via: row.via,
+        changedFields: row.changedFields ?? [],
+        reason: row.reason ?? '',
+        versionDate: row.versionDate,
+        locale: row.locale,
+        path: row.path,
+        title: row.title,
+        author: {
+          id: row.authorId ?? null,
+          name: row.authorName ?? ''
+        },
+        tags: (meta.tags ?? []) as string[],
+        classification: (meta.classification ?? null) as string | null
       }
-    }))
+    })
   }
 
   /**
@@ -538,6 +563,15 @@ class PageHistory {
     title: string
     content: string
     meta: Record<string, any>
+    /**
+     * The version's own tags/classification (OpenProject #2168), lifted out of `meta` as named fields
+     * rather than left for the caller to reach in for -- neither is `EXCLUDED_FROM_META`, so both
+     * already travel with every version; this is what `api/pages.ts`'s recover route checks
+     * `read:pages`/`read:source` against at the SOURCE path, before its existing `write:pages` check
+     * against the destination.
+     */
+    tags: string[]
+    classification: string | null
   } | null> {
     const rows = await WIKI.db
       .select({
@@ -561,12 +595,15 @@ class PageHistory {
     if (!row) {
       return null
     }
+    const meta = (row.meta ?? {}) as Record<string, any>
     return {
       path: row.path,
       locale: row.locale,
       title: row.title,
       content: row.content ?? '',
-      meta: (row.meta ?? {}) as Record<string, any>
+      meta,
+      tags: (meta.tags ?? []) as string[],
+      classification: (meta.classification ?? null) as string | null
     }
   }
 
