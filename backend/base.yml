@@ -73,6 +73,11 @@ defaults:
     # no row is ever inserted, not merely hidden from a later read.
     pageviews:
       isEnabled: true
+    # Only a backstop for a database that predates this key's introduction (the `settings` table row
+    # is what actually governs a live instance -- see `models/settings.ts#init()` and
+    # `models/auditLog.ts`'s `DEFAULT_AUDIT_LOG_RETENTION_DAYS`, which this must match).
+    auditLog:
+      retentionDays: 365
     auth:
       autoLogin: false
       enforce2FA: false

@@ -311,9 +311,6 @@ class Locales {
         .from(localesTable)
         .orderBy(localesTable.code)
       WIKI.cache.set('locales', locales)
-      for (const locale of locales) {
-        WIKI.cache.set(`locale:${locale.code}`, locale)
-      }
     }
     return WIKI.cache.get('locales') as any[]
   }
