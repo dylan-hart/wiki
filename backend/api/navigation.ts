@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { findUnsafeNavigationTarget } from '../helpers/navigationTarget.ts'
 import {
   NAV_COPY_MODES,
   NAVIGATION_MODES,
@@ -395,6 +396,7 @@ async function routes(app: FastifyInstance) {
               message: { type: 'string' }
             }
           },
+          400: { $ref: 'ApiError#' },
           401: { $ref: 'ApiError#' },
           403: { $ref: 'ApiError#' }
         }
@@ -403,6 +405,12 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
+      }
+      const unsafeTarget = findUnsafeNavigationTarget(req.body.items)
+      if (unsafeTarget !== null) {
+        return reply.badRequest(
+          `Navigation item target "${unsafeTarget}" is not allowed. Only a rooted path or a complete http(s):// URL may be stored.`
+        )
       }
       await WIKI.models.navigation.setNavItems(req.params.siteId, req.params.navId, req.body.items)
       return {
@@ -572,6 +580,14 @@ async function routes(app: FastifyInstance) {
     async (req, reply) => {
       if (!canManageNavigation(req, req.params.siteId)) {
         return reply.forbidden()
+      }
+      if (req.body.items) {
+        const unsafeTarget = findUnsafeNavigationTarget(req.body.items)
+        if (unsafeTarget !== null) {
+          return reply.badRequest(
+            `Navigation item target "${unsafeTarget}" is not allowed. Only a rooted path or a complete http(s):// URL may be stored.`
+          )
+        }
       }
       const result = await WIKI.models.navigation.updateNavigation({
         siteId: req.params.siteId,

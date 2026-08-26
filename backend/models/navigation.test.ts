@@ -313,6 +313,38 @@ describe('navigation copyNav (DB-backed)', { skip: !hasTestDatabase() }, () => {
     assert.notEqual(targetItems[1]!.id, 'append-source')
   })
 
+  /**
+   * OpenProject #2217: `copyNav` used to copy `target` unrewritten, so a source menu poisoned before
+   * this check existed (or written straight to the database) could reintroduce a `javascript:` item
+   * into a fresh menu via a plain "copy from locale". A safe target still travels over unchanged.
+   */
+  test('drops an unsafe target instead of duplicating it onto the target menu', async () => {
+    const sourceId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ja')
+    const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'ko')
+
+    await navigationModel.setNavItems(fixtures.siteId, sourceId, [
+      { id: 'safe-path', type: 'link' as const, label: 'Safe Path', target: '/safe' },
+      { id: 'safe-url', type: 'link' as const, label: 'Safe URL', target: 'https://example.com' },
+      { id: 'unsafe', type: 'link' as const, label: 'Unsafe', target: 'javascript:alert(1)' }
+    ])
+
+    await navigationModel.copyNav({
+      sourceSiteId: fixtures.siteId,
+      sourceId,
+      targetSiteId: fixtures.siteId,
+      targetId,
+      mode: 'replace'
+    })
+
+    const targetItems = await navigationModel.getNav(fixtures.siteId, targetId, {
+      unfiltered: true
+    })
+    const byLabel = Object.fromEntries(targetItems.map((i) => [i.label, i.target]))
+    assert.equal(byLabel['Safe Path'], '/safe')
+    assert.equal(byLabel['Safe URL'], 'https://example.com')
+    assert.equal(byLabel['Unsafe'], undefined)
+  })
+
   test('rejects a sourceId that does not resolve to an existing menu row', async () => {
     const targetId = await navigationModel.ensureSiteNav(fixtures.siteId, 'pt')
     await assert.rejects(

@@ -6,6 +6,7 @@ import {
   tree as treeTable
 } from '../db/schema.ts'
 import { CustomError, decodeTreePath, localizedPagePath } from '../helpers/common.ts'
+import { sanitizeNavigationTargets } from '../helpers/navigationTarget.ts'
 import { MAX_DEPTH, compareFoldersFirst, pageIsVisible } from './tree.ts'
 import type { TreeItemType } from './tree.ts'
 
@@ -549,9 +550,12 @@ class Navigation {
    * "copy from locale" merge behavior).
    *
    * `visibilityGroups` travels over unchanged — groups are instance-wide, so a group reference from
-   * the source site/locale is still valid on the target. Item `target` paths are copied unrewritten
-   * too: validating or repointing them against the destination locale/site is a known best-effort
-   * limitation, same as 2.5.x.
+   * the source site/locale is still valid on the target. A safe item `target` (a rooted path or a
+   * complete `http(s)://` URL) is copied unrewritten: repointing it against the destination
+   * locale/site is a known best-effort limitation, same as 2.5.x. An UNSAFE one (`javascript:` and
+   * friends — see `helpers/navigationTarget.ts`) is stripped rather than carried over, so a menu
+   * copy can't reintroduce a poisoned target that predates this check, or one written straight to
+   * the database (OpenProject #2217).
    *
    * @param sourceSiteId Site the source row belongs to — the same as `targetSiteId` for a same-site
    *                      "copy from locale", different for a cross-site copy
@@ -592,7 +596,9 @@ class Navigation {
       throw new CustomError('navCopyTargetNotFound', 'The target menu does not exist.', 404)
     }
 
-    const clonedItems = cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    const clonedItems = sanitizeNavigationTargets(
+      cloneItemsWithFreshIds((sourceRow.items ?? []) as NavigationItem[])
+    )
     const items =
       mode === 'append'
         ? [...((targetRow.items ?? []) as NavigationItem[]), ...clonedItems]
