@@ -141,6 +141,27 @@ describe('jobs TZ regression (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
       assert.equal(healthy, true)
     })
+
+    test('reports unhealthy for a heartbeat older than 15 minutes, even off UTC', async () => {
+      await fixtures.db
+        .insert(jobLockTable)
+        .values({
+          key: 'cron',
+          lastCheckedBy: 'test-instance',
+          lastCheckedAt: new Date(Date.now() - 20 * 60 * 1000)
+        })
+        .onConflictDoUpdate({
+          target: jobLockTable.key,
+          set: {
+            lastCheckedBy: 'test-instance',
+            lastCheckedAt: new Date(Date.now() - 20 * 60 * 1000)
+          }
+        })
+
+      const healthy = await jobs.isHealthy()
+
+      assert.equal(healthy, false)
+    })
   })
 
   describe('cleanHistory (retention cutoff)', () => {

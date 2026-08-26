@@ -27,19 +27,6 @@ export interface ContentSyncStateRow {
   updatedAt: Date
 }
 
-/**
- * Parses a raw `timestamp without time zone` value straight off the driver, e.g. from a `sql<string>`
- * aggregate that bypasses Drizzle's own column-level decoding (see `getTargetSummary`'s `syncedRow`
- * query). Postgres prints such a column as `YYYY-MM-DD HH:MI:SS[.ffffff]` with no zone suffix — that
- * type carries no timezone by definition, so this codebase's convention (documented on the
- * `contentSyncState` schema) is to treat the naive value as UTC throughout. `new Date(value)` would
- * instead parse a string with no zone suffix as *local* time, which is wrong here and, depending on the
- * server's own timezone, silently wrong by however many hours that offset is.
- */
-function parsePgNaiveTimestamp(value: string): Date {
-  return new Date(`${value.replace(' ', 'T')}Z`)
-}
-
 /** One content item the out-of-date query found, i.e. it has no successful sync newer than itself. */
 export interface OutOfDateContent {
   id: string
@@ -161,7 +148,7 @@ class ContentSync {
   ): Promise<TargetSyncSummary> {
     const [[syncedRow], [errorRow], outOfDatePages, outOfDateAssets] = await Promise.all([
       WIKI.db
-        .select({ lastSyncedAt: sql<string | null>`max(${contentSyncStateTable.lastSyncedAt})` })
+        .select({ lastSyncedAt: sql<Date | null>`max(${contentSyncStateTable.lastSyncedAt})` })
         .from(contentSyncStateTable)
         .where(eq(contentSyncStateTable.targetId, targetId)),
       WIKI.db
@@ -184,12 +171,10 @@ class ContentSync {
 
     const lastSyncedAt = syncedRow?.lastSyncedAt ?? null
     const errorIsStale =
-      errorRow != null &&
-      lastSyncedAt != null &&
-      parsePgNaiveTimestamp(lastSyncedAt) > errorRow.updatedAt
+      errorRow != null && lastSyncedAt != null && lastSyncedAt > errorRow.updatedAt
 
     return {
-      lastSyncedAt,
+      lastSyncedAt: lastSyncedAt ? lastSyncedAt.toISOString() : null,
       lastError: errorIsStale ? null : (errorRow?.lastError ?? null),
       lastAttemptAt: errorIsStale || !errorRow ? null : errorRow.updatedAt.toISOString(),
       outOfDateCount: outOfDatePages.length + outOfDateAssets.length
