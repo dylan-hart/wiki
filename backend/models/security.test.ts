@@ -84,3 +84,54 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     assert.equal(security.getInsecureCookieRiskAt(), firstSeenAt)
   })
 })
+
+/**
+ * Task 2085: `trustProxy` widened from a boolean-only setting to also accept a comma-separated
+ * address/CIDR list (`@fastify/proxy-addr`'s `compile()` form) -- the same string `index.ts` passes
+ * straight through as Fastify's own `trustProxy` option. Round-tripping an admin-supplied string
+ * through `compile()` here is what keeps a value that would throw the moment the next request hit
+ * `fastify(...)` from ever reaching `updateConfig()` in the first place.
+ */
+describe('Security#validate trustProxy', () => {
+  let security: typeof import('./security.ts').security
+
+  // -> Every other `validate()` branch runs against whatever this merges with, so a trustProxy-only
+  //    patch needs the rest of the fields already valid or an unrelated branch (CORS mode, HSTS
+  //    duration, ...) fails first and the assertion below would be testing the wrong thing.
+  const validBaseConfig = {
+    corsMode: 'OFF',
+    enforceCsp: false,
+    enforceHsts: false,
+    authRateLimitEnabled: false,
+    apiRateLimitEnabled: false,
+    trustProxy: false
+  }
+
+  beforeEach(async () => {
+    ;(globalThis as any).WIKI = { config: { security: { ...validBaseConfig } } }
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('still accepts the boolean form, on and off', () => {
+    assert.equal(security.validate({ trustProxy: true }), null)
+    assert.equal(security.validate({ trustProxy: false }), null)
+  })
+
+  test('accepts a single trusted CIDR', () => {
+    assert.equal(security.validate({ trustProxy: '10.0.0.0/8' }), null)
+  })
+
+  test('accepts a comma-separated address/CIDR list, including proxy-addr presets', () => {
+    assert.equal(security.validate({ trustProxy: '10.0.0.1, 192.168.1.0/24, loopback' }), null)
+  })
+
+  test('accepts an empty string the same as no trusted peers', () => {
+    assert.equal(security.validate({ trustProxy: '' }), null)
+  })
+
+  test('rejects a value @fastify/proxy-addr cannot compile', () => {
+    const result = security.validate({ trustProxy: 'not-an-address-or-cidr!!' })
+    assert.ok(result, 'expected a validation error')
+    assert.match(result!, /trusted proxy address list is invalid/i)
+  })
+})

@@ -55,8 +55,9 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           'Enforced: `GET /sites/:siteId/assets/:assetId/content` sends `Content-Disposition: attachment` for every file when this is on, non-image extensions otherwise. Read live on each request, unlike the rest of this card — flipping it applies immediately, no restart needed.'
       },
       trustProxy: {
-        type: 'boolean',
-        description: 'Whether to trust `X-Forwarded-*` headers.'
+        type: ['boolean', 'string'],
+        description:
+          'Whether to trust `X-Forwarded-*` headers. `true`/`false` trusts every/no peer; a comma-separated address/CIDR list (`@fastify/proxy-addr` form, e.g. `10.0.0.0/8, 192.168.1.1`) trusts only the listed immediate peers -- required for `X-Forwarded-Host` to be honored only from a real reverse proxy rather than any client, since a bare `true` lets any client steer site resolution (task 2085).'
       },
       insecureCookieRiskAt: {
         type: 'string',
