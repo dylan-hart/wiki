@@ -12,7 +12,7 @@ import path from 'node:path'
  * layout or the `metadata.mjs` filename that isn't actually committed.
  */
 describe('localazy.json', () => {
-  const rootPath = path.join(import.meta.dirname, '..')
+  const rootPath = path.join(import.meta.dirname, '..', '..')
   const localazyJsonPath = path.join(rootPath, 'localazy.json')
 
   async function loadConfig() {

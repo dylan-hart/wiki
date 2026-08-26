@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.join(HERE, '..')
+const REPO_ROOT = path.join(HERE, '..', '..')
 const DOC_PATH = path.join(REPO_ROOT, 'docs', 'tls-termination.md')
 
 async function exists(p: string): Promise<boolean> {

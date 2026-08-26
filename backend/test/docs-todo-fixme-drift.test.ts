@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
  * Drift check for the "## TODO/FIXME audit" section of docs/variances.md (task #780, section added
  * by #959).
  *
- * backend/docs-todo-fixme-audit.test.ts locks down one specific, durable outcome of the original
+ * backend/test/docs-todo-fixme-audit.test.ts locks down one specific, durable outcome of the original
  * audit pass, but it hard-codes what it checks, so it cannot notice a marker the audit never looked
  * at in the first place. This test is the "re-run the grep before trusting this list" instruction
  * automated: it walks backend/ and frontend/src/ for TODO/FIXME markers and fails if any file
@@ -26,7 +26,7 @@ import assert from 'node:assert/strict'
  * unreviewed) actually gets caught.
  */
 
-const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const variancesPath = path.join(REPO_ROOT, 'docs', 'variances.md')
 
 const MARKER = /\b(TODO|FIXME)\b/
