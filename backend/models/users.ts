@@ -1797,13 +1797,20 @@ class Users {
    * them, adding what is newly granted and removing what is no longer reported — mirroring 2.5.x's
    * `passport-ldapauth` / `passport-saml` modules' add/remove-by-difference behavior.
    *
-   * Two memberships are never touched by this, regardless of what was reported:
+   * Three kinds of membership are never touched by this, regardless of what was reported:
    *
    *   - the guests group, which is anonymous access itself rather than something a provider can grant
    *     or take away from a real account;
    *   - any group still named in the strategy's own `autoEnrollGroups` — an administrator put that
    *     grant there directly, and a provider that has simply stopped mentioning the group should not
-   *     silently undo it.
+   *     silently undo it;
+   *   - any group in `WIKI.models.groups.systemGroupIds()` — every group carrying `manage:system`,
+   *     plus the root administrators group. An IdP reporting a literal string that happens to match
+   *     one of their names (`administrators`, say) must never grant `manage:system` in the same
+   *     request a login flattens permissions onto the session, mirroring the guard
+   *     `api/users.ts`'s membership-change route already applies to a human caller; and a returning
+   *     administrator whose IdP simply doesn't mention the group this login must not be silently
+   *     demoted either.
    *
    * Group names are matched case-insensitively and trimmed, since that is how directory group names are
    * routinely typed inconsistently.
@@ -1817,7 +1824,12 @@ class Users {
     reportedGroups: string[]
   ): Promise<void> {
     const guestsGroupId = WIKI.data.systemIds.guestsGroupId
-    const protectedFromRemoval = new Set([guestsGroupId, ...(strategy.autoEnrollGroups ?? [])])
+    const systemGroupIds = new Set(await WIKI.models.groups.systemGroupIds())
+    const protectedFromRemoval = new Set([
+      guestsGroupId,
+      ...systemGroupIds,
+      ...(strategy.autoEnrollGroups ?? [])
+    ])
 
     const reportedNames = new Set(
       reportedGroups.map((name) => name.trim().toLowerCase()).filter(Boolean)
@@ -1826,7 +1838,10 @@ class Users {
     const matchedGroupIds = new Set(
       allGroups
         .filter(
-          (g: any) => g.id !== guestsGroupId && reportedNames.has(g.name.trim().toLowerCase())
+          (g: any) =>
+            g.id !== guestsGroupId &&
+            !systemGroupIds.has(g.id) &&
+            reportedNames.has(g.name.trim().toLowerCase())
         )
         .map((g: any) => g.id)
     )
