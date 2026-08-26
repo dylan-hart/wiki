@@ -7,6 +7,7 @@ import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
   groups as groupsTable,
+  pageHistory as pageHistoryTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -21,7 +22,7 @@ const EXPORT_TTL_SECONDS = 24 * 60 * 60
  * only when that shape changes; an import whose manifest names a different version is refused
  * outright rather than restored best-effort (see `models/import.ts`).
  */
-export const EXPORT_FORMAT_VERSION = 1
+export const EXPORT_FORMAT_VERSION = 2
 
 export interface ExportResult {
   filePath: string
@@ -46,8 +47,9 @@ function stripDerived<T extends Record<string, any>>(row: T): Partial<T> {
 /**
  * Content export model
  *
- * Serializes one site's pages, tree, assets (bytea included) and the (site-wide) groups into a single
- * gzipped tar archive under `<dataPath>/exports/`, for the "Export content" system utility.
+ * Serializes one site's pages, tree, assets (bytea included), page history and the (site-wide) groups
+ * into a single gzipped tar archive under `<dataPath>/exports/`, for the "Export content" system
+ * utility.
  *
  * Every entry is first written into a per-export staging directory under the OS temp dir, then `tar`'s
  * file-based `create()` archives the whole directory in one pass — the same approach
@@ -82,10 +84,11 @@ class ExportModel {
       throw new Error(`Site ${siteId} does not exist.`)
     }
 
-    const [pageRows, treeRows, assetRows, groupRows] = await Promise.all([
+    const [pageRows, treeRows, assetRows, pageHistoryRows, groupRows] = await Promise.all([
       WIKI.db.select().from(pagesTable).where(eq(pagesTable.siteId, siteId)),
       WIKI.db.select().from(treeTable).where(eq(treeTable.siteId, siteId)),
       WIKI.db.select().from(assetsTable).where(eq(assetsTable.siteId, siteId)),
+      WIKI.db.select().from(pageHistoryTable).where(eq(pageHistoryTable.siteId, siteId)),
       // -> Groups are global, not site-scoped (see CLAUDE.md's Permissions section) — a site's
       //    access model cannot be reconstructed from its own rows alone
       WIKI.db.select().from(groupsTable)
@@ -120,6 +123,10 @@ class ExportModel {
       await fs.writeFile(
         path.join(stagingDir, 'tree.json'),
         JSON.stringify(treeRows.map(stripDerived), null, 2)
+      )
+      await fs.writeFile(
+        path.join(stagingDir, 'pageHistory.json'),
+        JSON.stringify(pageHistoryRows.map(stripDerived), null, 2)
       )
       await fs.writeFile(path.join(stagingDir, 'groups.json'), JSON.stringify(groupRows, null, 2))
 

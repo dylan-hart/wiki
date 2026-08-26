@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm'
 import {
   assets as assetsTable,
   groups as groupsTable,
+  pageHistory as pageHistoryTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -19,6 +20,7 @@ export interface ImportResult {
   pages: number
   tree: number
   assets: number
+  pageHistory: number
   groups: number
 }
 
@@ -78,17 +80,23 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  * Two things the export cannot carry are resolved here, deliberately and not as a fallback for a case
  * that "shouldn't occur":
  *
- * - **Site content is replaced, not merged.** Every existing page, tree entry and asset belonging to
- *   the target site is deleted before the imported ones are inserted. Pages and tree entries are
- *   matched by path/locale with no natural merge order, so "restore" is defined as putting the site
- *   back to exactly what the archive describes, not layering it on top of whatever is already there.
+ * - **Site content is replaced, not merged.** Every existing page, tree entry, asset and page-history
+ *   row belonging to the target site is deleted before the imported ones are inserted. Pages and tree
+ *   entries are matched by path/locale with no natural merge order, so "restore" is defined as putting
+ *   the site back to exactly what the archive describes, not layering it on top of whatever is already
+ *   there.
  * - **Pages, tree entries and assets get fresh ids, unlike groups.** `pages.id`/`tree.id`/`assets.id`
  *   are one global primary-key space, not scoped per site, so re-using the archive's own ids would
  *   collide with the source site's rows the moment it still exists in the same database — restoring a
  *   backup while the original site is still around, or duplicating one site's content into another,
  *   are both ordinary uses of this, not edge cases. A page's and an asset's tree entry share its id
  *   (see below), so the new id is generated once per page/asset and carried through to its tree row
- *   rather than each row picking its own.
+ *   rather than each row picking its own. A page-history row's own `id` is kept as-is (it is not
+ *   referenced anywhere else, unlike `pages.id`/`assets.id`), but its `pageId` is remapped through the
+ *   same page id map when the page it describes was itself just re-inserted — or left as the archive's
+ *   original, already-orphaned value when it describes a page that was already deleted in the source
+ *   site (`pageId` is not a foreign key, precisely so history can outlive its page; see
+ *   `db/schema.ts`).
  * - **Groups are upserted by id, not replaced.** Unlike pages/tree/assets, groups are global rather
  *   than site-scoped (see CLAUDE.md's Permissions section) — wiping the whole table to restore one
  *   site's export would take every other site's access model with it. An imported group updates one
@@ -96,8 +104,8 @@ function readJson<T>(entries: Record<string, Buffer>, name: string): T {
  *   instance that produced it) or is inserted as a new one when it does not (importing onto a
  *   different instance).
  * - **Authorship cannot travel with the content**, since accounts are not part of the export — every
- *   imported page's and asset's author/creator/owner columns are rewritten to the account performing
- *   the import.
+ *   imported page's and asset's author/creator/owner columns, and every restored page-history row's
+ *   `authorId`, are rewritten to the account performing the import.
  * - **The target site's own config, hostname and enabled state are left untouched.** `site.json` is
  *   validated as present (it is part of the archive's structure) but its contents are not applied —
  *   only pages, tree entries, assets and groups are what this restores.
@@ -191,6 +199,7 @@ class ImportModel {
     readJson<Record<string, any>>(entries, 'site.json')
     const pageRows = readJson<Record<string, any>[]>(entries, 'pages.json')
     const treeRows = readJson<Record<string, any>[]>(entries, 'tree.json')
+    const pageHistoryRows = readJson<Record<string, any>[]>(entries, 'pageHistory.json')
     const groupRows = readJson<Record<string, any>[]>(entries, 'groups.json')
     const assetManifest = readJson<Record<string, any>[]>(entries, 'assets/manifest.json')
 
@@ -245,12 +254,26 @@ class ImportModel {
       return { ...row, id: newId, siteId: targetSiteId }
     })
 
+    // -> `pageId` is deliberately not a foreign key (see `db/schema.ts`), so a row whose page still
+    //    exists gets the same fresh id that page just got, while a row for a page already deleted in
+    //    the source site (and so absent from `pageIdMap`) keeps its original, already-orphaned
+    //    `pageId` — exactly as orphaned here as it was in the source. `authorId` is rewritten to the
+    //    importing account for the same "authorship cannot travel with the content" reason
+    //    pages/assets are.
+    const mappedPageHistoryRows = pageHistoryRows.map((row) => ({
+      ...row,
+      pageId: pageIdMap.get(row.pageId) ?? row.pageId,
+      siteId: targetSiteId,
+      authorId: importedById
+    }))
+
     await WIKI.db.transaction(async (tx) => {
       // -> Site content is replaced outright — see the class-level doc comment. Deleted before
-      //    anything is inserted, all three scoped to the target site alone.
+      //    anything is inserted, all four scoped to the target site alone.
       await tx.delete(assetsTable).where(eq(assetsTable.siteId, targetSiteId))
       await tx.delete(treeTable).where(eq(treeTable.siteId, targetSiteId))
       await tx.delete(pagesTable).where(eq(pagesTable.siteId, targetSiteId))
+      await tx.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, targetSiteId))
 
       // -> Groups are global, so they are upserted by id rather than replaced wholesale — see the
       //    class-level doc comment.
@@ -272,12 +295,17 @@ class ImportModel {
       if (mappedAssetRows.length > 0) {
         await tx.insert(assetsTable).values(mappedAssetRows as any)
       }
+
+      if (mappedPageHistoryRows.length > 0) {
+        await tx.insert(pageHistoryTable).values(mappedPageHistoryRows as any)
+      }
     })
 
     return {
       pages: mappedPageRows.length,
       tree: mappedTreeRows.length,
       assets: mappedAssetRows.length,
+      pageHistory: mappedPageHistoryRows.length,
       groups: groupRows.length
     }
   }
