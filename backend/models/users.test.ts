@@ -1633,6 +1633,24 @@ describe('users.loginTFA', () => {
     return { id: 'user-1', email: 'ada@example.com', auth: { strat: {} }, ...overrides }
   }
 
+  // -> `loginTFA` now calls `limitAuthAttemptsForAccount(user.email)` (task 2083) once the
+  //    continuation token resolves a user, ahead of verifying the code itself. Stubbed to always
+  //    allow: the counter's own behavior is covered by `helpers/rateLimit.test.ts`, so this suite
+  //    only needs it present and out of the way.
+  before(() => {
+    ;(globalThis as any).WIKI = {
+      config: { security: {} },
+      models: {
+        flags: { authDebug: () => {} },
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) }
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
   test('rejects a code shaped like neither a TOTP code nor a recovery code, before validating the token', async (t) => {
     const validateToken = t.mock.method(users, 'validateToken', async () => {
       throw new Error('should not be called')
@@ -2286,6 +2304,7 @@ describe('users.login (form-based provider auto-provisioning)', () => {
 
   function installWiki(getStrategyById: () => Promise<any>) {
     ;(globalThis as any).WIKI = {
+      config: { security: {} },
       data: { authentication: [{ key: 'ldap', useForm: true }] },
       auth: {
         strategies: {
@@ -2299,7 +2318,11 @@ describe('users.login (form-based provider auto-provisioning)', () => {
       },
       models: {
         flags: { authDebug: () => {} },
-        authentication: { getStrategyById }
+        authentication: { getStrategyById },
+        // -> `login()` now calls `limitAuthAttemptsForAccount(username)` (task 2083) before
+        //    authenticating, for every form-based strategy. Stubbed to always allow -- the
+        //    counter's own behavior is covered by `helpers/rateLimit.test.ts`.
+        rateLimits: { consume: async () => ({ allowed: true, hits: 1, retryAfter: 0 }) }
       }
     }
   }
