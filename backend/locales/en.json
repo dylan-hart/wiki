@@ -1440,7 +1440,7 @@
   "admin.utilities.disconnectWSSuccess": "All active websocket connections have been terminated.",
   "admin.utilities.export": "Export",
   "admin.utilities.exportFailed": "Failed to export the site's content.",
-  "admin.utilities.exportHint": "Export content to tarball for backup / migration.",
+  "admin.utilities.exportHint": "Export pages, page history, navigation, files and groups to a tarball for backup / migration.",
   "admin.utilities.exportSuccess": "Content export saved.",
   "admin.utilities.flushCache": "Flush Cache",
   "admin.utilities.flushCacheFailed": "Failed to flush the cache.",

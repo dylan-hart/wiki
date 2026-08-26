@@ -5,7 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { assets as assetsTable } from '../db/schema.ts'
+import {
+  assets as assetsTable,
+  groups as groupsTable,
+  pageHistory as pageHistoryTable,
+  navigation as navigationTable
+} from '../db/schema.ts'
 
 /**
  * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
@@ -113,12 +118,84 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
     assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
 
+    const exportedHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    assert.ok(Array.isArray(exportedHistory))
+
+    const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
+    assert.ok(Array.isArray(exportedNavigation))
+
     const assetManifest = JSON.parse(entries['assets/manifest.json']!.toString('utf8'))
     const exportedAsset = assetManifest.find((a: any) => a.id === asset!.id)
     assert.ok(exportedAsset)
     // -> The bytes travel as their own archive entry, not inlined into the JSON manifest
     assert.equal('data' in exportedAsset, false)
     assert.deepEqual(entries[`assets/${asset!.id}.data`], assetData)
+  })
+
+  test('exportSite includes page history and navigation rows', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      {
+        path: 'history-me',
+        title: 'History Me',
+        editor: 'markdown',
+        content: '# v1'
+      },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    const [historyRow] = await fixtures.db
+      .insert(pageHistoryTable)
+      .values({
+        pageId: page.id,
+        action: 'updated',
+        locale: 'en',
+        path: 'history-me',
+        title: 'History Me',
+        content: '# v1',
+        siteId: fixtures.siteId,
+        authorId: fixtures.userId
+      })
+      .returning({ id: pageHistoryTable.id })
+
+    const [navRow] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'a', type: 'link', label: 'Home', target: '/' }],
+        mode: 'static',
+        locale: 'en',
+        siteId: fixtures.siteId
+      })
+      .returning({ id: navigationTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const entries = await readTarball(result.filePath)
+
+    const exportedHistory = JSON.parse(entries['pageHistory.json']!.toString('utf8'))
+    assert.ok(exportedHistory.some((h: any) => h.id === historyRow!.id && h.pageId === page.id))
+
+    const exportedNavigation = JSON.parse(entries['navigation.json']!.toString('utf8'))
+    assert.ok(exportedNavigation.some((n: any) => n.id === navRow!.id && n.locale === 'en'))
+  })
+
+  test('exportSite excludes isSystem groups', async () => {
+    const [systemGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Administrators',
+        permissions: ['manage:system'],
+        rules: [],
+        isSystem: true
+      })
+      .returning({ id: groupsTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const entries = await readTarball(result.filePath)
+
+    const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
+    assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
+    // -> The ordinary, non-system fixture group must still be present
+    assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
   })
 
   test('exportSite rejects an unknown site', async () => {

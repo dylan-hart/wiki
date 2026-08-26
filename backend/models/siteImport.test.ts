@@ -9,6 +9,8 @@ import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from 
 import {
   assets as assetsTable,
   groups as groupsTable,
+  navigation as navigationTable,
+  pageHistory as pageHistoryTable,
   pages as pagesTable,
   sites as sitesTable,
   tree as treeTable
@@ -143,6 +145,7 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     //    entry of its own here — only the page's
     assert.ok(result.tree >= 1)
     assert.ok(result.groups >= 1)
+    assert.deepEqual(result.unresolvedRuleSites, [])
 
     const [importedPage] = await fixtures.db
       .select()
@@ -191,6 +194,212 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       .from(pagesTable)
       .where(eq(pagesTable.id, stalePage.id))
     assert.equal(found, undefined)
+  })
+
+  test("importSite restores page history, remapping pageId and purging the target's own prior history", async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'history-me', title: 'History Me', editor: 'markdown', content: '# v1' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+    await fixtures.db.insert(pageHistoryTable).values({
+      pageId: page.id,
+      action: 'created',
+      locale: 'en',
+      path: 'history-me',
+      title: 'History Me',
+      content: '# v1',
+      siteId: fixtures.siteId,
+      authorId: fixtures.userId
+    })
+
+    // -> A pre-existing history row on the target site that must not survive the import
+    const stalePage = await pagesModel.createPage(
+      targetSiteId,
+      { path: 'stale-history', title: 'Stale History', editor: 'markdown', content: 'stale' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+    const [staleHistory] = await fixtures.db
+      .insert(pageHistoryTable)
+      .values({
+        pageId: stalePage.id,
+        action: 'created',
+        locale: 'en',
+        path: 'stale-history',
+        title: 'Stale History',
+        content: 'stale',
+        siteId: targetSiteId,
+        authorId: fixtures.userId
+      })
+      .returning({ id: pageHistoryTable.id })
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+    assert.equal(result.pageHistory, 1)
+
+    const [found] = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.id, staleHistory!.id))
+    assert.equal(found, undefined)
+
+    const [importedPage] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, targetSiteId), eq(pagesTable.path, 'history-me')))
+    assert.ok(importedPage)
+
+    const restoredHistory = await fixtures.db
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.siteId, targetSiteId))
+    assert.equal(restoredHistory.length, 1)
+    assert.equal(restoredHistory[0]!.pageId, importedPage!.id)
+    assert.equal(restoredHistory[0]!.authorId, fixtures.userId)
+  })
+
+  test('importSite restores navigation under the target site, purging what was already there', async () => {
+    await fixtures.db.insert(navigationTable).values({
+      items: [{ id: 'a', type: 'link', label: 'Source Home', target: '/' }],
+      mode: 'static',
+      locale: 'en',
+      siteId: fixtures.siteId
+    })
+
+    const [staleNav] = await fixtures.db
+      .insert(navigationTable)
+      .values({
+        items: [{ id: 'b', type: 'link', label: 'Stale', target: '/stale' }],
+        mode: 'static',
+        locale: 'en',
+        siteId: targetSiteId
+      })
+      .returning({ id: navigationTable.id })
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+    assert.equal(result.navigation, 1)
+
+    const [found] = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.id, staleNav!.id))
+    assert.equal(found, undefined)
+
+    const restoredNav = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, targetSiteId))
+    assert.equal(restoredNav.length, 1)
+    assert.equal((restoredNav[0]!.items as any[])[0].label, 'Source Home')
+    // -> No row left naming the source site
+    const leftoverOnSource = await fixtures.db
+      .select()
+      .from(navigationTable)
+      .where(eq(navigationTable.siteId, fixtures.siteId))
+    assert.ok(leftoverOnSource.every((n) => n.siteId === fixtures.siteId))
+  })
+
+  test('importSite leaves isSystem groups on the target instance untouched', async () => {
+    const [administrators] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Administrators',
+        permissions: ['manage:system'],
+        rules: [],
+        isSystem: true
+      })
+      .returning()
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+
+    const allGroups = await fixtures.db
+      .select()
+      .from(groupsTable)
+      .where(eq(groupsTable.name, 'Administrators'))
+    // -> Exactly the one already there — no imposter duplicate created
+    assert.equal(allGroups.length, 1)
+    assert.equal(allGroups[0]!.id, administrators!.id)
+    assert.equal(allGroups[0]!.isSystem, true)
+  })
+
+  test("importSite re-scopes an imported group rule's sites to the target site, and reports an unresolved third site", async () => {
+    const unknownSiteId = '00000000-0000-4000-8000-000000000abc'
+    const [scopedGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Scoped Editors',
+        permissions: [],
+        rules: [
+          {
+            id: 'rule-1',
+            name: 'Site-scoped read',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: [fixtures.siteId, unknownSiteId]
+          }
+        ]
+      })
+      .returning()
+
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      { path: 'scoped', title: 'Scoped', editor: 'markdown', content: 'x' },
+      { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
+    )
+
+    const { groups: groupsAccessModel } = await import('./groups.ts')
+    await groupsAccessModel.reloadCache()
+    const actor = {
+      groupIds: [scopedGroup!.id],
+      permissions: [] as string[]
+    }
+    const sourcePageRef = {
+      path: page.path,
+      locale: page.locale,
+      siteId: fixtures.siteId,
+      classification: null,
+      tags: []
+    }
+    const beforeAccess = groupsAccessModel.checkAccess(actor, 'read:pages', sourcePageRef)
+    assert.equal(beforeAccess, true)
+
+    const { filePath } = await exportModel.exportSite(fixtures.siteId)
+    const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
+
+    assert.ok(
+      result.unresolvedRuleSites.some(
+        (r) => r.groupId === scopedGroup!.id && r.siteId === unknownSiteId
+      )
+    )
+
+    const [importedGroup] = await fixtures.db
+      .select()
+      .from(groupsTable)
+      .where(eq(groupsTable.id, scopedGroup!.id))
+    const importedRule = (importedGroup!.rules as any[])[0]
+    assert.ok(importedRule.sites.includes(targetSiteId))
+    assert.ok(!importedRule.sites.includes(fixtures.siteId))
+    assert.ok(importedRule.sites.includes(unknownSiteId))
+
+    await groupsAccessModel.reloadCache()
+    const [importedPage] = await fixtures.db
+      .select()
+      .from(pagesTable)
+      .where(and(eq(pagesTable.siteId, targetSiteId), eq(pagesTable.path, 'scoped')))
+    const restoredPageRef = {
+      path: importedPage!.path,
+      locale: importedPage!.locale,
+      siteId: targetSiteId,
+      classification: null,
+      tags: []
+    }
+    const afterAccess = groupsAccessModel.checkAccess(actor, 'read:pages', restoredPageRef)
+    assert.equal(afterAccess, true)
   })
 
   test('importSite rejects an archive with an unsupported format version, before touching the database', async () => {
