@@ -7,9 +7,11 @@ import {
   userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
-import { apiKeys, generateSigningCertificates, narrowToScope } from './apiKeys.ts'
+import { apiKeys, generateSigningCertificates, KEY_EXPIRATIONS, narrowToScope } from './apiKeys.ts'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
+import { ensureTemporal } from '../test/temporal.ts'
 import type { GroupRule } from './groups.ts'
+import type { KeyExpiration } from './apiKeys.ts'
 
 /**
  * `narrowToScope` is the intersection at the heart of API key scoping: a scope can only take
@@ -176,6 +178,133 @@ describe('apiKeys siteId propagation through JWT claims', () => {
     const identity = await apiKeys.verify(key)
     assert.equal(identity.siteId, null)
   })
+})
+
+/**
+ * OpenProject #2043: `models/apiKeys.ts`'s `KEY_EXPIRATIONS` defines five lifetimes (`30d`, `90d`,
+ * `180d`, `1y`, `3y`), but every `createKey()` call in the rest of this file passes `'30d'` -- so the
+ * `{ years: 1 }` / `{ years: 3 }` branches were never actually exercised, and this file's own
+ * `installFakeTemporal()` used elsewhere in this suite (see below) reduces `{ years: n }` to a flat
+ * `n * 365` days, which silently disagrees with real calendar arithmetic across a leap year -- exactly
+ * the case a `1y`/`3y` key's expiry can cross. This suite runs under `ensureTemporal()`'s real
+ * (polyfilled on this sandbox's pre-Temporal Node 25, native on Node 26) `Temporal`, not a fake, so
+ * both problems are genuinely exercised rather than hidden.
+ */
+describe('apiKeys.createKey expiration lifetimes', () => {
+  const GROUP_ID = '55555555-5555-4555-8555-555555555555'
+  let insertedRows: any[] = []
+
+  before(async () => {
+    await ensureTemporal()
+    ;(globalThis as any).WIKI = {
+      config: {
+        api: { isEnabled: true },
+        auth: { certs: generateSigningCertificates() }
+      },
+      db: {
+        insert: (table: any) => ({
+          values: async (row: any) => {
+            if (table === apiKeysTable) {
+              insertedRows.push(row)
+            }
+            return { rowCount: 1 }
+          }
+        }),
+        select: (_selection: any) => ({
+          from: (table: any) => {
+            const rows = table === apiKeysTable ? insertedRows : []
+            return {
+              // -> Same minimal `.where().limit()` shape as the siteId-propagation suite above --
+              //    `getKeyById` is all this describe needs to read back.
+              where: () => {
+                const result: any = Promise.resolve(rows)
+                result.limit = async () => rows
+                return result
+              }
+            }
+          }
+        })
+      }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    insertedRows = []
+  })
+
+  for (const lifetime of Object.keys(KEY_EXPIRATIONS) as KeyExpiration[]) {
+    test(`createKey computes the '${lifetime}' expiry via real Temporal.ZonedDateTime.add()`, async () => {
+      // -> Bracket the live-clock computation immediately around the call with the exact same
+      //    expression `createKey()` itself evaluates. Compared at millisecond granularity (what the
+      //    `expiration` column -- a JS `Date` -- actually persists), not as full-precision `Temporal
+      //    .Instant` objects: `Now.zonedDateTimeISO()` carries sub-millisecond precision that the
+      //    stored value never does, so comparing whole `Instant`s here can spuriously see the
+      //    millisecond-truncated stored value as "before" a bound read a sub-millisecond-fraction
+      //    earlier in the very same millisecond. Truncating every side to whole milliseconds is what
+      //    the persisted value actually is, so that's the granularity this bounds it at.
+      const lowerBoundMs = Temporal.Now.zonedDateTimeISO('UTC')
+        .add(KEY_EXPIRATIONS[lifetime])
+        .toInstant().epochMilliseconds
+      const { id } = await apiKeys.createKey({
+        name: `${lifetime} key`,
+        expiration: lifetime,
+        groups: [GROUP_ID]
+      })
+      const upperBoundMs = Temporal.Now.zonedDateTimeISO('UTC')
+        .add(KEY_EXPIRATIONS[lifetime])
+        .toInstant().epochMilliseconds
+
+      const row = await apiKeys.getKeyById(id)
+      const actualMs = row!.expiration.getTime()
+
+      assert.ok(actualMs >= lowerBoundMs)
+      assert.ok(actualMs <= upperBoundMs)
+    })
+  }
+
+  /**
+   * A deterministic regression check on the leap-year bug itself, rather than relying on the
+   * suite happening to run across one: `Temporal.Now.zonedDateTimeISO` is swapped for a fixed date
+   * chosen so the added span crosses 2028-02-29, `createKey()` is driven from that frozen clock, and
+   * the resulting expiry is asserted equal to real calendar-aware `add({ years })` -- and unequal to
+   * what the removed fake's flat `n * 365` days would have produced.
+   */
+  for (const { lifetime, fixedNowIso } of [
+    { lifetime: '1y', fixedNowIso: '2027-12-01T00:00:00+00:00[UTC]' },
+    { lifetime: '3y', fixedNowIso: '2026-01-01T00:00:00+00:00[UTC]' }
+  ] as const) {
+    test(`createKey's '${lifetime}' expiry is calendar-aware across a leap year, not a flat 365-day multiple`, async () => {
+      const realTemporal = globalThis.Temporal
+      const fixedNow = realTemporal.ZonedDateTime.from(fixedNowIso)
+      ;(globalThis as any).Temporal = {
+        ...realTemporal,
+        Now: { ...realTemporal.Now, zonedDateTimeISO: () => fixedNow }
+      }
+      try {
+        const { id } = await apiKeys.createKey({
+          name: `${lifetime} key from a fixed leap-crossing date`,
+          expiration: lifetime,
+          groups: [GROUP_ID]
+        })
+        const row = await apiKeys.getKeyById(id)
+        const actual = row!.expiration.getTime()
+
+        const calendarAware = fixedNow.add(KEY_EXPIRATIONS[lifetime]).toInstant().epochMilliseconds
+        const flatDaysMath = fixedNow
+          .add({ days: KEY_EXPIRATIONS[lifetime].years * 365 })
+          .toInstant().epochMilliseconds
+
+        assert.equal(actual, calendarAware)
+        assert.notEqual(actual, flatDaysMath)
+      } finally {
+        ;(globalThis as any).Temporal = realTemporal
+      }
+    })
+  }
 })
 
 /**
