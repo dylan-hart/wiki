@@ -18,7 +18,7 @@ block, for **every reader** of that page, not only for administrators.
 Concretely, that means an uploaded block's code:
 
 - has the DOM of the whole page, not a fragment — it is not confined to a `<template>`/shadow root's
-  content in any capability sense (Lit components do use `attachShadow`, which gives *style* isolation,
+  content in any capability sense (Lit components do use `attachShadow`, which gives _style_ isolation,
   but a shadow root is not a script sandbox: code inside it can still walk `document`, read cookies,
   call `fetch`, reach `window`, etc.);
 - shares the page's cookies and session, so it can call any `/_api/*` route the current reader's session
@@ -36,19 +36,19 @@ page's own layout the way a block needs to.
 
 **Conclusion:** the entire security boundary for this feature is (a) who may upload, and (b) upload-time
 validation of the one part of the file the system inspects (the static `definition` metadata block — see
-§4). It is not, and cannot be, code-level containment of what an uploaded block *does* once it runs.
+§4). It is not, and cannot be, code-level containment of what an uploaded block _does_ once it runs.
 
 ## 2. Permission gate: `manage:sites`, or `site:blocks` for two of the three mutating routes
 
 Checked directly in `backend/api/blocks.ts` (and `backend/api/blockCredentials.ts`, folded into the
 same gate — see the end of this section):
 
-| Route | Permission | Where enforced |
-|---|---|---|
-| `POST /sites/:siteId/blocks` (upload) | `manage:sites` **only** | `config.permissions`, global `preHandler` hook (`index.ts`) |
-| `PUT /sites/:siteId/blocks` (enable/disable) | `manage:sites`, **or** `site:blocks` on this site | handler-level `mayManageBlocks()`, via `checkSiteAccess()` |
-| `DELETE /sites/:siteId/blocks/:blockId` | `manage:sites`, **or** `site:blocks` on this site | same |
-| `GET /sites/:siteId/blocks` (list) | *not* `manage:sites` alone — see `mayListBlocks()` | handler-level, deliberately broader (read-only) |
+| Route                                        | Permission                                         | Where enforced                                              |
+| -------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------- |
+| `POST /sites/:siteId/blocks` (upload)        | `manage:sites` **only**                            | `config.permissions`, global `preHandler` hook (`index.ts`) |
+| `PUT /sites/:siteId/blocks` (enable/disable) | `manage:sites`, **or** `site:blocks` on this site  | handler-level `mayManageBlocks()`, via `checkSiteAccess()`  |
+| `DELETE /sites/:siteId/blocks/:blockId`      | `manage:sites`, **or** `site:blocks` on this site  | same                                                        |
+| `GET /sites/:siteId/blocks` (list)           | _not_ `manage:sites` alone — see `mayListBlocks()` | handler-level, deliberately broader (read-only)             |
 
 **This table changed since the review that originally signed off on this feature.** At that time all
 three mutating routes declared `config: { permissions: ['manage:sites'] }` identically. Since then, the
@@ -68,7 +68,7 @@ pins this deliberately: a `site:blocks`-only actor is asserted **allowed** on PU
 gates for PUT/DELETE. CLAUDE.md's Permissions section lists the closed set of global permissions:
 `access:admin`, `manage:users`, `manage:groups`, `manage:navigation`, `manage:theme`, `manage:sites`,
 `manage:system` — none of the others are about a site's configuration/content surface the way this route
-is, and CLAUDE.md is explicit that no new *global* permission name may be invented. `site:blocks` is not
+is, and CLAUDE.md is explicit that no new _global_ permission name may be invented. `site:blocks` is not
 one of those: it is a site-scoped delegation permission (a distinct, later-added closed vocabulary — see
 CLAUDE.md's Permissions section, `SITE_PERMISSIONS` in `helpers/siteRules.ts`), which is what makes
 widening PUT/DELETE to accept it a legitimate use of an existing mechanism rather than an invented
@@ -83,7 +83,7 @@ so in matching language.
 
 **Admin UI button visibility** (`frontend/src/layouts/AdminLayout.vue`): the nav entry that makes the
 Blocks admin page reachable at all is gated on `userStore.can('manage:sites')` (line ~164). Within
-`AdminBlocks.vue` itself, the Add/Delete/Apply buttons carry no *additional* per-button permission check —
+`AdminBlocks.vue` itself, the Add/Delete/Apply buttons carry no _additional_ per-button permission check —
 verified this is the established convention for this admin area generally (`AdminApprovals.vue`,
 `AdminStorage.vue` do the same: nav-level gating only, no per-button `userStore.can()` calls), not an
 anomaly introduced by this feature. This is defense-in-depth-light by design: the nav hides the entry for
@@ -130,7 +130,7 @@ Checked `backend/helpers/security.ts` (`parseCspDirectives`), `backend/base.yml`
   instance ships with no CSP at all. When an operator turns it on, `cspDirectives` is an entirely
   operator-authored string parsed generically by `parseCspDirectives()`; nothing in this feature adds to,
   narrows, or needs to narrow that string.
-- `fastifyHelmet` is registered on the root `app` (line ~314 of `index.ts`) *before* the per-prefix
+- `fastifyHelmet` is registered on the root `app` (line ~314 of `index.ts`) _before_ the per-prefix
   controllers, including the new `controllers/blocks.ts` mounted at `/_blocks/custom` (line ~660).
   `@fastify/helmet` is built on `fastify-plugin`, so its `onSend` hook is not encapsulated — it applies
   globally to every route registered afterward, `/_blocks/custom/:siteId/:fileName` included. There is no
@@ -148,10 +148,10 @@ Checked `backend/helpers/security.ts` (`parseCspDirectives`), `backend/base.yml`
 **Conclusion: no `security.cspDirectives` change is needed**, and this was verified by reading the helmet
 registration, the controller, and `parseCspDirectives()` rather than assumed by analogy. This is
 deliberately unlike the SVG upload case in `controllers/site.ts`: an SVG is uploaded as a **passive asset**
-(a logo/favicon) that can *smuggle* an unexpected `<script>`/event-handler vector, so it gets a dedicated,
+(a logo/favicon) that can _smuggle_ an unexpected `<script>`/event-handler vector, so it gets a dedicated,
 maximally-restrictive per-response `Content-Security-Policy: default-src 'none'; ...; sandbox` header to
 contain a capability nobody asked for. A custom block is the **opposite shape of problem**: it is uploaded
-*specifically to be* executable script, by someone already gated on `manage:sites`, served with the content
+_specifically to be_ executable script, by someone already gated on `manage:sites`, served with the content
 type that says exactly what it is (`nosniff` set so a browser can't reinterpret it as something else,
 either — same header `controllers/site.ts` sets on the SVG path, for the same reason: take the declared
 type at its word). There is nothing to sandbox down to, because the declared and actual purpose are the
@@ -181,7 +181,7 @@ Scope, confirmed by reading the implementation: `extractBlockDefinition()` only 
 `definition` object literal** on a top-level (optionally `export`ed) class — the metadata a block declares
 about itself (tag, name, description, icon, props schema, starter template). It does **not**, and is not
 intended to, validate or restrict anything else in the file — `render()`, `connectedCallback()`, imports,
-top-level side effects, etc. are all untouched, because that code being real, arbitrary JavaScript *is* the
+top-level side effects, etc. are all untouched, because that code being real, arbitrary JavaScript _is_ the
 feature (see §1). Confusing "the validator sanitizes the block" with "the validator restricts the
 metadata block to literals" would be the wrong takeaway from this feature; §1–§2 above are what actually
 bound the risk.
@@ -190,7 +190,7 @@ Within that narrower scope, `backend/helpers/blockDefinition.test.ts` (12/12 pas
 of this task's ask:
 
 - **No static definition at all** → `reason: 'no-definition'`, covering: a class with no `static
-  definition` member; source with no class at all; and a `static [name] = …` computed member name that
+definition` member; source with no class at all; and a `static [name] = …` computed member name that
   evaluates to `'definition'` at runtime but is not recognized statically (the same
   `member.key.type === 'Identifier' && member.key.name === 'definition'` check `rollup.config.mjs` uses,
   ported faithfully — a computed static member name is correctly treated as "no definition found", not
@@ -208,7 +208,7 @@ above, already satisfied the requirement.
 **Update (OpenProject #2124/#2132, 2026-08-24 audit):** `blockDefinition.ts` gained one more check since
 this review was written — `extractBlockDefinition()` now also rejects a `props` entry whose `name` is not
 a plain dash-separated identifier (`/^[a-z][a-z0-9-]*$/`, `reason: 'invalid-prop-name'`). That is not a
-gap in the validator this section audited; it closes a *different* boundary the AST validator was never
+gap in the validator this section audited; it closes a _different_ boundary the AST validator was never
 scoped to cover — `backend/models/rendering.ts`'s `blockAllowances()` did not read custom blocks' `props`
 at all until #2132, so a widened attribute allowlist from an unvalidated prop name was not yet a reachable
 outcome when this document was first written. See `docs/audit-2026-08-24/security/04-injection-xss.md` §7
@@ -216,12 +216,12 @@ and `backend/helpers/blockDefinition.test.ts`'s `on*`/glob-prop-name cases.
 
 ## 6. Summary
 
-| Question | Answer | Verified by |
-|---|---|---|
-| Does a custom block run as full same-origin JS with no execution sandbox? | Yes | Reading `loadBlocks()`/`blockImportUrl()` and `controllers/blocks.ts`; documented in §1 |
-| Is `manage:sites` the correct, only gate for the upload route, and one of two correct gates (with `site:blocks`) for PUT/DELETE? | Yes | Reading all three route configs + `blockCredentials.ts`; CLAUDE.md's closed permission lists; `docs/decisions/delegated-per-site-administration.md` |
-| Does `security.cspDirectives` need a change? | No | Reading `index.ts` helmet registration, `parseCspDirectives()`, and `controllers/blocks.ts`'s headers |
-| Is there a reasonable, enforced upload size cap? | Yes — `security.uploadMaxFileSize`, same key as `assets.ts` | New test: oversized payload → `413` |
-| Does the AST validator reject a missing definition, smuggled executable content, and an unsafe prop name? | Yes | Existing unit tests, plus the `invalid-prop-name` cases added for #2132 |
-| Is the residual risk (any `manage:sites` holder → wiki-wide script execution; any `site:blocks` holder → destructive-only block control) recorded explicitly? | Yes | This document (§2) + code comments at the permission checks in `backend/api/blocks.ts` and `backend/api/blockCredentials.ts` |
-| Does `blockAllowances()` (the render-time sanitizer allowlist) admit a custom block's tag and props? | Yes, since #2132 — prop names trusted only because upload-time validation now constrains them | `backend/models/rendering.ts#blockAllowances()`, `backend/models/rendering.test.ts` |
+| Question                                                                                                                                                      | Answer                                                                                        | Verified by                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does a custom block run as full same-origin JS with no execution sandbox?                                                                                     | Yes                                                                                           | Reading `loadBlocks()`/`blockImportUrl()` and `controllers/blocks.ts`; documented in §1                                                             |
+| Is `manage:sites` the correct, only gate for the upload route, and one of two correct gates (with `site:blocks`) for PUT/DELETE?                              | Yes                                                                                           | Reading all three route configs + `blockCredentials.ts`; CLAUDE.md's closed permission lists; `docs/decisions/delegated-per-site-administration.md` |
+| Does `security.cspDirectives` need a change?                                                                                                                  | No                                                                                            | Reading `index.ts` helmet registration, `parseCspDirectives()`, and `controllers/blocks.ts`'s headers                                               |
+| Is there a reasonable, enforced upload size cap?                                                                                                              | Yes — `security.uploadMaxFileSize`, same key as `assets.ts`                                   | New test: oversized payload → `413`                                                                                                                 |
+| Does the AST validator reject a missing definition, smuggled executable content, and an unsafe prop name?                                                     | Yes                                                                                           | Existing unit tests, plus the `invalid-prop-name` cases added for #2132                                                                             |
+| Is the residual risk (any `manage:sites` holder → wiki-wide script execution; any `site:blocks` holder → destructive-only block control) recorded explicitly? | Yes                                                                                           | This document (§2) + code comments at the permission checks in `backend/api/blocks.ts` and `backend/api/blockCredentials.ts`                        |
+| Does `blockAllowances()` (the render-time sanitizer allowlist) admit a custom block's tag and props?                                                          | Yes, since #2132 — prop names trusted only because upload-time validation now constrains them | `backend/models/rendering.ts#blockAllowances()`, `backend/models/rendering.test.ts`                                                                 |
