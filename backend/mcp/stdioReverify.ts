@@ -26,6 +26,14 @@ export interface ReverifyingContext {
   getCtx: McpAuthContextGetter
   /** Runs one verification cycle immediately. Exposed for tests; production also runs it on a timer. */
   reverify: () => Promise<void>
+  /**
+   * Overwrites the cached context with one a caller already verified by some other means — the timer
+   * is not the only source of a fresh `McpAuthContext`. `mcp/stdio.ts` calls this from
+   * `reverifyOnToolCall`'s `applyCtx`, so a re-verify triggered by a `tools/call` message (immediate,
+   * not waiting for the next tick) updates the same cache the timer reads and writes, rather than the
+   * two mechanisms tracking separate, divergent contexts.
+   */
+  setCtx: (ctx: McpAuthContext) => void
   /** Stops the background timer. Idempotent. */
   stop: () => void
 }
@@ -82,6 +90,9 @@ export function createReverifyingContext(
   return {
     getCtx: () => ctx,
     reverify,
+    setCtx: (fresh: McpAuthContext) => {
+      ctx = fresh
+    },
     stop
   }
 }
