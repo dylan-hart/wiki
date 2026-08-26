@@ -181,6 +181,7 @@ function uninstallFakeTemporal(previousTemporal: any): void {
 describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let sendVerifyEmailMock: ReturnType<typeof mock.fn>
+  let sendRegistrationAttemptNoticeMock: ReturnType<typeof mock.fn>
   let previousTemporal: any
 
   const MODULE_KEY = 'local-test'
@@ -228,6 +229,11 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     fixtures = await setupTestDb()
     const { mail } = await import('./mail.ts')
     sendVerifyEmailMock = mock.method(mail, 'sendVerifyEmail', async () => {})
+    sendRegistrationAttemptNoticeMock = mock.method(
+      mail,
+      'sendRegistrationAttemptNotice',
+      async () => {}
+    )
 
     WIKI.data.authentication = [
       {
@@ -256,6 +262,7 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 
   beforeEach(() => {
     sendVerifyEmailMock.mock.resetCalls()
+    sendRegistrationAttemptNoticeMock.mock.resetCalls()
   })
 
   test('refuses an unknown strategy id', async () => {
@@ -310,24 +317,58 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
     )
   })
 
-  test('refuses a duplicate of an already-verified address', async () => {
-    const strategyId = await createStrategy()
+  test('a duplicate of an already-verified address, with emailValidation on, answers the same generic result a fresh registration would and notifies the real owner instead of confirming the address is taken', async () => {
+    const strategyId = await createStrategy({ emailValidation: true })
+
+    const result = await users.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'Attacker-Supplied Name',
+        // -> setupTestDb() seeds this address already verified
+        email: 'fixture@example.com',
+        password: 'longenough1'
+      },
+      req()
+    )
+
+    assert.deepEqual(result, { nextAction: 'verify' })
+    assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+    assert.equal(sendRegistrationAttemptNoticeMock.mock.calls.length, 1)
+    const call = sendRegistrationAttemptNoticeMock.mock.calls[0].arguments[0] as any
+    assert.equal(call.to, 'fixture@example.com')
+  })
+
+  test('a duplicate address on a strategy with emailValidation off still refuses as a duplicate -- no email step to route secrecy through', async () => {
+    const strategyId = await createStrategy({ emailValidation: false })
+    WIKI.data.systemIds = { localAuthId: strategyId } as any
+    registerLiveStrategy(strategyId)
+
+    await users.register(
+      {
+        siteId: fixtures.siteId,
+        strategyId,
+        name: 'First Registration',
+        email: 'immediate-login@example.com',
+        password: 'longenough1'
+      },
+      req()
+    )
 
     await assert.rejects(
       users.register(
         {
           siteId: fixtures.siteId,
           strategyId,
-          name: 'Fixture User',
-          // -> setupTestDb() seeds this address already verified
-          email: 'fixture@example.com',
-          password: 'longenough1'
+          name: 'Second Attempt',
+          email: 'immediate-login@example.com',
+          password: 'longenough2'
         },
         req()
       ),
       /ERR_EMAIL_ALREADY_EXISTS/
     )
-    assert.equal(sendVerifyEmailMock.mock.calls.length, 0)
+    assert.equal(sendRegistrationAttemptNoticeMock.mock.calls.length, 0)
   })
 
   test('emailValidation on: creates an unverified account and emails a verification link, without logging in', async () => {
@@ -1174,6 +1215,32 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
   })
 
+  test('two concurrent verifyAndConsumeRecoveryCode calls for the same code redeem exactly one entry', async () => {
+    // -> Distinct from the sequential single-use test above, which re-reads the user between
+    //    attempts and so exercises only the serialized case: this fires both attempts at once, off
+    //    two separately-loaded copies of the same row, to prove the advisory lock -- not just
+    //    request ordering -- is what prevents a double-spend.
+    const strategyId = freshStrategyId()
+    const owner = await usersModel.getById(fixtures.userId)
+    const [code] = await usersModel.enableTfa(owner, strategyId)
+
+    const [attemptA, attemptB] = await Promise.all([
+      usersModel.getById(fixtures.userId),
+      usersModel.getById(fixtures.userId)
+    ])
+
+    const [resultA, resultB] = await Promise.all([
+      usersModel.verifyAndConsumeRecoveryCode(attemptA, strategyId, code!),
+      usersModel.verifyAndConsumeRecoveryCode(attemptB, strategyId, code!)
+    ])
+
+    assert.equal([resultA, resultB].filter(Boolean).length, 1, 'exactly one attempt should redeem')
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    const entries = reloaded.auth[strategyId].recoveryCodes as RecoveryCodeEntry[]
+    assert.equal(entries.filter((entry) => entry.usedAt).length, 1)
+  })
+
   test('verifyAndConsumeRecoveryCode rejects a code that was never issued', async () => {
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)
@@ -1328,6 +1395,62 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
       usersModel.adminInvalidateTfa('00000000-0000-0000-0000-000000000000', freshStrategyId()),
       /ERR_INVALID_USER/
     )
+  })
+
+  describe('verifyTfaCode single-use (RFC 6238 §5.2)', () => {
+    // -> RFC 6238 Appendix B's SHA-1 test vector, the same secret/code pair `helpers/totp.test.ts`
+    //    verifies against -- reused here rather than re-derived, since what is under test is the
+    //    persistence/replay-refusal wrapper around `verifyTotpCode`, not the HOTP algorithm itself.
+    const rfcSecret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+    const codeForCounter1 = '287082' // Time=59_000ms -> counter = floor(59 / 30) = 1
+
+    test('accepts a code once, then refuses the identical code presented again', async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ auth: { ...owner.auth, [strategyId]: { tfaSecret: rfcSecret, tfaIsActive: true } } })
+        .where(eq(usersTable.id, fixtures.userId))
+
+      mock.timers.enable({ apis: ['Date'], now: 59_000 })
+      try {
+        const firstAttempt = await usersModel.getById(fixtures.userId)
+        assert.equal(
+          await usersModel.verifyTfaCode(firstAttempt, strategyId, codeForCounter1),
+          true
+        )
+
+        // -> Same code, same still-valid drift window, freshly-reloaded user: only the persisted
+        //    `tfaLastCounter` this first call wrote stands between this and a second acceptance.
+        const secondAttempt = await usersModel.getById(fixtures.userId)
+        assert.equal(
+          await usersModel.verifyTfaCode(secondAttempt, strategyId, codeForCounter1),
+          false
+        )
+      } finally {
+        mock.timers.reset()
+      }
+    })
+
+    test('persists the matched counter as tfaLastCounter', async () => {
+      const strategyId = freshStrategyId()
+      const owner = (await usersModel.getById(fixtures.userId)) as any
+      await fixtures.db
+        .update(usersTable)
+        .set({ auth: { ...owner.auth, [strategyId]: { tfaSecret: rfcSecret, tfaIsActive: true } } })
+        .where(eq(usersTable.id, fixtures.userId))
+
+      mock.timers.enable({ apis: ['Date'], now: 59_000 })
+      try {
+        const attempt = await usersModel.getById(fixtures.userId)
+        await usersModel.verifyTfaCode(attempt, strategyId, codeForCounter1)
+      } finally {
+        mock.timers.reset()
+      }
+
+      const reloaded = (await usersModel.getById(fixtures.userId)) as any
+      assert.equal(reloaded.auth[strategyId].tfaLastCounter, 1)
+    })
   })
 })
 

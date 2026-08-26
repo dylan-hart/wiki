@@ -24,6 +24,7 @@ import {
 import { ProvisionableLoginError } from './authentication.ts'
 import type { AuthStrategy, ProviderProfile } from './authentication.ts'
 import type { SystemIds } from './types.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 
 /** The essential user fields, mirroring the `UserCore` API schema. */
 export interface UserCore {
@@ -160,6 +161,23 @@ const avatarSize = 180
  */
 function escapeLikePattern(value: string): string {
   return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
+/**
+ * Advisory-lock key for serializing writes to one user's whole-blob `auth` column.
+ *
+ * Every read-modify-write against `users.auth` -- a password change, a TFA toggle, a recovery-code
+ * redemption, a TOTP replay-counter update, ... -- reads the entire JSONB column, mutates part of it
+ * in memory, and writes the entire column back with no row lock and no conditional `WHERE`. Two such
+ * writes for the same user racing (an admin's `adminInvalidateTfa` against a user's own in-flight
+ * `verifyAndConsumeRecoveryCode`, say) is a lost update: whichever write lands second silently
+ * clobbers the first's change with a blob it read before that change existed. Every call site below
+ * that touches `auth` acquires this lock, keyed by user id, for the span from its read of the current
+ * row to its write of the updated one, so concurrent writers for the *same* user serialize instead of
+ * racing; writers for different users are never blocked by each other.
+ */
+function authLockKey(userId: string): string {
+  return `wiki:user-auth:${userId}`
 }
 
 /**
@@ -977,31 +995,33 @@ class Users {
    * @returns False if the user does not exist
    */
   async setUserAuthFlags(id: string, flags: Record<string, any>): Promise<boolean> {
-    const user = await this.getById(id)
-    if (!user) {
-      return false
-    }
-
-    const localStrategyId = WIKI.data.systemIds.localAuthId
-    const auth = (user.auth ?? {}) as Record<string, any>
-    const current = auth[localStrategyId]
-    if (!current) {
-      // -> The user does not use local authentication, so there are no local flags to set
-      return false
-    }
-
-    for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
-      if (flags[key] !== undefined) {
-        current[key] = Boolean(flags[key])
+    return withAdvisoryLock(authLockKey(id), async () => {
+      const user = await this.getById(id)
+      if (!user) {
+        return false
       }
-    }
-    auth[localStrategyId] = current
 
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, id))
-    return true
+      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const auth = (user.auth ?? {}) as Record<string, any>
+      const current = auth[localStrategyId]
+      if (!current) {
+        // -> The user does not use local authentication, so there are no local flags to set
+        return false
+      }
+
+      for (const key of ['mustChangePwd', 'restrictLogin', 'tfaRequired'] as const) {
+        if (flags[key] !== undefined) {
+          current[key] = Boolean(flags[key])
+        }
+      }
+      auth[localStrategyId] = current
+
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, id))
+      return true
+    })
   }
 
   /**
@@ -1018,24 +1038,27 @@ class Users {
     newPassword: string
     mustChangePassword?: boolean
   }): Promise<boolean> {
-    const user = await this.getById(id)
-    if (!user) {
-      return false
-    }
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    return withAdvisoryLock(authLockKey(id), async () => {
+      const user = await this.getById(id)
+      if (!user) {
+        return false
+      }
 
-    const localStrategyId = WIKI.data.systemIds.localAuthId
-    const auth = (user.auth ?? {}) as Record<string, any>
-    auth[localStrategyId] = {
-      ...auth[localStrategyId],
-      password: await bcrypt.hash(newPassword, 12),
-      mustChangePwd: mustChangePassword
-    }
+      const localStrategyId = WIKI.data.systemIds.localAuthId
+      const auth = (user.auth ?? {}) as Record<string, any>
+      auth[localStrategyId] = {
+        ...auth[localStrategyId],
+        password: passwordHash,
+        mustChangePwd: mustChangePassword
+      }
 
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, id))
-    return true
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, id))
+      return true
+    })
   }
 
   /**
@@ -1124,15 +1147,20 @@ class Users {
       throw new Error('ERR_INCORRECT_CURRENT_PASSWORD')
     }
 
-    auth[strategyId] = {
-      ...auth[strategyId],
-      password: await bcrypt.hash(newPassword, 12),
-      mustChangePwd: false
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        password: passwordHash,
+        mustChangePwd: false
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
   }
 
   /**
@@ -1176,11 +1204,15 @@ class Users {
       throw new Error('ERR_NO_OTHER_LOGIN_METHOD')
     }
 
-    auth[strategyId] = { ...auth[strategyId], restrictLogin: !isEnabled }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = { ...currentAuth[strategyId], restrictLogin: !isEnabled }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
 
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> turned password login ${isEnabled ? 'on' : 'off'}`
@@ -1212,16 +1244,20 @@ class Users {
     const issuer = (site as any)?.config?.title || 'Wiki'
 
     const secret = generateTotpSecret()
-    user.auth = (user.auth ?? {}) as Record<string, any>
-    user.auth[strategyId] = {
-      ...user.auth[strategyId],
-      tfaSecret: secret,
-      tfaIsActive: false
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    await withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        tfaSecret: secret,
+        tfaIsActive: false
+      }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+    })
 
     return {
       secret,
@@ -1244,15 +1280,20 @@ class Users {
    */
   async enableTfa(user: any, strategyId: string): Promise<string[]> {
     const { plaintext, entries } = await issueRecoveryCodes()
-    user.auth[strategyId] = {
-      ...user.auth[strategyId],
-      tfaIsActive: true,
-      recoveryCodes: entries
-    }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    await withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        tfaIsActive: true,
+        recoveryCodes: entries
+      }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+    })
     WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> enabled 2FA`)
     return plaintext
   }
@@ -1282,11 +1323,20 @@ class Users {
       throw new Error('ERR_TFA_ENFORCED')
     }
 
-    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        tfaIsActive: false,
+        tfaSecret: '',
+        recoveryCodes: []
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
     WIKI.models.flags.authDebug(`User ${userId} <${user.email}> disabled 2FA`)
   }
 
@@ -1317,29 +1367,79 @@ class Users {
       throw new Error('ERR_TFA_NOT_ACTIVE')
     }
 
-    auth[strategyId] = { ...auth[strategyId], tfaIsActive: false, tfaSecret: '', recoveryCodes: [] }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        tfaIsActive: false,
+        tfaSecret: '',
+        recoveryCodes: []
+      }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> had 2FA invalidated by an administrator`
     )
   }
 
   /**
-   * Whether a security code matches the 2FA secret stored for a user under one strategy.
+   * Whether a security code matches the 2FA secret stored for a user under one strategy -- and, if
+   * so, whether it has not already been accepted once before.
+   *
+   * `verifyTotpCode` returns which time-step counter the code matched (or -1); this persists the
+   * highest counter ever accepted, as `auth[strategyId].tfaLastCounter`, and refuses any code whose
+   * matched counter is not strictly greater than it. Without this, the ~90s window RFC 6238's
+   * allowed drift keeps a code valid for (three 30s steps) would let an observed code -- shoulder-
+   * surfed, phished, screenshotted -- be replayed for as long as it stays inside that window.
+   *
+   * The read-check-write runs under {@link authLockKey}'s per-user lock, re-reading the row instead
+   * of trusting the possibly-stale `user` the caller loaded earlier: two concurrent submissions of
+   * the same still-valid code must not both see themselves as the first to present it.
    */
-  verifyTfaCode(user: any, strategyId: string, securityCode: string): boolean {
+  async verifyTfaCode(user: any, strategyId: string, securityCode: string): Promise<boolean> {
     const secret = ((user.auth ?? {}) as Record<string, any>)[strategyId]?.tfaSecret
-    return Boolean(secret) && verifyTotpCode(secret, securityCode)
+    if (!secret) {
+      return false
+    }
+    const matchedCounter = verifyTotpCode(secret, securityCode)
+    if (matchedCounter < 0) {
+      return false
+    }
+
+    return withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      const lastCounter = currentAuth[strategyId]?.tfaLastCounter ?? -1
+      if (matchedCounter <= lastCounter) {
+        // -> A code for this counter (or an earlier one) has already been accepted -- reject the
+        //    replay rather than sign in a second time on the strength of the same code.
+        return false
+      }
+      currentAuth[strategyId] = { ...currentAuth[strategyId], tfaLastCounter: matchedCounter }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      return true
+    })
   }
 
   /**
    * Whether a recovery code matches one of the unconsumed codes stored for a user's 2FA. On a match,
    * marks that entry consumed so it cannot be redeemed a second time.
    *
-   * @param user The user row, whose `auth` blob is updated in place as well as saved
+   * The match-then-mark runs under {@link authLockKey}'s per-user lock, and re-reads the row rather
+   * than trusting the possibly-stale `user` the caller loaded earlier -- so two concurrent
+   * submissions of the same code cannot both observe it as unconsumed and both redeem it. The loser
+   * of the race sees the entry already marked `usedAt` by the winner and correctly reports no match.
+   *
+   * @param user The user row -- only `.id` is trusted; `.auth` is re-read fresh inside the lock, and
+   *             the caller's copy is updated in place to match once the write lands
    * @returns Whether the code matched an unconsumed entry
    */
   async verifyAndConsumeRecoveryCode(
@@ -1347,25 +1447,30 @@ class Users {
     strategyId: string,
     code: string
   ): Promise<boolean> {
-    const auth = (user.auth ?? {}) as Record<string, any>
-    const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
-    const matchedIndex = await matchRecoveryCode(entries, normalizeRecoveryCode(code))
-    if (matchedIndex < 0) {
-      return false
-    }
+    const normalizedCode = normalizeRecoveryCode(code)
+    return withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      const entries = (currentAuth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+      const matchedIndex = await matchRecoveryCode(entries, normalizedCode)
+      if (matchedIndex < 0) {
+        return false
+      }
 
-    const updatedEntries = entries.map((entry, i) =>
-      i === matchedIndex
-        ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
-        : entry
-    )
-    user.auth[strategyId] = { ...auth[strategyId], recoveryCodes: updatedEntries }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
-    WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
-    return true
+      const updatedEntries = entries.map((entry, i) =>
+        i === matchedIndex
+          ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
+          : entry
+      )
+      currentAuth[strategyId] = { ...currentAuth[strategyId], recoveryCodes: updatedEntries }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
+      return true
+    })
   }
 
   /**
@@ -1428,11 +1533,15 @@ class Users {
     const hadUnusedCodes = previousEntries.some((entry) => !entry.usedAt)
 
     const { plaintext, entries } = await issueRecoveryCodes()
-    auth[strategyId] = { ...auth[strategyId], recoveryCodes: entries }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, userId))
+    await withAdvisoryLock(authLockKey(userId), async () => {
+      const current = await this.getById(userId)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = { ...currentAuth[strategyId], recoveryCodes: entries }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, userId))
+    })
     WIKI.models.flags.authDebug(
       `User ${userId} <${user.email}> regenerated their 2FA recovery codes`
     )
@@ -1771,17 +1880,20 @@ class Users {
       account at the provider this is, and it is what tells the profile page that this user signs in
       through this strategy.
     */
-    const auth = (user.auth ?? {}) as Record<string, any>
-    auth[strategy.id] = {
-      ...auth[strategy.id],
-      id: profile.id,
-      email
-    }
-    user.auth = auth
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
+    await withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategy.id] = {
+        ...currentAuth[strategy.id],
+        id: profile.id,
+        email
+      }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+    })
 
     // -> Every login, not only the one that created the account: a group added or removed at the
     //    provider since the last login has to show up here too.
@@ -1870,8 +1982,17 @@ class Users {
    * `ERR_EMAIL_ALREADY_EXISTS`, since nobody else could have claimed that address in the meantime (an
    * unverified account cannot log in). The submitted `name` and `password` are ignored on that path --
    * only the address that already exists is trusted -- so registering an address that is not yours but
-   * still pending cannot be used to overwrite whatever password it was originally set up with. A
-   * verified account, or one on a strategy with `emailValidation` off, always refuses as a duplicate.
+   * still pending cannot be used to overwrite whatever password it was originally set up with.
+   *
+   * A strategy with `emailValidation` on never throws `ERR_EMAIL_ALREADY_EXISTS`, even for an address
+   * that already has a *verified* account: it answers the same generic `{ nextAction: 'verify' }` a
+   * genuinely new registration would, and emails the real owner a notice that someone tried to
+   * register with their address, instead. This mirrors `forgotPassword()`'s own address-enumeration
+   * design (same file) -- without it, a single unauthenticated registration attempt would confirm
+   * whether a given email address already has an account here, no measurement required. A strategy
+   * with `emailValidation` off has no email step to route this secrecy through -- registration there
+   * signs the caller straight in, so there is nothing to send "the real owner" instead of just
+   * refusing -- and keeps throwing `ERR_EMAIL_ALREADY_EXISTS` for a colliding address.
    *
    * @throws `ERR_INVALID_STRATEGY`, `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_ALREADY_EXISTS`,
    *         `ERR_EMAIL_NOT_ALLOWED`
@@ -1912,14 +2033,36 @@ class Users {
     const existing = await this.getByEmail(normalizedEmail)
 
     if (existing) {
-      if (existing.isVerified || !requiresVerification) {
+      if (!requiresVerification) {
+        // -> No email step to route secrecy through on this strategy -- registration here signs the
+        //    caller straight in, so there is nothing to send the real owner instead of just refusing.
         throw new Error('ERR_EMAIL_ALREADY_EXISTS')
       }
+      if (!existing.isVerified) {
+        WIKI.models.flags.authDebug(
+          `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
+        )
+        const token = await this.generateToken({ kind: 'verify', userId: existing.id })
+        await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+        return { nextAction: 'verify' }
+      }
+      // -> A verified account already sits at this address. Answering the same generic
+      //    { nextAction: 'verify' } a fresh registration gets -- rather than ERR_EMAIL_ALREADY_EXISTS
+      //    -- is what keeps this response from confirming the address is taken; the real owner gets a
+      //    notice instead, mirroring forgotPassword()'s design just above.
       WIKI.models.flags.authDebug(
-        `Registration for <${normalizedEmail}> matched an unverified account, resending the verification email`
+        `Registration for <${normalizedEmail}> matched an existing verified account; notifying instead of confirming`
       )
-      const token = await this.generateToken({ kind: 'verify', userId: existing.id })
-      await WIKI.models.mail.sendVerifyEmail({ to: existing.email, name: existing.name, token })
+      try {
+        await WIKI.models.mail.sendRegistrationAttemptNotice({
+          to: existing.email,
+          name: existing.name
+        })
+      } catch (err: any) {
+        WIKI.logger.warn(
+          `Failed to send the registration-attempt notice to ${existing.email}: ${err.message}`
+        )
+      }
       return { nextAction: 'verify' }
     }
 
@@ -2192,7 +2335,7 @@ class Users {
 
     let verified: boolean
     if (isTotpShape) {
-      verified = this.verifyTfaCode(user, strategyId, securityCode)
+      verified = await this.verifyTfaCode(user, strategyId, securityCode)
     } else {
       const auth = (user.auth ?? {}) as Record<string, any>
       const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
@@ -2304,7 +2447,7 @@ class Users {
     if (strategyId !== expectedStrategyId) {
       throw new Error('ERR_INVALID_STRATEGY')
     }
-    if (!this.verifyTfaCode(user, strategyId, securityCode)) {
+    if (!(await this.verifyTfaCode(user, strategyId, securityCode))) {
       await countTfaFailure(continuationToken)
       throw new Error('ERR_TFA_INCORRECT_TOKEN')
     }
@@ -2382,9 +2525,21 @@ class Users {
     }
 
     if (user) {
-      user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
-      user.auth[strategyId].mustChangePwd = false
-      await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+      const passwordHash = await bcrypt.hash(newPassword, 12)
+      await withAdvisoryLock(authLockKey(user.id), async () => {
+        const current = await this.getById(user.id)
+        const currentAuth = (current?.auth ?? {}) as Record<string, any>
+        currentAuth[strategyId] = {
+          ...currentAuth[strategyId],
+          password: passwordHash,
+          mustChangePwd: false
+        }
+        user.auth = currentAuth
+        await WIKI.db
+          .update(usersTable)
+          .set({ auth: currentAuth, updatedAt: sql`now()` })
+          .where(eq(usersTable.id, user.id))
+      })
 
       return this.afterLoginChecks(
         user,
@@ -2489,9 +2644,21 @@ class Users {
       throw new Error('ERR_INVALID_USER')
     }
 
-    user.auth[strategyId].password = await bcrypt.hash(newPassword, 12)
-    user.auth[strategyId].mustChangePwd = false
-    await WIKI.db.update(usersTable).set({ auth: user.auth }).where(eq(usersTable.id, user.id))
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    await withAdvisoryLock(authLockKey(user.id), async () => {
+      const current = await this.getById(user.id)
+      const currentAuth = (current?.auth ?? {}) as Record<string, any>
+      currentAuth[strategyId] = {
+        ...currentAuth[strategyId],
+        password: passwordHash,
+        mustChangePwd: false
+      }
+      user.auth = currentAuth
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth: currentAuth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+    })
 
     try {
       await WIKI.models.mail.sendPasswordResetConfirmed({ to: user.email, name: user.name })

@@ -59,47 +59,48 @@ describe('buildTotpUri', () => {
 })
 
 describe('verifyTotpCode', () => {
-  test('accepts the code for the current 30s window', () => {
+  test('accepts the code for the current 30s window, returning the counter it matched', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[1]), true)
+      // -> Time=59_000ms -> counter = floor(59 / 30) = 1, matching codeAtCounter[1]
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[1]), 1)
     })
   })
 
-  test('accepts the previous window (clock drift, -30s)', () => {
+  test('accepts the previous window (clock drift, -30s), returning that lower counter', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[0]), true)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[0]), 0)
     })
   })
 
-  test('accepts the next window (clock drift, +30s)', () => {
+  test('accepts the next window (clock drift, +30s), returning that higher counter', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[2]), true)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[2]), 2)
     })
   })
 
   test('rejects a code two windows away -- outside the allowed drift', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[3]), false)
+      assert.equal(verifyTotpCode(rfcSecret, codeAtCounter[3]), -1)
     })
   })
 
   test('rejects a code that matches no nearby window', () => {
     withFakeTime(59_000, () => {
-      assert.equal(verifyTotpCode(rfcSecret, '000000'), false)
+      assert.equal(verifyTotpCode(rfcSecret, '000000'), -1)
     })
   })
 
   test('rejects malformed input without decoding the secret', () => {
-    assert.equal(verifyTotpCode(rfcSecret, '12345'), false) // too short
-    assert.equal(verifyTotpCode(rfcSecret, '1234567'), false) // too long
-    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), false) // not digits
+    assert.equal(verifyTotpCode(rfcSecret, '12345'), -1) // too short
+    assert.equal(verifyTotpCode(rfcSecret, '1234567'), -1) // too long
+    assert.equal(verifyTotpCode(rfcSecret, 'abcdef'), -1) // not digits
   })
 
   test('rejects an empty secret', () => {
-    assert.equal(verifyTotpCode('', '287082'), false)
+    assert.equal(verifyTotpCode('', '287082'), -1)
   })
 
   test('rejects a secret that is not valid base32 rather than throwing', () => {
-    assert.equal(verifyTotpCode('not-base32!!!', '287082'), false)
+    assert.equal(verifyTotpCode('not-base32!!!', '287082'), -1)
   })
 })

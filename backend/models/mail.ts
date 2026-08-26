@@ -321,6 +321,23 @@ class MailModel {
   }
 
   /**
+   * Notice sent to an address's real, already-verified owner when someone else attempts to register
+   * a new account with it. `models/users.ts#register()` sends this -- and answers the attempt itself
+   * with the same generic `{ nextAction: 'verify' }` a genuinely new registration gets -- instead of
+   * throwing `ERR_EMAIL_ALREADY_EXISTS`, which is what would otherwise let an unauthenticated caller
+   * confirm whether a given address already has an account here.
+   */
+  async sendRegistrationAttemptNotice({ to, name }: { to: string; name: string }): Promise<void> {
+    const link = this.buildLink('/login')
+    await this.send({
+      to,
+      subject: 'Someone tried to register with your email address',
+      text: `Hi ${name},\n\nSomeone just tried to create a new account using this email address, which already has an account here. No new account was created, and nothing about your existing account has changed.\n\nIf this wasn't you, no action is needed -- if it was, you can log in with your existing account instead.\n\n${link}`,
+      html: `<p>Hi ${name},</p><p>Someone just tried to create a new account using this email address, which already has an account here. No new account was created, and nothing about your existing account has changed.</p><p>If this wasn't you, no action is needed -- if it was, you can log in with your existing account instead.</p><p><a href="${link}">${link}</a></p>`
+    })
+  }
+
+  /**
    * Sent by the admin area's "Send Test Email" action to confirm the current `WIKI.config.mail`
    * settings can actually reach an inbox. Includes the instance's `defaultBaseURL` so the recipient
    * can also confirm that setting is correct — the same value {@link buildLink} stitches onto every

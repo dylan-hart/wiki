@@ -135,34 +135,40 @@ export function buildTotpUri({
  * Compared byte-wise in constant time. That matters less here than for a password — a wrong code is
  * one of a million and expires in seconds — but the comparison is free to get right.
  *
+ * Returning the matched counter rather than a bare boolean is what lets a caller enforce RFC 6238
+ * §5.2's one-time-use requirement: store the highest counter ever accepted, and refuse any code
+ * whose matched counter is not strictly greater than it. A boolean return could not express that —
+ * "true" would mean the same thing whether this was the first time the code was seen or the fifth.
+ *
  * @param secret Base32 secret stored for the user
  * @param code The six digits the user typed
- * @returns False for anything that is not six digits, or for a secret that will not decode
+ * @returns The counter (time-step) the code matched, or -1 for anything that is not six digits, is a
+ *          secret that will not decode, or matches none of the windows within the allowed drift
  */
-export function verifyTotpCode(secret: string, code: string): boolean {
+export function verifyTotpCode(secret: string, code: string): number {
   if (!secret || !/^[0-9]{6}$/.test(code)) {
-    return false
+    return -1
   }
 
   let secretKey: Buffer
   try {
     secretKey = base32Decode(secret)
   } catch {
-    return false
+    return -1
   }
   if (secretKey.length < 1) {
-    return false
+    return -1
   }
 
   const expected = Buffer.from(code, 'utf8')
   const counter = Math.floor(Date.now() / 1000 / periodSeconds)
-  let matched = false
+  let matchedCounter = -1
   for (let drift = -allowedDrift; drift <= allowedDrift; drift++) {
     // -> Every candidate is compared, rather than returning on the first hit, so that the work done
     //    does not depend on which window the code came from
     if (timingSafeEqual(Buffer.from(codeAt(secretKey, counter + drift), 'utf8'), expected)) {
-      matched = true
+      matchedCounter = counter + drift
     }
   }
-  return matched
+  return matchedCounter
 }
