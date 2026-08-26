@@ -270,7 +270,7 @@ async function routes(app: FastifyInstance) {
         return reply.conflict('The storage target must be enabled before running an action.')
       }
       if (!target.actions.some((act) => act.handler === req.params.action)) {
-        return reply.badRequest(`${target.title} has no "${req.params.action}" action.`)
+        return reply.badRequest('ERR_INVALID_STORAGE_ACTION')
       }
 
       // -> A sync-shaped action may do a real network round-trip (a git push/pull, an S3 listing),
@@ -387,7 +387,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Storage target does not exist.')
       }
       if (!target.setup) {
-        return reply.badRequest(`${target.title} has no setup process.`)
+        return reply.badRequest('ERR_STORAGE_SETUP_NOT_SUPPORTED')
       }
 
       try {
@@ -461,7 +461,7 @@ async function routes(app: FastifyInstance) {
         return reply.notFound('Storage target does not exist.')
       }
       if (!target.setup) {
-        return reply.badRequest(`${target.title} has no setup process.`)
+        return reply.badRequest('ERR_STORAGE_SETUP_NOT_SUPPORTED')
       }
 
       try {

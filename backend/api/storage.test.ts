@@ -129,14 +129,38 @@ test('a target must be enabled before an action can run', async () => {
   assert.equal(executeAction.mock.calls.length, 0)
 })
 
-test('an action the target does not declare is refused before executeAction is ever called', async () => {
+test('an action the target does not declare is refused before executeAction is ever called, with a coded error', async () => {
   const res = await app.inject({
     method: 'POST',
     url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/actions/notARealAction`
   })
 
   assert.equal(res.statusCode, 400)
+  // -> Coded rather than free-text, task #1616: the frontend resolves this through
+  //    `t(`error.${code}`)`, so no dynamic (target title / action name) detail rides along.
+  assert.equal(res.json().message, 'ERR_INVALID_STORAGE_ACTION')
   assert.equal(executeAction.mock.calls.length, 0)
+})
+
+test('POST .../setup on a target with no setup process is refused with a coded error, task #1616', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/setup`,
+    payload: { step: 'start' }
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_STORAGE_SETUP_NOT_SUPPORTED')
+})
+
+test('DELETE .../setup on a target with no setup process is refused with a coded error, task #1616', async () => {
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/sites/${SITE_ID}/storage/targets/${ENABLED_TARGET.id}/setup`
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_STORAGE_SETUP_NOT_SUPPORTED')
 })
 
 test('a nonexistent target 404s', async () => {

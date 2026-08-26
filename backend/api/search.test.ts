@@ -190,3 +190,25 @@ test('POST .../search/refresh re-reads definitions from disk and returns the ref
   assert.deepEqual(res.json(), [{ ...makeDbEngine(), dictOverrides, availableDictionaries }])
   assert.equal(refreshCalls, 1)
 })
+
+// -> Task #1616: these two sites used to interpolate the offending value into a free-text English
+//    sentence. Both are now a coded `ERR_*` message the frontend resolves via `t(`error.${code}`)`.
+test('PATCH .../search rejects a malformed locale code with a coded error', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { dictOverrides: { 'not a locale': 'english' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_INVALID_LOCALE_CODE')
+})
+
+test('PATCH .../search rejects a dictionary this database does not have, with a coded error', async () => {
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${SITE_ID}/search`,
+    payload: { dictOverrides: { en: 'not-a-real-dictionary' } }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().message, 'ERR_INVALID_SEARCH_DICTIONARY')
+})
