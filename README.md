@@ -30,6 +30,7 @@ The current stable release (2.x) is available at https://js.wiki
   - [Requirements](#requirements)
   - [Usage](#usage)
   - [Backend Development](#backend-development)
+  - [Backend Tests](#backend-tests)
   - [Frontend Development](#frontend-development)
   - [pgAdmin](#pgadmin)
 - [Generic Setup](#generic-setup)
@@ -81,6 +82,20 @@ npm run dev
 This will launch the server and automatically restart upon modification of any server files.
 
 Only precompiled client assets are served in this mode. See the sections below on how to modify the frontend and run in SPA (Single Page Application) mode.
+
+### Backend Tests
+
+The `app` container's `DATABASE_URL` (set in `.devcontainer/docker-compose.yml`) points at the same
+`db` container the app itself connects to, using `config.sample.yml`'s own db defaults. This means:
+
+- `npm run test` in `backend/` runs the DB-backed suites (see this repo's `CLAUDE.md`, "Testing
+  (backend)" section) in addition to the pure-unit ones, instead of silently skipping them.
+- `npm run dev` / `npm run start` are unaffected, as long as `config.yml`'s `db:` block is left at
+  its default values.
+
+If you edit `config.yml`'s `db:` block to point somewhere else, `DATABASE_URL` still wins over it --
+`unset DATABASE_URL` in your own terminal first, since `core/db.ts` prefers `DATABASE_URL` outright
+over `WIKI.config.db.*` whenever it's set.
 
 ### Frontend Development
 
