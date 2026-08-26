@@ -1424,6 +1424,8 @@ describe('users.syncProviderGroups', () => {
     delete (globalThis as any).WIKI
   })
 
+  // `mappableGroups` defaults to empty, same as the real column default — a test exercising a grant
+  // or removal has to opt a group into the allow-list explicitly, same as an administrator would.
   function makeStrategy(overrides: Partial<any> = {}): any {
     return {
       id: 'strategy-1',

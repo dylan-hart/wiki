@@ -36,7 +36,7 @@ props:
   mapGroups:
     type: Boolean
     title: Map Groups
-    hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list). Discord's `/users/@me` reports no group/role claim of its own — mapping a server's roles would need a bot token this module doesn't use — so leave this off unless a custom OAuth2 proxy in front of Discord is adding one.
+    hint: Reconcile a user's wiki groups with the claim reported below on every login, limited to groups selected in the Mappable Groups allow-list below — adding what is newly reported and removing what is no longer reported (never the guests group, never a group also granted by Auto Enroll Groups, and never a group carrying manage:system or the root administrators group, regardless of the allow-list; an empty allow-list means this changes no memberships at all). Discord's `/users/@me` reports no group/role claim of its own — mapping a server's roles would need a bot token this module doesn't use — so leave this off unless a custom OAuth2 proxy in front of Discord is adding one.
     icon: user-groups
     default: false
     order: 4
