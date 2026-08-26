@@ -19,7 +19,7 @@ import path from 'node:path'
 import type { SimpleGit } from 'simple-git'
 import { getFileExtension } from '../../../models/storage.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
-import { ensureRepo } from './storage.ts'
+import { ensureRepo } from './repo.ts'
 
 /**
  * Every extension this module ever writes a page out as, in probe order. Only consulted by `deleted`

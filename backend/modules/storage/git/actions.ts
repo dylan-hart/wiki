@@ -32,7 +32,7 @@ import { belongsInTarget } from '../../../helpers/blobTarget.ts'
 import { assetRelPath, authorOption, covers, pageRelPath, resolveAuthor } from './content.ts'
 import { processDiffEntry, resolveImportActor } from './sync.ts'
 import type { DiffEntry } from './sync.ts'
-import { ensureRepo, resolveRepoPath } from './storage.ts'
+import { ensureRepo, resolveRepoPath } from './repo.ts'
 
 /**
  * Write `content` to `relPath` if it is missing or its bytes differ from what is already there, and
