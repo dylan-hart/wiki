@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
- /**
+/**
  * The main content cell of a `WLayout`, and the box that scrolls.
  *
  * `min-width: 0` is load-bearing: without it a wide child (a table, a code block) would blow the

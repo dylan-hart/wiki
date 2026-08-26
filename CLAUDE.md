@@ -279,6 +279,24 @@ category is an error, everywhere.
 Both tools handle `.ts` with no extra configuration, and the backend's oxlint config already enables
 the `typescript` plugin. oxlint does not type-check — run `npm run typecheck` for that.
 
+**Bumping oxlint or oxfmt's version is a dependency-bump checklist item, not a plain version-string
+edit.** A newer formatter release can change what it considers correctly formatted — task #1988
+found `oxfmt` `0.62.0` → `0.64.0` (`377915c6`) silently invalidating seven already-formatted
+`frontend/` SFCs (a single leading space before a `<script setup>` JSDoc opener that 0.64 no longer
+accepts), and that commit's own message claimed a full `oxfmt --check` run had confirmed otherwise —
+it hadn't been run against `frontend/`. Whenever either tool's version changes, run the reformat
+(not just the check) across all three workspaces from the repo root in the **same commit** as the
+bump, and commit whatever it touches:
+
+```sh
+npx --prefix backend oxfmt backend frontend blocks   # reformats — not --check
+npx oxlint                                            # from backend/, frontend/ and blocks/ each
+```
+
+Then confirm `npx --prefix backend oxfmt --check backend frontend blocks` exits clean before
+pushing. Skipping this step is exactly how a version bump ships a red CI gate with nothing wrong in
+the code itself.
+
 **Never put two statements in a Vue template attribute.** `@click="doOne(); doTwo()"` builds today
 and is a build error the moment the file is formatted, because `semi: false` and Vue disagree about
 the same character. Vue's `transformOn` decides whether an inline handler is a statement block or an

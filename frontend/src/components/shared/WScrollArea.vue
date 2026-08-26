@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
- /**
+/**
  * Scrollable region with a slim, styled scrollbar.
  *
  * Simplification: the component this replaces rendered a virtual scrollbar out of real DOM nodes,
