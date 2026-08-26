@@ -158,6 +158,20 @@ export function requestOrigin(protocol: string, hostname: string): string {
   return `${protocol}://${hostname}`
 }
 
+/**
+ * Normalizes a hostname for indexing/looking up `WIKI.sitesMappings`.
+ *
+ * DNS names are case-insensitive, but the map is keyed exactly as stored — and a stored hostname is
+ * itself constrained to lowercase by the site create/update schemas (`api/sites.ts`). Fastify's
+ * `req.hostname` getter strips the port but does not fold case, so `Host: Wiki.Example.Com` would
+ * otherwise miss a site stored as `wiki.example.com` and fall through to the catch-all (or
+ * not-found). Route every write to and read from `sitesMappings` through this — `reloadCache()` on
+ * the write side, every lookup on the read side — rather than lowercasing ad hoc at each call site.
+ */
+export function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase()
+}
+
 /** What a page/shell request's hostname resolved to, for the site-resolution hook in `index.ts`. */
 export type RequestSiteResolution =
   | { outcome: 'exempt' }
@@ -169,9 +183,9 @@ export type RequestSiteResolution =
  * Decide what a page/shell request's hostname resolves to, and whether the request should be let
  * through at all.
  *
- * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[hostname] ||
- * sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide whether
- * to strip a page extension.
+ * Mirrors the SEO hook's precedence in `index.ts` exactly — `sitesMappings[normalizeHostname(hostname)]
+ * || sitesMappings['*']` — so a request sees the same site the SEO hook already used to decide
+ * whether to strip a page extension.
  *
  * `exemptSegments` is the caller's list of first path segments that must reach the app shell
  * regardless of what the hostname resolves to — the fix path for a disabled or unmatched site has to
@@ -193,7 +207,7 @@ export function resolveRequestSite({
   if (exemptSegments.has(firstSegment)) {
     return { outcome: 'exempt' }
   }
-  const siteId = sitesMappings[hostname] || sitesMappings['*']
+  const siteId = sitesMappings[normalizeHostname(hostname)] || sitesMappings['*']
   const site = siteId ? sites[siteId] : null
   if (!site) {
     return { outcome: 'not-found' }
