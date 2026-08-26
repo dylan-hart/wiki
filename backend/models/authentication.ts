@@ -78,9 +78,13 @@ export interface AuthFlowCallback extends AuthFlow {
 /**
  * Who signed in, as a module reports them.
  *
- * `id` is the provider's own identifier for the account and never changes; `email` is what the user is
- * matched or created by here. A module must not return an address it has not established belongs to
- * the person — an unverified one is how somebody signs in as somebody else.
+ * `id` is the provider's own identifier for the account and never changes — it is what
+ * `findOrCreateProviderUser()` binds an existing account to and checks on every later login, since
+ * `email` alone is not proof of identity: a provider that can be made to assert an arbitrary address
+ * would otherwise be able to sign in as whichever account already used it. `email` is what a *new*
+ * account is created and matched by, and what an existing, already-linked account's login is re-checked
+ * against `allowedEmailRegex` with. A module must not return an address it has not established belongs
+ * to the person — an unverified one is how somebody signs in as somebody else.
  */
 export interface ProviderProfile {
   id: string
@@ -125,6 +129,12 @@ export interface AuthStrategy {
   registration: boolean
   allowedEmailRegex: string
   autoEnrollGroups: string[]
+  /**
+   * Off by default. An existing account is only ever claimed by a provider login when this is on for
+   * that strategy — otherwise a matching email address with no stored link is refused rather than
+   * silently bound. See `models/users.ts#findOrCreateProviderUser()`.
+   */
+  trustEmailForLinking: boolean
   config: Record<string, any>
 }
 
@@ -319,6 +329,7 @@ class Authentication {
     registration?: boolean
     allowedEmailRegex?: string
     autoEnrollGroups?: string[]
+    trustEmailForLinking?: boolean
     config?: Record<string, any>
   }): Promise<string> {
     const mod = this.getModule(values.module)!
@@ -331,6 +342,7 @@ class Authentication {
         registration: values.registration ?? false,
         allowedEmailRegex: values.allowedEmailRegex ?? '',
         autoEnrollGroups: values.autoEnrollGroups ?? [],
+        trustEmailForLinking: values.trustEmailForLinking ?? false,
         config: this.buildConfig(values.module, values.config)
       })
       .returning({ id: authenticationTable.id })
@@ -355,6 +367,7 @@ class Authentication {
       registration?: boolean
       allowedEmailRegex?: string
       autoEnrollGroups?: string[]
+      trustEmailForLinking?: boolean
       config?: Record<string, any>
     }
   ): Promise<boolean> {
@@ -378,6 +391,9 @@ class Authentication {
     }
     if (patch.autoEnrollGroups !== undefined) {
       values.autoEnrollGroups = patch.autoEnrollGroups
+    }
+    if (patch.trustEmailForLinking !== undefined) {
+      values.trustEmailForLinking = patch.trustEmailForLinking
     }
     if (patch.config !== undefined) {
       values.config = this.buildConfig(current.module, patch.config, current.config)

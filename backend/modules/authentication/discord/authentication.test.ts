@@ -253,6 +253,51 @@ describe('DiscordAuthentication', () => {
       const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
       assert.equal('groups' in profile, false)
     })
+
+    /**
+     * Discord's user object carries its own sibling `verified` boolean alongside `email` -- previously
+     * fetched and silently discarded. `buildDiscordConfig()` now names it as `emailVerifiedClaim`, so
+     * this is the same check `oauth2/authentication.test.ts` exercises generically, proven here against
+     * Discord's actual field name.
+     */
+    test('throws ERR_EMAIL_NOT_VERIFIED when Discord reports verified: false', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://discord.com/api/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
+        }
+        if (url === 'https://discord.com/api/users/@me') {
+          return new Response(
+            JSON.stringify({
+              id: '987654321098765432',
+              username: 'octocat',
+              email: 'octocat@example.com',
+              verified: false
+            }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz'
+      })
+      await assert.rejects(
+        discord.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_EMAIL_NOT_VERIFIED/
+      )
+    })
+
+    test('signs in normally when Discord reports verified: true, as the fixture responses above already do', async () => {
+      fetchMock = mockTokenExchange()
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz'
+      })
+      const profile = await discord.profile({ ...flow, currentUrl: '', code: 'the-code' })
+      assert.equal(profile.email, 'octocat@example.com')
+    })
   })
 })
 

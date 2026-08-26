@@ -505,6 +505,196 @@ describe('users.register (DB-backed)', { skip: !hasTestDatabase() }, () => {
 })
 
 /**
+ * `findOrCreateProviderUser()` (private, exercised directly rather than through `loginWithProvider()`
+ * so these don't also need a live `WIKI.auth.strategies` entry and a session-bearing `req` just to
+ * reach `afterLoginChecks()`) is SQL orchestration in the same sense `register()`'s suite above is: a
+ * user lookup, an identity check against what is already stored, and a write. `strategy` is handed in
+ * directly as a plain object matching `AuthStrategy` rather than round-tripped through
+ * `authenticationTable` -- nothing under test reads the strategy back from the database.
+ */
+describe('users.findOrCreateProviderUser (DB-backed)', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  function baseStrategy(overrides: Partial<any> = {}): any {
+    return {
+      id: 'provider-strategy-1',
+      module: 'test-oidc',
+      displayName: 'Test Provider',
+      isEnabled: true,
+      registration: true,
+      allowedEmailRegex: '',
+      autoEnrollGroups: [],
+      trustEmailForLinking: false,
+      config: {},
+      ...overrides
+    }
+  }
+
+  function findOrCreate(strategy: any, profile: any): Promise<any> {
+    return (users as any).findOrCreateProviderUser(strategy, profile)
+  }
+
+  before(async () => {
+    fixtures = await setupTestDb()
+    WIKI.data.systemIds = { localAuthId: 'placeholder-local-auth-id' } as any
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  test('refuses a profile whose address belongs to a system account', async () => {
+    await fixtures.db.insert(usersTable).values({
+      email: 'guest-provider@example.com',
+      name: 'Guest',
+      isSystem: true,
+      isActive: true,
+      isVerified: true,
+      auth: {}
+    })
+
+    await assert.rejects(
+      findOrCreate(baseStrategy(), {
+        id: 'provider-account-1',
+        email: 'guest-provider@example.com',
+        name: 'Anyone'
+      }),
+      /ERR_LOGIN_FAILED/
+    )
+  })
+
+  test('refuses an existing account with no stored link for this strategy when trustEmailForLinking is off', async () => {
+    await fixtures.db.insert(usersTable).values({
+      email: 'unlinked@example.com',
+      name: 'Unlinked User',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {}
+    })
+
+    await assert.rejects(
+      findOrCreate(baseStrategy({ trustEmailForLinking: false }), {
+        id: 'provider-account-2',
+        email: 'unlinked@example.com',
+        name: 'Unlinked User'
+      }),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('trustEmailForLinking on: links an existing, previously-unlinked account instead of refusing it', async () => {
+    const [created] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'trusted@example.com',
+        name: 'Trusted User',
+        isSystem: false,
+        isActive: true,
+        isVerified: true,
+        auth: {}
+      })
+      .returning({ id: usersTable.id })
+
+    const strategy = baseStrategy({ id: 'trusting-strategy', trustEmailForLinking: true })
+    const result = await findOrCreate(strategy, {
+      id: 'provider-account-3',
+      email: 'trusted@example.com',
+      name: 'Trusted User'
+    })
+
+    assert.equal(result.id, created!.id)
+    assert.equal(result.auth[strategy.id].id, 'provider-account-3')
+  })
+
+  test('refuses a profile id that does not match the id stored for this strategy', async () => {
+    const strategy = baseStrategy({ id: 'mismatch-strategy' })
+    await fixtures.db.insert(usersTable).values({
+      email: 'linked@example.com',
+      name: 'Linked User',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {
+        [strategy.id]: { id: 'the-real-provider-id', email: 'linked@example.com' }
+      }
+    })
+
+    await assert.rejects(
+      findOrCreate(strategy, {
+        id: 'an-attackers-provider-id',
+        email: 'linked@example.com',
+        name: 'Linked User'
+      }),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('accepts a profile id matching the stored link, and re-writes the link', async () => {
+    const strategy = baseStrategy({ id: 'matching-strategy' })
+    const [created] = await fixtures.db
+      .insert(usersTable)
+      .values({
+        email: 'matched@example.com',
+        name: 'Matched User',
+        isSystem: false,
+        isActive: true,
+        isVerified: true,
+        auth: {
+          [strategy.id]: { id: 'stable-provider-id', email: 'matched@example.com' }
+        }
+      })
+      .returning({ id: usersTable.id })
+
+    const result = await findOrCreate(strategy, {
+      id: 'stable-provider-id',
+      email: 'matched@example.com',
+      name: 'Matched User'
+    })
+
+    assert.equal(result.id, created!.id)
+    assert.equal(result.auth[strategy.id].id, 'stable-provider-id')
+  })
+
+  test('applies allowedEmailRegex on an existing, already-linked account too, not only on creation', async () => {
+    const strategy = baseStrategy({
+      id: 'regex-strategy',
+      allowedEmailRegex: '^[^@]+@allowed\\.example$'
+    })
+    await fixtures.db.insert(usersTable).values({
+      email: 'linked-outside-pattern@example.com',
+      name: 'Linked Outside Pattern',
+      isSystem: false,
+      isActive: true,
+      isVerified: true,
+      auth: {
+        [strategy.id]: { id: 'still-a-valid-link', email: 'linked-outside-pattern@example.com' }
+      }
+    })
+
+    await assert.rejects(
+      findOrCreate(strategy, {
+        id: 'still-a-valid-link',
+        email: 'linked-outside-pattern@example.com',
+        name: 'Linked Outside Pattern'
+      }),
+      /ERR_EMAIL_NOT_ALLOWED/
+    )
+  })
+
+  test('still refuses a brand-new address when the strategy does not accept registration', async () => {
+    await assert.rejects(
+      findOrCreate(baseStrategy({ id: 'closed-strategy', registration: false }), {
+        id: 'provider-account-closed',
+        email: 'never-seen-before@example.com',
+        name: 'Nobody Yet'
+      }),
+      /ERR_REGISTRATION_DISABLED/
+    )
+  })
+})
+
+/**
  * `forgotPassword()` and `resetPassword()` are also SQL orchestration -- a strategy/config lookup, a
  * user lookup, and a token round-trip through `userKeys` -- so this runs the real methods the same
  * DB-backed way `register()`'s suite above does. `mail.sendForgotPassword` and

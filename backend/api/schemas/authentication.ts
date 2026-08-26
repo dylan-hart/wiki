@@ -155,6 +155,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         }
       },
+      trustEmailForLinking: {
+        type: 'boolean',
+        description:
+          'Off by default. When on, a provider login for an address matching an existing, still-unlinked account is bound to it automatically; when off, that login is refused with ERR_ACCOUNT_NOT_LINKED instead.'
+      },
       // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
       // declares — a different set of keys per module.
       config: {
@@ -206,6 +211,11 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         },
         description:
           'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
+      },
+      trustEmailForLinking: {
+        type: 'boolean',
+        description:
+          "Off by default. Turning it on tells this strategy that an address it reports may be trusted to claim an existing, unlinked account by email match alone — appropriate only for a provider whose email is verified. Leave off for a provider that will assert any address it's told to."
       },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {

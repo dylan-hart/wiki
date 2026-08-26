@@ -228,7 +228,11 @@ export const authentication = pgTable('authentication', {
   config: jsonb().notNull().default({}),
   registration: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
-  autoEnrollGroups: uuid().array().default([])
+  autoEnrollGroups: uuid().array().default([]),
+  // -> Off by default: an existing account is only ever claimed by a provider login once this
+  //    strategy is explicitly told to trust the address it reports. See
+  //    `models/users.ts#findOrCreateProviderUser()`.
+  trustEmailForLinking: boolean().notNull().default(false)
 })
 
 // CONTENT SYNC STATE -------------------

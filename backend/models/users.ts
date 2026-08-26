@@ -1771,17 +1771,16 @@ class Users {
    * Log somebody in from what an identity provider said about them, creating the account if the
    * strategy is set to accept new users.
    *
-   * The email address is the identity: a provider's own `id` is recorded so that an address changing
-   * upstream does not orphan the account, but matching starts with the address because that is what
-   * an administrator invited, what a group rule was written against, and what every other strategy
-   * keys on. A module must therefore only ever report an address it has established belongs to the
-   * person — see `ProviderProfile`.
+   * An existing account is bound to the provider's own `id`, checked on every later login — the
+   * address alone is never enough, because a provider that can be made to assert an arbitrary email is
+   * otherwise a way to sign in as whichever account already used it. See `findOrCreateProviderUser()`.
    *
    * Registration is refused rather than silently allowed: a wiki that has not opened its doors to a
    * provider gets `ERR_REGISTRATION_DISABLED` for an unknown account, and one that has can still
    * limit who by, with the strategy's email allow-list pattern.
    *
-   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_INACTIVE_USER`
+   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
+   *         `ERR_LOGIN_FAILED`, `ERR_INACTIVE_USER`
    */
   async loginWithProvider(
     {
@@ -1800,9 +1799,10 @@ class Users {
     const user = await this.findOrCreateProviderUser(strategy, profile)
 
     /*
-      Neither 2FA nor a password change is asked for: both are the local strategy's, and this user has
-      just proved who they are somewhere else — where whatever second factor that provider enforces has
-      already been satisfied.
+      No password change is asked for: that flag belongs to the local strategy alone. 2FA is a separate
+      question this codebase currently answers "no" to for a provider login -- see the decision note at
+      `docs/decisions/provider-login-tfa-scope.md` for why a TOTP secret enrolled under another strategy
+      does not currently gate this path, and what would need to change to lift that.
     */
     return this.afterLoginChecks(
       user,
@@ -1822,8 +1822,16 @@ class Users {
    * no local match and threw `ProvisionableLoginError`) needs exactly the same find-or-create rules
    * rather than a second copy of them.
    *
-   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_LOGIN_FAILED`,
-   *         `ERR_INACTIVE_USER`
+   * Identity, once an account exists, is `profile.id` matched against the `auth[strategy.id].id` a
+   * previous login stored — never the email address alone, and never a strategy other than this exact
+   * one: a module must not be able to walk in and claim an account linked under a different strategy.
+   * An address matching an account with no stored link for this strategy is refused with
+   * `ERR_ACCOUNT_NOT_LINKED` unless the strategy has `trustEmailForLinking` on, an explicit
+   * administrator opt-in for a provider whose email is verified. A system account (the seeded Guest
+   * row, currently the only one) never signs in through any provider, matched or not.
+   *
+   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
+   *         `ERR_LOGIN_FAILED`, `ERR_INACTIVE_USER`
    */
   private async findOrCreateProviderUser(
     strategy: AuthStrategy,
@@ -1832,27 +1840,42 @@ class Users {
     const email = profile.email.toLowerCase().trim()
     let user = await this.getByEmail(email)
 
-    if (!user) {
+    // -> Checked before anything else: a system account (the seeded Guest row) must never be reachable
+    //    through a provider, linked or not -- getByEmail() has no isSystem filter, unlike its siblings.
+    if (user?.isSystem) {
+      WIKI.models.flags.authDebug(
+        `Provider login for <${email}> refused: address belongs to a system account`
+      )
+      throw new Error('ERR_LOGIN_FAILED')
+    }
+
+    if (user) {
+      const auth = (user.auth ?? {}) as Record<string, any>
+      const linkedId = auth[strategy.id]?.id
+      if (linkedId === undefined) {
+        if (!strategy.trustEmailForLinking) {
+          WIKI.models.flags.authDebug(
+            `Provider login for <${email}> refused: no stored account link for strategy ${strategy.id}, and trustEmailForLinking is off`
+          )
+          throw new Error('ERR_ACCOUNT_NOT_LINKED')
+        }
+      } else if (linkedId !== profile.id) {
+        WIKI.models.flags.authDebug(
+          `Provider login for <${email}> refused: profile id does not match the account link stored for strategy ${strategy.id}`
+        )
+        throw new Error('ERR_ACCOUNT_NOT_LINKED')
+      }
+      // -> Applied on every login, not only account creation: turning the pattern down after an
+      //    account was linked under a looser one must not leave that account grandfathered in.
+      this.assertAllowedProviderEmail(strategy, email)
+    } else {
       if (!strategy.registration) {
         WIKI.models.flags.authDebug(
           `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
         )
         throw new Error('ERR_REGISTRATION_DISABLED')
       }
-      if (strategy.allowedEmailRegex) {
-        let allowed = false
-        try {
-          allowed = new RegExp(strategy.allowedEmailRegex).test(email)
-        } catch (err: any) {
-          // -> A pattern that will not compile allows nobody, rather than everybody
-          WIKI.logger.warn(
-            `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
-          )
-        }
-        if (!allowed) {
-          throw new Error('ERR_EMAIL_NOT_ALLOWED')
-        }
-      }
+      this.assertAllowedProviderEmail(strategy, email)
       const userId = await this.createUser({
         name: profile.name || email,
         email,
@@ -1902,6 +1925,25 @@ class Users {
     }
 
     return user
+  }
+
+  /** @throws `ERR_EMAIL_NOT_ALLOWED` when the strategy has a pattern and the address does not match it. */
+  private assertAllowedProviderEmail(strategy: AuthStrategy, email: string): void {
+    if (!strategy.allowedEmailRegex) {
+      return
+    }
+    let allowed = false
+    try {
+      allowed = new RegExp(strategy.allowedEmailRegex).test(email)
+    } catch (err: any) {
+      // -> A pattern that will not compile allows nobody, rather than everybody
+      WIKI.logger.warn(
+        `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
+      )
+    }
+    if (!allowed) {
+      throw new Error('ERR_EMAIL_NOT_ALLOWED')
+    }
   }
 
   /**
