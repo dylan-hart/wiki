@@ -679,6 +679,29 @@ function startInstance(
   })
 }
 
+/**
+ * Bounded poll replacing a fixed `setTimeout` drain: re-runs `poll()` until `isDone()` accepts its
+ * result or `timeoutMs` elapses, sleeping `intervalMs` between attempts. The success path returns as
+ * soon as the awaited state actually settles rather than waiting out a worst-case guess every time,
+ * and the failure path still returns the last-observed value (not throw) so the caller's own assert
+ * produces the real mismatch rather than a generic timeout error — matching the shape
+ * `e2e/tests/scheduler.spec.js`'s `expect(...).toPass({ timeout })` uses for the same reason.
+ */
+async function pollUntil<T>(
+  poll: () => Promise<T>,
+  isDone: (value: T) => boolean,
+  { timeoutMs = 10000, intervalMs = 50 }: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const value = await poll()
+    if (isDone(value) || Date.now() >= deadline) {
+      return value
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
+
 describe('collaborative editing across instances (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let connectionString: string
@@ -780,9 +803,12 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       messageId: 'msg-crash'
     })
 
-    // -> Give the NOTIFY a moment to land, then confirm A actually captured the partial chunks.
-    await new Promise((resolve) => setTimeout(resolve, 300))
-    const midway = await a.call('partialsSize')
+    // -> Poll for the NOTIFY to land instead of a fixed wait, then confirm A actually captured the
+    //    partial chunks.
+    const midway = await pollUntil(
+      () => a.call('partialsSize'),
+      (result) => result.size === 1
+    )
     assert.equal(midway.size, 1, 'the two delivered chunks are held, waiting for the third')
 
     await new Promise((resolve) => setTimeout(resolve, RELAY_REASSEMBLY_TIMEOUT))
@@ -834,18 +860,24 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
       )
     }
 
-    // -> Give the relay traffic time to fully drain before checking convergence.
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    const texts = new Set<string>()
-    for (const { instance, id } of sessions) {
-      const { text } = await instance.call('sessionText', { sessionId: id })
-      texts.add(text)
-    }
-    const roomA = await a.call('roomText', { pageId: page.id })
-    const roomB = await b.call('roomText', { pageId: page.id })
-    texts.add(roomA.text)
-    texts.add(roomB.text)
+    // -> Poll for convergence instead of a fixed drain: the success path returns as soon as the relay
+    //    has actually settled, and a genuine drop or misorder still fails after a generous deadline
+    //    rather than masquerading as a timing shortfall.
+    const texts = await pollUntil(
+      async () => {
+        const collected = new Set<string>()
+        for (const { instance, id } of sessions) {
+          const { text } = await instance.call('sessionText', { sessionId: id })
+          collected.add(text)
+        }
+        const roomA = await a.call('roomText', { pageId: page.id })
+        const roomB = await b.call('roomText', { pageId: page.id })
+        collected.add(roomA.text)
+        collected.add(roomB.text)
+        return collected
+      },
+      (collected) => collected.size === 1
+    )
 
     assert.equal(
       texts.size,
@@ -888,7 +920,11 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     // -> Both editing normally, before anyone goes offline.
     await a.call('sessionEdit', { sessionId: 'sess-a', text: 'A1 ' })
     await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B1 ' })
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    // -> Poll for both edits to reach the room instead of a fixed wait.
+    await pollUntil(
+      () => a.call('roomText', { pageId: page.id }),
+      (result) => result.text.includes('A1') && result.text.includes('B1')
+    )
 
     // -> A's tab loses connectivity. The room is not torn down: B is still in it.
     await a.call('disconnectSession', { sessionId: 'sess-a' })
@@ -899,11 +935,14 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     //    keeps typing too, unaware A is gone.
     await a.call('sessionEdit', { sessionId: 'sess-a', text: 'OFFLINE-FROM-A ' })
     await a.call('sessionEdit', { sessionId: 'sess-b', text: 'B2-WHILE-A-OFFLINE ' })
-    await new Promise((resolve) => setTimeout(resolve, 300))
 
-    // -> Proof the disconnect was real, not a no-op: the room got B's edit but never saw A's, and A's
-    //    own replica never heard about B's either.
-    const whileOffline = await a.call('roomText', { pageId: page.id })
+    // -> Poll for B's edit to reach the room instead of a fixed wait, then confirm the disconnect was
+    //    real, not a no-op: the room got B's edit but never saw A's, and A's own replica never heard
+    //    about B's either.
+    const whileOffline = await pollUntil(
+      () => a.call('roomText', { pageId: page.id }),
+      (result) => result.text.includes('B2-WHILE-A-OFFLINE')
+    )
     assert.ok(
       whileOffline.text.includes('B2-WHILE-A-OFFLINE'),
       "B's edit while A was away reached the room"
@@ -919,13 +958,18 @@ describe('collaborative editing across instances (DB-backed)', { skip: !hasTestD
     )
 
     // -> Connectivity restored. The reconnect must both push A's offline edits out and pull down what
-    //    the room gained while A was away.
+    //    the room gained while A was away. Poll for convergence instead of a fixed wait.
     await a.call('reconnectSession', { pageId: page.id, sessionId: 'sess-a' })
-    await new Promise((resolve) => setTimeout(resolve, 300))
 
-    const finalA = await a.call('sessionText', { sessionId: 'sess-a' })
-    const finalB = await a.call('sessionText', { sessionId: 'sess-b' })
-    const finalRoom = await a.call('roomText', { pageId: page.id })
+    const { finalA, finalB, finalRoom } = await pollUntil(
+      async () => ({
+        finalA: await a.call('sessionText', { sessionId: 'sess-a' }),
+        finalB: await a.call('sessionText', { sessionId: 'sess-b' }),
+        finalRoom: await a.call('roomText', { pageId: page.id })
+      }),
+      (result) =>
+        result.finalA.text === result.finalRoom.text && result.finalB.text === result.finalRoom.text
+    )
 
     assert.equal(
       finalA.text,
