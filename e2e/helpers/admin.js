@@ -65,9 +65,12 @@ export async function expectGuestShell(page) {
  * default site instead of the one this call is meant to be exercising.
  *
  * @param {import('@playwright/test').Page} page
- * @param {{ path: string, title: string, body: string, origin?: string }} args
+ * @param {{ path: string, title: string, body: string, origin?: string, pasteBody?: boolean, previewWaitText?: string }} args
  */
-export async function createAndPublishPage(page, { path, title, body, origin = '' }) {
+export async function createAndPublishPage(
+  page,
+  { path, title, body, origin = '', pasteBody = false, previewWaitText = body }
+) {
   await page.goto(`${origin}/_create/markdown?path=${path}`)
 
   // -> The page title: a `contenteditable="plaintext-only"` span (`PageHeader.vue`), not an
@@ -91,13 +94,32 @@ export async function createAndPublishPage(page, { path, title, body, origin = '
   //    real, focusable editor rather than racing its mount.
   await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
   await page.locator('.editor-markdown-editor').click()
-  await page.keyboard.type(body)
+  if (pasteBody) {
+    // -> `page.keyboard.type()` sends one real keydown/keyup per character, which is exactly what
+    //    Monaco's per-character auto-closing-bracket/quote logic (its markdown language config
+    //    pairs `{}`, `[]`, `()`, quotes and backticks) watches for. MDC block syntax
+    //    (`::block-x{prop="value"}`) and fenced code blocks are built entirely out of those
+    //    characters, and a naive per-character replay of a body that nests them (an attribute list,
+    //    a run of three backticks) risks a doubled or swallowed character the editor's own
+    //    type-over-the-auto-close heuristic doesn't cleanly cancel out. `keyboard.insertText()`
+    //    instead fires one native `input` event carrying the whole string; Monaco's auto-closing
+    //    special-casing only triggers for a single-character `type` event, so a bulk insert is
+    //    applied literally, the same path a real paste takes. Opt-in, not the default: every
+    //    existing caller keeps typing for real, since that is what an author actually does and
+    //    plain prose has no brackets/backticks for the auto-closing logic to ever misfire on.
+    await page.keyboard.insertText(body)
+  } else {
+    await page.keyboard.type(body)
+  }
 
   // -> `EditorMarkdown.vue` syncs Monaco's content into `pageStore.content` on a 500ms debounce
   //    (`onDidChangeModelContent`) -- clicking "Create Page" before it fires would save an empty
   //    page. Waiting on the debounced render landing in the DOM is a real signal that the sync
-  //    happened, not a fixed sleep guessed at.
-  await expect(page.locator('.editor-markdown-preview-content')).toContainText(body)
+  //    happened, not a fixed sleep guessed at. `previewWaitText` defaults to the raw `body`, which
+  //    only actually appears verbatim in the rendered preview for callers whose body is plain
+  //    prose/markdown with no block/math syntax that renders into something else entirely -- a
+  //    caller writing MDC blocks or KaTeX passes a plain-text sentinel found elsewhere in `body`.
+  await expect(page.locator('.editor-markdown-preview-content')).toContainText(previewWaitText)
 
   await page.getByRole('button', { name: 'Create Page' }).click()
 

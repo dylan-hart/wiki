@@ -1,113 +1,198 @@
-import { expect, test } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 
-import { createAndPublishPage, loginAsAdmin, uniqueSlug } from '../helpers/admin.js'
+import { ADMIN_EMAIL, ADMIN_PASSWORD, createAndPublishPage, uniqueSlug } from '../helpers/admin.js'
+
+/*
+  The shipped `security.cspDirectives` default (`backend/base.yml`) could not be confirmed workable
+  by static reading alone -- the audit that asked for this spec said so explicitly
+  (docs/audit-2026-08-24/security/08-frontend-client.md §10, OpenProject #2154/#2166) -- so this is a
+  live check, not a config assertion. `e2e/config.e2e.yml` turns `security.enforceCsp` on for the
+  whole suite (see its own comment for why not just this file), inheriting the actual shipped
+  `cspDirectives` string from `base.yml` rather than a second copy kept here -- if that string ever
+  drifts from what the editor/blocks/KaTeX actually need, THIS spec is what is meant to catch it, not
+  a hand-maintained duplicate.
+
+  What "no CSP violation" means here: a `securitypolicyviolation` event on `document` (the standard,
+  reliable signal -- fired for every directive Chromium enforces, script-src included) AND no console
+  error mentioning the policy, as a second net for whatever a future Chromium version reports only to
+  the console. Recorded via `page.addInitScript()`, which reinstalls the listener on every fresh
+  document (see the two separate assertion points below -- `page.goto()` starts a new document that
+  resets `window.__cspViolations`; the client-side routing the rest of the SPA relies on does not
+  reload the document at all, so violations accumulate across it undisturbed).
+
+  Deliberately excludes `block-diagram` (Mermaid) and `block-mathjax`: both bundle a layout/typeset
+  engine whose own `unsafe-eval` needs, if any, are a real open question this spec's author could not
+  resolve by reading alone and did not want to guess a security-relevant default around. Every other
+  self-contained shipped block is covered -- `block-checklist`, `block-tabs`/`block-tab`,
+  `block-infobox`, `block-spoiler`, `block-qr-code`, `block-countdown`, `block-katex`,
+  `block-gallery` -- alongside inline KaTeX math, deliberately omitting the network/iframe-dependent
+  blocks (`block-youtube`, `block-vimeo`, `block-dailymotion`, `block-m365-video`, `block-map`,
+  `block-kroki`, `block-plantuml`, `block-drawio`, `block-openapi`, `block-pdf`, `block-asciinema`,
+  `block-include`, `block-index`) whose own correctness depends on an external service or another
+  page this suite has no fixture for -- a network failure there is not a CSP question.
+*/
+
+const CSP_CONSOLE_PATTERN = /content security policy|refused to/i
 
 /**
- * WP #2166 (part of #2154): the `cspDirectives` default shipped in `backend/base.yml` /
- * `backend/models/settings.ts#init` is authored to cover the editor (Monaco), the blocks loader
- * (a same-origin dynamic `import()`) and KaTeX -- but the audit that asked for this WP could not
- * confirm any of that statically ("the audit could not confirm a workable policy statically, so a
- * live check is the deliverable"). This spec IS that check: it collects every
- * `securitypolicyviolation` event and every "Refused to ..." CSP console message the browser raises
- * across a full editor session, a published page carrying a block, and a KaTeX expression, and
- * fails if there are any.
- *
- * Runs with `enforceCsp` ON, against the exact string this WP ships: `e2e/config.e2e.yml`'s
- * `security:` block sets both, which land in the fresh test database's `security` settings row via
- * `models/settings.ts#init` on this suite's very first boot -- there is no live-reload path,
- * `index.ts` reads `WIKI.config.security` once, at server start, to decide whether to register
- * helmet's CSP plugin at all, so the policy really is on for every spec in this run, not just this
- * one file.
- */
-
-/**
- * Attaches a collector for every CSP violation `page` sees, from this call onward, across
- * navigations (`addInitScript` re-runs on every new document in the same browser context). Returns
- * a function that reads back everything collected so far.
- *
- * Two channels, because a browser doesn't report every kind of CSP failure the same way: an actual
- * blocked resource load (script/style/img/connect/worker/...) fires a real
- * `securitypolicyviolation` DOM event with structured detail, while some engines are inconsistent
- * about routing every blocked case through that event and always echo a "Refused to ..." message to
- * the console regardless -- watching both is what makes this a real live check rather than one that
- * could pass with a genuine violation the first channel alone missed.
+ * Installs a `securitypolicyviolation` recorder that (re)attaches on every fresh document -- see the
+ * file header for why that matters across `page.goto()` boundaries.
  *
  * @param {import('@playwright/test').Page} page
  */
-async function collectCspViolations(page) {
-  const violations = []
-
-  page.on('console', (msg) => {
-    const text = msg.text()
-    if (/content security policy|refused to/i.test(text)) {
-      violations.push(`console: ${text}`)
-    }
-  })
-
-  await page.exposeFunction('__reportCspViolation', (detail) => {
-    violations.push(`securitypolicyviolation: ${detail}`)
-  })
+async function installCspViolationRecorder(page) {
   await page.addInitScript(() => {
-    document.addEventListener('securitypolicyviolation', (event) => {
-      // -> `window.__reportCspViolation` is bound by `page.exposeFunction` above, before this init
-      //    script is registered -- Playwright guarantees the binding exists in every new document
-      //    this script itself runs in.
-      window.__reportCspViolation(
-        `${event.violatedDirective} blocked "${event.blockedURI}" on ${location.pathname}`
-      )
+    window.__cspViolations = []
+    document.addEventListener('securitypolicyviolation', (e) => {
+      window.__cspViolations.push({
+        directive: e.violatedDirective,
+        blockedURI: e.blockedURI,
+        sourceFile: e.sourceFile,
+        line: e.lineNumber
+      })
     })
   })
-
-  return () => violations
 }
 
-test('editor, a block and a KaTeX expression all load clean under the enforced CSP', async ({
-  page
-}) => {
-  const getViolations = await collectCspViolations(page)
+/**
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<Array<Record<string, unknown>>>}
+ */
+async function readCspViolations(page) {
+  return page.evaluate(() => window.__cspViolations ?? [])
+}
 
-  await loginAsAdmin(page)
+const SENTINEL = 'CSP proof sentinel paragraph'
 
-  const slug = uniqueSlug()
-  const path = `e2e-csp-${slug}`
-  const title = `E2E CSP Page ${slug}`
-  const body = [
-    'A KaTeX expression: $E = mc^2$',
-    '',
-    '::block-checklist',
-    '- Verify the shipped CSP default',
-    '- Confirm no directive was violated',
-    '::'
-  ].join('\n')
+const BODY = `# CSP Proof Page
 
-  // -> `createAndPublishPage` itself already exercises the editor-session half of this spec:
-  //    Monaco mounts (`worker-src`), the body is typed in, and the preview pane re-renders it
-  //    (`script-src`/`style-src` for the app's own same-origin bundle) before the save round-trips.
-  await createAndPublishPage(page, { path, title, body })
+${SENTINEL} -- this plain sentence is what the editor's debounced preview sync is waited on for,
+since none of the block/math syntax below survives markdown rendering as literal text.
 
-  // -> The published render: `block-checklist` resolves through the dynamic, same-origin
-  //    `import()` that `commonStore.loadBlocks()` performs (`script-src 'self'`) and actually
-  //    upgrades past `:not(:defined)` into a real custom element -- proving the blocks loader
-  //    works under the policy, not just that the tag text made it into the markup.
-  const checklist = page.locator('block-checklist')
-  await expect(checklist).toBeVisible()
-  await expect
-    .poll(() => checklist.evaluate((el) => customElements.get(el.tagName.toLowerCase()) != null))
-    .toBe(true)
+Inline KaTeX renders directly in prose: $E = mc^2$. A display formula follows:
 
-  // -> KaTeX renders every formula as a tree of inline `style="..."` attributes
-  //    (`frontend/src/renderers/markdown.js`'s `texMathHtml`) -- these are checked against
-  //    `style-src` the same as an external stylesheet would be, so a missing `'unsafe-inline'`
-  //    there shows up here as a collected violation, not a silent layout failure.
-  await expect(page.locator('.katex')).toBeVisible()
+$$\\int_0^1 x^2\\,dx = \\tfrac{1}{3}$$
 
-  // -> Re-open the editor on the same page: `EditorMarkdown.vue`'s Monaco instance spins up its
-  //    language-service workers again on this fresh navigation (`worker-src 'self' blob:`), a
-  //    second, independent exercise of that directive beyond the create flow above.
-  await page.goto(`/_edit/${path}`)
-  await page.locator('.editor-markdown-editor .monaco-editor').waitFor()
+::block-checklist{runkey="csp-check"}
+- First step
+- Second step
+::
 
-  expect(getViolations(), 'expected no CSP violation across the editor/block/KaTeX flows').toEqual(
-    []
-  )
+:::block-tabs
+::block-tab{label="First tab"}
+Content of the first tab.
+::
+
+::block-tab{label="Second tab"}
+Content of the second tab.
+::
+:::
+
+::block-infobox{name="Montreal" image="https://example.com/photo.jpg"}
+\`\`\`yaml
+City: Montreal
+Country: Canada
+Public Transport:
+  Metro: true
+  Bus: true
+\`\`\`
+::
+
+::block-spoiler{label="Reveal" hint="Click to show content"}
+The content to hide.
+::
+
+::block-qr-code{value="https://example.com" caption="QR"}
+::
+
+::block-countdown{date="2030-01-01T00:00" label="New Year"}
+::
+
+::block-katex
+\`\`\`latex
+x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}
+\`\`\`
+::
+
+::block-gallery
+https://example.com/photo-1.jpg
+https://example.com/photo-2.jpg
+::
+`
+
+// -> One host element per block used above, plus the two inline KaTeX renders (`.katex` is the
+//    class KaTeX itself draws its output under -- both the inline and display formula get one).
+const EXPECTED_ELEMENTS = [
+  'block-checklist',
+  'block-tabs',
+  'block-tab',
+  'block-infobox',
+  'block-spoiler',
+  'block-qr-code',
+  'block-countdown',
+  'block-katex',
+  'block-gallery',
+  '.katex'
+]
+
+test.describe('Content-Security-Policy (enforced)', () => {
+  test('editor session, every self-contained block, and KaTeX render with no CSP violation', async ({
+    page
+  }) => {
+    const consoleCspErrors = []
+    page.on('console', (msg) => {
+      if (msg.type() === 'error' && CSP_CONSOLE_PATTERN.test(msg.text())) {
+        consoleCspErrors.push(msg.text())
+      }
+    })
+
+    await installCspViolationRecorder(page)
+
+    // -> Proves the suite is actually exercising an enforced policy, not trivially "passing" because
+    //    `enforceCsp`/`cspDirectives` silently didn't take (e.g. the DB-seed wiring in
+    //    `models/settings.ts` regressing back to a hardcoded, always-off literal).
+    const loginResponse = await page.goto('/login')
+    expect(loginResponse?.headers()['content-security-policy']).toBeTruthy()
+
+    await page.getByLabel('Email Address').fill(ADMIN_EMAIL)
+    await page.getByLabel('Password').fill(ADMIN_PASSWORD)
+    await page.getByRole('button', { name: 'Log In', exact: true }).click()
+    await expect(page.locator('.account-avbtn')).toBeVisible()
+
+    // -> First checkpoint: the login flow alone, on the document `page.goto('/login')` started.
+    expect(await readCspViolations(page)).toEqual([])
+
+    const path = `csp-proof-${uniqueSlug()}`
+    await createAndPublishPage(page, {
+      path,
+      title: 'CSP Proof',
+      body: BODY,
+      pasteBody: true,
+      previewWaitText: SENTINEL
+    })
+
+    // -> `createAndPublishPage`'s own `/_create/markdown` navigation started a new document (which
+    //    reset `window.__cspViolations`), and everything since -- Monaco mounting and syncing, the
+    //    preview rendering every block and both KaTeX formulas, saving, and the client-side route
+    //    replace onto the page's own URL (no further `goto()`) -- happened on that one document. Wait
+    //    for every block to have actually mounted (each is a lazy, same-origin `/_blocks/` import)
+    //    before reading violations, so a slow-to-load block's own CSP failure isn't missed by
+    //    checking too early.
+    for (const selector of EXPECTED_ELEMENTS) {
+      await expect(page.locator(selector).first()).toBeVisible()
+    }
+    expect(await readCspViolations(page)).toEqual([])
+    expect(consoleCspErrors).toEqual([])
+
+    // -> Second checkpoint: a genuine fresh load of the published page, same as any reader following
+    //    a link to it -- not just the SPA's own client-side transition onto it. `page.reload()`
+    //    starts a new document too, so this checks only this reload's own violations.
+    const readerResponse = await page.reload()
+    expect(readerResponse?.headers()['content-security-policy']).toBeTruthy()
+    for (const selector of EXPECTED_ELEMENTS) {
+      await expect(page.locator(selector).first()).toBeVisible()
+    }
+    expect(await readCspViolations(page)).toEqual([])
+    expect(consoleCspErrors).toEqual([])
+  })
 })
