@@ -370,3 +370,67 @@ describe('GET /_site/:siteId/<resource> — isEnabled guard (task 699)', () => {
     assert.equal(res.body, 'fake-logo-bytes')
   })
 })
+
+describe('GET /_site/:siteId/<resource> — enforceApiKeySite (OpenProject #2201)', () => {
+  /**
+   * `:siteId` here can be `current`, a hostname, or a real UUID (see `site.ts`), never lifted straight
+   * off the URL the way a params-only site-pin hook expects -- so this route calls
+   * `enforceApiKeySite()` itself once it has resolved the real site behind whichever form was given.
+   */
+
+  const SITE_A = {
+    id: '11111111-4111-4111-8111-111111111111',
+    hostname: 'sitea.example.com',
+    isEnabled: true,
+    config: { assets: { logo: true } }
+  }
+  const SITE_B = {
+    id: '22222222-4222-4222-8222-222222222222',
+    hostname: 'siteb.example.com',
+    isEnabled: true,
+    config: { assets: { logo: true } }
+  }
+  const sites: Record<string, any> = { [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B }
+
+  async function getSiteById({ id }: { id: string }) {
+    return sites[id] ?? null
+  }
+
+  async function getAsset(_siteId: string, _kind: string) {
+    return { data: Buffer.from('logo-bytes'), mime: 'image/webp' }
+  }
+
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      ROOTPATH: process.cwd(),
+      models: {
+        sites: { getSiteById, getSiteByHostname: async () => null, getAsset }
+      }
+    }
+    app = fastify()
+    await app.register(fastifySensible)
+    app.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).apiKey = { id: 'key-1', permissions: [], siteId: SITE_A.id }
+      done()
+    })
+    await app.register(siteRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('refuses 403 when a key pinned to site A requests site B by UUID', async () => {
+    const res = await app.inject({ method: 'GET', url: `/${SITE_B.id}/logo` })
+    assert.equal(res.statusCode, 403)
+  })
+
+  test('lets a key pinned to site A through when it requests site A by UUID', async () => {
+    const res = await app.inject({ method: 'GET', url: `/${SITE_A.id}/logo` })
+    assert.equal(res.statusCode, 200)
+  })
+})

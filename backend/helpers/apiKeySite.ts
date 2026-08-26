@@ -27,6 +27,17 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * 395 task) can drop the same one-line guard into the rest of the site-scoped surface — `api/
  * assets.ts`'s asset routes, page history, page moves, and so on — without re-deriving this. See the
  * task's own description for the enumeration of what is deliberately left uncovered here.
+ *
+ * `req.params.siteId` isn't the only shape a route resolves its site from — some resolve it from
+ * `req.hostname` (`controllers/files.ts`, `controllers/site.ts`), and are called here explicitly for
+ * exactly that reason (OpenProject #2201). A third shape — a site id named in the request *body*,
+ * used by every `manage:system`-gated admin route that creates or exports something scoped to one
+ * site (`api/hooks.ts`'s webhook create/update, `api/apiKeys.ts`'s admin-issued key create, `api/
+ * system.ts`'s `/export`) — is deliberately left *uncalled*, not merely unenumerated: `manage:system`
+ * already bypasses every other authorization check in this codebase (see CLAUDE.md's Permissions
+ * section), so pinning would be enforced only on this one action a `manage:system` key can take and
+ * nowhere else it matters just as much — an inconsistent partial boundary rather than a real one. Each
+ * such route carries a comment pointing back here instead of a call.
  */
 export function enforceApiKeySite(
   req: FastifyRequest,

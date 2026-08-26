@@ -1,3 +1,4 @@
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import crypto from 'node:crypto'
@@ -65,6 +66,12 @@ async function routes(app: FastifyInstance) {
       }
       if (!site) {
         return reply.notFound('Site not found')
+      }
+      // -> `:siteId` here is resolved by `current`/hostname/UUID above, not lifted straight off the
+      //    URL, so the params-only site-pin hook (the sibling of this task, OpenProject #2194) can
+      //    never see it -- this route has to check for itself, once the real site is known.
+      if (!enforceApiKeySite(req, reply, site.id)) {
+        return reply
       }
       // -> A disabled site's logo/favicon/login background is still identifying content: this is a
       //    logged-out request, so nothing downstream of here decides who may see it, only the hook

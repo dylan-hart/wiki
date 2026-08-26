@@ -261,3 +261,109 @@ describe('isEnabled guard (task 699)', () => {
     }
   })
 })
+
+describe('enforceApiKeySite (OpenProject #2201)', () => {
+  /**
+   * `/_files/*` resolves its site from `req.hostname`, not a `:siteId` route param, so a params-only
+   * site-pin hook can never see this route -- it has to call `enforceApiKeySite()` for itself, right
+   * after resolving the site. This is the WP's own worked example: a key pinned to site A must be
+   * refused when the URL's hostname serves site B, before the asset path is ever resolved.
+   */
+
+  const SITE_A = { id: 'site-a', hostname: 'sitea.example.com' }
+  const SITE_B = { id: 'site-b', hostname: 'siteb.example.com' }
+
+  let resolveAssetPathCalls = 0
+  let app: FastifyInstance
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { security: {} },
+      models: {
+        sites: {
+          getSiteByHostname: async ({ hostname }: { hostname: string }) =>
+            [SITE_A, SITE_B].find((s) => s.hostname === hostname) ?? null
+        },
+        groups: {
+          actorForRequest: () => ({ permissions: [] }),
+          checkAccess: () => true
+        },
+        assets: {
+          resolveAssetPath: async () => {
+            resolveAssetPathCalls++
+            return null
+          },
+          forgetPath: () => {}
+        }
+      }
+    }
+    app = fastify()
+    await app.register(fastifySensible)
+    await app.register(filesRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  test('refuses 403 when the key is pinned to a different site than the one the hostname resolves to', async () => {
+    resolveAssetPathCalls = 0
+    const app2 = fastify()
+    await app2.register(fastifySensible)
+    app2.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).apiKey = { id: 'key-1', permissions: [], siteId: SITE_A.id }
+      done()
+    })
+    await app2.register(filesRoutes)
+    await app2.ready()
+    try {
+      const res = await app2.inject({
+        method: 'GET',
+        url: '/some/file.png',
+        headers: { host: SITE_B.hostname }
+      })
+      assert.equal(res.statusCode, 403)
+      assert.equal(resolveAssetPathCalls, 0)
+    } finally {
+      await app2.close()
+    }
+  })
+
+  test('lets the request through when the pinned key matches the hostname-resolved site', async () => {
+    resolveAssetPathCalls = 0
+    const app2 = fastify()
+    await app2.register(fastifySensible)
+    app2.addHook('onRequest', (req, _reply, done) => {
+      ;(req as any).apiKey = { id: 'key-1', permissions: [], siteId: SITE_A.id }
+      done()
+    })
+    await app2.register(filesRoutes)
+    await app2.ready()
+    try {
+      const res = await app2.inject({
+        method: 'GET',
+        url: '/some/file.png',
+        headers: { host: SITE_A.hostname }
+      })
+      // -> Not found because resolveAssetPath is stubbed to return null, but the pin check let it get
+      //    there
+      assert.equal(res.statusCode, 404)
+      assert.equal(resolveAssetPathCalls, 1)
+    } finally {
+      await app2.close()
+    }
+  })
+
+  test('an unpinned key (siteId: null) is unaffected, same as no key at all', async () => {
+    resolveAssetPathCalls = 0
+    const res = await app.inject({
+      method: 'GET',
+      url: '/some/file.png',
+      headers: { host: SITE_B.hostname }
+    })
+    assert.equal(res.statusCode, 404)
+    assert.equal(resolveAssetPathCalls, 1)
+  })
+})

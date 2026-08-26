@@ -25,6 +25,10 @@ const SHELL = `<!doctype html>
  * Only ever fetched over the loopback interface by this instance's own headless browser, but served
  * like the other static shells rather than gated: there is nothing here to protect, and a session the
  * browser does not have could not be checked anyway.
+ *
+ * No `enforceApiKeySite()` call here (OpenProject #2201, the site-pin task's hostname/body-resolved
+ * sibling): the shell resolves no site at all -- there is no `siteId` to check a pinned key against,
+ * and `models/rendering.ts`'s own request never carries a bearer token in the first place.
  */
 async function routes(app: FastifyInstance) {
   app.get('/', async (_req, reply) => {

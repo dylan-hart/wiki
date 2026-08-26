@@ -154,6 +154,10 @@ async function routes(app: FastifyInstance) {
 
       // -> null pins nothing (instance-wide, today's only behavior); any other value must name a
       //    real site, the same way every entry in `groups` must name a real group above
+      //
+      // -> `siteId` here is a body field pinning the KEY BEING CREATED, not the caller's own site --
+      //    no `enforceApiKeySite()` call; this route is `manage:system`-only, see
+      //    `helpers/apiKeySite.ts`'s doc comment for why that rules it out.
       if (req.body.siteId != null && !WIKI.sites[req.body.siteId]) {
         return reply.badRequest('This site does not exist.')
       }

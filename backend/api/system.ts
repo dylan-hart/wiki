@@ -1352,6 +1352,8 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> `siteId` here is a body field, not `req.params.siteId`, and this route is `manage:system`
+      //    only -- no `enforceApiKeySite()` call; see `helpers/apiKeySite.ts`'s doc comment for why.
       const added = await WIKI.scheduler.addJob({
         task: 'exportContent',
         payload: { siteId: req.body.siteId }

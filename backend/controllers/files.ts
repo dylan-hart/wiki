@@ -1,4 +1,5 @@
 import { INLINE_EXTS } from '../models/assets.ts'
+import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
 import type { FastifyInstance } from 'fastify'
 
@@ -35,6 +36,12 @@ async function routes(app: FastifyInstance) {
     const site = await WIKI.models.sites.getSiteByHostname({ hostname: req.hostname })
     if (!site) {
       return reply.notFound('Site not found')
+    }
+    // -> Resolved by `req.hostname` rather than a `:siteId` route param, so the params-only site-pin
+    //    hook (the sibling of this task, OpenProject #2194) never sees this route at all -- a
+    //    site-scoped key could otherwise read another site's files just by asking on its hostname.
+    if (!enforceApiKeySite(req, reply, site.id)) {
+      return
     }
     // -> Resolved by hostname independently of the page/shell hook, so a disabled site's files stay
     //    reachable by direct URL until this stops them the same way
