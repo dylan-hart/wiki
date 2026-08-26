@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
-import { pageWatchEvents as pageWatchEventsTable } from '../db/schema.ts'
+import { pageWatchEvents as pageWatchEventsTable, pages as pagesTable } from '../db/schema.ts'
 import type { WatchNotifyMode } from './pageWatching.ts'
 
 /** The kinds of change a watcher can be notified about. Never `created` — see `notifyWatchers`. */
@@ -165,9 +165,21 @@ class PageWatchEvents {
    * site. Capped at `INBOX_LIST_LIMIT` rather than paginated — a genuinely unbounded backlog of unread
    * notifications is not a case this first cut needs to handle gracefully, and the badge this feeds
    * (`unreadCount`) is a separate, un-capped query anyway.
+   *
+   * `read:pages` is re-checked here, against the page's LIVE state (OpenProject #2173) — a row was
+   * only ever written for someone who could read the page at the time they watched it, and that is no
+   * longer good enough: a classification raised, a move into a restricted branch, or a group rule
+   * edited since can have taken it away, and this inbox must not go on showing the title/path of a
+   * page the caller can no longer read. `pageId` is not a foreign key (see `db/schema.ts`'s own
+   * comment on why), so a `LEFT JOIN` is used rather than an inner one: a row about a page that has
+   * SINCE been deleted has nothing to join to, and is left in place rather than dropped — the ref
+   * falls back to what was captured at write time (`pagePath`/`pageLocale`, with `classification: null`,
+   * i.e. genuinely unknown), which still lets an ordinary path/tag rule decide it, just not a
+   * CLASSIFICATION one (see `helpers/pageRules.ts`'s own doc comment on that failing closed only for
+   * an actor's own `allowedClassifications` narrowing, not for an unknown page).
    */
   async listForUser(userId: string, siteId: string): Promise<InboxNotification[]> {
-    return WIKI.db
+    const rows = await WIKI.db
       .select({
         id: pageWatchEventsTable.id,
         pageId: pageWatchEventsTable.pageId,
@@ -177,9 +189,12 @@ class PageWatchEvents {
         action: pageWatchEventsTable.action,
         changedFields: pageWatchEventsTable.changedFields,
         actorId: pageWatchEventsTable.actorId,
-        createdAt: pageWatchEventsTable.createdAt
+        createdAt: pageWatchEventsTable.createdAt,
+        pageTags: pagesTable.tags,
+        pageClassification: pagesTable.classification
       })
       .from(pageWatchEventsTable)
+      .leftJoin(pagesTable, eq(pagesTable.id, pageWatchEventsTable.pageId))
       .where(
         and(
           eq(pageWatchEventsTable.userId, userId),
@@ -188,7 +203,21 @@ class PageWatchEvents {
         )
       )
       .orderBy(desc(pageWatchEventsTable.createdAt))
-      .limit(INBOX_LIST_LIMIT) as Promise<InboxNotification[]>
+      .limit(INBOX_LIST_LIMIT)
+    const actor = await WIKI.models.groups.actorForUser(userId)
+    return rows
+      .filter((row) =>
+        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path: row.pagePath,
+          locale: row.pageLocale,
+          siteId,
+          classification: row.pageClassification ?? null,
+          tags: row.pageTags ?? []
+        })
+      )
+      .map(
+        ({ pageTags: _pageTags, pageClassification: _pageClassification, ...row }) => row
+      ) as InboxNotification[]
   }
 
   /**

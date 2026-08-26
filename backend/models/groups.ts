@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { and, count, eq, ilike, or, sql } from 'drizzle-orm'
+import { uniq } from 'es-toolkit/array'
 import { groups as groupsTable, userGroups, users as usersTable } from '../db/schema.ts'
 import { CustomError, normalizePagePath } from '../helpers/common.ts'
 import { resolvePageRule, type RulePageRef } from '../helpers/pageRules.ts'
@@ -271,6 +272,35 @@ class Groups {
       //    if any -- see the `AccessActor.scope` doc comment for what this gates.
       scope: req.apiKey?.scope ?? null,
       allowedClassifications: req.apiKey?.allowedClassifications ?? null
+    }
+  }
+
+  /**
+   * The actor a stored user id speaks for — `actorForRequest()`'s counterpart for a caller with no
+   * live request/session to read, needed wherever a permission has to be re-checked against somebody
+   * who is not the one making the current call (OpenProject #2173).
+   *
+   * Page-watch notifications are the reason this exists: `read:pages` used to be checked only once,
+   * when a watcher first pressed the bell (`api/watching.ts#loadWatchablePage`), and never again —
+   * but a classification raised, a page moved into a restricted branch, or a group rule edited are all
+   * ordinary lifecycle events, not something that waits for the watcher's own next login. Resolving
+   * live from `userGroups`/`groupsTable` rather than any cached/session value is what lets
+   * `models/pages.ts#notifyWatchers`, `models/pageWatchEvents.ts#listForUser` and
+   * `models/pageWatching.ts#listForUser` re-ask the question at send time and at read time, against
+   * whichever groups the watcher belongs to right now.
+   *
+   * No `scope`/`allowedClassifications`: those narrow an API key's own grant (`ApiKeyIdentity`), and a
+   * page watcher is always a real account, never a key.
+   */
+  async actorForUser(userId: string): Promise<AccessActor> {
+    const rows = await WIKI.db
+      .select({ groupId: userGroups.groupId, permissions: groupsTable.permissions })
+      .from(userGroups)
+      .innerJoin(groupsTable, eq(groupsTable.id, userGroups.groupId))
+      .where(eq(userGroups.userId, userId))
+    return {
+      groupIds: rows.map((row) => row.groupId),
+      permissions: uniq(rows.flatMap((row) => (row.permissions ?? []) as string[]))
     }
   }
 

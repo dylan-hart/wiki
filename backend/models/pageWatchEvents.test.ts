@@ -1,7 +1,11 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
 
 /**
@@ -195,16 +199,19 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
   let fixtures: TestFixtures
   let pageWatchEventsModel: typeof import('./pageWatchEvents.ts').pageWatchEvents
   let pagesModel: typeof import('./pages.ts').pages
+  let groupsModel: typeof import('./groups.ts').groups
   let actor: PageActor
   let pageId: string
   let siteId: string
   let otherSiteId: string
+  let readerGroupId: string
 
   before(async () => {
     fixtures = await setupTestDb()
     siteId = fixtures.siteId
     ;({ pageWatchEvents: pageWatchEventsModel } = await import('./pageWatchEvents.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ groups: groupsModel } = await import('./groups.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
 
     const page = await pagesModel.createPage(
@@ -226,6 +233,32 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       .values({ hostname: 'other.example.com', isEnabled: true, config: {} })
       .returning({ id: sitesTable.id })
     otherSiteId = otherSite!.id
+
+    // -> OpenProject #2173: `listForUser` now re-checks `read:pages` per row, against the caller's
+    //    LIVE groups — checkAccess denies by default (see `helpers/pageRules.ts`), so every user
+    //    `makeUser()` creates below is enrolled in a group granting it everywhere, or every test here
+    //    would find its own rows excluded regardless of what it is actually exercising.
+    const [readerGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Inbox Reader',
+        permissions: [],
+        rules: [
+          {
+            id: 'allow-read',
+            name: 'Allow read',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+    readerGroupId = readerGroup!.id
+    await groupsModel.reloadCache()
   })
 
   after(async () => {
@@ -237,6 +270,7 @@ describe('pageWatchEvents inbox queries (DB-backed)', { skip: !hasTestDatabase()
       .insert(usersTable)
       .values({ email, name: email, isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
+    await fixtures.db.insert(userGroupsTable).values({ userId: user!.id, groupId: readerGroupId })
     return user!.id
   }
 
