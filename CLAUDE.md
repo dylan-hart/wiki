@@ -153,6 +153,32 @@ A block that must *act* on the change rather than restyle for it passes `onChang
 `.isDark` — `block-diagram` redraws mermaid in its own dark theme, `block-map` resolves a per-block
 `theme` prop that can pin a map light on a dark page.
 
+**Reaching the API and learning the site id goes through `blocks/shared/site.js`, never
+`globalThis.API_CLIENT` / `globalThis.WIKI_STATE`.** A block sitting in page content has no siteId
+of its own and no page store threaded down to it — those SPA globals
+(`frontend/src/boot/externals.js`) exist only inside the app shell, so a block reading them cannot
+run in a context that mounts blocks without it (the page-level pre-rendering `docs/variances.md`
+describes as a future task, concretely). The one convention every block uses instead (OpenProject
+#1969):
+
+- **Site id**: `getSiteId()`, plus plain `fetch` for the actual request. Both read off the same
+  public, hostname-routed `GET /_api/sites/current` `getBlockConfig` (`shared/config.js`) already
+  uses, cached per page load the same way. `fetch` carries the session cookie same-origin exactly
+  as `API_CLIENT` did, so a signed-in reader's request is still the one they'd get anywhere else —
+  the server's own page-rule checks decide what comes back, not anything the client claims.
+- **Current page locale/path**: `getCurrentPage()`, read off `location.pathname` against the site's
+  active locale codes (`getSiteLocales()`) rather than a page store — the one thing a block CAN know
+  about its own page without asking the server, since the reader is looking at it.
+- **This reader's own page-rule permissions on the current page** (what `WIKI_STATE.user.can(...)`
+  used to answer, e.g. `block-checklist`'s "may I check this off"): `getCurrentPageAccess()`, which
+  resolves the page id AND `viewer.permissions` off `GET /_api/sites/:siteId/pages/:hash` — the same
+  publicly-readable, per-page-rule-checked route the page view itself loads a page through. There is
+  no public, group-wide permission route to call instead; a permission with no page-rule shape at all
+  has no convention here yet and needs one written down before landing.
+
+`block-index`, `block-include` and `block-checklist` are the reference conversions (`block-live-data`
+and `block-map` were the first two blocks onto the site id half, before the rest of this existed).
+
 ## Commands
 
 Run backend commands from `backend/`, frontend from `frontend/`, blocks from `blocks/`.
