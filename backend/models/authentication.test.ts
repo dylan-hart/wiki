@@ -1,4 +1,4 @@
-import { describe, test } from 'node:test'
+import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { authentication } from './authentication.ts'
@@ -42,5 +42,70 @@ describe('authentication module definitions: refs guidance', () => {
     const mod = authentication.getModule('ldap')
     assert.ok(mod, 'ldap module definition should load from disk')
     assert.ok(!mod!.refs, 'ldap should not declare a refs block')
+  })
+})
+
+/**
+ * `validateStrategy`'s `mappableGroups` check mirrors `autoEnrollGroups`'s own validation
+ * (guests refused, unknown group id refused) — this is the allow-list column added for the group
+ * mapping constraint. `WIKI.db` is stubbed to a fixed group list rather than run against a real
+ * database: what is under test here is the validation branching, not the query itself.
+ */
+describe('authentication.validateStrategy: mappableGroups', () => {
+  const guestsGroupId = 'group-guests'
+
+  function stubDb(existingGroupIds: string[]) {
+    ;(globalThis as any).WIKI.db = {
+      select: () => ({
+        from: async () => existingGroupIds.map((id) => ({ id }))
+      })
+    }
+  }
+
+  before(() => {
+    ;(globalThis as any).WIKI = {
+      ...(globalThis as any).WIKI,
+      data: { systemIds: { guestsGroupId } }
+    }
+  })
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('accepts an empty mappableGroups list', async () => {
+    stubDb(['group-editors'])
+    const result = await authentication.validateStrategy({
+      module: 'ldap',
+      mappableGroups: []
+    })
+    assert.equal(result, null)
+  })
+
+  test('accepts a mappableGroups list made only of existing group ids', async () => {
+    stubDb(['group-editors', 'group-reviewers'])
+    const result = await authentication.validateStrategy({
+      module: 'ldap',
+      mappableGroups: ['group-editors', 'group-reviewers']
+    })
+    assert.equal(result, null)
+  })
+
+  test('refuses an unknown group id in mappableGroups', async () => {
+    stubDb(['group-editors'])
+    const result = await authentication.validateStrategy({
+      module: 'ldap',
+      mappableGroups: ['group-does-not-exist']
+    })
+    assert.match(result ?? '', /does not exist/)
+  })
+
+  test('refuses the guests group in mappableGroups', async () => {
+    stubDb([guestsGroupId])
+    const result = await authentication.validateStrategy({
+      module: 'ldap',
+      mappableGroups: [guestsGroupId]
+    })
+    assert.match(result ?? '', /guests group cannot be used for group mapping/)
   })
 })

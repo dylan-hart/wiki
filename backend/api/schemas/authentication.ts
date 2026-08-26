@@ -155,6 +155,13 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
           format: 'uuid'
         }
       },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        }
+      },
       // Deliberately loose: values for whatever `props` the module (see `AuthModule` above)
       // declares — a different set of keys per module.
       config: {
@@ -206,6 +213,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         },
         description:
           'Groups a self-registered user would join. The guests group is refused. Stored but not enforced, as above.'
+      },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Allow-list of groups a provider-supplied group claim is permitted to map a user into. The guests group is refused. Nothing consumes this yet.'
       },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {

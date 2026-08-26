@@ -228,7 +228,8 @@ export const authentication = pgTable('authentication', {
   config: jsonb().notNull().default({}),
   registration: boolean().notNull().default(false),
   allowedEmailRegex: varchar({ length: 255 }).notNull().default(''),
-  autoEnrollGroups: uuid().array().default([])
+  autoEnrollGroups: uuid().array().default([]),
+  mappableGroups: uuid().array().default([])
 })
 
 // CONTENT SYNC STATE -------------------

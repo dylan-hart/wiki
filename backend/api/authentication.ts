@@ -1466,7 +1466,8 @@ async function routes(app: FastifyInstance) {
           displayName: req.body.displayName,
           isEnabled: req.body.isEnabled,
           allowedEmailRegex: req.body.allowedEmailRegex,
-          autoEnrollGroups: req.body.autoEnrollGroups
+          autoEnrollGroups: req.body.autoEnrollGroups,
+          mappableGroups: req.body.mappableGroups
         })) ?? WIKI.models.authentication.validateConfig(req.body.module, req.body.config)
       if (invalid) {
         return reply.badRequest(invalid)
@@ -1544,6 +1545,7 @@ async function routes(app: FastifyInstance) {
         'registration',
         'allowedEmailRegex',
         'autoEnrollGroups',
+        'mappableGroups',
         'config'
       ] as const) {
         if (req.body[field] !== undefined) {
