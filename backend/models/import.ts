@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { tmpdir } from 'node:os'
 import { CustomError } from '../helpers/common.ts'
 import { parseFrontMatter } from '../helpers/pageSerialization.ts'
 
@@ -49,6 +50,34 @@ export const PANDOC_IMPORT_FORMATS = [
 ] as const
 
 export type PandocImportFormat = (typeof PANDOC_IMPORT_FORMATS)[number]
+
+/**
+ * Build the argv `runPandoc` spawns, as its own pure function so a test can assert on the exact
+ * argument list without mocking `execFile` or the child_process module.
+ *
+ * `--sandbox` disables pandoc's own filesystem access — `rst` and `docbook` both implement
+ * file-inclusion directives (docutils `.. include::` / `:file:`, and LaTeX-style `\input`/`\include`)
+ * that pandoc would otherwise honor, reading whatever the uploaded file points at off disk and
+ * returning it in the converted Markdown. Every accepted format is fed on stdin and produced on
+ * stdout, so disabling it costs no real functionality. See OpenProject #2191.
+ */
+export function buildPandocArgs(format: PandocImportFormat): string[] {
+  return ['-f', format, '-t', 'gfm', '--wrap=none', '--sandbox']
+}
+
+/**
+ * Where `runPandoc` spawns pandoc from, as its own pure function for the same testability reason as
+ * {@link buildPandocArgs}.
+ *
+ * Pinned to the OS temp directory rather than left to inherit the backend's own working directory —
+ * the repo root, next to `config.yml`, since `index.ts` refuses to boot from anywhere else. Belt and
+ * braces alongside `--sandbox` above: a `cwd` with nothing sensitive in reach means even a future
+ * pandoc reader that resolves relative paths outside of `--sandbox`'s coverage has nothing to find.
+ * See OpenProject #2191.
+ */
+export function pandocCwd(): string {
+  return tmpdir()
+}
 
 /**
  * Every format this endpoint accepts: the Pandoc-backed formats above, plus `markdown` (OpenProject
@@ -224,14 +253,20 @@ class Import {
    * a shell command out of either would be injectable. Same pattern `models/extensions.ts`'s
    * `install()` uses for npm, for the same reason. A separate method (rather than inline in
    * `convertToMarkdown`) so a test can replace it without a real pandoc binary on the machine running
-   * the test.
+   * the test. The argv and `cwd` themselves come from {@link buildPandocArgs} / {@link pandocCwd} —
+   * see those for why `--sandbox` and a non-repo `cwd` matter here.
    */
   protected runPandoc(format: PandocImportFormat, data: Buffer): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = execFile(
         'pandoc',
-        ['-f', format, '-t', 'gfm', '--wrap=none'],
-        { timeout: IMPORT_TIMEOUT, maxBuffer: MAX_IMPORT_SIZE, windowsHide: true },
+        buildPandocArgs(format),
+        {
+          timeout: IMPORT_TIMEOUT,
+          maxBuffer: MAX_IMPORT_SIZE,
+          windowsHide: true,
+          cwd: pandocCwd()
+        },
         (err, stdout, stderr) => {
           if (err) {
             if (err.killed || err.signal) {
