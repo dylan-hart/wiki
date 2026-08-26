@@ -29,6 +29,20 @@
     }
   },
 
+	// Points backend/test/db.ts's DB-backed suites at the devcontainer's own postgres (see
+	// docker-compose.yml's `db` service), which is otherwise reachable but never wired up -- without
+	// this, `hasTestDatabase()` is false here and every DB-backed `describe` reports skipped rather
+	// than run. `options=-c search_path=wiki` matches config.sample.yml's `db.schema` default: without
+	// it, `core/db.ts#init()` would take this branch for `npm run dev`/`npm run start` too (it checks
+	// `process.env.DATABASE_URL` before any `WIKI.config.db.*` field, schema included) and connect
+	// under a different schema than a config.yml-based connection would -- putting the embedded value
+	// here keeps that path unchanged instead. `test/db.ts#setupTestDb()` is unaffected either way: it
+	// always passes its own throwaway-schema `options` alongside `connectionString`, which overrides
+	// whatever this URL carries.
+	"remoteEnv": {
+		"DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/postgres?options=-c%20search_path%3Dwiki"
+	},
+
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// This can be used to network with other containers or with the host.
 	"forwardPorts": [3000, 3001, 5432, 8000],

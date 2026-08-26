@@ -65,3 +65,29 @@ test('base.yml editors.markdown.config has no latexEngine key', async () => {
     'latexEngine is dead (superseded by per-block isEnabled on block-katex/block-mathjax) and must not reappear in base.yml'
   )
 })
+
+/**
+ * Regression coverage for OpenProject task 2021 (WP 2017's first child): a key-by-key sweep of
+ * `defaults.config` against the source found `ssl.enabled`, `channel` and `maintainerEmail` with zero
+ * reads anywhere in `backend/` -- `WIKI.config.ssl` appears nowhere (the only `config.ssl` hits are
+ * `core/db.ts`'s pg `PoolConfig`, a different object entirely, and the migration connector's own
+ * source config), and neither `WIKI.config.channel` nor `WIKI.config.maintainerEmail` is read at all.
+ * `ssl.enabled` was the actively harmful one of the three: `config.sample.yml` goes out of its way
+ * twice to disambiguate the *db* ssl key from application-level TLS ("Wiki.js never terminates
+ * HTTPS"), so this file's unqualified top-level `ssl.enabled` was precisely the switch that
+ * documentation exists to deny, sitting in a file operators read when troubleshooting TLS. Locks all
+ * three removals in place so none reappears.
+ */
+test('base.yml has no ssl, channel, or maintainerEmail keys under defaults.config', async () => {
+  const raw = await fs.readFile(baseYmlPath, 'utf8')
+  const data = load(raw) as Record<string, any>
+
+  assert.ok(data.defaults?.config, 'expected defaults.config to exist in base.yml')
+  for (const deadKey of ['ssl', 'channel', 'maintainerEmail']) {
+    assert.equal(
+      Object.hasOwn(data.defaults.config, deadKey),
+      false,
+      `${deadKey} is dead (read by nothing in backend/) and must not reappear in base.yml`
+    )
+  }
+})

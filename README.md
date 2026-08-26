@@ -32,6 +32,7 @@ The current stable release (2.x) is available at https://js.wiki
   - [Backend Development](#backend-development)
   - [Frontend Development](#frontend-development)
   - [pgAdmin](#pgadmin)
+  - [Backend Tests](#backend-tests)
 - [Generic Setup](#generic-setup)
   - [Requirements](#requirements-1)
   - [Usage](#usage-1)
@@ -107,6 +108,14 @@ The server **dev** should already be available under **Servers**. If that's not 
 - Username: `postgres`
 - Password: `postgres`
 - Database: `postgres`
+
+### Backend Tests
+
+`DATABASE_URL` is already set for you (see `.devcontainer/devcontainer.json`'s `remoteEnv`), pointed at the devcontainer's own `db` service, so the DB-backed half of the backend suite (see this repo's `CLAUDE.md`, "Testing (backend)") actually runs here instead of reporting skipped. From the left-side terminal (Backend):
+
+```sh
+npm run test
+```
 
 ## Generic Setup
 
