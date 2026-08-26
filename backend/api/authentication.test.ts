@@ -27,6 +27,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
   let session: Record<string, any>
   let loginCalls: any[]
   let profileCalls: any[]
+  let loginResult: Record<string, any>
 
   function freshFlow(overrides: Record<string, any> = {}) {
     return {
@@ -44,6 +45,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
   beforeEach(() => {
     loginCalls = []
     profileCalls = []
+    loginResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
   })
 
   before(async () => {
@@ -55,6 +57,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     }
     loginCalls = []
     profileCalls = []
+    loginResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
     ;(globalThis as any).WIKI = {
       config: { security: { authRateLimitEnabled: false } },
       models: {
@@ -70,7 +73,7 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
         users: {
           loginWithProvider: async (args: any) => {
             loginCalls.push(args)
-            return { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
+            return loginResult
           }
         }
       },
@@ -211,6 +214,176 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
     assert.equal(res.statusCode, 302)
     assert.match(res.headers.location as string, /^\/login\?error=ERR_LOGIN_EXPIRED/)
     assert.equal(loginCalls.length, 0)
+  })
+
+  /**
+   * `result.redirect` carries a group's `redirectOnLogin`, set by a `manage:groups` holder with no
+   * validation at write time (`api/groups.ts`) — see WP #2215 / epic #2208 §6. This route is the
+   * emitter: it must refuse anything that isn't a safe same-wiki path or complete http(s) URL rather
+   * than hand it to `reply.redirect()` as-is, falling back to the flow's own already-safe `redirect`.
+   */
+  test('a javascript: result.redirect is refused and falls back to the flow redirect, not emitted as Location', async () => {
+    session = { authFlow: freshFlow() }
+    loginResult = { authenticated: true, nextAction: 'redirect', redirect: 'javascript:alert(1)' }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/auth/${STRATEGY_ID}/callback`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123'
+      }).toString()
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/target')
+  })
+
+  test('a scheme-relative //host result.redirect is refused the same way', async () => {
+    session = { authFlow: freshFlow() }
+    loginResult = { authenticated: true, nextAction: 'redirect', redirect: '//attacker.example' }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/auth/${STRATEGY_ID}/callback`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123'
+      }).toString()
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/target')
+  })
+
+  test('a safe result.redirect still round-trips through the callback flow', async () => {
+    session = { authFlow: freshFlow() }
+    loginResult = { authenticated: true, nextAction: 'redirect', redirect: '/welcome' }
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/auth/${STRATEGY_ID}/callback`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        SAMLResponse: 'encoded-response',
+        RelayState: 'abc123'
+      }).toString()
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, '/welcome')
+  })
+})
+
+/**
+ * `GET /auth/:strategyId/authorize` — the open-redirect fix at the start of a provider login. The
+ * caller-supplied `redirect` query parameter is stored on the session's `authFlow` for the callback
+ * to use later; this suite asserts what actually lands there, rather than the provider redirect
+ * itself (`instance.authorizationUrl` is stubbed to a fixed string — the module's own concern).
+ */
+describe('GET /auth/:strategyId/authorize (open redirect on the redirect query param)', () => {
+  const STRATEGY_ID = 'b1111111-1111-1111-1111-111111111111'
+
+  let app: FastifyInstance
+  let session: Record<string, any>
+
+  before(async () => {
+    ;(globalThis as any).WIKI = {
+      config: { security: { authRateLimitEnabled: false } },
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            id === STRATEGY_ID
+              ? { id: STRATEGY_ID, module: 'oidc', isEnabled: true, registration: true }
+              : null
+        }
+      },
+      auth: {
+        strategies: {
+          [STRATEGY_ID]: {
+            module: 'oidc',
+            authorizationUrl: async () => 'https://provider.example/authorize?state=abc'
+          }
+        }
+      },
+      sitesMappings: {}
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = session
+    })
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    session = {}
+  })
+
+  test('a //host redirect query param does not survive into the stored flow', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('//attacker.example')}`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('a /\\host redirect query param (browser-normalised to //) does not survive either', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/\\attacker.example')}`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('a javascript: redirect query param does not survive either', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('javascript:alert(1)')}`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
+  })
+
+  test('a rooted path redirect query param round-trips into the stored flow unchanged', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?redirect=${encodeURIComponent('/en/target-page')}`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/en/target-page')
+  })
+
+  test('no redirect query param at all stores the / fallback', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(session.authFlow.redirect, '/')
   })
 })
 

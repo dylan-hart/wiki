@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { sanitizeRedirectTarget } from '../helpers/redirectTarget.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -141,7 +142,10 @@ async function finishProviderLogin(
       { siteId: flow.siteId, strategy, profile, ip: req.ip },
       req
     )
-    return reply.redirect(result.redirect || redirect)
+    // -> `result.redirect` carries a group's `redirectOnLogin`, which is not validated at the point
+    //    it is set (see `api/groups.ts`) — refuse anything that isn't a safe same-wiki path or a
+    //    complete http(s) URL rather than emit it as a `Location` header verbatim.
+    return reply.redirect(sanitizeRedirectTarget(result.redirect, redirect))
   } catch (err: any) {
     WIKI.models.flags.authDebug(
       `Login through ${strategy.module} strategy ${strategy.id} failed: ${err.message}`
@@ -1031,8 +1035,10 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        // -> Only a safe path on this wiki: `startsWith('/')` alone would also admit a
+        //    scheme-relative `//host` (and `/\host`, which browsers normalise to `//`) — an open
+        //    redirect is how a login page is turned into a lure
+        redirect: sanitizeRedirectTarget(req.query.redirect),
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow
