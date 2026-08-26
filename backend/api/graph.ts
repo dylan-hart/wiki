@@ -161,7 +161,7 @@ async function routes(app: FastifyInstance) {
         return
       }
       const [rows, contributorCounts, pageviewCounts] = await Promise.all([
-        WIKI.models.pages.listAllForGraph(req.params.siteId),
+        WIKI.models.pages.listAllForGraph(req.params.siteId, !req.session?.authenticated),
         WIKI.models.pageHistory.contributorCountsForGraph(req.params.siteId),
         WIKI.models.pageviews.countsForGraph(req.params.siteId)
       ])

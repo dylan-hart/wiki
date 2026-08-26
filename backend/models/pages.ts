@@ -12,6 +12,7 @@ import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
 import type { PageHistoryVia } from './pageHistory.ts'
 import type { RenderPermissions, TocNode } from './rendering.ts'
 import type { DeletedEntry } from './tree.ts'
+import { pageIsVisible } from './tree.ts'
 import type { RulePageRef } from '../helpers/pageRules.ts'
 import type { WikiDbOrTx, WikiTx } from '../core/db.ts'
 
@@ -549,8 +550,13 @@ class Pages {
    * Every page on this site, with what the knowledge graph (OpenProject #872) needs to build
    * nodes and edges from — no content, no render, just enough for `api/graph.ts#assembleGraph`
    * to build and permission-filter the graph once.
+   *
+   * `publicOnly` applies `pageIsVisible` (`tree.ts`) the same way `tree.browse()`/`tree.listPages()`
+   * do, so an unauthenticated caller's graph never contains a draft or `isBrowsable: false` page
+   * (OpenProject #1612) — `assembleGraph`'s `canRead` filter is a *permission* check, not a
+   * publication one, and was never going to catch either.
    */
-  async listAllForGraph(siteId: string): Promise<GraphPageRow[]> {
+  async listAllForGraph(siteId: string, publicOnly: boolean): Promise<GraphPageRow[]> {
     return WIKI.db
       .select({
         id: pagesTable.id,
@@ -564,7 +570,9 @@ class Pages {
         links: pagesTable.links
       })
       .from(pagesTable)
-      .where(eq(pagesTable.siteId, siteId)) as Promise<GraphPageRow[]>
+      .where(
+        and(eq(pagesTable.siteId, siteId), ...pageIsVisible(pagesTable, publicOnly))
+      ) as Promise<GraphPageRow[]>
   }
 
   /**
