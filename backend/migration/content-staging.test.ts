@@ -8,7 +8,7 @@ import {
   type SourceKind,
   type SourceRecord
 } from './connector.ts'
-import { extractContentStaging } from './content-staging.ts'
+import { buildPagePrePassIndex, extractContentStaging } from './content-staging.ts'
 import { IdMap } from './id-map.ts'
 
 /**
@@ -234,6 +234,56 @@ function makeUserIdMap(): IdMap<number> {
   // 999 deliberately absent.
   return map
 }
+
+describe('buildPagePrePassIndex', () => {
+  test('holds only oldIds and path buckets, matching extractContentStaging results', async () => {
+    const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
+    const index = await buildPagePrePassIndex(connector)
+
+    assert.deepEqual([...index.oldIds].sort(), [1, 2, 3])
+    assert.deepEqual(index.oldIdsByPath.get('welcome'), [1, 2])
+    assert.deepEqual(index.oldIdsByPath.get('orphan-author'), [3])
+    assert.equal(index.oldIdsByPath.get('gone'), undefined)
+
+    // The heavy StagedPage fields are unreachable from this index at all — there is no per-page
+    // object here to carry them, just oldId/path.
+    assert.equal('content' in index, false)
+    assert.equal('render' in index, false)
+    assert.equal('toc' in index, false)
+    for (const value of index.oldIdsByPath.values()) {
+      for (const entry of value) {
+        assert.equal(typeof entry, 'number')
+      }
+    }
+  })
+
+  test('matches localeSiblingOldIds and orphan classification produced by extractContentStaging', async () => {
+    const connector = new FixtureSourceConnector(FIXTURE_PAGES, FIXTURE_HISTORY, FIXTURE_NAVIGATION)
+    const index = await buildPagePrePassIndex(connector)
+    const result = await extractContentStaging(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    for (const page of result.pages) {
+      const siblings = index.oldIdsByPath.get(page.path) ?? []
+      const expected = siblings.filter((id) => id !== page.oldId)
+      assert.deepEqual(page.localeSiblingOldIds, expected)
+    }
+
+    for (const orphan of result.orphanedHistory) {
+      assert.equal(index.oldIds.has(orphan.sourcePageOldId), false)
+    }
+  })
+
+  test('handles an empty source with no pages at all', async () => {
+    const connector = new FixtureSourceConnector([], [], [])
+    const index = await buildPagePrePassIndex(connector)
+
+    assert.equal(index.oldIds.size, 0)
+    assert.equal(index.oldIdsByPath.size, 0)
+  })
+})
 
 describe('extractContentStaging', () => {
   test('walks every page, joining locale-variant siblings by shared path', async () => {

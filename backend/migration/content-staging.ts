@@ -292,6 +292,49 @@ function compareVersionDate(a: StagedPageHistoryEntry, b: StagedPageHistoryEntry
 }
 
 /**
+ * The lightweight index a pre-pass over `connector.pages()` builds ahead of the full staging walk:
+ * just enough to answer "does this oldId exist among the current pages" (orphan-history
+ * classification) and "which oldIds share this path" (`localeSiblingOldIds`), without ever holding a
+ * `StagedPage` — let alone its `content`/`render`/`toc` fields, which is where essentially all of a
+ * full corpus's memory goes. Streaming content staging (this task's parent epic) builds this once and
+ * keeps it around for the whole import instead of the full `pagesByOldId` map `extractContentStaging`
+ * still assembles below; a future streaming task is what replaces that assembly, not this one.
+ */
+export interface PagePrePassIndex {
+  /** Every staged page's `oldId` — the orphan classification in the `pageHistory()` walk below decides
+   * orphanhood precisely by failing to find a history row's `pageId` in here. */
+  oldIds: ReadonlySet<number>
+  /** `path` → every `oldId` sharing it, in source order — feeds `localeSiblingOldIds` without needing
+   * the full `StagedPage` objects to still be in memory to compute it. */
+  oldIdsByPath: ReadonlyMap<string, readonly number[]>
+}
+
+/**
+ * Walks `connector.pages()` once, retaining only each row's `id` and `path` — never `content`,
+ * `render`, `toc`, or any other field `stagePage()` resolves onto a `StagedPage`. `extractContentStaging`
+ * consumes this instead of computing the same two things from its own accumulating `pagesByOldId` map,
+ * so a page's heavy fields need not all survive at once just to answer these two questions.
+ */
+export async function buildPagePrePassIndex(connector: SourceConnector): Promise<PagePrePassIndex> {
+  const oldIds = new Set<number>()
+  const oldIdsByPath = new Map<string, number[]>()
+
+  for await (const raw of connector.pages()) {
+    const oldId = requireNumber(raw.id, 'pages.id')
+    const path = asString(raw.path)
+    oldIds.add(oldId)
+    const siblings = oldIdsByPath.get(path)
+    if (siblings) {
+      siblings.push(oldId)
+    } else {
+      oldIdsByPath.set(path, [oldId])
+    }
+  }
+
+  return { oldIds, oldIdsByPath }
+}
+
+/**
  * Walks a connected `SourceConnector`'s `pages()`, `pageHistory()` and `navigation()` generators and
  * produces the joined, id-resolved staging structure this feature's later tasks (736/738/740/741)
  * consume. Does not call `connector.connect()`/`disconnect()` — the caller owns the connector's
@@ -302,26 +345,16 @@ export async function extractContentStaging(
   options: ContentStagingOptions
 ): Promise<ContentStagingResult> {
   const warnings: string[] = []
+  const prePass = await buildPagePrePassIndex(connector)
   const pagesByOldId = new Map<number, StagedPage>()
-  const oldIdsByPath = new Map<string, number[]>()
 
   for await (const raw of connector.pages()) {
     const staged = stagePage(raw, options, warnings)
+    const siblings = prePass.oldIdsByPath.get(staged.path)
+    if (siblings && siblings.length > 1) {
+      staged.localeSiblingOldIds = siblings.filter((id) => id !== staged.oldId)
+    }
     pagesByOldId.set(staged.oldId, staged)
-    const siblings = oldIdsByPath.get(staged.path)
-    if (siblings) {
-      siblings.push(staged.oldId)
-    } else {
-      oldIdsByPath.set(staged.path, [staged.oldId])
-    }
-  }
-
-  for (const oldIds of oldIdsByPath.values()) {
-    if (oldIds.length <= 1) continue
-    for (const oldId of oldIds) {
-      const page = pagesByOldId.get(oldId)!
-      page.localeSiblingOldIds = oldIds.filter((id) => id !== oldId)
-    }
   }
 
   const orphanedHistory: OrphanedPageHistoryEntry[] = []
@@ -332,8 +365,7 @@ export async function extractContentStaging(
       warnings.push(`pageHistory ${asString(raw.id, '?')}: has no pageId at all — dropped.`)
       continue
     }
-    const page = pagesByOldId.get(sourcePageOldId)
-    if (!page) {
+    if (!prePass.oldIds.has(sourcePageOldId)) {
       const entry = stageHistoryEntry(raw, options, warnings, sourcePageOldId)
       orphanedHistory.push({ ...entry, sourcePageOldId })
       warnings.push(
@@ -341,6 +373,7 @@ export async function extractContentStaging(
       )
       continue
     }
+    const page = pagesByOldId.get(sourcePageOldId)!
     page.history.push(stageHistoryEntry(raw, options, warnings, sourcePageOldId))
   }
 
