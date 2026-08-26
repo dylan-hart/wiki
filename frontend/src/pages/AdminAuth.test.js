@@ -30,38 +30,90 @@ const MESSAGES = {
 
 /** The generic modules plus every branded preset Feature 355 is adding -- 12 entries total. */
 const MODULES = [
-  { key: 'local', title: 'Local', icon: 'ultraviolet-local.svg', description: 'Built-in.' },
+  {
+    key: 'local',
+    title: 'Local',
+    icon: 'ultraviolet-local.svg',
+    description: 'Built-in.',
+    useForm: true
+  },
   {
     key: 'oidc',
     title: 'Generic OIDC',
     icon: 'ultraviolet-oidc.svg',
-    description: 'Generic OIDC.'
+    description: 'Generic OIDC.',
+    useForm: false
   },
   {
     key: 'oauth2',
     title: 'Generic OAuth2',
     icon: 'ultraviolet-oauth2.svg',
-    description: 'Generic OAuth2.'
+    description: 'Generic OAuth2.',
+    useForm: false
   },
-  { key: 'auth0', title: 'Auth0', icon: 'ultraviolet-auth0.svg', description: 'Auth0 OIDC.' },
-  { key: 'okta', title: 'Okta', icon: 'ultraviolet-okta.svg', description: 'Okta OIDC.' },
+  {
+    key: 'auth0',
+    title: 'Auth0',
+    icon: 'ultraviolet-auth0.svg',
+    description: 'Auth0 OIDC.',
+    useForm: false
+  },
+  {
+    key: 'okta',
+    title: 'Okta',
+    icon: 'ultraviolet-okta.svg',
+    description: 'Okta OIDC.',
+    useForm: false
+  },
   {
     key: 'microsoft',
     title: 'Microsoft',
     icon: 'ultraviolet-microsoft.svg',
-    description: 'Microsoft Entra ID.'
+    description: 'Microsoft Entra ID.',
+    useForm: false
   },
   {
     key: 'keycloak',
     title: 'Keycloak',
     icon: 'ultraviolet-keycloak.svg',
-    description: 'Self-hosted Keycloak.'
+    description: 'Self-hosted Keycloak.',
+    useForm: false
   },
-  { key: 'gitlab', title: 'GitLab', icon: 'ultraviolet-gitlab.svg', description: 'GitLab OIDC.' },
-  { key: 'twitch', title: 'Twitch', icon: 'ultraviolet-twitch.svg', description: 'Twitch OIDC.' },
-  { key: 'discord', title: 'Discord', icon: 'ultraviolet-discord.svg', description: 'Discord.' },
-  { key: 'slack', title: 'Slack', icon: 'ultraviolet-slack.svg', description: 'Slack OIDC.' },
-  { key: 'github', title: 'GitHub', icon: 'ultraviolet-github.svg', description: 'GitHub.' }
+  {
+    key: 'gitlab',
+    title: 'GitLab',
+    icon: 'ultraviolet-gitlab.svg',
+    description: 'GitLab OIDC.',
+    useForm: false
+  },
+  {
+    key: 'twitch',
+    title: 'Twitch',
+    icon: 'ultraviolet-twitch.svg',
+    description: 'Twitch OIDC.',
+    useForm: false
+  },
+  {
+    key: 'discord',
+    title: 'Discord',
+    icon: 'ultraviolet-discord.svg',
+    description: 'Discord.',
+    useForm: false
+  },
+  {
+    key: 'slack',
+    title: 'Slack',
+    icon: 'ultraviolet-slack.svg',
+    description: 'Slack OIDC.',
+    useForm: false
+  },
+  {
+    key: 'github',
+    title: 'GitHub',
+    icon: 'ultraviolet-github.svg',
+    description: 'GitHub.',
+    useForm: false
+  }
 ]
 
 async function mountPage({ strategies = [] } = {}) {
