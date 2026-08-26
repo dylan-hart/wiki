@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import fastifyCookie from '@fastify/cookie'
 import { eq, inArray, sql } from 'drizzle-orm'
 import { sessions as sessionsTable, userGroups as userGroupsTable } from '../db/schema.ts'
 
@@ -6,6 +7,23 @@ import { sessions as sessionsTable, userGroups as userGroupsTable } from '../db/
  * Sessions model
  */
 class Sessions {
+  /**
+   * Signs and unsigns cookie/session values against the CURRENT `auth.secret`, read fresh on every
+   * call rather than captured once. Handed to both @fastify/cookie and @fastify/session as their
+   * `secret` option (`index.ts`): each treats an already-`{ sign, unsign }`-shaped value as a
+   * ready-built signer and calls it directly, rather than wrapping a static string in its own
+   * `Signer` once at plugin registration (`@fastify/cookie`'s `signer.js#isSigner` check, mirrored
+   * in `@fastify/session`'s own). That is what makes `rotateSecret()` below take effect on a
+   * still-running instance with no restart: the very next sign/unsign call after `reloadConfig`
+   * refreshes `WIKI.config.auth.secret` (`core/config.ts#subscribeToEvents`) already reads the new
+   * one. Mirrors `models/apiKeys.ts#verify`'s equivalent per-call read of
+   * `WIKI.config.auth.certs.public`.
+   */
+  signer = {
+    sign: (value: string): string => new fastifyCookie.Signer(WIKI.config.auth.secret).sign(value),
+    unsign: (value: string) => new fastifyCookie.Signer(WIKI.config.auth.secret).unsign(value)
+  }
+
   /**
    * Fetch all sessions from a single user
    *
@@ -121,13 +139,12 @@ class Sessions {
    * The two halves do different work, and both are needed. Dropping the rows is what logs everybody
    * out **now**: a cookie whose session is gone identifies nothing, so the next request from every
    * browser — on every instance, since the rows are shared — starts a new, anonymous one. Rotating
-   * the secret is what makes the cookies themselves worthless, and that one waits: @fastify/session
-   * and @fastify/cookie are handed the secret when the HTTP server starts (`index.ts`), so this
-   * server goes on validating signatures with the old one until it is restarted. Verified under a
-   * real two-instance HA setup for task 589: a still-running instance does not just keep validating
-   * old-secret-signed cookies past this call, it keeps issuing new ones signed with the
-   * now-invalidated secret too, until it restarts — see the FIXME at the plugin registration in
-   * `index.ts`.
+   * the secret is what makes the cookies themselves worthless, and that takes effect immediately too:
+   * `signer` above reads `WIKI.config.auth.secret` fresh on every sign/unsign call rather than a
+   * value handed to @fastify/session/@fastify/cookie once at boot, so a still-running instance stops
+   * validating old-secret-signed cookies AND stops minting new ones under the invalidated secret the
+   * moment `reloadConfig` refreshes its config (`core/config.ts#subscribeToEvents`) — no restart
+   * required, on this instance or any other. Task 589 / OpenProject #2172.
    *
    * The API key keypair is untouched: it carries its own passphrase (`models/apiKeys.ts`), so keys
    * already issued keep working.

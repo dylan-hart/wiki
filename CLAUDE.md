@@ -241,14 +241,13 @@ Conventions established during the conversion, worth following in new code:
   wouldn't silently change runtime behavior. All four bugs that convention originally flagged
   (`sites.ts`'s `req.querystring.strict`, `config.ts`'s `Promise.trim()`, and two in
   `scheduler.ts`'s `addScheduled()`/`addJob()`) have since been fixed, and their `FIXME:` comments
-  removed with them. One `FIXME:` remains, unrelated to the TS conversion — `index.ts`'s note by the
-  session/cookie plugin registration, on `WIKI.config.auth.secret` being captured by value instead of
-  re-read per request, so a live secret rotation (`models/sessions.ts#rotateSecret()`) does not
-  actually stop a still-running instance from signing new cookies with the invalidated secret until
-  that instance restarts; echoed at `models/apiKeys.ts:236` and `models/sessions.ts:93`. If a future
-  migration or refactor turns up another pre-existing bug outside its scope, follow the same
-  pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment explaining the real fix
-  rather than changing runtime behavior inline.
+  removed with them. A fifth, unrelated to the TS conversion, was `index.ts`'s note by the
+  session/cookie plugin registration on `WIKI.config.auth.secret` being captured by value instead of
+  re-read per request — fixed by `models/sessions.ts`'s `signer`, which both plugins now call for
+  their secret instead of being handed one at boot (OpenProject #2172). No `FIXME:` remains from the
+  TS conversion. If a future migration or refactor turns up another pre-existing bug outside its
+  scope, follow the same pattern: preserve behavior, cast narrowly, and leave a `FIXME:` comment
+  explaining the real fix rather than changing runtime behavior inline.
 
 ## Conventions
 

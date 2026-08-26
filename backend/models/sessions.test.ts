@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, beforeEach, describe, test } from 'node:test'
+import { after, afterEach, before, beforeEach, describe, test } from 'node:test'
 import { and, eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
 import {
@@ -8,6 +8,61 @@ import {
   users as usersTable,
   userGroups as userGroupsTable
 } from '../db/schema.ts'
+
+/**
+ * OpenProject #2172: `signer` reads `WIKI.config.auth.secret` fresh on every sign/unsign call rather
+ * than a value captured once at @fastify/cookie/@fastify/session registration (`index.ts`) -- this
+ * is exactly the "no restart" behavior the FIXME it replaces used to be missing. Pure unit test: no
+ * database, no Fastify server, just the signer object and a `WIKI.config.auth.secret` swapped out
+ * mid-test the way `core/config.ts#subscribeToEvents`'s `reloadConfig` handler does it for real.
+ */
+describe('sessions model signer (pure)', () => {
+  let originalWiki: any
+
+  beforeEach(() => {
+    originalWiki = (globalThis as any).WIKI
+    ;(globalThis as any).WIKI = { config: { auth: { secret: 'a'.repeat(32) } } }
+  })
+
+  afterEach(() => {
+    ;(globalThis as any).WIKI = originalWiki
+  })
+
+  test('a value signed under the current secret unsigns valid under that same secret', async () => {
+    const { sessions } = await import('./sessions.ts')
+    const signed = sessions.signer.sign('cookie-value')
+    const result = sessions.signer.unsign(signed)
+    assert.equal(result.valid, true)
+    assert.equal(result.value, 'cookie-value')
+  })
+
+  test('a cookie signed before rotateSecret() no longer unsigns once reloadConfig delivers the new secret, with no restart', async () => {
+    const { sessions } = await import('./sessions.ts')
+    const signedBeforeRotation = sessions.signer.sign('cookie-value')
+
+    // -> What `core/config.ts#subscribeToEvents`'s `reloadConfig` handler does on every instance --
+    //    including this one, on its next call -- once `models/sessions.ts#rotateSecret()` saves the
+    //    new secret: refresh `WIKI.config` from the DB. No plugin re-registration, no restart.
+    WIKI.config.auth.secret = 'b'.repeat(32)
+
+    const resultAfterRotation = sessions.signer.unsign(signedBeforeRotation)
+    assert.equal(resultAfterRotation.valid, false)
+  })
+
+  test('a cookie minted after the secret rotates verifies under the new secret', async () => {
+    const { sessions } = await import('./sessions.ts')
+    WIKI.config.auth.secret = 'c'.repeat(32)
+
+    const signedAfterRotation = sessions.signer.sign('post-rotation-value')
+    const result = sessions.signer.unsign(signedAfterRotation)
+    assert.equal(result.valid, true)
+    assert.equal(result.value, 'post-rotation-value')
+
+    // -> And the OLD secret no longer verifies it, confirming this isn't accepting on either secret.
+    WIKI.config.auth.secret = 'a'.repeat(32)
+    assert.equal(sessions.signer.unsign(signedAfterRotation).valid, false)
+  })
+})
 
 /**
  * OpenProject #936: `session.groups`/`session.permissions` are snapshots taken at login and

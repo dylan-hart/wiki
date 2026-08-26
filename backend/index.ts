@@ -429,23 +429,19 @@ async function initHTTPServer() {
   // Sessions
   // ----------------------------------------
 
-  // FIXME: `WIKI.config.auth.secret` is read once, here, at plugin registration — not re-read per
-  // request the way `WIKI.config.auth.certs` is in `models/apiKeys.ts#verify`. That means
-  // `models/sessions.ts#rotateSecret()` (verified under a real two-instance HA setup for task 589)
-  // only stops working cookies on an instance once that instance is later restarted; every other
-  // still-running instance keeps signing *new* cookies with the secret that was just invalidated, for
-  // as long as it stays up. If the secret was rotated because it leaked, that gap is the whole point
-  // of the action failing to close on a live instance. `WIKI.events.inbound` already carries
-  // `reloadConfig` to every instance the moment the row saves — the missing piece is handing
-  // @fastify/cookie / @fastify/session a secret they re-read (or re-registering the plugin) instead of
-  // one captured by value here, and there is no instance registry (see `core/maintenance.ts`'s file
-  // header) to prompt an operator to restart the others in the meantime.
+  // `WIKI.models.sessions.signer` re-reads `WIKI.config.auth.secret` on every sign/unsign call
+  // rather than being captured by value here: both @fastify/cookie and @fastify/session accept an
+  // already-built `{ sign, unsign }` signer and call it directly instead of wrapping a static secret
+  // in their own `Signer` at registration. That is what lets `models/sessions.ts#rotateSecret()`
+  // (verified under a real two-instance HA setup for task 589) take effect on a still-running
+  // instance the moment `reloadConfig` refreshes its config — no restart required, mirroring how
+  // `models/apiKeys.ts#verify` already re-reads `WIKI.config.auth.certs.public` per verification.
   app.register(fastifyCookie, {
-    secret: WIKI.config.auth.secret,
+    secret: WIKI.models.sessions.signer,
     hook: 'onRequest'
   })
   app.register(fastifySession, {
-    secret: WIKI.config.auth.secret,
+    secret: WIKI.models.sessions.signer,
     cookieName: 'wikiSession',
     cookie: {
       httpOnly: true,
