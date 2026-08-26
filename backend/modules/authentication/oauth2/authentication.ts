@@ -25,8 +25,11 @@ function asStringArray(value: unknown): string[] {
  * Where an OIDC provider's ID token would carry the subject's identity claims, this module is told
  * where to find the same information on whatever JSON the provider's user-info endpoint answers with:
  * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
- * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — there is no
- * verification step to add without a protocol feature to hang it on.
+ * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — but one that
+ * does answer a verification flag can name it via `emailVerifiedClaim`, checked in `mapProfile()`
+ * the same way `google/authentication.ts` honours OIDC's `email_verified`: a claim present and
+ * `false` refuses the login, an absent claim (unconfigured, or the provider just didn't send it) is
+ * accepted unchanged.
  *
  * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` rather than folded
  * into `profile()` so a fixed-endpoint preset built on top of this module — `discord/authentication.ts`
