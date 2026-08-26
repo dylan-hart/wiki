@@ -1,3 +1,4 @@
+import { chunk } from 'es-toolkit/array'
 import { isEqual } from 'es-toolkit/predicate'
 import type { PageHistoryAction } from '../models/pageHistory.ts'
 import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
@@ -69,24 +70,52 @@ export interface PageHistoryInsertRow {
 
 export interface PageHistoryImportDeps {
   /**
-   * Inserts already-built rows directly into the `pageHistory` table.
+   * Inserts already-built rows directly into the `pageHistory` table, for one page — or, above
+   * `MAX_ROWS_PER_INSERT`, one chunk of one page's rows — at a time. See `backfillPageHistory`'s doc
+   * comment for why: buffering every page's rows into a single call hits Postgres's bind-parameter
+   * ceiling on a mature 2.x install's largest table.
    *
    * DELIBERATE EXCEPTION to "always go through the model" (see the module doc comment above for
    * why `record()` cannot do this instead): the real implementation — wired up by Task 421's CLI,
    * same as every other injected dependency across this migration feature — is expected to do
-   * exactly one thing, `WIKI.db.insert(pageHistoryTable).values(rows)`, and nothing more. It must
-   * NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores every field this module
-   * computed and re-derives its own from the current `pages` row instead — the opposite of what a
-   * historical backfill needs.
+   * exactly one thing for whatever `rows` it is given, `WIKI.db.insert(pageHistoryTable).values(rows)`,
+   * and nothing more. It must NOT call `WIKI.models.pageHistory.record()`, because `record()` ignores
+   * every field this module computed and re-derives its own from the current `pages` row instead —
+   * the opposite of what a historical backfill needs. The caller (`backfillPageHistory`) is free to
+   * call this once per page or once per fixed-size chunk — this contract governs only what a single
+   * call does with the rows it's handed, not how many calls the caller makes.
    */
   insertVersions(rows: PageHistoryInsertRow[]): Promise<void>
 }
 
+/** One page whose `pageHistory` backfill failed — modelled on `page-import.ts`'s `PageImportFailure`,
+ * so one page's history rejecting an insert is reported the same shape as one page's `createPage()`
+ * itself failing, rather than aborting `backfillPageHistory` for every other page. */
+export interface PageHistoryImportFailure {
+  oldId: number
+  path: string
+  locale: string
+  message: string
+}
+
 export interface PageHistoryImportResult {
-  /** How many `pageHistory` rows were inserted, across every page. */
+  /** How many `pageHistory` rows were inserted, across every page — including any chunk of a
+   * since-failed page's rows that landed before that page's insert rejected (see `failed`'s doc). */
   inserted: number
+  /** One entry per page whose `insertVersions` call(s) rejected. A page's chunks are inserted in
+   * order and the first rejection stops only the REST of that page's own chunks — it does not
+   * retry, and it does not touch any other page's rows either way. */
+  failed: PageHistoryImportFailure[]
   warnings: string[]
 }
+
+/** Postgres's bind-parameter ceiling is 65535 per statement; `PageHistoryInsertRow` has 12 columns,
+ * so a single `INSERT ... VALUES` can hold at most `floor(65535 / 12) = 5461` rows before hitting it
+ * — the failure mode this constant exists to avoid, reachable at roughly that many revisions for one
+ * page on the largest table in a mature 2.x install. Chunked at a round number comfortably under
+ * that ceiling rather than the exact limit, so a future column addition to `PageHistoryInsertRow`
+ * doesn't silently reopen it. */
+const MAX_ROWS_PER_INSERT = 5000
 
 /** 2.x's confirmed `pageHistory.action` vocabulary (see the module doc comment) mapped onto 3.0's
  * four. `'restored'` collapses onto `'updated'` because 3.0 has no equivalent of its own. */
@@ -282,6 +311,16 @@ export function buildPageHistoryRowsForPage(
  * A page absent from `pageIdMap` (one of `PageImportResult.failed`, per `page-import.ts`) is skipped
  * silently — there is no 3.0 page for its history to attach to, and `importPages()` already reported
  * why it failed.
+ *
+ * Each page's rows are inserted through their own `deps.insertVersions` call(s) — never all pages'
+ * rows in one call, and never one call per page unconditionally either: a page whose own history
+ * exceeds `MAX_ROWS_PER_INSERT` is itself split into fixed-size chunks first. This is what keeps a
+ * single `INSERT ... VALUES` under Postgres's bind-parameter ceiling regardless of corpus size (see
+ * `MAX_ROWS_PER_INSERT`'s doc comment) — buffering the whole corpus into one array and one call, as
+ * this used to do, hit that ceiling at roughly 5461 revisions total, well within a mature 2.x
+ * install's largest table. A page whose insert(s) reject is recorded in `failed` and skipped rather
+ * than aborting the run — see `PageHistoryImportResult.failed`'s doc comment for exactly what a
+ * partial-chunk failure leaves inserted.
  */
 export async function backfillPageHistory(
   pages: StagedPage[],
@@ -290,18 +329,30 @@ export async function backfillPageHistory(
   deps: PageHistoryImportDeps
 ): Promise<PageHistoryImportResult> {
   const warnings: string[] = []
-  const rows: PageHistoryInsertRow[] = []
+  const failed: PageHistoryImportFailure[] = []
+  let inserted = 0
 
   for (const page of pages) {
     if (page.history.length === 0) continue
     const newPageId = pageIdMap.get(page.oldId)
     if (!newPageId) continue
-    rows.push(...buildPageHistoryRowsForPage(page, newPageId, siteId, warnings))
+
+    const rows = buildPageHistoryRowsForPage(page, newPageId, siteId, warnings)
+
+    try {
+      for (const rowChunk of chunk(rows, MAX_ROWS_PER_INSERT)) {
+        await deps.insertVersions(rowChunk)
+        inserted += rowChunk.length
+      }
+    } catch (err: any) {
+      failed.push({
+        oldId: page.oldId,
+        path: page.path,
+        locale: page.locale,
+        message: `insertVersions() failed: ${err.message}`
+      })
+    }
   }
 
-  if (rows.length > 0) {
-    await deps.insertVersions(rows)
-  }
-
-  return { inserted: rows.length, warnings }
+  return { inserted, failed, warnings }
 }

@@ -257,7 +257,7 @@ describe('backfillPageHistory', () => {
     assert.equal(deps.inserted.length, 0)
   })
 
-  test("batches every page's rows into a single insertVersions call", async () => {
+  test('calls insertVersions once per page, never batching multiple pages into one call', async () => {
     const pageA = buildStagedPage({
       oldId: 1,
       history: [buildHistoryEntry({ oldId: 100 }), buildHistoryEntry({ oldId: 101 })]
@@ -271,7 +271,62 @@ describe('backfillPageHistory', () => {
     const result = await backfillPageHistory([pageA, pageB], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 3)
+    assert.deepEqual(result.failed, [])
+    assert.equal(deps.inserted.length, 2)
+    assert.equal(deps.inserted[0].length, 2)
+    assert.equal(deps.inserted[0][0].pageId, 'new-page-1')
+    assert.equal(deps.inserted[1].length, 1)
+    assert.equal(deps.inserted[1][0].pageId, 'new-page-2')
+  })
+
+  test('chunks a single page whose history exceeds the per-insert row ceiling into more than one insertVersions call', async () => {
+    // -> MAX_ROWS_PER_INSERT is 5000; 5001 entries forces a second chunk.
+    const history = Array.from({ length: 5001 }, (_, i) => buildHistoryEntry({ oldId: i }))
+    const page = buildStagedPage({ oldId: 1, history })
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(1, 'new-page-1')
+
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistory([page], pageIdMap, 'site-1', deps)
+
+    assert.equal(result.inserted, 5001)
+    assert.equal(deps.inserted.length, 2)
+    assert.equal(deps.inserted[0].length, 5000)
+    assert.equal(deps.inserted[1].length, 1)
+  })
+
+  test("reports one page's insertVersions rejection as a per-page failure, without losing any other page's rows", async () => {
+    const goodPage = buildStagedPage({ oldId: 1, history: [buildHistoryEntry({ oldId: 100 })] })
+    const badPage = buildStagedPage({
+      oldId: 2,
+      path: 'broken',
+      locale: 'en',
+      history: [buildHistoryEntry({ oldId: 200 })]
+    })
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(1, 'new-page-1')
+    pageIdMap.set(2, 'new-page-2')
+
+    const deps = new FakePageHistoryWriteModel()
+    const originalInsertVersions = deps.insertVersions.bind(deps)
+    deps.insertVersions = async (rows: PageHistoryInsertRow[]) => {
+      if (rows[0].pageId === 'new-page-2') {
+        throw new Error('constraint violation')
+      }
+      return originalInsertVersions(rows)
+    }
+
+    const result = await backfillPageHistory([goodPage, badPage], pageIdMap, 'site-1', deps)
+
+    assert.equal(result.inserted, 1)
     assert.equal(deps.inserted.length, 1)
-    assert.equal(deps.inserted[0].length, 3)
+    assert.equal(deps.inserted[0][0].pageId, 'new-page-1')
+    assert.equal(result.failed.length, 1)
+    assert.deepEqual(result.failed[0], {
+      oldId: 2,
+      path: 'broken',
+      locale: 'en',
+      message: 'insertVersions() failed: constraint violation'
+    })
   })
 })
