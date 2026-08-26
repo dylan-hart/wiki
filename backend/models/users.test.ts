@@ -808,11 +808,16 @@ describe('users.syncProviderGroups', () => {
     }
   }
 
-  function stubGroups(t: any, allGroups: Array<{ id: string; name: string }>) {
+  function stubGroups(
+    t: any,
+    allGroups: Array<{ id: string; name: string }>,
+    systemGroupIds: string[] = []
+  ) {
     const assignUserToGroup = t.mock.fn(async () => true)
     const unassignUserFromGroup = t.mock.fn(async () => true)
     ;(globalThis as any).WIKI.models.groups = {
       getAllGroups: async () => allGroups,
+      systemGroupIds: async () => systemGroupIds,
       assignUserToGroup,
       unassignUserFromGroup
     }
@@ -886,6 +891,48 @@ describe('users.syncProviderGroups', () => {
 
     assert.deepEqual(assignUserToGroup.mock.calls[0].arguments, ['group-editors', 'user-1'])
     assert.deepEqual(unassignUserFromGroup.mock.calls[0].arguments, ['group-reviewers', 'user-1'])
+  })
+
+  test('never grants a group carrying manage:system, even if reported by name', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(
+      t,
+      [{ id: 'group-administrators', name: 'Administrators' }],
+      ['group-administrators']
+    )
+    t.mock.method(users, 'getUserGroupIds', async () => [])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['administrators'])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('never grants the root administrators group, even if reported by name', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(
+      t,
+      [{ id: 'group-root-admin', name: 'Root Admins' }],
+      ['group-root-admin']
+    )
+    t.mock.method(users, 'getUserGroupIds', async () => [])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), ['root admins'])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
+  })
+
+  test('never revokes an existing system-group membership when the IdP reports no groups at all', async (t) => {
+    const { assignUserToGroup, unassignUserFromGroup } = stubGroups(
+      t,
+      [{ id: 'group-administrators', name: 'Administrators' }],
+      ['group-administrators']
+    )
+    t.mock.method(users, 'getUserGroupIds', async () => ['group-administrators'])
+
+    await users.syncProviderGroups({ id: 'user-1' }, makeStrategy(), [])
+
+    assert.equal(assignUserToGroup.mock.calls.length, 0)
+    assert.equal(unassignUserFromGroup.mock.calls.length, 0)
   })
 })
 
