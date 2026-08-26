@@ -37,8 +37,9 @@ export type HookEvent = (typeof HOOK_EVENTS)[number]
  * {@link HOOK_EVENTS} does not necessarily have an `emit()` call wired up yet. Add an event here when
  * you add its `emit()` call.
  *
- * `comment:*`'s `emit()` calls live in `api/comments.ts` rather than a `models/comments.ts` write
- * path, for now — see the comment atop `emitCommentEvent` there for why.
+ * `comment:*`'s `emit()` calls live in `models/comments.ts`'s `create`/`update`/`delete`, matching
+ * `page:*`/`asset:*` (OpenProject #1923 moved these out of `api/comments.ts`, the one route-layer
+ * exception to that convention).
  */
 export const EMITTED_EVENTS: HookEvent[] = [
   'page:create',

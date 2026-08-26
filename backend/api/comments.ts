@@ -1,7 +1,7 @@
 import { actorFrom, loadReadablePage, mayOnPage } from './pages.ts'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { AccessActor } from '../models/groups.ts'
-import type { AdminPageRef, Comment, ThreadedComment } from '../models/comments.ts'
+import type { AdminPageRef, ThreadedComment } from '../models/comments.ts'
 
 /**
  * Comments API Routes
@@ -123,41 +123,6 @@ async function resolveAuthorName(comment: {
     }
   }
   return comment.guestName ?? ''
-}
-
-/**
- * Queue `comment:new` / `comment:edit` / `comment:delete` webhook deliveries (task 610).
- *
- * The convention elsewhere (`models/pages.ts`'s `page:create` et al., `models/assets.ts`'s
- * `asset:upload` et al.) is to call `WIKI.models.hooks.emit()` from inside the model's write methods.
- * FLAG FOR FOLLOW-UP: this route is presently the only writer of comments, so calling it here is
- * functionally equivalent for now; moving these three `emit()` calls into `models/comments.ts`'s
- * `create`/`update`/`delete` would match that convention exactly, but is left for a dedicated task
- * rather than folded into this merge.
- */
-async function emitCommentEvent(
-  event: 'comment:new' | 'comment:edit' | 'comment:delete',
-  comment: Comment,
-  authorName?: string
-): Promise<void> {
-  const base = {
-    id: comment.id,
-    pageId: comment.pageId,
-    siteId: comment.siteId,
-    authorId: comment.authorId,
-    isGuest: comment.authorId === null
-  }
-  await WIKI.models.hooks.emit(
-    event,
-    comment.siteId,
-    event === 'comment:delete'
-      ? base
-      : {
-          ...base,
-          metadata: { authorName, replyTo: comment.replyTo },
-          content: comment.content
-        }
-  )
 }
 
 /**
@@ -484,18 +449,13 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to moderate comments on this page.')
       }
 
-      // -> `getWithPage()` above only selects enough to decide `manage:comments` against, not the
-      //    full row `emitCommentEvent` needs (`authorId` in particular) -- fetched fresh right before
-      //    delete rather than widening that query, the same two-lookup shape the page-scoped delete
-      //    below already uses (`comments.get()` after its own page-level gate).
-      const full = await WIKI.models.comments.get(comment.id)
+      // -> `models/comments.ts#delete()` emits `comment:delete` itself, re-fetching the full row
+      //    (`authorId` in particular) before removing it -- `getWithPage()` above only selects enough
+      //    to decide `manage:comments` against, not the full row the hook payload needs. This is also
+      //    what fixed OpenProject #935: this site-wide moderation delete used to skip the emit
+      //    entirely, so a webhook subscriber mirroring comments missed every deletion done from the
+      //    admin moderation screen.
       await WIKI.models.comments.delete(comment.id)
-      // -> Previously missing: the page-scoped delete below emits comment:delete, but this
-      //    site-wide moderation delete did not -- a webhook subscriber mirroring comments missed
-      //    every deletion done from the admin moderation screen (OpenProject #935).
-      if (full) {
-        await emitCommentEvent('comment:delete', full)
-      }
       return reply.code(204).send()
     }
   )
@@ -656,8 +616,9 @@ async function routes(app: FastifyInstance) {
         guestIp: actor ? null : req.ip
       })
 
+      // -> `models/comments.ts#create()` emits `comment:new` itself. `resolveAuthorName` here is only
+      //    for this response's own `authorName` field, which needs the same resolution independently.
       const authorName = await resolveAuthorName(comment)
-      await emitCommentEvent('comment:new', comment, authorName)
 
       // -> The one case `authorEmail` IS shown: the poster being handed their own address back.
       const authorEmail = actor
@@ -733,8 +694,10 @@ async function routes(app: FastifyInstance) {
       }
 
       const updated = await WIKI.models.comments.update(comment.id, { content: req.body.content })
+      // -> `models/comments.ts#update()` emits `comment:edit` itself. `resolveAuthorName` here is
+      //    only for this response's own `authorName` field, which needs the same resolution
+      //    independently.
       const authorName = await resolveAuthorName(updated)
-      await emitCommentEvent('comment:edit', updated, authorName)
       return {
         id: updated.id,
         siteId: updated.siteId,
@@ -800,8 +763,8 @@ async function routes(app: FastifyInstance) {
         return reply.forbidden('You are not allowed to delete this comment.')
       }
 
+      // -> `models/comments.ts#delete()` emits `comment:delete` itself.
       await WIKI.models.comments.delete(comment.id)
-      await emitCommentEvent('comment:delete', comment)
       return reply.code(204).send()
     }
   )

@@ -130,6 +130,15 @@ const DEFAULT_LIMIT = 25
  *
  * Also out of scope for this file: Akismet/spam/rate-limit policy, which belongs to Feature 390's
  * default provider.
+ *
+ * **Hook emission** (task 610, moved here from `api/comments.ts` by OpenProject #1923): `create`,
+ * `update` and `delete` each queue their `comment:new` / `comment:edit` / `comment:delete` webhook
+ * deliveries themselves, matching the convention `models/pages.ts`'s `page:create` et al. and
+ * `models/assets.ts`'s `asset:upload` et al. already follow — the route layer used to do this instead,
+ * which was the one exception to that pattern. `delete` re-fetches the row before removing it
+ * specifically so the emitted payload still has `authorId` to hand (a caller may only have a
+ * page-scoped ref, not the full row) — the same two-lookup shape the admin moderation delete route
+ * already used before this move.
  */
 class Comments {
   /**
@@ -177,7 +186,9 @@ class Comments {
         guestIp
       })
       .returning()
-    return rows[0] as Comment
+    const comment = rows[0] as Comment
+    await this.emitEvent('comment:new', comment, await this.resolveAuthorName(comment))
+    return comment
   }
 
   /**
@@ -201,7 +212,9 @@ class Comments {
       })
       .where(eq(commentsTable.id, id))
       .returning()
-    return rows[0] as Comment
+    const comment = rows[0] as Comment
+    await this.emitEvent('comment:edit', comment, await this.resolveAuthorName(comment))
+    return comment
   }
 
   /**
@@ -214,9 +227,20 @@ class Comments {
     return (rows[0] as Comment) ?? null
   }
 
-  /** Delete a comment. Cascades to its replies via the `replyTo` foreign key. */
+  /**
+   * Delete a comment. Cascades to its replies via the `replyTo` foreign key.
+   *
+   * Fetches the row first so `comment:delete` still has `authorId`/`siteId`/`pageId` to emit once the
+   * row is gone — a caller may only be holding a page-scoped ref (`AdminCommentWithPage`, from
+   * `getWithPage`), not the full row this needs. A no-op, non-emitting delete when `id` does not name
+   * an existing comment (nothing to fetch, nothing to emit).
+   */
   async delete(id: string): Promise<void> {
+    const existing = await this.get(id)
     await WIKI.db.delete(commentsTable).where(eq(commentsTable.id, id))
+    if (existing) {
+      await this.emitEvent('comment:delete', existing)
+    }
   }
 
   /**
@@ -389,6 +413,57 @@ class Comments {
         classification: row.classification
       }
     }
+  }
+
+  /**
+   * Resolves the display name behind a comment: the account's current name for a logged in author,
+   * the stored `guestName` otherwise. Used only to build the `metadata.authorName` a `comment:new`/
+   * `comment:edit` hook payload carries — the API response's own `authorName` field is resolved
+   * separately, at the route layer (`resolveAuthorName` in `api/comments.ts`), since that also has to
+   * cover `listForPage`'s response shape, which never reaches this method at all.
+   */
+  private async resolveAuthorName(comment: {
+    authorId: string | null
+    guestName: string | null
+  }): Promise<string> {
+    if (comment.authorId) {
+      const user = await WIKI.models.users.getById(comment.authorId)
+      if (user) {
+        return user.name
+      }
+    }
+    return comment.guestName ?? ''
+  }
+
+  /**
+   * Queue a `comment:new` / `comment:edit` / `comment:delete` webhook delivery (task 610; moved here
+   * from `api/comments.ts`'s `emitCommentEvent` by OpenProject #1923 — see the class doc comment).
+   * Payload shape is unchanged from that route-layer version: `comment:delete` carries only the base
+   * identity fields, the other two events add `metadata.authorName`/`metadata.replyTo` and `content`.
+   */
+  private async emitEvent(
+    event: 'comment:new' | 'comment:edit' | 'comment:delete',
+    comment: Comment,
+    authorName?: string
+  ): Promise<void> {
+    const base = {
+      id: comment.id,
+      pageId: comment.pageId,
+      siteId: comment.siteId,
+      authorId: comment.authorId,
+      isGuest: comment.authorId === null
+    }
+    await WIKI.models.hooks.emit(
+      event,
+      comment.siteId,
+      event === 'comment:delete'
+        ? base
+        : {
+            ...base,
+            metadata: { authorName, replyTo: comment.replyTo },
+            content: comment.content
+          }
+    )
   }
 }
 

@@ -304,12 +304,17 @@ describe('page-scoped comment routes', () => {
     record.content = content
     record.updatedAt = new Date('2026-01-03T00:00:00.000Z')
     updatedIds.push(id)
+    await emitCommentHook('comment:edit', record, await resolveAuthorNameForTest(record))
     return record
   }
 
   async function deleteComment(id: string) {
+    const existing = commentsById[id]
     delete commentsById[id]
     deletedIds.push(id)
+    if (existing) {
+      await emitCommentHook('comment:delete', existing)
+    }
   }
 
   const created: any[] = []
@@ -355,6 +360,7 @@ describe('page-scoped comment routes', () => {
       updatedAt: new Date('2026-01-02T00:00:00.000Z')
     }
     created.push(record)
+    await emitCommentHook('comment:new', record, await resolveAuthorNameForTest(record))
     return record
   }
 
@@ -363,6 +369,54 @@ describe('page-scoped comment routes', () => {
   async function emit(event: string, siteId: string | null, data: Record<string, any> = {}) {
     emittedEvents.push({ event, siteId, data })
     return 1
+  }
+
+  /**
+   * Since OpenProject #1923, `create`/`update`/`delete` above stand in for `models/comments.ts`'s real
+   * methods — which now emit `comment:new`/`comment:edit`/`comment:delete` themselves (previously the
+   * route's own job). These two helpers mirror that model's private `resolveAuthorName`/`emitEvent` so
+   * the fakes keep matching real behavior, and the `emittedEvents` assertions below keep meaning what
+   * they always meant: the full request cycle results in the right webhook payload.
+   */
+  async function resolveAuthorNameForTest(comment: {
+    authorId: string | null
+    guestName: string | null
+  }): Promise<string> {
+    if (comment.authorId) {
+      const user = await getById(comment.authorId)
+      if (user) {
+        return user.name
+      }
+    }
+    return comment.guestName ?? ''
+  }
+
+  async function emitCommentHook(
+    event: 'comment:new' | 'comment:edit' | 'comment:delete',
+    comment: {
+      id: string
+      pageId: string
+      siteId: string
+      authorId: string | null
+      replyTo: string | null
+      content: string
+    },
+    authorName?: string
+  ): Promise<void> {
+    const base = {
+      id: comment.id,
+      pageId: comment.pageId,
+      siteId: comment.siteId,
+      authorId: comment.authorId,
+      isGuest: comment.authorId === null
+    }
+    await emit(
+      event,
+      comment.siteId,
+      event === 'comment:delete'
+        ? base
+        : { ...base, metadata: { authorName, replyTo: comment.replyTo }, content: comment.content }
+    )
   }
 
   let app: FastifyInstance
