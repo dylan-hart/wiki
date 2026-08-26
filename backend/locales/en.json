@@ -2434,7 +2434,6 @@
   "iconPicker.set": "Set",
   "iconPicker.setsFailed": "Failed to load the icon sets.",
   "inbox.inbox": "Inbox",
-  "inbox.inboxInfo": "Nothing here yet.",
   "inbox.notificationActionDeleted": "{actor} deleted {title}",
   "inbox.notificationActionMoved": "{actor} moved {title}",
   "inbox.notificationActionUpdated": "{actor} edited {title}",

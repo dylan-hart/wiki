@@ -82,14 +82,9 @@ useMeta(() => {
 //    mounted, so switching interface language would leave them stale until a remount.
 const sidenav = computed(() => [
   {
-    key: 'messages',
+    key: 'watching',
     label: t('inbox.inbox'),
     icon: 'mdi:inbox-full'
-  },
-  {
-    key: 'watching',
-    label: t('inbox.watching'),
-    icon: 'la:bell'
   },
   {
     key: 'review',
