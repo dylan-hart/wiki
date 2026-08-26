@@ -239,6 +239,26 @@ test('an invalid url is rejected with 400 before any request is attempted', asyn
   assert.equal(lastRequestHeaders, null)
 })
 
+test('a url containing <, > or " is rejected with 400, matching the admin form (OpenProject #1940)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/test',
+    payload: { url: 'https://example.com/<script>' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(lastRequestHeaders, null)
+})
+
+test('a url with a scheme that merely starts with "http" (httpfoo://) is rejected with 400 (OpenProject #1940)', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/test',
+    payload: { url: 'httpfoo://x' }
+  })
+  assert.equal(res.statusCode, 400)
+  assert.equal(lastRequestHeaders, null)
+})
+
 test('a connection failure is reported as ok:false with statusCode 0 rather than thrown', async () => {
   const res = await app.inject({
     method: 'POST',

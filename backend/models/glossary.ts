@@ -430,7 +430,19 @@ class Glossary {
     return inserted
   }
 
-  /** Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it. */
+  /**
+   * Resolves an export's `path` to a `pageId` against the site's primary locale, or rejects it.
+   *
+   * Deliberately does NOT apply the `|| 'home'` default that `api/pages.ts` and `mcp/tools/getPage.ts`
+   * use at their own normalize-then-hash call sites (OpenProject #1936). Those two resolve a
+   * *request* for "whatever's at this path", where an empty path legitimately means the site root.
+   * Here `path` is a glossary term's user-typed canonical-page reference: the `!path` guard above
+   * already gives "no path at all" its own correct meaning (no canonical page for the term -- a valid
+   * state), so a path that survives that guard but normalizes to empty (a bare `/`) is not a
+   * deliberate reference to home -- it's unresolvable, exactly as `GlossaryTermDialog.vue`'s
+   * `checkPath()` already treats it client-side before save. Defaulting it here would make the backend
+   * silently accept what the UI already flags as invalid.
+   */
   private async resolvePagePath(
     siteId: string,
     path: string | null | undefined,
@@ -440,15 +452,6 @@ class Glossary {
       return null
     }
     const normalized = normalizePagePath(path)
-    // -> Deliberately does NOT fall back to `|| 'home'` the way `api/pages.ts`'s page-view route and
-    //    `mcp/tools/getPage.ts` do. Those two resolve a REQUEST for "whatever's at this path", where an
-    //    empty path is a legitimate way to mean the site root. Here `path` is a term's user-typed
-    //    canonical-page reference, and the `!path` guard above already gives "no path at all" its own,
-    //    correct meaning: no canonical page for this term. A path that survives that guard but
-    //    normalizes to empty (e.g. a bare `/`) is not a deliberate reference to home -- it's exactly
-    //    what `GlossaryTermDialog.vue`'s `checkPath()` already flags as unresolvable before save, with
-    //    no `|| 'home'` fallback of its own. Hashing `normalized` as-is keeps the backend agreeing with
-    //    that UI: such a path fails to resolve below instead of silently landing on the home page.
     const page = await WIKI.models.pages.getPage({ siteId, hash: generatePathHash(normalized) })
     if (!page) {
       throw new CustomError(
