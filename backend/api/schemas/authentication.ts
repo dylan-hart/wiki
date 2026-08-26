@@ -247,6 +247,15 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
         description:
           'Allow-list of groups this strategy is permitted to grant/revoke on login via `mapGroups`. The guests group is refused. Empty by default, meaning no group memberships are changed. A group carrying `manage:system`, or the root administrators group, is never mapped regardless of this list.'
       },
+      mappableGroups: {
+        type: 'array',
+        items: {
+          type: 'string',
+          format: 'uuid'
+        },
+        description:
+          'Allow-list of groups a provider-supplied group claim is permitted to map a user into. The guests group is refused. Nothing consumes this yet.'
+      },
       // Deliberately loose: same reason as `AuthStrategy.config` above.
       config: {
         type: 'object',
