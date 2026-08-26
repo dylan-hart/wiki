@@ -67,13 +67,47 @@ describe('LocalAuthentication.authenticate', () => {
     )
   })
 
-  test('throws ERR_INVALID_STRATEGY when the user has no local auth data (e.g. SSO-only account)', async () => {
+  test('throws ERR_LOGIN_FAILED (not ERR_INVALID_STRATEGY) when the user has no local auth data (e.g. SSO-only account)', async () => {
     stubGetByEmail(makeUser({ auth: { google: {} } }))
     const local = new LocalAuthentication('local', {})
     await assert.rejects(
       local.authenticate({ username: 'ada@example.com', password: 'correct-horse' }),
-      /ERR_INVALID_STRATEGY/
+      /ERR_LOGIN_FAILED/
     )
+  })
+
+  test('an unknown address and a known address with no local strategy data produce the identical response, both after a bcrypt comparison', async () => {
+    const compareCalls: Array<{ password: string; hash: string }> = []
+    const originalCompare = bcrypt.compare
+    ;(bcrypt as any).compare = async (pwd: string, hash: string) => {
+      compareCalls.push({ password: pwd, hash })
+      return originalCompare(pwd, hash)
+    }
+    try {
+      stubGetByEmail(null)
+      const local = new LocalAuthentication('local', {})
+      let unknownErrorMessage: string | undefined
+      try {
+        await local.authenticate({ username: 'nobody@example.com', password: 'anything' })
+      } catch (err: any) {
+        unknownErrorMessage = err.message
+      }
+
+      stubGetByEmail(makeUser({ auth: { google: {} } }))
+      let noStrategyErrorMessage: string | undefined
+      try {
+        await local.authenticate({ username: 'ada@example.com', password: 'anything' })
+      } catch (err: any) {
+        noStrategyErrorMessage = err.message
+      }
+
+      assert.equal(unknownErrorMessage, 'ERR_LOGIN_FAILED')
+      assert.equal(noStrategyErrorMessage, 'ERR_LOGIN_FAILED')
+      assert.equal(unknownErrorMessage, noStrategyErrorMessage)
+      assert.equal(compareCalls.length, 2, 'both branches must perform a bcrypt comparison')
+    } finally {
+      ;(bcrypt as any).compare = originalCompare
+    }
   })
 
   test('throws ERR_LOGIN_FAILED on an incorrect password', async () => {
