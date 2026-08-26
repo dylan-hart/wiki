@@ -19,15 +19,19 @@ npm install
 # would disappear under the mount. Kept out of package.json on purpose: it is an optional extension,
 # and a plain source checkout should not have to fetch it to install the backend.
 #
+# The version is read from the extension definition, the same way `dev/build/Dockerfile` derives it --
+# one place to bump, and a devcontainer that cannot drift from what the production image installs. An
+# empty read fails the step rather than quietly installing whatever is newest.
+#
 # `--no-save` leaves package.json alone, which also means a later reinstall can prune it and turn
 # server-side rendering back off -- run this line again if the admin area says it is missing. The
 # browser itself is in the image, so this fetches no Chromium (see PUPPETEER_* in the Dockerfile).
-#
-# The version is read from the extension definition, the same way dev/build/Dockerfile does -- one
-# place to bump, so the devcontainer can't drift from what the production image installs.
 echo "Installing the Puppeteer extension..."
 PUPPETEER_VERSION="$(sed -n 's/^installVersion: *//p' modules/extensions/puppeteer/definition.yml)"
-test -n "$PUPPETEER_VERSION"
+if [ -z "$PUPPETEER_VERSION" ]; then
+  echo "Could not read installVersion from modules/extensions/puppeteer/definition.yml" >&2
+  exit 1
+fi
 npm install --no-save "puppeteer@${PUPPETEER_VERSION}"
 
 cd ../frontend
