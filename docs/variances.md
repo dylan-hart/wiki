@@ -1457,3 +1457,32 @@ stays on `@twemoji/api` 17.0.2 with an explicit `overrides` entry pinning `@twem
 artwork, separately pinned to upstream tag v17.0.3) despite the version-number mismatch looking like
 drift. Revisit once a `@twemoji/parser` release ships that restores the ten shortcodes' matching —
 until then, do not bump `@twemoji/api` past 17.0.2 in an automated currency pass.
+
+## Elasticsearch smoke suite is deliberately manual, not run in CI (OpenProject #2016)
+
+**Date:** 2026-08-25
+**Feature:** #2016 (part of #2004, "Make the four never-executing test suites run, or delete them")
+
+`backend/modules/search/elasticsearch/search.smoke.test.ts` gates its 12 tests on
+`ELASTICSEARCH_TEST_URL`, which no workflow sets — a real Elasticsearch service container on every
+`quality.yml` run (which already carries a `postgres:18` service for the DB-backed model suites)
+is a meaningfully heavier cost for a module only a site that opts into `config.search.engine:
+elasticsearch` ever exercises, unlike Postgres, which the whole backend depends on to boot at all.
+A nightly/`workflow_dispatch` job was the alternative considered; deferred rather than built now
+because nothing here needs the suite to run on a fixed schedule to catch a regression before it
+ships — `search.test.ts`'s fake-client suite already runs on every PR and covers the query DSL and
+hook wiring this module owns, leaving only "does a real cluster actually accept this DSL" as
+untested, which is unlikely to regress silently between manual runs.
+
+Run it locally or in an ad hoc CI job with a real cluster:
+
+```sh
+docker compose -f dev/docker-compose.search-test.yml up -d --wait
+ELASTICSEARCH_TEST_URL=http://127.0.0.1:59200 \
+  node --test modules/search/elasticsearch/search.smoke.test.ts   # from backend/
+docker compose -f dev/docker-compose.search-test.yml down -v
+```
+
+Revisit if the Elasticsearch module gains active development (new query features, a mapping change)
+frequent enough that a manual run stops being a reliable gate — at that point a scheduled
+`workflow_dispatch`/nightly job earns its ongoing service-container cost.
