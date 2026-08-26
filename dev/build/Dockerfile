@@ -1,4 +1,7 @@
-FROM node:26
+# Pinned to a concrete patch, not the floating `node:26` major tag, so `typeof Temporal` (and
+# everything else this image's Node build provides) can't silently change under the same tag.
+# Bump deliberately.
+FROM node:26.7.0
 LABEL maintainer="requarks.io"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -qy --no-install-recommends \
