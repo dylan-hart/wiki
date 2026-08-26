@@ -285,41 +285,30 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test("importSite restores page history, remapping pageId and purging the target's own prior history", async () => {
-    const page = await pagesModel.createPage(
+    // -> Earlier tests in this suite create pages (and, via `createPage`, their own auto-recorded
+    //    `created` pageHistory row) on these same shared fixture sites -- cleared first so the counts
+    //    asserted below reflect only this test's own rows.
+    await fixtures.db.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, fixtures.siteId))
+    await fixtures.db.delete(pageHistoryTable).where(eq(pageHistoryTable.siteId, targetSiteId))
+
+    await pagesModel.createPage(
       fixtures.siteId,
       { path: 'history-me', title: 'History Me', editor: 'markdown', content: '# v1' },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
-    await fixtures.db.insert(pageHistoryTable).values({
-      pageId: page.id,
-      action: 'created',
-      locale: 'en',
-      path: 'history-me',
-      title: 'History Me',
-      content: '# v1',
-      siteId: fixtures.siteId,
-      authorId: fixtures.userId
-    })
+    // -> `createPage` above already recorded this page's one `created` pageHistory row.
 
-    // -> A pre-existing history row on the target site that must not survive the import
+    // -> A pre-existing history row on the target site that must not survive the import --
+    //    `createPage` records this one automatically too.
     const stalePage = await pagesModel.createPage(
       targetSiteId,
       { path: 'stale-history', title: 'Stale History', editor: 'markdown', content: 'stale' },
       { id: fixtures.userId, permissions: ['manage:system'], groupIds: [] }
     )
     const [staleHistory] = await fixtures.db
-      .insert(pageHistoryTable)
-      .values({
-        pageId: stalePage.id,
-        action: 'created',
-        locale: 'en',
-        path: 'stale-history',
-        title: 'Stale History',
-        content: 'stale',
-        siteId: targetSiteId,
-        authorId: fixtures.userId
-      })
-      .returning({ id: pageHistoryTable.id })
+      .select()
+      .from(pageHistoryTable)
+      .where(eq(pageHistoryTable.pageId, stalePage.id))
 
     const { filePath } = await exportModel.exportSite(fixtures.siteId)
     const result = await importModel.importSite(filePath, targetSiteId, fixtures.userId)
@@ -347,6 +336,12 @@ describe('import.importSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   test('importSite restores navigation under the target site, purging what was already there', async () => {
+    // -> Earlier tests in this suite create pages on these same shared fixture sites, which auto-seeds
+    //    a default nav row (`models/navigation.ts#ensureSiteNav`) -- cleared first so this test's own
+    //    rows are the only ones counted below.
+    await fixtures.db.delete(navigationTable).where(eq(navigationTable.siteId, fixtures.siteId))
+    await fixtures.db.delete(navigationTable).where(eq(navigationTable.siteId, targetSiteId))
+
     await fixtures.db.insert(navigationTable).values({
       items: [{ id: 'a', type: 'link', label: 'Source Home', target: '/' }],
       mode: 'static',

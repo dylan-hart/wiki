@@ -172,6 +172,9 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
       })
       .returning({ id: pageHistoryTable.id })
 
+    // -> `createPage` above already triggers `navigation.ts#ensureSiteNav`, which seeds a blank
+    //    default menu for this site's primary locale -- upserted rather than inserted so this doesn't
+    //    collide with that row's own (siteId, locale) uniqueness constraint.
     const [navRow] = await fixtures.db
       .insert(navigationTable)
       .values({
@@ -179,6 +182,10 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
         mode: 'static',
         locale: 'en',
         siteId: fixtures.siteId
+      })
+      .onConflictDoUpdate({
+        target: [navigationTable.siteId, navigationTable.locale],
+        set: { items: [{ id: 'a', type: 'link', label: 'Home', target: '/' }] }
       })
       .returning({ id: navigationTable.id })
 
