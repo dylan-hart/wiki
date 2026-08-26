@@ -979,7 +979,7 @@
   "admin.security.hsts": "HSTS (HTTP Strict Transport Security)",
   "admin.security.hstsDuration": "HSTS Max Age",
   "admin.security.hstsDurationHint": "Defines the duration for which the server should only deliver content through HTTPS. It's a good idea to start with small values and make sure that nothing breaks on your wiki before moving to longer values.",
-  "admin.security.insecureCookieRiskWarn": "This instance is behind a reverse proxy that reports HTTPS, but \"Trust X-Forwarded-* Proxy Headers\" is off, so the login cookie it sends is missing the Secure flag -- a browser will still send it over plain HTTP. Turn on Trust Proxy above and restart.",
+  "admin.security.insecureCookieRiskWarn": "This instance is behind a reverse proxy that reports HTTPS, but \"Trust X-Forwarded-* Proxy Headers\" is off, so this instance believes every request is plain HTTP -- which misdirects login/SSO callback URLs and sitemap URLs even though the session cookie itself stays secure. Turn on Trust Proxy above and restart.",
   "admin.security.insecureCookieRiskWarnSince": "First seen {date}.",
   "admin.security.loadFailed": "Failed to load the security configuration.",
   "admin.security.loginScreen": "Login Screen",

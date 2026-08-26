@@ -8,6 +8,21 @@ export const CORS_MODES = ['OFF', 'REFLECT', 'HOSTNAMES', 'REGEX'] as const
 export type CorsMode = (typeof CORS_MODES)[number]
 
 /**
+ * The session cookie's name, `__Host-`-prefixed per task 2109.
+ *
+ * A browser enforces the `__Host-` prefix's guarantees (no `Domain` attribute, `Path=/`, and
+ * `Secure` always present) purely by the literal cookie *name* on the wire -- not by
+ * `@fastify/session`'s `cookiePrefix` option, which despite the name only prefixes the session id
+ * *value* it round-trips through the store (an express-session compatibility shim) and never
+ * touches the `Set-Cookie` name at all. Getting an actual `__Host-` cookie means naming it via
+ * `cookieName` instead, which is what `index.ts`'s `fastifySession` registration does with this
+ * constant. Centralized here so the name can't drift between that registration, the logout
+ * handler's `clearCookie`, and the two places (`models/pdfExport.ts`, `api/pages.ts`) that read the
+ * raw cookie value back off the request to forward it to the PDF export's headless browser.
+ */
+export const SESSION_COOKIE_NAME = '__Host-wikiSession'
+
+/**
  * Turn a Content-Security-Policy string into helmet's directives object.
  *
  * `default-src 'self'; img-src * data:` becomes

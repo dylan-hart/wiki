@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { SESSION_COOKIE_NAME } from '../helpers/security.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -1312,7 +1313,7 @@ async function routes(app: FastifyInstance) {
       }
       // -> And clear that cookie too: `destroy()` detaches the session, which leaves the plugin's own
       //    save hook with nothing to do. Name and options match the registration in `index.ts`.
-      reply.clearCookie('wikiSession')
+      reply.clearCookie(SESSION_COOKIE_NAME)
 
       if (user) {
         WIKI.models.flags.authDebug(
