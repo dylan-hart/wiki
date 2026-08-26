@@ -403,4 +403,43 @@ describe('extractContentStaging', () => {
     assert.deepEqual(result.navigation, [])
     assert.equal(result.pageIdMap.size, 0)
   })
+
+  test("coerces an export-bundle source's integer-valued isPrivate/isPublished flags (OpenProject #1850)", async () => {
+    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
+    //    integers (0/1), not real booleans — content-staging.ts's asBoolean() must widen to accept
+    //    that representation the same way it already tolerates other cross-engine shapes.
+    const integerFlagPage: SourceRecord = {
+      id: 100,
+      path: 'integer-flags',
+      localeCode: 'en',
+      title: 'Integer Flags',
+      hash: 'hash-100',
+      description: null,
+      content: '# Integer Flags',
+      render: '<h1>Integer Flags</h1>',
+      toc: [],
+      contentType: 'markdown',
+      isPrivate: 0,
+      privateNS: null,
+      isPublished: 1,
+      publishStartDate: null,
+      publishEndDate: null,
+      createdAt: '2021-01-01T00:00:00.000Z',
+      updatedAt: '2021-01-01T00:00:00.000Z',
+      extra: {},
+      editorKey: 'markdown',
+      authorId: 10,
+      creatorId: 10,
+      tags: []
+    }
+    const connector = new FixtureSourceConnector([integerFlagPage], [], [])
+    const result = await extractContentStaging(connector, {
+      userIdMap: makeUserIdMap(),
+      fallbackActorId: 'uuid-operator'
+    })
+
+    const page = result.pages[0]!
+    assert.equal(page.isPrivate, false)
+    assert.equal(page.isPublished, true)
+  })
 })

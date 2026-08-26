@@ -11,6 +11,7 @@ import {
 } from '../../db/schema.ts'
 import type { GroupRule, GroupRuleMatch } from '../../models/groups.ts'
 import type { SourceRecord } from '../connector.ts'
+import { coerceSourceBoolean } from '../source-coercion.ts'
 
 /**
  * Users/Groups importer engine (Feature 414, Task 726).
@@ -322,10 +323,11 @@ const GLOBAL_PERMISSIONS = new Set([
  * (or anything else) is treated as malformed rather than guessed at. */
 const VALID_2X_RULE_MATCH = new Set(['START', 'END', 'REGEX', 'TAG', 'EXACT'])
 
-/** Reads a boolean column off a source record. */
+/** Reads a boolean column off a source record — see `coerceSourceBoolean` for the cross-engine
+ * representations this accepts (the export-bundle path can carry integer 0/1 as well as a real
+ * boolean). */
 function readSourceBoolean(source: SourceRecord, column: string): boolean | undefined {
-  const raw = source[column]
-  return typeof raw === 'boolean' ? raw : undefined
+  return coerceSourceBoolean(source[column])
 }
 
 /** Narrows an arbitrary value to a string array, dropping any non-string element rather than
