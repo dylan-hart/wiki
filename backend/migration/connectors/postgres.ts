@@ -161,7 +161,10 @@ export class PostgresSourceConnector implements SourceConnector {
    * table is never held in memory all at once — `docs/migration/2.5x-export-bundle-format.md`'s
    * "Implications" note to mirror the exporter's own batch sizes applies here too, even though this is
    * the live-Postgres path rather than a bundle. `sql` must not itself end in a semicolon or already
-   * contain `LIMIT`/`OFFSET`, and its `$n` placeholders must line up with `params`.
+   * contain `LIMIT`/`OFFSET`, and its `$n` placeholders must line up with `params`. `sql`'s `ORDER BY`
+   * must also be total (unique per row) — this method re-issues `sql` once per batch as separate
+   * statements with different `OFFSET`s, so a tied `ORDER BY` lets Postgres break ties differently
+   * between them, silently duplicating or dropping rows across the batch boundary.
    */
   private async *paginatedQuery(
     sql: string,
@@ -225,7 +228,7 @@ export class PostgresSourceConnector implements SourceConnector {
        LEFT JOIN "pageHistoryTags" pht ON pht."pageId" = ph.id
        LEFT JOIN tags t ON t.id = pht."tagId"
        GROUP BY ph.id
-       ORDER BY ph."pageId", ph."versionDate"`,
+       ORDER BY ph."pageId", ph."versionDate", ph.id`,
       [],
       PostgresSourceConnector.PAGE_BATCH_SIZE
     )
