@@ -173,7 +173,7 @@ describe('migration phases', () => {
   test('usersPhase classifies an unsupported auth provider as unmappable, not wouldCreate', async () => {
     async function* users(): AsyncGenerator<SourceRecord> {
       yield { id: 1, email: 'alice@example.com', providerKey: 'local' }
-      yield { id: 2, email: 'bob@example.com', providerKey: 'ldap' }
+      yield { id: 2, email: 'bob@example.com', providerKey: 'azure' }
     }
     const connector = { ...stubConnector(), users, groups: () => recordsOf(0) }
     const result = await usersPhase.run(contextWith(connector))
@@ -186,7 +186,7 @@ describe('migration phases', () => {
         identifier: 'bob@example.com',
         reason: 'unsupported-auth-provider',
         detail:
-          'providerKey "ldap" has no matching 3.0 authentication module (3.0 ships local/google/github/oidc only).'
+          'providerKey "azure" has no matching 3.0 authentication module (confirmed no-destination — see docs/migration/2.5x-settings-auth-storage-field-mapping.md\'s Part 2 provider inventory).'
       }
     ])
   })
