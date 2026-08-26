@@ -54,6 +54,17 @@ export interface AuthFlow {
   nonce: string
   /** PKCE verifier, whose challenge goes on the authorization request. */
   codeVerifier: string
+  /**
+   * The `ID` attribute of the outbound AuthnRequest, so the assertion that comes back can eventually be
+   * checked against it (`InResponseTo`) — SAML is the only protocol that uses this today: OAuth2/OIDC
+   * modules have no request id of their own to track, since `state`/`nonce` already do the job SAML
+   * needs a request id for. Absent when `authorizationUrl()` is called (it doesn't exist yet — the
+   * module hands it back as part of the result, see `SamlAuthorizationResult` in
+   * `modules/authentication/saml/authentication.ts`), present on the `AuthFlowCallback` a module's
+   * `profile()` receives once the `/auth/:strategyId/authorize` route has round-tripped it through
+   * `req.session.authFlow`.
+   */
+  requestId?: string
 }
 
 /** The same flow, once the provider has come back with an answer. */

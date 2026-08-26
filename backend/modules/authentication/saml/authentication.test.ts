@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { after, before, test } from 'node:test'
 import SamlAuthentication from './authentication.ts'
 // -> A deep import into `@node-saml/node-saml`'s own compiled output, not the package's public entry
@@ -58,6 +59,19 @@ const ASSERTION_XPATH =
 
 function iso(d: Date): string {
   return d.toISOString().replace(/\.\d+Z$/, 'Z')
+}
+
+/**
+ * The reverse of what `@node-saml/node-saml` does to build `SAMLRequest`: raw-deflate then base64 (see
+ * `_requestToUrlAsync`/`getAuthorizeMessageAsync` in the library's own `saml.js` — both bindings
+ * compress by default, `skipRequestCompression` off). Used only to recover the AuthnRequest's own `ID`
+ * attribute so it can be compared against what `authorizationUrl()` reported back as `requestId`.
+ */
+function decodeSamlRequestId(samlRequestBase64: string): string {
+  const xml = zlib.inflateRawSync(Buffer.from(samlRequestBase64, 'base64')).toString('utf8')
+  const match = xml.match(/<samlp:AuthnRequest\b[^>]*\bID="([^"]+)"/)
+  assert.ok(match, `AuthnRequest XML had no ID attribute: ${xml}`)
+  return match[1]
 }
 
 /** A hand-built, unsigned SAMLResponse, with a full attribute statement and a controllable validity window. */
@@ -146,7 +160,7 @@ const BASE_CONF = {
 
 const REDIRECT_URI = 'https://wiki.example.com/_api/auth/strategy1/callback'
 
-test('authorizationUrl: HTTP-Redirect binding produces a redirect URL carrying RelayState', async () => {
+test('authorizationUrl: HTTP-Redirect binding produces a redirect URL carrying RelayState, plus the requestId of the generated AuthnRequest', async () => {
   const auth = new SamlAuthentication('strategy1', {
     ...BASE_CONF,
     authnRequestBinding: 'HTTP-Redirect'
@@ -157,14 +171,18 @@ test('authorizationUrl: HTTP-Redirect binding produces a redirect URL carrying R
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'string')
-  const url = new URL(result as string)
+  assert.ok('url' in result)
+  const url = new URL(result.url)
   assert.equal(url.origin + url.pathname, 'https://idp.example.com/sso')
   assert.ok(url.searchParams.get('SAMLRequest'))
   assert.equal(url.searchParams.get('RelayState'), 'my-state-value')
+  // -> The whole point of task 2153: `requestId` has to be the actual `ID` node-saml put on the
+  //    AuthnRequest it built, not just some other unique-looking string.
+  assert.ok(result.requestId)
+  assert.equal(result.requestId, decodeSamlRequestId(url.searchParams.get('SAMLRequest')!))
 })
 
-test('authorizationUrl: HTTP-POST binding (the default) produces a self-submitting form carrying RelayState', async () => {
+test('authorizationUrl: HTTP-POST binding (the default) produces a self-submitting form carrying RelayState, plus the requestId of the generated AuthnRequest', async () => {
   const auth = new SamlAuthentication('strategy1', {
     ...BASE_CONF,
     authnRequestBinding: 'HTTP-POST'
@@ -175,11 +193,15 @@ test('authorizationUrl: HTTP-POST binding (the default) produces a self-submitti
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'object')
-  const html = (result as { html: string }).html
+  assert.ok('html' in result)
+  const html = result.html
   assert.match(html, /<form method="post" action="https:\/\/idp\.example\.com\/sso">/)
   assert.match(html, /name="SAMLRequest"/)
   assert.match(html, /name="RelayState" value="my-state-value"/)
+  const samlRequestMatch = html.match(/name="SAMLRequest" value="([^"]+)"/)
+  assert.ok(samlRequestMatch)
+  assert.ok(result.requestId)
+  assert.equal(result.requestId, decodeSamlRequestId(samlRequestMatch[1]))
 })
 
 test('authorizationUrl: defaults to HTTP-POST when unconfigured', async () => {
@@ -190,7 +212,28 @@ test('authorizationUrl: defaults to HTTP-POST when unconfigured', async () => {
     nonce: '',
     codeVerifier: ''
   })
-  assert.equal(typeof result, 'object')
+  assert.ok('html' in result)
+})
+
+test('authorizationUrl: two calls in a row produce two different requestIds', async () => {
+  const auth = new SamlAuthentication('strategy1', {
+    ...BASE_CONF,
+    authnRequestBinding: 'HTTP-Redirect'
+  })
+  const first = await auth.authorizationUrl({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: ''
+  })
+  const second = await auth.authorizationUrl({
+    redirectUri: REDIRECT_URI,
+    state: 's',
+    nonce: '',
+    codeVerifier: ''
+  })
+  assert.ok('url' in first && 'url' in second)
+  assert.notEqual(first.requestId, second.requestId)
 })
 
 test('authorizationUrl: refuses a strategy with no entryPoint/issuer/cert configured', async () => {

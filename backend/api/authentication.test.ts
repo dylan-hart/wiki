@@ -215,6 +215,146 @@ describe('POST/GET /auth/:strategyId/callback (redirect-login providers)', () =>
 })
 
 /**
+ * `GET /auth/:strategyId/authorize` writing `authorization.requestId` onto `req.session.authFlow`, and
+ * that value round-tripping back into the `AuthFlowCallback` the following callback hands to the
+ * module's `profile()` — the route-level half of task 2153. The SAML module's own
+ * `authorization.requestId` ↔ generated-AuthnRequest-`ID` correspondence is
+ * `modules/authentication/saml/authentication.test.ts`'s to prove; this only proves the framework
+ * carries whatever a module hands back all the way through, which is what a stub module can stand in
+ * for just as well as the real SAML one.
+ */
+describe('GET /auth/:strategyId/authorize (requestId round trip onto the session)', () => {
+  const STRATEGY_ID = 'a3333333-3333-3333-3333-333333333333'
+  const SITE_ID = 'a4444444-4444-4444-4444-444444444444'
+
+  let app: FastifyInstance
+  let session: Record<string, any>
+  let profileCalls: any[]
+  let authorizationResult: any
+
+  before(async () => {
+    profileCalls = []
+    ;(globalThis as any).WIKI = {
+      config: { security: { authRateLimitEnabled: false } },
+      sitesMappings: {},
+      models: {
+        flags: { authDebug: () => {} },
+        authentication: {
+          getStrategyById: async (id: string) =>
+            id === STRATEGY_ID
+              ? { id: STRATEGY_ID, module: 'saml', isEnabled: true, registration: true }
+              : null
+        },
+        users: {
+          loginWithProvider: async () => ({
+            authenticated: true,
+            nextAction: 'redirect',
+            redirect: '/welcome'
+          })
+        }
+      },
+      auth: {
+        strategies: {
+          [STRATEGY_ID]: {
+            module: 'saml',
+            // -> Stands in for `SamlAuthentication.authorizationUrl()`: what matters here is only that
+            //    whatever `requestId` a module hands back is carried through, not how SAML itself
+            //    derives it (that correspondence is the SAML module's own test file's job).
+            authorizationUrl: async () => authorizationResult,
+            profile: async (args: any) => {
+              profileCalls.push(args)
+              return { id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace' }
+            }
+          }
+        }
+      }
+    }
+
+    app = fastify({
+      ajv: {
+        plugins: [[ajvFormats.default, {}] as any]
+      }
+    })
+    await app.register(fastifySensible)
+    await app.register(fastifyFormBody)
+    await registerErrorSchema(app)
+    await registerAuthSchema(app)
+    app.addHook('onRequest', async (req) => {
+      ;(req as any).session = session
+    })
+    await app.register(authenticationRoutes)
+    await app.ready()
+  })
+
+  after(async () => {
+    await app.close()
+    delete (globalThis as any).WIKI
+  })
+
+  beforeEach(() => {
+    session = {}
+    profileCalls = []
+  })
+
+  test('an HTTP-Redirect-shaped result (`{ url, requestId }`) writes requestId onto the session and redirects to `url`', async () => {
+    authorizationResult = {
+      url: 'https://idp.example.com/sso?SAMLRequest=abc',
+      requestId: '_redirect-req-id'
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?siteId=${SITE_ID}`
+    })
+
+    assert.equal(res.statusCode, 302)
+    assert.equal(res.headers.location, authorizationResult.url)
+    assert.equal(session.authFlow.requestId, '_redirect-req-id')
+  })
+
+  test('an HTTP-POST-shaped result (`{ html, requestId }`) writes requestId onto the session and serves the form', async () => {
+    authorizationResult = { html: '<form>...</form>', requestId: '_post-req-id' }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?siteId=${SITE_ID}`
+    })
+
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.body, '<form>...</form>')
+    assert.equal(session.authFlow.requestId, '_post-req-id')
+  })
+
+  test('requestId round-trips from the authorize step, through the session, into the AuthFlowCallback handed to profile()', async () => {
+    authorizationResult = { html: '<form>...</form>', requestId: '_round-trip-req-id' }
+
+    const authorizeRes = await app.inject({
+      method: 'GET',
+      url: `/auth/${STRATEGY_ID}/authorize?siteId=${SITE_ID}`
+    })
+    assert.equal(authorizeRes.statusCode, 200)
+    const flowState = session.authFlow.state
+    assert.equal(session.authFlow.requestId, '_round-trip-req-id')
+
+    // -> Same `session` object the authorize step just wrote to — standing in for the same browser's
+    //    cookie carrying it back on the callback request, the way `@fastify/session` does for real.
+    const callbackRes = await app.inject({
+      method: 'POST',
+      url: `/auth/${STRATEGY_ID}/callback`,
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      payload: new URLSearchParams({
+        SAMLResponse: 'encoded-response',
+        RelayState: flowState
+      }).toString()
+    })
+
+    assert.equal(callbackRes.statusCode, 302)
+    assert.equal(profileCalls.length, 1)
+    assert.equal(profileCalls[0].requestId, '_round-trip-req-id')
+  })
+})
+
+/**
  * `POST /sites/:siteId/auth/register` and `GET /auth/verify/:token` — the request/response wiring
  * around `WIKI.models.users.register()` / `validateToken()` / `updateUser()`, which are stubbed here
  * rather than run for real (that's `models/users.test.ts`'s DB-backed coverage of `register()` itself).

@@ -76,6 +76,15 @@ declare module 'fastify' {
       redirect: string
       /** When this flow was started, as an ISO instant, so that a stale one can be refused. */
       startedAt: string
+      /**
+       * The `ID` of the outbound AuthnRequest — SAML only, written by the `/auth/:strategyId/authorize`
+       * route once the module's `authorizationUrl()` hands it back, and read back into the
+       * `AuthFlowCallback` handed to `profile()` on the matching callback. See `AuthFlow.requestId` in
+       * `models/authentication.ts`. Kept on the session (backed by the `sessions` table), not an
+       * in-memory cache, so it survives the authorize and callback requests landing on different
+       * instances behind a load balancer.
+       */
+      requestId?: string
     }
     /**
      * The WebAuthn challenge a passkey ceremony is waiting on, written by the routes in `api/users.ts`

@@ -1,14 +1,20 @@
 import { SAML } from '@node-saml/node-saml'
+import { nanoid } from 'nanoid'
 import type { AuthFlow, AuthFlowCallback, ProviderProfile } from '../../../models/authentication.ts'
 
 /**
- * What `authorizationUrl()` hands back to the `/auth/:strategyId/authorize` route: a plain string for
- * the HTTP-Redirect binding (the browser is redirected straight to it), or a self-submitting HTML page
- * for the HTTP-POST binding — the AuthnRequest travels as a form POST to the identity provider instead
- * of a query string, which is what `authnRequestBinding` chooses between. Every other module answers
- * with a URL only; this is the one place the route branches on the shape of what came back.
+ * What `authorizationUrl()` hands back to the `/auth/:strategyId/authorize` route: a URL to redirect to
+ * for the HTTP-Redirect binding, or a self-submitting HTML page for the HTTP-POST binding — the
+ * AuthnRequest travels as a form POST to the identity provider instead of a query string, which is what
+ * `authnRequestBinding` chooses between. Every other module answers with a URL only; this is the one
+ * place the route branches on the shape of what came back.
+ *
+ * `requestId` is the `ID` attribute node-saml generated for the AuthnRequest it just built — see
+ * `AuthFlow.requestId` in `models/authentication.ts` for why it has to travel back onto the session.
  */
-export type SamlAuthorizationResult = string | { html: string }
+export type SamlAuthorizationResult =
+  | { url: string; requestId: string }
+  | { html: string; requestId: string }
 
 /** A SAML attribute value as `@node-saml/node-saml` hands it back: a bare value, or several of them. */
 function firstOf(value: unknown): unknown {
@@ -62,7 +68,14 @@ export default class SamlAuthentication {
     return parts.length > 1 ? parts : raw
   }
 
-  private buildSaml(redirectUri: string): SAML {
+  /**
+   * `onRequestId`, when given, is spliced in as node-saml's `generateUniqueId` option — the same hook
+   * point the library itself uses to mint the `ID` attribute of an outgoing AuthnRequest — so the id
+   * actually used can be captured without a second, throwaway request generation. Only
+   * `authorizationUrl()` passes one; `profile()` validates a response rather than building a request,
+   * so it never calls `generateUniqueId` at all and gets the library's own default.
+   */
+  private buildSaml(redirectUri: string, onRequestId?: (id: string) => void): SAML {
     const {
       entryPoint,
       issuer,
@@ -122,7 +135,16 @@ export default class SamlAuthentication {
       passive: !!passive,
       providerName: providerName || undefined,
       skipRequestCompression: !!skipRequestCompression,
-      authnRequestBinding: authnRequestBinding || 'HTTP-POST'
+      authnRequestBinding: authnRequestBinding || 'HTTP-POST',
+      generateUniqueId: onRequestId
+        ? () => {
+            // -> Same shape node-saml's own default produces: a leading underscore so the value is a
+            //    valid XML NCName even when nanoid's alphabet would otherwise start with a digit.
+            const id = `_${nanoid(40)}`
+            onRequestId(id)
+            return id
+          }
+        : undefined
     })
   }
 
@@ -135,11 +157,16 @@ export default class SamlAuthentication {
    * same way 2.5.x's `passport-saml` strategy made it.
    */
   async authorizationUrl({ redirectUri, state }: AuthFlow): Promise<SamlAuthorizationResult> {
-    const saml = this.buildSaml(redirectUri)
+    let requestId = ''
+    const saml = this.buildSaml(redirectUri, (id) => {
+      requestId = id
+    })
     if (this.conf.authnRequestBinding === 'HTTP-Redirect') {
-      return saml.getAuthorizeUrlAsync(state, undefined, {})
+      const url = await saml.getAuthorizeUrlAsync(state, undefined, {})
+      return { url, requestId }
     }
-    return { html: await saml.getAuthorizeFormAsync(state, undefined, {}) }
+    const html = await saml.getAuthorizeFormAsync(state, undefined, {})
+    return { html, requestId }
   }
 
   /**
