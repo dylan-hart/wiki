@@ -131,6 +131,74 @@ describe(
 )
 
 /**
+ * Task 2116: `PUT /:groupId` round-trips a `CLASSIFICATION` rule -- the `match` value the ajv schema
+ * previously rejected with a 400 (see `api/schemas/group.test.ts` for the schema-level regression) --
+ * and its `classifications` array survives the write/read cycle intact, exercising the real route +
+ * model rather than the schema in isolation.
+ */
+describe(
+  'PUT /:groupId — CLASSIFICATION rule round-trip (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let app: FastifyInstance
+    let fixtures: TestFixtures
+    let groupsModel: typeof import('../models/groups.ts').groups
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ groups: groupsModel } = await import('../models/groups.ts'))
+
+      app = fastify({
+        ajv: {
+          plugins: [[ajvFormats.default, {}] as any]
+        }
+      })
+      await app.register(fastifySensible)
+      await registerUserSchema(app)
+      await registerGroupSchema(app)
+      await app.register(groupsRoutes)
+      await app.ready()
+    })
+
+    after(async () => {
+      await app.close()
+      await teardownTestDb()
+    })
+
+    test('accepts a CLASSIFICATION rule and reads back its classifications array intact', async () => {
+      const classificationId = '11111111-1111-1111-1111-111111111111'
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/${fixtures.groupId}`,
+        payload: {
+          rules: [
+            {
+              id: 'classification-rule',
+              name: 'Confidential readers',
+              roles: ['read:pages'],
+              match: 'CLASSIFICATION',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: [],
+              classifications: [classificationId]
+            }
+          ]
+        }
+      })
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.json().ok, true)
+
+      const saved = await groupsModel.getGroupById(fixtures.groupId)
+      assert.equal(saved?.rules[0]!.match, 'CLASSIFICATION')
+      assert.deepEqual(saved?.rules[0]!.classifications, [classificationId])
+    })
+  }
+)
+
+/**
  * Task 472: verifies `manage:navigation`'s presence on `GET /groups` (line ~58) is exactly as broad as
  * the comment above it claims -- enough to let the navigation editor's group picker name groups by id
  * and name, but NOT enough to read a group's full permissions/rules (`GET /groups/:groupId`, which

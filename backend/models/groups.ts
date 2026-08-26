@@ -26,6 +26,26 @@ export type GroupRuleMatch =
   | 'EXACT'
   | 'CLASSIFICATION'
 
+/**
+ * Every `GroupRuleMatch` member, derived from the type rather than restated as a bare array.
+ * `api/schemas/group.ts`'s ajv `enum` needs a literal array -- ajv cannot read a TS union -- so this
+ * is that array's single source of truth. The `Record<GroupRuleMatch, true>` literal is what pins the
+ * two together: TypeScript's excess-property check on an object literal rejects both a missing member
+ * and an extra one, so adding (or renaming) a `GroupRuleMatch` member without updating this literal is
+ * a compile error rather than a silently-out-of-sync ajv enum -- which is exactly the drift task 2116
+ * found (`CLASSIFICATION` was added to the type but never to the schema's `enum`).
+ */
+const GROUP_RULE_MATCH_MEMBERS: Record<GroupRuleMatch, true> = {
+  START: true,
+  END: true,
+  REGEX: true,
+  TAG: true,
+  TAGALL: true,
+  EXACT: true,
+  CLASSIFICATION: true
+}
+export const GROUP_RULE_MATCH_VALUES = Object.keys(GROUP_RULE_MATCH_MEMBERS) as GroupRuleMatch[]
+
 /** Whether a matching rule grants, denies, or unconditionally grants its roles. */
 export type GroupRuleMode = 'ALLOW' | 'DENY' | 'FORCEALLOW'
 
