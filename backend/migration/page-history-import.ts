@@ -1,6 +1,10 @@
 import { isEqual } from 'es-toolkit/predicate'
 import type { PageHistoryAction } from '../models/pageHistory.ts'
-import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type {
+  OrphanedPageHistoryEntry,
+  StagedPage,
+  StagedPageHistoryEntry
+} from './content-staging.ts'
 import { derivePublishState, mapEditor } from './page-import.ts'
 import type { IdMap } from './id-map.ts'
 
@@ -220,40 +224,45 @@ function diffComparableStates(
 }
 
 /**
- * Builds every `pageHistory` insert row for one page's 2.x history chain, in `versionDate` order
- * (`StagedPage.history` is already sorted ascending by `content-staging.ts`). The oldest entry gets
- * an empty `changedFields` — there is no earlier backfilled version to diff it against, the same
- * reasoning `record()`'s own doc comment gives for a creation or a deletion: "the whole page is the
- * change." Every later entry's `changedFields` is a real diff against the immediately preceding
- * entry, over the same field set `changedFields()` compares (`NOT_REPORTED_AS_CHANGED`'s
+ * Builds every `pageHistory` insert row for one page's history chain (2.x's own, or an orphaned
+ * group's — see {@link buildPageHistoryRowsForOrphanedHistory}), in `versionDate` order. The oldest
+ * entry gets an empty `changedFields` — there is no earlier backfilled version to diff it against,
+ * the same reasoning `record()`'s own doc comment gives for a creation or a deletion: "the whole page
+ * is the change." Every later entry's `changedFields` is a real diff against the immediately
+ * preceding entry, over the same field set `changedFields()` compares (`NOT_REPORTED_AS_CHANGED`'s
  * exclusions — none of which apply to the page-shaped fields tracked here).
  *
  * `authorId` is **not** resolved here: `content-staging.ts`'s `stageHistoryEntry()` (Task 733)
  * already ran every entry's 2.x `authorId` through `resolveActorId()` with the same orphaned-author
  * operator fallback `StagedPage.authorId`/`creatorId` use, so `entry.authorId` is already the
  * resolved 3.0 UUID this row needs.
+ *
+ * `contextOldId` is only ever used to label a warning (`mapEditor`/`mapHistoryAction`) with the 2.x
+ * page id the chain came from — `page.oldId` for a real page, `sourcePageOldId` for an orphaned
+ * group — it plays no part in the rows themselves.
  */
-export function buildPageHistoryRowsForPage(
-  page: StagedPage,
-  newPageId: string,
+function buildHistoryRowsForChain(
+  history: StagedPageHistoryEntry[],
+  pageId: string,
   siteId: string,
+  contextOldId: number,
   warnings: string[]
 ): PageHistoryInsertRow[] {
   const rows: PageHistoryInsertRow[] = []
   let previousState: ComparableVersionState | null = null
 
-  for (const entry of page.history) {
+  for (const entry of history) {
     const versionDate = parseVersionDate(entry)
-    const state = buildComparableState(page, entry, versionDate, warnings)
+    const state = buildComparableState({ oldId: contextOldId }, entry, versionDate, warnings)
     const action = mapHistoryAction(
       entry.action,
-      `page ${page.oldId} pageHistory ${entry.oldId}`,
+      `page ${contextOldId} pageHistory ${entry.oldId}`,
       warnings
     )
     const changedFields = previousState ? diffComparableStates(previousState, state) : []
 
     rows.push({
-      pageId: newPageId,
+      pageId,
       siteId,
       action,
       changedFields,
@@ -274,6 +283,59 @@ export function buildPageHistoryRowsForPage(
 }
 
 /**
+ * Builds every `pageHistory` insert row for one page's 2.x history chain
+ * (`StagedPage.history` is already sorted ascending by `content-staging.ts`).
+ */
+export function buildPageHistoryRowsForPage(
+  page: StagedPage,
+  newPageId: string,
+  siteId: string,
+  warnings: string[]
+): PageHistoryInsertRow[] {
+  return buildHistoryRowsForChain(page.history, newPageId, siteId, page.oldId, warnings)
+}
+
+/**
+ * Builds `pageHistory` insert rows for `orphanedHistory` — 2.x history rows whose `pageId` named no
+ * 2.x page among the source's current `pages` (a page deleted before export). Per the decision
+ * recorded in `docs/migration/2.5x-to-3.0-mapping.md`, these are inserted rather than dropped:
+ * `pageHistory.pageId` is a non-FK plain column specifically so history can outlive the page it
+ * belonged to. There is no `StagedPage`/`pageIdMap` entry for a deleted 2.x page to attach to (see
+ * `OrphanedPageHistoryEntry`'s doc comment), so each distinct `sourcePageOldId` gets one freshly
+ * synthesized UUID, shared by every entry in its own chain — the group still reads as one page's
+ * history rather than N unrelated rows, even though no live `pages` row will ever exist for it.
+ *
+ * Grouped by `sourcePageOldId` and each group's chain diffed independently, the same way
+ * `buildPageHistoryRowsForPage` diffs one page's chain. `orphanedHistory` arrives sorted
+ * `versionDate`-ascending overall (`content-staging.ts`'s `extractContentStaging`), and a stable
+ * partition by `sourcePageOldId` preserves that ordering within each group.
+ */
+export function buildPageHistoryRowsForOrphanedHistory(
+  orphanedHistory: OrphanedPageHistoryEntry[],
+  siteId: string,
+  warnings: string[]
+): PageHistoryInsertRow[] {
+  const chainsBySourcePageOldId = new Map<number, OrphanedPageHistoryEntry[]>()
+  for (const entry of orphanedHistory) {
+    const chain = chainsBySourcePageOldId.get(entry.sourcePageOldId)
+    if (chain) {
+      chain.push(entry)
+    } else {
+      chainsBySourcePageOldId.set(entry.sourcePageOldId, [entry])
+    }
+  }
+
+  const rows: PageHistoryInsertRow[] = []
+  for (const [sourcePageOldId, chain] of chainsBySourcePageOldId) {
+    const syntheticPageId = crypto.randomUUID()
+    rows.push(
+      ...buildHistoryRowsForChain(chain, syntheticPageId, siteId, sourcePageOldId, warnings)
+    )
+  }
+  return rows
+}
+
+/**
  * Backfills `pageHistory` for every successfully-imported page in `pages`, per this task's
  * description: immediately after `importPages()`'s own `createPage()` call for a page (resolved here
  * through `pageIdMap`, the same map `importPages()` populated), insert its whole 2.x history chain as
@@ -282,9 +344,15 @@ export function buildPageHistoryRowsForPage(
  * A page absent from `pageIdMap` (one of `PageImportResult.failed`, per `page-import.ts`) is skipped
  * silently — there is no 3.0 page for its history to attach to, and `importPages()` already reported
  * why it failed.
+ *
+ * `orphanedHistory` — 2.x history rows naming no current 2.x page — is backfilled too, via
+ * {@link buildPageHistoryRowsForOrphanedHistory}, per the decision recorded in
+ * `docs/migration/2.5x-to-3.0-mapping.md`. `inserted` counts both kinds together, since both actually
+ * reach `insertVersions`.
  */
 export async function backfillPageHistory(
   pages: StagedPage[],
+  orphanedHistory: OrphanedPageHistoryEntry[],
   pageIdMap: IdMap<number>,
   siteId: string,
   deps: PageHistoryImportDeps
@@ -297,6 +365,10 @@ export async function backfillPageHistory(
     const newPageId = pageIdMap.get(page.oldId)
     if (!newPageId) continue
     rows.push(...buildPageHistoryRowsForPage(page, newPageId, siteId, warnings))
+  }
+
+  if (orphanedHistory.length > 0) {
+    rows.push(...buildPageHistoryRowsForOrphanedHistory(orphanedHistory, siteId, warnings))
   }
 
   if (rows.length > 0) {

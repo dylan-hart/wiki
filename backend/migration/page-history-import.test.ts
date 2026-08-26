@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import type { StagedPage, StagedPageHistoryEntry } from './content-staging.ts'
+import type {
+  OrphanedPageHistoryEntry,
+  StagedPage,
+  StagedPageHistoryEntry
+} from './content-staging.ts'
 import { IdMap } from './id-map.ts'
 import {
   backfillPageHistory,
+  buildPageHistoryRowsForOrphanedHistory,
   buildPageHistoryRowsForPage,
   mapHistoryAction,
   type PageHistoryImportDeps,
@@ -33,6 +38,16 @@ function buildHistoryEntry(
     tags: [],
     authorId: 'user-1',
     sourceAuthorId: 1,
+    ...overrides
+  }
+}
+
+function buildOrphanedHistoryEntry(
+  overrides: Partial<OrphanedPageHistoryEntry> = {}
+): OrphanedPageHistoryEntry {
+  return {
+    ...buildHistoryEntry(),
+    sourcePageOldId: 999,
     ...overrides
   }
 }
@@ -237,7 +252,7 @@ describe('backfillPageHistory', () => {
     // -> Page 2 never got created, so it has no entry in pageIdMap.
 
     const deps = new FakePageHistoryWriteModel()
-    return backfillPageHistory([created, failed], pageIdMap, 'site-1', deps).then((result) => {
+    return backfillPageHistory([created, failed], [], pageIdMap, 'site-1', deps).then((result) => {
       assert.equal(result.inserted, 1)
       assert.equal(deps.inserted.length, 1)
       assert.equal(deps.inserted[0].length, 1)
@@ -251,7 +266,7 @@ describe('backfillPageHistory', () => {
     pageIdMap.set(1, 'new-page-1')
 
     const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([noHistory], pageIdMap, 'site-1', deps)
+    const result = await backfillPageHistory([noHistory], [], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 0)
     assert.equal(deps.inserted.length, 0)
@@ -268,10 +283,122 @@ describe('backfillPageHistory', () => {
     pageIdMap.set(2, 'new-page-2')
 
     const deps = new FakePageHistoryWriteModel()
-    const result = await backfillPageHistory([pageA, pageB], pageIdMap, 'site-1', deps)
+    const result = await backfillPageHistory([pageA, pageB], [], pageIdMap, 'site-1', deps)
 
     assert.equal(result.inserted, 3)
     assert.equal(deps.inserted.length, 1)
     assert.equal(deps.inserted[0].length, 3)
+  })
+
+  test('inserts orphaned history rows alongside real pages, in the same insertVersions call', async () => {
+    const page = buildStagedPage({
+      oldId: 1,
+      history: [buildHistoryEntry({ oldId: 100 })]
+    })
+    const orphan = buildOrphanedHistoryEntry({ oldId: 900, sourcePageOldId: 999 })
+    const pageIdMap = new IdMap<number>()
+    pageIdMap.set(1, 'new-page-1')
+
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistory([page], [orphan], pageIdMap, 'site-1', deps)
+
+    assert.equal(result.inserted, 2)
+    assert.equal(deps.inserted.length, 1)
+    assert.equal(deps.inserted[0].length, 2)
+    const orphanRow = deps.inserted[0].find((row) => row.pageId !== 'new-page-1')!
+    assert.ok(orphanRow)
+    assert.equal(orphanRow.siteId, 'site-1')
+    assert.match(orphanRow.pageId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  })
+
+  test('calls insertVersions with only the orphaned rows when there are no successfully-imported pages', async () => {
+    const orphan = buildOrphanedHistoryEntry({ oldId: 900, sourcePageOldId: 999 })
+    const deps = new FakePageHistoryWriteModel()
+    const result = await backfillPageHistory([], [orphan], new IdMap<number>(), 'site-1', deps)
+
+    assert.equal(result.inserted, 1)
+    assert.equal(deps.inserted.length, 1)
+    assert.equal(deps.inserted[0][0].siteId, 'site-1')
+  })
+})
+
+describe('buildPageHistoryRowsForOrphanedHistory', () => {
+  test('synthesizes one pageId per distinct sourcePageOldId, shared across its own chain', () => {
+    const warnings: string[] = []
+    const rows = buildPageHistoryRowsForOrphanedHistory(
+      [
+        buildOrphanedHistoryEntry({
+          oldId: 900,
+          sourcePageOldId: 999,
+          versionDate: '2024-01-01T00:00:00.000Z'
+        }),
+        buildOrphanedHistoryEntry({
+          oldId: 901,
+          sourcePageOldId: 999,
+          versionDate: '2024-02-01T00:00:00.000Z'
+        }),
+        buildOrphanedHistoryEntry({
+          oldId: 902,
+          sourcePageOldId: 888,
+          versionDate: '2024-01-15T00:00:00.000Z'
+        })
+      ],
+      'site-1',
+      warnings
+    )
+
+    assert.equal(rows.length, 3)
+    // -> The two entries sourced from page 999 share one synthesized pageId; page 888's row gets a
+    //    different one.
+    const [row999a, row999b, row888] = [
+      rows.find((r) => r.versionDate.toISOString() === '2024-01-01T00:00:00.000Z')!,
+      rows.find((r) => r.versionDate.toISOString() === '2024-02-01T00:00:00.000Z')!,
+      rows.find((r) => r.versionDate.toISOString() === '2024-01-15T00:00:00.000Z')!
+    ]
+    assert.equal(row999a.pageId, row999b.pageId)
+    assert.notEqual(row999a.pageId, row888.pageId)
+  })
+
+  test('diffs each orphaned chain independently, same as a real page', () => {
+    const warnings: string[] = []
+    const rows = buildPageHistoryRowsForOrphanedHistory(
+      [
+        buildOrphanedHistoryEntry({
+          oldId: 900,
+          sourcePageOldId: 999,
+          versionDate: '2024-01-01T00:00:00.000Z',
+          title: 'Old Title'
+        }),
+        buildOrphanedHistoryEntry({
+          oldId: 901,
+          sourcePageOldId: 999,
+          versionDate: '2024-02-01T00:00:00.000Z',
+          title: 'New Title'
+        })
+      ],
+      'site-1',
+      warnings
+    )
+
+    const first = rows.find((r) => r.versionDate.toISOString() === '2024-01-01T00:00:00.000Z')!
+    const second = rows.find((r) => r.versionDate.toISOString() === '2024-02-01T00:00:00.000Z')!
+    assert.deepEqual(first.changedFields, [])
+    assert.deepEqual(second.changedFields, ['title'])
+  })
+
+  test('maps action and siteId the same way buildPageHistoryRowsForPage does', () => {
+    const warnings: string[] = []
+    const [row] = buildPageHistoryRowsForOrphanedHistory(
+      [buildOrphanedHistoryEntry({ action: 'restored', sourcePageOldId: 999 })],
+      'site-1',
+      warnings
+    )
+    assert.equal(row.action, 'updated')
+    assert.equal(row.siteId, 'site-1')
+  })
+
+  test('returns an empty array for an empty input, with no synthesized ids generated', () => {
+    const warnings: string[] = []
+    assert.deepEqual(buildPageHistoryRowsForOrphanedHistory([], 'site-1', warnings), [])
   })
 })
