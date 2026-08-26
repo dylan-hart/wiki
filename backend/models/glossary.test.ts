@@ -502,6 +502,22 @@ describe('glossary CRUD + cache (DB-backed)', { skip: !hasTestDatabase() }, () =
       assert.ok(!remaining.some((t) => t.term === 'BadPath'))
     })
 
+    test('importTerms() rejects a bare "/" path rather than defaulting it to the home page (OpenProject #1936)', async () => {
+      // -> Unlike `api/pages.ts` and `mcp/tools/getPage.ts`, `resolvePagePath` applies no `|| 'home'`
+      //    default: a term's canonical-path reference that normalizes to empty is unresolvable, not a
+      //    deliberate reference to the site root -- even when a home page genuinely exists.
+      await pagesModel.createPage(fixtures.siteId, pageInput({ path: 'home' }), actor)
+
+      await assert.rejects(
+        () =>
+          glossaryModel.importTerms(fixtures.siteId, {
+            formatVersion: 1,
+            terms: [{ term: 'RootPath', definition: 'Points at "/".', aliases: [], path: '/' }]
+          }),
+        /does not resolve/
+      )
+    })
+
     test('importTerms() rejects two entries in the same payload sharing a surface form', async () => {
       await assert.rejects(
         () =>

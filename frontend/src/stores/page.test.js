@@ -525,6 +525,23 @@ describe('page store: pageLoad()', () => {
     const [, opts] = API_CLIENT.get.mock.calls[0]
     expect(opts.searchParams).toEqual({ withContent: false, locale: 'fr' })
   })
+
+  it('hashes a path with an embedded space to the same hash the backend computes (OpenProject #1933)', async () => {
+    // -> Regression guard for the drifted private normalizePath/fastHash this store used to carry:
+    //    the backend's normalizePagePath turns whitespace into hyphens before hashing, so a path
+    //    like `/my page` (a link written in content, a pasted `%20` URL) has to resolve to the same
+    //    hash as `my-page`, not one nothing owns. Fixed value cross-checked against
+    //    `backend/helpers/common.ts`'s `normalizePagePath` + `generatePathHash`.
+    const siteStore = useSiteStore()
+    siteStore.id = 'site-1'
+    API_CLIENT.get.mockReturnValueOnce(stubPageResponse())
+
+    const pageStore = usePageStore()
+    await pageStore.pageLoad({ path: '/my page' })
+
+    const [url] = API_CLIENT.get.mock.calls[0]
+    expect(url).toBe('sites/site-1/pages/bb4979d5e035d')
+  })
 })
 
 describe('page store: pageEdit()', () => {

@@ -378,8 +378,21 @@ const hookNameValidation = [
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.nameInvalidChars')
 ]
 const hookEventsValidation = [(val) => val.length > 0 || t('admin.webhooks.eventsMissing')]
+/**
+ * Whether `val` is an http(s) URL the backend's own `invalidReason()` (`backend/api/hooks.ts`) would
+ * accept too -- `new URL()` plus a protocol check, not a bare `startsWith('http')`, so a scheme like
+ * `httpfoo://x` is refused here exactly as it already is server-side (OpenProject #1940).
+ */
+function isHttpUrl(val) {
+  try {
+    return ['http:', 'https:'].includes(new URL(val).protocol)
+  } catch {
+    return false
+  }
+}
+
 const hookUrlValidation = [
-  (val) => (val.length > 0 && val.startsWith('http')) || t('admin.webhooks.urlMissing'),
+  (val) => (val.length > 0 && isHttpUrl(val)) || t('admin.webhooks.urlMissing'),
   (val) => /^[^<>"]+$/.test(val) || t('admin.webhooks.urlInvalidChars')
 ]
 
