@@ -1,11 +1,14 @@
 /**
- * Pure-ish unit tests for the Local Git storage module's repo lifecycle and auth wiring.
+ * Unit tests for `repo.ts` — the git storage module's repo lifecycle and auth wiring leaf.
  *
- * No `test/db.ts` fixture: nothing here touches Postgres. It does shell out to a real `git` binary
- * via `simple-git` against throwaway temp directories, since the behavior under test — init,
- * remote add/update, branch checkout, SSH config wiring — genuinely is that shelling-out, and a
- * mock of `simple-git` would mostly just be re-describing the code rather than verifying it. `WIKI`
- * is a minimal stub: only `ROOTPATH` and `models.extensions` (git-detection) are read by this file.
+ * `resolveRepoPath`/`buildAuthenticatedUrl` are tested as pure functions with no `WIKI` global and
+ * no I/O, made straightforward precisely because `repo.ts` has no sibling imports to stand in the
+ * way. `ensureRepo` itself is not pure — it shells out to a real `git` binary via `simple-git`
+ * against throwaway temp directories, since the behavior under test — init, remote add/update,
+ * branch checkout, SSH config wiring — genuinely is that shelling-out, and a mock of `simple-git`
+ * would mostly just be re-describing the code rather than verifying it. No `test/db.ts` fixture:
+ * nothing here touches Postgres. `WIKI` is a minimal stub: only `ROOTPATH` and `models.extensions`
+ * (git-detection) are read by this file.
  */
 import { describe, test, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,7 +16,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
-import { ensureRepo, resolveRepoPath, buildAuthenticatedUrl } from './storage.ts'
+import { ensureRepo, resolveRepoPath, buildAuthenticatedUrl } from './repo.ts'
 
 /** Installs a `WIKI` stub with git detection reporting `installed`, and ROOTPATH under a temp dir. */
 function installWiki(rootPath: string, { installed = true }: { installed?: boolean } = {}): void {

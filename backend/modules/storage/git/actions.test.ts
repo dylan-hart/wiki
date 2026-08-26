@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import { syncUntracked, importAll, purge } from './actions.ts'
-import { ensureRepo } from './storage.ts'
+import { ensureRepo } from './repo.ts'
 import { generatePathHash } from '../../../helpers/common.ts'
 import type { StorageTarget } from '../../../models/storage.ts'
 
