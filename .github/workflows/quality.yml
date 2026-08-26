@@ -35,7 +35,8 @@ jobs:
     # dev/build/Dockerfile and the release tarball step in build.yml's `Prepare build archive` both
     # actually ship. Task 1994/1999/2007: nothing before this job ever exercised that install shape,
     # which is how a devDependency-only import on the real boot path (`@js-temporal/polyfill`, until
-    # #1999) went unnoticed by CI entirely.
+    # #1999) went unnoticed by CI entirely -- see docs/variances.md's `@js-temporal/polyfill` entry
+    # for the concrete case that prompted this job.
     steps:
       - uses: actions/checkout@v7
 
