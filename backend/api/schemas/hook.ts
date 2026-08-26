@@ -38,7 +38,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       acceptUntrusted: {
         type: 'boolean',
-        description: 'Skip TLS certificate validation for this endpoint.'
+        description:
+          'Skip TLS certificate validation for this endpoint. If authHeader is also set, its Authorization header is sent to this peer even though its certificate is never verified.'
       },
       authHeader: {
         type: 'string',
@@ -69,7 +70,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       acceptUntrusted: {
         type: 'boolean',
-        description: 'Skip TLS certificate validation for this endpoint.'
+        description:
+          'Skip TLS certificate validation for this endpoint. If authHeader is also set, its Authorization header is sent to this peer even though its certificate is never verified.'
       },
       authHeader: {
         type: 'string',
