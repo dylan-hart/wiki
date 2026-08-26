@@ -1174,6 +1174,30 @@ describe('users recovery codes (DB-backed)', { skip: !hasTestDatabase() }, () =>
     )
   })
 
+  test('two genuinely concurrent redemptions of the same code consume exactly one entry', async () => {
+    // -> Unlike the "accepts once, then rejects" test above, which re-reads the user *between* the two
+    //    attempts (so it only ever exercises the already-serialized case), both attempts here start from
+    //    the same pre-consumption snapshot and race for real — the scenario a naive read-modify-write
+    //    (read `user`, mutate in memory, write the whole `auth` column back with no lock and no
+    //    conditional `WHERE`) loses: both would see the code unused, both would write "consumed", and a
+    //    single-use code would validate for two different sign-ins.
+    const strategyId = freshStrategyId()
+    const owner = await usersModel.getById(fixtures.userId)
+    const [code] = await usersModel.enableTfa(owner, strategyId)
+
+    const snapshot = await usersModel.getById(fixtures.userId)
+    const results = await Promise.all([
+      usersModel.verifyAndConsumeRecoveryCode({ ...snapshot }, strategyId, code!),
+      usersModel.verifyAndConsumeRecoveryCode({ ...snapshot }, strategyId, code!)
+    ])
+
+    assert.deepEqual(results.sort(), [false, true])
+
+    const reloaded = (await usersModel.getById(fixtures.userId)) as any
+    const entries = reloaded.auth[strategyId].recoveryCodes as RecoveryCodeEntry[]
+    assert.equal(entries.filter((entry) => entry.usedAt).length, 1)
+  })
+
   test('verifyAndConsumeRecoveryCode rejects a code that was never issued', async () => {
     const strategyId = freshStrategyId()
     const owner = await usersModel.getById(fixtures.userId)

@@ -16,6 +16,7 @@ import { nanoid } from 'nanoid'
 import { flatten, uniq } from 'es-toolkit/array'
 import { detectImageMime, resizeImageToSquareJpeg } from '../helpers/images.ts'
 import { buildTotpUri, generateTotpSecret, verifyTotpCode } from '../helpers/totp.ts'
+import { withAdvisoryLock } from '../helpers/advisoryLock.ts'
 import {
   generateRecoveryCodes,
   isRecoveryCodeShape,
@@ -333,6 +334,21 @@ export type ImportLocalUserResult =
  * Users model
  */
 class Users {
+  /**
+   * Run `fn` while holding an advisory lock scoped to one user's `auth` column, so a read-modify-write
+   * against it — read the current row, mutate the blob in memory, write the whole column back — cannot
+   * race a concurrent write to the same user's `auth`. `hashtext()` collapses the key, same as every
+   * other `withAdvisoryLock` caller; the `users.auth:` prefix keeps this lock space distinct from any
+   * other advisory-lock user elsewhere in the app.
+   *
+   * `verifyAndConsumeRecoveryCode` is the first caller. Factored out so the remaining whole-blob `auth`
+   * writes in this file (`enableTfa`, `disableTfa`, `regenerateRecoveryCodes`, `confirmTfaSetup`, …) can
+   * adopt the same lock instead of each hand-rolling one.
+   */
+  private async withUserAuthLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+    return withAdvisoryLock(`users.auth:${userId}`, fn)
+  }
+
   async getByEmail(email: string) {
     const res = await WIKI.db.select().from(usersTable).where(eq(usersTable.email, email)).limit(1)
     return res?.[0] ?? null
@@ -1339,7 +1355,17 @@ class Users {
    * Whether a recovery code matches one of the unconsumed codes stored for a user's 2FA. On a match,
    * marks that entry consumed so it cannot be redeemed a second time.
    *
-   * @param user The user row, whose `auth` blob is updated in place as well as saved
+   * The whole read-modify-write happens under `withUserAuthLock`, and — because the caller's `user` may
+   * be a row `validateToken()` loaded before any lock was held — against a fresh re-read taken *inside*
+   * the lock, not against the possibly-stale `user.auth` passed in. Two concurrent redemptions of the
+   * same code otherwise both read "unused" before either writes, and both succeed: the lock alone only
+   * serializes the two calls against each other, it does nothing for a call that still decides off
+   * stale, pre-lock data. Serialized one behind the other and each re-reading first, the second call
+   * sees the first's `usedAt`, so `matchRecoveryCode` correctly reports no unconsumed match for it.
+   *
+   * @param user The user row. `user.auth` is refreshed in place with the write this makes, so a caller
+   *             inspecting it afterwards sees the consumed entry too — but the decision itself is made
+   *             from the fresh read, not from what was passed in.
    * @returns Whether the code matched an unconsumed entry
    */
   async verifyAndConsumeRecoveryCode(
@@ -1347,25 +1373,33 @@ class Users {
     strategyId: string,
     code: string
   ): Promise<boolean> {
-    const auth = (user.auth ?? {}) as Record<string, any>
-    const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
-    const matchedIndex = await matchRecoveryCode(entries, normalizeRecoveryCode(code))
-    if (matchedIndex < 0) {
-      return false
-    }
+    const normalizedCode = normalizeRecoveryCode(code)
+    return this.withUserAuthLock(user.id, async () => {
+      const fresh = await this.getById(user.id)
+      if (!fresh) {
+        return false
+      }
+      const auth = (fresh.auth ?? {}) as Record<string, any>
+      const entries = (auth[strategyId]?.recoveryCodes ?? []) as RecoveryCodeEntry[]
+      const matchedIndex = await matchRecoveryCode(entries, normalizedCode)
+      if (matchedIndex < 0) {
+        return false
+      }
 
-    const updatedEntries = entries.map((entry, i) =>
-      i === matchedIndex
-        ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
-        : entry
-    )
-    user.auth[strategyId] = { ...auth[strategyId], recoveryCodes: updatedEntries }
-    await WIKI.db
-      .update(usersTable)
-      .set({ auth: user.auth, updatedAt: sql`now()` })
-      .where(eq(usersTable.id, user.id))
-    WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
-    return true
+      const updatedEntries = entries.map((entry, i) =>
+        i === matchedIndex
+          ? { ...entry, usedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' }) }
+          : entry
+      )
+      auth[strategyId] = { ...auth[strategyId], recoveryCodes: updatedEntries }
+      await WIKI.db
+        .update(usersTable)
+        .set({ auth, updatedAt: sql`now()` })
+        .where(eq(usersTable.id, user.id))
+      user.auth = auth
+      WIKI.models.flags.authDebug(`User ${user.id} <${user.email}> consumed a 2FA recovery code`)
+      return true
+    })
   }
 
   /**
