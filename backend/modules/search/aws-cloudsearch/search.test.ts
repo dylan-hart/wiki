@@ -156,6 +156,7 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
@@ -168,6 +169,14 @@ describe('aws-cloudsearch module: buildIndexFields', () => {
     assert.equal(id.type, 'literal')
     assert.equal(id.options.searchEnabled, false)
     assert.equal(id.options.facetEnabled, false)
+  })
+
+  test('siteId is a literal field, filterable but never searched, faceted or returned (OpenProject #2108/#2113)', () => {
+    const siteId = fields.find((f) => f.name === 'siteId')!
+    assert.equal(siteId.type, 'literal')
+    assert.equal(siteId.options.searchEnabled, false)
+    assert.equal(siteId.options.facetEnabled, false)
+    assert.equal(siteId.options.returnEnabled, false)
   })
 
   test('path, locale, title, description and content are text fields referencing the analysis scheme', () => {
@@ -261,6 +270,7 @@ describe('aws-cloudsearch module: init()', () => {
         'locale',
         'path',
         'publishState',
+        'siteId',
         'tags',
         'title',
         'updatedAt'
@@ -405,6 +415,7 @@ describe('aws-cloudsearch module: toIndexDocument', () => {
     const doc = toIndexDocument(basePage())
     assert.equal(doc.type, 'add')
     assert.equal(doc.id, 'page-1')
+    assert.equal(doc.fields.siteId, 'site-1')
     assert.equal(doc.fields.path, 'en/getting-started')
     assert.equal(doc.fields.locale, 'en')
     assert.equal(doc.fields.title, 'Getting Started')
@@ -501,78 +512,85 @@ describe('aws-cloudsearch module: buildStructuredQuery', () => {
 })
 
 describe('aws-cloudsearch module: buildFilterQuery', () => {
-  test('undefined when nothing is set beyond the default draft exclusion is itself the only clause', () => {
-    // -> `includeDrafts: false` (the default) always contributes a clause, so this asserts the shape
-    //    of that one clause rather than an empty filter.
-    assert.equal(buildFilterQuery({}), `(not (term field=publishState 'draft'))`)
-  })
-
-  test('undefined when every filter is off, including draft exclusion', () => {
-    assert.equal(buildFilterQuery({ includeDrafts: true }), undefined)
-  })
-
-  test('path becomes a prefix clause', () => {
+  test('siteId alone when nothing else is set beyond the default draft exclusion', () => {
+    // -> `includeDrafts: false` (the default) always contributes a clause too, so this asserts the
+    //    shape of both clauses and-joined, rather than an empty filter.
     assert.equal(
-      buildFilterQuery({ path: 'en/guides', includeDrafts: true }),
-      `(prefix field=path 'en/guides')`
+      buildFilterQuery({ siteId: 'site-1' }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')))`
+    )
+  })
+
+  test('siteId alone (a plain term clause, not wrapped in "and") when every other filter is off', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: 'site-1', includeDrafts: true }),
+      `(term field=siteId 'site-1')`
+    )
+  })
+
+  test('path becomes a prefix clause, and-joined with siteId', () => {
+    assert.equal(
+      buildFilterQuery({ siteId: 'site-1', path: 'en/guides', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en/guides'))`
     )
   })
 
   test('multiple locales become an or of term clauses', () => {
     assert.equal(
-      buildFilterQuery({ locales: ['en', 'fr'], includeDrafts: true }),
-      `(or (term field=locale 'en') (term field=locale 'fr'))`
+      buildFilterQuery({ siteId: 'site-1', locales: ['en', 'fr'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=locale 'en') (term field=locale 'fr')))`
     )
   })
 
   test('multiple tags become an or of term clauses, any-of not all-of', () => {
     assert.equal(
-      buildFilterQuery({ tags: ['a', 'b'], includeDrafts: true }),
-      `(or (term field=tags 'a') (term field=tags 'b'))`
+      buildFilterQuery({ siteId: 'site-1', tags: ['a', 'b'], includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (or (term field=tags 'a') (term field=tags 'b')))`
     )
   })
 
   test('editor becomes a term clause', () => {
     assert.equal(
-      buildFilterQuery({ editor: 'markdown', includeDrafts: true }),
-      `(term field=editor 'markdown')`
+      buildFilterQuery({ siteId: 'site-1', editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=editor 'markdown'))`
     )
   })
 
   test('publicOnly restricts to published, overriding includeDrafts', () => {
     assert.equal(
-      buildFilterQuery({ publicOnly: true, includeDrafts: true }),
-      `(term field=publishState 'published')`
+      buildFilterQuery({ siteId: 'site-1', publicOnly: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=publishState 'published'))`
     )
   })
 
   test('an explicit publishState adds its own clause alongside the draft exclusion', () => {
     assert.equal(
-      buildFilterQuery({ publishState: 'published' }),
-      `(and (not (term field=publishState 'draft')) (term field=publishState 'published'))`
+      buildFilterQuery({ siteId: 'site-1', publishState: 'published' }),
+      `(and (term field=siteId 'site-1') (not (term field=publishState 'draft')) (term field=publishState 'published'))`
     )
   })
 
   test('hasPassword becomes a literal true/false term clause', () => {
     assert.equal(
-      buildFilterQuery({ hasPassword: false, includeDrafts: true }),
-      `(term field=hasPassword 'false')`
+      buildFilterQuery({ siteId: 'site-1', hasPassword: false, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'false'))`
     )
     assert.equal(
-      buildFilterQuery({ hasPassword: true, includeDrafts: true }),
-      `(term field=hasPassword 'true')`
+      buildFilterQuery({ siteId: 'site-1', hasPassword: true, includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (term field=hasPassword 'true'))`
     )
   })
 
-  test('several filters and-join into one clause', () => {
+  test('several filters and-join into one clause alongside siteId', () => {
     assert.equal(
-      buildFilterQuery({ path: 'en', editor: 'markdown', includeDrafts: true }),
-      `(and (prefix field=path 'en') (term field=editor 'markdown'))`
+      buildFilterQuery({ siteId: 'site-1', path: 'en', editor: 'markdown', includeDrafts: true }),
+      `(and (term field=siteId 'site-1') (prefix field=path 'en') (term field=editor 'markdown'))`
     )
   })
 
-  test('never mentions siteId — a site only ever talks to its own domain', () => {
+  test('always includes a siteId term, for every combination of optional filters', () => {
     const clause = buildFilterQuery({
+      siteId: 'site-1',
       path: 'en',
       locales: ['en'],
       tags: ['a'],
@@ -580,7 +598,14 @@ describe('aws-cloudsearch module: buildFilterQuery', () => {
       publishState: 'published',
       hasPassword: true
     })
-    assert.ok(!clause!.includes('siteId'))
+    assert.match(clause, /\(term field=siteId 'site-1'\)/)
+  })
+
+  test('a different siteId produces a different clause', () => {
+    assert.notEqual(
+      buildFilterQuery({ siteId: 'site-1', includeDrafts: true }),
+      buildFilterQuery({ siteId: 'site-2', includeDrafts: true })
+    )
   })
 })
 
@@ -958,13 +983,17 @@ describe('aws-cloudsearch module: rebuild()', () => {
   /**
    * OpenProject #922: `rebuild()` only ever added/overwrote documents, so a page deleted while this
    * engine was unreachable stayed in the domain forever -- a ghost result. It now queries every id
-   * already in the domain and uploads an SDF `delete` entry for whichever ones were not just
-   * re-uploaded.
+   * belonging to this site already in the domain (OpenProject #2108/#2117: `siteId`-scoped, not a bare
+   * `matchall`, now that a shared domain is a real possibility -- see `buildFilterQuery`'s own doc
+   * comment) and uploads an SDF `delete` entry for whichever ones were not just re-uploaded. That
+   * lookup only runs once `hasUnbackfilledDocuments` confirms the whole domain has been backfilled with
+   * a `siteId` value -- see the `gates the purge on a completed siteId backfill` block below.
    */
   describe('purges ghost documents', () => {
     test('deletes a domain id that was not re-uploaded, keeps the ones that were', async () => {
       const client = fakeQueryClient([
-        { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] }
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 2, hit: [hit({ id: 'stays' }), hit({ id: 'ghost' })] } // fetchAllIds
       ])
       const source = fakePageSource({ en: [basePage({ id: 'stays' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
@@ -976,7 +1005,10 @@ describe('aws-cloudsearch module: rebuild()', () => {
     })
 
     test('deletes nothing when every previously-indexed id was re-uploaded', async () => {
-      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'page-1' })] }])
+      const client = fakeQueryClient([
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 1, hit: [hit({ id: 'page-1' })] } // fetchAllIds
+      ])
       const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
@@ -986,15 +1018,71 @@ describe('aws-cloudsearch module: rebuild()', () => {
       assert.deepEqual(deleteEntries, [])
     })
 
-    test('the domain-id lookup uses a matchall query, not siteId -- this module talks to one domain per site', async () => {
-      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'ghost' })] }])
+    test('the backfill check runs a matchall with a missing-siteId filter, then the id lookup a siteId-scoped one', async () => {
+      const client = fakeQueryClient([
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments
+        { found: 1, hit: [hit({ id: 'ghost' })] } // fetchAllIds
+      ])
       const source = fakePageSource({ en: [] })
       const module = new AwsCloudSearchModule(undefined, () => client, source)
 
       await module.rebuild('site-1')
 
       assert.equal(client.searches[0]!.query, 'matchall')
-      assert.equal(client.searches[0]!.filterQuery, undefined)
+      assert.equal(client.searches[0]!.filterQuery, '(not (range field=siteId {,}))')
+      assert.equal(client.searches[1]!.query, 'matchall')
+      assert.equal(client.searches[1]!.filterQuery, `(term field=siteId 'site-1')`)
+    })
+  })
+
+  /**
+   * OpenProject #2108/#2117: a document indexed before the `siteId` field existed carries no value for
+   * it, so a purge that ran the moment this shipped could not tell such a document apart from another
+   * site's real, live page sharing the same domain -- exactly the neighbour-wiping bug this task fixes.
+   * `rebuild()` checks `hasUnbackfilledDocuments` first and skips the purge entirely, observably, until
+   * it comes back clean.
+   */
+  describe('gates the purge on a completed siteId backfill', () => {
+    test('skips the purge -- no delete batch, and fetchAllIds is never called -- while unbackfilled documents remain', async () => {
+      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'legacy' })] }])
+      const source = fakePageSource({ en: [basePage({ id: 'page-1' })] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
+      assert.deepEqual(deleteEntries, [])
+      // -> Only the hasUnbackfilledDocuments search ran -- fetchAllIds was never reached.
+      assert.equal(client.searches.length, 1)
+    })
+
+    test('logs the skip observably rather than silently', async () => {
+      const client = fakeQueryClient([{ found: 1, hit: [hit({ id: 'legacy' })] }])
+      const source = fakePageSource({ en: [] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+      const loggerInfo = (globalThis as any).WIKI.logger.info
+      const infoCallsBefore = loggerInfo.mock.calls.length
+
+      await module.rebuild('site-1')
+
+      const messages = loggerInfo.mock.calls
+        .slice(infoCallsBefore)
+        .map((c: any) => c.arguments[0] as string)
+      assert.ok(messages.some((m: string) => m.includes('Skipping stale-document purge')))
+    })
+
+    test('purges normally, siteId-scoped, once every document has been backfilled', async () => {
+      const client = fakeQueryClient([
+        { found: 0, hit: [] }, // hasUnbackfilledDocuments: fully backfilled
+        { found: 1, hit: [hit({ id: 'ghost' })] } // fetchAllIds
+      ])
+      const source = fakePageSource({ en: [] })
+      const module = new AwsCloudSearchModule(undefined, () => client, source)
+
+      await module.rebuild('site-1')
+
+      const deleteEntries = client.uploaded.flat().filter((doc) => doc.type === 'delete')
+      assert.deepEqual(deleteEntries, [{ type: 'delete', id: 'ghost' }])
     })
   })
 })

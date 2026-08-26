@@ -890,6 +890,17 @@ site sharing it. `search.ts`'s `rebuild()` instead runs a `delete_by_query` filt
 document also carries a `siteId` keyword field for this reason, alongside the fields task #552 named
 explicitly.
 
+The same reasoning applies verbatim to `backend/modules/search/aws-cloudsearch/search.ts` (OpenProject
+#2108/#2113/#2117): its `rebuild()` originally assumed a CloudSearch domain is always single-site,
+because its query client is built per site from that site's own stored `domain`/`endpoint` config —
+but nothing enforces that assumption, since a site's `search.engines[key]` config is free-form and
+unchecked for uniqueness across sites. `toIndexDocument()` now emits a `siteId` field, `buildFilterQuery()`
+adds it as an unconditional term clause, and `fetchAllIds()` scopes the id lookup `rebuild()`'s purge
+diffs against by `siteId` too — mirroring `azure-search`'s own `fetchAllIds(client, siteId)`. Because a
+document indexed before the field existed carries no value for it, the purge additionally gates itself
+on `hasUnbackfilledDocuments()` returning clean before it runs at all, rather than risk either silently
+orphaning such a document forever or wiping a neighbour site's still-unbackfilled pages.
+
 ## Feature 413 ("RTL support end-to-end")
 
 ### No real Arabic/Hebrew locale data (task 727)
