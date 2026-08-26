@@ -25,6 +25,14 @@ describe('DiscordAuthentication', () => {
     assert.ok(discord instanceof OAuth2Authentication)
   })
 
+  test('names `verified` as the email-verification claim, so a false /users/@me `verified` refuses the login', () => {
+    const discord = new DiscordAuthentication('strategy-1', {
+      clientId: 'client-abc',
+      clientSecret: 'secret-xyz'
+    })
+    assert.equal(discord.conf.emailVerifiedClaim, 'verified')
+  })
+
   describe('authorizationUrl', () => {
     test('fixes the authorization URL and scope — Discord has one fixed set of endpoints', async () => {
       const discord = new DiscordAuthentication('strategy-1', {
@@ -112,6 +120,30 @@ describe('DiscordAuthentication', () => {
           (c) => String(c.arguments[0]) === 'https://discord.com/api/users/@me/guilds'
         ),
         false
+      )
+    })
+
+    test('throws ERR_EMAIL_NOT_VERIFIED when /users/@me reports verified: false', async () => {
+      fetchMock = mock.method(globalThis, 'fetch', async (input: any) => {
+        const url = String(input)
+        if (url === 'https://discord.com/api/oauth2/token') {
+          return new Response(JSON.stringify({ access_token: 'the-access-token' }), { status: 200 })
+        }
+        if (url === 'https://discord.com/api/users/@me') {
+          return new Response(
+            JSON.stringify({ id: '1', username: 'u', email: 'u@example.com', verified: false }),
+            { status: 200 }
+          )
+        }
+        throw new Error(`unexpected fetch to ${url}`)
+      })
+      const discord = new DiscordAuthentication('strategy-1', {
+        clientId: 'client-abc',
+        clientSecret: 'secret-xyz'
+      })
+      await assert.rejects(
+        discord.profile({ ...flow, currentUrl: '', code: 'the-code' }),
+        /ERR_EMAIL_NOT_VERIFIED/
       )
     })
 

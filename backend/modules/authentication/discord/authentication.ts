@@ -17,7 +17,10 @@ function buildDiscordConfig(conf: Record<string, any>): Record<string, any> {
     //    which is null for a user who never set one) is always present.
     userIdClaim: 'id',
     emailClaim: 'email',
-    displayNameClaim: 'username'
+    displayNameClaim: 'username',
+    // -> Discord's `/users/@me` reports its own `verified` boolean alongside `email` — the base
+    //    module now honours a named claim there (`mapProfile()`), so this stops discarding it.
+    emailVerifiedClaim: 'verified'
   }
 }
 

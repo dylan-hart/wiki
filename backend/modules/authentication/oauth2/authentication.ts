@@ -25,8 +25,11 @@ function asStringArray(value: unknown): string[] {
  * Where an OIDC provider's ID token would carry the subject's identity claims, this module is told
  * where to find the same information on whatever JSON the provider's user-info endpoint answers with:
  * `userIdClaim`, `emailClaim`, `displayNameClaim`. A provider with no verified-email concept (unlike
- * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — there is no
- * verification step to add without a protocol feature to hang it on.
+ * GitHub's `/user/emails`) is simply trusted to report a real address at `emailClaim` — but one that
+ * does answer a verification flag can name it via `emailVerifiedClaim`, checked in `mapProfile()`
+ * the same way `google/authentication.ts` honours OIDC's `email_verified`: a claim present and
+ * `false` refuses the login, an absent claim (unconfigured, or the provider just didn't send it) is
+ * accepted unchanged.
  *
  * `assertConfigured`/`exchangeCode`/`fetchUserInfo`/`mapProfile` are `protected` rather than folded
  * into `profile()` so a fixed-endpoint preset built on top of this module — `discord/authentication.ts`
@@ -155,6 +158,15 @@ export default class OAuth2Authentication {
     const email = info[this.conf.emailClaim || 'email']
     if (!email || typeof email !== 'string') {
       throw new Error('ERR_NO_EMAIL_FROM_PROVIDER')
+    }
+
+    // -> Honoured only when configured and the provider actually answers it: a claim the admin never
+    //    named, or one the provider left off the response entirely, is silently accepted the way it
+    //    always was — there is no protocol-wide guarantee a plain OAuth2 userinfo response carries a
+    //    verification flag at all, unlike OIDC's `email_verified` (see `google/authentication.ts`).
+    const emailVerifiedClaim = this.conf.emailVerifiedClaim
+    if (emailVerifiedClaim && info[emailVerifiedClaim] === false) {
+      throw new Error('ERR_EMAIL_NOT_VERIFIED')
     }
 
     return {
