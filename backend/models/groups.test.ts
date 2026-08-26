@@ -576,6 +576,44 @@ describe('groups.checkAccess (DB-backed)', { skip: !hasTestDatabase() }, () => {
   })
 
   /**
+   * OpenProject #2119: `allowedClassifications` used to be compared AFTER the `manage:system`
+   * short-circuit, so a `manage:system`-holding actor's allow-set was dead code -- the exact bypass
+   * `api/users.ts:677-681` promises a PAT holder it will not have. The comparison now runs first, so
+   * a `manage:system` actor with a non-null allow-set is refused outside it and still allowed inside
+   * it, alongside `manage:system bypasses every rule` above, which stays true for a null allow-set.
+   */
+  test('manage:system does not bypass a non-null allowedClassifications allow-set (OpenProject #2119)', async () => {
+    await setGroupRules([rule({ path: '', roles: ['read:pages'], mode: 'DENY' })])
+    const levelsModel = (await import('./classificationLevels.ts')).classificationLevels
+    const restricted = await levelsModel.create({ name: 'Test Restricted (2119)', sortOrder: 98 })
+
+    const cappedAdmin = {
+      groupIds: [fixtures.groupId],
+      permissions: ['manage:system'],
+      allowedClassifications: [fixtures.classificationId]
+    }
+    const publicPage = {
+      path: 'public-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: fixtures.classificationId
+    }
+    const restrictedPage = {
+      path: 'restricted-page-2119',
+      locale: 'en',
+      siteId: null,
+      classification: restricted.id
+    }
+
+    // -> Outside the allow-set: refused even though manage:system would otherwise bypass the DENY rule
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', restrictedPage), false)
+    // -> Inside the allow-set: manage:system still bypasses the group's DENY rule as usual
+    assert.equal(groupsModel.checkAccess(cappedAdmin, 'read:pages', publicPage), true)
+
+    await levelsModel.delete(restricted.id)
+  })
+
+  /**
    * Feature 357 / task 448: the realistic guests-group ALLOW/DENY/FORCEALLOW scenario from the task
    * description, run through the full stack this time — the same `GUEST_SCENARIO_RULES` from
    * `test/permissionScenario.ts` written to a real group row, reloaded through the real in-memory
