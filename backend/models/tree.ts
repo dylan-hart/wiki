@@ -953,6 +953,52 @@ class Tree {
   }
 
   /**
+   * List every page under a folder, at any depth, with what authorizing the whole subtree needs:
+   * its current path, tags and classification (OpenProject #2102).
+   *
+   * Unbounded, like `refreshDescendantPaths` below and unlike `getTree()`'s `MAX_DEPTH`-capped
+   * listing: a permission check that stopped ten levels down would leave everything past that depth
+   * unchecked, which is exactly the kind of gap this exists to close for a rename (or delete) that
+   * cascades to every descendant regardless of how deep it goes.
+   */
+  async listDescendantPages(
+    folderId: string
+  ): Promise<{ path: string; tags: string[]; classification: string | null }[]> {
+    const folder = await this.getFolderById(folderId)
+    if (!folder) {
+      throw new CustomError('treeInvalidFolder', 'This folder does not exist.', 404)
+    }
+    const path = childPathOf(folder)
+
+    const rows = await WIKI.db
+      .select({
+        folderPath: treeTable.folderPath,
+        fileName: treeTable.fileName,
+        tags: treeTable.tags,
+        classification: pagesTable.classification
+      })
+      .from(treeTable)
+      .innerJoin(pagesTable, eq(pagesTable.id, treeTable.id))
+      .where(
+        and(
+          eq(treeTable.siteId, folder.siteId),
+          eq(treeTable.locale, folder.locale),
+          eq(treeTable.type, 'page'),
+          sql`${treeTable.folderPath} <@ ${path}::ltree`
+        )
+      )
+
+    return rows.map((row) => {
+      const rowFolderPath = decodeTreePath(row.folderPath ?? '') ?? ''
+      return {
+        path: rowFolderPath ? `${rowFolderPath}/${row.fileName}` : row.fileName,
+        tags: row.tags ?? [],
+        classification: row.classification
+      }
+    })
+  }
+
+  /**
    * Rename a folder, moving everything under it along with it.
    *
    * @param pathName The new path segment, normalized as on the way in. Unchanged from the current

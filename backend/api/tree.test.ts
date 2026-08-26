@@ -42,6 +42,7 @@ before(async () => {
           locale: 'en',
           meta: {}
         }),
+        listDescendantPages: async () => [],
         getTree: async () => []
       },
       groups: {
@@ -56,6 +57,17 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
+  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  app.setErrorHandler((error: any, _req, reply) => {
+    reply.code(error.statusCode ?? 500).send({
+      ok: false,
+      error: error.name,
+      statusCode: error.statusCode ?? 500,
+      message: error.message
+    })
+  })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
   await app.register(treeRoutes)
@@ -173,4 +185,62 @@ test('RENAME FOLDER route: passes the route siteId through to checkAccess', asyn
   assert.equal(res.statusCode, 200)
   assert.equal(calls.length, 1)
   assert.equal(calls[0].siteId, ENABLED_SITE_ID)
+})
+
+/**
+ * OpenProject #2102: renaming a folder used to authorize only the folder's own CURRENT path with
+ * `manage:pages`, then let `renameFolder()` rewrite every descendant's path unchecked -- a group
+ * holding ALLOW `manage:pages` at the site root plus a narrower DENY somewhere under the folder
+ * passed the gate at the folder and had the denied branch moved to a path the DENY no longer
+ * addressed. Renaming now also requires `write:pages` at the destination, for the folder itself and
+ * for every descendant page.
+ */
+test('RENAME FOLDER route: refuses when the caller lacks write:pages at the destination path, and does not rename', async () => {
+  let renameCalled = false
+  ;(globalThis as any).WIKI.models.tree.renameFolder = async () => {
+    renameCalled = true
+    return {}
+  }
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) => !(permission === 'write:pages' && page.path === 'sub2')
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}`,
+    payload: { pathName: 'sub2', title: 'Sub' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(renameCalled, false, 'renameFolder must not run when the destination is refused')
+})
+
+test('RENAME FOLDER route: refuses when a descendant page would land where the caller lacks write:pages, and does not rename', async () => {
+  let renameCalled = false
+  ;(globalThis as any).WIKI.models.tree.renameFolder = async () => {
+    renameCalled = true
+    return {}
+  }
+  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
+    { path: 'sub/child', tags: [], classification: null }
+  ]
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    page: any
+  ) =>
+    // -> The folder itself is allowed both at its current path and at the destination; only the
+    //    descendant's own destination is refused -- the escalation this exists to close.
+    !(permission === 'write:pages' && page.path === 'sub2/child')
+  const res = await app.inject({
+    method: 'PATCH',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}`,
+    payload: { pathName: 'sub2', title: 'Sub' }
+  })
+  assert.equal(res.statusCode, 403)
+  assert.equal(
+    renameCalled,
+    false,
+    'renameFolder must not run when a descendant destination is refused'
+  )
 })
