@@ -43,10 +43,23 @@ before(async () => {
           meta: {}
         }),
         listDescendantPages: async () => [],
-        getTree: async () => []
+        getTree: async () => [],
+        // -> DELETE FOLDER's own default: no descendants, nothing to authorize. Tests covering
+        //    OpenProject #2100 override this per-test.
+        listDescendants: async () => ({ pages: [], assets: [] }),
+        deleteFolder: async () => ({ pages: [], assets: [] })
       },
       groups: {
-        actorForRequest: () => ({ permissions: [] })
+        actorForRequest: () => ({ permissions: [] }),
+        // -> `actorFrom(req)` (DELETE FOLDER's session-to-actor resolution, `api/pages.ts`) reads this
+        //    for a session-backed request.
+        groupIdsForRequest: () => []
+      },
+      pages: {
+        deleteOrphaned: async () => {}
+      },
+      assets: {
+        deleteOrphaned: async () => {}
       }
     }
   }
@@ -57,9 +70,11 @@ before(async () => {
     }
   })
   await app.register(fastifySensible)
-  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/etc. is a
-  //    thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
-  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError` schema expects.
+  // -> Mirrors `index.ts`'s real `setErrorHandler`: a `reply.notFound()`/`forbidden()`/`unauthorized()`
+  //    is a thrown `@fastify/sensible` error, and it is THIS handler -- not fastify's default -- that
+  //    shapes it into the `{ ok, error, statusCode, message }` the `ApiError#` response schema every
+  //    route's 4xx entries reference requires. Needed here because DELETE FOLDER's #2100 tests are the
+  //    first in this file to actually exercise a 4xx response.
   app.setErrorHandler((error: any, _req, reply) => {
     reply.code(error.statusCode ?? 500).send({
       ok: false,
@@ -67,6 +82,16 @@ before(async () => {
       statusCode: error.statusCode ?? 500,
       message: error.message
     })
+  })
+  // -> Stands in for `@fastify/session`: every injected request arrives already logged in, which is
+  //    what DELETE FOLDER's `actorFrom(req)` needs to get past its own 401 before authorization is
+  //    even considered. No test in this file exercises the unauthenticated path.
+  app.addHook('onRequest', async (req) => {
+    ;(req as any).session = {
+      authenticated: true,
+      user: { id: 'user-1', email: 'user@example.com', name: 'User' },
+      permissions: []
+    }
   })
   await registerTreeSchema(app)
   await registerErrorSchema(app)
@@ -201,6 +226,9 @@ test('RENAME FOLDER route: refuses when the caller lacks write:pages at the dest
     renameCalled = true
     return {}
   }
+  ;(globalThis as any).WIKI.models.tree.listDescendantPages = async () => [
+    { path: 'sub/child', tags: [], classification: null }
+  ]
   ;(globalThis as any).WIKI.models.groups.checkAccess = (
     _actor: any,
     permission: string,
@@ -243,4 +271,132 @@ test('RENAME FOLDER route: refuses when a descendant page would land where the c
     false,
     'renameFolder must not run when a descendant destination is refused'
   )
+})
+
+/**
+ * OpenProject #2100: DELETE FOLDER cascades to every descendant page and asset, but used to authorize
+ * only the folder's own path (`manage:pages`) -- `delete:pages` was never checked at all, and no asset
+ * permission was checked at all. The route now enumerates descendants first
+ * (`WIKI.models.tree.listDescendants`) and requires `delete:pages` on every descendant page and
+ * `manage:assets` on every descendant asset before calling `deleteFolder`, refusing (403) and deleting
+ * nothing the moment a single descendant fails -- the same all-or-nothing shape the page move route's
+ * `includeTranslations` uses.
+ */
+test('DELETE FOLDER route: refused 403 when a descendant page fails delete:pages, deleting nothing', async () => {
+  const deleteFolderCalls: any[] = []
+  const permissionsChecked: string[] = []
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async (folderId: string) => {
+    assert.equal(folderId, FOLDER_ID)
+    return {
+      pages: [{ path: 'sub/child', locale: 'en', tags: [], classification: null }],
+      assets: []
+    }
+  }
+  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+    deleteFolderCalls.push(folderId)
+    return { pages: [], assets: [] }
+  }
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    _page: any
+  ) => {
+    permissionsChecked.push(permission)
+    // -> The folder's own `manage:pages` check passes; the descendant page's `delete:pages` does not.
+    return permission !== 'delete:pages'
+  }
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}`
+  })
+  assert.equal(res.statusCode, 403)
+  assert.ok(
+    permissionsChecked.includes('delete:pages'),
+    'must check delete:pages on the descendant'
+  )
+  assert.equal(
+    deleteFolderCalls.length,
+    0,
+    'deleteFolder must not run once a descendant is refused'
+  )
+})
+
+test('DELETE FOLDER route: refused 403 when a descendant asset fails manage:assets, deleting nothing', async () => {
+  const deleteFolderCalls: any[] = []
+  const permissionsChecked: string[] = []
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [],
+    assets: [{ folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
+  })
+  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+    deleteFolderCalls.push(folderId)
+    return { pages: [], assets: [] }
+  }
+  ;(globalThis as any).WIKI.models.groups.checkAccess = (
+    _actor: any,
+    permission: string,
+    _page: any
+  ) => {
+    permissionsChecked.push(permission)
+    // -> The folder's own `manage:pages` check passes; the descendant asset's `manage:assets` does not.
+    return permission !== 'manage:assets'
+  }
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}`
+  })
+  assert.equal(res.statusCode, 403)
+  assert.ok(
+    permissionsChecked.includes('manage:assets'),
+    'must check manage:assets on the descendant'
+  )
+  assert.equal(
+    deleteFolderCalls.length,
+    0,
+    'deleteFolder must not run once a descendant is refused'
+  )
+})
+
+test('DELETE FOLDER route: still cascades as before once every descendant is authorized', async () => {
+  const deleteFolderCalls: any[] = []
+  const pagesDeleteOrphanedCalls: any[] = []
+  const assetsDeleteOrphanedCalls: any[] = []
+  const removedPages = [{ id: 'p1', folderPath: 'sub', fileName: 'child', locale: 'en' }]
+  const removedAssets = [{ id: 'a1', folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
+  ;(globalThis as any).WIKI.models.tree.listDescendants = async () => ({
+    pages: [{ path: 'sub/child', locale: 'en', tags: ['x'], classification: 'internal' }],
+    assets: [{ folderPath: 'sub', fileName: 'file.png', locale: 'en' }]
+  })
+  ;(globalThis as any).WIKI.models.tree.deleteFolder = async (folderId: string) => {
+    deleteFolderCalls.push(folderId)
+    return { pages: removedPages, assets: removedAssets }
+  }
+  ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+  ;(globalThis as any).WIKI.models.pages.deleteOrphaned = async (
+    siteId: string,
+    entries: any[],
+    actor: any
+  ) => {
+    pagesDeleteOrphanedCalls.push({ siteId, entries, actor })
+  }
+  ;(globalThis as any).WIKI.models.assets.deleteOrphaned = async (
+    siteId: string,
+    entries: any[]
+  ) => {
+    assetsDeleteOrphanedCalls.push({ siteId, entries })
+  }
+  const res = await app.inject({
+    method: 'DELETE',
+    url: `/sites/${ENABLED_SITE_ID}/tree/folders/${FOLDER_ID}`
+  })
+  assert.equal(res.statusCode, 204)
+  assert.equal(deleteFolderCalls.length, 1)
+  assert.equal(deleteFolderCalls[0], FOLDER_ID)
+  assert.equal(pagesDeleteOrphanedCalls.length, 1)
+  assert.deepEqual(pagesDeleteOrphanedCalls[0].entries, removedPages)
+  assert.equal(pagesDeleteOrphanedCalls[0].siteId, ENABLED_SITE_ID)
+  assert.equal(pagesDeleteOrphanedCalls[0].actor.id, 'user-1')
+  assert.equal(assetsDeleteOrphanedCalls.length, 1)
+  assert.deepEqual(assetsDeleteOrphanedCalls[0].entries, removedAssets)
+  assert.equal(assetsDeleteOrphanedCalls[0].siteId, ENABLED_SITE_ID)
 })

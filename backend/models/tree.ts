@@ -141,6 +141,10 @@ export interface DescendantAsset {
   /** Slash-separated path of the asset, built from its tree row's `folderPath`/`fileName` -- what an
    *  asset `read:assets`/`manage:assets` ref is built from. */
   path: string
+  /** Slash-separated, without the file name. Empty at the site root -- what `mayOnAsset` (`api/assets.ts`)
+   *  takes alongside `fileName` to build the same ref, rather than the combined `path` above. */
+  folderPath: string
+  fileName: string
   locale: string
 }
 
@@ -1197,9 +1201,11 @@ class Tree {
    * The same set `deleteFolder` deletes and `renameFolder` moves under it -- `<@` is "at or below",
    * scoped by `siteId` and the folder's own `locale` the same way (bug #932) -- so `deleteFolder` and
    * `renameFolder`'s callers (`api/tree.ts`'s DELETE/PATCH folder handlers) can authorize every
-   * descendant before committing to the mutation (OpenProject #2098). `classification` is joined from
-   * `pages`, since `tree` carries no classification column of its own (the same root cause as
-   * OpenProject #1128).
+   * descendant before committing to the mutation (OpenProject #2098, #2100). Each descendant page
+   * carries its real `tags` and `classification` (joined from `pages`, since `tree` carries no
+   * classification column of its own -- the same root cause as OpenProject #1128); each descendant
+   * asset carries both its combined `path` and the separate `folderPath`/`fileName` pair `mayOnAsset`
+   * (`api/assets.ts`) builds its own ref from.
    *
    * @param folderId UUID of the folder whose descendants to list.
    * @param db Runs against this instead of the ambient `WIKI.db`, so a caller can authorize inside the
@@ -1223,6 +1229,8 @@ class Tree {
         fileName: treeTable.fileName,
         locale: treeTable.locale,
         tags: treeTable.tags,
+        // -> Only a `page`-type row's id ever matches `pagesTable.id`; a folder or asset row leaves
+        //    this null, the same "no classification" treatment `getTree()` (OpenProject #1128) gives.
         classification: pagesTable.classification
       })
       .from(treeTable)
@@ -1252,6 +1260,8 @@ class Tree {
         assets.push({
           id: row.id,
           path: fullPath,
+          folderPath,
+          fileName: row.fileName,
           locale: row.locale
         })
       }

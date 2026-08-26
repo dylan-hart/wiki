@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { TREE_ORDER_BY, type TreeItemType, type TreeOrderBy } from '../models/tree.ts'
 import { decodeTreePath, defaultLocale, normalizePagePath } from '../helpers/common.ts'
 import { actorFrom, mayOnPage } from './pages.ts'
+import { mayOnAsset } from './assets.ts'
 
 interface TreeQuery {
   parentId?: string
@@ -712,7 +713,7 @@ async function routes(app: FastifyInstance) {
       schema: {
         summary: 'Delete a folder',
         description:
-          'Everything under the folder goes with it, pages and assets included. Each deleted page is recorded in its history first, so the branch can be recovered from there.',
+          "Everything under the folder goes with it, pages and assets included. Each deleted page is recorded in its history first, so the branch can be recovered from there.\n\nAll-or-nothing, the same shape the page move route's `includeTranslations` uses: the caller needs `manage:pages` on the folder's own path, `delete:pages` on every descendant page (judged on its own real path, tags and classification, not the folder's), and `manage:assets` on every descendant asset. A single unauthorized descendant refuses the whole request (403) and deletes nothing.",
         tags: ['Tree'],
         params: folderIdParam,
         response: {
@@ -746,6 +747,30 @@ async function routes(app: FastifyInstance) {
         )
       ) {
         return reply.forbidden('You are not allowed to delete this folder.')
+      }
+      // -> All-or-nothing, checked before anything is mutated: `deleteFolder` cascades to every
+      //    descendant page and asset, so a caller who may only reorganise THIS folder's own path must
+      //    not be able to drag along a page under a `delete:pages` DENY, or an asset outside their
+      //    `manage:assets` reach, just because the folder itself was theirs to manage (OpenProject
+      //    #2100). Judged on each descendant's own real path/tags/classification -- never the
+      //    folder's -- the same way `mayOnFolder` above is judged on the folder's.
+      const descendants = await WIKI.models.tree.listDescendants(req.params.folderId)
+      for (const page of descendants.pages) {
+        if (!mayOnPage(req, 'delete:pages', req.params.siteId, page)) {
+          return reply.forbidden(
+            `You are not allowed to delete the page at "${page.path}" (${page.locale}).`
+          )
+        }
+      }
+      for (const asset of descendants.assets) {
+        if (!mayOnAsset(req, 'manage:assets', req.params.siteId, asset)) {
+          const assetPath = asset.folderPath
+            ? `${asset.folderPath}/${asset.fileName}`
+            : asset.fileName
+          return reply.forbidden(
+            `You are not allowed to delete the asset at "${assetPath}" (${asset.locale}).`
+          )
+        }
       }
       const removed = await WIKI.models.tree.deleteFolder(req.params.folderId)
       // -> The tree entries are gone; these are the rows behind them, which is where a page and an
