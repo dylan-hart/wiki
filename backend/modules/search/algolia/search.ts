@@ -429,10 +429,16 @@ export class AlgoliaSearchModule implements SearchModule {
 
     return {
       results,
-      // -> Same reasoning as `db/search.ts`: Algolia's `nbHits` counts every match, including ones a
-      //    rule just removed from this page, so it is adjusted by exactly what filtering dropped from
-      //    this page rather than reported as-is.
-      totalHits: Math.max(0, (response.nbHits ?? 0) - hits.length + visible.length),
+      /*
+        A floor, not Algolia's own `nbHits`: that count is evaluated over every match regardless of
+        what the actor may read, so it is never consulted here (same discipline as `db/search.ts`,
+        which drops its own `COUNT(*) OVER()` entirely rather than adjust it). This page's `offset`
+        plus how many of *this* page's hits survived `checkAccess` is the only figure this module can
+        vouch for -- exact once Algolia returns fewer than `limit` hits (there is nothing further to
+        find beyond this page), otherwise a lower bound, since a later page may add more readable
+        matches this call never fetched.
+      */
+      totalHits: offset + visible.length,
       // -> No "did you mean" here: Algolia's own typo-tolerance already retries a query internally,
       //    which is a different mechanism from `db`'s pg_trgm-based post-hoc suggestion and not
       //    something this module surfaces as a distinct suggestion string.

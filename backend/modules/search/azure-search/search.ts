@@ -658,7 +658,6 @@ export class AzureSearchModule implements SearchModule {
     }
 
     let rows: AzureSearchRow[]
-    let totalHits: number
 
     if (hasQuery && hideProtectedContent) {
       const split = await this.runProtectedSplitQuery(
@@ -672,14 +671,15 @@ export class AzureSearchModule implements SearchModule {
         limit
       )
       rows = split.rows
-      totalHits = split.totalHits
     } else {
       const result = await this.runQuery(client, searchText, {
         filter: buildFilter(filterParams),
         orderBy: azureOrderBy,
         top: limit,
         skip: offset,
-        includeTotalCount: true,
+        // -> No count needed: `totalHits` below is derived purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: hasQuery ? FULL_SEARCH_FIELDS : undefined,
         highlightFields: hasQuery ? HIGHLIGHT_FIELDS : undefined,
@@ -687,7 +687,6 @@ export class AzureSearchModule implements SearchModule {
         highlightPostTag: HL_STOP
       })
       rows = result.rows
-      totalHits = result.count
     }
 
     /*
@@ -726,11 +725,16 @@ export class AzureSearchModule implements SearchModule {
 
     return {
       results,
-      // -> The count Azure reported for both halves of the query, less whatever the rules just
-      //    removed -- not exact when rows are dropped, same caveat the `db` engine's own comment
-      //    documents, but a total that ignored the filtering entirely would promise results that
-      //    don't exist.
-      totalHits: Math.max(0, totalHits - rows.length + visible.length),
+      /*
+        A floor, not Azure's own count: that figure is evaluated over every match regardless of what
+        the actor may read, so it is never requested or consulted here (same discipline as
+        `db/search.ts`, which drops its own `COUNT(*) OVER()` entirely rather than adjust it). This
+        page's `offset` plus how many of *this* page's rows survived `checkAccess` is the only figure
+        this module can vouch for -- exact once Azure returns fewer than `limit` rows (there is
+        nothing further to find beyond this page), otherwise a lower bound, since a later page may add
+        more readable matches this call never fetched.
+      */
+      totalHits: offset + visible.length,
       // -> No "did you mean" here: Azure AI Search's own fuzzy/suggester features are a separate
       //    setup step (a suggester definition on the index) this module does not configure, and
       //    building one out of band is future scope, not this task's.
@@ -764,7 +768,7 @@ export class AzureSearchModule implements SearchModule {
     orderByDirection: 'asc' | 'desc',
     offset: number,
     limit: number
-  ): Promise<{ rows: AzureSearchRow[]; totalHits: number }> {
+  ): Promise<{ rows: AzureSearchRow[] }> {
     const fetchDepth = offset + limit
     const [publicResult, protectedResult] = await Promise.all([
       this.runQuery(client, searchText, {
@@ -772,7 +776,9 @@ export class AzureSearchModule implements SearchModule {
         orderBy: azureOrderBy,
         top: fetchDepth,
         skip: 0,
-        includeTotalCount: true,
+        // -> No count needed: the caller derives `totalHits` purely from rows that survived
+        //    `checkAccess`, never from Azure's own pre-filter count.
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: FULL_SEARCH_FIELDS,
         highlightFields: HIGHLIGHT_FIELDS,
@@ -784,7 +790,7 @@ export class AzureSearchModule implements SearchModule {
         orderBy: azureOrderBy,
         top: fetchDepth,
         skip: 0,
-        includeTotalCount: true,
+        includeTotalCount: false,
         queryType: 'simple',
         searchFields: PROTECTED_SEARCH_FIELDS
         // -> No `highlightFields`: a protected page never shows an excerpt, matching the `db` engine.
@@ -794,8 +800,7 @@ export class AzureSearchModule implements SearchModule {
       compareRows(a, b, orderBy, orderByDirection)
     )
     return {
-      rows: merged.slice(offset, offset + limit),
-      totalHits: publicResult.count + protectedResult.count
+      rows: merged.slice(offset, offset + limit)
     }
   }
 

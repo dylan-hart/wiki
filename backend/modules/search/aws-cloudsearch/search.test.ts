@@ -831,7 +831,40 @@ describe('aws-cloudsearch module: query()', () => {
 
       assert.equal(result.results.length, 1)
       assert.equal(result.results[0].id, 'visible')
+      // -> offset (0) plus how many of this page's rows survived checkAccess, never CloudSearch's own
+      //    `found`
       assert.equal(result.totalHits, 1)
+    } finally {
+      ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
+    }
+  })
+
+  test('totalHits never reflects CloudSearch’s own found when it exceeds what this page can vouch for', async () => {
+    ;(globalThis as any).WIKI.models.groups.checkAccess = (
+      _actor: any,
+      _perm: string,
+      page: { path: string }
+    ) => page.path !== 'en/secret'
+    try {
+      const client = fakeQueryClient([
+        {
+          // -> CloudSearch reports 100 total matches across many pages this call never fetched -- the
+          //    old arithmetic (found - rows.length + visible.length) would have leaked most of that
+          //    into totalHits even though only this one page was ever checked against checkAccess.
+          found: 100,
+          hit: [
+            hit({ id: 'visible-1', fields: { path: ['en/visible-1'] } }),
+            hit({ id: 'hidden', fields: { path: ['en/secret'] } }),
+            hit({ id: 'visible-2', fields: { path: ['en/visible-2'] } })
+          ]
+        }
+      ])
+      const module = new AwsCloudSearchModule(undefined, () => client)
+      const result = await module.query({ siteId: 'site-1', offset: 0, actor: {} as any })
+
+      assert.equal(result.results.length, 2)
+      // -> Exactly the readable count of this page (offset 0 + 2 visible), never CloudSearch's 100
+      assert.equal(result.totalHits, 2)
     } finally {
       ;(globalThis as any).WIKI.models.groups.checkAccess = () => true
     }

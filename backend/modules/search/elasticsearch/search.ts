@@ -459,15 +459,18 @@ export class ElasticsearchSearchModule implements SearchModule {
       }
     })
 
-    const rawTotal = response.hits?.total
-    const totalCount = typeof rawTotal === 'number' ? rawTotal : (rawTotal?.value ?? 0)
-
     return {
       results,
-      // -> Same reasoning as `db/search.ts` and the Algolia module: Elasticsearch's own hit count
-      //    includes every match, including ones a rule just removed from this page, so it is adjusted
-      //    by exactly what filtering dropped from this page rather than reported as-is.
-      totalHits: Math.max(0, totalCount - hits.length + visible.length),
+      /*
+        A floor, not Elasticsearch's own hit count: `response.hits.total` is evaluated over every
+        match regardless of what the actor may read, so it is never consulted here (same discipline
+        as `db/search.ts`, which drops its own `COUNT(*) OVER()` entirely rather than adjust it). This
+        page's `offset` plus how many of *this* page's hits survived `checkAccess` is the only figure
+        this module can vouch for -- exact once Elasticsearch returns fewer than `limit` hits (there is
+        nothing further to find beyond this page), otherwise a lower bound, since a later page may add
+        more readable matches this call never fetched.
+      */
+      totalHits: offset + visible.length,
       // -> No "did you mean" here: Elasticsearch's own fuzzy-suggestion features (a "suggest"
       //    context or a completion suggester) need dedicated index-side setup this module does not
       //    configure, unlike `db`'s pg_trgm similarity which needs nothing beyond the extension.
