@@ -36,7 +36,9 @@ let previousWiki: any
  *                     && !isUnlocked` (see `models/pages.ts`'s `toPage()`).
  * @param access Which page-rule permissions `checkAccess()` grants on this page.
  */
+let lastGetPageArgs: any
 function install({ pageExists = true, hasPassword = false, access = [] as string[] } = {}) {
+  lastGetPageArgs = undefined
   ;(globalThis as any).WIKI = {
     data: { systemIds: { guestsGroupId: GUEST_GROUP_ID } },
     sites: { [SITE_ID]: { id: SITE_ID, hostname: 'a.example.com', isEnabled: true, config: {} } },
@@ -45,7 +47,9 @@ function install({ pageExists = true, hasPassword = false, access = [] as string
         checkAccess: (_actor: any, permission: string) => access.includes(permission)
       },
       pages: {
-        getPage: async ({ withContent, unlocked }: any) => {
+        getPage: async (args: any) => {
+          lastGetPageArgs = args
+          const { withContent, unlocked } = args
           if (!pageExists) {
             return null
           }
@@ -143,4 +147,21 @@ test('handleGetPage: write:pages bypasses the password lock', async () => {
   assert.equal(page.isLocked, false)
   assert.equal(page.render, BASE_PAGE.render)
   assert.equal(page.content, BASE_PAGE.content)
+})
+
+/**
+ * OpenProject #2203: `publicOnly` reconciled with `actorFrom()`'s REST derivation — an admin-issued
+ * key (`ctx.userId` null) is a `publicOnly` reader, same as it is over `/_api/`; a personal access
+ * token (`ctx.userId` set) is not.
+ */
+test('handleGetPage: an admin-issued key (no ctx.userId) reads publicOnly, mirroring actorFrom()', async () => {
+  install({ access: ['read:pages'] })
+  await handleGetPage({ ...CTX, userId: null }, { path: BASE_PAGE.path })
+  assert.equal(lastGetPageArgs.publicOnly, true)
+})
+
+test('handleGetPage: a personal access token (ctx.userId set) does not read publicOnly', async () => {
+  install({ access: ['read:pages'] })
+  await handleGetPage({ ...CTX, userId: 'user-1' }, { path: BASE_PAGE.path })
+  assert.equal(lastGetPageArgs.publicOnly, false)
 })

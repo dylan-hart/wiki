@@ -100,3 +100,22 @@ test('handleSearchPages: refuses an unknown site', async () => {
   const ctx = install()
   await assert.rejects(() => handleSearchPages(ctx, { query: 'x', siteId: 'nope' }), McpToolError)
 })
+
+/**
+ * OpenProject #2203: `publicOnly` reconciled with `actorFrom()`'s REST derivation — an admin-issued
+ * key (`ctx.userId` null) searches publicOnly, same as it is over `/_api/`; a personal access token
+ * (`ctx.userId` set) does not.
+ */
+test('handleSearchPages: an admin-issued key (no ctx.userId) searches publicOnly', async () => {
+  const ctx = install()
+  ctx.userId = null
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].publicOnly, true)
+})
+
+test('handleSearchPages: a personal access token (ctx.userId set) does not search publicOnly', async () => {
+  const ctx = install()
+  ctx.userId = 'user-1'
+  await handleSearchPages(ctx, { query: 'x', siteId: SITE_ID })
+  assert.equal(queryCalls[0].publicOnly, false)
+})
