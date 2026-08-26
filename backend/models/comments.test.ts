@@ -58,8 +58,25 @@ describe('comments model — mocked', () => {
    * `SELECT ... LEFT JOIN` / `$count` chain hands back, without needing a real postgres underneath —
    * this model's threading and fallback-name logic runs entirely in application code over whatever rows
    * the query returns, so the query itself doesn't need to be real to exercise that logic.
+   *
+   * `getRows` backs the plain `select().from().where().limit()` chain `get()` runs — which `delete()`
+   * now calls internally (OpenProject #1923) to fetch the row a `comment:delete` hook payload needs
+   * before removing it. Empty by default, matching `get()` returning `null` for an id the fake db was
+   * never told about — the pre-#1923 `delete` tests rely on exactly that to keep passing unchanged.
+   *
+   * `updateRow` fills in the full-row fields (`siteId`/`pageId`/`authorId`/`guestName`/`replyTo`) a
+   * real `UPDATE ... RETURNING` would still carry that `update()`'s own `set` never touches — needed
+   * so a test can assert on `comment:edit`'s emitted payload without reconstructing the whole row by
+   * hand every time.
    */
-  function makeFakeDb(config: { selectRows?: unknown[]; countValue?: number } = {}) {
+  function makeFakeDb(
+    config: {
+      selectRows?: unknown[]
+      countValue?: number
+      getRows?: unknown[]
+      updateRow?: Record<string, unknown>
+    } = {}
+  ) {
     return {
       insert: () => ({
         values: (values: Record<string, unknown>) => ({
@@ -82,7 +99,7 @@ describe('comments model — mocked', () => {
           where: (where: unknown) => ({
             returning: async () => {
               calls.updates.push({ set, where })
-              return [{ id: 'existing-comment-id', ...set }]
+              return [{ id: 'existing-comment-id', ...config.updateRow, ...set }]
             }
           })
         })
@@ -101,6 +118,12 @@ describe('comments model — mocked', () => {
                 return config.selectRows ?? []
               }
             })
+          }),
+          where: (where: unknown) => ({
+            limit: async (_n: number) => {
+              calls.selects.push({ where })
+              return config.getRows ?? []
+            }
           })
         })
       }),
@@ -113,8 +136,32 @@ describe('comments model — mocked', () => {
 
   let comments: typeof import('./comments.ts').comments
 
+  /**
+   * `create`/`update`/`delete` each queue a hook themselves now (OpenProject #1923, moved out of
+   * `api/comments.ts`) — `hookEmits` records every `WIKI.models.hooks.emit()` call so a test can
+   * assert on the payload directly, and `usersById` is `WIKI.models.users.getById`'s backing store for
+   * the `authorName` resolution that payload needs.
+   */
+  let hookEmits: { event: string; siteId: string | null; data: Record<string, any> }[]
+  let usersById: Record<string, { name: string }>
+
   before(async () => {
-    ;(globalThis as any).WIKI = { db: makeFakeDb() }
+    hookEmits = []
+    usersById = {}
+    ;(globalThis as any).WIKI = {
+      db: makeFakeDb(),
+      models: {
+        hooks: {
+          emit: async (event: string, siteId: string | null, data: Record<string, any> = {}) => {
+            hookEmits.push({ event, siteId, data })
+            return 1
+          }
+        },
+        users: {
+          getById: async (id: string) => usersById[id] ?? null
+        }
+      }
+    }
     ;({ comments } = await import('./comments.ts'))
   })
 
@@ -124,6 +171,8 @@ describe('comments model — mocked', () => {
     calls.deletes.length = 0
     calls.selects.length = 0
     calls.counts.length = 0
+    hookEmits.length = 0
+    usersById = {}
     ;(globalThis as any).WIKI.db = makeFakeDb()
   })
 
@@ -191,12 +240,51 @@ describe('comments model — mocked', () => {
       assert.equal(values.guestEmail, 'guest@example.com')
       assert.equal(values.guestIp, '127.0.0.1')
     })
+
+    it('emits comment:new with the stored row and the resolved author name (OpenProject #1923)', async () => {
+      usersById['u1'] = { name: 'Alice' }
+      const comment = await comments.create({
+        siteId: 's1',
+        pageId: 'p1',
+        authorId: 'u1',
+        replyTo: 'parent-1',
+        content: 'a reply'
+      })
+
+      assert.equal(hookEmits.length, 1, 'create must emit exactly one hook')
+      assert.equal(hookEmits[0].event, 'comment:new')
+      assert.equal(hookEmits[0].siteId, 's1')
+      assert.equal(hookEmits[0].data.id, comment.id)
+      assert.equal(hookEmits[0].data.pageId, 'p1')
+      assert.equal(hookEmits[0].data.siteId, 's1')
+      assert.equal(hookEmits[0].data.authorId, 'u1')
+      assert.equal(hookEmits[0].data.isGuest, false)
+      assert.equal(hookEmits[0].data.content, 'a reply')
+      assert.deepEqual(hookEmits[0].data.metadata, { authorName: 'Alice', replyTo: 'parent-1' })
+    })
+
+    it('emits comment:new with isGuest true, a null authorId and the guestName as authorName', async () => {
+      await comments.create({
+        siteId: 's1',
+        pageId: 'p1',
+        content: 'a guest comment',
+        guestName: 'Casey',
+        guestEmail: 'casey@example.com'
+      })
+
+      assert.equal(hookEmits.length, 1)
+      assert.equal(hookEmits[0].event, 'comment:new')
+      assert.equal(hookEmits[0].data.authorId, null)
+      assert.equal(hookEmits[0].data.isGuest, true)
+      assert.equal(hookEmits[0].data.metadata.authorName, 'Casey')
+    })
   })
 
   describe('update', () => {
     it('rejects content trimmed below 2 characters and does not touch the db', async () => {
       await assert.rejects(() => comments.update('c1', { content: 'x' }), /at least 2 characters/)
       assert.equal(calls.updates.length, 0)
+      assert.equal(hookEmits.length, 0, 'must not emit when validation fails before any write')
     })
 
     it('trims content and stamps updatedAt as a Date derived from Temporal.Now.instant()', async () => {
@@ -210,6 +298,25 @@ describe('comments model — mocked', () => {
       assert.ok(updatedAt.getTime() >= beforeMs && updatedAt.getTime() <= afterMs)
       assert.equal(row.id, 'existing-comment-id')
     })
+
+    it('emits comment:edit with the updated row and the resolved author name (OpenProject #1923)', async () => {
+      usersById['u2'] = { name: 'Bob' }
+      ;(globalThis as any).WIKI.db = makeFakeDb({
+        updateRow: { siteId: 's1', pageId: 'p1', authorId: 'u2', guestName: null, replyTo: null }
+      })
+
+      const updated = await comments.update('c1', { content: 'edited content' })
+
+      assert.equal(hookEmits.length, 1, 'update must emit exactly one hook')
+      assert.equal(hookEmits[0].event, 'comment:edit')
+      assert.equal(hookEmits[0].siteId, 's1')
+      assert.equal(hookEmits[0].data.id, updated.id)
+      assert.equal(hookEmits[0].data.pageId, 'p1')
+      assert.equal(hookEmits[0].data.authorId, 'u2')
+      assert.equal(hookEmits[0].data.isGuest, false)
+      assert.equal(hookEmits[0].data.content, 'edited content')
+      assert.equal(hookEmits[0].data.metadata.authorName, 'Bob')
+    })
   })
 
   describe('delete', () => {
@@ -217,6 +324,66 @@ describe('comments model — mocked', () => {
       await comments.delete('c1')
       assert.equal(calls.deletes.length, 1)
       assert.ok(calls.deletes[0].where, 'expected a where clause to scope the delete')
+    })
+
+    it('does not emit when the comment never existed', async () => {
+      await comments.delete('does-not-exist')
+      assert.equal(hookEmits.length, 0)
+    })
+
+    it(
+      'fetches the row first and emits comment:delete with only the base identity fields, no ' +
+        'content or metadata (OpenProject #1923)',
+      async () => {
+        ;(globalThis as any).WIKI.db = makeFakeDb({
+          getRows: [
+            {
+              id: 'c1',
+              siteId: 's1',
+              pageId: 'p1',
+              authorId: 'u1',
+              replyTo: null,
+              content: 'about to be deleted',
+              guestName: null
+            }
+          ]
+        })
+
+        await comments.delete('c1')
+
+        assert.equal(calls.deletes.length, 1, 'the delete itself must still run')
+        assert.equal(hookEmits.length, 1)
+        assert.equal(hookEmits[0].event, 'comment:delete')
+        assert.equal(hookEmits[0].siteId, 's1')
+        assert.deepEqual(hookEmits[0].data, {
+          id: 'c1',
+          pageId: 'p1',
+          siteId: 's1',
+          authorId: 'u1',
+          isGuest: false
+        })
+      }
+    )
+
+    it('emits comment:delete with isGuest true and a null authorId for a guest comment', async () => {
+      ;(globalThis as any).WIKI.db = makeFakeDb({
+        getRows: [
+          {
+            id: 'c2',
+            siteId: 's1',
+            pageId: 'p1',
+            authorId: null,
+            replyTo: null,
+            content: 'a guest comment',
+            guestName: 'Casey'
+          }
+        ]
+      })
+
+      await comments.delete('c2')
+
+      assert.equal(hookEmits[0].data.authorId, null)
+      assert.equal(hookEmits[0].data.isGuest, true)
     })
   })
 

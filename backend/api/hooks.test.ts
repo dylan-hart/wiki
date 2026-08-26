@@ -79,7 +79,7 @@ test('GET /events Swagger description does not repeat known-stale claims', async
     assert.doesNotMatch(description, /pages, assets and comments are not implemented/i)
     // Comments are the one remaining gap the description is allowed to call out today (Feature 399
     // task 1 will close it) — but it must not claim comments are unimplemented, since they are wired
-    // via `api/comments.ts`'s `emitCommentEvent()`.
+    // via `models/comments.ts`'s `create`/`update`/`delete`.
     assert.doesNotMatch(description, /comments? (is|are) not (yet )?implemented/i)
   } finally {
     await app.close()
