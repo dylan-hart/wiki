@@ -456,6 +456,29 @@ describe('createGroupConverter', () => {
     }
   })
 
+  test("converts an export-bundle source's integer-valued deny (0/1) the same as a real boolean (OpenProject #1850)", async () => {
+    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
+    //    integers (0/1) — convertPageRule() must widen deny's coercion the same as isSystem's, or
+    //    every imported page rule is dropped as malformed.
+    const outcome = await convert({
+      id: 1,
+      name: 'Editors',
+      isSystem: 0,
+      permissions: [],
+      pageRules: [
+        { id: '1', deny: 1, match: 'START', path: 'private', roles: ['read:pages'], locales: [] },
+        { id: '2', deny: 0, match: 'EXACT', path: '', roles: ['write:pages'], locales: ['en'] }
+      ]
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    const rules = outcome.row.rules as any[]
+    assert.equal(rules.length, 2)
+    assert.equal(rules[0].mode, 'DENY')
+    assert.equal(rules[1].mode, 'ALLOW')
+  })
+
   test('drops a malformed page rule (missing deny, or an unsupported match value) instead of failing the group', async () => {
     const outcome = await convert({
       id: 1,
@@ -618,6 +641,34 @@ describe('system-row exclusion (Task 731)', () => {
     assert.equal(result.groups.created, 1)
     assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
     assert.match(result.groups.records[0].message ?? '', /system group/)
+  })
+
+  test("an export-bundle source's integer-valued isSystem (1) is still skipped (OpenProject #1850)", async () => {
+    // -> MySQL/MariaDB/SQLite via the export bundle connector represent 2.x boolean columns as JSON
+    //    integers (0/1), not real booleans — readSourceBoolean() must widen to accept that
+    //    representation, or a source's system Administrators/Guests rows import as duplicates.
+    let convertCalls = 0
+    const convertGroup = (source: { name?: unknown }) => {
+      convertCalls++
+      return { status: 'created', row: { name: String(source.name) } as NewGroupRow } as const
+    }
+
+    const result = await importUsersAndGroups({
+      source: {
+        groups: iter([
+          { id: 1, name: 'Administrators', isSystem: 1 },
+          { id: 3, name: 'Editors', isSystem: 0 }
+        ]),
+        users: iter([]),
+        userGroups: iter([])
+      },
+      writer: createDryRunWriter(),
+      convertGroup
+    })
+
+    assert.equal(result.groups.skipped, 1)
+    assert.equal(result.groups.created, 1)
+    assert.equal(convertCalls, 1) // -> the system row never reached convertGroup at all
   })
 
   test('a source user flagged isSystem is skipped without ever calling convertUser', async () => {

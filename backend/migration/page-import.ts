@@ -218,6 +218,28 @@ function normalizeStagedDate(value: string): string | undefined {
 }
 
 /**
+ * Same validation as `normalizeStagedDate`, applied to a nullable field where `null` is itself a
+ * normal, already-valid source value (no date set) rather than something to warn about — only a
+ * non-empty value that fails to parse is a data problem worth surfacing to the operator. Used for
+ * `publishStartDate`/`publishEndDate`, which — unlike `createdAt`/`updatedAt` — previously skipped
+ * `normalizeStagedDate` entirely and were passed to `createPage()` raw (OpenProject #1845/#1853).
+ */
+function normalizeStagedPublishDate(
+  value: string | null,
+  field: 'publishStartDate' | 'publishEndDate',
+  oldId: number,
+  warnings: string[]
+): string | null {
+  if (value === null) return null
+  const normalized = normalizeStagedDate(value)
+  if (normalized === undefined) {
+    warnings.push(`page ${oldId}: ${field} "${value}" could not be parsed as a date — dropped.`)
+    return null
+  }
+  return normalized
+}
+
+/**
  * Derives 3.0's three-state `publishState` from 2.x's `isPublished` boolean plus its
  * `publishStartDate`/`publishEndDate` pair, per `docs/migration/2.5x-to-3.0-mapping.md`'s "2.x's
  * boolean + the publishStartDate/publishEndDate pair together decide which of the three 3.0 enum states
@@ -316,8 +338,18 @@ function mapStagedPageToInput(
     locale: staged.locale,
     description: staged.description ?? '',
     publishState,
-    publishStartDate: staged.publishStartDate,
-    publishEndDate: staged.publishEndDate,
+    publishStartDate: normalizeStagedPublishDate(
+      staged.publishStartDate,
+      'publishStartDate',
+      staged.oldId,
+      warnings
+    ),
+    publishEndDate: normalizeStagedPublishDate(
+      staged.publishEndDate,
+      'publishEndDate',
+      staged.oldId,
+      warnings
+    ),
     tags: staged.tags,
     // -> Preserve the source page's real timestamps instead of createPage()'s ordinary now() default —
     //    see PageInput.createdAt/updatedAt's doc comment (backend/models/pages.ts) and upstream

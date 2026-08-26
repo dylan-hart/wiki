@@ -325,6 +325,67 @@ describe('importPages', () => {
     assert.equal(pagesModel.created[0].input.updatedAt, undefined)
   })
 
+  test('a non-empty unparsable publishStartDate/publishEndDate degrades to null with a warning, rather than reaching createPage() raw (OpenProject #1853)', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({
+      publishStartDate: 'not-a-date',
+      publishEndDate: '2024-01-01T00:00:00.000Z'
+    })
+
+    const result = await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(result.failed.length, 0)
+    assert.equal(pagesModel.created[0].input.publishStartDate, null)
+    assert.equal(pagesModel.created[0].input.publishEndDate, '2024-01-01T00:00:00.000Z')
+    assert.ok(
+      result.warnings.some((w) => w.includes('publishStartDate') && w.includes('not-a-date'))
+    )
+    assert.ok(
+      result.succeeded[0].warnings.some(
+        (w) => w.includes('publishStartDate') && w.includes('not-a-date')
+      )
+    )
+  })
+
+  test('a null publishStartDate/publishEndDate stays null with no warning', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({ publishStartDate: null, publishEndDate: null })
+
+    const result = await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.publishStartDate, null)
+    assert.equal(pagesModel.created[0].input.publishEndDate, null)
+    assert.equal(
+      result.warnings.some((w) => w.includes('publishStartDate') || w.includes('publishEndDate')),
+      false
+    )
+  })
+
+  test('a valid publishStartDate/publishEndDate is carried straight through', async () => {
+    const pagesModel = new FakePagesModel()
+    const staged = buildStagedPage({
+      publishStartDate: '2024-01-01T00:00:00.000Z',
+      publishEndDate: '2024-06-01T00:00:00.000Z'
+    })
+
+    await importPages(
+      [staged],
+      { pagesModel, existingEntry: noExistingEntries },
+      { siteId: 'site-1', actorPermissions: [] }
+    )
+
+    assert.equal(pagesModel.created[0].input.publishStartDate, '2024-01-01T00:00:00.000Z')
+    assert.equal(pagesModel.created[0].input.publishEndDate, '2024-06-01T00:00:00.000Z')
+  })
+
   test('uses creatorId as the synthetic actor and warns when authorId differs', async () => {
     const pagesModel = new FakePagesModel()
     const staged = buildStagedPage({ oldId: 1, authorId: 'editor-uuid', creatorId: 'creator-uuid' })

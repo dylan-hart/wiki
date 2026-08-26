@@ -1,5 +1,6 @@
 import type { SourceConnector, SourceRecord } from './connector.ts'
 import { IdMap, resolveActorId, type UserIdMap } from './id-map.ts'
+import { coerceSourceBoolean } from './source-coercion.ts'
 
 /**
  * Content staging & id-mapping scaffold (Feature 416 / Task 733)
@@ -156,7 +157,7 @@ function asString(value: unknown, fallback = ''): string {
 }
 
 function asBoolean(value: unknown): boolean {
-  return value === true
+  return coerceSourceBoolean(value) === true
 }
 
 function asNullableNumber(value: unknown): number | null {
