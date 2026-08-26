@@ -118,7 +118,8 @@ interface PageRenderer {
 export interface RenderPermissions {
   /** `write:scripts` — may embed `<script>` and inline event handlers. */
   scripts: boolean
-  /** `write:styles` — may embed `<style>` and inline `style` attributes. */
+  /** `write:styles` — may embed `<style>` and any inline `style` declaration, not just the safe
+   *  KaTeX-sized subset (`SAFE_INLINE_STYLE_PROPERTIES`) everyone gets. */
   styles: boolean
 }
 
@@ -275,8 +276,10 @@ const SVG_ATTRIBUTES = [
 const BASE_ALLOWED_ATTRIBUTES: Record<string, string[]> = {
   // -> `style` is here rather than behind `write:styles` because the renderer itself produces it:
   //    KaTeX sizes and positions every piece of a formula with inline styles, and math would come
-  //    out mangled for any author without the permission. The permission gates the `<style>` tag,
-  //    which is where a page can restyle everything around it.
+  //    out mangled for any author without the permission. Presence of the attribute is not gated on
+  //    the permission, but which *declarations* survive inside it is -- see `sanitize()`'s
+  //    `allowedStyles`, keyed off `SAFE_INLINE_STYLE_PROPERTIES` below. The permission still fully
+  //    gates the `<style>` tag, which is where a page can restyle everything around it.
   '*': ['id', 'class', 'style', 'title', 'dir', 'lang', 'aria-*', 'role', 'data-*'],
   a: ['href', 'name', 'target', 'rel', 'download'],
   audio: ['controls', 'loop', 'muted', 'preload', 'src'],
@@ -356,6 +359,61 @@ const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel', 'ftp']
 
 /** Attributes the editor adds for its own preview and that mean nothing in a stored page. */
 const EDITOR_ARTIFACT_ATTRIBUTES = ['data-line']
+
+/**
+ * Inline `style` declarations an author without `write:styles` may still write.
+ *
+ * Sized to what KaTeX actually emits when it sizes and positions a formula (see the `style`
+ * attribute note on `BASE_ALLOWED_ATTRIBUTES` above), not to "everything harmless-sounding":
+ * `position`, `inset`, `z-index`, `transform`, `opacity`, `pointer-events` and `content` are
+ * deliberately absent. None of KaTeX's own output needs them, and each is exactly the kind of
+ * declaration that turns an inline `style` into a way to cover the viewport or hide content that
+ * stays in the source and search index -- `position: fixed` on an element with no clipping
+ * ancestor being the sharpest case (see task 2183). A page that genuinely needs any of those
+ * declares them through `write:styles` instead, which already grants the strictly more powerful
+ * `<style>` tag -- there is nothing this list protects against for a holder of that permission that
+ * a `<style>` block could not already do, so `sanitize()` skips filtering entirely for them rather
+ * than maintaining a second, wider allowlist here.
+ */
+const SAFE_INLINE_STYLE_PROPERTIES = [
+  'height',
+  'width',
+  'min-width',
+  'margin',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'padding',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'top',
+  'left',
+  'vertical-align',
+  'font-size',
+  'border',
+  'border-top',
+  'border-right',
+  'border-bottom',
+  'border-left',
+  'border-width',
+  'border-style',
+  'border-color',
+  'border-radius',
+  'color',
+  'background-color',
+  'text-align'
+]
+
+/**
+ * `sanitize-html`'s `allowedStyles` matches a declaration's *value* too, not just its property
+ * name -- this is deliberately permissive on value, since the property list above is what does the
+ * gating and a value cannot smuggle a second declaration (the CSS parser has already split on `;`
+ * by the time this runs).
+ */
+const ANY_STYLE_VALUE = [/^.*$/s]
 
 /**
  * An icon dimension as a CSS length, or nothing when it is not one.
@@ -554,6 +612,19 @@ class Rendering {
     return sanitizeHtml(html, {
       allowedTags,
       allowedAttributes,
+      // -> `write:styles` already grants the strictly more powerful `<style>` tag below, so there is
+      //    nothing left for declaration-level filtering to protect against for a holder of it --
+      //    `undefined` here means sanitize-html performs no filtering at all and every declaration
+      //    survives, same as `<style>` block content already can write. Without the permission, only
+      //    `SAFE_INLINE_STYLE_PROPERTIES` survives; everything else -- `position`, `transform`,
+      //    `z-index`, ... -- is stripped out of the declaration list, not just the attribute.
+      allowedStyles: permissions.styles
+        ? undefined
+        : {
+            '*': Object.fromEntries(
+              SAFE_INLINE_STYLE_PROPERTIES.map((property) => [property, ANY_STYLE_VALUE])
+            )
+          },
       // -> `script` and `style` in the allow list are what `write:scripts` and `write:styles` mean:
       //    the library warns about them on every call, and the warning is the thing to silence, not
       //    the permission

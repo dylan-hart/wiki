@@ -356,3 +356,68 @@ describe('rendering.sanitize -- KaTeX MathML from mhchem (\\ce{}/\\pu{})', () =>
     assert.ok(clean.includes(math), 'the whole <math>…</math> survived sanitize() unchanged')
   })
 })
+
+/**
+ * OpenProject #2183: `sanitize()` now passes `allowedStyles` to `sanitize-html`, gating which inline
+ * `style` *declarations* survive (not just whether the attribute itself is present) on `write:styles`
+ * -- `position: fixed` with no clipping ancestor is what lets an author without the permission cover
+ * the viewport or hide content from readers while it stays in the source and search index.
+ */
+describe('rendering.sanitize -- allowedStyles gates inline CSS by write:styles (OpenProject #2183)', () => {
+  test('drops position/inset/z-index declarations for an author without write:styles, keeping an unrelated color declaration', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.doesNotMatch(clean, /position/)
+    assert.doesNotMatch(clean, /inset/)
+    assert.doesNotMatch(clean, /z-index/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps position/inset/z-index declarations for an author with write:styles', () => {
+    const html = '<div style="position: fixed; inset: 0; z-index: 9999; color: red;">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: true }, new Set())
+
+    assert.match(clean, /position:\s*fixed/)
+    assert.match(clean, /inset:\s*0/)
+    assert.match(clean, /z-index:\s*9999/)
+    assert.match(clean, /color:\s*red/)
+  })
+
+  test('keeps the KaTeX-sized safe properties for an author without write:styles, so no formula loses its layout', () => {
+    // -> The shape KaTeX actually writes onto formula spans: sizing, fine positioning within a
+    //    relatively-positioned ancestor, and colour -- none of it needs `write:styles` to render.
+    const html =
+      '<span style="height: 0.8em; width: 1.2em; margin-right: 0.05em; ' +
+      'padding-left: 0.1em; top: -0.3em; left: 0.02em; vertical-align: -0.2em; ' +
+      'font-size: 1.2em; border-color: red; background-color: yellow; text-align: center;">x</span>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    for (const declaration of [
+      'height:0.8em',
+      'width:1.2em',
+      'margin-right:0.05em',
+      'padding-left:0.1em',
+      'top:-0.3em',
+      'left:0.02em',
+      'vertical-align:-0.2em',
+      'font-size:1.2em',
+      'border-color:red',
+      'background-color:yellow',
+      'text-align:center'
+    ]) {
+      assert.ok(clean.includes(declaration), `expected "${declaration}" to survive, got: ${clean}`)
+    }
+  })
+
+  test('drops the style attribute entirely once every declaration it carried is disallowed', () => {
+    const html = '<div style="position: fixed; transform: translateX(10px);">x</div>'
+
+    const clean = (rendering as any).sanitize(html, { scripts: false, styles: false }, new Set())
+
+    assert.doesNotMatch(clean, /style=/)
+  })
+})
