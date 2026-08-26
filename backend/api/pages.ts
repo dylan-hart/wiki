@@ -490,7 +490,8 @@ async function routes(app: FastifyInstance) {
               },
               totalHits: {
                 type: 'integer',
-                description: 'How many pages match, ignoring `limit` and `offset`.'
+                description:
+                  'How many pages the caller may actually read match, ignoring `limit` and `offset` — never a page the caller has no read access to. Exact up to a large internal scan cap; an undercount past it, never an overcount.'
               },
               suggestion: {
                 type: ['string', 'null'],

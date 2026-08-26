@@ -55,6 +55,24 @@ export const DEFAULT_DICTIONARIES: Record<string, string> = {
 /** The dictionary used when a locale has no mapping, or when its mapping is not installed. */
 export const FALLBACK_DICTIONARY = 'simple'
 
+/**
+ * How many text-query matches `query()` pulls from postgres, in `ORDER BY` order, before running
+ * them through `checkAccess` and paging the survivors in JS.
+ *
+ * A `COUNT(*) OVER()` window over the unfiltered `WHERE` used to report `totalHits`, adjusted only
+ * by what page-rule filtering dropped off the single LIMIT/OFFSET page already fetched — correct
+ * only when no match beyond that page would ever be denied, which is not a safe assumption for an
+ * unauthenticated caller: `?query=<phrase>&limit=1` turned every match on later pages into an
+ * existence oracle over page bodies the caller could not read (OpenProject #2151). Over-fetching a
+ * capped, permission-filtered scan trades "always exact" for "never reports a match the caller could
+ * not themselves see, or a count higher than what they could page through": `totalHits` is exact
+ * whenever the corpus has fewer than this many genuine matches, and otherwise undercounts rather
+ * than leaking the tail. 1000 bounds one query's cost regardless of how broad the search term is,
+ * while comfortably covering a realistic wiki corpus and every `offset`/`limit` window the API
+ * schema allows (`limit` maxes at 100 — `api/pages.ts`).
+ */
+const MAX_SCANNED_MATCHES = 1000
+
 /** This module's own key, i.e. the directory name of its `definition.yml`. */
 const MODULE_KEY = 'db'
 
@@ -305,6 +323,13 @@ class DbSearchModule implements SearchModule {
           ? sql`CASE WHEN p.password IS NULL THEN ${headline} ELSE NULL END`
           : headline
 
+    /*
+      Over-fetched and paged in JS rather than with LIMIT/OFFSET in SQL: `checkAccess` below can only
+      run per row, so the caller's page has to be sliced out *after* filtering, not before. `p.id` is
+      appended as a tiebreaker so the scanned order — and therefore which rows fall inside the cap —
+      is stable across calls with the same filters, even when `ordering` alone leaves ties (e.g. two
+      pages with identical `relevancy` and `updatedAt`).
+    */
     const rows = await WIKI.db.execute(sql`
       SELECT
         p.id,
@@ -317,12 +342,11 @@ class DbSearchModule implements SearchModule {
         p.classification,
         to_char(p."updatedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
         ${hasQuery ? sql`ts_rank(p.ts, ${tsQuery})` : sql`0`} AS relevancy,
-        ${highlight} AS highlight,
-        COUNT(*) OVER() AS "totalHits"
+        ${highlight} AS highlight
       FROM pages p
       WHERE ${sql.join(conditions, sql` AND `)}
-      ORDER BY ${ordering}
-      LIMIT ${limit} OFFSET ${offset}
+      ORDER BY ${ordering}, p.id
+      LIMIT ${MAX_SCANNED_MATCHES}
     `)
 
     /*
@@ -342,7 +366,11 @@ class DbSearchModule implements SearchModule {
         )
       : ((rows.rows ?? rows) as any[])
 
-    const result = visible.map((row) => ({
+    // -> The caller's page, sliced out of the already permission-filtered list — see the block
+    //    comment above the query for why this cannot be a SQL LIMIT/OFFSET.
+    const page = visible.slice(offset, offset + limit)
+
+    const result = page.map((row) => ({
       id: row.id as string,
       path: row.path as string,
       locale: row.locale as string,
@@ -360,18 +388,10 @@ class DbSearchModule implements SearchModule {
         : null
     }))
 
-    const totalHits = Math.max(
-      0,
-      /*
-        The count postgres reported, less whatever the rules just removed from this page of results.
-        Not exact when rows are dropped -- the window function counted every match, including ones on
-        later pages this reader may not see -- but a total that ignored the filtering entirely would
-        promise results that do not exist.
-      */
-      Number((rows.rows ?? rows)[0]?.totalHits ?? 0) -
-        ((rows.rows ?? rows) as any[]).length +
-        visible.length
-    )
+    // -> Exact whenever the corpus has fewer than `MAX_SCANNED_MATCHES` genuine, readable matches;
+    //    otherwise a documented undercount rather than the unfiltered leak this replaces — see the
+    //    doc comment on `MAX_SCANNED_MATCHES`.
+    const totalHits = visible.length
 
     // -> Only worth asking when the search itself came up empty: a query that matched something has
     //    nothing to be corrected, and no query means there was nothing to have mistyped.
