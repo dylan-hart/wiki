@@ -430,16 +430,21 @@ separate transpile or worker config.
   unit-testing either in isolation (`blockUploadServing.test.ts` — `api/blocks.ts`'s upload route and
   `controllers/blocks.ts`'s serve route each already have their own unit-level `*.test.ts` sibling;
   this one is the real round trip between them), and a structural/self-consistency check against a
-  repo-root doc or CI config with no backend-workspace file to sit next to at all
-  (`changelog.test.ts` against `cliff.toml`, `release-checklist-doc.test.ts` against
-  `docs/release-checklist.md`, `release-workflow.test.ts` against `.github/workflows/build.yml` AND
-  `release.yml` together, `releasing-doc.test.ts` against `docs/versioning.md` — none of those
-  subjects live under `backend/`, and `npm run test`'s `'**/*.test.ts'` glob only runs from inside
-  this workspace). A test file that genuinely does have one specific co-located sibling belongs next
-  to it, not here — three such near-namesake pairs (`test/api/sites.test.ts` vs. `api/sites.test.ts`,
-  `test/core/config.test.ts` vs. `core/config.test.ts`, `test/core/scheduler.test.ts` vs.
-  `core/scheduler.test.ts`) existed as discovery hazards until this pass confirmed each co-located
-  file already fully superseded its `test/` namesake and deleted the redundant copy.
+  repo-root doc or CI config with no backend-workspace file to sit next to at all — a subject that
+  lives outside `backend/` entirely (a root-level doc, a CI workflow, a root config file) has no
+  co-located home to begin with, so its test belongs in `test/` on that basis alone, not because it
+  matches some existing list of filenames; it still has to live somewhere under `backend/` for
+  `npm run test`'s `'**/*.test.ts'` glob to find it, which is what rules out a repo-root location
+  for the test file itself even though its subject lives there. The one file this rule does not
+  reach is `base.test.ts`,
+  which stays at the `backend/` root: it reads `backend/base.yml` as its sibling in the same
+  directory, so it does have a co-located home, unlike the doc/CI-config checks above. That's the
+  general case worth naming here — a test file that genuinely does have one specific co-located
+  sibling belongs next to it, not in `test/` — and it is also why three near-namesake pairs
+  (`test/api/sites.test.ts` vs. `api/sites.test.ts`, `test/core/config.test.ts` vs.
+  `core/config.test.ts`, `test/core/scheduler.test.ts` vs. `core/scheduler.test.ts`) existed as
+  discovery hazards until a pass confirmed each co-located file already fully superseded its `test/`
+  namesake and deleted the redundant copy.
 - **Prefer pure unit tests with no `WIKI` global and no database.** Plenty of `helpers/` and `models/`
   logic is testable as plain functions or methods with no I/O — `helpers/pageRules.test.ts` and
   `models/users.test.ts` (`updateSession`, pure session/permission flattening — no `WIKI`, no
