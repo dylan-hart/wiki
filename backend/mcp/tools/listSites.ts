@@ -15,13 +15,11 @@ export interface ListedSite {
 }
 
 /**
- * Whether the calling identity may see this site at all — mirrors `GET /_api/sites`
- * (`api/sites.ts`)'s `access:admin` gate, widened to also admit `manage:sites` (the other global
- * permission that names sites outright), and further widened to a caller who can genuinely read
- * SOMETHING on the site: a page-blind `read:pages` probe against the site's root at its default
- * locale, the same shape `checkAccess()` expects for a not-yet-existing page (OpenProject #1205
- * §5). Without this, a token whose groups grant nothing enumerated every enabled site's hostname
- * and title on a multi-tenant instance.
+ * Whether `ctx` may know this site exists at all. Mirrors the REST equivalent (`GET /_api/sites`,
+ * `permissions: ['access:admin']` in `api/sites.ts`) plus a page-rule fallback so a personal access
+ * token that can actually read the site's pages — but holds no global permission — still discovers
+ * it, the same way `read:pages` decides visibility everywhere else in `mcp/`. `manage:sites` is
+ * accepted alongside `access:admin` since it also implies full site visibility through `/_api/`.
  */
 function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   if (ctx.permissions.includes('access:admin') || ctx.permissions.includes('manage:sites')) {
@@ -29,17 +27,19 @@ function maySeeSite(ctx: McpAuthContext, site: McpSite): boolean {
   }
   return WIKI.models.groups.checkAccess(actorFor(ctx), 'read:pages', {
     path: '',
-    siteId: site.id,
     locale: defaultLocale(site),
+    siteId: site.id,
     classification: null
   })
 }
 
 /**
- * Every enabled site the configured key may reach — the whole instance for an unscoped key, or just
- * the one site a site-pinned key is limited to, further narrowed to sites the calling identity can
- * actually read something on (see `maySeeSite()`). What `search_pages`/`get_page`/`list_navigation`'s
- * `siteId` argument expects, the same discovery role `list_projects` plays in `openproject-mcp`.
+ * Every enabled site the configured key may reach — the whole instance for an unscoped key with
+ * `access:admin`/`manage:sites`, just the sites its groups can actually read pages on otherwise, and
+ * never more than the one site a site-pinned key is limited to. What `search_pages`/`get_page`/
+ * `list_navigation`'s `siteId` argument expects, the same discovery role `list_projects` plays in
+ * `openproject-mcp` — and, like that REST route, no longer a way for any valid token to enumerate
+ * every site's hostname and title regardless of what it may actually reach.
  */
 export function handleListSites(ctx: McpAuthContext): CallToolResult {
   const sites = Object.values(WIKI.sites as Record<string, McpSite>).filter(

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, before, beforeEach, mock, test } from 'node:test'
 import { handleListSites } from './listSites.ts'
 
 const SITE_A = {
@@ -21,28 +21,27 @@ const SITE_DISABLED = {
   config: { title: 'Site C' }
 }
 
-/** A group whose rules grant `read:pages` everywhere -- what a non-admin "may reach a site" token holds. */
+/** A groupId used by the tests below to stand in for "some group a token belongs to". */
 const READER_GROUP = 'reader-group'
 
 let previousWiki: any
+const checkAccess = mock.fn((_actor: any, _permission: string, _page: any) => false)
 
 before(() => {
   previousWiki = (globalThis as any).WIKI
   ;(globalThis as any).WIKI = {
     sites: { [SITE_A.id]: SITE_A, [SITE_B.id]: SITE_B, [SITE_DISABLED.id]: SITE_DISABLED },
-    models: {
-      groups: {
-        // -> Stands in for the real rule-resolution model: grants read:pages only to an actor
-        //    carrying READER_GROUP, mirroring `checkAccess()`'s real signature/behavior closely
-        //    enough for this tool's own gating logic to be exercised in isolation.
-        checkAccess: (actor: any) => actor.groupIds.includes(READER_GROUP)
-      }
-    }
+    models: { groups: { checkAccess } }
   }
 })
 
 after(() => {
   ;(globalThis as any).WIKI = previousWiki
+})
+
+beforeEach(() => {
+  checkAccess.mock.resetCalls()
+  checkAccess.mock.mockImplementation((_actor: any, _permission: string, _page: any) => false)
 })
 
 function textOf(result: any) {
@@ -75,6 +74,8 @@ test('handleListSites: an access:admin token sees every enabled site, disabled o
     sites.map((s: any) => s.id),
     ['site-a', 'site-b']
   )
+  // -> access:admin short-circuits before any page-rule check is even made
+  assert.equal(checkAccess.mock.callCount(), 0)
 })
 
 test('handleListSites: a manage:sites token sees every enabled site', () => {
@@ -93,7 +94,27 @@ test('handleListSites: a manage:sites token sees every enabled site', () => {
   )
 })
 
-test('handleListSites: a token that can read:pages on a site sees it, and reports the default locale', () => {
+test('handleListSites: a token with no global permission but read:pages on one site sees only that site', () => {
+  checkAccess.mock.mockImplementation(
+    (_actor: any, _permission: string, page: any) => page.siteId === 'site-b'
+  )
+  const result = handleListSites({
+    keyId: 'k',
+    permissions: [],
+    siteId: null,
+    groupIds: [READER_GROUP],
+    userId: null,
+    scope: null
+  })
+  const sites = textOf(result)
+  assert.deepEqual(
+    sites.map((s: any) => s.id),
+    ['site-b']
+  )
+})
+
+test('handleListSites: reports the default locale, falling back to en', () => {
+  checkAccess.mock.mockImplementation((_actor: any, _permission: string, _page: any) => true)
   const result = handleListSites({
     keyId: 'k',
     permissions: [],
@@ -111,10 +132,10 @@ test('handleListSites: a token that can read:pages on a site sees it, and report
   assert.equal(sites.find((s: any) => s.id === 'site-b').defaultLocale, 'en')
 })
 
-test('handleListSites: a site-pinned, readable token only lists its own site', () => {
+test('handleListSites: a site-scoped token still sees only its pinned site, even with access:admin', () => {
   const result = handleListSites({
     keyId: 'k',
-    permissions: [],
+    permissions: ['access:admin'],
     siteId: 'site-b',
     groupIds: [READER_GROUP],
     userId: null,
@@ -125,4 +146,16 @@ test('handleListSites: a site-pinned, readable token only lists its own site', (
     sites.map((s: any) => s.id),
     ['site-b']
   )
+})
+
+test('handleListSites: a site-scoped token with no other access sees nothing, even for its pinned site', () => {
+  const result = handleListSites({
+    keyId: 'k',
+    permissions: [],
+    siteId: 'site-b',
+    groupIds: [],
+    userId: null,
+    scope: null
+  })
+  assert.deepEqual(textOf(result), [])
 })
