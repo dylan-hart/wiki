@@ -23,10 +23,11 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
  * }
  * ```
  *
- * A small reusable helper rather than inline logic in one route, so that Epic 11 (or a later Feature
- * 395 task) can drop the same one-line guard into the rest of the site-scoped surface — `api/
- * assets.ts`'s asset routes, page history, page moves, and so on — without re-deriving this. See the
- * task's own description for the enumeration of what is deliberately left uncovered here.
+ * `apiKeySitePinHook` below wraps this into the global `preHandler` that actually applies it to every
+ * `/sites/:siteId` route (task 2194) — no route needs to call this directly any more. It stays
+ * exported as the hook's own implementation and for `helpers/apiKeySite.test.ts` to unit-test the
+ * comparison in isolation; `mcp/auth.ts`'s `assertSiteInScope` re-implements the same check rather
+ * than calling this, since it throws instead of writing a Fastify reply.
  */
 export function enforceApiKeySite(
   req: FastifyRequest,
@@ -38,4 +39,25 @@ export function enforceApiKeySite(
     return false
   }
   return true
+}
+
+/**
+ * The global `preHandler` hook (`index.ts`, registered alongside the permissions hook) that applies
+ * `enforceApiKeySite` to *every* route, not just the ones that remember to call it — see task 2194.
+ *
+ * A route is "covered" simply by having a `:siteId` in its path; there is no per-route allow-list to
+ * keep in sync, so a newly added `/sites/:siteId/...` route is guarded automatically. Routes with no
+ * `:siteId` param (`req.params.siteId` undefined) are untouched, matching `enforceApiKeySite`'s own
+ * "no opinion when there is nothing to check" behavior for a request with no API key at all.
+ */
+export function apiKeySitePinHook(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  done: (err?: Error) => void
+): void {
+  const siteId = (req.params as Record<string, string | undefined> | undefined)?.siteId
+  if (siteId && !enforceApiKeySite(req, reply, siteId)) {
+    return
+  }
+  done()
 }

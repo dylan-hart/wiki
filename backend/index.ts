@@ -33,6 +33,7 @@ import configSvc from './core/config.ts'
 import dbManager from './core/db.ts'
 import logger from './core/logger.ts'
 import scheduler from './core/scheduler.ts'
+import { apiKeySitePinHook } from './helpers/apiKeySite.ts'
 import { resolveAppShellLocale, templateAppShell } from './helpers/appShell.ts'
 import {
   localePrefixRedirectTarget,
@@ -692,6 +693,20 @@ async function initHTTPServer() {
     }
     done()
   })
+
+  // ----------------------------------------
+  // API Key Site Pin
+  // ----------------------------------------
+
+  /*
+    Task 2194: a request whose API key is pinned to one site (`apiKeys.siteId`, non-null) may not reach
+    any *other* site's `/sites/:siteId/...` resource. Global, exactly like the permissions hook above,
+    so a newly added `:siteId` route is covered automatically rather than depending on each route
+    remembering to call `enforceApiKeySite()` itself -- that per-route approach is what left 117 of the
+    119 site-addressed routes unguarded before this hook existed. See `helpers/apiKeySite.ts` for the
+    comparison itself; a request with no `:siteId` param, or no API key at all, passes through untouched.
+  */
+  app.addHook('preHandler', apiKeySitePinHook)
 
   // ----------------------------------------
   // SEO

@@ -17,7 +17,6 @@ import {
 } from '../helpers/common.ts'
 import { limitAuthAttempts, limitRenders } from '../helpers/rateLimit.ts'
 import { PAGE_PERMISSIONS } from '../helpers/permissions.ts'
-import { enforceApiKeySite } from '../helpers/apiKeySite.ts'
 import { actorFromRequest } from '../models/auditLog.ts'
 
 /**
@@ -665,10 +664,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
       const isId = isValidUuid(req.params.pageIdOrHash)
       const actor = actorFrom(req)
       // -> The source is what an editor loads, and editing is not something an anonymous reader does
@@ -863,10 +858,6 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
-      // -> A site-scoped key may not reach a site it isn't scoped to; see `helpers/apiKeySite.ts`.
-      if (!enforceApiKeySite(req, reply, req.params.siteId)) {
-        return reply
-      }
       const actor = actorFrom(req)
       if (!actor) {
         return reply.unauthorized('Saving a page requires a logged in user.')
