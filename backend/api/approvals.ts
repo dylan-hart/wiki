@@ -509,6 +509,7 @@ async function routes(app: FastifyInstance) {
       reply.preventCache()
       return WIKI.models.approvals.getReviewableSubmissions(
         req.params.siteId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
     }
@@ -544,6 +545,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -618,6 +620,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -690,6 +693,7 @@ async function routes(app: FastifyInstance) {
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
+        WIKI.models.groups.actorForRequest(req),
         reviewerFor(req, req.params.siteId)
       )
       if (!submission) {
@@ -773,10 +777,14 @@ async function routes(app: FastifyInstance) {
       }
       return {
         canReview: true,
-        submissions: await WIKI.models.approvals.getReviewableSubmissions(req.params.siteId, {
-          ...scope,
-          pageId: req.params.pageId
-        })
+        submissions: await WIKI.models.approvals.getReviewableSubmissions(
+          req.params.siteId,
+          WIKI.models.groups.actorForRequest(req),
+          {
+            ...scope,
+            pageId: req.params.pageId
+          }
+        )
       }
     }
   )
