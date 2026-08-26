@@ -442,22 +442,6 @@
             </w-item-section>
           </w-item>
           <w-separator class="my-2" inset />
-          <w-item>
-            <blueprint-icon icon="upload-to-ftp" />
-            <w-item-section>
-              <w-item-label>{{ t(`admin.security.maxUploadBatch`) }}</w-item-label>
-              <w-item-label caption>{{ t(`admin.security.maxUploadBatchHint`) }}</w-item-label>
-            </w-item-section>
-            <w-item-section style="flex: 0 0 200px">
-              <w-input
-                outlined
-                v-model.number="state.config.uploadMaxFiles"
-                dense
-                :suffix="t(`admin.security.maxUploadBatchSuffix`)"
-                :aria-label="t(`admin.security.maxUploadBatch`)" />
-            </w-item-section>
-          </w-item>
-          <w-separator class="my-2" inset />
           <w-item tag="label">
             <blueprint-icon icon="scan-stock" />
             <w-item-section>
@@ -629,7 +613,6 @@ const state = reactive({
     apiRateLimitWindow: '5m',
     apiRateLimitBan: '15m',
     uploadMaxFileSize: 0,
-    uploadMaxFiles: 0,
     uploadScanSVG: false
   },
   humanUploadMaxFileSize: '0'

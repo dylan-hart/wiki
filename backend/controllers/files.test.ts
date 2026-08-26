@@ -124,12 +124,48 @@ describe('response headers (byte-serving behavior)', () => {
     await app.close()
   })
 
-  test('does not force a non-image extension to download when forceAssetDownload is off', async () => {
+  test('does not force a non-image extension to download when forceAssetDownload is off (dispositionFor, OpenProject #2164)', async () => {
     readContentResult = { body: Buffer.from('the bytes'), size: 9 }
     const app = await buildApp({ forceAssetDownload: false })
     const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
     assert.equal(res.statusCode, 200)
     assert.equal(res.headers['content-disposition'], undefined)
+    await app.close()
+  })
+
+  test('attaches SVG_CSP for an image/svg+xml asset, whether or not forceAssetDownload is on (OpenProject #2157)', async () => {
+    resolvedAsset = { ...asset, fileName: 'icon.svg', fileExt: 'svg', mimeType: 'image/svg+xml' }
+    readContentResult = { body: Buffer.from('<svg></svg>'), size: 11 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({ method: 'GET', url: '/docs/icon.svg' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      res.headers['content-security-policy'],
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    )
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('attaches SVG_CSP for an HTML-typed asset too', async () => {
+    resolvedAsset = { ...asset, fileName: 'snippet.html', fileExt: 'html', mimeType: 'text/html' }
+    readContentResult = { body: Buffer.from('<script>alert(1)</script>'), size: 26 }
+    const app = await buildApp({ forceAssetDownload: false })
+    const res = await app.inject({ method: 'GET', url: '/docs/snippet.html' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(
+      res.headers['content-security-policy'],
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    )
+    resolvedAsset = undefined
+    await app.close()
+  })
+
+  test('sets no Content-Security-Policy for an ordinary, non-active-document asset', async () => {
+    readContentResult = { body: Buffer.from('the bytes'), size: 9 }
+    const app = await buildApp()
+    const res = await app.inject({ method: 'GET', url: '/docs/archive.zip' })
+    assert.equal(res.headers['content-security-policy'], undefined)
     await app.close()
   })
 })

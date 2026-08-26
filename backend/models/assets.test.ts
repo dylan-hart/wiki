@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { assets } from './assets.ts'
+import { assets, dispositionFor, sanitizeSvgAsset } from './assets.ts'
 import type { StorageTarget } from './storage.ts'
 
 /**
@@ -397,4 +397,79 @@ test('readContent returns null when the asset row is gone, whichever path was ta
   stubStorage({ targets: [target] })
   stubDb(undefined)
   assert.equal(await assets.readContent(testAsset, 'site-1'), null)
+})
+
+/**
+ * `dispositionFor()` is the single predicate `controllers/files.ts` and `api/assets.ts`'s `/content`
+ * route both call, replacing two expressions that used to disagree (OpenProject #2164). What matters
+ * here is that it answers the SAME way for the same inputs regardless of which route asks — this is
+ * a pure function of `fileExt` plus `WIKI.config.security.forceAssetDownload`, no I/O, so both
+ * "routes" are just calling it directly with the same arguments.
+ */
+function withSecurityConfig<T>(security: Record<string, unknown>, fn: () => T): T {
+  const original = (globalThis as any).WIKI
+  ;(globalThis as any).WIKI = { ...original, config: { security } }
+  try {
+    return fn()
+  } finally {
+    ;(globalThis as any).WIKI = original
+  }
+}
+
+test('dispositionFor: an INLINE_EXTS member is never forced to download, forceAssetDownload on or off', () => {
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: true }, () => dispositionFor('png')),
+    false
+  )
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: false }, () => dispositionFor('png')),
+    false
+  )
+})
+
+test('dispositionFor: a non-inline extension downloads only when forceAssetDownload is on', () => {
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: true }, () => dispositionFor('zip')),
+    true
+  )
+  assert.equal(
+    withSecurityConfig({ forceAssetDownload: false }, () => dispositionFor('zip')),
+    false
+  )
+})
+
+/**
+ * `sanitizeSvgAsset()` is the write-side half of the SVG defence — `dispositionFor`/`SVG_CSP`
+ * (`helpers/security.ts`) are the read side. Covers `security.uploadScanSVG` (OpenProject #2170):
+ * on, a script-bearing SVG upload is stripped; off, or for any other extension, the bytes are
+ * returned untouched.
+ */
+test('sanitizeSvgAsset strips <script> and event-handler attributes from an SVG when uploadScanSVG is on', () => {
+  const malicious = Buffer.from(
+    '<svg onload="alert(1)"><script>alert(2)</script><circle cx="5" cy="5" r="4" /></svg>'
+  )
+  const cleaned = withSecurityConfig({ uploadScanSVG: true }, () =>
+    sanitizeSvgAsset('svg', malicious)
+  )
+  const cleanedText = cleaned.toString('utf8')
+  assert.doesNotMatch(cleanedText, /<script/i)
+  assert.doesNotMatch(cleanedText, /alert\(2\)/)
+  assert.doesNotMatch(cleanedText, /onload/i)
+  assert.match(cleanedText, /<circle/)
+})
+
+test('sanitizeSvgAsset leaves the bytes untouched when uploadScanSVG is off', () => {
+  const original = Buffer.from('<svg><script>alert(1)</script></svg>')
+  const result = withSecurityConfig({ uploadScanSVG: false }, () =>
+    sanitizeSvgAsset('svg', original)
+  )
+  assert.equal(result, original)
+})
+
+test('sanitizeSvgAsset is a no-op for a non-SVG extension even when uploadScanSVG is on', () => {
+  const original = Buffer.from('not an svg')
+  const result = withSecurityConfig({ uploadScanSVG: true }, () =>
+    sanitizeSvgAsset('png', original)
+  )
+  assert.equal(result, original)
 })

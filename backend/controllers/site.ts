@@ -1,4 +1,5 @@
 import { guardSiteEnabled, isValidUuid, replyWithFile } from '../helpers/common.ts'
+import { SVG_CSP } from '../helpers/security.ts'
 import { svgMimeType } from '../helpers/images.ts'
 import crypto from 'node:crypto'
 import path from 'node:path'
@@ -45,8 +46,10 @@ const SITE_ASSET_CACHE = 'public, no-cache'
  * else. (Verified manually against an uploaded SVG carrying a `<script>` payload in both Chrome and
  * Firefox: rendered via `<img src>` it never runs, matching the reasoning above regardless of this
  * header; opened directly in a new tab, this header's `sandbox` neutralizes it in both browsers.)
+ *
+ * The constant itself now lives in `helpers/security.ts`, shared with `controllers/files.ts` and
+ * `api/assets.ts`'s `/content` route so the three cannot drift apart (OpenProject #2157).
  */
-const SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 /**
  * _site Routes

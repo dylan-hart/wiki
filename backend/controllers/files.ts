@@ -1,5 +1,6 @@
-import { INLINE_EXTS } from '../models/assets.ts'
+import { dispositionFor } from '../models/assets.ts'
 import { guardSiteEnabled } from '../helpers/common.ts'
+import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -82,11 +83,17 @@ async function routes(app: FastifyInstance) {
       return reply.redirect(content.redirectUrl, 302)
     }
 
-    if (!INLINE_EXTS.has(asset.fileExt) && WIKI.config.security?.forceAssetDownload) {
+    if (dispositionFor(asset.fileExt)) {
       reply.header(
         'Content-Disposition',
         `attachment; filename="${encodeURIComponent(asset.fileName)}"`
       )
+    }
+    // -> Neutralizes an SVG or HTML/XHTML file opened as a document rather than embedded — see
+    //    `helpers/security.ts`'s `SVG_CSP` for the full reasoning; the same header
+    //    `controllers/site.ts` attaches to an admin-uploaded logo/favicon SVG
+    if (needsSvgCsp(asset.fileExt)) {
+      reply.header('Content-Security-Policy', SVG_CSP)
     }
     // -> Set by hand because the body may be a stream, which Fastify would otherwise send chunked —
     //    and a download with no length is a download with no progress bar

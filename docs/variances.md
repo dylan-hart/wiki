@@ -1016,6 +1016,28 @@ module prop. At that point `mapStorageRow` should gain a real mapping for `mode`
 instead of reporting them dropped, and this entry should be deleted (not left as historical
 changelog prose).
 
+### 2.5.x `uploads.maxFiles` has no 3.0 destination (OpenProject #2174)
+
+2.5.x's `uploads.maxFiles` mapped to 3.0's `security.uploadMaxFiles` at import time, but that 3.0 key
+was itself dead: seeded and admin-editable, yet read by no upload path anywhere in `backend/` — every
+upload route (`POST /sites/:siteId/assets`, the equivalent for blocks) accepts exactly one file per
+request, so there was no batch to cap. The 2026-08-24 audit flagged this the same way it flagged
+`security.uploadScanSVG` (see `docs/audit-2026-08-24/security/06-files-uploads-storage.md` §4): an
+operator editing "Max Files per Upload" in the admin area had no reason to believe it did nothing.
+
+Per this branch's no-legacy-shim policy (root `CLAUDE.md`), `security.uploadMaxFiles` was deleted
+outright — from `base.yml`, `models/settings.ts`, `models/security.ts`, `api/schemas/security.ts`,
+`AdminSecurity.vue` and its locale strings — rather than kept inert, and
+`migration/mappers/site-settings.ts`'s `maxFiles -> uploadMaxFiles` rename was removed with it: a 2.x
+`uploads.maxFiles` value is now silently dropped on import, same as `mode`/`syncInterval` above.
+`security.uploadScanSVG`, the sibling key from the same audit finding, was implemented instead
+(`models/assets.ts#sanitizeSvgAsset`) rather than deleted, since sanitizing an uploaded SVG is real
+work a per-request file-count cap has no upload surface to attach to.
+
+**Closes when**: a 3.0 upload route accepts more than one file per request (a batch/multi-file
+upload feature). At that point a `uploadMaxFiles`-equivalent setting can be reintroduced and enforced
+against that route, and this entry should be deleted rather than left as historical changelog prose.
+
 ### 2.5.x auth providers 3.0 does not yet implement
 
 2.5.x ships 21 authentication provider modules. At the time this entry was first written 3.0 shipped

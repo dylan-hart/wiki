@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 
 import { decodeTreePath, guardSiteEnabled, normalizePagePath } from '../helpers/common.ts'
-import { INLINE_EXTS } from '../models/assets.ts'
+import { needsSvgCsp, SVG_CSP } from '../helpers/security.ts'
+import { dispositionFor } from '../models/assets.ts'
 
 const assetIdParam = {
   type: 'object',
@@ -307,11 +308,18 @@ async function routes(app: FastifyInstance) {
         return reply.redirect(content.redirectUrl, 302)
       }
 
-      if (WIKI.config.security?.forceAssetDownload || !INLINE_EXTS.has(asset.fileExt)) {
+      if (dispositionFor(asset.fileExt)) {
         reply.header(
           'Content-Disposition',
           `attachment; filename="${encodeURIComponent(asset.fileName)}"`
         )
+      }
+      // -> Neutralizes an SVG or HTML/XHTML file opened as a document rather than embedded — see
+      //    `helpers/security.ts`'s `SVG_CSP` for the full reasoning. Reachable whenever
+      //    `forceAssetDownload` is off, which is what would otherwise leave this route serving one
+      //    inline with no CSP at all.
+      if (needsSvgCsp(asset.fileExt)) {
+        reply.header('Content-Security-Policy', SVG_CSP)
       }
       // -> The bytes came from a user, so the browser must take the type at its word rather than
       //    looking for something more interesting in them
