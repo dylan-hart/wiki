@@ -135,16 +135,19 @@ class Security {
       }
     }
 
-    if (merged.enforceCsp) {
-      let cspDirectives: Record<string, string[]>
+    // -> Parsed (and its directive names validated) regardless of `enforceCsp`: a typo'd or invented
+    //    directive stored while enforcement is off would otherwise resurface, unvalidated, the
+    //    moment enforcement is later switched on.
+    let cspDirectives: Record<string, string[]> = {}
+    if (merged.cspDirectives) {
       try {
-        cspDirectives = parseCspDirectives(merged.cspDirectives ?? '')
+        cspDirectives = parseCspDirectives(merged.cspDirectives)
       } catch (err: any) {
         return err.message
       }
-      if (Object.keys(cspDirectives).length < 1) {
-        return 'Enforcing a Content-Security-Policy needs at least one directive.'
-      }
+    }
+    if (merged.enforceCsp && Object.keys(cspDirectives).length < 1) {
+      return 'Enforcing a Content-Security-Policy needs at least one directive.'
     }
 
     if (merged.enforceHsts && !(merged.hstsDuration > 0)) {

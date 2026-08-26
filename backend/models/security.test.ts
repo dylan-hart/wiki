@@ -89,7 +89,9 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
  * Unit test for WP #2161 (part of #2154): `Security#validate` is what stands between an admin-area
  * save and `WIKI.config.security` -- an unknown CSP directive name must be refused here, with a
  * message naming the offending token, rather than reaching `parseCspDirectives` for the first time
- * at request-serving time in `index.ts`.
+ * at request-serving time in `index.ts`. Directive names are validated regardless of `enforceCsp`:
+ * a typo'd or invented directive stored while enforcement is off would otherwise resurface,
+ * unvalidated, the moment enforcement is later switched on.
  */
 describe('Security#validate CSP directive checks', () => {
   let security: typeof import('./security.ts').security
@@ -114,11 +116,8 @@ describe('Security#validate CSP directive checks', () => {
     ;({ security } = await import(`./security.ts?t=${Math.random()}`))
   })
 
-  test('allows enforceCsp off regardless of cspDirectives content', () => {
-    assert.equal(
-      security.validate({ enforceCsp: false, cspDirectives: 'not-a-real-directive' }),
-      null
-    )
+  test('the shipped default (CSP off, no directives) is valid', () => {
+    assert.equal(security.validate({}), null)
   })
 
   test('rejects turning enforceCsp on with an empty directive string', () => {
@@ -134,6 +133,11 @@ describe('Security#validate CSP directive checks', () => {
       cspDirectives: "default-src 'self'; not-a-real-directive 'none'"
     })
     assert.match(reason ?? '', /"not-a-real-directive"/)
+  })
+
+  test('rejects an unknown directive name even while enforcement is off, so it cannot be stored and resurface later', () => {
+    const result = security.validate({ cspDirectives: 'not-a-real-directive foo' })
+    assert.match(result ?? '', /"not-a-real-directive"/)
   })
 
   test('accepts a valid operator-authored policy', () => {

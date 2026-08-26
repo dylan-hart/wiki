@@ -19,6 +19,10 @@ import { corsOrigin, corsOptions, needsSvgCsp, parseCspDirectives } from './secu
  * just YAML nobody exercises.
  */
 describe('parseCspDirectives', () => {
+  test('the shipped default (empty string) parses to no directives', () => {
+    assert.deepEqual(parseCspDirectives(''), {})
+  })
+
   test('parses a valid multi-directive policy', () => {
     assert.deepEqual(parseCspDirectives("default-src 'self'; img-src * data:"), {
       'default-src': ["'self'"],
