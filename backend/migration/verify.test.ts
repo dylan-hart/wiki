@@ -156,6 +156,42 @@ describe('compareEntityCounts', () => {
     assert.equal(users.destinationCount, 999)
   })
 
+  test('groups: source reporting two system groups against a destination seeded with three matches', () => {
+    // 2.x skips two isSystem source groups (Administrators, Guests); 3.0 seeds three
+    // (Administrators, Users, Guests) — see task 1813 / EXPECTED_COUNT_DELTA's doc comment.
+    const results = compareEntityCounts(
+      { users: 0, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 0, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    const groups = results.find((r) => r.entity === 'groups')!
+    assert.equal(groups.status, 'match')
+    assert.equal(groups.sourceCount, 2)
+    assert.equal(groups.destinationCount, 3)
+  })
+
+  test('groups: a destination two groups off the expected +1 delta still reports mismatch', () => {
+    const results = compareEntityCounts(
+      { users: 0, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 0, groups: 5, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    const groups = results.find((r) => r.entity === 'groups')!
+    assert.equal(groups.status, 'mismatch')
+  })
+
+  test('users: matching behaviour is unchanged (expected delta stays 0)', () => {
+    const matching = compareEntityCounts(
+      { users: 5, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 5, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    assert.equal(matching.find((r) => r.entity === 'users')!.status, 'match')
+
+    const mismatching = compareEntityCounts(
+      { users: 5, groups: 2, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 },
+      { users: 4, groups: 3, pages: 0, pageHistory: 0, tags: 0, assets: 0, navigation: 0 }
+    )
+    assert.equal(mismatching.find((r) => r.entity === 'users')!.status, 'mismatch')
+  })
+
   test('covers every VERIFY_ENTITIES entry exactly once', () => {
     const zeroSource = Object.fromEntries(VERIFY_ENTITIES.map((e) => [e, 0])) as any
     const zeroDest = Object.fromEntries(VERIFY_ENTITIES.map((e) => [e, 0])) as any

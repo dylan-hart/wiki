@@ -183,9 +183,30 @@ export interface EntityCount {
   status: EntityCountStatus
 }
 
+/** Per-entity expected `destinationCount - sourceCount`, accounting for rows the importer
+ * deliberately does not carry over one-to-one rather than treating every such case as a mismatch.
+ * `groups` is the one nonzero case: 3.0 seeds three system groups — Administrators, Users, Guests
+ * (`models/groups.ts:404,422,440`) — against 2.x's two (Administrators id 1, Guests id 2), both of
+ * which the importer skips as `isSystem` (`importers/users-groups.ts:798,870`), so a flawless import
+ * always lands the destination exactly one group above the source. `users` deliberately stays 0: 3.0's
+ * own seeded admin (`isSystem: false`) and Guest (`isSystem: true`, `models/users.ts:1535,1553-1556`)
+ * net out against 2.x's two skipped system users on a fresh single-site import, so giving it a nonzero
+ * delta (or filtering destination system rows instead) would break that currently-matching case. */
+const EXPECTED_COUNT_DELTA: Record<VerifyEntity, number> = {
+  users: 0,
+  groups: 1,
+  pages: 0,
+  pageHistory: 0,
+  tags: 0,
+  assets: 0,
+  navigation: 0
+}
+
 /** Per-entity source-vs-destination reconciliation — task 748's first check. A `'not_implemented'`
  * source count is reported as-is rather than as a mismatch: there is nothing to compare against yet,
- * and calling that a failure would make every run fail until Features 414/416/418/420 all land. */
+ * and calling that a failure would make every run fail until Features 414/416/418/420 all land. A
+ * match requires `destinationCount - sourceCount` to equal that entity's `EXPECTED_COUNT_DELTA`, not
+ * bare equality — see its doc comment for why `groups` alone expects a nonzero difference. */
 export function compareEntityCounts(
   sourceCounts: SourceEntityCounts,
   destinationCounts: DestinationEntityCounts
@@ -200,7 +221,7 @@ export function compareEntityCounts(
       entity,
       sourceCount,
       destinationCount,
-      status: sourceCount === destinationCount ? 'match' : 'mismatch'
+      status: destinationCount - sourceCount === EXPECTED_COUNT_DELTA[entity] ? 'match' : 'mismatch'
     }
   })
 }
