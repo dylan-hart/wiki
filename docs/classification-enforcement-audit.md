@@ -39,6 +39,7 @@ gap, not a surface that got the polarity backwards.
 | REST `GET /sites/:siteId/pages` (list pages) | N/A | Not implemented — the route always answers `[]` (its own schema description says so). Nothing to leak. |
 | Comments (`models/comments.ts`) | Correct | Every admin-facing page-ref query (`pageRefsForSite`, `getWithPage`) already selects `pages.classification` alongside `path`/`locale`/`tags`. |
 | Assets (`api/assets.ts`, `controllers/files.ts`) | Correct | Threaded through the same `RulePageRef` construction sites as the rest of #1079/#1080's rollout; spot-checked, not found lacking. |
+| Auto-generated navigation (`GET .../navigation/:navId` on an `auto`/`mixed` menu, `models/navigation.ts#generateFromTree`) | Correct (fixed by [#2155](../../../work_packages/2155)) | Unlike the `tree`-table gap above, `generateFromTree()` already left-joins `pages` for `icon`; it now also selects `pages.tags`/`pages.classification` and runs `checkAccess()` per candidate with the real values, so a `CLASSIFICATION` DENY reaches this surface same as a direct page view. |
 
 ## Known gaps from this pass
 
