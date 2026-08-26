@@ -149,3 +149,10 @@ props:
     order: 29
     if:
       - { key: 'mapGroups', eq: true }
+  trustEmailForLinking:
+    type: Boolean
+    title: Trust This Provider's Email Addresses For Account Linking
+    hint: Off by default. A returning login is normally accepted only when the account's stored link to this strategy already matches the directory entry's unique ID — an address match alone does not reopen an unlinked account, or one linked to a different directory entry. Turn this on only for a directory whose addresses this instance trusts enough to link an existing account by address alone on first sign-in.
+    icon: link
+    default: false
+    order: 30

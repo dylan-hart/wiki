@@ -78,9 +78,13 @@ export interface AuthFlowCallback extends AuthFlow {
 /**
  * Who signed in, as a module reports them.
  *
- * `id` is the provider's own identifier for the account and never changes; `email` is what the user is
- * matched or created by here. A module must not return an address it has not established belongs to
- * the person — an unverified one is how somebody signs in as somebody else.
+ * `id` is the provider's own identifier for the account and never changes; `email` is what a new
+ * account is created by, and what an existing one is looked up by — but the address alone is not
+ * enough to sign into an existing account. `findOrCreateProviderUser()` (`models/users.ts`) requires
+ * the account's stored `auth[strategy.id].id` to already equal this `id` before accepting the login,
+ * unless the strategy's module has opted into `trustEmailForLinking`. A module must not return an
+ * address it has not established belongs to the person — an unverified one is how somebody signs in
+ * as somebody else, and with the account bound to `id` as well, a spoofed address alone no longer is.
  */
 export interface ProviderProfile {
   id: string

@@ -36,6 +36,13 @@ props:
     hint: (optional) Login name of a GitHub organization. Only its members may sign in — which needs the account to be a public member, or the OAuth app to be approved by the organization.
     icon: user-groups
     order: 4
+  trustEmailForLinking:
+    type: Boolean
+    title: Trust This Provider's Email Addresses For Account Linking
+    hint: Off by default. A returning login is normally accepted only when the account's stored link to this strategy already matches the profile GitHub reports — an address match alone does not reopen an unlinked account, or one linked to a different GitHub account. Turn this on only for a deployment whose GitHub addresses this instance trusts enough to link an existing account by address alone on first sign-in.
+    icon: link
+    default: false
+    order: 5
 refs:
   callbackUrl:
     title: Authorization Callback URL

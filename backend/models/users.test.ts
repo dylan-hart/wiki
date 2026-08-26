@@ -1451,6 +1451,157 @@ describe('users.login (form-based provider auto-provisioning)', () => {
 })
 
 /**
+ * `findOrCreateProviderUser()` itself: the email address is only ever the lookup key, never the whole
+ * proof of identity. An existing account is signed into only when its stored `auth[strategy.id].id`
+ * already matches the profile's `id` (or the strategy's module opted into `trustEmailForLinking`),
+ * `allowedEmailRegex` is enforced before that lookup even runs (so it also refuses a returning login,
+ * not only a brand-new address), and a system account (the seeded guest row) is refused outright
+ * regardless of any of the above. All of this runs before the method's own database write, so these
+ * cases are covered by mocking `getByEmail()` off a plain object rather than a real database.
+ */
+describe('users.findOrCreateProviderUser', () => {
+  const strategyId = 'strategy-1'
+
+  function makeStrategy(overrides: Partial<any> = {}): any {
+    return {
+      id: strategyId,
+      module: 'oidc',
+      registration: true,
+      allowedEmailRegex: '',
+      autoEnrollGroups: [],
+      config: {},
+      ...overrides
+    }
+  }
+
+  function makeProfile(overrides: Partial<any> = {}): any {
+    return { id: 'ext-1', email: 'ada@example.com', name: 'Ada Lovelace', ...overrides }
+  }
+
+  function installWiki() {
+    ;(globalThis as any).WIKI = {
+      models: { flags: { authDebug: () => {} } },
+      logger: { warn: () => {} },
+      db: {
+        update: () => ({
+          set: () => ({
+            where: async () => {}
+          })
+        })
+      }
+    }
+  }
+
+  after(() => {
+    delete (globalThis as any).WIKI
+  })
+
+  test('refuses an existing user whose auth[strategy.id] is absent', async (t) => {
+    installWiki()
+    t.mock.method(users, 'getByEmail', async () => ({
+      id: 'user-1',
+      email: 'ada@example.com',
+      isSystem: false,
+      isActive: true,
+      auth: {}
+    }))
+
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(makeStrategy(), makeProfile()),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('refuses a mismatched profile.id against a stored link', async (t) => {
+    installWiki()
+    t.mock.method(users, 'getByEmail', async () => ({
+      id: 'user-1',
+      email: 'ada@example.com',
+      isSystem: false,
+      isActive: true,
+      auth: { [strategyId]: { id: 'some-other-external-id', email: 'ada@example.com' } }
+    }))
+
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(makeStrategy(), makeProfile({ id: 'ext-1' })),
+      /ERR_ACCOUNT_NOT_LINKED/
+    )
+  })
+
+  test('refuses a profile reporting the seeded guest address', async (t) => {
+    installWiki()
+    t.mock.method(users, 'getByEmail', async () => ({
+      id: 'guest-1',
+      email: 'guest@example.com',
+      isSystem: true,
+      isActive: true,
+      auth: {}
+    }))
+
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(
+        makeStrategy(),
+        makeProfile({ email: 'guest@example.com' })
+      ),
+      /ERR_LOGIN_FAILED/
+    )
+  })
+
+  test('applies allowedEmailRegex on an existing-user login, not only on creation', async (t) => {
+    installWiki()
+    const getByEmail = t.mock.method(users, 'getByEmail', async () => ({
+      id: 'user-1',
+      email: 'ada@example.com',
+      isSystem: false,
+      isActive: true,
+      auth: { [strategyId]: { id: 'ext-1', email: 'ada@example.com' } }
+    }))
+
+    await assert.rejects(
+      (users as any).findOrCreateProviderUser(
+        makeStrategy({ allowedEmailRegex: '@example\\.org$' }),
+        makeProfile()
+      ),
+      /ERR_EMAIL_NOT_ALLOWED/
+    )
+    // -> Refused before the account is even looked up
+    assert.equal(getByEmail.mock.calls.length, 0)
+  })
+
+  test('accepts a returning login whose stored link matches the profile id', async (t) => {
+    installWiki()
+    t.mock.method(users, 'getByEmail', async () => ({
+      id: 'user-1',
+      email: 'ada@example.com',
+      isSystem: false,
+      isActive: true,
+      auth: { [strategyId]: { id: 'ext-1', email: 'ada@example.com' } }
+    }))
+
+    const user = await (users as any).findOrCreateProviderUser(makeStrategy(), makeProfile())
+    assert.equal(user.id, 'user-1')
+  })
+
+  test('links an unlinked existing user when the strategy trusts this provider for linking', async (t) => {
+    installWiki()
+    t.mock.method(users, 'getByEmail', async () => ({
+      id: 'user-1',
+      email: 'ada@example.com',
+      isSystem: false,
+      isActive: true,
+      auth: {}
+    }))
+
+    const user = await (users as any).findOrCreateProviderUser(
+      makeStrategy({ config: { trustEmailForLinking: true } }),
+      makeProfile()
+    )
+    assert.equal(user.id, 'user-1')
+    assert.equal(user.auth[strategyId].id, 'ext-1')
+  })
+})
+
+/**
  * `reassignContent`'s three refusals (same user, unknown target, target is a system account) all run
  * before the method ever opens its transaction, off nothing but `getById()`'s return value — so they
  * are tested by mocking that one collaborator, the same way `users.loginTFA`'s suite above mocks its

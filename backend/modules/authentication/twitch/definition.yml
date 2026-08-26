@@ -49,6 +49,13 @@ props:
     order: 5
     if:
       - { key: 'mapGroups', eq: true }
+  trustEmailForLinking:
+    type: Boolean
+    title: Trust This Provider's Email Addresses For Account Linking
+    hint: Off by default. A returning login is normally accepted only when the account's stored link to this strategy already matches the profile Twitch reports — an address match alone does not reopen an unlinked account, or one linked to a different Twitch account. Turn this on only for a deployment whose Twitch addresses this instance trusts enough to link an existing account by address alone on first sign-in.
+    icon: link
+    default: false
+    order: 6
 refs:
   callbackUrl:
     title: OAuth Redirect URL

@@ -1713,36 +1713,72 @@ class Users {
    * no local match and threw `ProvisionableLoginError`) needs exactly the same find-or-create rules
    * rather than a second copy of them.
    *
-   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_LOGIN_FAILED`,
-   *         `ERR_INACTIVE_USER`
+   * The email address alone never re-opens an existing account: a returning login is accepted only
+   * when the account's stored `auth[strategy.id].id` already matches `profile.id` — the link written
+   * the first time this strategy signed that account in. An address that matches an account with no
+   * such link, or a different one, does not get quietly attached to it; that would let anyone who
+   * controls an address at the provider (an admin reassigning a mailbox, a lapsed personal domain)
+   * step into whatever local account happens to share it. Whether that case is refused outright or
+   * linked anyway is the strategy's own call, via its module's `trustEmailForLinking` config prop —
+   * off by default, since accepting it is a decision about how much this instance trusts the
+   * provider's address, not a decision this method can make on the module's behalf.
+   *
+   * `allowedEmailRegex` is checked before either path, not only on creation: a pattern that has
+   * since narrowed (or a provider account whose address moved outside it) refuses a returning login
+   * exactly as it would refuse a new one.
+   *
+   * A system account (the guest row) is refused outright: `getByEmail()` carries no `isSystem`
+   * filter, so a profile asserting the guest's seeded address would otherwise open a session on it
+   * and leave its `auth` map permanently dirtied by a login nobody actually performs as guest.
+   *
+   * @throws `ERR_REGISTRATION_DISABLED`, `ERR_EMAIL_NOT_ALLOWED`, `ERR_ACCOUNT_NOT_LINKED`,
+   *         `ERR_LOGIN_FAILED`, `ERR_INACTIVE_USER`
    */
   private async findOrCreateProviderUser(
     strategy: AuthStrategy,
     profile: ProviderProfile
   ): Promise<any> {
     const email = profile.email.toLowerCase().trim()
+
+    if (strategy.allowedEmailRegex) {
+      let allowed = false
+      try {
+        allowed = new RegExp(strategy.allowedEmailRegex).test(email)
+      } catch (err: any) {
+        // -> A pattern that will not compile allows nobody, rather than everybody
+        WIKI.logger.warn(
+          `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
+        )
+      }
+      if (!allowed) {
+        throw new Error('ERR_EMAIL_NOT_ALLOWED')
+      }
+    }
+
     let user = await this.getByEmail(email)
 
-    if (!user) {
+    if (user?.isSystem) {
+      WIKI.models.flags.authDebug(
+        `Provider login for <${email}> refused: strategy ${strategy.id} matched a system account`
+      )
+      throw new Error('ERR_LOGIN_FAILED')
+    }
+
+    if (user) {
+      const auth = (user.auth ?? {}) as Record<string, any>
+      const link = auth[strategy.id]
+      if (link?.id !== profile.id && !strategy.config?.trustEmailForLinking) {
+        WIKI.models.flags.authDebug(
+          `Provider login for <${email}> refused: no stored account link for strategy ${strategy.id} matches profile ${profile.id}`
+        )
+        throw new Error('ERR_ACCOUNT_NOT_LINKED')
+      }
+    } else {
       if (!strategy.registration) {
         WIKI.models.flags.authDebug(
           `Provider login for unknown address <${email}> refused: strategy ${strategy.id} does not accept new users`
         )
         throw new Error('ERR_REGISTRATION_DISABLED')
-      }
-      if (strategy.allowedEmailRegex) {
-        let allowed = false
-        try {
-          allowed = new RegExp(strategy.allowedEmailRegex).test(email)
-        } catch (err: any) {
-          // -> A pattern that will not compile allows nobody, rather than everybody
-          WIKI.logger.warn(
-            `Strategy ${strategy.id} has an invalid email pattern, refusing: ${err.message}`
-          )
-        }
-        if (!allowed) {
-          throw new Error('ERR_EMAIL_NOT_ALLOWED')
-        }
       }
       const userId = await this.createUser({
         name: profile.name || email,
