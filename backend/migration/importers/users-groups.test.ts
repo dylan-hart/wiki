@@ -385,6 +385,100 @@ describe('createProviderFallbackUserConverter', () => {
     assert.equal(outcome.status, 'skipped')
   })
 
+  test('carries isActive/isVerified, meta and prefs over from the source rather than hardcoding them (Task 1847)', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 7,
+      email: 'deactivated@example.com',
+      name: 'Deactivated User',
+      providerKey: 'ldap',
+      isActive: false,
+      isVerified: false,
+      jobTitle: 'Staff Engineer',
+      location: 'Remote',
+      timezone: 'Europe/Berlin',
+      dateFormat: 'DD/MM/YYYY',
+      appearance: 'dark'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    // -> Never silently reopened: a departed employee's deliberately-deactivated 2.x account stays
+    //    inactive on import, not one password reset away from a working login.
+    assert.equal(outcome.row.isActive, false)
+    assert.equal(outcome.row.isVerified, false)
+    assert.deepEqual(outcome.row.meta, {
+      location: 'Remote',
+      jobTitle: 'Staff Engineer',
+      pronouns: ''
+    })
+    assert.deepEqual(outcome.row.prefs, {
+      timezone: 'Europe/Berlin',
+      dateFormat: 'DD/MM/YYYY',
+      timeFormat: '12h',
+      appearance: 'dark',
+      cvd: 'none'
+    })
+  })
+
+  test('falls back to isActive: false (never true) and the usual defaults when the source has nothing to give', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 8,
+      email: 'bare@example.com',
+      name: 'Bare Record',
+      providerKey: 'ldap'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.isActive, false)
+    assert.equal(outcome.row.isVerified, true)
+    assert.deepEqual(outcome.row.meta, { location: '', jobTitle: '', pronouns: '' })
+    assert.equal((outcome.row.prefs as any).timezone, 'America/New_York')
+  })
+
+  test('carries createdAt/updatedAt/lastLoginAt timestamps over from the source', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+    const createdAt = new Date('2019-03-04T12:00:00.000Z')
+    const updatedAt = new Date('2022-06-01T08:30:00.000Z')
+    const lastLoginAt = new Date('2023-11-20T17:45:00.000Z')
+
+    const outcome = await convert({
+      id: 9,
+      email: 'timestamps@example.com',
+      name: 'Timestamped User',
+      providerKey: 'ldap',
+      createdAt,
+      updatedAt,
+      lastLoginAt
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.deepEqual(outcome.row.createdAt, createdAt)
+    assert.deepEqual(outcome.row.updatedAt, updatedAt)
+    assert.deepEqual(outcome.row.lastLoginAt, lastLoginAt)
+  })
+
+  test('degrades a malformed source timestamp to undefined rather than failing the whole record', async () => {
+    const convert = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
+
+    const outcome = await convert({
+      id: 10,
+      email: 'malformed-date@example.com',
+      name: 'Malformed Date',
+      providerKey: 'ldap',
+      createdAt: 'not-a-date'
+    })
+
+    assert.equal(outcome.status, 'created')
+    if (outcome.status !== 'created') return
+    assert.equal(outcome.row.createdAt, undefined)
+  })
+
   test('end-to-end through importUsersAndGroups: fallback-routed accounts are written and reported in providerFallbacks', async () => {
     const writer = createDryRunWriter()
     const convertUser = createProviderFallbackUserConverter({ localStrategyId: LOCAL_STRATEGY_ID })
