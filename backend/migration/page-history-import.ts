@@ -176,7 +176,7 @@ function buildComparableState(
  * Builds `meta` exactly the way `record()` does: every field 3.0's `pages` row carries beyond the
  * ones held in `pageHistory`'s own `locale`/`path`/`title`/`content` columns
  * (`EXCLUDED_FROM_META` in `backend/models/pageHistory.ts`). 2.x's history rows carry no
- * `alias`/`icon`/`config`/`relations`/`scripts`/`isBrowsable`/`isSearchable` of their own — none of
+ * `alias`/`icon`/`config`/`relations`/`isBrowsable`/`isSearchable` of their own — none of
  * those exist in the 2.x schema at all — so each is set to the same default `createPage()` itself
  * would have used for a page that never specified one, per `db/schema.ts`'s column defaults.
  */

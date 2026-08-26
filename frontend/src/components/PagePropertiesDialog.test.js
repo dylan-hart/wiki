@@ -34,13 +34,6 @@ const i18n = createI18n({
           relations: 'Relations',
           relationAdd: 'Add Relation',
           relationAddHint: '',
-          scripts: 'Scripts',
-          jsLoad: 'Javascript - On Load',
-          jsLoadHint: '',
-          jsUnload: 'Javascript - On Unload',
-          jsUnloadHint: '',
-          styles: 'CSS Styles',
-          stylesHint: '',
           sidebar: 'Sidebar',
           showSidebar: 'Show Sidebar',
           showToc: 'Show Table of Contents',
@@ -89,57 +82,6 @@ function mountDialog({ pagePermissions = ['write:pages'] } = {}) {
 
 describe('PagePropertiesDialog', () => {
   /**
-   * Regression coverage for OpenProject #1131: the script-editing controls used to render for
-   * anyone who could open Properties at all (gated only on `write:pages`), even though the backend
-   * silently drops a `scriptJsLoad`/`scriptJsUnload`/`scriptCss` edit from an actor who lacks the
-   * matching `write:scripts`/`write:styles` page permission -- so the control looked like it worked
-   * and didn't. The whole "Scripts" section, and its quick-access jump-rail entry, now come and go
-   * together with those two permissions.
-   */
-  it('hides the whole Scripts section and its quick-access entry with neither write:scripts nor write:styles', async () => {
-    const { wrapper } = mountDialog({ pagePermissions: ['write:pages'] })
-    await flushPromises()
-
-    expect(wrapper.find('#refCardScripts').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Javascript - On Load')
-    expect(wrapper.text()).not.toContain('CSS Styles')
-    expect(wrapper.find('.floating-sidepanel-quickaccess [data-icon="la:code"]').exists()).toBe(
-      false
-    )
-  })
-
-  it('shows only the JS buttons with write:scripts but not write:styles', async () => {
-    const { wrapper } = mountDialog({ pagePermissions: ['write:pages', 'write:scripts'] })
-    await flushPromises()
-
-    expect(wrapper.find('#refCardScripts').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Javascript - On Load')
-    expect(wrapper.text()).toContain('Javascript - On Unload')
-    expect(wrapper.text()).not.toContain('CSS Styles')
-  })
-
-  it('shows only the CSS button with write:styles but not write:scripts', async () => {
-    const { wrapper } = mountDialog({ pagePermissions: ['write:pages', 'write:styles'] })
-    await flushPromises()
-
-    expect(wrapper.find('#refCardScripts').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('Javascript - On Load')
-    expect(wrapper.text()).toContain('CSS Styles')
-  })
-
-  it('shows the whole Scripts section with both permissions', async () => {
-    const { wrapper } = mountDialog({
-      pagePermissions: ['write:pages', 'write:scripts', 'write:styles']
-    })
-    await flushPromises()
-
-    expect(wrapper.find('#refCardScripts').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Javascript - On Load')
-    expect(wrapper.text()).toContain('Javascript - On Unload')
-    expect(wrapper.text()).toContain('CSS Styles')
-  })
-
-  /**
    * Regression coverage for OpenProject #1133 item 1: the Relations quick-access button used
    * `la:sun`, a copy-paste mistake -- not `la:link` or any other relations-shaped icon.
    */
@@ -160,15 +102,13 @@ describe('PagePropertiesDialog', () => {
    * panel's own close button had no `aria-label`, unlike every other icon-only button in this file.
    */
   it('sets an aria-label on every quick-access button and the close button', async () => {
-    const { wrapper } = mountDialog({
-      pagePermissions: ['write:pages', 'write:scripts', 'write:styles']
-    })
+    const { wrapper } = mountDialog()
     await flushPromises()
 
     const quickAccessButtons = wrapper.findAll('.floating-sidepanel-quickaccess button')
-    // -> One button per section: Info, Publish State, Relations, Scripts, Sidebar, Social, Tags,
+    // -> One button per section: Info, Publish State, Relations, Sidebar, Social, Tags,
     //    Classification, Visibility
-    expect(quickAccessButtons).toHaveLength(9)
+    expect(quickAccessButtons).toHaveLength(8)
     for (const btn of quickAccessButtons) {
       expect(btn.attributes('aria-label')).toBeTruthy()
     }

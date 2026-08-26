@@ -137,7 +137,13 @@ class Security {
     }
 
     if (merged.enforceCsp) {
-      if (Object.keys(parseCspDirectives(merged.cspDirectives ?? '')).length < 1) {
+      let cspDirectives: Record<string, string[]>
+      try {
+        cspDirectives = parseCspDirectives(merged.cspDirectives ?? '')
+      } catch (err: any) {
+        return err.message
+      }
+      if (Object.keys(cspDirectives).length < 1) {
         return 'Enforcing a Content-Security-Policy needs at least one directive.'
       }
     }

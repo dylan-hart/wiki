@@ -1,12 +1,84 @@
 import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
+import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { load } from 'js-yaml'
+import { corsOrigin, corsOptions, parseCspDirectives } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
 ;(globalThis as any).WIKI = { logger: { warn: mock.fn() } }
+
+/**
+ * Unit tests for WP #2158/#2161 (part of #2154): `parseCspDirectives` used to accept any token as a
+ * directive name, so a typo'd or invented one was stored -- and enforced -- as silently less policy
+ * than the operator intended. It now throws, naming the offending token, and this is also where the
+ * shipped `backend/base.yml` default is asserted to actually parse, since that string is otherwise
+ * just YAML nobody exercises.
+ */
+describe('parseCspDirectives', () => {
+  test('parses a valid multi-directive policy', () => {
+    assert.deepEqual(parseCspDirectives("default-src 'self'; img-src * data:"), {
+      'default-src': ["'self'"],
+      'img-src': ['*', 'data:']
+    })
+  })
+
+  test('a directive with no value maps to an empty list', () => {
+    assert.deepEqual(parseCspDirectives('upgrade-insecure-requests'), {
+      'upgrade-insecure-requests': []
+    })
+  })
+
+  test('directive names are case-insensitive', () => {
+    assert.deepEqual(parseCspDirectives("DEFAULT-SRC 'self'"), { 'default-src': ["'self'"] })
+  })
+
+  test('empty and whitespace-only chunks are ignored', () => {
+    assert.deepEqual(parseCspDirectives(" default-src 'self'; ; "), { 'default-src': ["'self'"] })
+  })
+
+  test('rejects an unknown directive name, naming it', () => {
+    assert.throws(() => parseCspDirectives("srcipt-src 'self'"), /Unknown.*"srcipt-src"/)
+  })
+
+  test('rejects an unknown directive even alongside otherwise-valid ones', () => {
+    assert.throws(
+      () => parseCspDirectives("default-src 'self'; not-a-real-directive 'none'"),
+      /"not-a-real-directive"/
+    )
+  })
+
+  test('the shipped backend/base.yml default parses cleanly into the expected directive map', () => {
+    const config: any = load(readFileSync(path.join(import.meta.dirname, '../base.yml'), 'utf8'))
+    const shipped = config.defaults.config.security.cspDirectives as string
+    assert.ok(shipped.length > 0, 'expected base.yml to ship a non-empty default')
+
+    const parsed = parseCspDirectives(shipped)
+
+    // -> The "at minimum" baseline the WP calls for, plus what Monaco, the blocks loader and KaTeX
+    //    actually need -- see the comment above `cspDirectives` in base.yml for the full reasoning
+    //    per directive.
+    for (const expected of [
+      'default-src',
+      'object-src',
+      'base-uri',
+      'frame-ancestors',
+      'script-src',
+      'style-src',
+      'worker-src',
+      'img-src',
+      'connect-src'
+    ]) {
+      assert.ok(expected in parsed, `expected the shipped policy to set ${expected}`)
+    }
+    assert.deepEqual(parsed['object-src'], ["'none'"])
+    assert.deepEqual(parsed['base-uri'], ["'self'"])
+    assert.deepEqual(parsed['frame-ancestors'], ["'none'"])
+  })
+})
 
 describe('corsOrigin', () => {
   test('OFF (and unrecognized) modes deny cross-origin', () => {

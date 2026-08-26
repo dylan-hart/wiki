@@ -84,3 +84,79 @@ describe('Security#observeRequest / getInsecureCookieRiskAt', () => {
     assert.equal(security.getInsecureCookieRiskAt(), firstSeenAt)
   })
 })
+
+/**
+ * Unit test for WP #2161 (part of #2154): `Security#validate` is what stands between an admin-area
+ * save and `WIKI.config.security` -- an unknown CSP directive name must be refused here, with a
+ * message naming the offending token, rather than reaching `parseCspDirectives` for the first time
+ * at request-serving time in `index.ts`.
+ */
+describe('Security#validate CSP directive checks', () => {
+  let security: typeof import('./security.ts').security
+
+  beforeEach(async () => {
+    // -> A baseline that passes every OTHER validate() check (CORS off, no rate limiting), so each
+    //    test's patch only has to touch the CSP fields it actually cares about.
+    ;(globalThis as any).WIKI = {
+      config: {
+        security: {
+          corsMode: 'OFF',
+          corsConfig: '',
+          enforceCsp: false,
+          cspDirectives: '',
+          enforceHsts: false,
+          hstsDuration: 0,
+          authRateLimitEnabled: false,
+          apiRateLimitEnabled: false
+        }
+      }
+    }
+    ;({ security } = await import(`./security.ts?t=${Math.random()}`))
+  })
+
+  test('allows enforceCsp off regardless of cspDirectives content', () => {
+    assert.equal(
+      security.validate({ enforceCsp: false, cspDirectives: 'not-a-real-directive' }),
+      null
+    )
+  })
+
+  test('rejects turning enforceCsp on with an empty directive string', () => {
+    assert.match(
+      security.validate({ enforceCsp: true, cspDirectives: '' }) ?? '',
+      /at least one directive/
+    )
+  })
+
+  test('rejects an unknown directive name, naming it, once enforceCsp is on', () => {
+    const reason = security.validate({
+      enforceCsp: true,
+      cspDirectives: "default-src 'self'; not-a-real-directive 'none'"
+    })
+    assert.match(reason ?? '', /"not-a-real-directive"/)
+  })
+
+  test('accepts a valid operator-authored policy', () => {
+    assert.equal(
+      security.validate({
+        enforceCsp: true,
+        cspDirectives: "default-src 'self'; object-src 'none'"
+      }),
+      null
+    )
+  })
+
+  test('accepts the shipped backend/base.yml default', async () => {
+    const { load } = await import('js-yaml')
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const config: any = load(readFileSync(path.join(import.meta.dirname, '../base.yml'), 'utf8'))
+    assert.equal(
+      security.validate({
+        enforceCsp: true,
+        cspDirectives: config.defaults.config.security.cspDirectives
+      }),
+      null
+    )
+  })
+})
