@@ -58,4 +58,17 @@ describe('useNavSidebarDestination#destination', () => {
       target: undefined
     })
   })
+
+  it('still hands out a mailto: target as a plain href', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'mailto:hello@example.org' })).toEqual({
+      href: 'mailto:hello@example.org',
+      target: undefined
+    })
+  })
+
+  it('respects openInNewWindow for a refused target too -- still no href, still no to', async () => {
+    const { destination } = await mountDestination()
+    expect(destination({ target: 'javascript:alert(1)', openInNewWindow: true })).toEqual({})
+  })
 })
