@@ -493,10 +493,23 @@ window.addEventListener('beforeunload', (e) => {
 
 EVENT_BUS.on('logout', ({ redirect } = {}) => {
   const target = redirect || '/'
-  // -> A group or the site can send logged out users to another site entirely, which the router cannot
-  //    navigate to — and leaving the wiki means there is no point notifying anyone either
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
-    window.location.assign(target)
+  /*
+    A group or the site can send logged out users to another site entirely, which the router cannot
+    navigate to -- and leaving the wiki means there is no point notifying anyone either. Parsed against
+    this origin rather than matched by a scheme-prefix regex: the old regex only checked for SOME
+    scheme (`javascript://%0aalert(1)` satisfied it fine), not that it was http(s), so it could reach
+    `window.location.assign` with a scheme the browser executes instead of navigates to.
+  */
+  let url
+  try {
+    url = new URL(target, location.origin)
+  } catch {
+    url = null
+  }
+  if (url && url.origin !== location.origin) {
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      window.location.assign(url.href)
+    }
     return
   }
   router.push(target)

@@ -36,10 +36,10 @@ export function useNavSidebarDestination() {
    *
    * Two typed-address cases worth calling out explicitly (task 466 verified both rather than assuming):
    *
-   *   - `mailto:` needs no special-casing here. `routableHref`'s protocol check (`/^https?:$/`) already
-   *     declines anything that is not http(s), so a `mailto:` address falls straight through to the plain
-   *     `href` branch below and the browser opens it with the reader's mail client, same as any other
-   *     link on the page.
+   *   - `mailto:`/`tel:` need no special-casing here beyond being named in the plain-`href` branch's own
+   *     protocol allowlist below. `routableHref`'s protocol check (`/^https?:$/`) already declines
+   *     anything that is not http(s), so either falls straight through to that branch and the browser
+   *     opens it with the reader's mail or phone app, same as any other link on the page.
    *   - A bare domain typed without a scheme -- `example.com` rather than `https://example.com` -- is NOT
    *     declined. `new URL('example.com', location.href)` resolves it as a same-origin PATH relative to
    *     whatever page is open, so `routableHref` hands it to the router, which then renders "page not
@@ -53,16 +53,24 @@ export function useNavSidebarDestination() {
   function destination(item) {
     const address = item.target ?? '/'
     const target = item.openInNewWindow ? '_blank' : undefined
-    let routable = null
+    let url
     try {
-      routable = routableHref(
-        { href: new URL(address, globalThis.location.href).href, target },
-        globalThis.location
-      )
+      url = new URL(address, globalThis.location.href)
     } catch {
-      // -> Not a URL at all: nothing to route to, so it goes out as the author wrote it
+      // -> Not a URL at all: nothing to route to, and nothing safe to hand the browser either
+      return {}
     }
-    return routable ? { to: routable } : { href: address, target }
+    const routable = routableHref({ href: url.href, target }, globalThis.location)
+    if (routable) {
+      return { to: routable }
+    }
+    /*
+      Not routable: only hand it to the browser as a plain link when it is a scheme the browser will
+      navigate to rather than execute -- mirrors `Index.vue`'s `relationLink()`. An administrator types
+      this address by hand, so a stray `javascript:` (or `javascript://%0a...`, which still parses as
+      a URL) must not reach `<a href>` verbatim the way it did here before this check existed.
+    */
+    return /^(https?|mailto|tel):$/.test(url.protocol) ? { href: address, target } : {}
   }
 
   /**

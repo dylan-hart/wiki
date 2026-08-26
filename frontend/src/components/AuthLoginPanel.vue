@@ -458,7 +458,6 @@ import { passwordStrengthScore } from '@/helpers/passwordStrength'
 import { useSiteStore } from '@/stores/site'
 import { useUserStore } from '@/stores/user'
 
-import Cookies from 'js-cookie'
 import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser'
 import VOtpInput from 'vue3-otp-input'
 
@@ -665,17 +664,27 @@ async function fetchStrategies(showAll = false) {
  */
 function authorizeUrl(str) {
   const params = new URLSearchParams({ siteId: siteStore.id })
-  /*
-    The same cookie a form login reads on its way out: whatever sent the reader to the login screen
-    left where they were going in it. The provider flow cannot come back through the code above — it
-    lands on the callback route, which redirects — so the destination travels with the request and is
-    handed back by the callback instead.
-  */
-  const loginRedirect = Cookies.get('loginRedirect')
-  if (loginRedirect) {
-    params.set('redirect', loginRedirect)
-  }
   return `/_api/auth/${str.id}/authorize?${params.toString()}`
+}
+
+/**
+ * The server's post-login `redirect` handed to `window.location.replace()` on to a scheme the browser
+ * will navigate to rather than execute -- refuses everything else, including a non-http(s) scheme a
+ * `new URL('javascript://%0a...', location.origin)` would otherwise parse without error.
+ *
+ * @returns The redirect as an absolute URL string, or `null` when there is none, or it is unsafe.
+ */
+function safeRedirectTarget(target) {
+  if (!target) {
+    return null
+  }
+  let url
+  try {
+    url = new URL(target, window.location.origin)
+  } catch {
+    return null
+  }
+  return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
 }
 
 async function handleLoginResponse(resp) {
@@ -728,18 +737,7 @@ async function handleLoginResponse(resp) {
         message: t('auth.loginSuccess')
       })
       setTimeout(() => {
-        const loginRedirect = Cookies.get('loginRedirect')
-        if (loginRedirect === '/' && resp.redirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(resp.redirect)
-        } else if (loginRedirect) {
-          Cookies.remove('loginRedirect')
-          window.location.replace(loginRedirect)
-        } else if (resp.redirect) {
-          window.location.replace(resp.redirect)
-        } else {
-          window.location.replace('/')
-        }
+        window.location.replace(safeRedirectTarget(resp.redirect) ?? '/')
       }, 1000)
       break
     }
