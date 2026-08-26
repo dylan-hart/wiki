@@ -341,6 +341,7 @@ async function routes(app: FastifyInstance) {
       if (req.body.redirectOnLogout !== undefined) {
         patch.redirectOnLogout = req.body.redirectOnLogout
       }
+
       if (req.body.permissions !== undefined) {
         patch.permissions = req.body.permissions
       }
