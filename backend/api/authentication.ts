@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { limitAuthAttempts } from '../helpers/rateLimit.ts'
 import { recoveryCodeDisplayPattern } from '../helpers/recoveryCodes.ts'
+import { sanitizeRedirectTarget } from '../helpers/security.ts'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 /**
@@ -1031,8 +1032,9 @@ async function routes(app: FastifyInstance) {
         state: nanoid(32),
         nonce: nanoid(32),
         codeVerifier: nanoid(64),
-        // -> Only a path on this wiki: an open redirect is how a login page is turned into a lure
-        redirect: (req.query.redirect ?? '').startsWith('/') ? req.query.redirect! : '/',
+        // -> Only a path on this wiki by default: an open redirect is how a login page is turned
+        //    into a lure. `security.disallowOpenRedirect` is that check's on/off switch.
+        redirect: sanitizeRedirectTarget(req.query.redirect, WIKI.config.security ?? {}),
         startedAt: Temporal.Now.instant().toString({ smallestUnit: 'millisecond' })
       }
       req.session.authFlow = flow

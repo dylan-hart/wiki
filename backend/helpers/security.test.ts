@@ -2,7 +2,7 @@ import { describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fastify from 'fastify'
 import fastifyCors from '@fastify/cors'
-import { corsOrigin, corsOptions } from './security.ts'
+import { corsOrigin, corsOptions, sanitizeRedirectTarget } from './security.ts'
 
 // -> corsOrigin()'s REGEX branch logs through the WIKI global on an invalid pattern; stub just
 //    enough of it, the same way rateLimit.test.ts does for its own WIKI-touching helpers.
@@ -107,4 +107,44 @@ describe('corsOptions preflight (integration)', () => {
       }
     })
   }
+})
+
+describe('sanitizeRedirectTarget', () => {
+  test('with the setting on (default), a same-wiki path passes through', () => {
+    assert.equal(sanitizeRedirectTarget('/welcome', { disallowOpenRedirect: true }), '/welcome')
+  })
+
+  test('with the setting on, an off-site target falls back to "/"', () => {
+    assert.equal(
+      sanitizeRedirectTarget('https://evil.example/phish', { disallowOpenRedirect: true }),
+      '/'
+    )
+  })
+
+  test('an unset setting behaves the same as on — safe by default', () => {
+    assert.equal(sanitizeRedirectTarget('https://evil.example/phish', {}), '/')
+  })
+
+  test('with the setting off, an off-site target is honoured as-is', () => {
+    assert.equal(
+      sanitizeRedirectTarget('https://elsewhere.example/', { disallowOpenRedirect: false }),
+      'https://elsewhere.example/'
+    )
+  })
+
+  test('with the setting off, a same-wiki path still passes through', () => {
+    assert.equal(sanitizeRedirectTarget('/welcome', { disallowOpenRedirect: false }), '/welcome')
+  })
+
+  test('an empty or missing target falls back to "/" regardless of the setting', () => {
+    assert.equal(sanitizeRedirectTarget(undefined, { disallowOpenRedirect: false }), '/')
+    assert.equal(sanitizeRedirectTarget('', { disallowOpenRedirect: false }), '/')
+  })
+
+  test('a custom fallback is used instead of "/"', () => {
+    assert.equal(
+      sanitizeRedirectTarget('https://evil.example', { disallowOpenRedirect: true }, '/login'),
+      '/login'
+    )
+  })
 })

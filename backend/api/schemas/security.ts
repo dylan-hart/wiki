@@ -47,7 +47,8 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
       },
       disallowOpenRedirect: {
         type: 'boolean',
-        description: 'Stored, but nothing redirects on user input yet.'
+        description:
+          'On (the default), a login redirect target must be a path on this wiki. Off, a caller-supplied target is honoured as-is, including one that sends the browser off-site.'
       },
       forceAssetDownload: {
         type: 'boolean',

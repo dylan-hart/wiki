@@ -92,3 +92,29 @@ export function corsOptions(security: { corsMode?: string; corsConfig?: string }
     allowedHeaders: ['Authorization', 'Content-Type']
   }
 }
+
+/**
+ * A caller-supplied redirect target, trimmed to what `disallowOpenRedirect` permits.
+ *
+ * With the setting on (the default), only a path on this wiki is honoured — an open redirect is how
+ * a link into this instance is turned into a lure for somewhere else — so anything that isn't a
+ * site-relative path falls back to `fallback`. With it off, the operator has explicitly chosen to
+ * allow redirecting off-site, so any non-empty target is passed through as-is.
+ *
+ * This is the one place that decision is made; every redirect sink that takes its target from user
+ * input (a query string, a form field, …) should route it through here rather than growing its own
+ * ad-hoc check.
+ */
+export function sanitizeRedirectTarget(
+  target: string | undefined,
+  security: { disallowOpenRedirect?: boolean },
+  fallback = '/'
+): string {
+  if (!target) {
+    return fallback
+  }
+  if (security.disallowOpenRedirect === false) {
+    return target
+  }
+  return target.startsWith('/') ? target : fallback
+}
