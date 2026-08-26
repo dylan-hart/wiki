@@ -11,6 +11,7 @@ import {
 } from '../test/db.ts'
 import { generatePathHash } from '../helpers/common.ts'
 import {
+  groups as groupsTable,
   navigation as navigationTable,
   sites as sitesTable,
   tree as treeTable
@@ -746,7 +747,7 @@ describe('navigation generateFromTree (DB-backed)', { skip: !hasTestDatabase() }
   }
 
   function generate(rootFolderPath = '', locale = 'en'): Promise<NavigationItem[]> {
-    return navigationModel.generateFromTree(fixtures.siteId, rootFolderPath, locale)
+    return navigationModel.generateFromTree(fixtures.siteId, rootFolderPath, locale, actor)
   }
 
   test('an empty subtree produces no items', async () => {
@@ -898,11 +899,17 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
   let fixtures: TestFixtures
   let navigationModel: typeof import('./navigation.ts').navigation
   let pagesModel: typeof import('./pages.ts').pages
+  // -> `getNav`'s own `actor` default (OpenProject #2155) is "nobody" -- fails closed on every
+  //    generated entry -- so every call here that expects generated content back needs an actor whose
+  //    `read:pages` genuinely resolves true. `manage:system` is the simplest such actor and matches
+  //    what the rest of this file already uses to set content up.
+  let actor: { id: string; groupIds: string[]; permissions: string[] }
 
   before(async () => {
     fixtures = await setupTestDb()
     ;({ navigation: navigationModel } = await import('./navigation.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
   })
 
   after(async () => {
@@ -940,7 +947,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'auto')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
     assert.equal(
       result.some((item) => item.label === 'Should not appear'),
       false
@@ -969,8 +976,14 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     // -> Generated items never carry `visibilityGroups`, so they are always visible -- this just
     //    confirms the filtering pass runs at all (it would throw/behave differently on `unfiltered`
     //    input shaped unexpectedly) and that `unfiltered` still returns the same generated set
-    const filtered = await navigationModel.getNav(fixtures.siteId, siteNavId, { userGroups: [] })
-    const full = await navigationModel.getNav(fixtures.siteId, siteNavId, { unfiltered: true })
+    const filtered = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      userGroups: [],
+      actor
+    })
+    const full = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+      unfiltered: true,
+      actor
+    })
     assert.deepEqual(
       filtered.map((i) => i.id),
       full.map((i) => i.id)
@@ -996,7 +1009,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
     const ids = result.map((i) => i.id)
     const generatedIndex = result.findIndex((i) => i.label === 'Mixed Mode Page')
 
@@ -1037,7 +1050,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     })
     await setMode(overriddenPage.id, 'auto')
 
-    const result = await navigationModel.getNav(fixtures.siteId, overriddenPage.id)
+    const result = await navigationModel.getNav(fixtures.siteId, overriddenPage.id, { actor })
     const labels = result.map((i) => i.label)
     assert.ok(labels.includes('Override Target'))
     assert.ok(labels.includes('Sibling Page'))
@@ -1061,12 +1074,12 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
       { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
     )
     await setMode(siteNavId, 'auto')
-    const auto = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const auto = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
     assert.ok(auto.length > 0)
     assert.ok(auto.every((item) => item.generated === true))
 
     await setMode(siteNavId, 'static')
-    const staticResult = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const staticResult = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
     assert.ok(staticResult.every((item) => item.generated === undefined))
   })
 
@@ -1090,7 +1103,7 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     ])
     await setMode(siteNavId, 'mixed')
 
-    const result = await navigationModel.getNav(fixtures.siteId, siteNavId)
+    const result = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor })
     const stored = result.filter((i) => i.id === 'stored-before' || i.id === 'stored-after')
     const generated = result.filter((i) => i.label === 'Generated Flag Page')
 
@@ -1100,6 +1113,180 @@ describe('navigation getNav mode resolution (DB-backed)', { skip: !hasTestDataba
     assert.ok(generated.every((item) => item.generated === true))
   })
 })
+
+/**
+ * OpenProject #2155: `generateFromTree()` used to include every published/browsable page in an
+ * `auto`/`mixed` menu regardless of the requester's own `read:pages` grant — an anonymous visitor's
+ * `GET .../navigation/:navId` got the title, path and icon of every page in the tree, including ones
+ * a path or classification DENY keeps them out of. This is the fix's own acceptance test, run through
+ * the real public entry point (`getNav` in `auto` mode, exactly as the API route calls it) rather than
+ * the private `generateFromTree` directly.
+ *
+ * `fixtures.groupId` stands in for the guests group here, the same substitution
+ * `pages.test.ts#listPagesForSitemap`'s `setGuestRules` uses: `WIKI.data.systemIds.guestsGroupId` is
+ * only ever a fixed id looked up at runtime, not something `setupTestDb()` seeds meaning into, so
+ * pointing a plain actor's `groupIds` at the fixture group and writing rules onto it exercises the
+ * exact same `rulesForGroups()` / `helpers/pageRules.ts` path a real anonymous request would.
+ */
+describe(
+  'navigation getNav filters generated entries through read:pages (OpenProject #2155) (DB-backed)',
+  { skip: !hasTestDatabase() },
+  () => {
+    let fixtures: TestFixtures
+    let navigationModel: typeof import('./navigation.ts').navigation
+    let pagesModel: typeof import('./pages.ts').pages
+    let creatorActor: PageActor
+    let guestActor: { groupIds: string[]; permissions: string[] }
+    let authorizedActor: { groupIds: string[]; permissions: string[] }
+    let siteNavId: string
+
+    before(async () => {
+      fixtures = await setupTestDb()
+      ;({ navigation: navigationModel } = await import('./navigation.ts'))
+      ;({ pages: pagesModel } = await import('./pages.ts'))
+      const { classificationLevels } = await import('./classificationLevels.ts')
+
+      creatorActor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
+      guestActor = { groupIds: [fixtures.groupId], permissions: [] }
+      authorizedActor = { groupIds: [], permissions: ['manage:system'] }
+
+      // -> The strictest seeded level -- deliberately not `fixtures.classificationId`, which is the
+      //    most-open ("Public") one every other page in this suite defaults to
+      const levels = classificationLevels.list()
+      const restrictedClassificationId = levels.at(-1)!.id
+
+      await WIKI.db
+        .update(groupsTable)
+        .set({
+          rules: [
+            {
+              id: 'allow-all',
+              name: 'Allow',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'ALLOW',
+              path: '',
+              locales: [],
+              sites: []
+            },
+            {
+              id: 'deny-path',
+              name: 'Deny path',
+              roles: ['read:pages'],
+              match: 'START',
+              mode: 'DENY',
+              path: 'denied-path-page',
+              locales: [],
+              sites: []
+            },
+            {
+              id: 'deny-classification',
+              name: 'Deny classification',
+              roles: ['read:pages'],
+              match: 'CLASSIFICATION',
+              mode: 'DENY',
+              path: '',
+              classifications: [restrictedClassificationId],
+              locales: [],
+              sites: []
+            }
+          ]
+        })
+        .where(eq(groupsTable.id, fixtures.groupId))
+      await WIKI.models.groups.reloadCache()
+
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'denied-path-page',
+          title: 'Denied Path Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        creatorActor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'denied-classification-page',
+          title: 'Denied Classification Page',
+          editor: 'markdown',
+          content: '# Hello',
+          classification: restrictedClassificationId
+        },
+        creatorActor
+      )
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'visible-page',
+          title: 'Visible Page',
+          editor: 'markdown',
+          content: '# Hello'
+        },
+        creatorActor
+      )
+      // -> A folder whose only child the classification DENY removes -- once filtering runs, this
+      //    folder should drop out too, mirroring the existing `holdsVisiblePages` dead-end rule.
+      await pagesModel.createPage(
+        fixtures.siteId,
+        {
+          path: 'empty-once-filtered/only-denied-child',
+          title: 'Only Denied Child',
+          editor: 'markdown',
+          content: '# Hello',
+          classification: restrictedClassificationId
+        },
+        creatorActor
+      )
+
+      siteNavId = await navigationModel.ensureSiteNav(fixtures.siteId, 'en')
+      await WIKI.db
+        .update(navigationTable)
+        .set({ mode: 'auto' })
+        .where(eq(navigationTable.id, siteNavId))
+    })
+
+    after(async () => {
+      await teardownTestDb()
+    })
+
+    test("a guest's generated menu omits an entry under a path DENY", async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
+      assert.ok(!items.some((i) => i.label === 'Denied Path Page'))
+    })
+
+    test("a guest's generated menu omits an entry under a classification DENY", async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
+      assert.ok(!items.some((i) => i.label === 'Denied Classification Page'))
+    })
+
+    test('a folder left with no visible descendants once filtering runs is dropped', async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
+      assert.ok(!items.some((i) => i.label === 'empty-once-filtered'))
+    })
+
+    test('the guest still sees an unrestricted page', async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, { actor: guestActor })
+      assert.ok(items.some((i) => i.label === 'Visible Page'))
+    })
+
+    test('an authorized reader still sees all three filtered-for-the-guest entries', async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId, {
+        actor: authorizedActor
+      })
+      const labels = items.map((i) => i.label)
+      assert.ok(labels.includes('Denied Path Page'))
+      assert.ok(labels.includes('Denied Classification Page'))
+      assert.ok(labels.includes('empty-once-filtered'))
+    })
+
+    test('omitting actor entirely fails closed -- every generated entry is filtered out', async () => {
+      const items = await navigationModel.getNav(fixtures.siteId, siteNavId)
+      assert.deepEqual(items, [])
+    })
+  }
+)
 
 /** The mode/cascade combination `updateNavigation()` should produce for a top-level entry. */
 function expectedTransition(
