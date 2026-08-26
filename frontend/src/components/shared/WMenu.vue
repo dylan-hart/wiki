@@ -1,11 +1,4 @@
 <template>
-  <!--
-    `bg-[var(--color-white)]` rather than `bg-white`, and likewise for the text colour: Quasar defines
-    `.bg-white { background: #fff !important }` unlayered, which outranks every layered Tailwind rule
-    including the `dark:` variant -- so the plain utility would pin this surface to white in dark mode.
-    An arbitrary-value utility has a class name Quasar does not define, so the variant works.
-    Phase 5 can put the plain utilities back.
-  -->
   <span ref="placeholderEl" class="hidden" aria-hidden="true" />
   <teleport to="body">
     <!-- Click-away catcher; transparent, and below the menu itself -->
