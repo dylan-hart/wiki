@@ -565,6 +565,16 @@ does in the real build, not because it was convenient to share:
   state transitions, `logout()`'s `API_CLIENT`/`EVENT_BUS` round-trip, `Temporal`-backed date
   formatting) are the reference examples of testing real behaviour end-to-end through the harness
   rather than merely asserting Vitest boots.
+- **Two suites drive a real headless Chromium page**, via `test/realGridLayout.js`:
+  `ApiKeyCreateDialog.test.js` and `ProfileApiKeyCreateDialog.test.js`'s "real layout" describes.
+  Neither `jsdom` nor `happy-dom` runs a layout engine, so a test that needs to know how many
+  columns an `auto-fit`/`minmax()` CSS Grid actually renders at a given width launches Playwright's
+  bundled Chromium instead. `npm ci` installs the `playwright` library only, not the browser
+  binary — run `npm run install-browsers` (mirrors `e2e/`'s own script) once per machine to fetch
+  it. `test/realGridLayout.js` probes for a real Chromium at module top level and exports
+  `hasChromium()`; both suites pass `{ skip: !hasChromium() }` to their `describe()` so a `npm run
+  test` with no Chromium installed reports them skipped and exits zero instead of failing on an
+  environment precondition.
 
 ### Testing (blocks)
 

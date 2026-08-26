@@ -5,7 +5,7 @@ import { createI18n } from 'vue-i18n'
 
 import BlueprintIcon from './BlueprintIcon.vue'
 import ProfileApiKeyCreateDialog from './ProfileApiKeyCreateDialog.vue'
-import { chromium, measureClassificationGrid } from '../../test/realGridLayout.js'
+import { chromium, hasChromium, measureClassificationGrid } from '../../test/realGridLayout.js'
 
 afterEach(() => {
   document.body.innerHTML = ''
@@ -210,50 +210,54 @@ describe('ProfileApiKeyCreateDialog layout', () => {
  * single-column admin form. See `test/realGridLayout.js` for why a real headless Chromium page is
  * what actually answers "how many columns did this render as."
  */
-describe('ProfileApiKeyCreateDialog classification grid — real layout', () => {
-  let browser
+describe(
+  'ProfileApiKeyCreateDialog classification grid — real layout',
+  { skip: !hasChromium() },
+  () => {
+    let browser
 
-  function body() {
-    return new DOMWrapper(document.body)
-  }
+    function body() {
+      return new DOMWrapper(document.body)
+    }
 
-  beforeAll(async () => {
-    browser = await chromium.launch()
-  })
+    beforeAll(async () => {
+      browser = await chromium.launch()
+    })
 
-  afterAll(async () => {
-    await browser.close()
-  })
+    afterAll(async () => {
+      await browser?.close()
+    })
 
-  function mockThreeDefaultLevels() {
-    globalThis.API_CLIENT.get.mockImplementation((resource) => {
-      if (resource === 'classification-levels') {
-        return {
-          json: () =>
-            Promise.resolve([
-              { id: 'level-public', name: 'Public', sortOrder: 0 },
-              { id: 'level-internal', name: 'Internal', sortOrder: 1 },
-              { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
-            ])
+    function mockThreeDefaultLevels() {
+      globalThis.API_CLIENT.get.mockImplementation((resource) => {
+        if (resource === 'classification-levels') {
+          return {
+            json: () =>
+              Promise.resolve([
+                { id: 'level-public', name: 'Public', sortOrder: 0 },
+                { id: 'level-internal', name: 'Internal', sortOrder: 1 },
+                { id: 'level-restricted', name: 'Restricted', sortOrder: 2 }
+              ])
+          }
         }
-      }
-      return { json: () => Promise.resolve([]) }
+        return { json: () => Promise.resolve([]) }
+      })
+    }
+
+    it('lays out all 3 default classification levels on one row at the real ~310px row-3 width', async () => {
+      mockThreeDefaultLevels()
+      mountDialog()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      const html = body().find('.classification-grid').html()
+      const items = await measureClassificationGrid({ browser, html, containerWidth: 310 })
+
+      expect(items).toHaveLength(3)
+      const rows = new Set(items.map((item) => Math.round(item.y)))
+      expect(rows.size).toBe(1)
     })
   }
-
-  it('lays out all 3 default classification levels on one row at the real ~310px row-3 width', async () => {
-    mockThreeDefaultLevels()
-    mountDialog()
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    const html = body().find('.classification-grid').html()
-    const items = await measureClassificationGrid({ browser, html, containerWidth: 310 })
-
-    expect(items).toHaveLength(3)
-    const rows = new Set(items.map((item) => Math.round(item.y)))
-    expect(rows.size).toBe(1)
-  })
-})
+)
 
 /**
  * OpenProject #1272: the same verb-grouped tri-state scope tree (`ApiKeyScopePicker.vue`) as
