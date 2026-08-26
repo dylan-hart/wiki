@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { list as listTarball } from 'tar'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { assets as assetsTable } from '../db/schema.ts'
+import { assets as assetsTable, groups as groupsTable } from '../db/schema.ts'
 
 /**
  * `exportSite` is almost entirely SQL orchestration (four tables' worth of site-scoped selects, plus
@@ -119,6 +119,29 @@ describe('export.exportSite (DB-backed)', { skip: !hasTestDatabase() }, () => {
     // -> The bytes travel as their own archive entry, not inlined into the JSON manifest
     assert.equal('data' in exportedAsset, false)
     assert.deepEqual(entries[`assets/${asset!.id}.data`], assetData)
+  })
+
+  test('exportSite excludes isSystem groups (Administrators/Users/Guests)', async () => {
+    const [systemGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Administrators',
+        permissions: ['manage:system'],
+        rules: [],
+        isSystem: true
+      })
+      .returning({ id: groupsTable.id })
+
+    const result = await exportModel.exportSite(fixtures.siteId)
+    const entries = await readTarball(result.filePath)
+    const exportedGroups = JSON.parse(entries['groups.json']!.toString('utf8'))
+
+    // -> The seeded, non-system fixture group still makes it through...
+    assert.ok(exportedGroups.some((g: any) => g.id === fixtures.groupId))
+    // -> ...but the isSystem row does not: `importSite` upserts groups by id, and restoring an
+    //    isSystem row onto a different instance overwrites that instance's own Administrators/
+    //    Users/Guests (see the comment on `exportSite`'s group select).
+    assert.ok(!exportedGroups.some((g: any) => g.id === systemGroup!.id))
   })
 
   test('exportSite rejects an unknown site', async () => {
