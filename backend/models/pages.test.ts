@@ -14,6 +14,7 @@ import { groups as groupsTable } from '../db/schema.ts'
 import {
   pages as pagesTable,
   pageWatchEvents as pageWatchEventsTable,
+  userGroups as userGroupsTable,
   users as usersTable
 } from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
@@ -1309,6 +1310,33 @@ describe('pages watch-notification trigger (DB-backed)', { skip: !hasTestDatabas
       .values({ email: 'watcher@example.com', name: 'Watcher', isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
+
+    // -> OpenProject #2173: `notifyWatchers` now re-checks `read:pages` per watcher before queueing
+    //    (`pageWatching.listWatchers`), so the fixture watcher needs a real grant — checkAccess denies
+    //    by default (see `helpers/pageRules.ts`) — or every test below would find them excluded.
+    const [readerGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({
+        name: 'Watch Notification Reader',
+        permissions: [],
+        rules: [
+          {
+            id: 'allow-read',
+            name: 'Allow read',
+            roles: ['read:pages'],
+            match: 'START',
+            mode: 'ALLOW',
+            path: '',
+            locales: [],
+            sites: []
+          }
+        ]
+      })
+      .returning({ id: groupsTable.id })
+    await fixtures.db
+      .insert(userGroupsTable)
+      .values({ userId: watcherId, groupId: readerGroup!.id })
+    await WIKI.models.groups.reloadCache()
   })
 
   after(async () => {

@@ -1,8 +1,14 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { eq } from 'drizzle-orm'
 import { hasTestDatabase, setupTestDb, teardownTestDb, type TestFixtures } from '../test/db.ts'
-import { users as usersTable } from '../db/schema.ts'
+import {
+  groups as groupsTable,
+  userGroups as userGroupsTable,
+  users as usersTable
+} from '../db/schema.ts'
 import type { PageActor, PageInput } from './pages.ts'
+import type { GroupRule } from './groups.ts'
 
 /**
  * Task 530: the delivery preference on a watch — `watch()` accepting and persisting it,
@@ -17,12 +23,29 @@ import type { PageActor, PageInput } from './pages.ts'
 describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, () => {
   let fixtures: TestFixtures
   let pageWatchingModel: typeof import('./pageWatching.ts').pageWatching
+  let pageWatchEventsModel: typeof import('./pageWatchEvents.ts').pageWatchEvents
   let pagesModel: typeof import('./pages.ts').pages
+  let groupsModel: typeof import('./groups.ts').groups
   let resolvePreference: typeof import('./pageWatching.ts').resolvePreference
   let wantsAction: typeof import('./pageWatching.ts').wantsAction
   let actor: PageActor
   let pageId: string
+  let pagePath: string
+  let pageClassification: string
   let watcherId: string
+  let readerGroupId: string
+
+  const allowReadRule = (overrides: Partial<GroupRule> = {}): GroupRule => ({
+    id: 'allow-read',
+    name: 'Allow read',
+    roles: ['read:pages'],
+    match: 'START',
+    mode: 'ALLOW',
+    path: '',
+    locales: [],
+    sites: [],
+    ...overrides
+  })
 
   before(async () => {
     fixtures = await setupTestDb()
@@ -31,7 +54,9 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
       resolvePreference,
       wantsAction
     } = await import('./pageWatching.ts'))
+    ;({ pageWatchEvents: pageWatchEventsModel } = await import('./pageWatchEvents.ts'))
     ;({ pages: pagesModel } = await import('./pages.ts'))
+    ;({ groups: groupsModel } = await import('./groups.ts'))
     actor = { id: fixtures.userId, groupIds: [], permissions: ['manage:system'] }
 
     const page = await pagesModel.createPage(
@@ -45,12 +70,25 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
       actor
     )
     pageId = page.id
+    pagePath = page.path
+    pageClassification = page.classification
 
     const [watcher] = await fixtures.db
       .insert(usersTable)
       .values({ email: 'watcher@example.com', name: 'Watcher', isActive: true, isVerified: true })
       .returning({ id: usersTable.id })
     watcherId = watcher!.id
+
+    // -> A group granting `read:pages` everywhere, so the watcher can actually be told about a change
+    //    in the first place — checkAccess denies by default (see `helpers/pageRules.ts`), so without
+    //    this every test below (not just the OpenProject #2173 ones) would find the watcher excluded.
+    const [readerGroup] = await fixtures.db
+      .insert(groupsTable)
+      .values({ name: 'Reader', permissions: [], rules: [allowReadRule()] })
+      .returning({ id: groupsTable.id })
+    readerGroupId = readerGroup!.id
+    await fixtures.db.insert(userGroupsTable).values({ userId: watcherId, groupId: readerGroupId })
+    await groupsModel.reloadCache()
   })
 
   after(async () => {
@@ -167,6 +205,117 @@ describe('pageWatching preferences (DB-backed)', { skip: !hasTestDatabase() }, (
     })
 
     await pageWatchingModel.unwatch({ pageId, userId: watcherId })
+  })
+
+  /**
+   * OpenProject #2173: `read:pages` used to be checked once, when a watcher first pressed the bell,
+   * and never again — so a watcher whose access was later revoked (a raised classification, a move
+   * into a restricted branch, an edited group rule) kept being queued notifications and kept seeing
+   * them in both listings. It is now re-checked live, against the watcher's CURRENT groups, at both
+   * of the places that matter: `listWatchers` (send time — who a change gets queued for) and the two
+   * read-time listings (`pageWatchEvents.listForUser`'s notification inbox, and this model's own
+   * `listForUser` behind the watch-list route).
+   */
+  describe('read:pages re-checked at send time and read time, not only at subscribe time', () => {
+    test('while the watcher still holds read:pages, they are included in listWatchers, the notification listing, and the watch list route', async () => {
+      await pageWatchingModel.watch({ siteId: fixtures.siteId, pageId, userId: watcherId })
+
+      const ref = {
+        path: pagePath,
+        locale: 'en',
+        siteId: fixtures.siteId,
+        classification: pageClassification,
+        tags: []
+      }
+      const watchers = await pageWatchingModel.listWatchers(pageId, fixtures.userId, 'updated', ref)
+      assert.ok(watchers.some((w) => w.userId === watcherId))
+
+      const [{ id: eventId }] = await pageWatchEventsModel.recordMany([
+        {
+          siteId: fixtures.siteId,
+          pageId,
+          pageTitle: 'Preferences Fixture',
+          pagePath,
+          pageLocale: 'en',
+          userId: watcherId,
+          action: 'updated',
+          actorId: fixtures.userId,
+          changedFields: [],
+          notifyMode: 'digest'
+        }
+      ])
+      const notifications = await pageWatchEventsModel.listForUser(watcherId, fixtures.siteId)
+      assert.ok(notifications.some((n) => n.id === eventId))
+
+      const watchList = await pageWatchingModel.listForUser(fixtures.siteId, watcherId)
+      assert.ok(watchList.some((w) => w.pageId === pageId))
+
+      await pageWatchingModel.unwatch({ pageId, userId: watcherId })
+    })
+
+    test('once read:pages is revoked, the watcher is excluded from listWatchers, their notification listing, and the watch list route — but can still unwatch', async () => {
+      await pageWatchingModel.watch({ siteId: fixtures.siteId, pageId, userId: watcherId })
+
+      const [{ id: eventId }] = await pageWatchEventsModel.recordMany([
+        {
+          siteId: fixtures.siteId,
+          pageId,
+          pageTitle: 'Preferences Fixture',
+          pagePath,
+          pageLocale: 'en',
+          userId: watcherId,
+          action: 'updated',
+          actorId: fixtures.userId,
+          changedFields: [],
+          notifyMode: 'digest'
+        }
+      ])
+
+      // -> The revocation: the group's only rule now DENIES read:pages instead of allowing it —
+      //    an ordinary lifecycle event (an admin editing a group rule), not anything the watcher did.
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [allowReadRule({ mode: 'DENY' })] })
+        .where(eq(groupsTable.id, readerGroupId))
+      await groupsModel.reloadCache()
+
+      const ref = {
+        path: pagePath,
+        locale: 'en',
+        siteId: fixtures.siteId,
+        classification: pageClassification,
+        tags: []
+      }
+      const watchers = await pageWatchingModel.listWatchers(pageId, fixtures.userId, 'updated', ref)
+      assert.equal(
+        watchers.some((w) => w.userId === watcherId),
+        false
+      )
+
+      const notifications = await pageWatchEventsModel.listForUser(watcherId, fixtures.siteId)
+      assert.equal(
+        notifications.some((n) => n.id === eventId),
+        false
+      )
+
+      const watchList = await pageWatchingModel.listForUser(fixtures.siteId, watcherId)
+      assert.equal(
+        watchList.some((w) => w.pageId === pageId),
+        false
+      )
+
+      // -> Unwatching a page one can no longer read must keep working (`api/watching.ts`'s own
+      //    doc comment on why the page is never loaded first for this route).
+      await pageWatchingModel.unwatch({ pageId, userId: watcherId })
+      assert.equal(await pageWatchingModel.isWatching(pageId, watcherId), false)
+
+      // -> Restore the ALLOW rule so nothing later in this suite is affected by the revocation.
+      await fixtures.db
+        .update(groupsTable)
+        .set({ rules: [allowReadRule()] })
+        .where(eq(groupsTable.id, readerGroupId))
+      await groupsModel.reloadCache()
+    })
   })
 
   test('resolvePreference and wantsAction agree on which change types a resolved preference wants', () => {

@@ -1,6 +1,7 @@
 import { and, desc, eq, ne } from 'drizzle-orm'
 import { pageWatching as watchingTable, pages as pagesTable } from '../db/schema.ts'
 import type { PageWatchNotifiableAction } from './pageWatchEvents.ts'
+import type { RulePageRef } from '../helpers/pageRules.ts'
 
 /** `immediate` sends a mail per change; `digest` batches them for a later send. */
 export type WatchNotifyMode = 'immediate' | 'digest'
@@ -206,6 +207,13 @@ class PageWatching {
    * Joined to the pages rather than storing a copy of the title and the path, so a page that is
    * renamed or moved is listed where it is now — which is the point of watching it. A deleted page
    * takes its rows with it through the foreign key, so nothing here can point at one that is gone.
+   *
+   * `read:pages` is re-checked here against the LIVE page (OpenProject #2173), not merely assumed from
+   * having been grantable at watch time: a row this join still finds is a page that still exists, but
+   * a classification raised, a move into a restricted branch, or a group rule edited since can have
+   * taken the caller's own ability to read it away in the meantime, and this is what the watch-list
+   * route (`GET /sites/:siteId/watching`) answers with — it must not go on describing a page the
+   * caller can no longer see, title/path/description included.
    */
   async listForUser(siteId: string, userId: string): Promise<WatchedPage[]> {
     const rows = await WIKI.db
@@ -217,6 +225,8 @@ class PageWatching {
         description: pagesTable.description,
         icon: pagesTable.icon,
         updatedAt: pagesTable.updatedAt,
+        tags: pagesTable.tags,
+        classification: pagesTable.classification,
         watchedAt: watchingTable.createdAt,
         notifyMode: watchingTable.notifyMode,
         notifyOnEdited: watchingTable.notifyOnEdited,
@@ -227,15 +237,36 @@ class PageWatching {
       .innerJoin(pagesTable, eq(pagesTable.id, watchingTable.pageId))
       .where(and(eq(watchingTable.userId, userId), eq(watchingTable.siteId, siteId)))
       .orderBy(desc(watchingTable.createdAt))
-    return rows.map(({ notifyMode, notifyOnEdited, notifyOnMoved, notifyOnDeleted, ...page }) => ({
-      ...page,
-      preference: resolvePreference({
-        notifyMode: notifyMode as WatchNotifyMode | null,
-        notifyOnEdited,
-        notifyOnMoved,
-        notifyOnDeleted
-      })
-    })) as WatchedPage[]
+    const actor = await WIKI.models.groups.actorForUser(userId)
+    return rows
+      .filter((row) =>
+        WIKI.models.groups.checkAccess(actor, 'read:pages', {
+          path: row.path,
+          locale: row.locale,
+          siteId,
+          classification: row.classification,
+          tags: row.tags ?? []
+        })
+      )
+      .map(
+        ({
+          notifyMode,
+          notifyOnEdited,
+          notifyOnMoved,
+          notifyOnDeleted,
+          tags: _tags,
+          classification: _classification,
+          ...page
+        }) => ({
+          ...page,
+          preference: resolvePreference({
+            notifyMode: notifyMode as WatchNotifyMode | null,
+            notifyOnEdited,
+            notifyOnMoved,
+            notifyOnDeleted
+          })
+        })
+      ) as WatchedPage[]
   }
 
   /**
@@ -253,11 +284,20 @@ class PageWatching {
    *
    * A watcher whose preference excludes this action type entirely (`wantsAction` false) is left out of
    * the result, not merely marked — there is nothing to queue for them.
+   *
+   * `page` is the ref this change leaves the page at (its post-change path/locale/classification/tags
+   * — see each call site in `models/pages.ts#notifyWatchers`), and every remaining watcher is
+   * re-checked against it for `read:pages` before being returned (OpenProject #2173): a watch was only
+   * ever gated on being able to read the page at SUBSCRIBE time, so without this a watcher whose
+   * access has since been revoked — a raised classification, a move into a restricted branch, an
+   * edited group rule — would still be told the page's new title, path and a working link. Checked per
+   * watcher, since each one's own current groups decide their own answer.
    */
   async listWatchers(
     pageId: string,
     excludeUserId: string,
-    action: PageWatchNotifiableAction
+    action: PageWatchNotifiableAction,
+    page: RulePageRef
   ): Promise<{ userId: string; notifyMode: WatchNotifyMode }[]> {
     const rows = await WIKI.db
       .select({
@@ -269,7 +309,7 @@ class PageWatching {
       })
       .from(watchingTable)
       .where(and(eq(watchingTable.pageId, pageId), ne(watchingTable.userId, excludeUserId)))
-    return rows
+    const wanting = rows
       .map((row) => ({
         userId: row.userId,
         preference: resolvePreference({
@@ -278,6 +318,14 @@ class PageWatching {
         })
       }))
       .filter(({ preference }) => wantsAction(preference, action))
+    const readable = await Promise.all(
+      wanting.map(async ({ userId }) => {
+        const actor = await WIKI.models.groups.actorForUser(userId)
+        return WIKI.models.groups.checkAccess(actor, 'read:pages', page)
+      })
+    )
+    return wanting
+      .filter((_, index) => readable[index])
       .map(({ userId, preference }) => ({ userId, notifyMode: preference.notifyMode }))
   }
 }
