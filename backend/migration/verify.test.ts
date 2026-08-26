@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
-import { describe, test } from 'node:test'
+import { before, after, describe, test } from 'node:test'
+import { pages as pagesTable } from '../db/schema.ts'
+import { hasTestDatabase, setupTestDb, teardownTestDb } from '../test/db.ts'
 import { NotYetImplementedError } from './connector.ts'
 import {
   compareAgainstDryRunReports,
   compareEntityCounts,
   countDestinationEntities,
   countSourceEntities,
+  createDestinationCounter,
   formatVerifySummary,
   hashContent,
   ReservoirSampler,
@@ -15,6 +18,7 @@ import {
 import type { DestinationCounter, DestinationPageLookup } from './verify.ts'
 import type { SourceAssetFile, SourceConnector, SourceRecord } from './connector.ts'
 import type { PhaseReport } from './report.ts'
+import type { TestFixtures } from '../test/db.ts'
 
 /** Every entity generator throws, matching both real connectors' current stub state — same pattern
  * `phases/phases.test.ts` uses. */
@@ -109,6 +113,75 @@ describe('countDestinationEntities', () => {
       assets: 6,
       navigation: 0
     })
+  })
+})
+
+describe('createDestinationCounter.tags', { skip: !hasTestDatabase() }, () => {
+  let fixtures: TestFixtures
+
+  before(async () => {
+    fixtures = await setupTestDb()
+  })
+
+  after(async () => {
+    await teardownTestDb()
+  })
+
+  /** Minimal `.values()` object satisfying every NOT NULL column on `pages`, same shape
+   * `models/pages.test.ts`'s `rawPageRow` uses for a raw insert. */
+  function rawPageRow(overrides: { path: string; tags: string[] }) {
+    return {
+      siteId: fixtures.siteId,
+      locale: 'en',
+      path: overrides.path,
+      hash: `raw-hash-${overrides.path}`,
+      title: 'Raw Row',
+      editor: 'markdown',
+      contentType: 'markdown',
+      authorId: fixtures.userId,
+      creatorId: fixtures.userId,
+      ownerId: fixtures.userId,
+      classification: fixtures.classificationId,
+      tags: overrides.tags
+    }
+  }
+
+  test('counts DISTINCT tags unnested from pages.tags, not the dead tags table', async () => {
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/one', tags: ['a', 'b'] }))
+    await fixtures.db
+      .insert(pagesTable)
+      .values(rawPageRow({ path: 'tag-probe/two', tags: ['b', 'c'] }))
+
+    const counter = createDestinationCounter(fixtures.db)
+    const destinationCount = await counter.tags(fixtures.siteId)
+    assert.equal(destinationCount, 3)
+
+    const reconciled = compareEntityCounts(
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: 3,
+        assets: 0,
+        navigation: 0
+      },
+      {
+        users: 0,
+        groups: 0,
+        pages: 0,
+        pageHistory: 0,
+        tags: destinationCount,
+        assets: 0,
+        navigation: 0
+      }
+    )
+    assert.deepEqual(
+      reconciled.find((entry) => entry.entity === 'tags'),
+      { entity: 'tags', sourceCount: 3, destinationCount: 3, status: 'match' }
+    )
   })
 })
 

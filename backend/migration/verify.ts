@@ -24,8 +24,8 @@
  */
 
 import { createHash } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
-import { assets, groups, navigation, pageHistory, pages, tags, users } from '../db/schema.ts'
+import { and, eq, sql } from 'drizzle-orm'
+import { assets, groups, navigation, pageHistory, pages, users } from '../db/schema.ts'
 import { NotYetImplementedError } from './connector.ts'
 import type { WikiDb } from '../core/db.ts'
 import type { MigrationPhaseId } from './context.ts'
@@ -142,7 +142,16 @@ export function createDestinationCounter(db: WikiDb): DestinationCounter {
       return db.$count(pageHistory, eq(pageHistory.siteId, siteId))
     },
     async tags(siteId) {
-      return db.$count(tags, eq(tags.siteId, siteId))
+      // -> The `tags` table (see the `db/schema.ts` import removed above) is a leftover of an
+      //    earlier design and is never written to — `models/tags.ts` derives the tag list from
+      //    `pages.tags` instead, and this counter matches it: distinct tags unnested across the
+      //    site's pages, not a row count from a table nothing populates.
+      const result = await db.execute(sql`
+        SELECT COUNT(DISTINCT tag)::int AS count
+        FROM pages, unnest(tags) AS tag
+        WHERE "siteId" = ${siteId}
+      `)
+      return (result.rows[0]?.count as number | undefined) ?? 0
     },
     async assets(siteId) {
       return db.$count(assets, eq(assets.siteId, siteId))
