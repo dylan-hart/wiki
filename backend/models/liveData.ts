@@ -88,8 +88,9 @@ function clampRefreshSeconds(seconds: number | undefined): number {
  * ones the admin who created that credential explicitly allowed. This is what stops a `write:pages`
  * author from exfiltrating a `manage:sites`-gated secret to a URL of their own choosing.
  *
- * A per-credential rate limit is a third, independent guard (OpenProject #1050): the resolve route
- * this backs is deliberately unauthenticated (see `api/liveData.ts`'s header comment), and a
+ * A per-credential rate limit is a third, independent guard (OpenProject #1050): even though a
+ * credentialed request now requires an authenticated caller (OpenProject #2202; see
+ * `api/liveData.ts`'s header comment), any reader with an account can still reach this, and a
  * credential's allowlist narrows *where* its secret may be sent but not *how often* — without this, a
  * caller who has merely learned a credential's id could vary the url/jsonPath on every request to
  * bypass the response cache and drive unlimited fresh fetches against whatever the allowed domain

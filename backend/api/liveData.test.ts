@@ -45,6 +45,18 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
 
     app = fastify()
     await app.register(fastifySensible)
+    // -> This unit test registers no session plugin (see the class comment: it stubs the route's own
+    //    collaborators, not the app's auth stack), so an authenticated caller is simulated by a test-only
+    //    header this hook translates into the same `req.session`/`req.apiKey` shape the real hooks in
+    //    `index.ts` populate.
+    app.addHook('onRequest', async (req) => {
+      if (req.headers['x-test-authenticated'] === 'true') {
+        ;(req as any).session = { authenticated: true }
+      }
+      if (req.headers['x-test-api-key'] === 'true') {
+        ;(req as any).apiKey = { id: 'test-key', permissions: [] }
+      }
+    })
     app.setErrorHandler((error: any, req, reply) => {
       reply.code(error.statusCode ?? 500).send({
         ok: false,
@@ -89,12 +101,11 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
     assert.equal(resolveCalls.length, 0)
   })
 
-  test('passes the body straight through to the model and returns its result', async () => {
+  test('passes a credential-free body straight through to the model, anonymous or not', async () => {
     const res = await app.inject({
       method: 'POST',
       url: `/sites/${SITE_ID}/live-data/resolve`,
       payload: {
-        credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
         url: 'https://example.com/metrics',
         jsonPath: '$.cpu',
         refreshInterval: 30
@@ -105,11 +116,59 @@ describe('POST /sites/:siteId/live-data/resolve', () => {
     assert.equal(resolveCalls.length, 1)
     assert.equal(resolveCalls[0]!.siteId, SITE_ID)
     assert.deepEqual(resolveCalls[0]!.request, {
-      credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
       url: 'https://example.com/metrics',
       jsonPath: '$.cpu',
       refreshInterval: 30
     })
+  })
+
+  test('refuses an anonymous request carrying a credentialId (OpenProject #2202)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      payload: {
+        credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
+        url: 'https://example.com/metrics',
+        jsonPath: '$.cpu',
+        refreshInterval: 30
+      }
+    })
+    assert.equal(res.statusCode, 401)
+    assert.equal(resolveCalls.length, 0)
+  })
+
+  test('allows a credentialed request from a session-authenticated caller', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      headers: { 'x-test-authenticated': 'true' },
+      payload: {
+        credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
+        url: 'https://example.com/metrics',
+        jsonPath: '$.cpu',
+        refreshInterval: 30
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), resolveResult)
+    assert.equal(resolveCalls.length, 1)
+  })
+
+  test('allows a credentialed request from a verified API key caller', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/sites/${SITE_ID}/live-data/resolve`,
+      headers: { 'x-test-api-key': 'true' },
+      payload: {
+        credentialId: 'a1b2c3d4-e5f6-4789-9abc-def012345678',
+        url: 'https://example.com/metrics',
+        jsonPath: '$.cpu',
+        refreshInterval: 30
+      }
+    })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(res.json(), resolveResult)
+    assert.equal(resolveCalls.length, 1)
   })
 
   test('rejects a body missing url or jsonPath', async () => {

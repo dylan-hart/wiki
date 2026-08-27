@@ -7,11 +7,15 @@ import type { LiveDataRequest } from '../models/liveData.ts'
  * One route: resolve a `block-live-data` instance's data server-side (see `models/liveData.ts`),
  * for the block itself to call from a reader's browser.
  *
- * No route-level `permissions`, and deliberately no per-page read check either — a reader only ever
- * reaches this because they already loaded a page whose content the wiki decided they may read, and
- * this route answers with the same class of thing `blocksConfigFor()` in `api/sites.ts` already
- * hands every reader publicly (a block's own resolved data), not the page itself. What it must never
- * do, and does not, is hand back the credential that produced it — see `models/liveData.ts`.
+ * No route-level `permissions` — a credential-free request answers with the same class of thing
+ * `blocksConfigFor()` in `api/sites.ts` already hands every reader publicly (a block's own resolved
+ * data), not the page itself, and stays open to anonymous readers. A request naming a `credentialId`
+ * is different: that id is not a secret (it is a declared block prop, so it survives into the stored
+ * HTML of every page embedding the block — see `models/liveData.ts`), so nothing about the id itself
+ * proves the caller ever loaded a page the wiki would let them read. The handler below refuses such a
+ * request unless the caller is authenticated (a session, or a verified API key) — see OpenProject
+ * #2202. What this route must never do, and does not, is hand back the credential that produced a
+ * result — see `models/liveData.ts`.
  */
 async function routes(app: FastifyInstance) {
   /**
@@ -62,6 +66,10 @@ async function routes(app: FastifyInstance) {
             }
           },
           400: { $ref: 'ApiError#' },
+          401: {
+            $ref: 'ApiError#',
+            description: 'A `credentialId` was given but the caller is not authenticated.'
+          },
           404: { $ref: 'ApiError#' },
           429: {
             $ref: 'ApiError#',
@@ -72,6 +80,14 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      // -> A `credentialId` is not a secret (see the header comment above), so an anonymous caller who
+      //    merely learned one from a page's stored HTML is refused before it is ever resolved. An
+      //    authenticated reader — session or API key — is unaffected; only anonymous callers are.
+      if (req.body.credentialId && !req.apiKey && !req.session?.authenticated) {
+        return reply.unauthorized(
+          'Authentication is required to resolve a credentialed live-data request.'
+        )
+      }
       const site = await WIKI.models.sites.getSiteById({ id: req.params.siteId })
       if (!site) {
         return reply.notFound('Site does not exist.')
