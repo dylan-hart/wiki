@@ -8,12 +8,10 @@ export async function registerSchemas(app: FastifyInstance): Promise<void> {
     $id: 'DiagramRenderRequest',
     type: 'object',
     required: ['type', 'source'],
-    // -> Explicit, rather than left to omission: a `server` field (the per-request PlantUML
-    //    destination override removed by OpenProject #2219, for the SSRF risk described there) must
-    //    never reach `req.body` again. Fastify's ajv compiler defaults to `removeAdditional: true`,
-    //    which only strips a property this schema calls out as additional — i.e. only once
-    //    `additionalProperties: false` is set here — so leaving this implicit would silently let
-    //    `server` (and anything else undeclared) straight through unstripped.
+    // -> Closes the door all the way on the removed `server` override (OpenProject #2219): a stray
+    //    or forwarded `server` field is stripped by Fastify's default `removeAdditional` AJV option
+    //    before the request body ever reaches the model, rather than silently passing through
+    //    unused (which `additionalProperties`'s absence would otherwise allow).
     additionalProperties: false,
     properties: {
       type: {

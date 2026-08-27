@@ -337,9 +337,12 @@ class DiagramRender {
   }
 
   /**
-   * The URL `block-plantuml` itself would set as an `<img src>` for this source, against the fixed
-   * default server. There is no caller-supplied override any more — see OpenProject #2219 — so this
-   * always targets `DEFAULT_PLANTUML_SERVER` until #2223 gives it a site-configured destination.
+   * The URL this instance fetches a PlantUML render from. Always `DEFAULT_PLANTUML_SERVER` — no
+   * caller-supplied override reaches this (removed as OpenProject #2219, an SSRF fix: a `server`
+   * string here was string-concatenated with no `new URL()` parse, no protocol check and no
+   * allowlist, so any caller could redirect this instance's outbound fetch anywhere). A per-site
+   * admin-configured server is the intended replacement; until that lands, every render goes to the
+   * one built-in default the block itself falls back to.
    */
   private plantumlUrl(source: string, format: DiagramFormat): string {
     const base = DEFAULT_PLANTUML_SERVER.replace(/\/+$/, '')

@@ -94,14 +94,14 @@ test('forwards the request body to the model unchanged', async () => {
   assert.deepEqual(render.mock.calls[0].arguments[0], body)
 })
 
-test('strips a `server` field from the request body — the schema no longer accepts it (OpenProject #2219)', async () => {
+test('the body schema no longer accepts a `server` override — it is stripped before reaching the model (OpenProject #2219)', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/render',
     payload: {
       type: 'plantuml',
       source: '@startuml\nA -> B\n@enduml',
-      server: 'http://169.254.169.254/latest/meta-data/'
+      server: 'https://attacker.example.com/steal'
     }
   })
 
@@ -110,7 +110,11 @@ test('strips a `server` field from the request body — the schema no longer acc
   //    validation outright — the request still succeeds, but the model never sees a `server` value.
   assert.equal(res.statusCode, 200)
   assert.equal(render.mock.callCount(), 1)
-  assert.equal((render.mock.calls[0].arguments[0] as any).server, undefined)
+  assert.deepEqual(render.mock.calls[0].arguments[0], {
+    type: 'plantuml',
+    source: '@startuml\nA -> B\n@enduml',
+    format: 'svg'
+  })
 })
 
 test("answers with the model's bytes under its own content type, uncached", async () => {

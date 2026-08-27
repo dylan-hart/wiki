@@ -441,12 +441,13 @@ describe('DiagramRender.render', () => {
         // @ts-expect-error -- `server` no longer exists on `DiagramRenderRequest`; a caller that
         // still sends it (an un-upgraded client, or a request forged past the API schema) must be
         // silently ignored, not honored.
-        server: 'http://169.254.169.254/latest/meta-data/'
+        server: 'https://attacker.example.com/steal'
       })
 
       assert.equal(fetchMock.mock.callCount(), 1)
       const url = fetchMock.mock.calls[0].arguments[0] as string
       assert.match(url, /^https:\/\/www\.plantuml\.com\/plantuml\/svg\//)
+      assert.doesNotMatch(url, /attacker\.example\.com/)
     })
 
     test('fetches with `redirect: error` and a bounded timeout signal, matching LiveData#resolve (OpenProject #2216)', async () => {
