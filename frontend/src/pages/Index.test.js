@@ -675,3 +675,91 @@ describe('Index.vue: /_create and /_edit route-watcher error handling (OpenProje
     wrapper.unmount()
   })
 })
+
+/**
+ * OpenProject #1785: the plain page-load branch of the route watcher awaited `pageStore.pageLoad`
+ * with no generation guard, so a slower, earlier navigation's response landing AFTER a faster, later
+ * one already resolved would stomp the store with stale data -- title, body, tags and, through
+ * `applyViewerState`, the reader's `pagePermissions` for the page actually on screen. This drives
+ * that exact "A -> B, A resolves last" ordering with two manually-controlled responses and asserts
+ * the superseded load (A) performs no store write at all.
+ */
+describe('Index.vue: generation guard on the route-path watcher (OpenProject #1785)', () => {
+  it('discards a stale pageLoad response that resolves after a newer navigation already landed', async () => {
+    setActivePinia(createPinia())
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:pathMatch(.*)*', component: Index }]
+    })
+    router.push('/page-a')
+    await router.isReady()
+
+    const i18n = createI18n({ legacy: false, locale: 'en', messages: { en: {} } })
+
+    let resolvePageA
+    const pageAResponse = new Promise((resolve) => {
+      resolvePageA = resolve
+    })
+    let resolvePageB
+    const pageBResponse = new Promise((resolve) => {
+      resolvePageB = resolve
+    })
+
+    // -> Consumed in call order (page-a's own load, started at mount, then page-b's, started by the
+    //    `router.push` below) -- resolved out of that order further down, which is the whole point.
+    API_CLIENT.get
+      .mockReturnValueOnce({ json: () => pageAResponse })
+      .mockReturnValueOnce({ json: () => pageBResponse })
+
+    const wrapper = mount(Index, {
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          PageHeader: true,
+          PageActionsCol: true,
+          PageToc: true,
+          PageTags: true,
+          SideDialog: true,
+          PageRedirect: true,
+          FooterNav: true,
+          PageComments: true
+        }
+      }
+    })
+    activeWrapper = wrapper
+    await flushPromises()
+
+    router.push('/page-b')
+    await router.isReady()
+    await flushPromises()
+
+    // -> The faster, later navigation (B) resolves first, same as it would racing a slow network for A.
+    resolvePageB({
+      id: 'page-b',
+      path: 'page-b',
+      title: 'Page B',
+      relations: [],
+      tocDepth: {},
+      viewer: { permissions: ['read:pages'] }
+    })
+    await flushPromises()
+
+    // -> Then the slower, now-superseded earlier navigation (A) resolves after it.
+    resolvePageA({
+      id: 'page-a',
+      path: 'page-a',
+      title: 'Page A',
+      relations: [],
+      tocDepth: {},
+      viewer: { permissions: ['write:pages'] }
+    })
+    await flushPromises()
+
+    const pageStore = usePageStore()
+    const userStore = useUserStore()
+    expect(pageStore.id).toBe('page-b')
+    expect(pageStore.title).toBe('Page B')
+    expect(userStore.pagePermissions).toEqual(['read:pages'])
+  })
+})
