@@ -1220,7 +1220,11 @@ class Pages {
       locale: destLocale,
       siteId,
       tags: current.tags,
-      meta: this.treeMeta({ ...current, path: newPath }),
+      // -> The freshly-updated raw row, not `current` (the pre-move snapshot): `current.authorId`
+      //    is stale the instant this transaction sets it to `actor.id` above (OpenProject #1703).
+      //    None of `treeMeta`'s other fields are touched by this update, so `rawMovedRows[0]` and
+      //    `current` agree on everything else.
+      meta: this.treeMeta(rawMovedRows[0]!),
       db: tx
     })
 
@@ -1941,16 +1945,35 @@ class Pages {
 
   /**
    * What a page's tree entry carries about it, so a folder listing needs no join.
+   *
+   * Deliberately narrower than `typeof pagesTable.$inferSelect` or the full `Page` interface: it
+   * names exactly the fields written below, so either a raw inserted/updated `pages` row
+   * (`createPage`, and `{ ...current, path: newPath }` in `moveOnePageInTx`) or the flattened `Page`
+   * shape `toPage()` produces (`updatePage`) satisfies it structurally. `creatorId`/`ownerId` used to
+   * be read here too, defaulting to `authorId` when absent -- but `Page` never carried either column,
+   * so every caller except `createPage` silently recorded the *acting* editor as creator/owner
+   * instead of leaving them alone. Nothing in this repo reads `meta.creatorId`/`meta.ownerId`
+   * (OpenProject #1703), so they are dropped rather than plumbed correctly through every caller.
    */
-  private treeMeta(page: any): Record<string, any> {
+  private treeMeta(
+    page: Pick<
+      Page,
+      | 'authorId'
+      | 'contentType'
+      | 'description'
+      | 'editor'
+      | 'isBrowsable'
+      | 'publishState'
+      | 'publishEndDate'
+      | 'publishStartDate'
+    >
+  ): Record<string, any> {
     return {
       authorId: page.authorId,
       contentType: page.contentType,
-      creatorId: page.creatorId ?? page.authorId,
       description: page.description ?? '',
       editor: page.editor,
       isBrowsable: page.isBrowsable,
-      ownerId: page.ownerId ?? page.authorId,
       publishState: page.publishState,
       publishEndDate: page.publishEndDate ?? null,
       publishStartDate: page.publishStartDate ?? null

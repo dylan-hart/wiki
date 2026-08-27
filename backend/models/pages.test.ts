@@ -359,6 +359,34 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
     assert.equal(updated!.editor, 'markdown')
   })
 
+  test("updatePage's tree meta stays accurate after a retitle, with no creatorId/ownerId (OpenProject #1703)", async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/meta-retitle' }),
+      actor
+    )
+
+    const createdMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    assert.equal(createdMeta.authorId, fixtures.userId)
+    // -> Never recorded at all: nothing reads either field (OpenProject #1703's fix), so `treeMeta`
+    //    no longer computes a value that would formerly have been wrong on this very path
+    assert.equal('creatorId' in createdMeta, false)
+    assert.equal('ownerId' in createdMeta, false)
+
+    await pagesModel.updatePage(fixtures.siteId, page.id, { title: 'Retitled' }, actor)
+
+    const retitledMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    // -> `updatePage` hands `treeMeta` the flattened `Page` shape (`toPage()`), not a raw row -- these
+    //    fields must still match what they held right after creation
+    assert.equal(retitledMeta.authorId, createdMeta.authorId)
+    assert.equal(retitledMeta.contentType, createdMeta.contentType)
+    assert.equal(retitledMeta.editor, createdMeta.editor)
+    assert.equal(retitledMeta.isBrowsable, createdMeta.isBrowsable)
+    assert.equal(retitledMeta.publishState, createdMeta.publishState)
+    assert.equal('creatorId' in retitledMeta, false)
+    assert.equal('ownerId' in retitledMeta, false)
+  })
+
   test('updatePage returns null for a page that does not exist', async () => {
     const updated = await pagesModel.updatePage(
       fixtures.siteId,
@@ -399,6 +427,31 @@ describe('pages create/update/move/delete (DB-backed)', { skip: !hasTestDatabase
       actor
     )
     assert.equal(reoccupied.path, 'docs/move-source')
+  })
+
+  test('movePage refreshes the tree meta authorId to the mover, not the pre-move actor (OpenProject #1703)', async () => {
+    const page = await pagesModel.createPage(
+      fixtures.siteId,
+      pageInput({ path: 'docs/move-meta-source' }),
+      actor
+    )
+    const [mover] = await fixtures.db
+      .insert(usersTable)
+      .values({ email: 'mover@example.com', name: 'Mover', isActive: true, isVerified: true })
+      .returning({ id: usersTable.id })
+    const moverActor: PageActor = { id: mover!.id, groupIds: [], permissions: ['manage:system'] }
+
+    await pagesModel.movePage(
+      fixtures.siteId,
+      page.id,
+      { path: 'docs/move-meta-destination' },
+      moverActor
+    )
+
+    const movedMeta = (await WIKI.models.tree.getById(page.id))!.meta as Record<string, any>
+    assert.equal(movedMeta.authorId, mover!.id)
+    assert.equal('creatorId' in movedMeta, false)
+    assert.equal('ownerId' in movedMeta, false)
   })
 
   test('movePage moving to its own current path is a no-op that still succeeds', async () => {
