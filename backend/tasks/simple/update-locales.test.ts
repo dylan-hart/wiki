@@ -133,4 +133,29 @@ describe('update-locales.task (DB-backed)', { skip: !hasTestDatabase() }, () => 
 
     assert.equal(fetchSpy.mock.callCount(), 0)
   })
+
+  // -------------------------------------------------------------------------------------------
+  // Cache reload (OpenProject #2032) -- `getLocales()` (`models/locales.ts`) serves the `'locales'`
+  // cache key whenever it is populated, so a locale synced by this task is invisible to
+  // `GET /_api/locales` (and `api/sites.ts`'s `installedCodes` validation) until the cache is
+  // reloaded. Reloading is gated on `changed` so a no-op nightly run does no cache churn.
+  // -------------------------------------------------------------------------------------------
+
+  test('reloads the locale cache exactly once when it upserted at least one row', async (t) => {
+    stubFetch([makeLang('de-t4', 'German')], { 'de-t4': { welcome: 'Willkommen' } })
+    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+
+    await task()
+
+    assert.equal(reloadCache.mock.callCount(), 1)
+  })
+
+  test('does not reload the locale cache when nothing changed', async (t) => {
+    stubFetch([makeLang('it-t5', 'Italian')], {}) // -> no strings file, so nothing upserts
+    const reloadCache = t.mock.method(WIKI.models.locales, 'reloadCache')
+
+    await task()
+
+    assert.equal(reloadCache.mock.callCount(), 0)
+  })
 })

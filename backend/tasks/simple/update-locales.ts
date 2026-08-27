@@ -29,6 +29,7 @@ export async function task(): Promise<void> {
     const metadata = await fetch(
       'https://github.com/requarks/wiki-locales/raw/main/locales/metadata.json'
     ).then((r) => r.json() as Promise<LocaleMetadata>)
+    let changed = false
     for (const lang of metadata.languages) {
       // -> Build filename
       const langFilenameParts = [lang.language]
@@ -64,6 +65,7 @@ export async function task(): Promise<void> {
             target: localesTable.code,
             set: { strings, updatedAt: sql`now()` }
           })
+        changed = true
         WIKI.logger.debug(`Updated strings for language ${langFilename}.`)
       } else {
         WIKI.logger.warn(
@@ -72,6 +74,10 @@ export async function task(): Promise<void> {
       }
 
       await setTimeout(100)
+    }
+
+    if (changed) {
+      await WIKI.models.locales.reloadCache()
     }
 
     WIKI.logger.info('Fetched latest localization data: [ COMPLETED ]')
