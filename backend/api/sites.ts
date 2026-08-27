@@ -125,6 +125,19 @@ function sitePermissionsFor(req: FastifyRequest, siteId: string): string[] {
  * payload the frontend already loads per-site (`sites/:siteIdorHostname` via `siteStore.loadSite`)
  * and reused by `bootstrap` for the same payload at app load, so the PDF export control can hide or
  * disable itself with an explanatory tooltip instead of offering a button that always 503s.
+ *
+ * Every `site.config` key reaching the response is named explicitly rather than spread in, and both
+ * callers of this function (`GET /sites/:siteIdorHostname` below and `GET /_api/bootstrap`) are
+ * `publicAccess: true`. `search` is the reason: it's where active search-engine credentials live
+ * (`WIKI.sites[siteId]?.config?.search?.engines?.[key]` — `models/search.ts:402`/`:535`, Algolia's
+ * `apiKey` and AWS CloudSearch's `secretAccessKey`), seeded under the same top-level `search` key as
+ * `search.engine`/`search.config` (`models/sites.ts`'s `createSite` defaults). It used to stay out of
+ * the browser only because `api/schemas/site.ts`'s `Site` schema declared no top-level `search`
+ * property and fast-json-stringify silently drops undeclared keys — an invariant nothing stated and
+ * no test pinned, so one additive schema edit would have disclosed both keys on the app's
+ * highest-traffic unauthenticated route. Naming every key here — mirroring
+ * `authentication.ts`'s `activeStrategies` payload — makes the omission positive instead of
+ * accidental; `schemas/site.test.ts` pins it.
  */
 export async function buildSitePayload(site: {
   id: string
@@ -133,14 +146,34 @@ export async function buildSitePayload(site: {
   config: Record<string, any>
 }): Promise<Record<string, any>> {
   const { blocksConfig, blocksIndex } = await siteBlocksInfoFor(site.id)
+  const config = site.config
   return {
-    ...site.config,
     id: site.id,
     hostname: site.hostname,
     isEnabled: site.isEnabled,
     pdfExportAvailable: await WIKI.models.rendering.isAvailable(),
     blocksConfig,
-    blocksIndex
+    blocksIndex,
+    title: config.title,
+    description: config.description,
+    company: config.company,
+    contentLicense: config.contentLicense,
+    footerExtra: config.footerExtra,
+    pageExtensions: config.pageExtensions,
+    discoverable: config.discoverable,
+    defaults: config.defaults,
+    features: config.features,
+    uploads: config.uploads,
+    logoText: config.logoText,
+    sitemap: config.sitemap,
+    robots: config.robots,
+    auth: config.auth,
+    authStrategies: config.authStrategies,
+    locales: config.locales,
+    assets: config.assets,
+    editors: config.editors,
+    theme: config.theme,
+    analytics: config.analytics
   }
 }
 
