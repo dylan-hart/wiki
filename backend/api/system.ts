@@ -15,6 +15,7 @@ import maintenance from '../core/maintenance.ts'
 import { purgeTimeframes } from '../models/pageHistory.ts'
 import type { PurgeTimeframe } from '../models/pageHistory.ts'
 import { JOB_STATES } from '../models/jobs.ts'
+import { actorFromRequest } from '../models/auditLog.ts'
 import type { FastifyInstance } from 'fastify'
 
 /**
@@ -313,6 +314,12 @@ async function routes(app: FastifyInstance) {
         return reply.internalServerError('Failed to save the system flags.')
       }
 
+      await WIKI.models.auditLog.record({
+        event: 'system.flagsUpdated',
+        actor: actorFromRequest(req),
+        detail: patch
+      })
+
       return {
         ok: true,
         message: 'System flags updated successfully.'
@@ -398,6 +405,12 @@ async function routes(app: FastifyInstance) {
       if (!(await WIKI.models.security.updateConfig(patch))) {
         return reply.internalServerError('Failed to save the security configuration.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.securityUpdated',
+        actor: actorFromRequest(req),
+        detail: patch
+      })
 
       return {
         ok: true,
@@ -556,6 +569,12 @@ async function routes(app: FastifyInstance) {
       //    to wonder why nothing changed.
       const restartRequired = WIKI.models.extensions.hasLoadFailed(definition)
 
+      await WIKI.models.auditLog.record({
+        event: 'system.extensionInstalled',
+        actor: actorFromRequest(req),
+        detail: { extensionKey: definition.key, restartRequired }
+      })
+
       return {
         ok: true,
         message: restartRequired
@@ -654,6 +673,12 @@ async function routes(app: FastifyInstance) {
         return reply.internalServerError('Failed to save the API state.')
       }
 
+      await WIKI.models.auditLog.record({
+        event: 'system.apiStateUpdated',
+        actor: actorFromRequest(req),
+        detail: { isEnabled: req.body.isEnabled }
+      })
+
       return {
         ok: true,
         message: req.body.isEnabled ? 'API enabled successfully.' : 'API disabled successfully.',
@@ -749,6 +774,12 @@ async function routes(app: FastifyInstance) {
         WIKI.config.metrics = previousConfig
         return reply.internalServerError('Failed to save the metrics endpoint state.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.metricsUpdated',
+        actor: actorFromRequest(req),
+        detail: { isEnabled: req.body.isEnabled }
+      })
 
       return {
         ok: true,
@@ -847,6 +878,12 @@ async function routes(app: FastifyInstance) {
         WIKI.config.pageviews = previousConfig
         return reply.internalServerError('Failed to save the pageview tracking state.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.pageviewsUpdated',
+        actor: actorFromRequest(req),
+        detail: { isEnabled: req.body.isEnabled }
+      })
 
       return {
         ok: true,
@@ -1081,6 +1118,13 @@ async function routes(app: FastifyInstance) {
       if (invalidatedKeys === null) {
         return reply.internalServerError('Failed to save the new certificates.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.certificatesRegenerated',
+        actor: actorFromRequest(req),
+        detail: { invalidatedKeys }
+      })
+
       return {
         ok: true,
         message: `Certificates regenerated successfully. ${invalidatedKeys} API key(s) will have to be reissued.`,
@@ -1178,6 +1222,13 @@ async function routes(app: FastifyInstance) {
         return reply.internalServerError('Failed to save the new session secret.')
       }
 
+      // -> Resolved before `req.session.destroy()` below, which clears `req.session.user` this reads.
+      await WIKI.models.auditLog.record({
+        event: 'system.sessionsInvalidated',
+        actor: actorFromRequest(req),
+        detail: { count }
+      })
+
       /*
         This request's own session, which the rows above no longer include but which would come
         straight back without this: @fastify/session writes the session it is holding as the response
@@ -1244,6 +1295,13 @@ async function routes(app: FastifyInstance) {
     },
     async (req) => {
       const count = await WIKI.models.pageHistory.purge(req.body.olderThan)
+
+      await WIKI.models.auditLog.record({
+        event: 'system.pageHistoryPurged',
+        actor: actorFromRequest(req),
+        detail: { olderThan: req.body.olderThan, count }
+      })
+
       return {
         ok: true,
         message: `Purged ${count} page version(s).`,
@@ -1359,6 +1417,15 @@ async function routes(app: FastifyInstance) {
       if (!added?.id) {
         return reply.internalServerError('The scheduler could not queue the export.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.contentExported',
+        actor: actorFromRequest(req),
+        targetType: 'site',
+        targetId: req.body.siteId,
+        detail: { jobId: added.id }
+      })
+
       return {
         ok: true,
         message: 'Content export queued successfully.',
@@ -1524,6 +1591,15 @@ async function routes(app: FastifyInstance) {
       if (!added?.id) {
         return reply.internalServerError('The scheduler could not queue the import.')
       }
+
+      await WIKI.models.auditLog.record({
+        event: 'system.contentImported',
+        actor: actorFromRequest(req),
+        targetType: 'site',
+        targetId: req.query.targetSiteId,
+        detail: { jobId: added.id }
+      })
+
       return {
         ok: true,
         message: 'Content import queued successfully.',

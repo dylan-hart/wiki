@@ -43,7 +43,24 @@ export const AUDIT_EVENTS = [
   //   /`updatePage.ts` for the latter -- the write tools are the same handlers regardless of which
   //   transport called them, so this fires for both.
   'mcp.sessionOpened',
-  'mcp.writeToolCalled'
+  'mcp.writeToolCalled',
+  // -> #2231: every write route in `api/system.ts` -- instance-wide administration with no per-target
+  //   row of its own (no `targetType` fits), so `detail` alone carries what changed. For
+  //   `flagsUpdated`/`securityUpdated`, `detail` is the exact `patch` object `pickFlags`/`pickFields`
+  //   already produced -- filtered to each model's own closed field list, which is what guarantees an
+  //   `auth`/`mail` settings blob (never in either list) can never reach it even if a caller's request
+  //   body carried one.
+  'system.flagsUpdated',
+  'system.securityUpdated',
+  'system.extensionInstalled',
+  'system.apiStateUpdated',
+  'system.metricsUpdated',
+  'system.pageviewsUpdated',
+  'system.certificatesRegenerated',
+  'system.sessionsInvalidated',
+  'system.pageHistoryPurged',
+  'system.contentExported',
+  'system.contentImported'
 ] as const
 
 export type AuditEvent = (typeof AUDIT_EVENTS)[number]
