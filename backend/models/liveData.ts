@@ -126,11 +126,11 @@ function buildCacheKey(
  * path on an otherwise-allowed host) of their own choosing.
  *
  * A per-credential (and, since OpenProject #2185, per-site for the credential-free path) rate limit
- * is a third, independent guard (OpenProject #1050): the resolve route this backs only requires an
- * authenticated caller when a `credentialId` is given (see `api/liveData.ts`'s header comment), and a
- * credential's allowlist narrows *where* its secret may be sent but not *how often*. Without this, a
- * caller could vary the url/jsonPath on every request to bypass the response cache and drive
- * unlimited fresh fetches against whatever the allowed origin hosts. See
+ * is a third, independent guard (OpenProject #1050): even though a credentialed request now requires
+ * an authenticated caller (OpenProject #2202; see `api/liveData.ts`'s header comment), any reader with
+ * an account can still reach this, and a credential's allowlist narrows *where* its secret may be sent
+ * but not *how often*. Without this, a caller could vary the url/jsonPath on every request to bypass
+ * the response cache and drive unlimited fresh fetches against whatever the allowed origin hosts. See
  * {@link RATE_LIMIT_MAX_PER_WINDOW}. Rate-limit accounting only ever runs against a credential that
  * has already been loaded and has already passed its allowlist and scheme checks — an id that
  * resolves to nothing must not be able to burn down another (or a future) credential's budget.
