@@ -2472,7 +2472,7 @@
   "inbox.reviewApproveSuccess": "The suggestion has been applied to the page.",
   "inbox.reviewBack": "Back to the queue",
   "inbox.reviewDecline": "Decline",
-  "inbox.reviewDeclineConfirm": "Discard this suggestion? The page will be left as it is, and the suggestion cannot be recovered.",
+  "inbox.reviewDeclineConfirm": "Decline this suggestion? The page will be left as it is. The suggestion will be kept and can be shown to its author.",
   "inbox.reviewDeclineFailed": "Failed to decline the suggestion.",
   "inbox.reviewDeclineSuccess": "The suggestion has been declined.",
   "inbox.reviewDiffHint": "The page as it stands is on the left. The suggestion is on the right, and you can edit it before approving.",

@@ -658,12 +658,16 @@ async function routes(app: FastifyInstance) {
   /**
    * REJECT A SUGGESTION
    */
-  app.post<{ Params: { siteId: string; submissionId: string } }>(
+  app.post<{
+    Params: { siteId: string; submissionId: string }
+    Body: { reason?: string }
+  }>(
     '/sites/:siteId/approvals/submissions/:submissionId/reject',
     {
       schema: {
         summary: 'Decline an edit suggestion',
-        description: 'Discards the suggestion. The page is left exactly as it is.',
+        description:
+          'Retains the suggestion rather than deleting it, so it can be shown back to its author. The page is left exactly as it is.',
         tags: ['Approvals'],
         params: {
           type: 'object',
@@ -672,6 +676,15 @@ async function routes(app: FastifyInstance) {
             submissionId: { type: 'string', format: 'uuid' }
           },
           required: ['siteId', 'submissionId']
+        },
+        body: {
+          type: 'object',
+          properties: {
+            reason: {
+              type: 'string',
+              description: 'Optional note on why this was declined, shown back to its author.'
+            }
+          }
         },
         response: {
           200: {
@@ -687,6 +700,10 @@ async function routes(app: FastifyInstance) {
       }
     },
     async (req, reply) => {
+      const actor = actorFrom(req)
+      if (!actor) {
+        return reply.unauthorized()
+      }
       const submission = await WIKI.models.approvals.getSubmissionForReview(
         req.params.siteId,
         req.params.submissionId,
@@ -695,7 +712,12 @@ async function routes(app: FastifyInstance) {
       if (!submission) {
         return reply.notFound('This edit suggestion does not exist.')
       }
-      await WIKI.models.approvals.rejectSubmission(req.params.siteId, req.params.submissionId)
+      await WIKI.models.approvals.rejectSubmission(
+        req.params.siteId,
+        req.params.submissionId,
+        req.body?.reason?.trim() || null,
+        actor.id
+      )
       return {
         ok: true,
         message: 'Edit suggestion declined.'
